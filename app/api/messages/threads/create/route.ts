@@ -1,0 +1,99 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = createClient()
+
+    // Verify user is authenticated
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser()
+
+    if (userError || !user) {
+      return NextResponse.json(
+        { error: 'Not authenticated' },
+        { status: 401 }
+      )
+    }
+
+    const body = await request.json()
+    const {
+      participant_2_id,
+      event_id,
+      venue_booking_id,
+      vendor_booking_id,
+    } = body
+
+    // Validate required fields
+    if (!participant_2_id) {
+      return NextResponse.json(
+        { error: 'Missing required field: participant_2_id' },
+        { status: 400 }
+      )
+    }
+
+    // Check if thread already exists between these participants
+    const { data: existingThread } = await supabase
+      .from('message_threads')
+      .select('*')
+      .or(
+        `and(participant_1_id.eq.${user.id},participant_2_id.eq.${participant_2_id}),and(participant_1_id.eq.${participant_2_id},participant_2_id.eq.${user.id})`
+      )
+      .maybeSingle()
+
+    if (existingThread) {
+      // Return existing thread
+      return NextResponse.json({
+        success: true,
+        thread: existingThread,
+        isNew: false,
+      })
+    }
+
+    // Create new thread
+    const { data: thread, error: threadError } = await supabase
+      .from('message_threads')
+      .insert({
+        participant_1_id: user.id,
+        participant_2_id,
+        event_id: event_id || null,
+        venue_booking_id: venue_booking_id || null,
+        vendor_booking_id: vendor_booking_id || null,
+        last_message_at: null,
+      })
+      .select()
+      .single()
+
+    if (threadError) {
+      console.error('Error creating thread:', threadError)
+      return NextResponse.json(
+        { error: 'Failed to create thread' },
+        { status: 500 }
+      )
+    }
+
+    // Get other participant's profile
+    const { data: otherParticipant } = await supabase
+      .from('profiles')
+      .select('id, name, email, avatar_url')
+      .eq('id', participant_2_id)
+      .single()
+
+    return NextResponse.json({
+      success: true,
+      thread: {
+        ...thread,
+        other_participant: otherParticipant || null,
+      },
+      isNew: true,
+    })
+  } catch (error) {
+    console.error('Create thread error:', error)
+    return NextResponse.json(
+      { error: 'An unexpected error occurred' },
+      { status: 500 }
+    )
+  }
+}
