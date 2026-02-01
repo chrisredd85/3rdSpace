@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { MessageThread } from '@/lib/types'
 
 export async function GET(request: NextRequest) {
   try {
@@ -34,8 +35,9 @@ export async function GET(request: NextRequest) {
     }
 
     // For each thread, get the last message and unread count
+    const threadsList = (threads || []) as MessageThread[]
     const threadsWithDetails = await Promise.all(
-      (threads || []).map(async (thread) => {
+      threadsList.map(async (thread) => {
         // Get last message
         const { data: lastMessage } = await supabase
           .from('messages')
@@ -67,7 +69,7 @@ export async function GET(request: NextRequest) {
           .single()
 
         return {
-          ...thread,
+          ...(thread as unknown as Record<string, unknown>),
           last_message: lastMessage || null,
           unread_count: unreadCount || 0,
           other_participant: otherParticipant || null,

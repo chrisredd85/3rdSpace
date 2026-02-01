@@ -38,24 +38,6 @@ export default function VenueCalendarPage() {
 
   const userId = user?.id || null
 
-  // Loading and error handling
-  if (isUserLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    )
-  }
-
-  if (userError || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
-      </div>
-    )
-  }
-
-  // Set view mode based on screen size
   useEffect(() => {
     const handleResize = () => {
       setViewMode(window.innerWidth < 768 ? 'week' : 'month')
@@ -65,6 +47,7 @@ export default function VenueCalendarPage() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
+  // Set view mode based on screen size (above) - fetch venue id below
   useEffect(() => {
     if (user) {
       // Get user's first venue (in real app, would have venue selection)
@@ -73,7 +56,7 @@ export default function VenueCalendarPage() {
         .select('id')
         .eq('owner_id', user.id)
         .limit(1)
-        .then(({ data: venues }) => {
+        .then(({ data: venues }: { data: { id: string }[] | null }) => {
           if (venues && venues.length > 0) {
             setVenueId(venues[0].id)
           }
@@ -321,6 +304,22 @@ export default function VenueCalendarPage() {
     return days
   }, [currentMonth])
 
+  if (isUserLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    )
+  }
+
+  if (userError || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-600">Please log in to continue</div>
+      </div>
+    )
+  }
+
   const handlePreviousWeek = () => {
     const newWeek = new Date(currentWeek)
     newWeek.setDate(newWeek.getDate() - 7)
@@ -456,14 +455,14 @@ export default function VenueCalendarPage() {
                   dayColor = 'bg-forest-50'
                   eventTag = (
                     <div className="bg-forest-500 text-white text-xs px-1 py-0.5 rounded truncate">
-                      {(confirmedBooking.events as any)?.title?.substring(0, 10) || 'Event'}
+                      {(confirmedBooking as import('@/lib/types').VenueBookingWithEvent).events?.title?.substring(0, 10) || 'Event'}
                     </div>
                   )
                 } else if (pendingBooking) {
                   dayColor = 'bg-yellow-50'
                   eventTag = (
                     <div className="bg-yellow-400 text-yellow-900 text-xs px-1 py-0.5 rounded truncate">
-                      {(pendingBooking.events as any)?.title?.substring(0, 10) || 'Pending'}
+                      {(pendingBooking as import('@/lib/types').VenueBookingWithEvent).events?.title?.substring(0, 10) || 'Pending'}
                     </div>
                   )
                 } else if (block) {
@@ -529,14 +528,14 @@ export default function VenueCalendarPage() {
                 dayColor = 'bg-forest-50'
                 eventTag = (
                   <div className="bg-forest-500 text-white text-xs px-1 py-0.5 rounded truncate">
-                    {(confirmedBooking.events as any)?.title || 'Event'}
+                    {(confirmedBooking as import('@/lib/types').VenueBookingWithEvent).events?.title || 'Event'}
                   </div>
                 )
               } else if (pendingBooking) {
                 dayColor = 'bg-yellow-50'
                 eventTag = (
                   <div className="bg-yellow-400 text-yellow-900 text-xs px-1 py-0.5 rounded truncate">
-                    {(pendingBooking.events as any)?.title || 'Pending'}
+                    {(pendingBooking as import('@/lib/types').VenueBookingWithEvent).events?.title || 'Pending'}
                   </div>
                 )
               } else if (block) {

@@ -64,7 +64,8 @@ export async function PATCH(
     }
 
     // Verify venue belongs to user
-    if ((booking.venues as any).owner_id !== user.id) {
+    const bookingWithVenue = booking as { venues?: { owner_id: string }; event_id: string; venue_id: string }
+    if (bookingWithVenue.venues?.owner_id !== user.id) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }
@@ -93,7 +94,7 @@ export async function PATCH(
     // Update booking
     const { data: updatedBooking, error: updateError } = await supabase
       .from('venue_bookings')
-      .update(updates)
+      .update(updates as never)
       .eq('id', id)
       .select('*, events!inner(builder_id)')
       .single()
@@ -115,18 +116,18 @@ export async function PATCH(
           const { data: existingThread } = await supabase
             .from('message_threads')
             .select('id')
-            .eq('event_id', booking.event_id)
-            .eq('venue_id', booking.venue_id)
+            .eq('event_id', bookingWithVenue.event_id)
+            .eq('venue_id', bookingWithVenue.venue_id)
             .maybeSingle()
 
           if (!existingThread) {
             // Create message thread
             await supabase.from('message_threads').insert({
-              event_id: booking.event_id,
-              venue_id: booking.venue_id,
+              event_id: bookingWithVenue.event_id,
+              venue_id: bookingWithVenue.venue_id,
               builder_id: event.builder_id,
               venue_owner_id: user.id,
-            })
+            } as never)
           }
         }
       } catch (threadError) {
@@ -147,13 +148,13 @@ export async function PATCH(
               status === 'confirmed'
                 ? 'Venue booking confirmed!'
                 : 'Venue booking declined',
-            message: `Your booking request for ${(booking as any).venues?.name || 'venue'} has been ${status}.`,
+            message: `Your booking request has been ${status}.`,
             metadata: {
               booking_id: id,
               booking_type: 'venue',
-              event_id: booking.event_id,
+              event_id: bookingWithVenue.event_id,
             },
-          })
+          } as never)
         }
       } catch (notificationError) {
         console.error('Error creating notification:', notificationError)

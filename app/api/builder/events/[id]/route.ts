@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { Event, Database } from '@/lib/types'
 
 interface RouteContext {
   params: {
@@ -39,12 +40,13 @@ export async function GET(
     const { id } = params
 
     // Fetch event
-    const { data: event, error: eventError } = await supabase
+    const { data: eventData, error: eventError } = await supabase
       .from('events')
       .select('*')
       .eq('id', id)
       .eq('builder_id', user.id)
       .single()
+    const event = eventData as Event | null
 
     if (eventError || !event) {
       return NextResponse.json(
@@ -88,7 +90,7 @@ export async function GET(
 
     return NextResponse.json({
       event: {
-        ...event,
+        ...(event as Event),
         venue,
         venue_booking,
         vendor_bookings: vendorBookings || [],
@@ -152,15 +154,18 @@ export async function PATCH(
     }
 
     // Update event
-    const { data: event, error } = await supabase
+    const updatePayload: Database['public']['Tables']['events']['Update'] = {
+      ...(body as Partial<Database['public']['Tables']['events']['Update']>),
+      updated_at: new Date().toISOString(),
+    }
+
+    const { data: eventData, error } = await supabase
       .from('events')
-      .update({
-        ...body,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload as never)
       .eq('id', id)
       .select()
       .single()
+    const event = eventData as Event | null
 
     if (error) {
       console.error('Error updating event:', error)

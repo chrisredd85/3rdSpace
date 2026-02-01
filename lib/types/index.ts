@@ -20,6 +20,8 @@ export type {
   Event,
   VenueBooking,
   VendorBooking,
+  VenueBookingWithEvent,
+  VendorBookingWithEvent,
   AvailabilityBlock,
   Message,
   MessageThread,

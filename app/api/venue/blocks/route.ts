@@ -48,7 +48,8 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const venueIds = venues.map((v) => v.id)
+    const venuesList = (venues || []) as { id: string }[]
+    const venueIds = venuesList.map((v) => v.id)
 
     // Fetch all blocks for user's venues
     const { data: blocks, error: blocksError } = await supabase
@@ -185,7 +186,7 @@ export async function POST(request: NextRequest) {
         end_time: end_time || null,
         is_available,
         reason: reason || null,
-      })
+      } as never)
       .select()
       .single()
 

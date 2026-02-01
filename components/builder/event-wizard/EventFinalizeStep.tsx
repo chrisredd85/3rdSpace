@@ -38,7 +38,7 @@ export function EventFinalizeStep({
         .select('*')
         .eq('id', event.venue_id)
         .single()
-        .then(({ data }) => setVenue(data))
+        .then(({ data }: { data: unknown }) => setVenue(data))
     }
 
     if (event?.id) {
@@ -46,7 +46,7 @@ export function EventFinalizeStep({
         .from('vendor_bookings')
         .select('*, vendors(*)')
         .eq('event_id', event.id)
-        .then(({ data }) => setVendors(data || []))
+        .then(({ data }: { data: unknown }) => setVendors(Array.isArray(data) ? data : data ? [data] : []))
     }
   }, [event])
 
@@ -91,7 +91,7 @@ export function EventFinalizeStep({
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-gray-400" />
                 <span className="text-gray-600">Name:</span>
-                <span className="font-medium">{event.name}</span>
+                <span className="font-medium">{event.title || (event as { name?: string }).name}</span>
               </div>
               {event.event_date && (
                 <div className="flex items-center gap-2">

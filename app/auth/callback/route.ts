@@ -56,8 +56,9 @@ export async function GET(request: NextRequest) {
         .eq('id', data.user.id)
         .single()
 
-      if (profile?.user_type) {
-        userType = profile.user_type as UserType
+      const profileData = profile as { user_type?: string } | null
+      if (profileData?.user_type) {
+        userType = profileData.user_type as UserType
       }
     }
 

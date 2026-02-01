@@ -54,7 +54,8 @@ export async function PATCH(
     }
 
     // Verify vendor belongs to user
-    if ((block.vendors as any).owner_id !== user.id) {
+    const blockWithVendor = block as { vendors?: { owner_id: string } }
+    if (blockWithVendor.vendors?.owner_id !== user.id) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }
@@ -99,7 +100,7 @@ export async function PATCH(
 
     const { data: updatedBlock, error: updateError } = await supabase
       .from('availability_blocks')
-      .update(updates)
+      .update(updates as never)
       .eq('id', id)
       .select()
       .single()
@@ -171,7 +172,8 @@ export async function DELETE(
     }
 
     // Verify vendor belongs to user
-    if ((block.vendors as any).owner_id !== user.id) {
+    const blockWithVendor = block as { vendors?: { owner_id: string } }
+    if (blockWithVendor.vendors?.owner_id !== user.id) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }

@@ -40,7 +40,66 @@ export default function VenueRequirementsPage() {
   // Custom questions state
   const [customQuestions, setCustomQuestions] = useState<string[]>([''])
 
-  // Loading and error handling
+  useEffect(() => {
+    if (user) {
+      supabase
+        .from('venues')
+        .select('id')
+        .eq('owner_id', user.id)
+        .limit(1)
+        .then(({ data: venues }: { data: { id: string }[] | null }) => {
+          if (venues && venues.length > 0) {
+            setVenueId(venues[0].id)
+          }
+        })
+    }
+  }, [user])
+
+  // Load existing requirements
+  useEffect(() => {
+    if (venueId) {
+      supabase
+        .from('venue_requirements')
+        .select('*')
+        .eq('venue_id', venueId)
+        .then(({ data: requirements }: { data: { requirement_type: string; requirement_description: string | null }[] | null }) => {
+          if (requirements) {
+            type ReqRow = { requirement_type: string; requirement_description: string | null }
+            // Load required documents
+            requirements.forEach((req: ReqRow) => {
+              if (req.requirement_type === 'coi') {
+                setRequiredDocuments((prev) => ({ ...prev, coi: true }))
+              } else if (req.requirement_type === 'contract') {
+                setRequiredDocuments((prev) => ({ ...prev, contract: true }))
+              } else if (req.requirement_type === 'license') {
+                setRequiredDocuments((prev) => ({ ...prev, license: true }))
+              } else if (req.requirement_type === 'id') {
+                setRequiredDocuments((prev) => ({ ...prev, id: true }))
+              }
+            })
+
+            // Load insurance requirements
+            const insuranceReq = requirements.find((r: ReqRow) => r.requirement_type === 'insurance')
+            if (insuranceReq) {
+              setInsuranceMinCoverage(insuranceReq.requirement_description || '')
+            }
+
+            // Load venue rules
+            const rulesReq = requirements.find((r: ReqRow) => r.requirement_type === 'rules')
+            if (rulesReq) {
+              setVenueRules(rulesReq.requirement_description || '')
+            }
+
+            // Load custom questions
+            const questionReqs = requirements.filter((r: ReqRow) => r.requirement_type === 'question')
+            if (questionReqs.length > 0) {
+              setCustomQuestions(questionReqs.map((r: ReqRow) => r.requirement_description || ''))
+            }
+          }
+        })
+    }
+  }, [venueId])
+
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -56,65 +115,6 @@ export default function VenueRequirementsPage() {
       </div>
     )
   }
-
-  useEffect(() => {
-    if (user) {
-      supabase
-        .from('venues')
-        .select('id')
-        .eq('owner_id', user.id)
-        .limit(1)
-        .then(({ data: venues }) => {
-          if (venues && venues.length > 0) {
-            setVenueId(venues[0].id)
-          }
-        })
-    }
-  }, [user])
-
-  // Load existing requirements
-  useEffect(() => {
-    if (venueId) {
-      supabase
-        .from('venue_requirements')
-        .select('*')
-        .eq('venue_id', venueId)
-        .then(({ data: requirements }) => {
-          if (requirements) {
-            // Load required documents
-            requirements.forEach((req) => {
-              if (req.requirement_type === 'coi') {
-                setRequiredDocuments((prev) => ({ ...prev, coi: true }))
-              } else if (req.requirement_type === 'contract') {
-                setRequiredDocuments((prev) => ({ ...prev, contract: true }))
-              } else if (req.requirement_type === 'license') {
-                setRequiredDocuments((prev) => ({ ...prev, license: true }))
-              } else if (req.requirement_type === 'id') {
-                setRequiredDocuments((prev) => ({ ...prev, id: true }))
-              }
-            })
-
-            // Load insurance requirements
-            const insuranceReq = requirements.find((r) => r.requirement_type === 'insurance')
-            if (insuranceReq) {
-              setInsuranceMinCoverage(insuranceReq.requirement_description || '')
-            }
-
-            // Load venue rules
-            const rulesReq = requirements.find((r) => r.requirement_type === 'rules')
-            if (rulesReq) {
-              setVenueRules(rulesReq.requirement_description || '')
-            }
-
-            // Load custom questions
-            const questionReqs = requirements.filter((r) => r.requirement_type === 'question')
-            if (questionReqs.length > 0) {
-              setCustomQuestions(questionReqs.map((r) => r.requirement_description || ''))
-            }
-          }
-        })
-    }
-  }, [venueId])
 
   const handleSave = async () => {
     if (!venueId) return

@@ -67,32 +67,14 @@ export default function VendorServicesPage() {
     resolver: zodResolver(vendorSchema),
   })
 
-  // Loading and error handling
-  if (isUserLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    )
-  }
-
-  if (userError || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
-      </div>
-    )
-  }
-
   useEffect(() => {
     if (user) {
-      // Get user's vendor profile
       supabase
         .from('vendors')
         .select('id')
         .eq('owner_id', user.id)
         .limit(1)
-        .then(({ data: vendors }) => {
+        .then(({ data: vendors }: { data: { id: string }[] | null }) => {
           if (vendors && vendors.length > 0) {
             setVendorId(vendors[0].id)
           }
@@ -100,7 +82,6 @@ export default function VendorServicesPage() {
     }
   }, [user])
 
-  // Populate form when vendor loads
   useEffect(() => {
     if (vendor) {
       reset({
@@ -117,16 +98,16 @@ export default function VendorServicesPage() {
           .from('vendor_offerings')
           .select('offering_name, description')
           .eq('vendor_id', vendorId)
-          .then(({ data }) => {
+          .then(({ data }: { data: { offering_name: string; description: string | null }[] | null }) => {
             if (data) {
               const standardIds = data
-                .map((o) => standardOfferings.find((so) => so.label === o.offering_name)?.id)
-                .filter((id): id is string => !!id)
+                .map((o: { offering_name: string }) => standardOfferings.find((so) => so.label === o.offering_name)?.id)
+                .filter((id: string | undefined): id is string => !!id)
               setSelectedOfferings(standardIds)
 
               const custom = data
-                .filter((o) => !standardOfferings.find((so) => so.label === o.offering_name))
-                .map((o, idx) => ({
+                .filter((o: { offering_name: string }) => !standardOfferings.find((so) => so.label === o.offering_name))
+                .map((o: { offering_name: string; description: string | null }, idx: number) => ({
                   id: `custom-${idx}`,
                   name: o.offering_name,
                   description: o.description || '',
@@ -137,6 +118,22 @@ export default function VendorServicesPage() {
       }
     }
   }, [vendor, vendorId, reset])
+
+  if (isUserLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    )
+  }
+
+  if (userError || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-600">Please log in to continue</div>
+      </div>
+    )
+  }
 
   const handleSave = async (data: VendorFormData) => {
     if (!vendorId) return

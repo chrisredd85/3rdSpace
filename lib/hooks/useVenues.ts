@@ -7,6 +7,7 @@ import type {
   VenueRequirement,
   VenueBooking,
   VenueType,
+  SavedVenue,
   Database,
 } from '@/lib/types'
 
@@ -14,7 +15,7 @@ import type {
 const venueKeys = {
   all: ['venues'] as const,
   lists: () => [...venueKeys.all, 'list'] as const,
-  list: (filters: VenueFilters) => [...venueKeys.lists(), filters] as const,
+  list: (filters: VenueFilters & { page?: number; pageSize?: number }) => [...venueKeys.lists(), filters] as const,
   details: () => [...venueKeys.all, 'detail'] as const,
   detail: (id: string) => [...venueKeys.details(), id] as const,
   bookings: (venueId: string) => [...venueKeys.all, 'bookings', venueId] as const,
@@ -114,7 +115,6 @@ export function useVenues(
       // Otherwise return simple array for backward compatibility
       return (data || []) as Venue[]
     },
-    enabled: options?.enabled !== false,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   })
 }
@@ -282,9 +282,11 @@ export function useVenueAvailability(venueId: string | null, month: string) {
 
       if (bookingsError) throw bookingsError
 
+      type BlockRow = { is_available: boolean }
+      type BookingRow = { confirmed_date: string; confirmed_start_time: string | null; confirmed_end_time: string | null }
       return {
-        unavailableBlocks: (blocks || []).filter((b) => !b.is_available),
-        confirmedBookings: (bookings || []).map((b) => ({
+        unavailableBlocks: (blocks || []).filter((b: BlockRow) => !b.is_available),
+        confirmedBookings: (bookings || []).map((b: BookingRow) => ({
           date: b.confirmed_date,
           startTime: b.confirmed_start_time,
           endTime: b.confirmed_end_time,

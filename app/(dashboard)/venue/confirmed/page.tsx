@@ -15,7 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { useVenueOwnerBookings } from '@/lib/hooks/useBookings'
 import { useUser } from '@/lib/hooks/useUser'
-import type { VenueBooking } from '@/lib/types'
+import type { VenueBooking, VenueBookingWithEvent } from '@/lib/types'
 
 type ViewMode = 'list' | 'calendar'
 
@@ -25,28 +25,8 @@ export default function ConfirmedBookingsPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date())
 
   const userId = user?.id || null
-  const { data: allBookings = [], isLoading } = useVenueOwnerBookings(userId)
+  const { data: allBookings = [], isLoading: isLoadingBookings } = useVenueOwnerBookings(userId)
 
-  // Loading and error handling
-  if (isUserLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    )
-  }
-
-  if (userError || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
-      </div>
-    )
-  }
-
-  const { data: allBookings = [], isLoading } = useVenueOwnerBookings(userId)
-
-  // Filter confirmed bookings
   const confirmedBookings = useMemo(() => {
     return allBookings
       .filter((b) => b.status === 'confirmed')
@@ -74,7 +54,24 @@ export default function ConfirmedBookingsPage() {
     URL.revokeObjectURL(url)
   }
 
-  if (isLoading) {
+  // Loading and error handling (after all hooks)
+  if (isUserLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    )
+  }
+
+  if (userError || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-600">Please log in to continue</div>
+      </div>
+    )
+  }
+
+  if (isLoadingBookings) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
@@ -157,7 +154,7 @@ interface ConfirmedBookingCardProps {
 }
 
 function ConfirmedBookingCard({ booking }: ConfirmedBookingCardProps) {
-  const event = booking.events as any
+  const event = (booking as VenueBookingWithEvent).events
   const venue = booking.venues as any
 
   const confirmedDate = booking.confirmed_date
@@ -339,9 +336,9 @@ function CalendarView({ bookings, currentMonth, onMonthChange }: CalendarViewPro
                       <div
                         key={booking.id}
                         className="bg-forest-500 text-white text-xs px-1 py-0.5 rounded truncate"
-                        title={(booking.events as any)?.title || 'Event'}
+                        title={(booking as VenueBookingWithEvent).events?.title || 'Event'}
                       >
-                        {(booking.events as any)?.title || 'Event'}
+                        {(booking as VenueBookingWithEvent).events?.title || 'Event'}
                       </div>
                     ))}
                     {dayBookings.length > 2 && (
@@ -388,7 +385,7 @@ function generateICS(bookings: VenueBooking[]): string {
       endDate.setHours(startDate.getHours() + 4) // Default 4 hours
     }
 
-    const event = booking.events as any
+    const event = (booking as VenueBookingWithEvent).events
 
     ics += 'BEGIN:VEVENT\n'
     ics += `UID:${booking.id}@3rdspace.com\n`

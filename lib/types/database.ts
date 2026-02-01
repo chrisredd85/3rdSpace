@@ -19,8 +19,8 @@ export type Json =
 /**
  * User type extending Supabase auth user
  */
-export interface User extends SupabaseUser {
-  user_metadata?: {
+export interface User extends Omit<SupabaseUser, 'user_metadata'> {
+  user_metadata: SupabaseUser['user_metadata'] & {
     name?: string
     user_type?: UserType
   }
@@ -360,6 +360,20 @@ export interface Notification {
 }
 
 /**
+ * VenueBooking with optional joined events (for list/detail views)
+ */
+export type VenueBookingWithEvent = VenueBooking & { events?: Event | null }
+
+/**
+ * VendorBooking with optional joined events and vendor-specific fields
+ */
+export type VendorBookingWithEvent = VendorBooking & {
+  events?: Event | null
+  setup_time?: string | null
+  duration?: number | null
+}
+
+/**
  * Database type definition for Supabase
  */
 export interface Database {
@@ -375,6 +389,7 @@ export interface Database {
         Update: Partial<Omit<Profile, 'id' | 'created_at'>> & {
           updated_at?: string
         }
+        Relationships: []
       }
       venues: {
         Row: Venue
@@ -386,6 +401,7 @@ export interface Database {
         Update: Partial<Omit<Venue, 'id' | 'created_at'>> & {
           updated_at?: string
         }
+        Relationships: []
       }
       venue_amenities: {
         Row: VenueAmenity
@@ -394,6 +410,7 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Omit<VenueAmenity, 'id' | 'created_at'>>
+        Relationships: []
       }
       venue_photos: {
         Row: VenuePhoto
@@ -402,6 +419,7 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Omit<VenuePhoto, 'id' | 'created_at'>>
+        Relationships: []
       }
       venue_requirements: {
         Row: VenueRequirement
@@ -410,6 +428,7 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Omit<VenueRequirement, 'id' | 'created_at'>>
+        Relationships: []
       }
       vendors: {
         Row: Vendor
@@ -421,6 +440,7 @@ export interface Database {
         Update: Partial<Omit<Vendor, 'id' | 'created_at'>> & {
           updated_at?: string
         }
+        Relationships: []
       }
       vendor_offerings: {
         Row: VendorOffering
@@ -432,6 +452,7 @@ export interface Database {
         Update: Partial<Omit<VendorOffering, 'id' | 'created_at'>> & {
           updated_at?: string
         }
+        Relationships: []
       }
       vendor_packages: {
         Row: VendorPackage
@@ -443,6 +464,7 @@ export interface Database {
         Update: Partial<Omit<VendorPackage, 'id' | 'created_at'>> & {
           updated_at?: string
         }
+        Relationships: []
       }
       events: {
         Row: Event
@@ -454,6 +476,7 @@ export interface Database {
         Update: Partial<Omit<Event, 'id' | 'created_at'>> & {
           updated_at?: string
         }
+        Relationships: []
       }
       venue_bookings: {
         Row: VenueBooking
@@ -465,6 +488,7 @@ export interface Database {
         Update: Partial<Omit<VenueBooking, 'id' | 'created_at'>> & {
           updated_at?: string
         }
+        Relationships: []
       }
       vendor_bookings: {
         Row: VendorBooking
@@ -476,6 +500,7 @@ export interface Database {
         Update: Partial<Omit<VendorBooking, 'id' | 'created_at'>> & {
           updated_at?: string
         }
+        Relationships: []
       }
       availability_blocks: {
         Row: AvailabilityBlock
@@ -490,6 +515,7 @@ export interface Database {
         Update: Partial<Omit<AvailabilityBlock, 'id' | 'created_at'>> & {
           updated_at?: string
         }
+        Relationships: []
       }
       messages: {
         Row: Message
@@ -498,6 +524,7 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Omit<Message, 'id' | 'created_at'>>
+        Relationships: []
       }
       message_threads: {
         Row: MessageThread
@@ -509,6 +536,7 @@ export interface Database {
         Update: Partial<Omit<MessageThread, 'id' | 'created_at'>> & {
           updated_at?: string
         }
+        Relationships: []
       }
       saved_vendors: {
         Row: SavedVendor
@@ -517,6 +545,7 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Omit<SavedVendor, 'id' | 'created_at'>>
+        Relationships: []
       }
       saved_venues: {
         Row: SavedVenue
@@ -525,6 +554,7 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Omit<SavedVenue, 'id' | 'created_at'>>
+        Relationships: []
       }
       event_templates: {
         Row: EventTemplate
@@ -536,6 +566,7 @@ export interface Database {
         Update: Partial<Omit<EventTemplate, 'id' | 'created_at'>> & {
           updated_at?: string
         }
+        Relationships: []
       }
       reviews: {
         Row: Review
@@ -547,6 +578,7 @@ export interface Database {
         Update: Partial<Omit<Review, 'id' | 'created_at'>> & {
           updated_at?: string
         }
+        Relationships: []
       }
       notifications: {
         Row: Notification
@@ -555,14 +587,11 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Omit<Notification, 'id' | 'created_at'>>
+        Relationships: []
       }
     }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      [_ in never]: never
-    }
+    Views: Record<string, { Row: Record<string, unknown>; Relationships?: unknown[] }>
+    Functions: Record<string, { Args: Record<string, unknown>; Returns: unknown }>
     Enums: {
       user_type: UserType
       venue_type: VenueType

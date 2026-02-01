@@ -1,4 +1,4 @@
-import { PostgrestFilterBuilder } from '@supabase/postgrest-js'
+import type { PostgrestFilterBuilder } from '@supabase/postgrest-js'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export interface FilterConfig {
@@ -34,10 +34,10 @@ export interface FilterConfig {
  * query = buildFilterQuery(query, filters)
  * ```
  */
-export function buildFilterQuery<T>(
-  query: PostgrestFilterBuilder<any, any, any>,
+export function buildFilterQuery(
+  query: PostgrestFilterBuilder<any, any, any, any>,
   filters: FilterConfig[]
-): PostgrestFilterBuilder<any, any, any> {
+): PostgrestFilterBuilder<any, any, any, any> {
   let filteredQuery = query
 
   filters.forEach((filter) => {

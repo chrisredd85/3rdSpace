@@ -23,16 +23,13 @@ import { Input } from '@/components/ui/input'
 import {
   useUpdateBookingStatus,
 } from '@/lib/hooks/useBookings'
-import { useCreateOrGetThread } from '@/lib/hooks/useMessages'
+import { useCreateOrGetThread, useCreateThread } from '@/lib/hooks/useMessages'
 import { useToast } from '@/components/ui/toast'
 import { supabase } from '@/lib/supabase/client'
-import type { VendorBooking, BookingStatus } from '@/lib/types'
+import type { VendorBookingWithEvent, BookingStatus } from '@/lib/types'
 
 interface BookingDetailModalProps {
-  booking: VendorBooking & {
-    events?: any
-    vendors?: any
-  }
+  booking: VendorBookingWithEvent
   onClose: () => void
   vendorId: string | null
 }
@@ -46,15 +43,17 @@ export function BookingDetailModal({
   const { addToast } = useToast()
   const [note, setNote] = useState('')
   const [counterOfferPrice, setCounterOfferPrice] = useState<string>(
-    booking.quoted_price?.toString() || ''
+    booking.quoted_price != null ? String(booking.quoted_price) : ''
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const updateStatus = useUpdateBookingStatus()
   const createThread = useCreateOrGetThread()
 
-  const event = booking.events as any
-  const vendor = booking.vendors as any
+  type EventShape = { id?: string; builder_id?: string; title?: string; expected_attendees?: number; venue_name?: string; description?: string; venue_address?: string }
+  type VendorShape = { name?: string; business_name?: string; service_type?: string }
+  const event = booking.events as EventShape | null | undefined
+  const vendor = (booking as VendorBookingWithEvent & { vendors?: VendorShape | null }).vendors
 
   // Get organizer info (would fetch from profiles table)
   const organizerId = event?.builder_id
@@ -70,23 +69,21 @@ export function BookingDetailModal({
       // Update booking status
       await updateStatus.mutateAsync({
         bookingId: booking.id,
-        bookingType: 'vendor',
         status: 'confirmed',
-        confirmedDate: booking.requested_date,
-        confirmedStartTime: booking.requested_start_time,
-        confirmedEndTime: booking.requested_end_time,
-        finalPrice: booking.quoted_price || undefined,
+        confirmedDate: booking.requested_date ?? undefined,
+        confirmedStartTime: booking.requested_start_time ?? undefined,
+        confirmedEndTime: booking.requested_end_time ?? undefined,
+        finalPrice: booking.quoted_price ?? undefined,
       })
 
       // Create message thread (if it doesn't exist)
       try {
         await createThread.mutateAsync({
-          participant1Id: vendorId,
-          participant2Id: organizerId,
-          eventId: event?.id || null,
-          venueBookingId: null,
-          vendorBookingId: booking.id,
-        })
+          participant_2_id: organizerId!,
+          event_id: event?.id ?? undefined,
+          venue_booking_id: undefined,
+          vendor_booking_id: booking.id,
+        } as { participant_2_id: string; event_id?: string; venue_booking_id?: string; vendor_booking_id?: string })
       } catch (error) {
         // Thread might already exist, that's okay
         console.log('Thread creation:', error)
@@ -118,7 +115,6 @@ export function BookingDetailModal({
       // Update booking status
       await updateStatus.mutateAsync({
         bookingId: booking.id,
-        bookingType: 'vendor',
         status: 'declined',
       })
 
@@ -126,12 +122,11 @@ export function BookingDetailModal({
       let thread
       try {
         thread = await createThread.mutateAsync({
-          participant1Id: vendorId,
-          participant2Id: organizerId,
-          eventId: event?.id || null,
-          venueBookingId: null,
-          vendorBookingId: booking.id,
-        })
+          participant_2_id: organizerId!,
+          event_id: event?.id ?? undefined,
+          venue_booking_id: undefined,
+          vendor_booking_id: booking.id,
+        } as { participant_2_id: string; event_id?: string; venue_booking_id?: string; vendor_booking_id?: string })
       } catch (error) {
         // Thread might already exist, try to get it
         const { data: existingThread } = await supabase
@@ -180,7 +175,6 @@ export function BookingDetailModal({
       // Update booking with counter offer price
       await updateStatus.mutateAsync({
         bookingId: booking.id,
-        bookingType: 'vendor',
         status: 'pending', // Keep as pending for counter offer
         finalPrice: parseFloat(counterOfferPrice),
       })
@@ -189,12 +183,11 @@ export function BookingDetailModal({
       let thread
       try {
         thread = await createThread.mutateAsync({
-          participant1Id: vendorId,
-          participant2Id: organizerId,
-          eventId: event?.id || null,
-          venueBookingId: null,
-          vendorBookingId: booking.id,
-        })
+          participant_2_id: organizerId!,
+          event_id: event?.id ?? undefined,
+          venue_booking_id: undefined,
+          vendor_booking_id: booking.id,
+        } as { participant_2_id: string; event_id?: string; venue_booking_id?: string; vendor_booking_id?: string })
       } catch (error) {
         // Thread might already exist, try to get it
         const { data: existingThread } = await supabase
@@ -247,7 +240,7 @@ export function BookingDetailModal({
   const eventStartTime = booking.requested_start_time
     ? new Date(`2000-01-01T${booking.requested_start_time}`)
     : null
-  const setupTime = booking.setup_time || 60 // Default 60 minutes
+  const setupTime = Number(booking.setup_time) || 60 // Default 60 minutes
   const arrivalTime = eventStartTime
     ? new Date(eventStartTime.getTime() - setupTime * 60000)
     : null

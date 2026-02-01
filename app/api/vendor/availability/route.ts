@@ -54,6 +54,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const vendorData = vendor as { id: string }
+
     // Calculate date range for the month
     const startDate = new Date(year, month - 1, 1)
     const endDate = new Date(year, month, 0, 23, 59, 59)
@@ -62,7 +64,7 @@ export async function GET(request: NextRequest) {
     const { data: bookings, error: bookingsError } = await supabase
       .from('vendor_bookings')
       .select('*')
-      .eq('vendor_id', vendor.id)
+      .eq('vendor_id', vendorData.id)
       .or(`confirmed_date.gte.${startDate.toISOString()},confirmed_date.lte.${endDate.toISOString()},requested_date.gte.${startDate.toISOString()},requested_date.lte.${endDate.toISOString()}`)
       .in('status', ['pending', 'confirmed'])
 
@@ -78,7 +80,7 @@ export async function GET(request: NextRequest) {
     const { data: blocks, error: blocksError } = await supabase
       .from('availability_blocks')
       .select('*')
-      .eq('vendor_id', vendor.id)
+      .eq('vendor_id', vendorData.id)
       .lte('start_date', endDate.toISOString())
       .gte('end_date', startDate.toISOString())
       .order('start_date', { ascending: true })
@@ -96,7 +98,8 @@ export async function GET(request: NextRequest) {
     const blockedDates = new Set<string>()
 
     // Process bookings
-    ;(bookings || []).forEach((booking) => {
+    type BookingRow = { confirmed_date: string | null; requested_date: string | null }
+    ;((bookings || []) as BookingRow[]).forEach((booking) => {
       const date = booking.confirmed_date || booking.requested_date
       if (date) {
         const dateStr = new Date(date).toISOString().split('T')[0]
@@ -105,7 +108,8 @@ export async function GET(request: NextRequest) {
     })
 
     // Process blocks (where is_available = false)
-    ;(blocks || [])
+    type BlockRow = { is_available: boolean; start_date: string; end_date: string }
+    ;((blocks || []) as BlockRow[])
       .filter((block) => !block.is_available)
       .forEach((block) => {
         const start = new Date(block.start_date)

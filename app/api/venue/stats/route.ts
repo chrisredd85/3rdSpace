@@ -18,14 +18,14 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get user profile from users table
-    const { data: userProfile, error: profileError } = await supabase
-      .from('users')
-      .select('role, user_type')
+    // Get user profile from profiles table
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .select('user_type')
       .eq('id', user.id)
       .single()
 
-    if (profileError || !userProfile) {
+    if (profileError || !profileData) {
       console.error('Error fetching user profile:', profileError)
       return NextResponse.json(
         { error: 'Failed to load user profile' },
@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const userProfile = profileData as { role?: string; user_type?: string }
     // Verify user is a venue owner (check role or user_type)
     const isVenueOwner = userProfile.role === 'owner' || userProfile.user_type === 'venue_owner'
     if (!isVenueOwner) {
@@ -66,7 +67,8 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const venueIds = venues.map((v) => v.id)
+    const venuesList = (venues || []) as { id: string }[]
+    const venueIds = venuesList.map((v) => v.id)
 
     // Calculate current month range
     const now = new Date()
@@ -77,20 +79,21 @@ export async function GET(request: NextRequest) {
     const { count: pendingCount } = await supabase
       .from('venue_bookings')
       .select('*', { count: 'exact', head: true })
-      .in('venue_id', venueIds)
+      .in('venue_id', venueIds as string[])
       .eq('status', 'pending')
 
     // Fetch this month's bookings (confirmed)
     const { data: thisMonthBookings } = await supabase
       .from('venue_bookings')
       .select('*')
-      .in('venue_id', venueIds)
+      .in('venue_id', venueIds as string[])
       .eq('status', 'confirmed')
       .gte('confirmed_date', monthStart.toISOString())
       .lte('confirmed_date', monthEnd.toISOString())
 
-    // Calculate revenue (MTD)
-    const revenueMtd = (thisMonthBookings || []).reduce(
+    type BookingRow = { final_price: number | null; quoted_price: number | null; confirmed_date: string | null; status?: string }
+    const thisMonthList = (thisMonthBookings || []) as BookingRow[]
+    const revenueMtd = thisMonthList.reduce(
       (sum, booking) => sum + (booking.final_price || booking.quoted_price || 0),
       0
     )
@@ -99,17 +102,18 @@ export async function GET(request: NextRequest) {
     const { data: allBookings } = await supabase
       .from('venue_bookings')
       .select('status')
-      .in('venue_id', venueIds)
+      .in('venue_id', venueIds as string[])
       .in('status', ['pending', 'confirmed', 'declined'])
 
-    const totalRequests = allBookings?.length || 0
-    const confirmedCount = allBookings?.filter((b) => b.status === 'confirmed').length || 0
+    const allBookingsList = (allBookings || []) as BookingRow[]
+    const totalRequests = allBookingsList.length
+    const confirmedCount = allBookingsList.filter((b) => b.status === 'confirmed').length
     const acceptanceRate = totalRequests > 0 ? Math.round((confirmedCount / totalRequests) * 100) : 0
 
     // Calculate booked percentage for current month
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
     const bookedDays = new Set(
-      (thisMonthBookings || []).map((b) => {
+      thisMonthList.map((b) => {
         if (b.confirmed_date) {
           return new Date(b.confirmed_date).getDate()
         }
@@ -120,7 +124,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       pendingRequests: pendingCount || 0,
-      thisMonthBookings: thisMonthBookings?.length || 0,
+      thisMonthBookings: thisMonthList.length,
       revenueMtd,
       acceptanceRate,
       bookedPercentage,

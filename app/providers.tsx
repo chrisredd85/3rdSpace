@@ -14,7 +14,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             // Static data (venues, vendors) cached for 5 minutes
             staleTime: 5 * 60 * 1000,
             // User-specific data cached for 1 minute
-            cacheTime: 10 * 60 * 1000,
+            gcTime: 10 * 60 * 1000,
             refetchOnWindowFocus: false,
             refetchOnMount: false,
             retry: 1,

@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
 
     // Get query parameters
     const { searchParams } = new URL(request.url)
-    const status = searchParams.get('status') as BookingStatus | null
+    const status = searchParams.get('status') as BookingStatus | 'all' | null
 
     // Get all venues owned by this user
     const { data: venues, error: venuesError } = await supabase
@@ -53,7 +53,8 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const venueIds = venues.map((v) => v.id)
+    const venuesList = (venues || []) as { id: string }[]
+    const venueIds = venuesList.map((v) => v.id)
 
     // Build query for bookings
     let query = supabase

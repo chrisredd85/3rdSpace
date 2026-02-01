@@ -18,14 +18,14 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get user profile from users table
-    const { data: userProfile, error: profileError } = await supabase
-      .from('users')
-      .select('role, user_type')
+    // Get user profile from profiles table
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .select('user_type')
       .eq('id', user.id)
       .single()
 
-    if (profileError || !userProfile) {
+    if (profileError || !profileData) {
       console.error('Error fetching user profile:', profileError)
       return NextResponse.json(
         { error: 'Failed to load user profile' },
@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const userProfile = profileData as { role?: string; user_type?: string }
     // Verify user is a vendor (check role or user_type)
     const isVendor = userProfile.role === 'vendor' || userProfile.user_type === 'vendor'
     if (!isVendor) {
@@ -56,6 +57,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const vendorData = vendor as { id: string }
+
     // Calculate current month range
     const now = new Date()
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -65,18 +68,19 @@ export async function GET(request: NextRequest) {
     const { count: newRequestsCount } = await supabase
       .from('vendor_bookings')
       .select('*', { count: 'exact', head: true })
-      .eq('vendor_id', vendor.id)
+      .eq('vendor_id', vendorData.id)
       .eq('status', 'pending')
 
     // Fetch confirmed gigs
     const { data: confirmedBookings } = await supabase
       .from('vendor_bookings')
       .select('*')
-      .eq('vendor_id', vendor.id)
+      .eq('vendor_id', vendorData.id)
       .eq('status', 'confirmed')
 
-    // Calculate this month revenue
-    const thisMonthBookings = (confirmedBookings || []).filter((b) => {
+    type BookingRow = { confirmed_date: string | null; final_price: number | null; quoted_price: number | null }
+    const confirmedList = (confirmedBookings || []) as BookingRow[]
+    const thisMonthBookings = confirmedList.filter((b) => {
       if (!b.confirmed_date) return false
       const bookingDate = new Date(b.confirmed_date)
       return bookingDate >= monthStart && bookingDate <= monthEnd
@@ -92,7 +96,7 @@ export async function GET(request: NextRequest) {
     const { data: allBookings } = await supabase
       .from('vendor_bookings')
       .select('status, created_at, updated_at')
-      .eq('vendor_id', vendor.id)
+      .eq('vendor_id', vendorData.id)
       .in('status', ['pending', 'confirmed', 'declined'])
 
     // Calculate response rate: bookings responded to within 24 hours
@@ -103,7 +107,7 @@ export async function GET(request: NextRequest) {
     const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
     const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59)
     
-    const prevMonthBookings = (confirmedBookings || []).filter((b) => {
+    const prevMonthBookings = confirmedList.filter((b) => {
       if (!b.confirmed_date) return false
       const bookingDate = new Date(b.confirmed_date)
       return bookingDate >= prevMonthStart && bookingDate <= prevMonthEnd

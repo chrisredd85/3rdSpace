@@ -57,6 +57,8 @@ export default function BuilderAnalyticsPage() {
   })
   const [sortField, setSortField] = useState<SortField>('totalSpent')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
+  const [venueBookingsData, setVenueBookingsData] = useState<Array<{ final_price?: number | null; quoted_price?: number | null }>>([])
+  const [vendorBookingsData, setVendorBookingsData] = useState<Array<Record<string, unknown>>>([])
   const { addToast } = useToast()
 
   const userId = user?.id || null
@@ -64,24 +66,7 @@ export default function BuilderAnalyticsPage() {
   const { data: savedVendors = [] } = useSavedVendors(userId)
   const { data: savedVenues = [] } = useSavedVenues(userId)
 
-  // Loading and error handling
-  if (isUserLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    )
-  }
-
-  if (userError || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
-      </div>
-    )
-  }
-
-  // Filter events by date range
+  // Filter events by date range (all hooks must run before any return)
   const filteredEvents = useMemo(() => {
     return events.filter((event) => {
       if (!event.event_date) return false
@@ -158,9 +143,6 @@ export default function BuilderAnalyticsPage() {
       .slice(0, 5)
   }, [filteredEvents, savedVenues])
 
-  // Spending by category
-  const [venueBookingsData, setVenueBookingsData] = useState<any[]>([])
-
   useEffect(() => {
     if (filteredEvents.length > 0 && userId) {
       const eventIds = filteredEvents.map((e) => e.id)
@@ -168,7 +150,7 @@ export default function BuilderAnalyticsPage() {
         .from('venue_bookings')
         .select('final_price, quoted_price')
         .in('event_id', eventIds)
-        .then(({ data }) => {
+        .then(({ data }: { data: Array<{ final_price?: number | null; quoted_price?: number | null }> | null }) => {
           setVenueBookingsData(data || [])
         })
     }
@@ -183,16 +165,16 @@ export default function BuilderAnalyticsPage() {
     }
 
     // Calculate venue spending from actual bookings
-    venueBookingsData.forEach((booking: any) => {
+    venueBookingsData.forEach((booking: { final_price?: number | null; quoted_price?: number | null }) => {
       categories.Venues += booking.final_price || booking.quoted_price || 0
     })
 
     // Calculate vendor spending by category
-    vendorBookingsData.forEach((booking: any) => {
-      const vendor = booking.vendors
+    vendorBookingsData.forEach((booking: Record<string, unknown>) => {
+      const vendor = booking.vendors as { service_type?: string } | undefined
       if (vendor) {
         const serviceType = vendor.service_type
-        const amount = booking.final_price || booking.quoted_price || 0
+        const amount = (booking.final_price as number | undefined) || (booking.quoted_price as number | undefined) || 0
 
         if (serviceType === 'catering' || serviceType === 'bartending') {
           categories.Catering += amount
@@ -215,9 +197,6 @@ export default function BuilderAnalyticsPage() {
       }))
   }, [venueBookingsData, vendorBookingsData])
 
-  // Top performing vendors
-  const [vendorBookingsData, setVendorBookingsData] = useState<any[]>([])
-
   useEffect(() => {
     if (filteredEvents.length > 0 && userId) {
       const eventIds = filteredEvents.map((e) => e.id)
@@ -225,7 +204,7 @@ export default function BuilderAnalyticsPage() {
         .from('vendor_bookings')
         .select('*, vendors(*)')
         .in('event_id', eventIds)
-        .then(({ data }) => {
+        .then(({ data }: { data: Array<Record<string, unknown>> | null }) => {
           setVendorBookingsData(data || [])
         })
     }
@@ -234,9 +213,10 @@ export default function BuilderAnalyticsPage() {
   const vendorPerformance = useMemo(() => {
     const performance: Record<string, VendorPerformance> = {}
 
+    type VendorRow = { id: string; name: string; service_type: string }
     // Build performance data from actual vendor bookings
-    vendorBookingsData.forEach((booking: any) => {
-      const vendor = booking.vendors
+    vendorBookingsData.forEach((booking: Record<string, unknown>) => {
+      const vendor = booking.vendors as VendorRow | undefined
       if (vendor) {
         const key = vendor.id
         if (!performance[key]) {
@@ -250,12 +230,12 @@ export default function BuilderAnalyticsPage() {
           }
         }
         performance[key].timesUsed++
-        performance[key].totalSpent += booking.final_price || booking.quoted_price || 0
+        performance[key].totalSpent += (booking.final_price as number | undefined) || (booking.quoted_price as number | undefined) || 0
       }
     })
 
     // Also include saved vendors that haven't been used yet (for completeness)
-    savedVendors.forEach((saved: any) => {
+    savedVendors.forEach((saved: { vendors?: VendorRow }) => {
       const vendor = saved.vendors
       if (vendor && !performance[vendor.id]) {
         performance[vendor.id] = {
@@ -290,6 +270,23 @@ export default function BuilderAnalyticsPage() {
       }
     })
   }, [vendorPerformance, sortField, sortDirection])
+
+  // Loading and error handling (after all hooks)
+  if (isUserLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    )
+  }
+
+  if (userError || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-600">Please log in to continue</div>
+      </div>
+    )
+  }
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {

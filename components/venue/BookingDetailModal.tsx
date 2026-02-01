@@ -47,7 +47,7 @@ export function BookingDetailModal({
   const { addToast } = useToast()
   const [note, setNote] = useState('')
   const [counterOfferPrice, setCounterOfferPrice] = useState<string>(
-    booking.quoted_price?.toString() || ''
+    booking.quoted_price?.toString() ?? ''
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -71,22 +71,20 @@ export function BookingDetailModal({
       // Update booking status
       await updateStatus.mutateAsync({
         bookingId: booking.id,
-        bookingType: 'venue',
         status: 'confirmed',
         confirmedDate: booking.requested_date,
-        confirmedStartTime: booking.requested_start_time,
-        confirmedEndTime: booking.requested_end_time,
-        finalPrice: booking.quoted_price || undefined,
+        confirmedStartTime: booking.requested_start_time ?? undefined,
+        confirmedEndTime: booking.requested_end_time ?? undefined,
+        finalPrice: booking.quoted_price ?? undefined,
       })
 
       // Create message thread (if it doesn't exist)
       try {
         await createThread.mutateAsync({
-          participant1Id: venueOwnerId,
-          participant2Id: organizerId,
-          eventId: event?.id || null,
-          venueBookingId: booking.id,
-          vendorBookingId: null,
+          participant_2_id: organizerId,
+          event_id: event?.id ?? null,
+          venue_booking_id: booking.id,
+          vendor_booking_id: null,
         })
       } catch (error) {
         // Thread might already exist, that's okay
@@ -119,7 +117,6 @@ export function BookingDetailModal({
       // Update booking status
       await updateStatus.mutateAsync({
         bookingId: booking.id,
-        bookingType: 'venue',
         status: 'declined',
       })
 
@@ -127,11 +124,10 @@ export function BookingDetailModal({
       let thread
       try {
         thread = await createThread.mutateAsync({
-          participant1Id: venueOwnerId,
-          participant2Id: organizerId,
-          eventId: event?.id || null,
-          venueBookingId: booking.id,
-          vendorBookingId: null,
+          participant_2_id: organizerId,
+          event_id: event?.id ?? null,
+          venue_booking_id: booking.id,
+          vendor_booking_id: null,
         })
       } catch (error) {
         // Thread might already exist, try to get it
@@ -181,7 +177,6 @@ export function BookingDetailModal({
       // Update booking with counter offer price
       await updateStatus.mutateAsync({
         bookingId: booking.id,
-        bookingType: 'venue',
         status: 'pending', // Keep as pending for counter offer
         finalPrice: parseFloat(counterOfferPrice),
       })
@@ -190,11 +185,10 @@ export function BookingDetailModal({
       let thread
       try {
         thread = await createThread.mutateAsync({
-          participant1Id: venueOwnerId,
-          participant2Id: organizerId,
-          eventId: event?.id || null,
-          venueBookingId: booking.id,
-          vendorBookingId: null,
+          participant_2_id: organizerId,
+          event_id: event?.id ?? null,
+          venue_booking_id: booking.id,
+          vendor_booking_id: null,
         })
       } catch (error) {
         // Thread might already exist, try to get it

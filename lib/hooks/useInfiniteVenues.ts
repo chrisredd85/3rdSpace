@@ -46,7 +46,8 @@ export function useInfiniteVenues(
 ) {
   return useInfiniteQuery({
     queryKey: ['venues', 'infinite', filters, pageSize],
-    queryFn: async ({ pageParam = 0 }) => {
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }: { pageParam: number }) => {
       // Only select needed columns for list view
       let query = supabase
         .from('venues')
@@ -83,7 +84,7 @@ export function useInfiniteVenues(
       }
 
       // Add pagination
-      const from = pageParam * pageSize
+      const from = (pageParam as number) * pageSize
       const to = from + pageSize - 1
       query = query.range(from, to)
 
@@ -93,11 +94,11 @@ export function useInfiniteVenues(
 
       return {
         data: (data || []) as Venue[],
-        nextCursor: (data || []).length === pageSize ? pageParam + 1 : undefined,
+        nextCursor: (data || []).length === pageSize ? (pageParam as number) + 1 : undefined,
         total: count || 0,
       }
     },
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    getNextPageParam: (lastPage: { nextCursor?: number; data: Venue[] }) => lastPage.nextCursor,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   })
 }

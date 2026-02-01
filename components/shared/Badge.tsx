@@ -87,7 +87,7 @@ export function Badge({ status, size = 'md', className }: BadgeProps) {
       case 'verified':
         return 'Verified'
       default:
-        return status.charAt(0).toUpperCase() + status.slice(1)
+        return (status as string).charAt(0).toUpperCase() + (status as string).slice(1)
     }
   }
 

@@ -23,23 +23,6 @@ export default function PastEventsPage() {
   const userId = user?.id || null
   const { data: events = [], isLoading } = useEvents(userId)
 
-  // Loading and error handling
-  if (isUserLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    )
-  }
-
-  if (userError || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
-      </div>
-    )
-  }
-
   const pastEvents = useMemo(() => {
     const now = new Date()
     return events
@@ -58,6 +41,22 @@ export default function PastEventsPage() {
       avgPerEvent,
     }
   }, [pastEvents])
+
+  if (isUserLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    )
+  }
+
+  if (userError || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-600">Please log in to continue</div>
+      </div>
+    )
+  }
 
   if (isLoading) {
     return (

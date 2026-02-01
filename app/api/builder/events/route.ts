@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { Database } from '@/lib/types'
 import type { Event, EventStatus } from '@/lib/types'
 
 export async function GET(request: NextRequest) {
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
       .range(offset, offset + limit - 1)
 
     // Apply status filter if provided
-    if (status && status !== 'all') {
+    if (status && (status as string) !== 'all') {
       query = query.eq('status', status)
     }
 
@@ -119,21 +120,24 @@ export async function POST(request: NextRequest) {
     }
 
     // Create event
+    const insertPayload = {
+      builder_id: user.id,
+      title,
+      description: description ?? null,
+      event_type: event_type ?? null,
+      event_date,
+      start_time: start_time ?? null,
+      end_time: end_time ?? null,
+      expected_attendees: expected_attendance_min ?? expected_attendance_max ?? null,
+      budget: budget ?? null,
+      status: status ?? 'planning',
+      venue_id: null,
+      notes: null,
+    } satisfies Database['public']['Tables']['events']['Insert']
+
     const { data: event, error } = await supabase
       .from('events')
-      .insert({
-        builder_id: user.id,
-        title,
-        description: description || null,
-        event_type: event_type || null,
-        event_date,
-        start_time: start_time || null,
-        end_time: end_time || null,
-        expected_attendance_min: expected_attendance_min || null,
-        expected_attendance_max: expected_attendance_max || null,
-        budget: budget || null,
-        status,
-      })
+      .insert(insertPayload as never)
       .select()
       .single()
 

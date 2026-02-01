@@ -142,7 +142,7 @@ async function runTests() {
     }
   )
   // This should fail, so we check if it properly returns an error
-  const validationPassed = !validationResult.passed && validationResult.error
+  const validationPassed = Boolean(!validationResult.passed && validationResult.error)
   results.push({
     test: 'Validation Test',
     passed: validationPassed,

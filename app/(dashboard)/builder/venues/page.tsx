@@ -28,24 +28,6 @@ export default function SavedVenuesPage() {
   const { addToast } = useToast()
   const router = useRouter()
 
-  // Loading and error handling
-  if (isUserLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    )
-  }
-
-  if (userError || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
-      </div>
-    )
-  }
-
-  // Calculate stats
   const stats = useMemo(() => {
     const totalVenues = savedVenues.length
     // Mock data - would fetch from bookings
@@ -63,6 +45,22 @@ export default function SavedVenuesPage() {
       avgRating: avgRating.toFixed(1),
     }
   }, [savedVenues])
+
+  if (isUserLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    )
+  }
+
+  if (userError || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-600">Please log in to continue</div>
+      </div>
+    )
+  }
 
   const handleToggleSaved = async (venueId: string, isSaved: boolean) => {
     if (!userId) return

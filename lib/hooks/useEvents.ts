@@ -19,7 +19,9 @@ const eventKeys = {
   progress: (id: string) => [...eventKeys.all, 'progress', id] as const,
 }
 
-interface EventWithRelations extends Event {
+export interface EventWithRelations extends Event {
+  /** Legacy/display name (prefer title) */
+  name?: string | null
   venue?: Venue | null
   venue_booking?: VenueBooking | null
   vendor_bookings?: VendorBooking[]

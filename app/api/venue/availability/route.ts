@@ -63,7 +63,8 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const venueIds = venues.map((v) => v.id)
+    const venuesList = (venues || []) as { id: string }[]
+    const venueIds = venuesList.map((v) => v.id)
 
     // Calculate date range for the month
     const startDate = new Date(year, month - 1, 1)
@@ -107,7 +108,8 @@ export async function GET(request: NextRequest) {
     const blockedDates = new Set<string>()
 
     // Process bookings
-    ;(bookings || []).forEach((booking) => {
+    type BookingRow = { confirmed_date: string | null; requested_date: string | null }
+    ;((bookings || []) as BookingRow[]).forEach((booking) => {
       const date = booking.confirmed_date || booking.requested_date
       if (date) {
         const dateStr = new Date(date).toISOString().split('T')[0]
@@ -116,7 +118,8 @@ export async function GET(request: NextRequest) {
     })
 
     // Process blocks (where is_available = false)
-    ;(blocks || [])
+    type BlockRow = { is_available: boolean; start_date: string; end_date: string }
+    ;((blocks || []) as BlockRow[])
       .filter((block) => !block.is_available)
       .forEach((block) => {
         const start = new Date(block.start_date)

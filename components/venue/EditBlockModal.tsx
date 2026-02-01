@@ -59,7 +59,7 @@ export function EditBlockModal({ block, onClose, onSuccess }: EditBlockModalProp
     if (!confirm('Are you sure you want to delete this block?')) return
 
     try {
-      await deleteBlock.mutateAsync(block.id)
+      await deleteBlock.mutateAsync({ id: block.id, isVenue: true })
       addToast({
         title: 'Block deleted',
         description: 'The date block has been removed.',

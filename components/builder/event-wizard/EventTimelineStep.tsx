@@ -29,17 +29,17 @@ export function EventTimelineStep({
         .from('vendor_bookings')
         .select('*, vendors(*)')
         .eq('event_id', event.id)
-        .then(({ data }) => {
-          if (data) setVendorBookings(data)
+        .then(({ data }: { data: unknown }) => {
+          if (data) setVendorBookings(Array.isArray(data) ? data : data ? [data] : [])
         })
     }
   }, [event?.id])
 
   // Auto-generate timeline based on vendor setup times
   const timeline = useMemo(() => {
-    if (!event?.event_date || !event?.event_time) return []
+    if (!event?.event_date || !(event.start_time || (event as { event_time?: string }).event_time)) return []
 
-    const eventStart = new Date(`${event.event_date}T${event.event_time}`)
+    const eventStart = new Date(`${event.event_date}T${event.start_time || (event as { event_time?: string }).event_time}`)
     const timelineItems = []
 
     // Vendor setup times (would fetch from vendor_bookings)

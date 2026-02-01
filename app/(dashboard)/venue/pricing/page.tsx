@@ -59,23 +59,6 @@ export default function VenuePricingPage() {
   const hourlyRate = watch('hourly_rate') || 0
   const minHours = watch('min_hours') || 2
 
-  // Loading and error handling
-  if (isUserLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    )
-  }
-
-  if (userError || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
-      </div>
-    )
-  }
-
   useEffect(() => {
     if (user) {
       supabase
@@ -83,7 +66,7 @@ export default function VenuePricingPage() {
         .select('id')
         .eq('owner_id', user.id)
         .limit(1)
-        .then(({ data: venues }) => {
+        .then(({ data: venues }: { data: { id: string }[] | null }) => {
           if (venues && venues.length > 0) {
             setVenueId(venues[0].id)
           }
@@ -106,6 +89,22 @@ export default function VenuePricingPage() {
       })
     }
   }, [venue, reset])
+
+  if (isUserLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    )
+  }
+
+  if (userError || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-600">Please log in to continue</div>
+      </div>
+    )
+  }
 
   const handleSave = async (data: PricingFormData) => {
     if (!venueId) return

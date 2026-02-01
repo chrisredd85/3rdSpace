@@ -30,7 +30,36 @@ export default function VendorBookingsPage() {
   const { data: pendingRequests = [], isLoading: pendingLoading } = useVendorBookingRequests(vendorId)
   const { data: allBookings = [], isLoading: allLoading } = useVendorOwnerBookings(vendorId)
 
-  // Loading and error handling
+  useEffect(() => {
+    if (user) {
+      supabase
+        .from('vendors')
+        .select('id')
+        .eq('owner_id', user.id)
+        .limit(1)
+        .then(({ data: vendors }: { data: { id: string }[] | null }) => {
+          if (vendors && vendors.length > 0) {
+            setVendorId(vendors[0].id)
+          }
+        })
+    }
+  }, [user])
+
+  const confirmedBookings = useMemo(() => {
+    return allBookings.filter((b) => b.status === 'confirmed')
+  }, [allBookings])
+
+  const displayedBookings = activeTab === 'pending' ? pendingRequests : confirmedBookings
+
+  const oldRequestsCount = useMemo(() => {
+    const now = new Date()
+    return pendingRequests.filter((req) => {
+      const requestDate = new Date(req.created_at)
+      const hoursDiff = (now.getTime() - requestDate.getTime()) / (1000 * 60 * 60)
+      return hoursDiff > 24
+    }).length
+  }, [pendingRequests])
+
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -46,40 +75,6 @@ export default function VendorBookingsPage() {
       </div>
     )
   }
-
-  useEffect(() => {
-    if (user) {
-      // Get user's vendor profile
-      supabase
-        .from('vendors')
-        .select('id')
-        .eq('owner_id', user.id)
-        .limit(1)
-        .then(({ data: vendors }) => {
-          if (vendors && vendors.length > 0) {
-            setVendorId(vendors[0].id)
-          }
-        })
-    }
-  }, [user])
-
-  // Get confirmed bookings
-  const confirmedBookings = useMemo(() => {
-    return allBookings.filter((b) => b.status === 'confirmed')
-  }, [allBookings])
-
-  // Filter bookings by tab
-  const displayedBookings = activeTab === 'pending' ? pendingRequests : confirmedBookings
-
-  // Count requests older than 24 hours
-  const oldRequestsCount = useMemo(() => {
-    const now = new Date()
-    return pendingRequests.filter((req) => {
-      const requestDate = new Date(req.created_at)
-      const hoursDiff = (now.getTime() - requestDate.getTime()) / (1000 * 60 * 60)
-      return hoursDiff > 24
-    }).length
-  }, [pendingRequests])
 
   return (
     <div className="space-y-6">
@@ -311,10 +306,10 @@ function BookingRequestCard({ booking, onClick }: BookingRequestCardProps) {
               </div>
             </div>
 
-            {booking.setup_time && (
+            {(booking as import('@/lib/types').VendorBookingWithEvent).setup_time && (
               <div className="mb-2 text-sm text-gray-600">
                 <span className="font-medium">Setup Time: </span>
-                {booking.setup_time} minutes
+                {(booking as import('@/lib/types').VendorBookingWithEvent).setup_time} minutes
               </div>
             )}
 
@@ -325,10 +320,10 @@ function BookingRequestCard({ booking, onClick }: BookingRequestCardProps) {
               </div>
             )}
 
-            {booking.duration && (
+            {(booking as import('@/lib/types').VendorBookingWithEvent).duration && (
               <div className="mb-4 text-sm text-gray-600">
                 <span className="font-medium">Duration: </span>
-                {booking.duration} hours
+                {(booking as import('@/lib/types').VendorBookingWithEvent).duration} hours
               </div>
             )}
 

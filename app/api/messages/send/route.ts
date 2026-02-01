@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
         content: content.trim(),
         is_read: false,
         read_at: null,
-      })
+      } as never)
       .select()
       .single()
 
@@ -71,14 +71,14 @@ export async function POST(request: NextRequest) {
       .update({
         last_message_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      })
+      } as never)
       .eq('id', thread_id)
 
     // Get message with sender profile
     const { data: messageWithSender } = await supabase
       .from('messages')
       .select('*, profiles!messages_sender_id_fkey(id, name, email, avatar_url)')
-      .eq('id', message.id)
+      .eq('id', (message as { id: string }).id)
       .single()
 
     return NextResponse.json({

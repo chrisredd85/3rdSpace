@@ -27,7 +27,21 @@ export default function VenueRequestsPage() {
   const { data: pendingRequests = [], isLoading: pendingLoading } = useVenueBookingRequests(userId)
   const { data: allBookings = [], isLoading: allLoading } = useVenueOwnerBookings(userId)
 
-  // Loading and error handling
+  const confirmedBookings = useMemo(() => {
+    return allBookings.filter((b) => b.status === 'confirmed')
+  }, [allBookings])
+
+  const displayedBookings = activeTab === 'pending' ? pendingRequests : confirmedBookings
+
+  const oldRequestsCount = useMemo(() => {
+    const now = new Date()
+    return pendingRequests.filter((req) => {
+      const requestDate = new Date(req.created_at)
+      const hoursDiff = (now.getTime() - requestDate.getTime()) / (1000 * 60 * 60)
+      return hoursDiff > 24
+    }).length
+  }, [pendingRequests])
+
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -43,24 +57,6 @@ export default function VenueRequestsPage() {
       </div>
     )
   }
-
-  // Get confirmed bookings
-  const confirmedBookings = useMemo(() => {
-    return allBookings.filter((b) => b.status === 'confirmed')
-  }, [allBookings])
-
-  // Filter bookings by tab
-  const displayedBookings = activeTab === 'pending' ? pendingRequests : confirmedBookings
-
-  // Count requests older than 24 hours
-  const oldRequestsCount = useMemo(() => {
-    const now = new Date()
-    return pendingRequests.filter((req) => {
-      const requestDate = new Date(req.created_at)
-      const hoursDiff = (now.getTime() - requestDate.getTime()) / (1000 * 60 * 60)
-      return hoursDiff > 24
-    }).length
-  }, [pendingRequests])
 
   return (
     <div className="space-y-6">

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { Event } from '@/lib/types'
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,14 +19,14 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get user profile from users table
-    const { data: userProfile, error: profileError } = await supabase
-      .from('users')
-      .select('role, user_type')
+    // Get user profile from profiles table
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .select('user_type')
       .eq('id', user.id)
       .single()
 
-    if (profileError || !userProfile) {
+    if (profileError || !profileData) {
       console.error('Error fetching user profile:', profileError)
       return NextResponse.json(
         { error: 'Failed to load user profile' },
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const userProfile = profileData as { role?: string; user_type?: string }
     // Verify user is a community builder (check role or user_type)
     const isBuilder = userProfile.role === 'builder' || userProfile.user_type === 'community_builder'
     if (!isBuilder) {
@@ -97,8 +99,8 @@ export async function GET(request: NextRequest) {
       console.warn('Saved venues table not available')
     }
 
-    // Calculate stats
-    const eventsList = events || []
+    // Calculate stats (cast: Supabase client infers never for table rows)
+    const eventsList = (events || []) as Pick<Event, 'id' | 'event_date' | 'status' | 'budget' | 'builder_id'>[]
     const upcomingEvents = eventsList.filter(
       (e) =>
         new Date(e.event_date) >= now &&

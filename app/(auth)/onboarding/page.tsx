@@ -105,17 +105,21 @@ export default function OnboardingPage() {
     return null
   }
 
-  // Render appropriate form based on user type
+  // Render appropriate form based on user type (name from metadata or email)
+  const userWithName = {
+    ...user,
+    name: ((user as { user_metadata?: { name?: string } }).user_metadata?.name as string | undefined) ?? user.email ?? '',
+  }
   if (user.userType === 'venue_owner') {
-    return <VenueOnboardingForm user={user} />
+    return <VenueOnboardingForm user={userWithName} />
   }
 
   if (user.userType === 'vendor') {
-    return <VendorOnboardingForm user={user} />
+    return <VendorOnboardingForm user={userWithName} />
   }
 
   if (user.userType === 'community_builder') {
-    return <BuilderOnboardingForm user={user} />
+    return <BuilderOnboardingForm user={userWithName} />
   }
 
   // Fallback: redirect to dashboard
@@ -195,7 +199,7 @@ function VenueOnboardingForm({ user }: { user: { id: string; email: string | nul
           </div>
           <CardTitle className="text-3xl font-bold">Complete Your Venue Profile</CardTitle>
           <CardDescription>
-            Let's set up your venue so you can start receiving bookings
+            Let&apos;s set up your venue so you can start receiving bookings
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -416,7 +420,7 @@ function VendorOnboardingForm({ user }: { user: { id: string; email: string | nu
           </div>
           <CardTitle className="text-3xl font-bold">Complete Your Vendor Profile</CardTitle>
           <CardDescription>
-            Let's set up your business so you can start receiving booking requests
+            Let&apos;s set up your business so you can start receiving booking requests
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -573,7 +577,7 @@ function BuilderOnboardingForm({ user }: { user: { id: string; email: string | n
           </div>
           <CardTitle className="text-3xl font-bold">Welcome to 3rdSpace!</CardTitle>
           <CardDescription>
-            You're ready to start creating events. Optionally, tell us a bit about yourself.
+            You&apos;re ready to start creating events. Optionally, tell us a bit about yourself.
           </CardDescription>
         </CardHeader>
         <CardContent>

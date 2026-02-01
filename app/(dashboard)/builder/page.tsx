@@ -60,7 +60,7 @@ export default function BuilderDashboard() {
     <>
       <div className="mb-8">
         <h1 className="text-4xl font-bold text-slate-900 tracking-tight">Dashboard</h1>
-        <p className="text-lg text-slate-600 mt-2">Welcome back! Here's what's happening with your events.</p>
+        <p className="text-lg text-slate-600 mt-2">Welcome back! Here&apos;s what&apos;s happening with your events.</p>
       </div>
       
       <div className="space-y-6">
@@ -199,7 +199,7 @@ function EventProgressCard({ event }: { event: Event }) {
       <CardHeader>
         <div className="flex items-start justify-between">
           <div className="flex-1">
-            <CardTitle className="text-xl mb-2 group-hover:text-forest-600 transition-colors">{event.name}</CardTitle>
+            <CardTitle className="text-xl mb-2 group-hover:text-forest-600 transition-colors">{event.title}</CardTitle>
             <div className="flex items-center gap-2 text-sm text-slate-600">
               <Calendar className="h-4 w-4" />
               <span>{eventDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>

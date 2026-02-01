@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { Message, MessageThread } from '@/lib/types'
 
 interface RouteContext {
   params: {
@@ -44,6 +45,8 @@ export async function GET(
       )
     }
 
+    const threadData = thread as MessageThread
+
     // Fetch all messages in thread
     const { data: messages, error: messagesError } = await supabase
       .from('messages')
@@ -60,7 +63,8 @@ export async function GET(
     }
 
     // Mark all unread messages as read (where user is not the sender)
-    const unreadMessages = (messages || []).filter(
+    const messagesList = (messages || []) as Message[]
+    const unreadMessages = messagesList.filter(
       (msg) => !msg.is_read && msg.sender_id !== user.id
     )
 
@@ -71,15 +75,15 @@ export async function GET(
         .update({
           is_read: true,
           read_at: new Date().toISOString(),
-        })
+        } as never)
         .in('id', messageIds)
     }
 
     // Get other participant's profile
     const otherParticipantId =
-      thread.participant_1_id === user.id
-        ? thread.participant_2_id
-        : thread.participant_1_id
+      threadData.participant_1_id === user.id
+        ? threadData.participant_2_id
+        : threadData.participant_1_id
 
     const { data: otherParticipant } = await supabase
       .from('profiles')
@@ -89,11 +93,11 @@ export async function GET(
 
     return NextResponse.json({
       thread: {
-        ...thread,
+        ...threadData,
         other_participant: otherParticipant || null,
       },
-      messages: messages || [],
-      count: messages?.length || 0,
+      messages: messagesList,
+      count: messagesList.length,
     })
   } catch (error) {
     console.error('Get thread messages error:', error)

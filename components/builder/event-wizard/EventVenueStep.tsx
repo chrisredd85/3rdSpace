@@ -99,10 +99,17 @@ export function EventVenueStep({
         event_id: event.id,
         venue_id: venue.id,
         requested_date: event.event_date,
-        requested_start_time: event.event_time || null,
-        requested_end_time: null, // Would calculate from event duration
+        requested_start_time: event.start_time || (event as { event_time?: string }).event_time || null,
+        requested_end_time: null,
         status: 'pending',
         quoted_price: venue.hourly_rate || venue.daily_rate || null,
+        confirmed_date: null,
+        confirmed_start_time: null,
+        confirmed_end_time: null,
+        final_price: null,
+        deposit_amount: null,
+        deposit_paid: false,
+        notes: null,
       })
 
       // Update event with venue_id
@@ -198,7 +205,7 @@ export function EventVenueStep({
             No venues available yet
           </h3>
           <p className="text-slate-600 mb-6 max-w-md mx-auto">
-            We're still building our venue network. You can continue planning your event and add a venue later, or reach out to suggest a venue.
+            We&apos;re still building our venue network. You can continue planning your event and add a venue later, or reach out to suggest a venue.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <button
@@ -239,9 +246,9 @@ export function EventVenueStep({
 
                   {/* Image placeholder */}
                   <div className="aspect-[16/10] bg-gradient-to-br from-slate-100 to-slate-200 overflow-hidden">
-                    {venue.photo_url ? (
+                    {(venue as { photo_url?: string }).photo_url ? (
                       <img 
-                        src={venue.photo_url} 
+                        src={(venue as unknown as { photo_url: string }).photo_url} 
                         alt={venue.name}
                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                       />

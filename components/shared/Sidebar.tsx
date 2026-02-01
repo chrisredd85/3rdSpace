@@ -48,7 +48,7 @@ export function Sidebar({ userType, onClose }: SidebarProps) {
   
   // Get userId from user object for unread counts
   const userId = user?.id || null
-  const { data: unreadCount = 0 } = useUnreadCount(userId)
+  const { unreadCount = 0 } = useUnreadCount()
   const { data: unreadNotificationCount = 0 } = useUnreadNotificationCount(userId)
 
   const getNavigation = (): NavSection[] => {

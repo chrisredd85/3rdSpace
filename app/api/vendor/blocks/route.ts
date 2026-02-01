@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     const { data: blocks, error: blocksError } = await supabase
       .from('availability_blocks')
       .select('*')
-      .eq('vendor_id', vendor.id)
+      .eq('vendor_id', (vendor as { id: string }).id)
       .order('start_date', { ascending: true })
 
     if (blocksError) {
@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
         end_time: end_time || null,
         is_available,
         reason: reason || null,
-      })
+      } as never)
       .select()
       .single()
 

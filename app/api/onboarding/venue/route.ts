@@ -55,8 +55,9 @@ export async function POST(request: NextRequest) {
       .single()
 
     let venueId: string
+    const existing = existingVenue as { id: string } | null
 
-    if (existingVenue) {
+    if (existing) {
       // Update existing venue
       const { data: updatedVenue, error: updateError } = await supabase
         .from('venues')
@@ -71,8 +72,8 @@ export async function POST(request: NextRequest) {
           capacity,
           is_active: true, // Activate after onboarding
           updated_at: new Date().toISOString(),
-        })
-        .eq('id', existingVenue.id)
+        } as never)
+        .eq('id', existing.id)
         .select('id')
         .single()
 
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      venueId = updatedVenue.id
+      venueId = (updatedVenue as { id: string }).id
     } else {
       // Create new venue
       const { data: newVenue, error: createError } = await supabase
@@ -102,7 +103,7 @@ export async function POST(request: NextRequest) {
           pricing_model: 'flat_rate', // Default pricing model
           is_active: true,
           is_verified: false, // Requires admin verification
-        })
+        } as never)
         .select('id')
         .single()
 
@@ -114,7 +115,7 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      venueId = newVenue.id
+      venueId = (newVenue as { id: string }).id
     }
 
     // Handle photo upload if provided
@@ -147,7 +148,7 @@ export async function POST(request: NextRequest) {
             photo_url: publicUrl,
             is_primary: true,
             display_order: 0,
-          })
+          } as never)
         }
       } catch (photoError) {
         console.error('Photo upload error:', photoError)

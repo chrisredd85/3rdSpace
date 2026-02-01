@@ -40,10 +40,11 @@ export async function GET(request: NextRequest) {
         .eq('owner_id', user.id)
         .single()
 
+      const venueData = venue as { id: string; name: string; address?: string } | null
       return NextResponse.json({
-        isOnboarded: !!venue && !!venue.address, // Has venue with address
+        isOnboarded: !!venueData && !!venueData.address, // Has venue with address
         userType,
-        hasVenue: !!venue,
+        hasVenue: !!venueData,
       })
     }
 
@@ -55,10 +56,11 @@ export async function GET(request: NextRequest) {
         .eq('owner_id', user.id)
         .single()
 
+      const vendorData = vendor as { id: string; business_name: string; service_type?: string } | null
       return NextResponse.json({
-        isOnboarded: !!vendor && !!vendor.service_type, // Has vendor with service type
+        isOnboarded: !!vendorData && !!vendorData.service_type, // Has vendor with service type
         userType,
-        hasVendor: !!vendor,
+        hasVendor: !!vendorData,
       })
     }
 

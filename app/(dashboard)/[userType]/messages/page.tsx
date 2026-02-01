@@ -39,29 +39,13 @@ export default function MessagesPage() {
 
   const userId = user?.id || null
 
-  // Loading and error handling
-  if (isUserLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    )
-  }
-
-  if (userError || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
-      </div>
-    )
-  }
-
   const { data: threads = [], isLoading: threadsLoading } = useMessageThreads(userId)
-  const { data: messages = [], isLoading: messagesLoading } = useMessages(selectedThreadId)
+  const messagesQuery = useMessages(selectedThreadId)
+  const messages = messagesQuery.data?.messages ?? []
+  const messagesLoading = messagesQuery.isLoading
   const sendMessageMutation = useSendMessage()
   const markAsReadMutation = useMarkAsRead()
 
-  // Filter threads by search query
   const filteredThreads = useMemo(() => {
     if (!searchQuery) return threads
 
@@ -99,12 +83,11 @@ export default function MessagesPage() {
   }, [filteredThreads, selectedThreadId])
 
   const handleSendMessage = async (content: string) => {
-    if (!selectedThreadId || !userId || !content.trim()) return
+    if (!selectedThreadId || !content.trim()) return
 
     try {
       await sendMessageMutation.mutateAsync({
-        threadId: selectedThreadId,
-        senderId: userId,
+        thread_id: selectedThreadId,
         content: content.trim(),
       })
     } catch (error) {
@@ -143,6 +126,22 @@ export default function MessagesPage() {
       setShowThreadList(false)
     }
   }, [selectedThreadId])
+
+  if (isUserLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    )
+  }
+
+  if (userError || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-600">Please log in to continue</div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-[calc(100vh-8rem)] border border-gray-200 rounded-lg overflow-hidden bg-white">
@@ -254,7 +253,7 @@ interface ThreadItemProps {
       id: string
       name: string | null
       avatar_url: string | null
-    }
+    } | null
   }
   isSelected: boolean
   unreadCount: number
@@ -375,11 +374,12 @@ interface MessageViewProps {
       id: string
       name: string | null
       avatar_url: string | null
-    }
+    } | null
   }
   messages: Message[]
   isLoading: boolean
   onSendMessage: (content: string) => void
+  isSending?: boolean
   currentUserId: string | null
   userType: string
   contextLink: string | null
@@ -391,6 +391,7 @@ function MessageView({
   messages,
   isLoading,
   onSendMessage,
+  isSending = false,
   currentUserId,
   userType,
   contextLink,
@@ -580,7 +581,7 @@ function MessageView({
           </div>
             <Button
               onClick={handleSend}
-              disabled={!messageInput.trim() || sendMessageMutation.isPending}
+              disabled={!messageInput.trim() || isSending}
               className="h-10"
             >
               <Send className="h-4 w-4" />

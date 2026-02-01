@@ -51,17 +51,17 @@ export function EventPlanningStep({
   useEffect(() => {
     if (event) {
       const eventDate = event.event_date ? new Date(event.event_date).toISOString().split('T')[0] : ''
-      const eventTime = event.event_time || ''
+      const eventTime = event.start_time || (event as { event_time?: string }).event_time || ''
 
       reset({
-        name: event.name || '',
+        name: event.title || (event as { name?: string }).name || '',
         event_type: event.event_type || '',
-        expected_attendees: event.expected_attendees || 0,
-        min_attendees: event.min_attendees || undefined,
-        max_attendees: event.max_attendees || undefined,
+        expected_attendees: event.expected_attendees ?? 0,
+        min_attendees: undefined,
+        max_attendees: undefined,
         event_date: eventDate,
         event_time: eventTime,
-        budget: event.budget || 0,
+        budget: event.budget ?? 0,
       })
     }
   }, [event, reset])
@@ -73,13 +73,12 @@ export function EventPlanningStep({
       await updateEvent.mutateAsync({
         id: event.id,
         updates: {
-          name: data.name,
+          title: data.name,
           event_type: data.event_type,
           expected_attendees: data.expected_attendees,
-          min_attendees: data.min_attendees || null,
-          max_attendees: data.max_attendees || null,
-          event_date: eventDate.toISOString(),
-          event_time: data.event_time,
+          event_date: eventDate.toISOString().slice(0, 10),
+          start_time: data.event_time,
+          end_time: data.event_time,
           budget: data.budget,
           status: 'planning',
         },

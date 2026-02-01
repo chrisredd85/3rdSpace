@@ -20,7 +20,7 @@ export default function HomePage() {
         </div>
         <h1 className="text-4xl font-bold text-gray-900">Welcome to 3rdSpace</h1>
         <p className="text-xl text-gray-600 text-center max-w-2xl">
-          Bay Area's leading B2B event marketplace connecting community builders, venue owners, and vendors.
+          Bay Area&apos;s leading B2B event marketplace connecting community builders, venue owners, and vendors.
         </p>
         <div className="flex gap-4">
           <Link href="/login">

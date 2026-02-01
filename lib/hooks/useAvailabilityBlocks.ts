@@ -87,23 +87,26 @@ export function useAvailabilityBlocks(
   vendorId?: string | null
 ) {
   const [year, monthNum] = month.split('-').map(Number)
-  
-  if (venueId) {
-    const { data, isLoading, error } = useVenueAvailability(year, monthNum)
+  const isVenue = !!venueId
+  const isVendor = !!vendorId && !venueId
+
+  const venueResult = useVenueAvailability(year, monthNum)
+  const vendorResult = useVendorAvailability(year, monthNum)
+
+  if (isVenue) {
     return {
-      data: data?.blocks || [],
-      isLoading,
-      error,
-    }
-  } else if (vendorId) {
-    const { data, isLoading, error } = useVendorAvailability(year, monthNum)
-    return {
-      data: data?.blocks || [],
-      isLoading,
-      error,
+      data: venueResult.data?.blocks || [],
+      isLoading: venueResult.isLoading,
+      error: venueResult.error,
     }
   }
-  
+  if (isVendor) {
+    return {
+      data: vendorResult.data?.blocks || [],
+      isLoading: vendorResult.isLoading,
+      error: vendorResult.error,
+    }
+  }
   return { data: [], isLoading: false, error: null }
 }
 

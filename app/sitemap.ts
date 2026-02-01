@@ -35,13 +35,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     .eq('is_verified', true)
     .limit(1000) // Limit to prevent timeout
 
+  type SitemapRow = { id: string; updated_at?: string }
   const venuePages: MetadataRoute.Sitemap =
-    venues?.map((venue) => ({
+    (venues || []).map((venue: SitemapRow) => ({
       url: `${baseUrl}/venues/${venue.id}`,
       lastModified: venue.updated_at ? new Date(venue.updated_at) : new Date(),
       changeFrequency: 'weekly' as const,
       priority: 0.8,
-    })) || []
+    }))
 
   // Fetch public vendors
   const { data: vendors } = await supabase
@@ -52,12 +53,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     .limit(1000)
 
   const vendorPages: MetadataRoute.Sitemap =
-    vendors?.map((vendor) => ({
+    (vendors || []).map((vendor: SitemapRow) => ({
       url: `${baseUrl}/vendors/${vendor.id}`,
       lastModified: vendor.updated_at ? new Date(vendor.updated_at) : new Date(),
       changeFrequency: 'weekly' as const,
       priority: 0.8,
-    })) || []
+    }))
 
   // Fetch public events (if you have public event pages)
   const { data: events } = await supabase
@@ -67,12 +68,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     .limit(500)
 
   const eventPages: MetadataRoute.Sitemap =
-    events?.map((event) => ({
+    (events || []).map((event: SitemapRow) => ({
       url: `${baseUrl}/events/${event.id}`,
       lastModified: event.updated_at ? new Date(event.updated_at) : new Date(),
       changeFrequency: 'daily' as const,
       priority: 0.7,
-    })) || []
+    }))
 
   return [...staticPages, ...venuePages, ...vendorPages, ...eventPages]
 }

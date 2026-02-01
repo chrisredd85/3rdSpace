@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { createClient } from '@/lib/supabase/client'
 import type {
   VenueBooking,
   VendorBooking,
@@ -92,7 +93,7 @@ export function useCreateVenueBooking() {
       // as this is typically done from the builder side
       throw new Error('Use API route for creating bookings')
     },
-    onSuccess: (data) => {
+    onSuccess: (data: VenueBooking) => {
       queryClient.invalidateQueries({
         queryKey: bookingKeys.venueRequests(data.venue_id),
       })
@@ -111,12 +112,13 @@ export function useCreateVendorBooking() {
     mutationFn: async (
       booking: Omit<VendorBooking, 'id' | 'created_at' | 'updated_at'>
     ) => {
+      const supabase = createClient()
       const { data, error } = await supabase
         .from('vendor_bookings')
         .insert({
           ...booking,
           status: 'pending',
-        })
+        } as never)
         .select()
         .single()
 
@@ -214,6 +216,7 @@ export function useCancelBooking() {
       bookingId: string
       bookingType: 'venue' | 'vendor'
     }) => {
+      const supabase = createClient()
       const table = bookingType === 'venue' ? 'venue_bookings' : 'vendor_bookings'
 
       const { data, error } = await supabase
@@ -221,7 +224,7 @@ export function useCancelBooking() {
         .update({
           status: 'cancelled',
           updated_at: new Date().toISOString(),
-        })
+        } as never)
         .eq('id', bookingId)
         .select()
         .single()

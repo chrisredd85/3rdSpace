@@ -56,7 +56,8 @@ export async function POST(request: NextRequest) {
 
     let vendorId: string
 
-    if (existingVendor) {
+    const existing = existingVendor as { id: string } | null
+    if (existing) {
       // Update existing vendor
       const { data: updatedVendor, error: updateError } = await supabase
         .from('vendors')
@@ -67,8 +68,8 @@ export async function POST(request: NextRequest) {
           description: description || null,
           is_active: true, // Activate after onboarding
           updated_at: new Date().toISOString(),
-        })
-        .eq('id', existingVendor.id)
+        } as never)
+        .eq('id', existing.id)
         .select('id')
         .single()
 
@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      vendorId = updatedVendor.id
+      vendorId = (updatedVendor as { id: string }).id
     } else {
       // Create new vendor
       const { data: newVendor, error: createError } = await supabase
@@ -94,7 +95,7 @@ export async function POST(request: NextRequest) {
           pricing_model: 'flat_rate', // Default pricing model
           is_active: true,
           is_verified: false, // Requires admin verification
-        })
+        } as never)
         .select('id')
         .single()
 
@@ -106,7 +107,7 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      vendorId = newVendor.id
+      vendorId = (newVendor as { id: string }).id
     }
 
     // Update vendor with service_area (stored in address fields)
@@ -119,7 +120,7 @@ export async function POST(request: NextRequest) {
         description: description 
           ? `${description}\n\nSetup Time: ${setup_time}`
           : `Setup Time: ${setup_time}`,
-      })
+      } as never)
       .eq('id', vendorId)
 
     return NextResponse.json({

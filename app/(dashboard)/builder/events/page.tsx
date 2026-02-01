@@ -25,23 +25,6 @@ export default function EventsPage() {
   const userId = user?.id || null
   const { data: events = [], isLoading } = useEvents(userId)
 
-  // Loading and error handling
-  if (isUserLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    )
-  }
-
-  if (userError || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
-      </div>
-    )
-  }
-
   const filteredAndSortedEvents = useMemo(() => {
     const now = new Date()
     let filtered = events.filter(
@@ -63,6 +46,23 @@ export default function EventsPage() {
 
     return filtered
   }, [events, statusFilter, sortBy])
+
+  // Early returns after all hooks
+  if (isUserLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    )
+  }
+
+  if (userError || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-600">Please log in to continue</div>
+      </div>
+    )
+  }
 
   if (isLoading) {
     return (

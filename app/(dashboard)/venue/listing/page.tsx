@@ -92,32 +92,14 @@ export default function VenueListingPage() {
     resolver: zodResolver(venueSchema),
   })
 
-  // Loading and error handling
-  if (isUserLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    )
-  }
-
-  if (userError || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
-      </div>
-    )
-  }
-
   useEffect(() => {
     if (user) {
-      // Get user's first venue
       supabase
         .from('venues')
         .select('id')
         .eq('owner_id', user.id)
         .limit(1)
-        .then(({ data: venues }) => {
+        .then(({ data: venues }: { data: { id: string }[] | null }) => {
           if (venues && venues.length > 0) {
             setVenueId(venues[0].id)
           }
@@ -125,7 +107,6 @@ export default function VenueListingPage() {
     }
   }, [user])
 
-  // Populate form when venue loads
   useEffect(() => {
     if (venue) {
       reset({
@@ -145,24 +126,38 @@ export default function VenueListingPage() {
     }
   }, [venue, reset])
 
-  // Load amenities separately
   useEffect(() => {
     if (venueId) {
       supabase
         .from('venue_amenities')
         .select('amenity_name')
         .eq('venue_id', venueId)
-        .then(({ data }) => {
+        .then(({ data }: { data: { amenity_name: string }[] | null }) => {
           if (data) {
-            // Map amenity names to amenity IDs
             const amenityIds = data
-              .map((a) => amenities.find((am) => am.label === a.amenity_name)?.id)
-              .filter((id): id is string => !!id)
+              .map((a: { amenity_name: string }) => amenities.find((am) => am.label === a.amenity_name)?.id)
+              .filter((id: string | undefined): id is string => !!id)
             setSelectedAmenities(amenityIds)
           }
         })
     }
   }, [venueId])
+
+  if (isUserLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    )
+  }
+
+  if (userError || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-600">Please log in to continue</div>
+      </div>
+    )
+  }
 
   const handleSave = async (data: VenueFormData) => {
     if (!venueId) return

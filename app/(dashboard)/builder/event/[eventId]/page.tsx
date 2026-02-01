@@ -52,12 +52,13 @@ export default function EventWizardPage() {
         .from('events')
         .insert({
           builder_id: userId,
-          name: 'New Event',
+          title: 'New Event',
+          event_date: new Date().toISOString().slice(0, 10),
           status: 'planning',
         })
         .select()
         .single()
-        .then(({ data, error }) => {
+        .then(({ data, error }: { data: { id: string } | null; error: unknown }) => {
           if (error) {
             console.error('Error creating event:', error)
             return
@@ -75,7 +76,7 @@ export default function EventWizardPage() {
 
     const completed = new Set<number>()
 
-    if (event.name && event.event_date && event.budget) {
+    if ((event.title || (event as { name?: string }).name) && event.event_date && event.budget) {
       completed.add(1)
     }
     completed.add(2) // Team is optional
@@ -106,7 +107,7 @@ export default function EventWizardPage() {
       .select('*')
       .eq('event_id', event.id)
       .single()
-      .then(({ data }) => {
+      .then(({ data }: { data: unknown }) => {
         if (data) setVenueBooking(data)
       })
       .catch(() => {})
@@ -115,8 +116,8 @@ export default function EventWizardPage() {
       .from('vendor_bookings')
       .select('*, vendors(*)')
       .eq('event_id', event.id)
-      .then(({ data }) => {
-        if (data) setVendorBookings(data)
+      .then(({ data }: { data: unknown }) => {
+        if (data) setVendorBookings(Array.isArray(data) ? data : data ? [data] : [])
       })
       .catch(() => {})
   }, [event?.id])
@@ -160,24 +161,25 @@ export default function EventWizardPage() {
   }
 
   // Create default event object if new
-  const currentEvent: Event = event || {
-    id: 'new',
-    builder_id: userId || '',
-    name: 'New Event',
-    event_type: '',
-    event_date: new Date().toISOString(),
-    event_time: '',
-    expected_attendees: 0,
-    min_attendees: null,
-    max_attendees: null,
-    budget: 0,
-    actual_cost: null,
-    status: 'planning',
-    description: null,
-    venue_id: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  }
+  const currentEvent: Event = event
+    ? { ...event, title: event.title ?? (event as { name?: string }).name ?? 'New Event' }
+    : {
+        id: 'new',
+        builder_id: userId || '',
+        title: 'New Event',
+        event_type: null,
+        event_date: new Date().toISOString().slice(0, 10),
+        start_time: null,
+        end_time: null,
+        expected_attendees: null,
+        status: 'planning',
+        description: null,
+        venue_id: null,
+        budget: null,
+        notes: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
 
   const handleNext = () => {
     if (currentStep < STEPS.length) {
@@ -208,11 +210,6 @@ export default function EventWizardPage() {
     }
   }
 
-  const completionPercentage = useMemo(() => {
-    return Math.round((completedSteps.size / STEPS.length) * 100)
-  }, [completedSteps.size])
-
-  // Map step number to component
   const getStepComponent = () => {
     switch (currentStep) {
       case 1:
@@ -299,7 +296,7 @@ export default function EventWizardPage() {
                 style={{ width: `${(currentStep / 8) * 100}%` }}
               />
             </div>
-            <p className="text-xs text-slate-500">{completionPercentage}% complete</p>
+            <p className="text-xs text-slate-500">{Math.round((currentStep / 8) * 100)}% complete</p>
           </div>
         </div>
 
@@ -374,7 +371,7 @@ export default function EventWizardPage() {
             <div>
               <p className="text-sm font-medium text-blue-900">Need help?</p>
               <p className="text-xs text-blue-700 mt-1">
-                We'll save your progress automatically
+                We&apos;ll save your progress automatically
               </p>
             </div>
           </div>

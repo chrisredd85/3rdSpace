@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
         venue_booking_id: venue_booking_id || null,
         vendor_booking_id: vendor_booking_id || null,
         last_message_at: null,
-      })
+      } as never)
       .select()
       .single()
 
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       thread: {
-        ...thread,
+        ...(thread as Record<string, unknown>),
         other_participant: otherParticipant || null,
       },
       isNew: true,

@@ -86,7 +86,7 @@ export function EventCard({
             'flex items-center justify-center text-white text-4xl font-bold'
           )}
         >
-          {event.name?.charAt(0).toUpperCase() || 'E'}
+          {(event.title || (event as { name?: string }).name)?.charAt(0).toUpperCase() || 'E'}
         </div>
 
         <div className="p-6 space-y-4">
@@ -94,7 +94,7 @@ export function EventCard({
           <div className="flex items-start justify-between">
             <div className="flex-1">
               <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                {event.name || 'Untitled Event'}
+                {event.title || (event as { name?: string }).name || 'Untitled Event'}
               </h3>
               <Badge status={event.status as EventStatus} size="sm" />
             </div>
@@ -112,9 +112,9 @@ export function EventCard({
                     day: 'numeric',
                     year: 'numeric',
                   })}
-                  {event.event_time && (
+                  {(event.start_time || (event as { event_time?: string }).event_time) && (
                     <span className="ml-2">
-                      {new Date(`2000-01-01T${event.event_time}`).toLocaleTimeString(
+                      {new Date(`2000-01-01T${event.start_time || (event as { event_time?: string }).event_time}`).toLocaleTimeString(
                         'en-US',
                         { hour: 'numeric', minute: '2-digit' }
                       )}

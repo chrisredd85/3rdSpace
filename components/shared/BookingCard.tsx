@@ -120,13 +120,13 @@ export function BookingCard({
             </div>
           )}
 
-          {type === 'vendor' && (booking as VendorBooking).setup_time && (
+          {type === 'vendor' && (booking as import('@/lib/types').VendorBookingWithEvent).setup_time && (
             <div className="flex items-center gap-2 text-gray-600">
               <Clock className="h-4 w-4 text-gray-400" />
               <div>
                 <p className="text-gray-600">Setup</p>
                 <p className="font-medium text-gray-900">
-                  {(booking as VendorBooking).setup_time} min
+                  {(booking as import('@/lib/types').VendorBookingWithEvent).setup_time} min
                 </p>
               </div>
             </div>

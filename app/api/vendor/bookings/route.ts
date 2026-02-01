@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
 
     // Get query parameters
     const { searchParams } = new URL(request.url)
-    const status = searchParams.get('status') as BookingStatus | null
+    const status = searchParams.get('status') as BookingStatus | 'all' | null
 
     // Get vendor owned by this user
     const { data: vendor, error: vendorError } = await supabase
@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
         )
       `
       )
-      .eq('vendor_id', vendor.id)
+      .eq('vendor_id', (vendor as { id: string }).id)
       .order('created_at', { ascending: false })
 
     // Apply status filter if provided

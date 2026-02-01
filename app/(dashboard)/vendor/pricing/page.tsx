@@ -57,23 +57,6 @@ export default function VendorPricingPage() {
   const perPersonRate = watch('per_person_rate') || 0
   const baseRate = watch('base_rate') || 0
 
-  // Loading and error handling
-  if (isUserLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    )
-  }
-
-  if (userError || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
-      </div>
-    )
-  }
-
   useEffect(() => {
     if (user) {
       supabase
@@ -81,7 +64,7 @@ export default function VendorPricingPage() {
         .select('id')
         .eq('owner_id', user.id)
         .limit(1)
-        .then(({ data: vendors }) => {
+        .then(({ data: vendors }: { data: { id: string }[] | null }) => {
           if (vendors && vendors.length > 0) {
             setVendorId(vendors[0].id)
           }
@@ -99,6 +82,22 @@ export default function VendorPricingPage() {
       })
     }
   }, [vendor, reset])
+
+  if (isUserLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-600">Loading...</div>
+      </div>
+    )
+  }
+
+  if (userError || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-red-600">Please log in to continue</div>
+      </div>
+    )
+  }
 
   const handleSave = async (data: PricingFormData) => {
     if (!vendorId) return

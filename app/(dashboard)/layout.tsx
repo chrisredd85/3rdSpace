@@ -2,6 +2,8 @@ import { DashboardClientWrapper } from '@/components/shared/DashboardClientWrapp
 import { createClient } from '@/lib/supabase/server'
 import type { UserType } from '@/lib/types'
 
+export const dynamic = 'force-dynamic'
+
 // Server Component - uses inline server-side Supabase logic
 export default async function DashboardLayout({
   children,
@@ -17,19 +19,14 @@ export default async function DashboardLayout({
     const { data: { user: authUser } } = await supabase.auth.getUser()
 
     if (authUser) {
-      const { data: profile } = await supabase
-        .from('users')
-        .select('role, user_type')
+      const { data } = await supabase
+        .from('profiles')
+        .select('user_type')
         .eq('id', authUser.id)
         .single()
-      
+      const profile = data as { user_type?: UserType } | null
       if (profile?.user_type) {
-        userType = profile.user_type as UserType
-      } else if (profile?.role) {
-        // Fallback mapping
-        if (profile.role === 'builder') userType = 'community_builder'
-        else if (profile.role === 'owner') userType = 'venue_owner'
-        else if (profile.role === 'vendor') userType = 'vendor'
+        userType = profile.user_type
       }
     }
   } catch (error) {

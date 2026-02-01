@@ -88,11 +88,21 @@ export function EventVendorStep({
       await createVendorBooking.mutateAsync({
         event_id: event.id,
         vendor_id: vendor.id,
+        vendor_offering_id: null,
+        vendor_package_id: null,
         requested_date: event.event_date,
-        requested_start_time: event.event_time || null,
+        requested_start_time: event.start_time || (event as { event_time?: string }).event_time || null,
         requested_end_time: null,
         status: 'pending',
-        quoted_price: null, // Would be set by vendor
+        quoted_price: null,
+        confirmed_date: null,
+        confirmed_start_time: null,
+        confirmed_end_time: null,
+        final_price: null,
+        quantity: null,
+        deposit_amount: null,
+        deposit_paid: false,
+        notes: null,
       })
 
       setSelectedVendors(new Set([...selectedVendors, vendor.id]))

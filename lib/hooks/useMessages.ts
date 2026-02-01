@@ -321,9 +321,9 @@ export function useCreateThread() {
       vendor_booking_id,
     }: {
       participant_2_id: string
-      event_id?: string | null
-      venue_booking_id?: string | null
-      vendor_booking_id?: string | null
+      event_id?: string | null | undefined
+      venue_booking_id?: string | null | undefined
+      vendor_booking_id?: string | null | undefined
     }) => {
       const response = await fetch('/api/messages/threads/create', {
         method: 'POST',
@@ -352,4 +352,11 @@ export function useCreateThread() {
       queryClient.invalidateQueries({ queryKey: messageKeys.threads() })
     },
   })
+}
+
+/**
+ * Alias for useCreateThread - create or get existing thread (API may return existing)
+ */
+export function useCreateOrGetThread() {
+  return useCreateThread()
 }
