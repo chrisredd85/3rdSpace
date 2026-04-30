@@ -247,13 +247,28 @@ export function useSendMessage() {
  * Get total unread message count across all threads
  */
 export function useUnreadCount() {
-  const { data: threads } = useThreads()
+  const { data: unreadCount = 0, isLoading } = useQuery<number>({
+    queryKey: messageKeys.unreadCount(),
+    queryFn: async () => {
+      const response = await fetch('/api/messages/unread-count', {
+        credentials: 'include',
+      })
+      const payload = await response.json()
 
-  const unreadCount = threads?.reduce((sum, thread) => sum + (thread.unread_count || 0), 0) || 0
+      if (!response.ok) {
+        if (response.status === 404) return 0
+        throw new Error(payload.error || 'Failed to fetch unread count')
+      }
+
+      return Number(payload.count || 0)
+    },
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000,
+  })
 
   return {
     unreadCount,
-    isLoading: !threads,
+    isLoading,
   }
 }
 

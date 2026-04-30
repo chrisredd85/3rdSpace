@@ -1,4 +1,5 @@
 import { normalizeVendorProfile } from '@/lib/vendors/profile-adapter'
+import { normalizeStringArray } from '@/lib/vendor-services/types'
 import type { Vendor } from '@/lib/types'
 
 export type VendorSearchSort = 'rating' | 'price' | 'popularity'
@@ -73,14 +74,14 @@ export function normalizeOfferingRows(rows: ServiceRow[]) {
   return rows.map((row) => ({
     id: row.id,
     vendor_id: row.vendor_id,
-    name: row.offering_name,
+    name: row.offering_name || 'Vendor service',
     description: row.description ?? null,
     base_price: Number(row.base_price || 0),
     duration_hours: row.duration_hours == null ? null : Number(row.duration_hours),
     service_category: row.service_category || 'other',
     max_capacity: row.max_capacity ?? null,
-    portfolio_images: row.portfolio_images || [],
-    equipment_included: row.equipment_included || [],
+    portfolio_images: normalizeStringArray(row.portfolio_images),
+    equipment_included: normalizeStringArray(row.equipment_included),
     type: 'offering' as const,
   }))
 }
@@ -95,14 +96,14 @@ export function normalizePackageRows(rows: ServiceRow[]) {
   return rows.map((row) => ({
     id: row.id,
     vendor_id: row.vendor_id,
-    name: row.package_name,
+    name: row.package_name || 'Vendor package',
     description: row.description ?? null,
     base_price: Number(row.price || row.base_price || 0),
     duration_hours: row.duration_hours == null ? null : Number(row.duration_hours),
     service_category: 'package',
     max_capacity: null,
     portfolio_images: [],
-    equipment_included: Array.isArray(row.inclusions) ? row.inclusions.filter((item: unknown) => typeof item === 'string') : [],
+    equipment_included: normalizeStringArray(row.inclusions),
     type: 'package' as const,
   }))
 }

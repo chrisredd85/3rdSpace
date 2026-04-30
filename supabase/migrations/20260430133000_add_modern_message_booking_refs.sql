@@ -21,6 +21,9 @@ ALTER TABLE public.messages
   DROP CONSTRAINT IF EXISTS messages_check;
 
 ALTER TABLE public.messages
+  DROP CONSTRAINT IF EXISTS messages_thread_or_booking_check;
+
+ALTER TABLE public.messages
   ADD CONSTRAINT messages_thread_or_booking_check
     CHECK (
       thread_id IS NOT NULL

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { ArrowRight, Building2, Lock, Mail, Sparkles, Store, Ticket } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -12,6 +13,7 @@ import { loginSchema, type LoginInput } from '@/lib/validations/auth'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
+import { userKeys } from '@/lib/hooks/useUser'
 import type { UserType } from '@/lib/types'
 
 type PortalKey = 'builder' | 'venue' | 'vendor'
@@ -57,6 +59,7 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { addToast } = useToast()
+  const queryClient = useQueryClient()
   const [isLoading, setIsLoading] = useState(false)
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
   const [portalHandoff, setPortalHandoff] = useState<{ message: string; href: string } | null>(null)
@@ -110,6 +113,8 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
       }
 
       addToast({ title: 'Welcome back!', description: 'You have been successfully logged in.' })
+      queryClient.clear()
+      queryClient.setQueryData(userKeys.current, result.user)
       router.push(result.dashboardPath || redirect || '/dashboard')
     } catch {
       addToast({ title: 'Error', description: 'Connection failed. Please try again.', variant: 'destructive' })

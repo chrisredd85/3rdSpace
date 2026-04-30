@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { TrendingUp, Calendar, PiggyBank, FileText, Send, ArrowRight, Music2, DollarSign } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PayoutOverviewPanel } from '@/components/dashboard/PayoutOverviewPanel'
 import { useUser } from '@/lib/hooks/useUser'
 import { useToast } from '@/components/ui/toast'
 
@@ -126,6 +127,8 @@ export default function VendorDashboard() {
           accent="secondary"
         />
       </div>
+
+      <PayoutOverviewPanel role="vendor" />
 
       {/* Incoming requests */}
       <div className="rounded-3xl border border-border bg-gradient-card p-6 shadow-card">

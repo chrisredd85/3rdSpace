@@ -44,6 +44,42 @@ export type VendorServiceRow = Omit<VendorService, 'add_ons'> & {
 }
 
 /**
+ * Normalizes arrays that may arrive as Postgres arrays, JSON strings, or
+ * comma-separated legacy text.
+ *
+ * @param value - Untyped Supabase value.
+ * @returns Clean string array.
+ */
+export function normalizeStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+  }
+
+  if (typeof value !== 'string') return []
+
+  const trimmed = value.trim()
+  if (!trimmed) return []
+
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      }
+    } catch {
+      // Fall through to delimiter parsing.
+    }
+  }
+
+  const postgresArray = trimmed.match(/^\{(.*)\}$/)
+  const source = postgresArray ? postgresArray[1] : trimmed
+  return source
+    .split(/[,;]/)
+    .map((item) => item.trim().replace(/^"|"$/g, ''))
+    .filter(Boolean)
+}
+
+/**
  * Normalizes untyped Supabase JSON values into service add-ons.
  *
  * @param value - JSON value from vendor_offerings.add_ons.
@@ -74,8 +110,13 @@ export function normalizeAddOns(value: Json | null | undefined): VendorServiceAd
 export function normalizeVendorService(row: VendorServiceRow): VendorService {
   return {
     ...row,
-    portfolio_images: row.portfolio_images || [],
-    equipment_included: row.equipment_included || [],
+    base_price: Number(row.base_price || 0),
+    min_quantity: row.min_quantity == null ? null : Number(row.min_quantity),
+    max_quantity: row.max_quantity == null ? null : Number(row.max_quantity),
+    duration_hours: row.duration_hours == null ? null : Number(row.duration_hours),
+    max_capacity: row.max_capacity == null ? null : Number(row.max_capacity),
+    portfolio_images: normalizeStringArray(row.portfolio_images),
+    equipment_included: normalizeStringArray(row.equipment_included),
     add_ons: normalizeAddOns(row.add_ons),
   }
 }

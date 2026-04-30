@@ -129,6 +129,10 @@ export function VendorProfilePage({ vendorId }: VendorProfilePageProps) {
   }
 
   const location = vendor.city && vendor.state ? `${vendor.city}, ${vendor.state}` : vendor.address || 'Service area varies'
+  const services = Array.isArray(vendor.services) ? vendor.services : []
+  const rating = Number(vendor.rating || 0)
+  const reviewCount = Number(vendor.review_count || 0)
+  const totalBookings = Number(vendor.total_bookings || 0)
 
   return (
     <div className="space-y-6">
@@ -159,12 +163,12 @@ export function VendorProfilePage({ vendorId }: VendorProfilePageProps) {
                   </span>
                   <span className="flex items-center gap-1.5">
                     <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                    {vendor.rating > 0 ? vendor.rating.toFixed(1) : 'New'}
-                    {vendor.review_count > 0 ? ` (${vendor.review_count})` : ''}
+                    {rating > 0 ? rating.toFixed(1) : 'New'}
+                    {reviewCount > 0 ? ` (${reviewCount})` : ''}
                   </span>
                   <span className="flex items-center gap-1.5">
                     <Users className="h-4 w-4" />
-                    {vendor.total_bookings} bookings
+                    {totalBookings} bookings
                   </span>
                 </div>
               </div>
@@ -191,46 +195,50 @@ export function VendorProfilePage({ vendorId }: VendorProfilePageProps) {
           <p className="mt-1 text-sm text-muted-foreground">Choose a service to start planning with this vendor.</p>
         </div>
 
-        {vendor.services.length === 0 ? (
+        {services.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">This vendor has not published service listings yet.</CardContent>
           </Card>
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">
-            {vendor.services.map((service) => (
-              <button
-                key={`${service.type}-${service.id}`}
-                type="button"
-                onClick={() => setShowServicePicker(true)}
-                className="rounded-lg border border-border bg-card/40 p-5 text-left transition hover:border-primary/40 hover:bg-primary/10"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-bold text-foreground">{service.name}</p>
-                    <p className="mt-1 text-sm capitalize text-muted-foreground">{service.service_category.replace(/_/g, ' ')}</p>
+            {services.map((service) => {
+              const equipmentIncluded = Array.isArray(service.equipment_included) ? service.equipment_included : []
+
+              return (
+                <button
+                  key={`${service.type}-${service.id}`}
+                  type="button"
+                  onClick={() => setShowServicePicker(true)}
+                  className="rounded-lg border border-border bg-card/40 p-5 text-left transition hover:border-primary/40 hover:bg-primary/10"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-bold text-foreground">{service.name}</p>
+                      <p className="mt-1 text-sm capitalize text-muted-foreground">{service.service_category.replace(/_/g, ' ')}</p>
+                    </div>
+                    <p className="font-bold text-foreground">{formatPrice(service.base_price)}</p>
                   </div>
-                  <p className="font-bold text-foreground">{formatPrice(service.base_price)}</p>
-                </div>
-                {service.description ? (
-                  <p className="mt-3 line-clamp-3 text-sm text-muted-foreground">{service.description}</p>
-                ) : null}
-                {service.equipment_included.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {service.equipment_included.slice(0, 5).map((item) => (
-                      <span key={item} className="rounded-md bg-sidebar-accent/40 px-2 py-1 text-xs text-foreground">{item}</span>
-                    ))}
-                  </div>
-                ) : null}
-              </button>
-            ))}
+                  {service.description ? (
+                    <p className="mt-3 line-clamp-3 text-sm text-muted-foreground">{service.description}</p>
+                  ) : null}
+                  {equipmentIncluded.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {equipmentIncluded.slice(0, 5).map((item) => (
+                        <span key={item} className="rounded-md bg-sidebar-accent/40 px-2 py-1 text-xs text-foreground">{item}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                </button>
+              )
+            })}
           </div>
         )}
       </section>
 
       <VendorReviews
         vendorId={vendor.id}
-        initialAverageRating={vendor.rating}
-        initialReviewCount={vendor.review_count}
+        initialAverageRating={rating}
+        initialReviewCount={reviewCount}
       />
 
       {showServicePicker ? (

@@ -17,6 +17,10 @@ interface UserError {
   error: string
 }
 
+export const userKeys = {
+  current: ['user'] as const,
+}
+
 /**
  * Custom hook to get current authenticated user
  * Uses React Query for caching and automatic refetching
@@ -31,7 +35,7 @@ export function useUser(initialUser?: User | null) {
     error,
     refetch,
   } = useQuery<User | null, Error>({
-    queryKey: ['user'],
+    queryKey: userKeys.current,
     queryFn: async () => {
       const response = await fetch('/api/auth/user', {
         method: 'GET',

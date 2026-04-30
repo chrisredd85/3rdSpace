@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { Building2, TrendingUp, Calendar, PiggyBank, Check, X, ArrowRight, DollarSign } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PayoutOverviewPanel } from '@/components/dashboard/PayoutOverviewPanel'
 import { useUser } from '@/lib/hooks/useUser'
 import { useToast } from '@/components/ui/toast'
 
@@ -14,6 +15,15 @@ interface VenueStats {
   revenueChange?: number
   acceptanceRate: number
   bookedPercentage: number
+  venues?: Array<{
+    id: string
+    name: string
+    address: string | null
+    city: string | null
+    state: string | null
+    capacity: number | null
+    isPublished: boolean
+  }>
 }
 
 function formatMoney(n: number) {
@@ -123,6 +133,8 @@ export default function VenueDashboard() {
         <h1 className="mt-1 font-display text-4xl font-bold">Your Venue Dashboard</h1>
       </div>
 
+      <VenueSpacePanel venues={stats?.venues ?? []} />
+
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -153,6 +165,8 @@ export default function VenueDashboard() {
           accent="secondary"
         />
       </div>
+
+      <PayoutOverviewPanel role="venue" />
 
       {/* Booking requests */}
       <div className="rounded-3xl border border-border bg-gradient-card p-6 shadow-card">
@@ -242,5 +256,73 @@ export default function VenueDashboard() {
         })}
       </div>
     </div>
+  )
+}
+
+function VenueSpacePanel({ venues }: { venues: NonNullable<VenueStats['venues']> }) {
+  if (venues.length === 0) {
+    return (
+      <section className="rounded-3xl border border-border bg-gradient-card p-6 shadow-card">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+              <Building2 className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-display text-xl font-semibold">No space listed yet</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Venue signup normally creates this automatically. Example accounts may not have a venue row yet.
+              </p>
+            </div>
+          </div>
+          <Button variant="hero" asChild>
+            <Link href="/venue/listing">
+              Add venue details <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="rounded-3xl border border-border bg-gradient-card p-6 shadow-card">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="font-display text-xl font-semibold">Your listed space</h2>
+          <p className="mt-1 text-sm text-muted-foreground">This is the venue builders can request.</p>
+        </div>
+        <Button variant="ghost" size="sm" asChild>
+          <Link href="/venue/listing">
+            Edit listing <ArrowRight className="h-4 w-4" />
+          </Link>
+        </Button>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        {venues.map((venue) => (
+          <Link
+            key={venue.id}
+            href="/venue/listing"
+            className="rounded-2xl border border-border bg-card/40 p-4 transition-smooth hover:border-primary/50 hover:bg-card"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-display text-lg font-semibold">{venue.name}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {[venue.city, venue.state].filter(Boolean).join(', ') || venue.address || 'Location not set'}
+                </p>
+              </div>
+              <span className="rounded-full bg-primary/15 px-2.5 py-1 text-xs font-semibold text-primary">
+                {venue.isPublished ? 'Published' : 'Draft'}
+              </span>
+            </div>
+            <p className="mt-3 text-sm text-muted-foreground">
+              {venue.capacity ? `${venue.capacity.toLocaleString()} standing capacity` : 'Capacity not set'}
+            </p>
+          </Link>
+        ))}
+      </div>
+    </section>
   )
 }

@@ -48,6 +48,29 @@ type VendorReviewRow = {
   created_at: string
 }
 
+const EMPTY_VENDOR_REVIEWS = {
+  reviews: [],
+  average_rating: 0,
+  review_count: 0,
+}
+
+/**
+ * Detects older databases where vendor reviews have not been migrated yet.
+ *
+ * @param error - Supabase/PostgREST error.
+ * @returns Whether the API can safely return an empty review summary.
+ */
+function isMissingVendorReviewSchema(error: unknown) {
+  const issue = error as { code?: string; message?: string } | null
+  return (
+    issue?.code === '42703' ||
+    issue?.code === '42P01' ||
+    issue?.code === 'PGRST205' ||
+    Boolean(issue?.message?.includes('reviews.vendor_id')) ||
+    Boolean(issue?.message?.includes("table 'public.reviews'"))
+  )
+}
+
 /**
  * Resolves the event date used for post-event review eligibility.
  *
@@ -122,6 +145,10 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
 
     if (error) {
+      if (isMissingVendorReviewSchema(error)) {
+        return NextResponse.json(EMPTY_VENDOR_REVIEWS)
+      }
+
       console.error('[vendor.reviews] Review lookup failed', error)
       return NextResponse.json({ error: 'Failed to load reviews' }, { status: 500 })
     }

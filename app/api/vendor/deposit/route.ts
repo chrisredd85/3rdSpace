@@ -14,6 +14,30 @@ const depositConfigSchema = z.object({
 
 type DepositConfigInput = z.infer<typeof depositConfigSchema>
 
+const NO_DEPOSIT_CONFIG = {
+  requires_deposit: false,
+  deposit_amount: null,
+  deposit_type: null,
+  deposit_percentage: null,
+  deposit_refundable: true,
+  deposit_terms: null,
+}
+
+/**
+ * Detects older databases that do not have the newer deposit columns yet.
+ *
+ * @param error - Supabase/PostgREST error.
+ * @returns Whether a legacy fallback should be used.
+ */
+function isMissingDepositSchema(error: unknown) {
+  const issue = error as { code?: string; message?: string } | null
+  return (
+    issue?.code === '42703' ||
+    issue?.code === 'PGRST204' ||
+    Boolean(issue?.message?.includes('requires_deposit'))
+  )
+}
+
 /**
  * Builds the row update for a vendor deposit configuration.
  *
@@ -105,6 +129,35 @@ export async function GET(request: NextRequest) {
       .maybeSingle()
 
     if (error) {
+      if (isMissingDepositSchema(error)) {
+        const { data: legacyVendor, error: legacyError } = await supabase
+          .from('vendor_profiles')
+          .select('id, deposit_required, deposit_amount')
+          .eq('id', parsedVendorId.data)
+          .maybeSingle()
+
+        if (!legacyError && legacyVendor) {
+          const legacy = legacyVendor as { deposit_required?: boolean | number | null; deposit_amount?: number | null }
+          const requiresDeposit = Boolean(legacy.deposit_required)
+          return NextResponse.json({
+            ...NO_DEPOSIT_CONFIG,
+            requires_deposit: requiresDeposit,
+            deposit_amount: requiresDeposit ? legacy.deposit_amount ?? null : null,
+            deposit_type: requiresDeposit ? 'fixed' : null,
+          })
+        }
+
+        const { data: existingVendor } = await supabase
+          .from('vendor_profiles')
+          .select('id')
+          .eq('id', parsedVendorId.data)
+          .maybeSingle()
+
+        if (existingVendor) {
+          return NextResponse.json(NO_DEPOSIT_CONFIG)
+        }
+      }
+
       console.error('[vendor.deposit] Failed to load deposit config', error)
       return NextResponse.json({ error: 'Failed to load deposit requirements' }, { status: 500 })
     }

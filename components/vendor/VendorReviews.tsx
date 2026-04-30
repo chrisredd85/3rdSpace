@@ -36,11 +36,14 @@ interface VendorReviewsResponse {
  */
 function formatReviewDate(value: string | null) {
   if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
-  }).format(new Date(value))
+  }).format(date)
 }
 
 /**
@@ -73,8 +76,8 @@ function StarRating({ rating }: { rating: number }) {
  */
 export function VendorReviews({ vendorId, initialAverageRating = 0, initialReviewCount = 0 }: VendorReviewsProps) {
   const [reviews, setReviews] = useState<VendorReview[]>([])
-  const [averageRating, setAverageRating] = useState(initialAverageRating)
-  const [reviewCount, setReviewCount] = useState(initialReviewCount)
+  const [averageRating, setAverageRating] = useState(Number(initialAverageRating || 0))
+  const [reviewCount, setReviewCount] = useState(Number(initialReviewCount || 0))
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -93,8 +96,8 @@ export function VendorReviews({ vendorId, initialAverageRating = 0, initialRevie
         if (!response.ok) throw new Error(data.error || 'Failed to load reviews')
         if (!isMounted) return
         setReviews(data.reviews || [])
-        setAverageRating(data.average_rating ?? 0)
-        setReviewCount(data.review_count ?? 0)
+        setAverageRating(Number(data.average_rating || 0))
+        setReviewCount(Number(data.review_count || 0))
       } catch (loadError) {
         if (isMounted) setError(loadError instanceof Error ? loadError.message : 'Failed to load reviews')
       } finally {

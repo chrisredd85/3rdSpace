@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import {
   Menu,
@@ -44,6 +45,7 @@ export function Header({
 }: HeaderProps) {
   const router = useRouter()
   const { addToast } = useToast()
+  const queryClient = useQueryClient()
   const { user } = useUser()
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isTypeMenuOpen, setIsTypeMenuOpen] = useState(false)
@@ -59,6 +61,7 @@ export function Header({
         addToast({ title: 'Error', description: result.error || 'Failed to sign out.', variant: 'destructive' })
         return
       }
+      queryClient.clear()
       router.push('/login')
     } catch {
       addToast({ title: 'Error', description: 'Something went wrong. Please try again.', variant: 'destructive' })

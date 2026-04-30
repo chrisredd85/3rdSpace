@@ -33,7 +33,7 @@ function formatPrice(amount: number) {
  */
 export function ServiceSelectionModal({ vendor, onClose }: ServiceSelectionModalProps) {
   const router = useRouter()
-  const services = vendor.services
+  const services = Array.isArray(vendor.services) ? vendor.services : []
 
   /**
    * Starts the event flow with the selected vendor service.

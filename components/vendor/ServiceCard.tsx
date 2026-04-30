@@ -45,7 +45,10 @@ function getImageUrl(path: string) {
  * @returns Service card UI.
  */
 export function ServiceCard({ service, onEdit, onDelete, compact = false }: ServiceCardProps) {
-  const coverImage = service.portfolio_images[0]
+  const portfolioImages = Array.isArray(service.portfolio_images) ? service.portfolio_images : []
+  const addOns = Array.isArray(service.add_ons) ? service.add_ons : []
+  const equipmentIncluded = Array.isArray(service.equipment_included) ? service.equipment_included : []
+  const coverImage = portfolioImages[0]
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card/40">
@@ -95,23 +98,23 @@ export function ServiceCard({ service, onEdit, onDelete, compact = false }: Serv
               Up to {service.max_capacity}
             </div>
           ) : null}
-          {service.add_ons.length > 0 ? (
+          {addOns.length > 0 ? (
             <div className="flex items-center gap-2">
               <DollarSign className="h-4 w-4 text-muted-foreground/60" />
-              {service.add_ons.length} add-on{service.add_ons.length === 1 ? '' : 's'}
+              {addOns.length} add-on{addOns.length === 1 ? '' : 's'}
             </div>
           ) : null}
-          {service.equipment_included.length > 0 ? (
+          {equipmentIncluded.length > 0 ? (
             <div className="flex items-center gap-2">
               <Package className="h-4 w-4 text-muted-foreground/60" />
-              {service.equipment_included.length} included
+              {equipmentIncluded.length} included
             </div>
           ) : null}
         </div>
 
-        {service.equipment_included.length > 0 ? (
+        {equipmentIncluded.length > 0 ? (
           <div className="flex flex-wrap gap-2">
-            {service.equipment_included.slice(0, 5).map((item) => (
+            {equipmentIncluded.slice(0, 5).map((item) => (
               <span key={item} className="rounded-md bg-sidebar-accent/40 px-2 py-1 text-xs font-medium text-foreground">
                 {item}
               </span>

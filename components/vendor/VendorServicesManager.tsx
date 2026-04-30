@@ -131,7 +131,11 @@ export function VendorServicesManager({ vendorId }: VendorServicesManagerProps) 
           {services.map((service) => (
             <div key={service.id} className="space-y-3">
               <ServiceCard service={service} onEdit={setEditingService} onDelete={handleDelete} />
-              <PortfolioUploader serviceId={service.id} images={service.portfolio_images} onUploaded={loadServices} />
+              <PortfolioUploader
+                serviceId={service.id}
+                images={Array.isArray(service.portfolio_images) ? service.portfolio_images : []}
+                onUploaded={loadServices}
+              />
             </div>
           ))}
         </div>

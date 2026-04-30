@@ -1,12 +1,20 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react'
+import dynamic from 'next/dynamic'
 import { Calendar, CheckCircle, Clock, DollarSign, Download, Star, TrendingUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { MetricCard } from '@/components/analytics/MetricCard'
-import { RevenueChart } from '@/components/analytics/RevenueChart'
-import { BookingsChart } from '@/components/analytics/BookingsChart'
+
+const RevenueChart = dynamic(
+  () => import('@/components/analytics/RevenueChart').then((mod) => mod.RevenueChart),
+  { ssr: false, loading: () => <ChartLoading label="Loading revenue chart..." /> }
+)
+const BookingsChart = dynamic(
+  () => import('@/components/analytics/BookingsChart').then((mod) => mod.BookingsChart),
+  { ssr: false, loading: () => <ChartLoading label="Loading bookings chart..." /> }
+)
 
 type Period = 'month' | 'year' | 'all' | 'custom'
 
@@ -322,6 +330,17 @@ function ComparisonMetric({ label, current, previous }: { label: string; current
       <p className="text-sm font-medium text-muted-foreground">{label}</p>
       <p className="mt-2 text-2xl font-bold text-foreground">{current}</p>
       <p className="mt-1 text-xs text-muted-foreground">Last month: {previous}</p>
+    </div>
+  )
+}
+
+/**
+ * Reserves chart space while Recharts loads in the browser.
+ */
+function ChartLoading({ label }: { label: string }) {
+  return (
+    <div className="flex h-[300px] items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+      {label}
     </div>
   )
 }

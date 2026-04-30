@@ -15,6 +15,7 @@ import {
   Store,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PayoutOverviewPanel } from '@/components/dashboard/PayoutOverviewPanel'
 import { useEvents } from '@/lib/hooks/useEvents'
 import { useBuilderStats, type BuilderStats } from '@/lib/hooks/useBuilderStats'
 import { useUser } from '@/lib/hooks/useUser'
@@ -139,6 +140,8 @@ export function BuilderDashboardClient({
           accent="success"
         />
       </div>
+
+      <PayoutOverviewPanel role="builder" />
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Upcoming events */}
