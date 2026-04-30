@@ -224,7 +224,7 @@ export default function PricingPage() {
             <div className="rounded-xl border border-primary/30 bg-primary/10 p-5">
               <p className="text-sm font-semibold text-foreground">3+ events / month</p>
               <p className="mt-1.5 text-sm text-muted-foreground">
-                Pro saves money. At 3 events you'd spend $90 on credits vs $69 for Pro.
+                Pro saves money. At 3 events you would spend $90 on credits vs $69 for Pro.
               </p>
             </div>
             <div className="rounded-xl bg-background/60 p-5">
