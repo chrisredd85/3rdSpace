@@ -1,6 +1,6 @@
 'use client'
 
-import { Calendar, MapPin, DollarSign, ArrowRight } from 'lucide-react'
+import { Calendar, MapPin, DollarSign, ArrowRight, Users } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from './Badge'
@@ -62,7 +62,7 @@ export function EventCard({
   // Generate gradient background for event image placeholder
   const gradientColors = [
     'from-blue-500 to-purple-600',
-    'from-forest-500 to-blue-600',
+    'from-primary to-blue-600',
     'from-purple-500 to-pink-600',
     'from-yellow-500 to-orange-600',
   ]
@@ -93,7 +93,7 @@ export function EventCard({
           {/* Header */}
           <div className="flex items-start justify-between">
             <div className="flex-1">
-              <h3 className="text-lg font-semibold text-gray-900 mb-1">
+              <h3 className="text-lg font-semibold text-foreground mb-1">
                 {event.title || (event as { name?: string }).name || 'Untitled Event'}
               </h3>
               <Badge status={event.status as EventStatus} size="sm" />
@@ -101,10 +101,10 @@ export function EventCard({
           </div>
 
           {/* Event Details */}
-          <div className="space-y-2 text-sm text-gray-600">
+          <div className="space-y-2 text-sm text-muted-foreground">
             {eventDate && (
               <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-gray-400" />
+                <Calendar className="h-4 w-4 text-muted-foreground/60" />
                 <span>
                   {eventDate.toLocaleDateString('en-US', {
                     weekday: 'short',
@@ -126,21 +126,21 @@ export function EventCard({
 
             {venueName && (
               <div className="flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-gray-400" />
+                <MapPin className="h-4 w-4 text-muted-foreground/60" />
                 <span>{venueName}</span>
               </div>
             )}
 
             {event.budget && (
               <div className="flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-gray-400" />
+                <DollarSign className="h-4 w-4 text-muted-foreground/60" />
                 <span>Budget: ${event.budget.toLocaleString()}</span>
               </div>
             )}
 
             {event.expected_attendees && (
               <div className="flex items-center gap-2">
-                <span className="text-gray-400">👥</span>
+                <Users className="h-4 w-4 text-muted-foreground/60" />
                 <span>{event.expected_attendees} expected guests</span>
               </div>
             )}
@@ -149,13 +149,13 @@ export function EventCard({
           {/* Progress Bar (for upcoming events) */}
           {variant === 'upcoming' && progress !== undefined && (
             <div>
-              <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+              <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
                 <span>Progress</span>
                 <span>{progress}%</span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="w-full bg-sidebar-accent rounded-full h-2">
                 <div
-                  className="bg-forest-500 h-2 rounded-full transition-all"
+                  className="bg-primary h-2 rounded-full transition-all"
                   style={{ width: `${progress}%` }}
                 />
               </div>

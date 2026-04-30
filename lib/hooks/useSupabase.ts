@@ -2,6 +2,12 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import type { User, Session } from '@supabase/supabase-js'
 
+/**
+ * Low-level hook that exposes the raw Supabase auth user and session state.
+ * Prefer `useUser` from `@/lib/hooks/useUser` for application-level auth, which
+ * includes userType/role and integrates with the Zustand auth store.
+ * Use this hook only when you need the raw Supabase `User` object directly.
+ */
 export function useSupabase() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)

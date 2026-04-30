@@ -10,7 +10,7 @@ export interface ErrorStateProps {
   /**
    * Error object or error message
    */
-  error: Error | string | null
+  error: unknown
   /**
    * Title to display
    */
@@ -27,6 +27,10 @@ export interface ErrorStateProps {
    * Show contact support link
    */
   showSupport?: boolean
+  /**
+   * Optional support URL. Uses a support email link when omitted.
+   */
+  supportLink?: string
   /**
    * Additional CSS classes
    */
@@ -58,10 +62,12 @@ export function ErrorState({
   message,
   onRetry,
   showSupport = false,
+  supportLink,
   className,
   size = 'md',
 }: ErrorStateProps) {
-  const errorMessage = error instanceof Error ? error.message : error
+  const errorMessage = getErrorMessage(error)
+  const statusCode = getErrorStatus(error)
   const isNetwork = error instanceof Error && isNetworkError(error)
 
   // Determine error type and default messages
@@ -73,12 +79,12 @@ export function ErrorState({
     if (isNetwork) {
       return {
         title: 'Connection Error',
-        message: 'Unable to connect. Please check your internet connection and try again.',
+        message: 'Connection lost. Please check your internet connection and try again.',
         icon: WifiOff,
       }
     }
 
-    if (errorMessage?.includes('404') || errorMessage?.toLowerCase().includes('not found')) {
+    if (statusCode === 404 || errorMessage.includes('404') || errorMessage.toLowerCase().includes('not found')) {
       return {
         title: 'Not Found',
         message: 'The requested item could not be found. It may have been deleted or moved.',
@@ -86,7 +92,7 @@ export function ErrorState({
       }
     }
 
-    if (errorMessage?.includes('403') || errorMessage?.toLowerCase().includes('forbidden')) {
+    if (statusCode === 403 || errorMessage.includes('403') || errorMessage.toLowerCase().includes('forbidden')) {
       return {
         title: 'Access Denied',
         message: "You don't have permission to access this resource.",
@@ -94,7 +100,7 @@ export function ErrorState({
       }
     }
 
-    if (errorMessage?.includes('500') || errorMessage?.toLowerCase().includes('server error')) {
+    if (statusCode === 500 || errorMessage.includes('500') || errorMessage.toLowerCase().includes('server error')) {
       return {
         title: 'Server Error',
         message: 'Something went wrong on our end. Please try again in a moment.',
@@ -135,17 +141,17 @@ export function ErrorState({
   const sizeClass = sizeClasses[size]
 
   return (
-    <Card className={cn('border-red-200 bg-red-50', className)}>
+    <Card className={cn('border-destructive/30 bg-destructive/10', className)}>
       <CardContent className={cn('flex flex-col items-center justify-center text-center', sizeClass.container)}>
-        <div className={cn('mb-4 flex items-center justify-center rounded-full bg-red-100 p-3', sizeClass.icon)}>
-          <Icon className={cn('text-red-600', sizeClass.icon)} />
+        <div className={cn('mb-4 flex items-center justify-center rounded-full bg-destructive/15 p-3', sizeClass.icon)}>
+          <Icon className={cn('text-destructive', sizeClass.icon)} />
         </div>
 
-        <CardTitle className={cn('mb-2 text-gray-900', sizeClass.title)}>
+        <CardTitle className={cn('mb-2 text-foreground', sizeClass.title)}>
           {errorTitle}
         </CardTitle>
 
-        <CardDescription className={cn('mb-6 max-w-md text-gray-600', sizeClass.message)}>
+        <CardDescription className={cn('mb-6 max-w-md text-muted-foreground', sizeClass.message)}>
           {errorMessageText}
         </CardDescription>
 
@@ -161,20 +167,41 @@ export function ErrorState({
             </Button>
           )}
 
-          {showSupport && (
-            <Button
-              onClick={() => {
-                window.location.href = 'mailto:support@3rdspace.com?subject=Error Report'
-              }}
-              variant="outline"
-              className="min-h-[44px]"
+          {(showSupport || supportLink) && (
+            <a
+              href={supportLink || 'mailto:support@3rdspace.com?subject=Error Report'}
+              className="inline-flex min-h-[44px] items-center justify-center rounded-xl border-2 border-border bg-card/40 px-6 py-3 text-base font-semibold text-foreground transition-all duration-200 hover:border-border hover:bg-background"
             >
               <Mail className="mr-2 h-4 w-4" />
               Contact Support
-            </Button>
+            </a>
           )}
         </div>
       </CardContent>
     </Card>
   )
+}
+
+/**
+ * Extracts a displayable message from unknown error shapes.
+ */
+function getErrorMessage(error: unknown) {
+  if (!error) return ''
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  if (typeof error === 'object') {
+    const record = error as Record<string, any>
+    return String(record.message || record.error || record.statusText || '')
+  }
+  return String(error)
+}
+
+/**
+ * Extracts an HTTP status code from common API error shapes.
+ */
+function getErrorStatus(error: unknown) {
+  if (!error || typeof error !== 'object') return null
+  const record = error as Record<string, any>
+  const status = record.status || record.response?.status
+  return typeof status === 'number' ? status : null
 }

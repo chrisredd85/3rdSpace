@@ -22,7 +22,6 @@ interface Template {
   guestCount: string
   budget: string
   services: string[]
-  emoji: string
 }
 
 const templates: Template[] = [
@@ -34,7 +33,6 @@ const templates: Template[] = [
     guestCount: '50-100',
     budget: '$2,000 - $5,000',
     services: ['Catering', 'Bartending', 'AV/Tech'],
-    emoji: '🤝',
   },
   {
     id: 'all-hands',
@@ -44,7 +42,6 @@ const templates: Template[] = [
     guestCount: '100-500',
     budget: '$5,000 - $15,000',
     services: ['AV/Tech', 'Catering', 'Event Planning'],
-    emoji: '💼',
   },
   {
     id: 'holiday-party',
@@ -54,7 +51,6 @@ const templates: Template[] = [
     guestCount: '75-200',
     budget: '$5,000 - $20,000',
     services: ['DJ', 'Catering', 'Bartending', 'Photography', 'Florist'],
-    emoji: '🎉',
   },
   {
     id: 'workshop',
@@ -64,7 +60,6 @@ const templates: Template[] = [
     guestCount: '20-50',
     budget: '$1,000 - $3,000',
     services: ['AV/Tech', 'Catering', 'Event Planning'],
-    emoji: '📚',
   },
 ]
 
@@ -78,8 +73,8 @@ export default function TemplatesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Event Templates</h1>
-        <p className="text-gray-600 mt-1">Start planning faster with pre-configured event templates</p>
+        <h1 className="text-3xl font-bold text-foreground">Event Templates</h1>
+        <p className="text-muted-foreground mt-1">Start planning faster with pre-configured event templates</p>
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -93,10 +88,10 @@ export default function TemplatesPage() {
             >
               <CardHeader>
                 <div className="flex items-start justify-between mb-2">
-                  <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-forest-400 to-forest-600 flex items-center justify-center text-2xl">
-                    {template.emoji}
+                  <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center shadow-glow">
+                    <Icon className="h-6 w-6 text-primary-foreground" />
                   </div>
-                  <Icon className="h-5 w-5 text-gray-400" />
+                  <Icon className="h-5 w-5 text-muted-foreground/60" />
                 </div>
                 <CardTitle className="text-xl">{template.name}</CardTitle>
                 <CardDescription>{template.description}</CardDescription>
@@ -104,15 +99,15 @@ export default function TemplatesPage() {
               <CardContent className="space-y-4">
                 {/* Details */}
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Users className="h-4 w-4" />
                     <span>{template.guestCount} guests</span>
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <DollarSign className="h-4 w-4" />
                     <span>{template.budget}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Calendar className="h-4 w-4" />
                     <span>Flexible dates</span>
                   </div>
@@ -120,12 +115,12 @@ export default function TemplatesPage() {
 
                 {/* Included Services */}
                 <div>
-                  <p className="text-xs font-medium text-gray-700 mb-2">Included Services:</p>
+                  <p className="text-xs font-medium text-foreground mb-2">Included Services:</p>
                   <div className="flex flex-wrap gap-2">
                     {template.services.map((service) => (
                       <span
                         key={service}
-                        className="px-2 py-1 text-xs rounded-md bg-forest-50 text-forest-700"
+                        className="px-2 py-1 text-xs rounded-md bg-primary/10 text-primary"
                       >
                         {service}
                       </span>
@@ -146,12 +141,12 @@ export default function TemplatesPage() {
 
         {/* Create Custom Template Card */}
         <Card
-          className="hover:shadow-lg transition-shadow cursor-pointer border-2 border-dashed border-gray-300 hover:border-forest-500"
+          className="hover:shadow-lg transition-shadow cursor-pointer border-2 border-dashed border-border hover:border-primary"
           onClick={() => router.push('/builder/event/new')}
         >
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <div className="h-16 w-16 rounded-full bg-gray-100 flex items-center justify-center mb-4">
-              <Plus className="h-8 w-8 text-gray-400" />
+            <div className="h-16 w-16 rounded-full bg-sidebar-accent/40 flex items-center justify-center mb-4">
+              <Plus className="h-8 w-8 text-muted-foreground/60" />
             </div>
             <CardTitle className="text-xl mb-2">Create Custom</CardTitle>
             <CardDescription className="text-center mb-4">

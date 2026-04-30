@@ -1,7 +1,7 @@
 'use client'
 
-import { VendorMarketplace } from '@/components/builder/VendorMarketplace'
+import { VendorSearchPage } from '@/components/builder/VendorSearchPage'
 
 export default function VendorMarketplacePage() {
-  return <VendorMarketplace />
+  return <VendorSearchPage />
 }

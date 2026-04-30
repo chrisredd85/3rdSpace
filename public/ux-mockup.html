@@ -1,0 +1,1451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>3rdSpace — UX/UI Redesign Mockup</title>
+<style>
+  /* ── Reset & Base ──────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --black:    #000000;
+    --void:     #0a0a0f;
+    --surface:  rgba(255,255,255,0.04);
+    --surface2: rgba(255,255,255,0.08);
+    --border:   rgba(255,255,255,0.10);
+    --border2:  rgba(255,255,255,0.18);
+    --white:    #f5f5f7;
+    --muted:    rgba(245,245,247,0.45);
+    --muted2:   rgba(245,245,247,0.25);
+    --accent:   #818cf8;     /* indigo-400 */
+    --accent-b: #6366f1;     /* indigo-500 */
+    --amber:    #f59e0b;
+    --emerald:  #10b981;
+    --rose:     #f43f5e;
+    --brand-g:  linear-gradient(135deg, #818cf8 0%, #a78bfa 60%, #e879f9 100%);
+  }
+
+  html { font-size: 16px; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    background: var(--void);
+    color: var(--white);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+
+  /* ── Navigation ────────────────────────────────── */
+  .nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 32px;
+    background: rgba(10,10,15,0.80);
+    backdrop-filter: blur(24px) saturate(180%);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-logo { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; letter-spacing: -0.3px; cursor: pointer; }
+  .nav-dot { width: 28px; height: 28px; border-radius: 8px; background: var(--brand-g); display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .nav-tabs { display: flex; gap: 4px; }
+  .nav-tab {
+    padding: 7px 16px; border-radius: 20px; font-size: 13px; font-weight: 500;
+    color: var(--muted); border: none; background: transparent; cursor: pointer;
+    transition: all 0.2s ease; letter-spacing: -0.1px;
+  }
+  .nav-tab:hover { color: var(--white); background: var(--surface); }
+  .nav-tab.active { color: var(--white); background: var(--surface2); }
+
+  /* ── Screens ───────────────────────────────────── */
+  .screen { display: none; }
+  .screen.visible { display: block; }
+
+  /* ── Overview ──────────────────────────────────── */
+  .overview-hero {
+    padding: 160px 48px 80px;
+    max-width: 960px; margin: 0 auto;
+    text-align: center;
+  }
+  .eyebrow {
+    font-size: 11px; font-weight: 600; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 20px;
+  }
+  .overview-hero h1 {
+    font-size: clamp(40px,6vw,72px); font-weight: 700; letter-spacing: -2px;
+    line-height: 1.05; margin-bottom: 24px;
+    background: var(--brand-g); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .overview-hero p {
+    font-size: 18px; color: var(--muted); max-width: 560px; margin: 0 auto 64px;
+    line-height: 1.7; letter-spacing: -0.2px;
+  }
+
+  .path-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 24px; max-width: 1000px; margin: 0 auto 120px; padding: 0 32px; }
+
+  .path-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 24px; padding: 36px 28px; cursor: pointer;
+    transition: all 0.35s cubic-bezier(0.25,0.46,0.45,0.94);
+    position: relative; overflow: hidden;
+    text-align: left;
+  }
+  .path-card::before {
+    content: ''; position: absolute; inset: 0;
+    background: var(--brand-g); opacity: 0; transition: opacity 0.35s ease;
+    border-radius: 24px;
+  }
+  .path-card:hover { border-color: var(--border2); transform: translateY(-4px); box-shadow: 0 32px 64px rgba(0,0,0,0.6); }
+  .path-card:hover::before { opacity: 0.06; }
+  .path-card > * { position: relative; z-index: 1; }
+
+  .path-icon { width: 52px; height: 52px; border-radius: 16px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+  .icon-builder { background: rgba(129,140,248,0.15); }
+  .icon-venue   { background: rgba(167,139,250,0.15); }
+  .icon-vendor  { background: rgba(232,121,249,0.15); }
+  .path-card h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.4px; margin-bottom: 10px; }
+  .path-card p  { font-size: 14px; color: var(--muted); line-height: 1.65; letter-spacing: -0.1px; }
+
+  .path-badge { display: inline-flex; align-items: center; gap: 6px; margin-top: 20px; padding: 5px 12px; border-radius: 20px; background: var(--surface2); border: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+
+  /* Steps chart */
+  .steps-section { max-width: 1000px; margin: 0 auto 100px; padding: 0 32px; }
+  .steps-section h2 { font-size: 32px; font-weight: 600; letter-spacing: -1px; margin-bottom: 8px; }
+  .steps-section > p { font-size: 15px; color: var(--muted); margin-bottom: 48px; }
+
+  .steps-row { display: flex; flex-direction: column; gap: 14px; }
+  .step-path { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 28px 32px; }
+  .step-path-label { font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 16px; }
+  .step-path-name { font-size: 16px; font-weight: 600; letter-spacing: -0.3px; margin-bottom: 18px; }
+  .step-dots { display: flex; gap: 8px; flex-wrap: wrap; }
+  .step-dot {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px; border-radius: 20px;
+    background: var(--surface2); border: 1px solid var(--border);
+    font-size: 13px; font-weight: 500; color: var(--white);
+  }
+  .step-num { width: 20px; height: 20px; border-radius: 50%; background: var(--border2); font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  .step-dot.accent-b { background: rgba(99,102,241,0.12); border-color: rgba(99,102,241,0.3); }
+  .step-dot.accent-b .step-num { background: var(--accent-b); color: white; }
+  .step-dot.accent-v { background: rgba(167,139,250,0.12); border-color: rgba(167,139,250,0.3); }
+  .step-dot.accent-v .step-num { background: #a78bfa; color: white; }
+  .step-dot.accent-d { background: rgba(232,121,249,0.12); border-color: rgba(232,121,249,0.3); }
+  .step-dot.accent-d .step-num { background: #e879f9; color: white; }
+
+  .ux-insight { max-width: 1000px; margin: 0 auto 100px; padding: 0 32px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .insight-card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 28px 24px; }
+  .insight-icon { font-size: 28px; margin-bottom: 14px; }
+  .insight-card h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.2px; margin-bottom: 8px; }
+  .insight-card p { font-size: 13px; color: var(--muted); line-height: 1.65; }
+
+  /* ── Mockup Screens ────────────────────────────── */
+  .mockup-wrap {
+    padding: 100px 24px 80px;
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center;
+  }
+
+  .device-frame {
+    width: 100%; max-width: 520px;
+    background: #0d0d12;
+    border: 1px solid var(--border2);
+    border-radius: 32px;
+    overflow: hidden;
+    box-shadow: 0 64px 128px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05);
+  }
+
+  .device-inner { padding: 40px 40px 48px; }
+
+  /* ── Auth Shell ──────────────────────────────────── */
+  .auth-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 40px;
+  }
+  .auth-logo { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; }
+  .auth-logo-mark { width: 28px; height: 28px; border-radius: 8px; background: var(--brand-g); display: flex; align-items: center; justify-content: center; font-size: 13px; }
+  .auth-back { font-size: 13px; color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 4px; transition: color 0.2s; }
+  .auth-back:hover { color: var(--white); }
+
+  /* Progress bar */
+  .progress-wrap { margin-bottom: 36px; }
+  .progress-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .progress-label { font-size: 11px; font-weight: 600; letter-spacing: 1.8px; text-transform: uppercase; color: var(--accent); }
+  .progress-count { font-size: 11px; color: var(--muted); }
+  .progress-track { height: 2px; background: var(--border); border-radius: 2px; overflow: visible; position: relative; }
+  .progress-fill {
+    height: 100%; border-radius: 2px;
+    background: linear-gradient(90deg, var(--accent-b), var(--accent));
+    transition: width 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    position: relative;
+  }
+  .progress-fill::after {
+    content: ''; position: absolute; right: -3px; top: 50%; transform: translateY(-50%);
+    width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+  }
+
+  .screen-title { font-size: 28px; font-weight: 700; letter-spacing: -0.8px; line-height: 1.1; margin-bottom: 8px; }
+  .screen-sub { font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: 32px; letter-spacing: -0.1px; }
+
+  /* ── Form Elements ─────────────────────────────── */
+  .form-field { margin-bottom: 20px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+  .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+  .form-label { font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; display: block; }
+
+  .input {
+    width: 100%; height: 48px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 0 16px; font-size: 15px; color: var(--white);
+    font-family: inherit; transition: all 0.2s ease; outline: none;
+    -webkit-appearance: none; letter-spacing: -0.2px;
+  }
+  .input::placeholder { color: var(--muted2); }
+  .input:focus { border-color: rgba(129,140,248,0.5); background: rgba(129,140,248,0.06); box-shadow: 0 0 0 3px rgba(129,140,248,0.12); }
+
+  .input.focused { border-color: rgba(129,140,248,0.5); background: rgba(129,140,248,0.06); box-shadow: 0 0 0 3px rgba(129,140,248,0.12); }
+
+  .textarea {
+    width: 100%; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; font-size: 14px; color: var(--white);
+    font-family: inherit; resize: none; outline: none;
+    transition: all 0.2s ease; letter-spacing: -0.1px; line-height: 1.6;
+  }
+  .textarea::placeholder { color: var(--muted2); }
+  .textarea:focus { border-color: rgba(129,140,248,0.5); background: rgba(129,140,248,0.06); box-shadow: 0 0 0 3px rgba(129,140,248,0.12); }
+
+  .select-input {
+    width: 100%; height: 48px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 0 16px; font-size: 15px; color: var(--white);
+    font-family: inherit; transition: all 0.2s ease; outline: none;
+    -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='rgba(245,245,247,0.35)' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 16px center;
+    padding-right: 40px; cursor: pointer;
+  }
+  .select-input option { background: #1a1a2e; color: var(--white); }
+
+  /* Chips */
+  .chip-group { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; border-radius: 20px; font-size: 13px; font-weight: 500;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--muted); cursor: pointer; transition: all 0.2s ease;
+    letter-spacing: -0.1px; white-space: nowrap;
+  }
+  .chip:hover { border-color: var(--border2); color: var(--white); }
+  .chip.active { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.5); color: var(--white); }
+  .chip-check { width: 14px; height: 14px; border-radius: 50%; background: var(--accent-b); display: flex; align-items: center; justify-content: center; font-size: 8px; }
+
+  /* Day chips */
+  .day-chip {
+    width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; background: var(--surface); border: 1px solid var(--border);
+    color: var(--muted); cursor: pointer; transition: all 0.2s ease;
+  }
+  .day-chip:hover { border-color: var(--border2); color: var(--white); }
+  .day-chip.active { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.5); color: var(--white); }
+  .day-row { display: flex; gap: 6px; }
+
+  /* Toggle card */
+  .toggle-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 20px; display: flex; gap: 14px;
+    align-items: flex-start; cursor: pointer; transition: all 0.2s ease;
+    margin-bottom: 16px;
+  }
+  .toggle-card:hover { border-color: var(--border2); }
+  .toggle-card.active { background: rgba(99,102,241,0.08); border-color: rgba(99,102,241,0.35); }
+  .toggle-dot {
+    width: 40px; height: 24px; border-radius: 12px; border: 1.5px solid var(--border2);
+    background: var(--surface); position: relative; flex-shrink: 0; margin-top: 2px;
+    transition: all 0.25s ease;
+  }
+  .toggle-dot::after {
+    content: ''; position: absolute; left: 3px; top: 50%; transform: translateY(-50%);
+    width: 16px; height: 16px; border-radius: 50%; background: var(--muted);
+    transition: all 0.25s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  .toggle-card.active .toggle-dot { background: rgba(99,102,241,0.2); border-color: rgba(99,102,241,0.5); }
+  .toggle-card.active .toggle-dot::after { left: 19px; background: var(--accent-b); box-shadow: 0 0 8px rgba(99,102,241,0.6); }
+  .toggle-title { font-size: 14px; font-weight: 600; letter-spacing: -0.2px; margin-bottom: 4px; }
+  .toggle-sub { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  /* Platform tiles */
+  .platform-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+  .platform-tile {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px 12px; text-align: center;
+    cursor: pointer; transition: all 0.2s ease;
+  }
+  .platform-tile:hover { border-color: var(--border2); }
+  .platform-tile.active { background: rgba(99,102,241,0.1); border-color: rgba(99,102,241,0.4); }
+  .platform-emoji { font-size: 24px; display: block; margin-bottom: 8px; }
+  .platform-name { font-size: 12px; font-weight: 600; display: block; }
+  .platform-sub { font-size: 10px; color: var(--muted); display: block; margin-top: 3px; }
+
+  /* Photo upload */
+  .photo-drop {
+    height: 100px; border-radius: 16px; border: 1.5px dashed var(--border);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; cursor: pointer; transition: all 0.2s ease; margin-bottom: 20px;
+    background: var(--surface);
+  }
+  .photo-drop:hover { border-color: rgba(129,140,248,0.4); background: rgba(129,140,248,0.04); }
+  .photo-drop-icon { font-size: 24px; }
+  .photo-drop-label { font-size: 13px; color: var(--muted); }
+  .photo-drop-sub { font-size: 11px; color: var(--muted2); }
+
+  /* Info note */
+  .info-note { background: rgba(129,140,248,0.08); border: 1px solid rgba(129,140,248,0.2); border-radius: 14px; padding: 16px; font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 20px; }
+  .info-note strong { color: var(--white); font-weight: 600; }
+
+  /* Section divider */
+  .section-label { font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; margin-top: 4px; }
+
+  /* Bar pricing sub-panel */
+  .sub-panel {
+    background: rgba(167,139,250,0.06); border: 1px solid rgba(167,139,250,0.2);
+    border-radius: 16px; padding: 20px; margin-bottom: 20px;
+  }
+  .sub-panel-title { font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: rgba(167,139,250,0.7); margin-bottom: 14px; }
+
+  /* Emergency panel */
+  .emergency-panel {
+    background: rgba(248,163,10,0.06); border: 1px solid rgba(248,163,10,0.2);
+    border-radius: 16px; padding: 20px; margin-bottom: 20px;
+  }
+  .emergency-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .emergency-badge { background: rgba(245,158,11,0.2); color: #fbbf24; font-size: 10px; font-weight: 700; letter-spacing: 0.8px; padding: 3px 8px; border-radius: 8px; text-transform: uppercase; }
+  .emergency-sub { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  /* Calendar sync note */
+  .sync-note {
+    background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.2);
+    border-radius: 16px; padding: 18px;
+  }
+  .sync-title { font-size: 13px; font-weight: 600; color: #34d399; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .sync-sub { font-size: 12px; color: var(--muted); line-height: 1.55; }
+
+  /* Buttons */
+  .btn-row { display: flex; justify-content: space-between; align-items: center; margin-top: 32px; }
+  .btn-back {
+    height: 44px; padding: 0 20px; border-radius: 22px;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--muted); font-size: 14px; font-weight: 500; cursor: pointer;
+    transition: all 0.2s ease; display: flex; align-items: center; gap: 6px;
+    font-family: inherit; letter-spacing: -0.1px;
+  }
+  .btn-back:hover { border-color: var(--border2); color: var(--white); }
+
+  .btn-next {
+    height: 44px; padding: 0 28px; border-radius: 22px;
+    background: var(--white); color: var(--void);
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    border: none; transition: all 0.2s ease; display: flex; align-items: center; gap: 8px;
+    font-family: inherit; letter-spacing: -0.1px;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.1);
+  }
+  .btn-next:hover { background: #e8e8ed; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+
+  .btn-finish {
+    height: 48px; padding: 0 32px; border-radius: 24px;
+    background: var(--brand-g); color: var(--white);
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    border: none; transition: all 0.2s ease; display: flex; align-items: center; gap: 8px;
+    font-family: inherit; letter-spacing: -0.1px;
+    box-shadow: 0 8px 32px rgba(99,102,241,0.4);
+  }
+  .btn-finish:hover { transform: translateY(-1px); box-shadow: 0 12px 40px rgba(99,102,241,0.5); }
+
+  /* ── Role Selector ─────────────────────────────── */
+  .role-screen { padding: 100px 24px 80px; max-width: 760px; margin: 0 auto; }
+  .role-hero { text-align: center; margin-bottom: 48px; }
+  .role-hero h1 { font-size: 40px; font-weight: 700; letter-spacing: -1.5px; line-height: 1.05; margin-bottom: 14px; }
+  .role-hero p { font-size: 16px; color: var(--muted); }
+
+  .role-cards { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+  .role-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 24px; padding: 32px 24px; cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.25,0.46,0.45,0.94);
+    position: relative; overflow: hidden;
+  }
+  .role-card::after { content: ''; position: absolute; inset: 0; opacity: 0; transition: opacity 0.3s; }
+  .role-card-b::after { background: radial-gradient(circle at 30% 30%, rgba(99,102,241,0.15), transparent 60%); }
+  .role-card-v::after { background: radial-gradient(circle at 30% 30%, rgba(167,139,250,0.15), transparent 60%); }
+  .role-card-d::after { background: radial-gradient(circle at 30% 30%, rgba(232,121,249,0.15), transparent 60%); }
+  .role-card:hover { transform: translateY(-6px); border-color: var(--border2); box-shadow: 0 32px 64px rgba(0,0,0,0.5); }
+  .role-card:hover::after { opacity: 1; }
+  .role-card > * { position: relative; z-index: 1; }
+  .role-card-icon { width: 56px; height: 56px; border-radius: 18px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+  .ri-b { background: rgba(99,102,241,0.15); }
+  .ri-v { background: rgba(167,139,250,0.15); }
+  .ri-d { background: rgba(232,121,249,0.15); }
+  .role-card h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.4px; margin-bottom: 8px; }
+  .role-card p { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 20px; }
+  .role-perks { display: flex; flex-direction: column; gap: 6px; }
+  .role-perk { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .perk-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  .role-cta { display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: var(--accent); margin-top: 22px; }
+
+  /* ── Controls panel ────────────────────────────── */
+  .controls {
+    max-width: 520px; margin: 24px auto 0;
+    display: flex; gap: 8px; justify-content: center;
+    flex-wrap: wrap;
+  }
+  .ctrl-btn {
+    padding: 8px 18px; border-radius: 20px; font-size: 13px; font-weight: 500;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--muted); cursor: pointer; transition: all 0.2s; font-family: inherit;
+  }
+  .ctrl-btn:hover { border-color: var(--border2); color: var(--white); }
+  .ctrl-btn.active-ctrl { background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.4); color: var(--white); }
+
+  .step-label {
+    max-width: 520px; margin: 20px auto 0;
+    text-align: center; font-size: 12px; color: var(--muted2);
+    letter-spacing: 0.3px;
+  }
+
+  /* ── Annotation overlays ───────────────────────── */
+  .annotation {
+    max-width: 520px; margin: 24px auto 0;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 18px; padding: 20px 24px;
+  }
+  .annotation h4 { font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--accent); letter-spacing: -0.1px; }
+  .annotation p { font-size: 12px; color: var(--muted); line-height: 1.65; }
+
+  /* ── Scrollable content ───────────────────────── */
+  .device-scroll { max-height: 680px; overflow-y: auto; padding-right: 4px; }
+  .device-scroll::-webkit-scrollbar { width: 3px; }
+  .device-scroll::-webkit-scrollbar-track { background: transparent; }
+  .device-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  /* ── Dashboard teaser ─────────────────────────── */
+  .dash-section { max-width: 1060px; margin: 0 auto; padding: 100px 32px 80px; }
+  .dash-section h2 { font-size: 36px; font-weight: 700; letter-spacing: -1.2px; margin-bottom: 8px; }
+  .dash-section > p { font-size: 15px; color: var(--muted); margin-bottom: 48px; letter-spacing: -0.1px; }
+
+  .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .dash-card { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; padding: 32px; }
+  .dash-card h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.3px; margin-bottom: 4px; color: var(--muted); }
+  .dash-stat { font-size: 44px; font-weight: 700; letter-spacing: -2px; line-height: 1; margin: 12px 0; }
+  .dash-delta { font-size: 12px; }
+  .dash-pos { color: #34d399; }
+  .dash-neg { color: #f87171; }
+
+  .stat-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 20px; }
+  .stat-mini { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 20px 18px; }
+  .stat-mini-label { font-size: 11px; color: var(--muted); font-weight: 500; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-mini-val { font-size: 28px; font-weight: 700; letter-spacing: -1px; }
+
+  .event-list { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; overflow: hidden; }
+  .event-item { padding: 18px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .event-item:last-child { border-bottom: none; }
+  .event-name { font-size: 14px; font-weight: 500; margin-bottom: 3px; }
+  .event-meta { font-size: 12px; color: var(--muted); }
+  .event-status { font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 20px; }
+  .es-confirmed { background: rgba(16,185,129,0.15); color: #34d399; }
+  .es-pending   { background: rgba(245,158,11,0.15); color: #fbbf24; }
+  .es-upcoming  { background: rgba(99,102,241,0.15); color: var(--accent); }
+
+  /* ── Responsive ─────────────────────────────────── */
+  @media (max-width: 720px) {
+    .path-grid, .role-cards { grid-template-columns: 1fr; }
+    .ux-insight { grid-template-columns: 1fr; }
+    .dash-grid { grid-template-columns: 1fr; }
+    .stat-row { grid-template-columns: 1fr 1fr; }
+    .overview-hero { padding: 120px 24px 60px; }
+    .form-row, .form-row-3 { grid-template-columns: 1fr; }
+    .device-inner { padding: 28px 24px 36px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Navigation ──────────────────────────────────────────── -->
+<nav class="nav">
+  <div class="nav-logo" onclick="showScreen('overview')">
+    <div class="nav-dot">✦</div>
+    3rdSpace
+  </div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="showScreen('overview')">Overview</button>
+    <button class="nav-tab" onclick="showScreen('role')">Role Select</button>
+    <button class="nav-tab" onclick="showScreen('builder'); setBuilderStep(1)">Creator</button>
+    <button class="nav-tab" onclick="showScreen('venue'); setVenueStep(1)">Venue</button>
+    <button class="nav-tab" onclick="showScreen('vendor'); setVendorStep(1)">Vendor</button>
+    <button class="nav-tab" onclick="showScreen('dashboard')">Dashboards</button>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- SCREEN: Overview                                           -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="screen-overview" class="screen visible">
+
+  <div class="overview-hero">
+    <p class="eyebrow">UX/UI Analysis &amp; Redesign</p>
+    <h1>Three paths.<br/>One platform.</h1>
+    <p>A Jony Ive–inspired redesign of 3rdSpace's onboarding flows — same information, radically refined experience.</p>
+  </div>
+
+  <div class="path-grid">
+    <div class="path-card" onclick="showScreen('builder'); setBuilderStep(1)">
+      <div class="path-icon icon-builder">🎪</div>
+      <h2>Community Builder</h2>
+      <p>Event creators who need venues, vendors, and ticketing in one workspace. High cognitive load — they're orchestrating everything.</p>
+      <div class="path-badge">4 steps &nbsp;·&nbsp; ~3 min</div>
+      <div style="margin-top:16px; font-size:13px; color:var(--accent); font-weight:600; display:flex; align-items:center; gap:4px;">View mockup →</div>
+    </div>
+    <div class="path-card" onclick="showScreen('venue'); setVenueStep(1)">
+      <div class="path-icon icon-venue">🏛</div>
+      <h2>Venue Owner</h2>
+      <p>Property managers listing a space. Most data-intensive path — they're setting up a complete business listing with pricing logic.</p>
+      <div class="path-badge">5 steps &nbsp;·&nbsp; ~5 min</div>
+      <div style="margin-top:16px; font-size:13px; color:#a78bfa; font-weight:600; display:flex; align-items:center; gap:4px;">View mockup →</div>
+    </div>
+    <div class="path-card" onclick="showScreen('vendor'); setVendorStep(1)">
+      <div class="path-icon icon-vendor">🎛</div>
+      <h2>Vendor</h2>
+      <p>Service providers — DJs, caterers, photographers. Simplest path but highest stakes for first impression in a marketplace.</p>
+      <div class="path-badge">4 steps &nbsp;·&nbsp; ~3 min</div>
+      <div style="margin-top:16px; font-size:13px; color:#e879f9; font-weight:600; display:flex; align-items:center; gap:4px;">View mockup →</div>
+    </div>
+  </div>
+
+  <!-- Step breakdown -->
+  <div class="steps-section">
+    <h2>Information architecture</h2>
+    <p>How each path is structured — every field preserved, grouped intentionally.</p>
+    <div class="steps-row">
+
+      <div class="step-path">
+        <div class="step-path-label">Creator / Builder</div>
+        <div class="step-dots">
+          <div class="step-dot accent-b"><div class="step-num">1</div> Identity</div>
+          <div class="step-dot accent-b"><div class="step-num">2</div> Organization</div>
+          <div class="step-dot accent-b"><div class="step-num">3</div> Event profile</div>
+          <div class="step-dot accent-b"><div class="step-num">4</div> Ticketing + prefs</div>
+        </div>
+      </div>
+
+      <div class="step-path">
+        <div class="step-path-label">Venue Owner</div>
+        <div class="step-dots">
+          <div class="step-dot accent-v"><div class="step-num">1</div> Contact</div>
+          <div class="step-dot accent-v"><div class="step-num">2</div> Space details</div>
+          <div class="step-dot accent-v"><div class="step-num">3</div> Features + photos</div>
+          <div class="step-dot accent-v"><div class="step-num">4</div> Pricing + bar</div>
+          <div class="step-dot accent-v"><div class="step-num">5</div> Availability</div>
+        </div>
+      </div>
+
+      <div class="step-path">
+        <div class="step-path-label">Vendor</div>
+        <div class="step-dots">
+          <div class="step-dot accent-d"><div class="step-num">1</div> Identity</div>
+          <div class="step-dot accent-d"><div class="step-num">2</div> Services + bio</div>
+          <div class="step-dot accent-d"><div class="step-num">3</div> Pricing + packages</div>
+          <div class="step-dot accent-d"><div class="step-num">4</div> Availability</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- UX insights -->
+  <div class="ux-insight">
+    <div class="insight-card">
+      <div class="insight-icon">🧭</div>
+      <h3>Spatial progress</h3>
+      <p>Replace numbered dot steppers with a single luminous progress line. Users feel motion — not counting. The glowing terminus tells them exactly where they are without a label.</p>
+    </div>
+    <div class="insight-card">
+      <div class="insight-icon">🫧</div>
+      <h3>Breathing room</h3>
+      <p>Jony Ive's signature move — every element needs air. Labels are uppercase micro-type at 11px/600. Inputs are 48px tall. Each step contains only what's needed, nothing more.</p>
+    </div>
+    <div class="insight-card">
+      <div class="insight-icon">✦</div>
+      <h3>Tactile chips</h3>
+      <p>Multi-select choices become pill chips with a crisp activated state — indigo tint + glow. No checkboxes. No nested lists. The selection feels like picking physical objects.</p>
+    </div>
+    <div class="insight-card">
+      <div class="insight-icon">🌑</div>
+      <h3>Deep black canvas</h3>
+      <p>Pure void (#0a0a0f) background with 4–8% white glass cards. Inputs are 1px bordered rectangles — minimal until focused, then they bloom with an indigo halo.</p>
+    </div>
+    <div class="insight-card">
+      <div class="insight-icon">⬜</div>
+      <h3>White CTA button</h3>
+      <p>"Continue" is always pure white on void — the highest contrast possible. The final "publish" action uses the brand gradient as reward. Back buttons are ghost-minimal.</p>
+    </div>
+    <div class="insight-card">
+      <div class="insight-icon">🔀</div>
+      <h3>Conditional surfaces</h3>
+      <p>The Venue's bar-pricing panel and Vendor's emergency-rate field appear as tinted sub-panels only when toggled — no layout shift, content breathes in from zero opacity.</p>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- SCREEN: Role Selector                                      -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="screen-role" class="screen">
+  <div class="role-screen">
+    <div class="role-hero">
+      <div class="eyebrow">Welcome</div>
+      <h1>How will you use<br/>3rdSpace?</h1>
+      <p>Your account type shapes everything — pick the one that fits.</p>
+    </div>
+
+    <div class="role-cards">
+
+      <div class="role-card role-card-b" onclick="showScreen('builder'); setBuilderStep(1)">
+        <div class="role-card-icon ri-b">🎪</div>
+        <h2>Community Builder</h2>
+        <p>You create events, book venues &amp; vendors, and track finances from a single workspace.</p>
+        <div class="role-perks">
+          <div class="role-perk"><div class="perk-dot"></div>Event creation &amp; management</div>
+          <div class="role-perk"><div class="perk-dot"></div>Venue + vendor marketplace</div>
+          <div class="role-perk"><div class="perk-dot"></div>Ticketing platform sync</div>
+          <div class="role-perk"><div class="perk-dot"></div>Templates &amp; bulk booking</div>
+        </div>
+        <div class="role-cta">Get started <span style="margin-left:2px">→</span></div>
+      </div>
+
+      <div class="role-card role-card-v" onclick="showScreen('venue'); setVenueStep(1)">
+        <div class="role-card-icon ri-v">🏛</div>
+        <h2>Venue Owner</h2>
+        <p>List your space, set your pricing rules once, and get discovered by the right creators.</p>
+        <div class="role-perks">
+          <div class="role-perk"><div class="perk-dot" style="background:#a78bfa"></div>Listing with photos</div>
+          <div class="role-perk"><div class="perk-dot" style="background:#a78bfa"></div>Booking calendar &amp; requests</div>
+          <div class="role-perk"><div class="perk-dot" style="background:#a78bfa"></div>Bar &amp; kickback logic</div>
+          <div class="role-perk"><div class="perk-dot" style="background:#a78bfa"></div>Payout dashboard</div>
+        </div>
+        <div class="role-cta" style="color:#a78bfa">Get started <span style="margin-left:2px">→</span></div>
+      </div>
+
+      <div class="role-card role-card-d" onclick="showScreen('vendor'); setVendorStep(1)">
+        <div class="role-card-icon ri-d">🎛</div>
+        <h2>Vendor</h2>
+        <p>Offer your services, set packages and rates, and get booked by event creators near you.</p>
+        <div class="role-perks">
+          <div class="role-perk"><div class="perk-dot" style="background:#e879f9"></div>Service profile &amp; portfolio</div>
+          <div class="role-perk"><div class="perk-dot" style="background:#e879f9"></div>Booking requests &amp; calendar</div>
+          <div class="role-perk"><div class="perk-dot" style="background:#e879f9"></div>Package builder</div>
+          <div class="role-perk"><div class="perk-dot" style="background:#e879f9"></div>Emergency availability</div>
+        </div>
+        <div class="role-cta" style="color:#e879f9">Get started <span style="margin-left:2px">→</span></div>
+      </div>
+
+    </div>
+
+    <p style="text-align:center; margin-top:32px; font-size:13px; color:var(--muted)">
+      Already have an account? <a href="#" style="color:var(--accent); text-decoration:none; font-weight:500">Sign in</a>
+    </p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- SCREEN: Builder / Creator                                  -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="screen-builder" class="screen">
+  <div class="mockup-wrap">
+    <div class="device-frame">
+      <div class="device-inner">
+
+        <!-- Header -->
+        <div class="auth-header">
+          <div class="auth-logo">
+            <div class="auth-logo-mark">✦</div>
+            3rdSpace
+          </div>
+          <div class="auth-back" onclick="showScreen('role')">← Back</div>
+        </div>
+
+        <!-- Step 1: Identity -->
+        <div id="b-step-1" class="builder-step device-scroll">
+          <div class="progress-wrap">
+            <div class="progress-meta">
+              <span class="progress-label">Creator setup</span>
+              <span class="progress-count">1 of 4</span>
+            </div>
+            <div class="progress-track"><div class="progress-fill" style="width:25%"></div></div>
+          </div>
+          <div class="screen-title">Who are you?</div>
+          <div class="screen-sub">Start with the basics. We'll layer in your event profile next.</div>
+
+          <div class="form-row">
+            <div>
+              <label class="form-label">Full name</label>
+              <input class="input focused" placeholder="Alex Rivera" value="Alex Rivera" />
+            </div>
+            <div>
+              <label class="form-label">Work email</label>
+              <input class="input" placeholder="alex@brand.com" />
+            </div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Password</label>
+            <input class="input" type="password" placeholder="Create a strong password" value="••••••••" />
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="showScreen('role')">← Role select</button>
+            <button class="btn-next" onclick="setBuilderStep(2)">Continue →</button>
+          </div>
+        </div>
+
+        <!-- Step 2: Organization -->
+        <div id="b-step-2" class="builder-step device-scroll" style="display:none">
+          <div class="progress-wrap">
+            <div class="progress-meta">
+              <span class="progress-label">Creator setup</span>
+              <span class="progress-count">2 of 4</span>
+            </div>
+            <div class="progress-track"><div class="progress-fill" style="width:50%"></div></div>
+          </div>
+          <div class="screen-title">Your organization</div>
+          <div class="screen-sub">Tell us about your brand or collective — this appears on your event pages.</div>
+
+          <div class="form-row">
+            <div>
+              <label class="form-label">Org / brand name</label>
+              <input class="input" placeholder="Sunset Social Club" />
+            </div>
+            <div>
+              <label class="form-label">Type</label>
+              <select class="select-input">
+                <option>Promoter / Production</option>
+                <option>Social group</option>
+                <option>Brand / Agency</option>
+                <option>Nonprofit</option>
+                <option>Independent creator</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label class="form-label">Social handle</label>
+              <input class="input" placeholder="@sunsetsocial" />
+            </div>
+            <div>
+              <label class="form-label">Website (optional)</label>
+              <input class="input" placeholder="https://..." />
+            </div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Short bio</label>
+            <textarea class="textarea" rows="3" placeholder="What's your scene? Who do you throw events for?"></textarea>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="setBuilderStep(1)">← Back</button>
+            <button class="btn-next" onclick="setBuilderStep(3)">Continue →</button>
+          </div>
+        </div>
+
+        <!-- Step 3: Event profile -->
+        <div id="b-step-3" class="builder-step device-scroll" style="display:none">
+          <div class="progress-wrap">
+            <div class="progress-meta">
+              <span class="progress-label">Creator setup</span>
+              <span class="progress-count">3 of 4</span>
+            </div>
+            <div class="progress-track"><div class="progress-fill" style="width:75%"></div></div>
+          </div>
+          <div class="screen-title">Event profile</div>
+          <div class="screen-sub">We use this to surface better venue and vendor matches for you.</div>
+
+          <div style="margin-bottom:24px">
+            <div class="section-label">Event types you host</div>
+            <div class="chip-group">
+              <div class="chip active"><div class="chip-check">✓</div>Day party</div>
+              <div class="chip active"><div class="chip-check">✓</div>Nightlife</div>
+              <div class="chip">Concert</div>
+              <div class="chip">Conference</div>
+              <div class="chip">Pop-up</div>
+              <div class="chip">Wedding</div>
+              <div class="chip">Corporate</div>
+              <div class="chip">Brunch</div>
+            </div>
+          </div>
+
+          <div class="form-field">
+            <label class="form-label">Average attendance</label>
+            <input class="input" placeholder="e.g. 150" value="200" />
+          </div>
+
+          <div style="margin-bottom:8px">
+            <div class="section-label">Must-have venue amenities</div>
+            <div class="chip-group">
+              <div class="chip active"><div class="chip-check">✓</div>Stage / DJ booth</div>
+              <div class="chip active"><div class="chip-check">✓</div>Full bar</div>
+              <div class="chip">Outdoor space</div>
+              <div class="chip">Kitchen access</div>
+              <div class="chip">Green room</div>
+              <div class="chip">AV included</div>
+              <div class="chip">Parking</div>
+              <div class="chip">ADA access</div>
+            </div>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="setBuilderStep(2)">← Back</button>
+            <button class="btn-next" onclick="setBuilderStep(4)">Continue →</button>
+          </div>
+        </div>
+
+        <!-- Step 4: Ticketing + prefs -->
+        <div id="b-step-4" class="builder-step device-scroll" style="display:none">
+          <div class="progress-wrap">
+            <div class="progress-meta">
+              <span class="progress-label">Creator setup</span>
+              <span class="progress-count">4 of 4</span>
+            </div>
+            <div class="progress-track"><div class="progress-fill" style="width:100%"></div></div>
+          </div>
+          <div class="screen-title">Ticketing &amp; preferences</div>
+          <div class="screen-sub">Connect your ticket platforms and choose how you want to work.</div>
+
+          <div class="section-label" style="margin-bottom:12px">Ticket platforms</div>
+          <div class="platform-grid">
+            <div class="platform-tile active">
+              <span class="platform-emoji">🎟</span>
+              <span class="platform-name">Eventbrite</span>
+              <span class="platform-sub">Auto-import sales</span>
+            </div>
+            <div class="platform-tile">
+              <span class="platform-emoji">🌸</span>
+              <span class="platform-name">Posh</span>
+              <span class="platform-sub">Sync attendees</span>
+            </div>
+            <div class="platform-tile">
+              <span class="platform-emoji">🌙</span>
+              <span class="platform-name">Luma</span>
+              <span class="platform-sub">Import RSVPs</span>
+            </div>
+          </div>
+
+          <div class="info-note" style="margin-bottom:20px">
+            <strong>Eventbrite selected</strong> — After signup we'll redirect you to connect your account. Ticket sales and attendee counts sync automatically.
+          </div>
+
+          <div class="toggle-card" id="bulk-toggle" onclick="toggleCard('bulk-toggle')">
+            <div class="toggle-dot"></div>
+            <div>
+              <div class="toggle-title">Bulk booking &amp; templates</div>
+              <div class="toggle-sub">Run a recurring series? Clone an event, book a whole season at once.</div>
+            </div>
+          </div>
+
+          <div class="form-field">
+            <label class="form-label">Invite collaborators (optional)</label>
+            <textarea class="textarea" rows="2" placeholder="co-host@brand.com, manager@brand.com"></textarea>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="setBuilderStep(3)">← Back</button>
+            <button class="btn-finish">🎪 Create my account</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Step controls -->
+    <div class="controls">
+      <button class="ctrl-btn active-ctrl" id="b-ctrl-1" onclick="setBuilderStep(1)">Step 1 · Identity</button>
+      <button class="ctrl-btn" id="b-ctrl-2" onclick="setBuilderStep(2)">Step 2 · Org</button>
+      <button class="ctrl-btn" id="b-ctrl-3" onclick="setBuilderStep(3)">Step 3 · Events</button>
+      <button class="ctrl-btn" id="b-ctrl-4" onclick="setBuilderStep(4)">Step 4 · Ticketing</button>
+    </div>
+    <div class="step-label" id="b-annotation"></div>
+
+    <div class="annotation">
+      <h4>Design decisions — Creator path</h4>
+      <p>The 4-step flow is unchanged in data but reordered for cognition: <strong>Identity first</strong> (lowest friction), then <strong>org context</strong> (they feel known), then <strong>event type + amenities</strong> (feels like personalization, not a form), then <strong>ticketing as the final reward</strong> — connecting Eventbrite is exciting, not admin. The bulk-booking toggle replaces a checkbox with a tactile switch card.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- SCREEN: Venue Owner                                        -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="screen-venue" class="screen">
+  <div class="mockup-wrap">
+    <div class="device-frame">
+      <div class="device-inner">
+
+        <div class="auth-header">
+          <div class="auth-logo"><div class="auth-logo-mark">✦</div>3rdSpace</div>
+          <div class="auth-back" onclick="showScreen('role')">← Back</div>
+        </div>
+
+        <!-- Step 1 -->
+        <div id="v-step-1" class="venue-step device-scroll">
+          <div class="progress-wrap">
+            <div class="progress-meta"><span class="progress-label" style="color:#a78bfa">Venue setup</span><span class="progress-count">1 of 5</span></div>
+            <div class="progress-track"><div class="progress-fill" style="width:20%; background:linear-gradient(90deg,#7c3aed,#a78bfa)"></div></div>
+          </div>
+          <div class="screen-title">Contact details</div>
+          <div class="screen-sub">Who handles bookings? This stays private — only shown in confirmed booking threads.</div>
+
+          <div class="form-row">
+            <div><label class="form-label">Your name</label><input class="input" placeholder="Jordan Lee" /></div>
+            <div><label class="form-label">Your role</label><input class="input" placeholder="GM / Owner / Booker" /></div>
+          </div>
+          <div class="form-row">
+            <div><label class="form-label">Booking email</label><input class="input" placeholder="bookings@venue.com" /></div>
+            <div><label class="form-label">Booking phone</label><input class="input" placeholder="+1 (555) 555-5555" /></div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Password</label>
+            <input class="input" type="password" placeholder="Create a strong password" value="••••••••" />
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="showScreen('role')">← Role select</button>
+            <button class="btn-next" onclick="setVenueStep(2)">Continue →</button>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div id="v-step-2" class="venue-step device-scroll" style="display:none">
+          <div class="progress-wrap">
+            <div class="progress-meta"><span class="progress-label" style="color:#a78bfa">Venue setup</span><span class="progress-count">2 of 5</span></div>
+            <div class="progress-track"><div class="progress-fill" style="width:40%; background:linear-gradient(90deg,#7c3aed,#a78bfa)"></div></div>
+          </div>
+          <div class="screen-title">Your space</div>
+          <div class="screen-sub">The basics every creator checks first — name, type, and where to find you.</div>
+
+          <div class="form-row">
+            <div><label class="form-label">Venue name</label><input class="input" placeholder="The Foundry Loft" /></div>
+            <div>
+              <label class="form-label">Venue type</label>
+              <select class="select-input">
+                <option>Loft / Studio</option><option>Bar</option><option>Club / Nightlife</option>
+                <option>Restaurant</option><option>Rooftop</option><option>Warehouse</option>
+                <option>Gallery</option><option>Outdoor</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Main entrance address</label>
+            <input class="input" placeholder="123 Industry Rd, Brooklyn NY 11201" />
+          </div>
+          <div class="form-row-3">
+            <div><label class="form-label">City</label><input class="input" placeholder="Brooklyn" /></div>
+            <div><label class="form-label">State</label><input class="input" placeholder="NY" /></div>
+            <div><label class="form-label">ZIP</label><input class="input" placeholder="11201" /></div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Loading dock address (if different)</label>
+            <input class="input" placeholder="Rear entrance — 124 Industry Rd" />
+          </div>
+          <div class="form-row">
+            <div><label class="form-label">Max capacity</label><input class="input" placeholder="250" /></div>
+            <div><label class="form-label">Load-in time (hrs)</label><input class="input" placeholder="2" /></div>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="setVenueStep(1)">← Back</button>
+            <button class="btn-next" onclick="setVenueStep(3)">Continue →</button>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div id="v-step-3" class="venue-step device-scroll" style="display:none">
+          <div class="progress-wrap">
+            <div class="progress-meta"><span class="progress-label" style="color:#a78bfa">Venue setup</span><span class="progress-count">3 of 5</span></div>
+            <div class="progress-track"><div class="progress-fill" style="width:60%; background:linear-gradient(90deg,#7c3aed,#a78bfa)"></div></div>
+          </div>
+          <div class="screen-title">Features &amp; rules</div>
+          <div class="screen-sub">What makes your space special — and what you need from every booking.</div>
+
+          <div style="margin-bottom:24px">
+            <div class="section-label">Amenities &amp; equipment</div>
+            <div class="chip-group">
+              <div class="chip active"><div class="chip-check">✓</div>DJ booth</div>
+              <div class="chip active"><div class="chip-check">✓</div>PA / sound system</div>
+              <div class="chip active"><div class="chip-check">✓</div>Full bar</div>
+              <div class="chip">Stage</div>
+              <div class="chip">Lighting rig</div>
+              <div class="chip">Kitchen</div>
+              <div class="chip">Green room</div>
+              <div class="chip">Coat check</div>
+              <div class="chip">Parking</div>
+              <div class="chip">Loading dock</div>
+              <div class="chip">ADA access</div>
+              <div class="chip">Wifi</div>
+            </div>
+          </div>
+
+          <div class="photo-drop">
+            <div class="photo-drop-icon">📷</div>
+            <div class="photo-drop-label">Drop photos here or tap to upload</div>
+            <div class="photo-drop-sub">Interior · exterior · stage · bar · loading area</div>
+          </div>
+
+          <div class="form-field">
+            <label class="form-label">House rules</label>
+            <textarea class="textarea" rows="4" placeholder="No outside alcohol. Music off by 2am. No confetti. Smoking on patio only..."></textarea>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="setVenueStep(2)">← Back</button>
+            <button class="btn-next" onclick="setVenueStep(4)">Continue →</button>
+          </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div id="v-step-4" class="venue-step device-scroll" style="display:none">
+          <div class="progress-wrap">
+            <div class="progress-meta"><span class="progress-label" style="color:#a78bfa">Venue setup</span><span class="progress-count">4 of 5</span></div>
+            <div class="progress-track"><div class="progress-fill" style="width:80%; background:linear-gradient(90deg,#7c3aed,#a78bfa)"></div></div>
+          </div>
+          <div class="screen-title">Pricing</div>
+          <div class="screen-sub">Set your base rates once. You can refine pricing per-booking later.</div>
+
+          <div class="toggle-card active" id="bar-toggle" onclick="toggleBarPanel()">
+            <div class="toggle-dot" id="bar-dot" style="background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.5)"><div style="position:absolute;left:19px;top:50%;transform:translateY(-50%);width:16px;height:16px;border-radius:50%;background:var(--accent-b);box-shadow:0 0 8px rgba(99,102,241,0.6)"></div></div>
+            <div>
+              <div class="toggle-title">This venue serves alcohol</div>
+              <div class="toggle-sub">Enables bar kickback &amp; per-head drink revenue settings.</div>
+            </div>
+          </div>
+
+          <div id="bar-panel" class="sub-panel">
+            <div class="sub-panel-title">Bar revenue settings</div>
+            <div class="form-row-3">
+              <div><label class="form-label">Kickback to creator (%)</label><input class="input" placeholder="10" value="10" /></div>
+              <div><label class="form-label">Per-head drink (%)</label><input class="input" placeholder="15" value="15" /></div>
+              <div><label class="form-label">Min bar spend ($)</label><input class="input" placeholder="2000" /></div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div><label class="form-label">Base price / night ($)</label><input class="input" placeholder="3500" /></div>
+            <div><label class="form-label">Deposit required ($)</label><input class="input" placeholder="1500" /></div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Cancellation terms</label>
+            <textarea class="textarea" rows="3" placeholder="Full refund 30+ days out. 50% refund 14–30 days. Non-refundable inside 14 days."></textarea>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="setVenueStep(3)">← Back</button>
+            <button class="btn-next" onclick="setVenueStep(5)">Continue →</button>
+          </div>
+        </div>
+
+        <!-- Step 5 -->
+        <div id="v-step-5" class="venue-step device-scroll" style="display:none">
+          <div class="progress-wrap">
+            <div class="progress-meta"><span class="progress-label" style="color:#a78bfa">Venue setup</span><span class="progress-count">5 of 5</span></div>
+            <div class="progress-track"><div class="progress-fill" style="width:100%; background:linear-gradient(90deg,#7c3aed,#a78bfa)"></div></div>
+          </div>
+          <div class="screen-title">Availability</div>
+          <div class="screen-sub">When are you open for bookings? You can block specific dates after setup.</div>
+
+          <div style="margin-bottom:24px">
+            <div class="section-label">Available days</div>
+            <div class="day-row">
+              <div class="day-chip">Mon</div>
+              <div class="day-chip">Tue</div>
+              <div class="day-chip">Wed</div>
+              <div class="day-chip">Thu</div>
+              <div class="day-chip active">Fri</div>
+              <div class="day-chip active">Sat</div>
+              <div class="day-chip active">Sun</div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div><label class="form-label">Earliest start</label><input class="input" type="time" value="18:00" /></div>
+            <div><label class="form-label">Latest end</label><input class="input" type="time" value="02:00" /></div>
+          </div>
+
+          <div class="sync-note" style="margin-bottom:28px">
+            <div class="sync-title">📅 Calendar sync — available after setup</div>
+            <div class="sync-sub">Connect Google Calendar or import an .ics feed to block dates automatically and prevent double-bookings.</div>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="setVenueStep(4)">← Back</button>
+            <button class="btn-finish" style="background:linear-gradient(135deg,#7c3aed,#a78bfa); box-shadow:0 8px 32px rgba(124,58,237,0.4)">🏛 Publish my listing</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="ctrl-btn active-ctrl" id="v-ctrl-1" onclick="setVenueStep(1)">1 · Contact</button>
+      <button class="ctrl-btn" id="v-ctrl-2" onclick="setVenueStep(2)">2 · Space</button>
+      <button class="ctrl-btn" id="v-ctrl-3" onclick="setVenueStep(3)">3 · Features</button>
+      <button class="ctrl-btn" id="v-ctrl-4" onclick="setVenueStep(4)">4 · Pricing</button>
+      <button class="ctrl-btn" id="v-ctrl-5" onclick="setVenueStep(5)">5 · Availability</button>
+    </div>
+
+    <div class="annotation" style="margin-top:24px">
+      <h4>Design decisions — Venue path</h4>
+      <p>The most data-dense path (5 steps) is tamed by grouping around <em>what the venue owner cares about</em> — not what the database needs. The bar-pricing panel conditionally reveals only when toggled, using a violet tint to signal it's a separate revenue "module." The availability step ends with a calm green sync card — a deliberately low-anxiety close before publish.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- SCREEN: Vendor                                             -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="screen-vendor" class="screen">
+  <div class="mockup-wrap">
+    <div class="device-frame">
+      <div class="device-inner">
+
+        <div class="auth-header">
+          <div class="auth-logo"><div class="auth-logo-mark">✦</div>3rdSpace</div>
+          <div class="auth-back" onclick="showScreen('role')">← Back</div>
+        </div>
+
+        <!-- Step 1 -->
+        <div id="d-step-1" class="vendor-step device-scroll">
+          <div class="progress-wrap">
+            <div class="progress-meta"><span class="progress-label" style="color:#e879f9">Vendor setup</span><span class="progress-count">1 of 4</span></div>
+            <div class="progress-track"><div class="progress-fill" style="width:25%; background:linear-gradient(90deg,#c026d3,#e879f9)"></div></div>
+          </div>
+          <div class="screen-title">Your identity</div>
+          <div class="screen-sub">Your name and your stage name — both matter in the marketplace.</div>
+
+          <div class="form-row">
+            <div><label class="form-label">Your name</label><input class="input" placeholder="Sam Carter" /></div>
+            <div><label class="form-label">Business / stage name</label><input class="input" placeholder="DJ Solstice" /></div>
+          </div>
+          <div class="form-row">
+            <div><label class="form-label">Email</label><input class="input" placeholder="hello@vendor.com" /></div>
+            <div><label class="form-label">Phone</label><input class="input" placeholder="+1 (555) 555-5555" /></div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Password</label>
+            <input class="input" type="password" placeholder="Create a strong password" value="••••••••" />
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="showScreen('role')">← Role select</button>
+            <button class="btn-next" onclick="setVendorStep(2)">Continue →</button>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div id="d-step-2" class="vendor-step device-scroll" style="display:none">
+          <div class="progress-wrap">
+            <div class="progress-meta"><span class="progress-label" style="color:#e879f9">Vendor setup</span><span class="progress-count">2 of 4</span></div>
+            <div class="progress-track"><div class="progress-fill" style="width:50%; background:linear-gradient(90deg,#c026d3,#e879f9)"></div></div>
+          </div>
+          <div class="screen-title">Services &amp; portfolio</div>
+          <div class="screen-sub">What you do and where creators can see your work.</div>
+
+          <div style="margin-bottom:24px">
+            <div class="section-label">What do you provide?</div>
+            <div class="chip-group">
+              <div class="chip active"><div class="chip-check">✓</div>DJ</div>
+              <div class="chip">Live band</div>
+              <div class="chip">Photographer</div>
+              <div class="chip">Videographer</div>
+              <div class="chip">Catering</div>
+              <div class="chip">Bartending</div>
+              <div class="chip">AV / Production</div>
+              <div class="chip">Lighting</div>
+              <div class="chip">Florals</div>
+              <div class="chip">Security</div>
+              <div class="chip">Hosts / Staffing</div>
+              <div class="chip">Decor</div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div><label class="form-label">Service area</label><input class="input" placeholder="NYC + tri-state" /></div>
+            <div><label class="form-label">Portfolio / IG</label><input class="input" placeholder="instagram.com/..." /></div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Short bio</label>
+            <textarea class="textarea" rows="3" placeholder="What do you bring to a room? Notable gigs, vibe, specialties..."></textarea>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="setVendorStep(1)">← Back</button>
+            <button class="btn-next" onclick="setVendorStep(3)">Continue →</button>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div id="d-step-3" class="vendor-step device-scroll" style="display:none">
+          <div class="progress-wrap">
+            <div class="progress-meta"><span class="progress-label" style="color:#e879f9">Vendor setup</span><span class="progress-count">3 of 4</span></div>
+            <div class="progress-track"><div class="progress-fill" style="width:75%; background:linear-gradient(90deg,#c026d3,#e879f9)"></div></div>
+          </div>
+          <div class="screen-title">Pricing &amp; packages</div>
+          <div class="screen-sub">Set your floor price and build your first package — what most creators will book.</div>
+
+          <div class="form-field">
+            <label class="form-label">Base / starting price ($)</label>
+            <input class="input" placeholder="800" />
+          </div>
+
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:20px">
+            <div class="section-label" style="margin-bottom:14px">Starter package</div>
+            <div class="form-field"><label class="form-label">Package name</label><input class="input" placeholder="4-hour open format set" /></div>
+            <div class="form-field" style="margin-top:14px"><label class="form-label">What's included</label><textarea class="textarea" rows="3" placeholder="4 hours of music, basic lighting, custom playlist consult..."></textarea></div>
+          </div>
+
+          <div class="form-row">
+            <div><label class="form-label">Deposit (%)</label><input class="input" placeholder="30" value="30" /></div>
+            <div><label class="form-label">Min lead time (days)</label><input class="input" placeholder="7" value="7" /></div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Cancellation terms</label>
+            <textarea class="textarea" rows="2" placeholder="Deposit non-refundable inside 14 days..."></textarea>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="setVendorStep(2)">← Back</button>
+            <button class="btn-next" onclick="setVendorStep(4)">Continue →</button>
+          </div>
+        </div>
+
+        <!-- Step 4 -->
+        <div id="d-step-4" class="vendor-step device-scroll" style="display:none">
+          <div class="progress-wrap">
+            <div class="progress-meta"><span class="progress-label" style="color:#e879f9">Vendor setup</span><span class="progress-count">4 of 4</span></div>
+            <div class="progress-track"><div class="progress-fill" style="width:100%; background:linear-gradient(90deg,#c026d3,#e879f9)"></div></div>
+          </div>
+          <div class="screen-title">Availability</div>
+          <div class="screen-sub">Your typical working days — set specific blocked dates on your calendar after setup.</div>
+
+          <div style="margin-bottom:24px">
+            <div class="section-label">Days you're available</div>
+            <div class="day-row">
+              <div class="day-chip">Mon</div>
+              <div class="day-chip">Tue</div>
+              <div class="day-chip">Wed</div>
+              <div class="day-chip">Thu</div>
+              <div class="day-chip active">Fri</div>
+              <div class="day-chip active">Sat</div>
+              <div class="day-chip active">Sun</div>
+            </div>
+          </div>
+
+          <div class="emergency-panel" id="emergency-panel" onclick="toggleEmergency()">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+              <div>
+                <div class="emergency-title">⚡ Emergency vendor <span class="emergency-badge" id="em-badge">OFF</span></div>
+                <div class="emergency-sub">Get pinged when a creator needs a last-minute replacement. Higher rate, faster payout.</div>
+              </div>
+              <div style="width:40px;height:24px;border-radius:12px;border:1.5px solid rgba(245,158,11,0.4);background:var(--surface);position:relative;flex-shrink:0;margin-top:2px;transition:all 0.25s" id="em-toggle">
+                <div style="position:absolute;left:3px;top:50%;transform:translateY(-50%);width:16px;height:16px;border-radius:50%;background:var(--muted);transition:all 0.25s" id="em-knob"></div>
+              </div>
+            </div>
+            <div id="em-rate" style="display:none;margin-top:16px">
+              <label class="form-label">Emergency-rate uplift (%)</label>
+              <input class="input" placeholder="50" onclick="event.stopPropagation()" />
+            </div>
+          </div>
+
+          <div class="info-note">
+            <strong>After signup:</strong> Connect your Google Calendar to sync blocked dates and prevent double-bookings automatically.
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-back" onclick="setVendorStep(3)">← Back</button>
+            <button class="btn-finish" style="background:linear-gradient(135deg,#c026d3,#e879f9); box-shadow:0 8px 32px rgba(192,38,211,0.4)">🎛 Publish my profile</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="ctrl-btn active-ctrl" id="d-ctrl-1" onclick="setVendorStep(1)">1 · Identity</button>
+      <button class="ctrl-btn" id="d-ctrl-2" onclick="setVendorStep(2)">2 · Services</button>
+      <button class="ctrl-btn" id="d-ctrl-3" onclick="setVendorStep(3)">3 · Pricing</button>
+      <button class="ctrl-btn" id="d-ctrl-4" onclick="setVendorStep(4)">4 · Availability</button>
+    </div>
+
+    <div class="annotation" style="margin-top:24px">
+      <h4>Design decisions — Vendor path</h4>
+      <p>Vendors are often creatives who care deeply about first impressions. The bio and portfolio fields are elevated early. Pricing is grouped as a "package builder" card — framing it as a creative product, not a rate card. The emergency-vendor toggle uses an amber tint to signal urgency and opportunity simultaneously. Clicking the entire panel activates it — no tiny checkbox hunting.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- SCREEN: Dashboards                                         -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="screen-dashboard" class="screen">
+  <div class="dash-section">
+    <div class="eyebrow">Post-onboarding</div>
+    <h2>Dashboard language</h2>
+    <p>Each role lands in a workspace built around their primary action — not a generic home page.</p>
+
+    <!-- Builder dashboard -->
+    <div style="margin-bottom:60px">
+      <div style="font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--accent);margin-bottom:20px">Creator / Builder Dashboard</div>
+      <div class="stat-row">
+        <div class="stat-mini"><div class="stat-mini-label">Upcoming events</div><div class="stat-mini-val">4</div></div>
+        <div class="stat-mini"><div class="stat-mini-label">Active vendors</div><div class="stat-mini-val">7</div></div>
+        <div class="stat-mini"><div class="stat-mini-label">YTD spend</div><div class="stat-mini-val" style="font-size:22px">$24.1k</div></div>
+        <div class="stat-mini"><div class="stat-mini-label">Saved venues</div><div class="stat-mini-val">12</div></div>
+      </div>
+      <div class="event-list">
+        <div class="event-item"><div><div class="event-name">Summer Solstice Day Party</div><div class="event-meta">Jun 21 · The Foundry Loft · 200 capacity</div></div><div class="event-status es-confirmed">Confirmed</div></div>
+        <div class="event-item"><div><div class="event-name">Rooftop Sessions Vol. 3</div><div class="event-meta">Jul 5 · Skyline Venue · 120 capacity</div></div><div class="event-status es-upcoming">Upcoming</div></div>
+        <div class="event-item"><div><div class="event-name">Brand Activation Mixer</div><div class="event-meta">Jul 18 · TBD · 80 capacity</div></div><div class="event-status es-pending">Venue needed</div></div>
+      </div>
+    </div>
+
+    <!-- Venue dashboard -->
+    <div style="margin-bottom:60px">
+      <div style="font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#a78bfa;margin-bottom:20px">Venue Owner Dashboard</div>
+      <div class="stat-row">
+        <div class="stat-mini"><div class="stat-mini-label">Requests</div><div class="stat-mini-val" style="color:#fbbf24">3</div></div>
+        <div class="stat-mini"><div class="stat-mini-label">Confirmed</div><div class="stat-mini-val" style="color:#34d399">8</div></div>
+        <div class="stat-mini"><div class="stat-mini-label">This month</div><div class="stat-mini-val" style="font-size:22px">$18.5k</div></div>
+        <div class="stat-mini"><div class="stat-mini-label">Utilization</div><div class="stat-mini-val">76%</div></div>
+      </div>
+      <div class="event-list">
+        <div class="event-item"><div><div class="event-name">New booking request — Sunset Social Club</div><div class="event-meta">Aug 3 · Sat · 200 guests · $4,200 offer</div></div><div class="event-status es-pending">Review</div></div>
+        <div class="event-item"><div><div class="event-name">Corporate mixer — Brand X</div><div class="event-meta">Jul 24 · Thu · 80 guests</div></div><div class="event-status es-confirmed">Confirmed</div></div>
+        <div class="event-item"><div><div class="event-name">Day party — 4th Frequency</div><div class="event-meta">Jul 12 · Sat · 180 guests</div></div><div class="event-status es-confirmed">Confirmed</div></div>
+      </div>
+    </div>
+
+    <!-- Vendor dashboard -->
+    <div style="margin-bottom:40px">
+      <div style="font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#e879f9;margin-bottom:20px">Vendor Dashboard</div>
+      <div class="stat-row">
+        <div class="stat-mini"><div class="stat-mini-label">Requests</div><div class="stat-mini-val" style="color:#fbbf24">2</div></div>
+        <div class="stat-mini"><div class="stat-mini-label">Booked</div><div class="stat-mini-val" style="color:#34d399">6</div></div>
+        <div class="stat-mini"><div class="stat-mini-label">This month</div><div class="stat-mini-val" style="font-size:22px">$5.4k</div></div>
+        <div class="stat-mini"><div class="stat-mini-label">Rating</div><div class="stat-mini-val">4.9</div></div>
+      </div>
+      <div class="event-list">
+        <div class="event-item"><div><div class="event-name">⚡ Emergency request — Jul 19</div><div class="event-meta">Day party · 180 guests · $1,200 (+50% uplift)</div></div><div class="event-status es-pending">Respond</div></div>
+        <div class="event-item"><div><div class="event-name">Rooftop Sessions Vol. 3</div><div class="event-meta">Jul 5 · 4-hour set · confirmed</div></div><div class="event-status es-confirmed">Confirmed</div></div>
+        <div class="event-item"><div><div class="event-name">Summer Solstice Day Party</div><div class="event-meta">Jun 21 · 5-hour set · completed</div></div><div class="event-status" style="background:rgba(245,245,247,0.08);color:var(--muted)">Done</div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── JS ───────────────────────────────────────────────────── -->
+<script>
+  function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('visible'))
+    document.getElementById('screen-' + id).classList.add('visible')
+    document.querySelectorAll('.nav-tab').forEach((t,i) => {
+      const map = ['overview','role','builder','venue','vendor','dashboard']
+      t.classList.toggle('active', map[i] === id)
+    })
+    window.scrollTo(0,0)
+  }
+
+  function setBuilderStep(n) {
+    document.querySelectorAll('.builder-step').forEach(s => s.style.display = 'none')
+    document.getElementById('b-step-' + n).style.display = 'block'
+    document.querySelectorAll('[id^="b-ctrl-"]').forEach(b => b.classList.remove('active-ctrl'))
+    document.getElementById('b-ctrl-' + n)?.classList.add('active-ctrl')
+  }
+
+  function setVenueStep(n) {
+    document.querySelectorAll('.venue-step').forEach(s => s.style.display = 'none')
+    document.getElementById('v-step-' + n).style.display = 'block'
+    document.querySelectorAll('[id^="v-ctrl-"]').forEach(b => b.classList.remove('active-ctrl'))
+    document.getElementById('v-ctrl-' + n)?.classList.add('active-ctrl')
+  }
+
+  function setVendorStep(n) {
+    document.querySelectorAll('.vendor-step').forEach(s => s.style.display = 'none')
+    document.getElementById('d-step-' + n).style.display = 'block'
+    document.querySelectorAll('[id^="d-ctrl-"]').forEach(b => b.classList.remove('active-ctrl'))
+    document.getElementById('d-ctrl-' + n)?.classList.add('active-ctrl')
+  }
+
+  function toggleCard(id) {
+    document.getElementById(id).classList.toggle('active')
+  }
+
+  let barOn = true
+  function toggleBarPanel() {
+    barOn = !barOn
+    const card = document.getElementById('bar-toggle')
+    const panel = document.getElementById('bar-panel')
+    card.classList.toggle('active', barOn)
+    panel.style.display = barOn ? 'block' : 'none'
+  }
+
+  let emOn = false
+  function toggleEmergency() {
+    emOn = !emOn
+    const panel = document.getElementById('emergency-panel')
+    const badge = document.getElementById('em-badge')
+    const toggle = document.getElementById('em-toggle')
+    const knob = document.getElementById('em-knob')
+    const rate = document.getElementById('em-rate')
+    badge.textContent = emOn ? 'ON' : 'OFF'
+    badge.style.background = emOn ? 'rgba(245,158,11,0.25)' : 'rgba(245,158,11,0.1)'
+    badge.style.color = emOn ? '#fbbf24' : 'rgba(251,191,36,0.5)'
+    if(emOn) {
+      toggle.style.background = 'rgba(245,158,11,0.15)'
+      toggle.style.borderColor = 'rgba(245,158,11,0.5)'
+      knob.style.left = '19px'
+      knob.style.background = '#f59e0b'
+      knob.style.boxShadow = '0 0 8px rgba(245,158,11,0.6)'
+    } else {
+      toggle.style.background = 'var(--surface)'
+      toggle.style.borderColor = 'rgba(245,158,11,0.4)'
+      knob.style.left = '3px'
+      knob.style.background = 'var(--muted)'
+      knob.style.boxShadow = 'none'
+    }
+    rate.style.display = emOn ? 'block' : 'none'
+  }
+
+  // Chip interactivity
+  document.addEventListener('click', function(e) {
+    if (e.target.closest('.chip') && !e.target.closest('[onclick]')) {
+      const chip = e.target.closest('.chip')
+      const isActive = chip.classList.contains('active')
+      chip.classList.toggle('active')
+      const check = chip.querySelector('.chip-check')
+      if (isActive) {
+        if (check) check.remove()
+      } else {
+        if (!chip.querySelector('.chip-check')) {
+          const c = document.createElement('div')
+          c.className = 'chip-check'
+          c.textContent = '✓'
+          chip.insertBefore(c, chip.firstChild)
+        }
+      }
+    }
+    if (e.target.closest('.day-chip')) {
+      e.target.closest('.day-chip').classList.toggle('active')
+    }
+    if (e.target.closest('.platform-tile')) {
+      e.target.closest('.platform-tile').classList.toggle('active')
+    }
+  })
+</script>
+</body>
+</html>

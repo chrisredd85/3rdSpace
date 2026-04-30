@@ -1,0 +1,893 @@
+import { createHmac, timingSafeEqual } from 'crypto'
+import { recalculateEventFinancials } from '@/lib/finance/calculate-event-financials'
+import { decryptSecret } from '@/lib/server/token-crypto'
+
+type SupabaseAdminClient = any
+type JsonObject = Record<string, any>
+
+export type WebhookPlatform = 'posh' | 'luma'
+
+type IntegrationContext = {
+  integrationId: string | null
+  eventId: string | null
+  externalEventId: string | null
+  config: JsonObject
+}
+
+type BuilderConnectionRow = {
+  id: string
+  config?: JsonObject | null
+  webhook_secret_encrypted?: string | null
+}
+
+type SalesPayload = {
+  event_id: string
+  integration_id: string | null
+  order_id: string
+  platform: WebhookPlatform
+  ticket_buyer_name: string | null
+  ticket_buyer_email: string | null
+  ticket_quantity: number
+  ticket_type: string | null
+  ticket_price: number | null
+  total_amount: number
+  fees: number
+  discount_code: string | null
+  is_refund: boolean
+  purchase_timestamp: string | null
+  raw_data: JsonObject
+}
+
+type ImportedAttendeePayload = {
+  integration_id: string
+  event_id: string
+  external_attendee_id: string
+  first_name: string | null
+  last_name: string | null
+  email: string | null
+  ticket_type: string | null
+  ticket_class: string | null
+  order_id: string | null
+  checked_in: boolean
+  check_in_time: string | null
+  check_in_method: string | null
+  ticket_price: number | null
+  raw_data: JsonObject
+}
+
+export type ProcessWebhookResult = {
+  processed: boolean
+  integrationId: string | null
+  eventId: string | null
+  externalEventId: string | null
+  webhookType: string | null
+  salesUpserted: number
+  attendeesUpserted: number
+  skippedReason?: string
+}
+
+const POSH_REFUND_TYPES = new Set(['order_updated'])
+const POSH_SALE_TYPES = new Set(['new_order', 'pending_order_actioned'])
+
+/**
+ * Checks whether an unknown value is a plain JSON object.
+ *
+ * @param value - Unknown value from a webhook body.
+ * @returns True when the value can be read as an object.
+ */
+function isObject(value: unknown): value is JsonObject {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+/**
+ * Coerces primitive webhook values into a trimmed string.
+ *
+ * @param value - Raw webhook field.
+ * @returns Trimmed string or null when empty/unsupported.
+ */
+function asString(value: unknown) {
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return null
+}
+
+/**
+ * Coerces primitive webhook values into a number.
+ *
+ * @param value - Raw webhook field.
+ * @returns Finite number or null when not numeric.
+ */
+function asNumber(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) {
+    return Number(value)
+  }
+  return null
+}
+
+/**
+ * Rounds a monetary amount to cents.
+ *
+ * @param value - Raw monetary calculation.
+ * @returns Value rounded to two decimals.
+ */
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100
+}
+
+/**
+ * Reads a nested value from a JSON object using dot notation.
+ *
+ * @param source - JSON object to read.
+ * @param path - Dot-separated path, such as `data.guest.email`.
+ * @returns Value found at the path, or undefined.
+ */
+function getPath(source: JsonObject, path: string) {
+  return path.split('.').reduce<unknown>((current, key) => {
+    if (!isObject(current)) return undefined
+    return current[key]
+  }, source)
+}
+
+/**
+ * Returns the first non-empty string found at any supplied JSON path.
+ *
+ * @param source - JSON object to read.
+ * @param paths - Candidate dot paths in priority order.
+ * @returns First string value found, or null.
+ */
+function firstString(source: JsonObject, paths: string[]) {
+  for (const path of paths) {
+    const value = asString(getPath(source, path))
+    if (value) return value
+  }
+  return null
+}
+
+/**
+ * Returns the first numeric value found at any supplied JSON path.
+ *
+ * @param source - JSON object to read.
+ * @param paths - Candidate dot paths in priority order.
+ * @returns First numeric value found, or null.
+ */
+function firstNumber(source: JsonObject, paths: string[]) {
+  for (const path of paths) {
+    const value = asNumber(getPath(source, path))
+    if (value !== null) return value
+  }
+  return null
+}
+
+/**
+ * Reads a monetary value that may be expressed as dollars or cents.
+ *
+ * @param source - JSON object to read.
+ * @param dollarPaths - Candidate paths already expressed in dollars.
+ * @param centPaths - Candidate paths expressed in cents.
+ * @returns Dollar amount rounded to cents, or null.
+ */
+function firstMoney(source: JsonObject, dollarPaths: string[], centPaths: string[]) {
+  const dollarValue = firstNumber(source, dollarPaths)
+  if (dollarValue !== null) return roundMoney(dollarValue)
+
+  const centValue = firstNumber(source, centPaths)
+  if (centValue !== null) return roundMoney(centValue / 100)
+
+  return null
+}
+
+/**
+ * Splits a full name into a first/last pair for attendee records.
+ *
+ * @param name - Full buyer or guest name.
+ * @returns First and last name fields, falling back to null.
+ */
+function splitName(name: string | null) {
+  if (!name) return { firstName: null, lastName: null }
+  const parts = name.trim().split(/\s+/)
+  return {
+    firstName: parts[0] ?? null,
+    lastName: parts.length > 1 ? parts.slice(1).join(' ') : null,
+  }
+}
+
+/**
+ * Converts request headers into JSON for webhook delivery diagnostics.
+ *
+ * @param headers - Incoming request headers.
+ * @returns Plain object copy of the headers.
+ */
+function normalizeHeaderObject(headers: Headers) {
+  const normalized: JsonObject = {}
+  headers.forEach((value, key) => {
+    normalized[key] = value
+  })
+  return normalized
+}
+
+/**
+ * Extracts the external Luma event id from known webhook payload shapes.
+ *
+ * @param payload - Raw Luma webhook payload.
+ * @returns Luma event id when present.
+ */
+export function extractLumaExternalEventId(payload: JsonObject) {
+  return firstString(payload, [
+    'event_id',
+    'data.event.api_id',
+    'data.event.id',
+    'data.event.event_id',
+    'data.event_id',
+    'data.event_api_id',
+    'data.calendar_event.event.api_id',
+    'data.calendar_event.event.id',
+  ])
+}
+
+/**
+ * Extracts the external Posh event id from known webhook payload shapes.
+ *
+ * @param payload - Raw Posh webhook payload.
+ * @returns Posh event id when present.
+ */
+export function extractPoshExternalEventId(payload: JsonObject) {
+  return firstString(payload, ['event_id'])
+}
+
+/**
+ * Extracts the webhook type discriminator from a payload.
+ *
+ * @param payload - Raw webhook payload.
+ * @returns Provider event type, or null.
+ */
+export function getWebhookType(payload: JsonObject) {
+  return firstString(payload, ['type'])
+}
+
+/**
+ * Verifies the HMAC signature Luma includes on webhook requests.
+ *
+ * @param secret - Luma webhook secret for this endpoint.
+ * @param signatureHeader - `Webhook-Signature` request header.
+ * @param rawBody - Unparsed request body.
+ * @returns True when the signature matches.
+ */
+export function verifyLumaSignature(secret: string, signatureHeader: string | null, rawBody: string) {
+  if (!signatureHeader) return false
+
+  const parts = Object.fromEntries(
+    signatureHeader.split(',').map((part) => {
+      const [key, ...rest] = part.split('=')
+      return [key?.trim(), rest.join('=').trim()]
+    })
+  )
+
+  if (!parts.t || !parts.v1) return false
+
+  const expected = createHmac('sha256', secret)
+    .update(`${parts.t}.${rawBody}`)
+    .digest('hex')
+
+  const expectedBuffer = Buffer.from(expected)
+  const actualBuffer = Buffer.from(parts.v1)
+  return expectedBuffer.length === actualBuffer.length && timingSafeEqual(expectedBuffer, actualBuffer)
+}
+
+/**
+ * Verifies the static Posh secret header when configured.
+ *
+ * @param expectedSecret - Secret stored in integration config or env.
+ * @param actualSecret - Incoming `Posh-Secret` request header.
+ * @returns True when the secrets match.
+ */
+export function verifyPoshSecret(expectedSecret: string, actualSecret: string | null) {
+  if (!actualSecret) return false
+
+  const expectedBuffer = Buffer.from(expectedSecret)
+  const actualBuffer = Buffer.from(actualSecret)
+  return expectedBuffer.length === actualBuffer.length && timingSafeEqual(expectedBuffer, actualBuffer)
+}
+
+/**
+ * Finds the 3rdSpace event/integration associated with a webhook.
+ *
+ * Lookup priority is explicit `integrationId`, then provider event id, then
+ * optional direct `eventId` query param for testing.
+ *
+ * @param admin - Service-role Supabase client.
+ * @param platform - Ticketing platform name.
+ * @param payload - Raw webhook payload.
+ * @param searchParams - Request query parameters.
+ * @returns Integration context used by webhook processors.
+ */
+export async function resolveIntegrationContext(
+  admin: SupabaseAdminClient,
+  platform: WebhookPlatform,
+  payload: JsonObject,
+  searchParams: URLSearchParams
+): Promise<IntegrationContext> {
+  const integrationId = searchParams.get('integrationId')
+  const builderConnectionId = searchParams.get('builderConnectionId')
+  const eventId = searchParams.get('eventId')
+  const externalEventId =
+    platform === 'posh' ? extractPoshExternalEventId(payload) : extractLumaExternalEventId(payload)
+  let builderConnectionConfig: JsonObject = {}
+
+  if (builderConnectionId) {
+    const { data, error } = await admin
+      .from('builder_ticketing_connections')
+      .select('id, config, webhook_secret_encrypted')
+      .eq('id', builderConnectionId)
+      .eq('platform', platform)
+      .maybeSingle()
+
+    if (error) throw error
+    const builderConnection = data as BuilderConnectionRow | null
+    if (builderConnection) {
+      builderConnectionConfig = {
+        ...(builderConnection.config ?? {}),
+      }
+
+      if (builderConnection.webhook_secret_encrypted) {
+        builderConnectionConfig.webhook_secret = decryptSecret(builderConnection.webhook_secret_encrypted)
+      }
+    }
+  }
+
+  if (integrationId) {
+    const { data, error } = await admin
+      .from('external_event_integrations')
+      .select('id, event_id, external_event_id, config')
+      .eq('id', integrationId)
+      .eq('platform', platform)
+      .maybeSingle()
+
+    if (error) throw error
+    if (data) {
+      return {
+        integrationId: data.id,
+        eventId: data.event_id,
+        externalEventId: data.external_event_id ?? externalEventId,
+        config: {
+          ...builderConnectionConfig,
+          ...(data.config ?? {}),
+        },
+      }
+    }
+  }
+
+  if (externalEventId) {
+    const { data, error } = await admin
+      .from('external_event_integrations')
+      .select('id, event_id, external_event_id, config')
+      .eq('platform', platform)
+      .eq('external_event_id', externalEventId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) throw error
+    if (data) {
+      return {
+        integrationId: data.id,
+        eventId: data.event_id,
+        externalEventId: data.external_event_id ?? externalEventId,
+        config: {
+          ...builderConnectionConfig,
+          ...(data.config ?? {}),
+        },
+      }
+    }
+  }
+
+  return {
+    integrationId: null,
+    eventId,
+    externalEventId,
+    config: builderConnectionConfig,
+  }
+}
+
+/**
+ * Stores the raw webhook delivery for test/debug visibility.
+ *
+ * @param admin - Service-role Supabase client.
+ * @param platform - Ticketing platform name.
+ * @param payload - Raw webhook payload.
+ * @param headers - Incoming request headers.
+ * @param context - Resolved event/integration context.
+ * @param processingError - Optional processing issue to persist.
+ * @returns Stored delivery id when available.
+ */
+export async function recordWebhookDelivery(
+  admin: SupabaseAdminClient,
+  platform: WebhookPlatform,
+  payload: JsonObject,
+  headers: Headers,
+  context: IntegrationContext,
+  processingError?: string | null
+) {
+  const webhookId = getDeliveryId(platform, payload, headers)
+
+  const { data, error } = await admin
+    .from('event_webhook_events')
+    .upsert(
+      {
+        platform,
+        event_id: context.eventId,
+        integration_id: context.integrationId,
+        external_event_id: context.externalEventId,
+        webhook_event_id: webhookId,
+        webhook_type: getWebhookType(payload),
+        payload,
+        headers: normalizeHeaderObject(headers),
+        processed_at: processingError ? null : new Date().toISOString(),
+        processing_error: processingError ?? null,
+      } as never,
+      webhookId ? { onConflict: 'platform,webhook_event_id' } : undefined
+    )
+    .select('id')
+    .maybeSingle()
+
+  if (error) throw error
+  return data?.id ?? null
+}
+
+/**
+ * Builds a stable delivery id for idempotent webhook logging.
+ *
+ * @param platform - Ticketing platform name.
+ * @param payload - Raw webhook payload.
+ * @param headers - Incoming request headers.
+ * @returns Provider/header id, or a derived id, or null.
+ */
+function getDeliveryId(platform: WebhookPlatform, payload: JsonObject, headers: Headers) {
+  const headerId = headers.get('webhook-id')
+  if (headerId) return headerId
+
+  if (platform === 'posh') {
+    const type = getWebhookType(payload) ?? 'unknown'
+    const orderId = firstString(payload, ['order_number', 'tracking_link'])
+    const updatedAt = firstString(payload, ['update_date', 'date_purchased'])
+    const eventId = firstString(payload, ['event_id']) ?? 'posh'
+    return orderId ? `${type}:${eventId}:${orderId}:${updatedAt ?? 'initial'}` : null
+  }
+
+  return firstString(payload, [
+    'webhook_id',
+    'id',
+    'data.ticket.api_id',
+    'data.ticket.id',
+    'data.ticket_id',
+    'data.guest.api_id',
+    'data.guest.id',
+    'data.api_id',
+    'data.id',
+  ])
+}
+
+/**
+ * Maps Posh webhook shapes into the sales table payload.
+ *
+ * Supports both real Posh payloads (`new_order`, `order_updated`) and the
+ * normalized payload shape documented for tests.
+ *
+ * @param context - Resolved event/integration context.
+ * @param payload - Raw Posh webhook payload.
+ * @returns Sales row payload or null when the event is non-financial.
+ */
+function mapPoshSale(context: IntegrationContext, payload: JsonObject): SalesPayload | null {
+  if (!context.eventId) return null
+
+  const type = asString(payload.type) ?? 'unknown'
+  const action = asString(payload.action)
+  const hasNormalizedOrder = Boolean(asString(payload.order_id))
+  const isApprovedPendingOrder = type === 'pending_order_actioned' && action === 'approved'
+  const isSale = type === 'new_order' || isApprovedPendingOrder || hasNormalizedOrder
+  const isRefundUpdate =
+    (POSH_REFUND_TYPES.has(type) || hasNormalizedOrder) &&
+    (Boolean(payload.cancelled) ||
+      Boolean(payload.refunded) ||
+      Boolean(payload.disputed) ||
+      asString(payload.refund_status) === 'completed' ||
+      (asNumber(payload.partialRefund) ?? 0) > 0)
+
+  if (!isSale && !isRefundUpdate) return null
+
+  const items = Array.isArray(payload.items) ? payload.items.filter(isObject) : []
+  const normalizedQuantity = Math.abs(asNumber(payload.ticket_quantity) ?? 0)
+  const quantity = Math.max(items.length, normalizedQuantity, 1)
+  const subtotal =
+    asNumber(payload.subtotal) ??
+    asNumber(payload.total_amount) ??
+    items.reduce((sum, item) => sum + (asNumber(item.price) ?? 0), 0)
+  const total = asNumber(payload.total) ?? asNumber(payload.total_amount) ?? subtotal
+  const partialRefund = asNumber(payload.partialRefund) ?? 0
+  const refundAmount = partialRefund > 0 ? partialRefund : total
+  const externalEventId = asString(payload.event_id) ?? 'posh'
+  const poshOrderId = asString(payload.order_id) ?? asString(payload.order_number) ?? asString(payload.tracking_link)
+  const baseOrderId = poshOrderId
+    ? `${externalEventId}:${poshOrderId}`
+    : `${externalEventId}:${asString(payload.date_purchased) ?? Date.now()}`
+  const orderId = isRefundUpdate ? `${baseOrderId}:refund` : baseOrderId
+  const ticketType =
+    asString(payload.ticket_type) ??
+    (items.map((item) => asString(item.name)).filter(Boolean).join(', ') || null)
+  const firstItemPrice = asNumber(payload.ticket_price) ?? (quantity === 1 ? asNumber(items[0]?.price) : null)
+  const averageItemPrice = quantity > 0 && subtotal > 0 ? subtotal / quantity : null
+  const buyerName = asString(payload.ticket_buyer_name) ?? [asString(payload.account_first_name), asString(payload.account_last_name)]
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+
+  return {
+    event_id: context.eventId,
+    integration_id: context.integrationId,
+    order_id: orderId,
+    platform: 'posh',
+    ticket_buyer_name: buyerName || null,
+    ticket_buyer_email: asString(payload.ticket_buyer_email) ?? asString(payload.account_email),
+    ticket_quantity: isRefundUpdate ? -quantity : quantity,
+    ticket_type: ticketType,
+    ticket_price: firstItemPrice ?? (averageItemPrice === null ? null : roundMoney(averageItemPrice)),
+    total_amount: roundMoney(isRefundUpdate ? -Math.abs(refundAmount) : total),
+    fees: isRefundUpdate ? 0 : roundMoney(asNumber(payload.fees) ?? Math.max(total - subtotal, 0)),
+    discount_code: asString(payload.discount_code) ?? asString(payload.promo_code),
+    is_refund: isRefundUpdate,
+    purchase_timestamp: asString(payload.purchase_timestamp) ?? asString(payload.date_purchased) ?? asString(payload.update_date),
+    raw_data: payload,
+  }
+}
+
+/**
+ * Maps Posh purchase payloads into one imported attendee record per ticket.
+ *
+ * @param context - Resolved event/integration context.
+ * @param payload - Raw Posh webhook payload.
+ * @returns Attendee payloads to upsert.
+ */
+function mapPoshAttendees(context: IntegrationContext, payload: JsonObject): ImportedAttendeePayload[] {
+  if (!context.integrationId || !context.eventId) return []
+  const hasNormalizedOrder = Boolean(asString(payload.order_id))
+  if (!POSH_SALE_TYPES.has(asString(payload.type) ?? '') && !hasNormalizedOrder) return []
+  if (asString(payload.type) === 'pending_order_actioned' && asString(payload.action) !== 'approved') return []
+
+  const items = Array.isArray(payload.items) ? payload.items.filter(isObject) : []
+  const buyerName = asString(payload.ticket_buyer_name) ?? [asString(payload.account_first_name), asString(payload.account_last_name)]
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+  const { firstName, lastName } = splitName(buyerName)
+  const externalEventId = asString(payload.event_id) ?? 'posh'
+  const rawOrderId = asString(payload.order_id) ?? asString(payload.order_number) ?? asString(payload.tracking_link)
+  const orderId = rawOrderId ? `${externalEventId}:${rawOrderId}` : null
+  const normalizedQuantity = Math.max(Math.abs(asNumber(payload.ticket_quantity) ?? 0), 1)
+  const attendeeItems = items.length > 0
+    ? items
+    : Array.from({ length: normalizedQuantity }, (_, index) => ({
+        item_id: `${rawOrderId ?? 'order'}_${index}`,
+        name: asString(payload.ticket_type),
+        price: asNumber(payload.ticket_price),
+      }))
+
+  return attendeeItems.map((item, index) => ({
+    integration_id: context.integrationId!,
+    event_id: context.eventId!,
+    external_attendee_id: `${orderId ?? asString(payload.date_purchased) ?? 'posh'}:${asString(item.item_id) ?? index}`,
+    first_name: firstName,
+    last_name: lastName,
+    email: asString(payload.ticket_buyer_email) ?? asString(payload.account_email),
+    ticket_type: asString(item.name),
+    ticket_class: asString(item.name),
+    order_id: orderId,
+    checked_in: false,
+    check_in_time: null,
+    check_in_method: null,
+    ticket_price: asNumber(item.price),
+    raw_data: {
+      order: payload,
+      item,
+    },
+  }))
+}
+
+/**
+ * Maps Luma webhook shapes into the sales table payload.
+ *
+ * Supports both Luma `ticket.registered` webhooks and the normalized payload
+ * shape used for test payloads when full Luma fields are unavailable.
+ *
+ * @param context - Resolved event/integration context.
+ * @param payload - Raw Luma webhook payload.
+ * @param webhookId - Luma `Webhook-Id` header.
+ * @returns Sales row payload or null when no ticket sale is present.
+ */
+function mapLumaSale(context: IntegrationContext, payload: JsonObject, webhookId: string | null): SalesPayload | null {
+  const hasNormalizedOrder = Boolean(asString(payload.order_id))
+  if (!context.eventId || (getWebhookType(payload) !== 'ticket.registered' && !hasNormalizedOrder)) return null
+
+  const data = isObject(payload.data) ? payload.data : {}
+  const ticketId =
+    asString(payload.order_id) ??
+    firstString(payload, [
+      'data.ticket.api_id',
+      'data.ticket.id',
+      'data.ticket_id',
+      'data.ticket_key',
+      'data.api_id',
+      'data.id',
+    ]) ?? webhookId
+
+  if (!ticketId) return null
+
+  const ticketPrice = firstMoney(
+    payload,
+    [
+      'ticket_price',
+      'data.ticket.price',
+      'data.ticket.amount',
+      'data.ticket_type.price',
+      'data.event_ticket_type.price',
+      'data.price',
+      'data.amount',
+    ],
+    [
+      'data.ticket.cents',
+      'data.ticket.price_cents',
+      'data.ticket_type.cents',
+      'data.event_ticket_type.cents',
+      'data.price_cents',
+      'data.amount_cents',
+    ]
+  )
+  const totalAmount = firstMoney(
+    payload,
+    ['total_amount', 'data.total_amount', 'data.total', 'data.order.total_amount', 'data.order.total'],
+    ['total_amount_cents', 'data.total_amount_cents', 'data.total_cents', 'data.order.total_amount_cents', 'data.order.total_cents']
+  )
+  const buyerName = asString(payload.ticket_buyer_name) ?? firstString(payload, [
+    'data.guest.name',
+    'data.guest.full_name',
+    'data.user.name',
+    'data.buyer.name',
+    'data.name',
+  ])
+
+  return {
+    event_id: context.eventId,
+    integration_id: context.integrationId,
+    order_id: `${asString(payload.event_id) ?? context.externalEventId ?? 'luma'}:${ticketId}`,
+    platform: 'luma',
+    ticket_buyer_name: buyerName,
+    ticket_buyer_email: asString(payload.ticket_buyer_email) ?? firstString(payload, [
+      'data.guest.email',
+      'data.user.email',
+      'data.buyer.email',
+      'data.email',
+      'data.user_email',
+    ]),
+    ticket_quantity:
+      asString(payload.refund_status) === 'completed'
+        ? -Math.abs(asNumber(payload.ticket_quantity) ?? 1)
+        : asNumber(payload.ticket_quantity) ?? 1,
+    ticket_type: asString(payload.ticket_type) ?? firstString(payload, [
+      'data.ticket_type.name',
+      'data.event_ticket_type.name',
+      'data.ticket.name',
+      'data.ticket_type',
+    ]),
+    ticket_price: ticketPrice,
+    total_amount:
+      asString(payload.refund_status) === 'completed'
+        ? -Math.abs(totalAmount ?? ticketPrice ?? 0)
+        : totalAmount ?? ticketPrice ?? 0,
+    fees: firstMoney(payload, ['fees', 'data.fees', 'data.fee'], ['fees_cents', 'data.fees_cents', 'data.fee_cents']) ?? 0,
+    discount_code: asString(payload.discount_code) ?? firstString(payload, [
+      'data.coupon_info.code',
+      'data.coupon.code',
+      'data.discount_code',
+      'data.order.coupon_info.code',
+    ]),
+    is_refund: asString(payload.refund_status) === 'completed',
+    purchase_timestamp:
+      asString(payload.purchase_timestamp) ??
+      firstString(payload, ['data.registered_at', 'data.created_at', 'data.ticket.created_at']) ??
+      new Date().toISOString(),
+    raw_data: data,
+  }
+}
+
+/**
+ * Maps Luma guest/ticket payloads into imported attendee records.
+ *
+ * @param context - Resolved event/integration context.
+ * @param payload - Raw Luma webhook payload.
+ * @param webhookId - Luma `Webhook-Id` header.
+ * @returns Attendee payload or null when no guest identity is present.
+ */
+function mapLumaAttendee(context: IntegrationContext, payload: JsonObject, webhookId: string | null): ImportedAttendeePayload | null {
+  if (!context.integrationId || !context.eventId) return null
+  const hasNormalizedOrder = Boolean(asString(payload.order_id))
+  if (!['guest.registered', 'guest.updated', 'ticket.registered'].includes(getWebhookType(payload) ?? '') && !hasNormalizedOrder) return null
+
+  const guestId =
+    asString(payload.order_id) ??
+    firstString(payload, [
+      'data.guest.api_id',
+      'data.guest.id',
+      'data.guest_id',
+      'data.api_id',
+      'data.id',
+      'data.ticket.guest_id',
+    ]) ?? webhookId
+
+  if (!guestId) return null
+
+  const fullName = asString(payload.ticket_buyer_name) ?? firstString(payload, ['data.guest.name', 'data.guest.full_name', 'data.name'])
+  const { firstName, lastName } = splitName(fullName)
+  const approvalStatus = firstString(payload, ['data.approval_status', 'data.status'])
+
+  return {
+    integration_id: context.integrationId,
+    event_id: context.eventId,
+    external_attendee_id: `${asString(payload.event_id) ?? context.externalEventId ?? 'luma'}:${guestId}`,
+    first_name: firstString(payload, ['data.guest.first_name', 'data.first_name']) ?? firstName,
+    last_name: firstString(payload, ['data.guest.last_name', 'data.last_name']) ?? lastName,
+    email: asString(payload.ticket_buyer_email) ?? firstString(payload, ['data.guest.email', 'data.email', 'data.user_email']),
+    ticket_type: asString(payload.ticket_type) ?? firstString(payload, [
+      'data.ticket_type.name',
+      'data.event_ticket_type.name',
+      'data.ticket.name',
+      'data.ticket_type',
+    ]),
+    ticket_class: approvalStatus,
+    order_id: asString(payload.order_id) ?? firstString(payload, ['data.order.id', 'data.order.api_id', 'data.ticket.order_id', 'data.ticket.id']),
+    checked_in: Boolean(getPath(payload, 'data.checked_in_at') || getPath(payload, 'data.checked_in')),
+    check_in_time: firstString(payload, ['data.checked_in_at']),
+    check_in_method: null,
+    ticket_price: firstMoney(
+      payload,
+      ['ticket_price', 'data.ticket.price', 'data.ticket_type.price', 'data.event_ticket_type.price', 'data.price'],
+      ['ticket_price_cents', 'data.ticket.price_cents', 'data.ticket_type.cents', 'data.event_ticket_type.cents', 'data.price_cents']
+    ),
+    raw_data: isObject(payload.data) ? payload.data : payload,
+  }
+}
+
+/**
+ * Upserts sales rows idempotently by provider/order id.
+ *
+ * @param admin - Service-role Supabase client.
+ * @param sales - Sales rows to upsert.
+ */
+async function upsertSales(admin: SupabaseAdminClient, sales: SalesPayload[]) {
+  if (!sales.length) return
+
+  const { error } = await admin
+    .from('event_sales_data')
+    .upsert(sales as never, { onConflict: 'platform,order_id' })
+
+  if (error) throw error
+}
+
+/**
+ * Upserts imported attendees idempotently by integration/external attendee id.
+ *
+ * @param admin - Service-role Supabase client.
+ * @param attendees - Attendee rows to upsert.
+ */
+async function upsertAttendees(admin: SupabaseAdminClient, attendees: ImportedAttendeePayload[]) {
+  if (!attendees.length) return
+
+  const { error } = await admin
+    .from('imported_attendees')
+    .upsert(attendees as never, { onConflict: 'integration_id,external_attendee_id' })
+
+  if (error) throw error
+}
+
+/**
+ * Processes a Posh webhook into sales, attendees, and financial summaries.
+ *
+ * @param admin - Service-role Supabase client.
+ * @param payload - Raw Posh webhook payload.
+ * @param context - Resolved event/integration context.
+ * @returns Processing summary for logging/API response.
+ */
+export async function processPoshWebhook(
+  admin: SupabaseAdminClient,
+  payload: JsonObject,
+  context: IntegrationContext
+): Promise<ProcessWebhookResult> {
+  const sale = mapPoshSale(context, payload)
+  const attendees = mapPoshAttendees(context, payload)
+
+  if (!context.eventId) {
+    return {
+      processed: false,
+      integrationId: context.integrationId,
+      eventId: null,
+      externalEventId: context.externalEventId,
+      webhookType: getWebhookType(payload),
+      salesUpserted: 0,
+      attendeesUpserted: 0,
+      skippedReason: 'No linked 3rdSpace event found',
+    }
+  }
+
+  await upsertSales(admin, sale ? [sale] : [])
+  await upsertAttendees(admin, attendees)
+  await recalculateEventFinancials(admin, context.eventId)
+
+  return {
+    processed: true,
+    integrationId: context.integrationId,
+    eventId: context.eventId,
+    externalEventId: context.externalEventId,
+    webhookType: getWebhookType(payload),
+    salesUpserted: sale ? 1 : 0,
+    attendeesUpserted: attendees.length,
+  }
+}
+
+/**
+ * Processes a Luma webhook into sales, attendees, and financial summaries.
+ *
+ * @param admin - Service-role Supabase client.
+ * @param payload - Raw Luma webhook payload.
+ * @param context - Resolved event/integration context.
+ * @param webhookId - Luma `Webhook-Id` header.
+ * @returns Processing summary for logging/API response.
+ */
+export async function processLumaWebhook(
+  admin: SupabaseAdminClient,
+  payload: JsonObject,
+  context: IntegrationContext,
+  webhookId: string | null
+): Promise<ProcessWebhookResult> {
+  const sale = mapLumaSale(context, payload, webhookId)
+  const attendee = mapLumaAttendee(context, payload, webhookId)
+
+  if (!context.eventId) {
+    return {
+      processed: false,
+      integrationId: context.integrationId,
+      eventId: null,
+      externalEventId: context.externalEventId,
+      webhookType: getWebhookType(payload),
+      salesUpserted: 0,
+      attendeesUpserted: 0,
+      skippedReason: 'No linked 3rdSpace event found',
+    }
+  }
+
+  await upsertSales(admin, sale ? [sale] : [])
+  await upsertAttendees(admin, attendee ? [attendee] : [])
+  await recalculateEventFinancials(admin, context.eventId)
+
+  return {
+    processed: true,
+    integrationId: context.integrationId,
+    eventId: context.eventId,
+    externalEventId: context.externalEventId,
+    webhookType: getWebhookType(payload),
+    salesUpserted: sale ? 1 : 0,
+    attendeesUpserted: attendee ? 1 : 0,
+  }
+}
+
+/**
+ * Parses and validates raw webhook JSON.
+ *
+ * @param rawBody - Unparsed request body.
+ * @returns Parsed object body.
+ * @throws When the body is invalid JSON or not an object.
+ */
+export function parseWebhookJson(rawBody: string) {
+  const parsed = JSON.parse(rawBody)
+  if (!isObject(parsed)) {
+    throw new Error('Webhook body must be a JSON object')
+  }
+  return parsed
+}

@@ -20,15 +20,17 @@ interface UserError {
 /**
  * Custom hook to get current authenticated user
  * Uses React Query for caching and automatic refetching
+ *
+ * @param initialUser - Optional server-loaded user used to avoid a dashboard auth loading deadlock
  */
-export function useUser() {
+export function useUser(initialUser?: User | null) {
   const {
     data,
     isLoading,
     isError,
     error,
     refetch,
-  } = useQuery<User, Error>({
+  } = useQuery<User | null, Error>({
     queryKey: ['user'],
     queryFn: async () => {
       const response = await fetch('/api/auth/user', {
@@ -39,7 +41,7 @@ export function useUser() {
       if (!response.ok) {
         if (response.status === 401) {
           // Not authenticated - return null user
-          return null as any
+          return null
         }
         const errorData: UserError = await response.json()
         throw new Error(errorData.error || 'Failed to fetch user')
@@ -48,6 +50,7 @@ export function useUser() {
       const data: UserResponse = await response.json()
       return data.user
     },
+    initialData: initialUser,
     retry: false, // Don't retry on 401 (not authenticated)
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
     refetchOnWindowFocus: true, // Refetch when window regains focus

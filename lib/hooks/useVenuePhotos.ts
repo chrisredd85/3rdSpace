@@ -38,8 +38,7 @@ export async function uploadVenuePhoto(
   file: File
 ): Promise<string> {
   const fileExt = file.name.split('.').pop()
-  const fileName = `${venueId}/${Date.now()}.${fileExt}`
-  const filePath = `venue-photos/${fileName}`
+  const filePath = `${venueId}/${Date.now()}.${fileExt}`
 
   const { error: uploadError } = await supabase.storage
     .from('venue-photos')
@@ -172,11 +171,11 @@ export function useDeleteVenuePhoto() {
       if (fetchError) throw fetchError
 
       // Delete from storage
-      const fileName = photo.photo_url.split('/').pop()
-      if (fileName) {
+      const filePath = photo.photo_url.split('/venue-photos/')[1]
+      if (filePath) {
         await supabase.storage
           .from('venue-photos')
-          .remove([`${photo.venue_id}/${fileName}`])
+          .remove([filePath])
       }
 
       // Delete from database

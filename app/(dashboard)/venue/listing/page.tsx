@@ -28,6 +28,8 @@ import {
 import { useUser } from '@/lib/hooks/useUser'
 import { supabase } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/toast'
+import { AmenitiesSelector } from '@/components/venue/AmenitiesSelector'
+import { UniqueFeaturesEditor } from '@/components/venue/UniqueFeaturesEditor'
 import type { VenueType } from '@/lib/types'
 
 const venueSchema = z.object({
@@ -54,23 +56,9 @@ const venueSchema = z.object({
 
 type VenueFormData = z.infer<typeof venueSchema>
 
-const amenities = [
-  { id: 'av_equipment', label: 'A/V Equipment', description: 'Projector, sound system, microphones' },
-  { id: 'wifi', label: 'WiFi', description: 'High-speed internet access' },
-  { id: 'bar', label: 'Bar', description: 'Full bar service available' },
-  { id: 'parking', label: 'Parking', description: 'On-site or nearby parking' },
-  { id: 'bart', label: 'BART Access', description: 'Near public transit' },
-  { id: 'kitchen', label: 'Kitchen', description: 'Full kitchen facilities' },
-  { id: 'outdoor_space', label: 'Outdoor Space', description: 'Patio, rooftop, or garden area' },
-  { id: 'stage', label: 'Stage', description: 'Performance stage available' },
-  { id: 'dance_floor', label: 'Dance Floor', description: 'Dedicated dance floor space' },
-  { id: 'coat_check', label: 'Coat Check', description: 'Coat check service' },
-]
-
 export default function VenueListingPage() {
   const { user, isLoading: isUserLoading, error: userError } = useUser()
   const [venueId, setVenueId] = useState<string | null>(null)
-  const [selectedAmenities, setSelectedAmenities] = useState<string[]>([])
   const [uploading, setUploading] = useState(false)
   const router = useRouter()
   const { addToast } = useToast()
@@ -126,27 +114,10 @@ export default function VenueListingPage() {
     }
   }, [venue, reset])
 
-  useEffect(() => {
-    if (venueId) {
-      supabase
-        .from('venue_amenities')
-        .select('amenity_name')
-        .eq('venue_id', venueId)
-        .then(({ data }: { data: { amenity_name: string }[] | null }) => {
-          if (data) {
-            const amenityIds = data
-              .map((a: { amenity_name: string }) => amenities.find((am) => am.label === a.amenity_name)?.id)
-              .filter((id: string | undefined): id is string => !!id)
-            setSelectedAmenities(amenityIds)
-          }
-        })
-    }
-  }, [venueId])
-
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
+        <div className="text-muted-foreground">Loading...</div>
       </div>
     )
   }
@@ -154,7 +125,7 @@ export default function VenueListingPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
+        <div className="text-destructive">Please log in to continue</div>
       </div>
     )
   }
@@ -172,27 +143,6 @@ export default function VenueListingPage() {
           max_capacity: data.max_capacity || null,
         },
       })
-
-      // Update amenities
-      // First, delete existing amenities
-      await supabase
-        .from('venue_amenities')
-        .delete()
-        .eq('venue_id', venueId)
-
-      // Then, insert new ones
-      if (selectedAmenities.length > 0) {
-        const amenitiesToInsert = selectedAmenities.map((amenityId) => {
-          const amenity = amenities.find((a) => a.id === amenityId)
-          return {
-            venue_id: venueId,
-            amenity_name: amenity?.label || amenityId,
-            description: amenity?.description || null,
-          }
-        })
-
-        await supabase.from('venue_amenities').insert(amenitiesToInsert)
-      }
 
       addToast({
         title: 'Venue updated',
@@ -278,8 +228,8 @@ export default function VenueListingPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-forest-500 border-t-transparent mx-auto mb-4" />
-          <p className="text-gray-600">Loading venue...</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading venue...</p>
         </div>
       </div>
     )
@@ -288,7 +238,7 @@ export default function VenueListingPage() {
   if (!venue) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-600">No venue found. Please create a venue first.</p>
+        <p className="text-muted-foreground">No venue found. Please create a venue first.</p>
       </div>
     )
   }
@@ -297,8 +247,8 @@ export default function VenueListingPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Venue Listing</h1>
-          <p className="text-gray-600 mt-1">Manage your venue details and public listing</p>
+          <h1 className="text-3xl font-bold text-foreground">Venue Listing</h1>
+          <p className="text-muted-foreground mt-1">Manage your venue details and public listing</p>
         </div>
         <Button
           variant="outline"
@@ -320,7 +270,7 @@ export default function VenueListingPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
+              <label className="text-sm font-medium text-foreground mb-2 block">
                 Venue Name *
               </label>
               <Input
@@ -328,30 +278,30 @@ export default function VenueListingPage() {
                 placeholder="The Grand Hall"
               />
               {errors.name && (
-                <p className="text-sm text-red-500 mt-1">{errors.name.message}</p>
+                <p className="text-sm text-destructive mt-1">{errors.name.message}</p>
               )}
             </div>
 
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
+              <label className="text-sm font-medium text-foreground mb-2 block">
                 Description
               </label>
               <textarea
                 {...register('description')}
                 rows={4}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500"
+                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 placeholder="Describe your venue, its atmosphere, and what makes it special..."
               />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   Venue Type *
                 </label>
                 <select
                   {...register('venue_type')}
-                  className="flex h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
                 >
                   <option value="loft_warehouse">Loft/Warehouse</option>
                   <option value="gallery">Gallery</option>
@@ -363,7 +313,7 @@ export default function VenueListingPage() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   Square Footage
                 </label>
                 <Input
@@ -376,7 +326,7 @@ export default function VenueListingPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   Standing Capacity *
                 </label>
                 <Input
@@ -385,12 +335,12 @@ export default function VenueListingPage() {
                   placeholder="200"
                 />
                 {errors.capacity && (
-                  <p className="text-sm text-red-500 mt-1">{errors.capacity.message}</p>
+                  <p className="text-sm text-destructive mt-1">{errors.capacity.message}</p>
                 )}
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   Min Capacity
                 </label>
                 <Input
@@ -401,7 +351,7 @@ export default function VenueListingPage() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   Max Capacity
                 </label>
                 <Input
@@ -413,7 +363,7 @@ export default function VenueListingPage() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
+              <label className="text-sm font-medium text-foreground mb-2 block">
                 Address *
               </label>
               <Input
@@ -421,41 +371,54 @@ export default function VenueListingPage() {
                 placeholder="123 Main Street"
               />
               {errors.address && (
-                <p className="text-sm text-red-500 mt-1">{errors.address.message}</p>
+                <p className="text-sm text-destructive mt-1">{errors.address.message}</p>
               )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   City *
                 </label>
                 <Input {...register('city')} placeholder="San Francisco" />
                 {errors.city && (
-                  <p className="text-sm text-red-500 mt-1">{errors.city.message}</p>
+                  <p className="text-sm text-destructive mt-1">{errors.city.message}</p>
                 )}
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   State *
                 </label>
                 <Input {...register('state')} placeholder="CA" />
                 {errors.state && (
-                  <p className="text-sm text-red-500 mt-1">{errors.state.message}</p>
+                  <p className="text-sm text-destructive mt-1">{errors.state.message}</p>
                 )}
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   ZIP Code *
                 </label>
                 <Input {...register('zip_code')} placeholder="94102" />
                 {errors.zip_code && (
-                  <p className="text-sm text-red-500 mt-1">{errors.zip_code.message}</p>
+                  <p className="text-sm text-destructive mt-1">{errors.zip_code.message}</p>
                 )}
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Unique Features Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Unique Features</CardTitle>
+            <CardDescription>
+              Highlight the details that make your venue memorable and searchable.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {venueId ? <UniqueFeaturesEditor venueId={venueId} /> : null}
           </CardContent>
         </Card>
 
@@ -468,37 +431,7 @@ export default function VenueListingPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {amenities.map((amenity) => (
-                <label
-                  key={amenity.id}
-                  className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedAmenities.includes(amenity.id)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedAmenities([...selectedAmenities, amenity.id])
-                      } else {
-                        setSelectedAmenities(
-                          selectedAmenities.filter((id) => id !== amenity.id)
-                        )
-                      }
-                    }}
-                    className="mt-1 h-4 w-4 text-forest-500 focus:ring-forest-500"
-                  />
-                  <div>
-                    <div className="font-medium text-sm text-gray-900">
-                      {amenity.label}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      {amenity.description}
-                    </div>
-                  </div>
-                </label>
-              ))}
-            </div>
+            {venueId ? <AmenitiesSelector venueId={venueId} /> : null}
           </CardContent>
         </Card>
 
@@ -539,7 +472,7 @@ export default function VenueListingPage() {
                 {photos.map((photo, index) => (
                   <div
                     key={photo.id}
-                    className="relative group aspect-square rounded-lg overflow-hidden border border-gray-200"
+                    className="relative group aspect-square rounded-lg overflow-hidden border border-border"
                   >
                     <img
                       src={photo.photo_url}
@@ -553,7 +486,7 @@ export default function VenueListingPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleSetPrimary(photo.id)}
-                          className="text-white hover:text-white hover:bg-white/20"
+                          className="text-white hover:text-white hover:bg-primary-foreground/20"
                         >
                           <Star className="h-4 w-4" />
                         </Button>
@@ -568,7 +501,7 @@ export default function VenueListingPage() {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleDeletePhoto(photo.id)}
-                        className="text-white hover:text-white hover:bg-red-500/20"
+                        className="text-white hover:text-white hover:bg-destructive/20"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -579,9 +512,9 @@ export default function VenueListingPage() {
             )}
 
             {photos.length === 0 && (
-              <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
-                <Upload className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-sm text-gray-600">No photos uploaded yet</p>
+              <div className="text-center py-8 border-2 border-dashed border-border rounded-lg">
+                <Upload className="h-12 w-12 text-muted-foreground/60 mx-auto mb-4" />
+                <p className="text-sm text-muted-foreground">No photos uploaded yet</p>
               </div>
             )}
           </CardContent>

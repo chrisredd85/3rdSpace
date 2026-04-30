@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import {
+  normalizeAvailabilityBlock,
+  toAvailabilityBlockUpdate,
+  type AvailabilityBlockRow,
+} from '@/lib/bookings/availability-adapter'
 
 interface RouteContext {
   params: {
@@ -39,10 +44,10 @@ export async function PATCH(
     const { id } = params
     const body = await request.json()
 
-    // Verify block exists and belongs to user's venue
+    // Verify block exists and belongs to one of the user's venues
     const { data: block, error: blockError } = await supabase
       .from('availability_blocks')
-      .select('*, venues!inner(owner_id)')
+      .select('*')
       .eq('id', id)
       .single()
 
@@ -53,9 +58,22 @@ export async function PATCH(
       )
     }
 
-    // Verify venue belongs to user
-    const blockWithVenue = block as { venues?: { owner_id: string } }
-    if (blockWithVenue.venues?.owner_id !== user.id) {
+    const blockRow = block as AvailabilityBlockRow
+    if (blockRow.blockable_type !== 'venue') {
+      return NextResponse.json(
+        { error: 'Block not found' },
+        { status: 404 }
+      )
+    }
+
+    const { data: venue } = await supabase
+      .from('venues')
+      .select('id, owner_id')
+      .eq('id', blockRow.blockable_id)
+      .eq('owner_id', user.id)
+      .maybeSingle()
+
+    if (!venue) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }
@@ -82,21 +100,7 @@ export async function PATCH(
       }
     }
 
-    // Update block
-    const updates: any = {
-      updated_at: new Date().toISOString(),
-    }
-
-    if (body.start_date !== undefined) {
-      updates.start_date = body.start_date.split('T')[0]
-    }
-    if (body.end_date !== undefined) {
-      updates.end_date = body.end_date.split('T')[0]
-    }
-    if (body.start_time !== undefined) updates.start_time = body.start_time
-    if (body.end_time !== undefined) updates.end_time = body.end_time
-    if (body.is_available !== undefined) updates.is_available = body.is_available
-    if (body.reason !== undefined) updates.reason = body.reason
+    const updates = toAvailabilityBlockUpdate(body)
 
     const { data: updatedBlock, error: updateError } = await supabase
       .from('availability_blocks')
@@ -115,7 +119,7 @@ export async function PATCH(
 
     return NextResponse.json({
       success: true,
-      block: updatedBlock,
+      block: normalizeAvailabilityBlock(updatedBlock as AvailabilityBlockRow),
     })
   } catch (error) {
     console.error('Update block error:', error)
@@ -157,10 +161,10 @@ export async function DELETE(
 
     const { id } = params
 
-    // Verify block exists and belongs to user's venue
+    // Verify block exists and belongs to one of the user's venues
     const { data: block, error: blockError } = await supabase
       .from('availability_blocks')
-      .select('*, venues!inner(owner_id)')
+      .select('*')
       .eq('id', id)
       .single()
 
@@ -171,9 +175,22 @@ export async function DELETE(
       )
     }
 
-    // Verify venue belongs to user
-    const blockWithVenue = block as { venues?: { owner_id: string } }
-    if (blockWithVenue.venues?.owner_id !== user.id) {
+    const blockRow = block as AvailabilityBlockRow
+    if (blockRow.blockable_type !== 'venue') {
+      return NextResponse.json(
+        { error: 'Block not found' },
+        { status: 404 }
+      )
+    }
+
+    const { data: venue } = await supabase
+      .from('venues')
+      .select('id, owner_id')
+      .eq('id', blockRow.blockable_id)
+      .eq('owner_id', user.id)
+      .maybeSingle()
+
+    if (!venue) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }

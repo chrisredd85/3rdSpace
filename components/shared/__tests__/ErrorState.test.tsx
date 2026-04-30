@@ -7,7 +7,7 @@ describe('ErrorState Component', () => {
     const error = new Error('Something went wrong')
     render(<ErrorState error={error} />)
 
-    expect(screen.getByText(/something went wrong/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /something went wrong/i })).toBeInTheDocument()
   })
 
   it('should call onRetry when retry button is clicked', async () => {

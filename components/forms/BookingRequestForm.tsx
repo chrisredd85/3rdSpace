@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -9,6 +10,15 @@ import { FormField } from './FormField'
 import { DatePicker } from './DatePicker'
 import { TimePicker } from './TimePicker'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { VenueRulesDisplay } from '@/components/builder/VenueRulesDisplay'
+import { DepositDisplay } from '@/components/builder/DepositDisplay'
+import { VendorAvailabilityDatePicker } from '@/components/vendor/VendorAvailabilityDatePicker'
+import { StripeIntegrationNotice } from '@/components/shared/StripeIntegrationNotice'
+
+const optionalPositiveInteger = z.preprocess(
+  (value) => (typeof value === 'number' && Number.isNaN(value) ? undefined : value),
+  z.number().int().positive('Attendance must be greater than 0').optional()
+)
 
 const bookingRequestSchema = z.object({
   requested_date: z.string().min(1, 'Date is required').refine(
@@ -26,16 +36,8 @@ const bookingRequestSchema = z.object({
     .number()
     .min(1, 'Expected attendance must be at least 1')
     .int('Expected attendance must be a whole number'),
-  min_attendees: z
-    .number()
-    .int()
-    .optional()
-    .refine((val) => !val || val > 0, { message: 'Min attendance must be greater than 0' }),
-  max_attendees: z
-    .number()
-    .int()
-    .optional()
-    .refine((val) => !val || val > 0, { message: 'Max attendance must be greater than 0' }),
+  min_attendees: optionalPositiveInteger,
+  max_attendees: optionalPositiveInteger,
   notes: z.string().max(1000, 'Notes must be less than 1000 characters').optional(),
 }).refine(
   (data) => {
@@ -77,6 +79,18 @@ export interface BookingRequestFormProps {
    * Additional requirements to display
    */
   requirements?: Array<{ id: string; label: string; required: boolean }>
+  /**
+   * Venue id used to load house rules for venue bookings
+   */
+  venueId?: string
+  /**
+   * Vendor id used to load deposit terms for vendor bookings
+   */
+  vendorId?: string
+  /**
+   * Estimated booking cost used to calculate percentage deposits
+   */
+  bookingCost?: number
 }
 
 /**
@@ -100,7 +114,12 @@ export function BookingRequestForm({
   onCancel,
   isLoading = false,
   requirements = [],
+  venueId,
+  vendorId,
+  bookingCost = 0,
 }: BookingRequestFormProps) {
+  const [acceptedVenueRules, setAcceptedVenueRules] = useState(!venueId || type !== 'venue')
+  const [hasVendorDateConflict, setHasVendorDateConflict] = useState(false)
   const {
     register,
     handleSubmit,
@@ -121,6 +140,10 @@ export function BookingRequestForm({
   const notesLength = notes?.length || 0
   const minDate = new Date().toISOString().split('T')[0]
 
+  useEffect(() => {
+    setAcceptedVenueRules(!venueId || type !== 'venue')
+  }, [type, venueId])
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -129,10 +152,19 @@ export function BookingRequestForm({
           required
           error={errors.requested_date?.message}
         >
-          <DatePicker
-            {...register('requested_date')}
-            minDate={minDate}
-          />
+          {type === 'vendor' && vendorId ? (
+            <VendorAvailabilityDatePicker
+              {...register('requested_date')}
+              vendorId={vendorId}
+              minDate={minDate}
+              onConflictChange={setHasVendorDateConflict}
+            />
+          ) : (
+            <DatePicker
+              {...register('requested_date')}
+              minDate={minDate}
+            />
+          )}
         </FormField>
 
         <FormField
@@ -205,13 +237,13 @@ export function BookingRequestForm({
                 <div key={req.id} className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 text-forest-500"
+                    className="h-4 w-4 text-primary"
                     disabled
                     checked={req.required}
                   />
-                  <span className={req.required ? 'font-medium text-gray-900' : 'text-gray-600'}>
+                  <span className={req.required ? 'font-medium text-foreground' : 'text-muted-foreground'}>
                     {req.label}
-                    {req.required && <span className="text-red-500 ml-1">*</span>}
+                    {req.required && <span className="text-destructive ml-1">*</span>}
                   </span>
                 </div>
               ))}
@@ -219,6 +251,22 @@ export function BookingRequestForm({
           </CardContent>
         </Card>
       )}
+
+      {type === 'venue' && venueId ? (
+        <VenueRulesDisplay venueId={venueId} audience="builders" onAccept={setAcceptedVenueRules} />
+      ) : null}
+
+      {type === 'venue' && venueId ? (
+        <DepositDisplay venueId={venueId} bookingCost={bookingCost} />
+      ) : null}
+
+      {type === 'vendor' && vendorId ? (
+        <DepositDisplay vendorId={vendorId} targetType="vendor" bookingCost={bookingCost} />
+      ) : null}
+
+      {!(type === 'venue' && venueId) && !(type === 'vendor' && vendorId) ? (
+        <StripeIntegrationNotice context="booking" />
+      ) : null}
 
       <FormField
         label="Special Requests / Notes"
@@ -229,7 +277,7 @@ export function BookingRequestForm({
           {...register('notes')}
           rows={4}
           maxLength={1000}
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500"
+          className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
           placeholder="Any special requests, setup needs, or additional information..."
         />
       </FormField>
@@ -245,7 +293,7 @@ export function BookingRequestForm({
             Cancel
           </Button>
         )}
-        <Button type="submit" disabled={isLoading}>
+        <Button type="submit" disabled={isLoading || !acceptedVenueRules || hasVendorDateConflict}>
           {isLoading ? 'Submitting...' : 'Submit Request'}
         </Button>
       </div>

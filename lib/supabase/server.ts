@@ -11,8 +11,8 @@ import type { Database } from '@/lib/types/database'
  * This file is protected by 'server-only' and will crash if imported in client components.
  * 
  * Server/Client Boundary:
- * - ✅ Use in: API routes, Server Components, Middleware
- * - ❌ DO NOT use in: Client Components ('use client')
+ * - Use in: API routes, Server Components, Middleware
+ * - Do not use in: Client Components ('use client')
  * 
  * For client components, use '@/lib/supabase/client' instead.
  */

@@ -10,6 +10,7 @@ import { useVenue } from '@/lib/hooks/useVenues'
 import { useUser } from '@/lib/hooks/useUser'
 import { supabase } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/toast'
+import { RulesManager } from '@/components/venue/RulesManager'
 import type { VenueRequirement } from '@/lib/types'
 
 export default function VenueRequirementsPage() {
@@ -33,9 +34,6 @@ export default function VenueRequirementsPage() {
   // Insurance requirements state
   const [insuranceMinCoverage, setInsuranceMinCoverage] = useState('')
   const [insuranceAdditionalInsured, setInsuranceAdditionalInsured] = useState('')
-
-  // Venue rules state
-  const [venueRules, setVenueRules] = useState('')
 
   // Custom questions state
   const [customQuestions, setCustomQuestions] = useState<string[]>([''])
@@ -84,12 +82,6 @@ export default function VenueRequirementsPage() {
               setInsuranceMinCoverage(insuranceReq.requirement_description || '')
             }
 
-            // Load venue rules
-            const rulesReq = requirements.find((r: ReqRow) => r.requirement_type === 'rules')
-            if (rulesReq) {
-              setVenueRules(rulesReq.requirement_description || '')
-            }
-
             // Load custom questions
             const questionReqs = requirements.filter((r: ReqRow) => r.requirement_type === 'question')
             if (questionReqs.length > 0) {
@@ -103,7 +95,7 @@ export default function VenueRequirementsPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
+        <div className="text-muted-foreground">Loading...</div>
       </div>
     )
   }
@@ -111,7 +103,7 @@ export default function VenueRequirementsPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
+        <div className="text-destructive">Please log in to continue</div>
       </div>
     )
   }
@@ -180,16 +172,6 @@ export default function VenueRequirementsPage() {
         })
       }
 
-      // Venue rules
-      if (venueRules) {
-        requirementsToInsert.push({
-          venue_id: venueId,
-          requirement_type: 'rules',
-          requirement_description: venueRules,
-          is_mandatory: true,
-        })
-      }
-
       // Custom questions
       customQuestions
         .filter((q) => q.trim())
@@ -240,8 +222,8 @@ export default function VenueRequirementsPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-forest-500 border-t-transparent mx-auto mb-4" />
-          <p className="text-gray-600">Loading requirements...</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading requirements...</p>
         </div>
       </div>
     )
@@ -250,7 +232,7 @@ export default function VenueRequirementsPage() {
   if (!venue) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-600">No venue found.</p>
+        <p className="text-muted-foreground">No venue found.</p>
       </div>
     )
   }
@@ -258,8 +240,8 @@ export default function VenueRequirementsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Requirements</h1>
-        <p className="text-gray-600 mt-1">Set requirements and rules for event organizers</p>
+        <h1 className="text-3xl font-bold text-foreground">Requirements</h1>
+        <p className="text-muted-foreground mt-1">Set requirements and rules for event organizers</p>
       </div>
 
       {/* Required Documents */}
@@ -283,7 +265,7 @@ export default function VenueRequirementsPage() {
             ].map((doc) => (
               <label
                 key={doc.key}
-                className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
+                className="flex items-center gap-3 p-3 border border-border rounded-lg hover:bg-background cursor-pointer"
               >
                 <input
                   type="checkbox"
@@ -294,9 +276,9 @@ export default function VenueRequirementsPage() {
                       [doc.key]: e.target.checked,
                     })
                   }
-                  className="h-4 w-4 text-forest-500 focus:ring-forest-500"
+                  className="h-4 w-4 text-primary focus:ring-primary"
                 />
-                <span className="text-sm font-medium text-gray-900">{doc.label}</span>
+                <span className="text-sm font-medium text-foreground">{doc.label}</span>
               </label>
             ))}
           </div>
@@ -316,7 +298,7 @@ export default function VenueRequirementsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <label className="text-sm font-medium text-gray-700 mb-2 block">
+            <label className="text-sm font-medium text-foreground mb-2 block">
               Minimum Coverage Amount
             </label>
             <Input
@@ -327,7 +309,7 @@ export default function VenueRequirementsPage() {
           </div>
 
           <div>
-            <label className="text-sm font-medium text-gray-700 mb-2 block">
+            <label className="text-sm font-medium text-foreground mb-2 block">
               Additional Insured
             </label>
             <Input
@@ -347,17 +329,11 @@ export default function VenueRequirementsPage() {
             Venue Rules
           </CardTitle>
           <CardDescription>
-            Set rules and guidelines for events at your venue
+            Set structured house rules, insurance requirements, and mandatory booking acceptance.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <textarea
-            value={venueRules}
-            onChange={(e) => setVenueRules(e.target.value)}
-            rows={6}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500"
-            placeholder="Enter venue rules and guidelines..."
-          />
+          {venueId ? <RulesManager venueId={venueId} /> : null}
         </CardContent>
       </Card>
 

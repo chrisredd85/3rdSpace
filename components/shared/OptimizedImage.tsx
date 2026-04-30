@@ -85,10 +85,10 @@ export function OptimizedImage({
   if (imageError || (!src.startsWith('/') && !src.startsWith('http'))) {
     return (
       <div
-        className={cn('bg-gray-200 flex items-center justify-center', className)}
+        className={cn('bg-sidebar-accent flex items-center justify-center', className)}
         style={fill ? undefined : { width, height }}
       >
-        <span className="text-gray-400 text-sm">Image not available</span>
+        <span className="text-muted-foreground/60 text-sm">Image not available</span>
       </div>
     )
   }

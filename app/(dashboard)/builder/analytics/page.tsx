@@ -20,6 +20,18 @@ import { useUser } from '@/lib/hooks/useUser'
 import { supabase } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/toast'
 import {
+  normalizeVenueBookings,
+  VENUE_BOOKING_WITH_DETAILS_SELECT,
+  type VenueBookingJoinRow,
+} from '@/lib/bookings/venue-booking-adapter'
+import {
+  normalizeVendorBookings,
+  VENDOR_BOOKING_WITH_DETAILS_SELECT,
+  type VendorBookingJoinRow,
+} from '@/lib/bookings/vendor-booking-adapter'
+import type { VenueBooking } from '@/lib/types'
+import type { VendorBookingDashboardItem } from '@/lib/vendors/booking-dashboard'
+import {
   BarChart,
   Bar,
   LineChart,
@@ -47,6 +59,10 @@ interface VendorPerformance {
   avgRating: number
 }
 
+type VenueBookingAnalyticsItem = VenueBooking & {
+  venues?: Record<string, unknown> | null
+}
+
 const COLORS = ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6']
 
 export default function BuilderAnalyticsPage() {
@@ -57,8 +73,8 @@ export default function BuilderAnalyticsPage() {
   })
   const [sortField, setSortField] = useState<SortField>('totalSpent')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
-  const [venueBookingsData, setVenueBookingsData] = useState<Array<{ final_price?: number | null; quoted_price?: number | null }>>([])
-  const [vendorBookingsData, setVendorBookingsData] = useState<Array<Record<string, unknown>>>([])
+  const [venueBookingsData, setVenueBookingsData] = useState<VenueBookingAnalyticsItem[]>([])
+  const [vendorBookingsData, setVendorBookingsData] = useState<VendorBookingDashboardItem[]>([])
   const { addToast } = useToast()
 
   const userId = user?.id || null
@@ -116,6 +132,14 @@ export default function BuilderAnalyticsPage() {
   // Most used venues
   const venueUsage = useMemo(() => {
     const usage: Record<string, { name: string; count: number }> = {}
+    const venueNamesById = new Map<string, string>()
+
+    venueBookingsData.forEach((booking) => {
+      const venue = booking.venues as { name?: string | null } | null | undefined
+      if (booking.venue_id && venue?.name) {
+        venueNamesById.set(booking.venue_id, venue.name)
+      }
+    })
 
     filteredEvents.forEach((event) => {
       if (event.venue_id) {
@@ -124,7 +148,7 @@ export default function BuilderAnalyticsPage() {
         
         if (!usage[key]) {
           usage[key] = {
-            name: savedVenue?.venues?.name || 'Unknown Venue',
+            name: venueNamesById.get(key) || savedVenue?.venues?.name || 'Unknown Venue',
             count: 0,
           }
         }
@@ -141,18 +165,20 @@ export default function BuilderAnalyticsPage() {
       }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 5)
-  }, [filteredEvents, savedVenues])
+  }, [filteredEvents, savedVenues, venueBookingsData])
 
   useEffect(() => {
     if (filteredEvents.length > 0 && userId) {
       const eventIds = filteredEvents.map((e) => e.id)
       supabase
         .from('venue_bookings')
-        .select('final_price, quoted_price')
+        .select(VENUE_BOOKING_WITH_DETAILS_SELECT)
         .in('event_id', eventIds)
-        .then(({ data }: { data: Array<{ final_price?: number | null; quoted_price?: number | null }> | null }) => {
-          setVenueBookingsData(data || [])
+        .then((result: { data: VenueBookingJoinRow[] | null }) => {
+          setVenueBookingsData(normalizeVenueBookings(result.data))
         })
+    } else {
+      setVenueBookingsData([])
     }
   }, [filteredEvents, userId])
 
@@ -165,16 +191,16 @@ export default function BuilderAnalyticsPage() {
     }
 
     // Calculate venue spending from actual bookings
-    venueBookingsData.forEach((booking: { final_price?: number | null; quoted_price?: number | null }) => {
+    venueBookingsData.forEach((booking) => {
       categories.Venues += booking.final_price || booking.quoted_price || 0
     })
 
     // Calculate vendor spending by category
-    vendorBookingsData.forEach((booking: Record<string, unknown>) => {
-      const vendor = booking.vendors as { service_type?: string } | undefined
+    vendorBookingsData.forEach((booking) => {
+      const vendor = booking.vendor_profiles
       if (vendor) {
         const serviceType = vendor.service_type
-        const amount = (booking.final_price as number | undefined) || (booking.quoted_price as number | undefined) || 0
+        const amount = booking.final_price || booking.quoted_price || 0
 
         if (serviceType === 'catering' || serviceType === 'bartending') {
           categories.Catering += amount
@@ -202,11 +228,13 @@ export default function BuilderAnalyticsPage() {
       const eventIds = filteredEvents.map((e) => e.id)
       supabase
         .from('vendor_bookings')
-        .select('*, vendors(*)')
+        .select(VENDOR_BOOKING_WITH_DETAILS_SELECT)
         .in('event_id', eventIds)
-        .then(({ data }: { data: Array<Record<string, unknown>> | null }) => {
-          setVendorBookingsData(data || [])
+        .then((result: { data: VendorBookingJoinRow[] | null }) => {
+          setVendorBookingsData(normalizeVendorBookings(result.data))
         })
+    } else {
+      setVendorBookingsData([])
     }
   }, [filteredEvents, userId])
 
@@ -215,8 +243,8 @@ export default function BuilderAnalyticsPage() {
 
     type VendorRow = { id: string; name: string; service_type: string }
     // Build performance data from actual vendor bookings
-    vendorBookingsData.forEach((booking: Record<string, unknown>) => {
-      const vendor = booking.vendors as VendorRow | undefined
+    vendorBookingsData.forEach((booking) => {
+      const vendor = booking.vendor_profiles as VendorRow | undefined
       if (vendor) {
         const key = vendor.id
         if (!performance[key]) {
@@ -230,13 +258,13 @@ export default function BuilderAnalyticsPage() {
           }
         }
         performance[key].timesUsed++
-        performance[key].totalSpent += (booking.final_price as number | undefined) || (booking.quoted_price as number | undefined) || 0
+        performance[key].totalSpent += booking.final_price || booking.quoted_price || 0
       }
     })
 
     // Also include saved vendors that haven't been used yet (for completeness)
-    savedVendors.forEach((saved: { vendors?: VendorRow }) => {
-      const vendor = saved.vendors
+    savedVendors.forEach((saved: { vendor_profiles?: VendorRow }) => {
+      const vendor = saved.vendor_profiles
       if (vendor && !performance[vendor.id]) {
         performance[vendor.id] = {
           id: vendor.id,
@@ -275,7 +303,7 @@ export default function BuilderAnalyticsPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
+        <div className="text-muted-foreground">Loading...</div>
       </div>
     )
   }
@@ -283,7 +311,7 @@ export default function BuilderAnalyticsPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
+        <div className="text-destructive">Please log in to continue</div>
       </div>
     )
   }
@@ -339,8 +367,8 @@ export default function BuilderAnalyticsPage() {
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Analytics</h1>
-          <p className="text-sm sm:text-base text-gray-600 mt-1">Track your event performance and spending</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Analytics</h1>
+          <p className="text-sm sm:text-base text-muted-foreground mt-1">Track your event performance and spending</p>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
           <div className="flex items-center gap-2 flex-1 sm:flex-initial">
@@ -350,7 +378,7 @@ export default function BuilderAnalyticsPage() {
               onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
               className="flex-1 sm:w-40 min-h-[44px]"
             />
-            <span className="text-gray-500 text-sm">to</span>
+            <span className="text-muted-foreground text-sm">to</span>
             <Input
               type="date"
               value={dateRange.end}
@@ -375,13 +403,13 @@ export default function BuilderAnalyticsPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Events This Year</p>
-                <p className="text-3xl font-bold text-gray-900 mt-2">
+                <p className="text-sm font-medium text-muted-foreground">Events This Year</p>
+                <p className="text-3xl font-bold text-foreground mt-2">
                   {stats.eventsThisYear}
                 </p>
               </div>
-              <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center">
-                <Calendar className="h-6 w-6 text-blue-600" />
+              <div className="h-12 w-12 rounded-full bg-primary/15 flex items-center justify-center">
+                <Calendar className="h-6 w-6 text-primary" />
               </div>
             </div>
           </CardContent>
@@ -391,13 +419,13 @@ export default function BuilderAnalyticsPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Total Spend</p>
-                <p className="text-3xl font-bold text-gray-900 mt-2">
+                <p className="text-sm font-medium text-muted-foreground">Total Spend</p>
+                <p className="text-3xl font-bold text-foreground mt-2">
                   ${stats.totalSpend.toLocaleString()}
                 </p>
               </div>
-              <div className="h-12 w-12 rounded-full bg-forest-100 flex items-center justify-center">
-                <DollarSign className="h-6 w-6 text-forest-600" />
+              <div className="h-12 w-12 rounded-full bg-primary/15 flex items-center justify-center">
+                <DollarSign className="h-6 w-6 text-primary" />
               </div>
             </div>
           </CardContent>
@@ -407,8 +435,8 @@ export default function BuilderAnalyticsPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Avg Cost/Event</p>
-                <p className="text-3xl font-bold text-gray-900 mt-2">
+                <p className="text-sm font-medium text-muted-foreground">Avg Cost/Event</p>
+                <p className="text-3xl font-bold text-foreground mt-2">
                   ${Math.round(stats.avgCostPerEvent).toLocaleString()}
                 </p>
               </div>
@@ -423,13 +451,13 @@ export default function BuilderAnalyticsPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Vendor Rating</p>
-                <p className="text-3xl font-bold text-gray-900 mt-2">
+                <p className="text-sm font-medium text-muted-foreground">Vendor Rating</p>
+                <p className="text-3xl font-bold text-foreground mt-2">
                   {stats.avgVendorRating.toFixed(1)}
                 </p>
               </div>
-              <div className="h-12 w-12 rounded-full bg-yellow-100 flex items-center justify-center">
-                <Star className="h-6 w-6 text-yellow-600" />
+              <div className="h-12 w-12 rounded-full bg-yellow-500/15 flex items-center justify-center">
+                <Star className="h-6 w-6 text-yellow-200" />
               </div>
             </div>
           </CardContent>
@@ -460,7 +488,7 @@ export default function BuilderAnalyticsPage() {
             </ResponsiveContainer>
           ) : (
             <div className="text-center py-12">
-              <p className="text-gray-600">No spending data for selected date range</p>
+              <p className="text-muted-foreground">No spending data for selected date range</p>
             </div>
           )}
         </CardContent>
@@ -481,20 +509,20 @@ export default function BuilderAnalyticsPage() {
                 {venueUsage.map((venue, index) => (
                   <div key={index}>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-gray-900">
+                      <span className="text-sm font-medium text-foreground">
                         {venue.name}
                       </span>
-                      <span className="text-sm text-gray-600">
+                      <span className="text-sm text-muted-foreground">
                         {venue.count} event{venue.count !== 1 ? 's' : ''}
                       </span>
                     </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div className="w-full bg-sidebar-accent rounded-full h-2">
                       <div
-                        className="bg-forest-500 h-2 rounded-full transition-all"
+                        className="bg-primary h-2 rounded-full transition-all"
                         style={{ width: `${venue.percentage}%` }}
                       />
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       {venue.percentage.toFixed(1)}% of events
                     </p>
                   </div>
@@ -502,7 +530,7 @@ export default function BuilderAnalyticsPage() {
               </div>
             ) : (
               <div className="text-center py-8">
-                <p className="text-gray-600">No venue usage data</p>
+                <p className="text-muted-foreground">No venue usage data</p>
               </div>
             )}
           </CardContent>
@@ -522,19 +550,19 @@ export default function BuilderAnalyticsPage() {
                 {spendingByCategory.map((item, index) => (
                   <div key={item.category}>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-gray-900">
+                      <span className="text-sm font-medium text-foreground">
                         {item.category}
                       </span>
                       <div className="text-right">
-                        <span className="text-sm font-semibold text-gray-900">
+                        <span className="text-sm font-semibold text-foreground">
                           ${Math.round(item.amount).toLocaleString()}
                         </span>
-                        <span className="text-xs text-gray-500 ml-2">
+                        <span className="text-xs text-muted-foreground ml-2">
                           ({item.percentage.toFixed(1)}%)
                         </span>
                       </div>
                     </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div className="w-full bg-sidebar-accent rounded-full h-2">
                       <div
                         className="h-2 rounded-full transition-all"
                         style={{
@@ -548,7 +576,7 @@ export default function BuilderAnalyticsPage() {
               </div>
             ) : (
               <div className="text-center py-8">
-                <p className="text-gray-600">No spending data</p>
+                <p className="text-muted-foreground">No spending data</p>
               </div>
             )}
           </CardContent>
@@ -572,23 +600,23 @@ export default function BuilderAnalyticsPage() {
                   <Card key={vendor.id} className="p-4">
                     <div className="space-y-3">
                       <div>
-                        <h3 className="font-semibold text-gray-900">{vendor.name}</h3>
-                        <p className="text-sm text-gray-600">{vendor.category}</p>
+                        <h3 className="font-semibold text-foreground">{vendor.name}</h3>
+                        <p className="text-sm text-muted-foreground">{vendor.category}</p>
                       </div>
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
-                          <p className="text-gray-600">Times Used</p>
-                          <p className="font-semibold text-gray-900">{vendor.timesUsed}</p>
+                          <p className="text-muted-foreground">Times Used</p>
+                          <p className="font-semibold text-foreground">{vendor.timesUsed}</p>
                         </div>
                         <div>
-                          <p className="text-gray-600">Total Spent</p>
-                          <p className="font-semibold text-gray-900">
+                          <p className="text-muted-foreground">Total Spent</p>
+                          <p className="font-semibold text-foreground">
                             ${Math.round(vendor.totalSpent).toLocaleString()}
                           </p>
                         </div>
                         <div>
-                          <p className="text-gray-600">Avg Rating</p>
-                          <p className="font-semibold text-gray-900">
+                          <p className="text-muted-foreground">Avg Rating</p>
+                          <p className="font-semibold text-foreground">
                             {vendor.avgRating.toFixed(1)} ⭐
                           </p>
                         </div>
@@ -602,11 +630,11 @@ export default function BuilderAnalyticsPage() {
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full">
                 <thead>
-                  <tr className="border-b border-gray-200">
+                  <tr className="border-b border-border">
                     <th className="text-left py-3 px-4">
                       <button
                         onClick={() => handleSort('name')}
-                        className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900"
+                        className="flex items-center gap-1 text-sm font-medium text-foreground hover:text-foreground"
                       >
                         Vendor Name
                         {sortField === 'name' && (
@@ -621,7 +649,7 @@ export default function BuilderAnalyticsPage() {
                     <th className="text-left py-3 px-4">
                       <button
                         onClick={() => handleSort('category')}
-                        className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900"
+                        className="flex items-center gap-1 text-sm font-medium text-foreground hover:text-foreground"
                       >
                         Category
                         {sortField === 'category' && (
@@ -636,7 +664,7 @@ export default function BuilderAnalyticsPage() {
                     <th className="text-right py-3 px-4">
                       <button
                         onClick={() => handleSort('timesUsed')}
-                        className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900 ml-auto"
+                        className="flex items-center gap-1 text-sm font-medium text-foreground hover:text-foreground ml-auto"
                       >
                         Times Used
                         {sortField === 'timesUsed' && (
@@ -651,7 +679,7 @@ export default function BuilderAnalyticsPage() {
                     <th className="text-right py-3 px-4">
                       <button
                         onClick={() => handleSort('totalSpent')}
-                        className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900 ml-auto"
+                        className="flex items-center gap-1 text-sm font-medium text-foreground hover:text-foreground ml-auto"
                       >
                         Total Spent
                         {sortField === 'totalSpent' && (
@@ -666,7 +694,7 @@ export default function BuilderAnalyticsPage() {
                     <th className="text-right py-3 px-4">
                       <button
                         onClick={() => handleSort('avgRating')}
-                        className="flex items-center gap-1 text-sm font-medium text-gray-700 hover:text-gray-900 ml-auto"
+                        className="flex items-center gap-1 text-sm font-medium text-foreground hover:text-foreground ml-auto"
                       >
                         Avg Rating
                         {sortField === 'avgRating' && (
@@ -682,23 +710,23 @@ export default function BuilderAnalyticsPage() {
                 </thead>
                 <tbody>
                   {sortedVendorPerformance.map((vendor) => (
-                    <tr key={vendor.id} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="py-3 px-4 font-medium text-gray-900">
+                    <tr key={vendor.id} className="border-b border-border hover:bg-background">
+                      <td className="py-3 px-4 font-medium text-foreground">
                         {vendor.name}
                       </td>
-                      <td className="py-3 px-4 text-sm text-gray-600 capitalize">
+                      <td className="py-3 px-4 text-sm text-muted-foreground capitalize">
                         {vendor.category}
                       </td>
-                      <td className="py-3 px-4 text-sm text-gray-900 text-right">
+                      <td className="py-3 px-4 text-sm text-foreground text-right">
                         {vendor.timesUsed}
                       </td>
-                      <td className="py-3 px-4 text-sm font-medium text-gray-900 text-right">
+                      <td className="py-3 px-4 text-sm font-medium text-foreground text-right">
                         ${vendor.totalSpent.toLocaleString()}
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-                          <span className="text-sm font-medium text-gray-900">
+                          <span className="text-sm font-medium text-foreground">
                             {vendor.avgRating.toFixed(1)}
                           </span>
                         </div>
@@ -711,7 +739,7 @@ export default function BuilderAnalyticsPage() {
             </>
           ) : (
             <div className="text-center py-8">
-              <p className="text-gray-600">No vendor performance data</p>
+              <p className="text-muted-foreground">No vendor performance data</p>
             </div>
           )}
         </CardContent>

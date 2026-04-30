@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { normalizeVendorProfile } from '@/lib/vendors/profile-adapter'
 
 /**
  * GET /api/vendors
@@ -32,9 +33,9 @@ export async function GET(request: NextRequest) {
 
     // Build query - fetch ALL published vendors (marketplace)
     let query = supabase
-      .from('vendors')
+      .from('vendor_profiles')
       .select('*')
-      .eq('is_active', true) // Only active vendors
+      .eq('is_published', true) // Only active vendors
       .order('created_at', { ascending: false })
 
     // Apply filters
@@ -42,13 +43,10 @@ export async function GET(request: NextRequest) {
       query = query.eq('service_type', serviceType)
     }
     if (city) {
-      query = query.eq('city', city)
-    }
-    if (state) {
-      query = query.eq('state', state)
+      query = query.ilike('regions_served', `%${city}%`)
     }
     if (isVerified !== null) {
-      query = query.eq('is_verified', isVerified === 'true')
+      query = query.eq('is_published', isVerified === 'true')
     }
 
     const { data: vendors, error } = await query
@@ -62,7 +60,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter by price range if provided (would need to check vendor packages/offerings)
-    let filteredVendors = vendors || []
+    let filteredVendors = ((vendors || []) as Record<string, any>[]).map(normalizeVendorProfile)
     if (minPrice || maxPrice) {
       // Note: This is a simplified filter. In production, you'd check vendor packages/offerings
       // For now, we'll just return all vendors and let the client filter

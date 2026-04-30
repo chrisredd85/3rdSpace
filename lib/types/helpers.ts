@@ -67,6 +67,7 @@ export function getBookingStatusDisplayName(
     confirmed: 'Confirmed',
     declined: 'Declined',
     cancelled: 'Cancelled',
+    completed: 'Completed',
   }
   return displayNames[status] || status
 }
@@ -128,6 +129,7 @@ export function getBookingStatusColor(status: BookingStatus): string {
     confirmed: 'text-forest-500',
     declined: 'text-gray-500',
     cancelled: 'text-red-500',
+    completed: 'text-blue-500',
   }
   return colors[status] || 'text-gray-500'
 }

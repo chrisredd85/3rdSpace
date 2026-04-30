@@ -1,4 +1,9 @@
-# Deploy 3rdSpace to Vercel (OAuth & Ticket Linking)
+# Deploy 3rdSpace to Vercel
+
+For the full production cutover sequence, use
+[`docs/PRODUCTION_LAUNCH_CHECKLIST.md`](docs/PRODUCTION_LAUNCH_CHECKLIST.md).
+It covers production Supabase setup, migrations, Stripe production keys,
+environment variables, webhook tests, monitoring, and backups.
 
 This guide walks you through deploying the app to Vercel so you can test OAuth (Google, etc.) and later integrate ticket linking from **Eventbrite**, **Posh**, and **Luma**.
 
@@ -49,15 +54,40 @@ In the same “Import” screen (or later in **Project → Settings → Environm
 
 | Name | Value | Notes |
 |------|--------|--------|
+| `DATABASE_URL` | Production Supabase connection string | Server-only |
 | `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL | From Supabase → Settings → API |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Your Supabase anon/public key | From Supabase → Settings → API |
-| `SUPABASE_SERVICE_ROLE_KEY` | Your Supabase service role key | From Supabase → Settings → API (if used server-side) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Your Supabase service role key | Server-only |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe production publishable key | Browser-safe |
+| `STRIPE_SECRET_KEY` | Stripe production secret key | Server-only |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret | Server-only |
+| `STRIPE_CONNECT_WEBHOOK_SECRET` | Stripe Connect webhook secret, if separate | Server-only |
+| `STRIPE_CONNECT_CLIENT_ID` | Stripe Connect client id | Server-side OAuth/connect |
+| `STRIPE_PRICE_PAY_PER_EVENT` | Stripe production price id | Builder pay-per-event access |
+| `STRIPE_PRICE_PRO_MONTHLY` | Stripe production price id | Builder Pro monthly |
+| `STRIPE_PRICE_PRO_ANNUAL` | Stripe production price id | Builder Pro annual |
+| `PLATFORM_FEE_PER_EVENT` | `30.00` | Pay-per-event fee |
+| `PLATFORM_FEE_PRO_MONTHLY` | `69.00` | Pro monthly amount |
+| `PLATFORM_FEE_PRO_ANNUAL` | `690.00` | Pro annual amount |
+| `NEXT_PUBLIC_SITE_URL` | `https://your-production-domain.com` | Canonical URL |
+| `NEXT_PUBLIC_APP_URL` | `https://your-production-domain.com` | App base URL |
 
-Optional (for future OAuth / ticket linking):
+Optional email and monitoring variables:
 
 | Name | Value |
 |------|--------|
-| `NEXT_PUBLIC_SITE_URL` | `https://your-app.vercel.app` (replace with your real Vercel URL after first deploy) |
+| `SENDGRID_API_KEY` | SendGrid API key |
+| `SENDGRID_FROM_EMAIL` | Default sender |
+| `BILLING_FROM_EMAIL` | Billing sender |
+| `INVOICE_FROM_EMAIL` | Invoice sender |
+| `MESSAGE_FROM_EMAIL` | Messaging sender |
+| `NOTIFICATIONS_FROM_EMAIL` | Notification sender |
+| `INVOICE_TAX_RATE_PERCENTAGE` | Default invoice tax percentage |
+| `NEXT_PUBLIC_SENTRY_DSN` | Sentry browser DSN |
+| `SENTRY_DSN` | Sentry server DSN |
+| `SENTRY_AUTH_TOKEN` | Sentry release/source-map token |
+| `SENTRY_ORG` | Sentry organization slug |
+| `SENTRY_PROJECT` | Sentry project slug |
 
 - Apply to **Production**, **Preview**, and **Development** if you want OAuth to work on preview URLs too.
 

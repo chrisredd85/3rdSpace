@@ -37,13 +37,54 @@ cp .env.example .env.local  # If you have an example file
 Add the following environment variables:
 
 ```env
-# Supabase Configuration
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+# Database
+DATABASE_URL=your_supabase_connection_string
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 
-# Site Configuration (for SEO)
-NEXT_PUBLIC_SITE_URL=https://3rdspace.com
+# Stripe
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_CONNECT_WEBHOOK_SECRET=whsec_...
+STRIPE_CONNECT_CLIENT_ID=ca_...
+
+# Stripe Price IDs
+STRIPE_PRICE_PAY_PER_EVENT=price_...
+STRIPE_PRICE_PRO_MONTHLY=price_...
+STRIPE_PRICE_PRO_ANNUAL=price_...
+
+# Pricing
+PLATFORM_FEE_PER_EVENT=30.00
+PLATFORM_FEE_PRO_MONTHLY=69.00
+PLATFORM_FEE_PRO_ANNUAL=690.00
+
+# Site
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Email (Optional - SendGrid)
+SENDGRID_API_KEY=SG.xxx
+SENDGRID_FROM_EMAIL=notifications@example.com
+BILLING_FROM_EMAIL=billing@example.com
+INVOICE_FROM_EMAIL=billing@example.com
+MESSAGE_FROM_EMAIL=messages@example.com
+NOTIFICATIONS_FROM_EMAIL=notifications@example.com
+
+# Email (Optional - AWS SES for later)
+AWS_SES_ACCESS_KEY=xxx
+AWS_SES_SECRET_KEY=xxx
+
+# Monitoring (Optional - Sentry or similar)
+NEXT_PUBLIC_SENTRY_DSN=https://examplePublicKey@o0.ingest.sentry.io/0
+SENTRY_DSN=https://examplePrivateKey@o0.ingest.sentry.io/0
+SENTRY_AUTH_TOKEN=sntrys_...
+SENTRY_ORG=your-sentry-org
+SENTRY_PROJECT=your-sentry-project
+
+# Invoices
+INVOICE_TAX_RATE_PERCENTAGE=8.5
 
 # Playwright Testing (optional, defaults to localhost:3000)
 PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000
@@ -278,4 +319,4 @@ If you're using GitHub Actions for CI/CD:
 - [ ] Supabase database configured
 - [ ] Default OG image created (optional)
 
-Once all items are checked, you're ready to start developing! 🚀
+Once all items are checked, you're ready to start developing.

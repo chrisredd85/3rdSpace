@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+export const dynamic = 'force-dynamic'
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = createClient()
@@ -25,6 +27,12 @@ export async function POST(request: NextRequest) {
       venue_booking_id,
       vendor_booking_id,
     } = body
+    const bookingId = venue_booking_id || vendor_booking_id || null
+    const bookingType = venue_booking_id
+      ? 'venue_booking'
+      : vendor_booking_id
+        ? 'vendor_booking'
+        : 'general'
 
     // Validate required fields
     if (!participant_2_id) {
@@ -34,14 +42,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if thread already exists between these participants
-    const { data: existingThread } = await supabase
+    // Check if thread already exists between these participants for this booking context.
+    let existingThreadQuery = supabase
       .from('message_threads')
       .select('*')
       .or(
         `and(participant_1_id.eq.${user.id},participant_2_id.eq.${participant_2_id}),and(participant_1_id.eq.${participant_2_id},participant_2_id.eq.${user.id})`
       )
-      .maybeSingle()
+      .eq('booking_type', bookingType)
+
+    existingThreadQuery = bookingId
+      ? existingThreadQuery.eq('booking_id', bookingId)
+      : existingThreadQuery.is('booking_id', null)
+
+    const { data: existingThread } = await existingThreadQuery.maybeSingle()
 
     if (existingThread) {
       // Return existing thread
@@ -59,8 +73,8 @@ export async function POST(request: NextRequest) {
         participant_1_id: user.id,
         participant_2_id,
         event_id: event_id || null,
-        venue_booking_id: venue_booking_id || null,
-        vendor_booking_id: vendor_booking_id || null,
+        booking_id: bookingId,
+        booking_type: bookingType,
         last_message_at: null,
       } as never)
       .select()
@@ -75,17 +89,26 @@ export async function POST(request: NextRequest) {
     }
 
     // Get other participant's profile
-    const { data: otherParticipant } = await supabase
-      .from('profiles')
-      .select('id, name, email, avatar_url')
+    const { data: otherParticipant } = await (supabase as any)
+      .from('users')
+      .select('id, company_name, email')
       .eq('id', participant_2_id)
-      .single()
+      .maybeSingle()
 
     return NextResponse.json({
       success: true,
       thread: {
         ...(thread as Record<string, unknown>),
-        other_participant: otherParticipant || null,
+        other_participant: otherParticipant
+          ? {
+              id: (otherParticipant as { id: string }).id,
+              name:
+                (otherParticipant as { company_name: string | null; email: string }).company_name ||
+                (otherParticipant as { email: string }).email,
+              email: (otherParticipant as { email: string }).email,
+              avatar_url: null,
+            }
+          : null,
       },
       isNew: true,
     })

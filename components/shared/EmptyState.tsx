@@ -60,12 +60,12 @@ export function EmptyState({
         className
       )}
     >
-      <div className="h-16 w-16 rounded-full bg-gray-100 flex items-center justify-center mb-4">
-        <Icon className="h-8 w-8 text-gray-400" />
+      <div className="h-16 w-16 rounded-full bg-sidebar-accent/40 flex items-center justify-center mb-4">
+        <Icon className="h-8 w-8 text-muted-foreground/60" />
       </div>
-      <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
+      <h3 className="text-lg font-semibold text-foreground mb-2">{title}</h3>
       {description && (
-        <p className="text-sm text-gray-600 max-w-md mb-6">{description}</p>
+        <p className="text-sm text-muted-foreground max-w-md mb-6">{description}</p>
       )}
       {actionLabel && onAction && (
         <Button onClick={onAction}>{actionLabel}</Button>

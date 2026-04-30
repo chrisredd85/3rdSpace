@@ -153,14 +153,15 @@ export function EventForm({
       >
         <select
           {...register('event_type')}
-          className="flex h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500"
+          className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         >
           <option value="">Select event type</option>
           <option value="networking">Networking</option>
           <option value="conference">Conference</option>
           <option value="workshop">Workshop</option>
-          <option value="party">Party</option>
-          <option value="meeting">Meeting</option>
+          <option value="social_mixer">Party / Social Mixer</option>
+          <option value="all_hands">Meeting / All-Hands</option>
+          <option value="product_launch">Product Launch</option>
           <option value="other">Other</option>
         </select>
       </FormField>

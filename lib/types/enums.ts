@@ -31,7 +31,7 @@ export type ServiceType =
 /**
  * Booking status enum
  */
-export type BookingStatus = 'pending' | 'confirmed' | 'declined' | 'cancelled'
+export type BookingStatus = 'pending' | 'confirmed' | 'declined' | 'cancelled' | 'completed'
 
 /**
  * Event status enum
@@ -95,7 +95,7 @@ export function isServiceType(value: string): value is ServiceType {
  * Type guard for BookingStatus
  */
 export function isBookingStatus(value: string): value is BookingStatus {
-  return ['pending', 'confirmed', 'declined', 'cancelled'].includes(value)
+  return ['pending', 'confirmed', 'declined', 'cancelled', 'completed'].includes(value)
 }
 
 /**

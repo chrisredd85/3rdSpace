@@ -7,8 +7,12 @@ import type {
   VendorBooking,
   SavedVendor,
   ServiceType,
-  Database,
 } from '@/lib/types'
+import {
+  normalizeVendorProfile,
+  toVendorProfileInsert,
+  toVendorProfileUpdate,
+} from '@/lib/vendors/profile-adapter'
 
 // Query keys
 const vendorKeys = {
@@ -49,28 +53,25 @@ export function useVendors(
     enabled: options?.enabled !== false, // Default to true, can be disabled
     queryFn: async () => {
       let query = supabase
-        .from('vendors')
+        .from('vendor_profiles')
         .select('*')
-        .eq('is_active', true)
+        .eq('is_published', true)
         .order('created_at', { ascending: false })
 
       if (filters?.service_type) {
         query = query.eq('service_type', filters.service_type)
       }
       if (filters?.city) {
-        query = query.eq('city', filters.city)
-      }
-      if (filters?.state) {
-        query = query.eq('state', filters.state)
+        query = query.ilike('regions_served', `%${filters.city}%`)
       }
       if (filters?.is_verified !== undefined) {
-        query = query.eq('is_verified', filters.is_verified)
+        query = query.eq('is_published', filters.is_verified)
       }
 
       const { data, error } = await query
 
       if (error) throw error
-      return (data || []) as Vendor[]
+      return ((data || []) as Record<string, any>[]).map(normalizeVendorProfile)
     },
   })
 }
@@ -86,7 +87,7 @@ export function useVendor(id: string | null) {
 
       // Fetch vendor
       const { data: vendor, error: vendorError } = await supabase
-        .from('vendors')
+        .from('vendor_profiles')
         .select('*')
         .eq('id', id)
         .single()
@@ -111,7 +112,7 @@ export function useVendor(id: string | null) {
       ])
 
       const result: VendorWithRelations = {
-        ...(vendor as Vendor),
+        ...normalizeVendorProfile(vendor as Record<string, any>),
         offerings: (offeringsResult.data || []) as VendorOffering[],
         packages: (packagesResult.data || []) as VendorPackage[],
       }
@@ -155,12 +156,12 @@ export function useSavedVendors(userId: string | null) {
 
       const { data, error } = await supabase
         .from('saved_vendors')
-        .select('*, vendors(*)')
+        .select('*, vendor_profiles(*)')
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
 
       if (error) throw error
-      return (data || []) as (SavedVendor & { vendors: Vendor })[]
+      return (data || []) as (SavedVendor & { vendor_profiles: Vendor })[]
     },
     enabled: !!userId,
   })
@@ -175,13 +176,13 @@ export function useCreateVendor() {
   return useMutation({
     mutationFn: async (vendor: Omit<Vendor, 'id' | 'created_at' | 'updated_at'>) => {
       const { data, error } = await supabase
-        .from('vendors')
-        .insert(vendor)
+        .from('vendor_profiles')
+        .insert(toVendorProfileInsert(vendor) as never)
         .select()
         .single()
 
       if (error) throw error
-      return data as Vendor
+      return normalizeVendorProfile(data as Record<string, any>)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: vendorKeys.lists() })
@@ -204,14 +205,14 @@ export function useUpdateVendor() {
       updates: Partial<Omit<Vendor, 'id' | 'created_at'>> & { updated_at?: string }
     }) => {
       const { data, error } = await supabase
-        .from('vendors')
-        .update({ ...updates, updated_at: new Date().toISOString() })
+        .from('vendor_profiles')
+        .update({ ...toVendorProfileUpdate(updates), updated_at: new Date().toISOString() } as never)
         .eq('id', id)
         .select()
         .single()
 
       if (error) throw error
-      return data as Vendor
+      return normalizeVendorProfile(data as Record<string, any>)
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: vendorKeys.lists() })

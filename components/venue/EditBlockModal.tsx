@@ -26,7 +26,7 @@ export function EditBlockModal({ block, onClose, onSuccess }: EditBlockModalProp
     new Date(block.end_date).toISOString().split('T')[0]
   )
   const [reason, setReason] = useState(block.reason || '')
-  const [notes, setNotes] = useState('')
+  const [notes, setNotes] = useState(block.notes || '')
 
   const handleUpdate = async () => {
     try {
@@ -36,6 +36,7 @@ export function EditBlockModal({ block, onClose, onSuccess }: EditBlockModalProp
           start_date: new Date(startDate).toISOString(),
           end_date: new Date(endDate).toISOString(),
           reason,
+          notes,
         },
       })
 
@@ -77,7 +78,7 @@ export function EditBlockModal({ block, onClose, onSuccess }: EditBlockModalProp
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
           <div className="flex items-start justify-between">
@@ -92,19 +93,19 @@ export function EditBlockModal({ block, onClose, onSuccess }: EditBlockModalProp
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <label className="text-sm font-medium text-gray-700 mb-2 block">
+            <label className="text-sm font-medium text-foreground mb-2 block">
               Start Date
             </label>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="flex h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
             />
           </div>
 
           <div>
-            <label className="text-sm font-medium text-gray-700 mb-2 block">
+            <label className="text-sm font-medium text-foreground mb-2 block">
               End Date
             </label>
             <input
@@ -112,18 +113,18 @@ export function EditBlockModal({ block, onClose, onSuccess }: EditBlockModalProp
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
               min={startDate}
-              className="flex h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
             />
           </div>
 
           <div>
-            <label className="text-sm font-medium text-gray-700 mb-2 block">
+            <label className="text-sm font-medium text-foreground mb-2 block">
               Reason
             </label>
             <select
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="flex h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
             >
               <option value="private_event">Private Event</option>
               <option value="maintenance">Maintenance</option>

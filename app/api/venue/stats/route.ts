@@ -18,10 +18,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get user profile from profiles table
+    // Get user profile from users table
     const { data: profileData, error: profileError } = await supabase
-      .from('profiles')
-      .select('user_type')
+      .from('users')
+      .select('role, user_type')
       .eq('id', user.id)
       .single()
 
@@ -74,6 +74,8 @@ export async function GET(request: NextRequest) {
     const now = new Date()
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
+    const monthStartString = monthStart.toISOString().split('T')[0]
+    const monthEndString = monthEnd.toISOString().split('T')[0]
 
     // Fetch pending requests
     const { count: pendingCount } = await supabase
@@ -88,10 +90,10 @@ export async function GET(request: NextRequest) {
       .select('*')
       .in('venue_id', venueIds as string[])
       .eq('status', 'confirmed')
-      .gte('confirmed_date', monthStart.toISOString())
-      .lte('confirmed_date', monthEnd.toISOString())
+      .gte('booking_date', monthStartString)
+      .lte('booking_date', monthEndString)
 
-    type BookingRow = { final_price: number | null; quoted_price: number | null; confirmed_date: string | null; status?: string }
+    type BookingRow = { final_price: number | null; quoted_price: number | null; booking_date?: string | null; status?: string }
     const thisMonthList = (thisMonthBookings || []) as BookingRow[]
     const revenueMtd = thisMonthList.reduce(
       (sum, booking) => sum + (booking.final_price || booking.quoted_price || 0),
@@ -114,8 +116,8 @@ export async function GET(request: NextRequest) {
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
     const bookedDays = new Set(
       thisMonthList.map((b) => {
-        if (b.confirmed_date) {
-          return new Date(b.confirmed_date).getDate()
+        if (b.booking_date) {
+          return new Date(b.booking_date).getDate()
         }
         return null
       }).filter(Boolean) as number[]

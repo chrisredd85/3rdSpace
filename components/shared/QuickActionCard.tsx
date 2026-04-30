@@ -41,22 +41,22 @@ export function QuickActionCard({
     <Link href={href}>
       <Card
         className={cn(
-          'border-2 border-slate-200 hover:border-forest-500 hover:shadow-xl transition-all duration-300 cursor-pointer group hover:scale-[1.02]',
+          'border-2 border-border hover:border-primary hover:shadow-xl transition-all duration-300 cursor-pointer group hover:scale-[1.02]',
           className
         )}
       >
         <CardContent className="p-6">
           <div className="flex items-center gap-4">
-            <div className="p-3 rounded-xl bg-forest-50 flex-shrink-0 group-hover:bg-forest-100 transition-colors">
-              <div className="text-forest-600 text-2xl">
+            <div className="p-3 rounded-xl bg-primary/10 flex-shrink-0 group-hover:bg-primary/15 transition-colors">
+              <div className="text-primary text-2xl">
                 {icon}
               </div>
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="text-lg font-bold text-slate-900 mb-1 group-hover:text-forest-600 transition-colors">
+              <h3 className="text-lg font-bold text-foreground mb-1 group-hover:text-primary transition-colors">
                 {title}
               </h3>
-              <p className="text-sm text-slate-600 line-clamp-2">
+              <p className="text-sm text-muted-foreground line-clamp-2">
                 {description}
               </p>
             </div>

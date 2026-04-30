@@ -1,5 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import {
+  normalizeAvailabilityBlock,
+  normalizeAvailabilityBlocks,
+  toAvailabilityBlockInsert,
+  type AvailabilityBlockRow,
+} from '@/lib/bookings/availability-adapter'
+
+async function requireVendorAccount(supabase: ReturnType<typeof createClient>, userId: string) {
+  const { data, error } = await supabase
+    .from('users')
+    .select('role, user_type')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (error) {
+    console.error('[vendor.blocks] Failed to load user account', error)
+    return false
+  }
+
+  const account = data as { role?: string | null; user_type?: string | null } | null
+  return account?.role === 'vendor' || account?.user_type === 'vendor'
+}
+
+function toDateOnly(value: string) {
+  return value.split('T')[0]
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,9 +44,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Verify user is a vendor
-    const userType = user.user_metadata?.user_type
-    if (userType !== 'vendor') {
+    if (!(await requireVendorAccount(supabase, user.id))) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }
@@ -29,9 +53,9 @@ export async function GET(request: NextRequest) {
 
     // Get user's vendor
     const { data: vendor, error: vendorError } = await supabase
-      .from('vendors')
+      .from('vendor_profiles')
       .select('id')
-      .eq('owner_id', user.id)
+      .eq('user_id', user.id)
       .single()
 
     if (vendorError || !vendor) {
@@ -45,7 +69,8 @@ export async function GET(request: NextRequest) {
     const { data: blocks, error: blocksError } = await supabase
       .from('availability_blocks')
       .select('*')
-      .eq('vendor_id', (vendor as { id: string }).id)
+      .eq('blockable_type', 'vendor')
+      .eq('blockable_id', (vendor as { id: string }).id)
       .order('start_date', { ascending: true })
 
     if (blocksError) {
@@ -57,7 +82,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      blocks: blocks || [],
+      blocks: normalizeAvailabilityBlocks(blocks as AvailabilityBlockRow[] | null),
       count: blocks?.length || 0,
     })
   } catch (error) {
@@ -86,9 +111,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verify user is a vendor
-    const userType = user.user_metadata?.user_type
-    if (userType !== 'vendor') {
+    if (!(await requireVendorAccount(supabase, user.id))) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }
@@ -100,10 +123,8 @@ export async function POST(request: NextRequest) {
       vendor_id,
       start_date,
       end_date,
-      start_time,
-      end_time,
-      is_available = false,
       reason,
+      notes,
     } = body
 
     // Validate required fields
@@ -116,10 +137,10 @@ export async function POST(request: NextRequest) {
 
     // Verify vendor belongs to user
     const { data: vendor, error: vendorError } = await supabase
-      .from('vendors')
-      .select('id, owner_id')
+      .from('vendor_profiles')
+      .select('id, user_id')
       .eq('id', vendor_id)
-      .eq('owner_id', user.id)
+      .eq('user_id', user.id)
       .single()
 
     if (vendorError || !vendor) {
@@ -147,6 +168,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const startDate = toDateOnly(start_date)
+    const endDate = toDateOnly(end_date)
+
     // Check for overlapping bookings
     const { data: overlappingBookings } = await supabase
       .from('vendor_bookings')
@@ -154,7 +178,7 @@ export async function POST(request: NextRequest) {
       .eq('vendor_id', vendor_id)
       .in('status', ['pending', 'confirmed'])
       .or(
-        `and(confirmed_date.gte.${start_date},confirmed_date.lte.${end_date}),and(requested_date.gte.${start_date},requested_date.lte.${end_date})`
+        `and(booking_date.gte.${startDate},booking_date.lte.${endDate}),and(confirmed_date.gte.${startDate},confirmed_date.lte.${endDate}),and(requested_date.gte.${startDate},requested_date.lte.${endDate})`
       )
 
     if (overlappingBookings && overlappingBookings.length > 0) {
@@ -167,16 +191,13 @@ export async function POST(request: NextRequest) {
     // Create block
     const { data: block, error: blockError } = await supabase
       .from('availability_blocks')
-      .insert({
-        venue_id: null,
+      .insert(toAvailabilityBlockInsert({
         vendor_id,
-        start_date: start_date.split('T')[0],
-        end_date: end_date.split('T')[0],
-        start_time: start_time || null,
-        end_time: end_time || null,
-        is_available,
-        reason: reason || null,
-      } as never)
+        start_date,
+        end_date,
+        reason,
+        notes,
+      }) as never)
       .select()
       .single()
 
@@ -190,7 +211,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      block,
+      block: normalizeAvailabilityBlock(block as AvailabilityBlockRow),
     })
   } catch (error) {
     console.error('Create block error:', error)

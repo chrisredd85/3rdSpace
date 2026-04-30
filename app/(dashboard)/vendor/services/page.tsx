@@ -1,19 +1,28 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Save, Plus, X } from 'lucide-react'
+import { ExternalLink, FileText, Loader2, Save, Trash2, Upload } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useVendor, useUpdateVendor } from '@/lib/hooks/useVendors'
+import { FileUpload } from '@/components/forms/FileUpload'
 import { useUser } from '@/lib/hooks/useUser'
 import { supabase } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/toast'
-import type { ServiceType, VendorOffering } from '@/lib/types'
+import { VendorServicesManager } from '@/components/vendor/VendorServicesManager'
+import type { ServiceType } from '@/lib/types'
+
+const serviceAreaOptions = [
+  { value: 'all_bay_area', label: 'All Bay Area' },
+  { value: 'sf_only', label: 'San Francisco only' },
+  { value: 'east_bay', label: 'East Bay' },
+  { value: 'south_bay', label: 'South Bay' },
+  { value: 'north_bay', label: 'North Bay' },
+] as const
 
 const vendorSchema = z.object({
   business_name: z.string().min(2, 'Business name must be at least 2 characters'),
@@ -29,34 +38,69 @@ const vendorSchema = z.object({
     'florist',
     'other',
   ]),
-  service_area: z.string().min(2, 'Service area is required'),
-  setup_time: z.string().optional(),
+  service_area: z.enum(['all_bay_area', 'sf_only', 'east_bay', 'south_bay', 'north_bay']),
+  setup_time: z.enum(['30', '60', '90', '120', '180']),
 })
 
 type VendorFormData = z.infer<typeof vendorSchema>
 
-const standardOfferings = [
-  { id: 'dj_services', label: 'DJ Services', description: 'Music mixing and playlist curation' },
-  { id: 'mc', label: 'MC Services', description: 'Master of ceremonies and announcements' },
-  { id: 'sound', label: 'Sound System', description: 'Professional audio equipment' },
-  { id: 'lighting', label: 'Lighting', description: 'Stage and ambient lighting' },
-  { id: 'photography', label: 'Photography', description: 'Event photography services' },
-  { id: 'videography', label: 'Videography', description: 'Event video production' },
-  { id: 'live_streaming', label: 'Live Streaming', description: 'Real-time event streaming' },
-  { id: 'backup_equipment', label: 'Backup Equipment', description: 'Redundant equipment for reliability' },
-]
+type VendorProfile = {
+  id: string
+  name: string
+  bio: string | null
+  service_type: ServiceType | null
+  service_area: VendorFormData['service_area'] | null
+  setup_time_minutes: number | null
+  photo_url: string | null
+}
+
+type VendorDocumentRow = {
+  id: string
+  file_name: string | null
+  file_url: string
+  mime_type: string | null
+  file_size: number | null
+}
+
+type VendorDocument = {
+  id: string
+  name: string
+  filePath: string
+  url: string | null
+  mimeType: string | null
+  size: number | null
+}
+
+function getVendorType(serviceType: ServiceType): string {
+  switch (serviceType) {
+    case 'dj':
+      return 'DJ / Music'
+    case 'bartending':
+      return 'Bartender'
+    case 'photography':
+      return 'Photographer'
+    case 'catering':
+      return 'Caterer'
+    case 'av_tech':
+      return 'Audio/Visual Tech'
+    case 'florist':
+      return 'Decorator / Florist'
+    default:
+      return 'Security / Event Staff'
+  }
+}
 
 export default function VendorServicesPage() {
   const { user, isLoading: isUserLoading, error: userError } = useUser()
   const [vendorId, setVendorId] = useState<string | null>(null)
-  const [selectedOfferings, setSelectedOfferings] = useState<string[]>([])
-  const [customOfferings, setCustomOfferings] = useState<Array<{ id: string; name: string; description: string }>>([])
+  const [vendorPhotoUrl, setVendorPhotoUrl] = useState<string | null>(null)
+  const [documents, setDocuments] = useState<VendorDocument[]>([])
+  const [isVendorLoading, setIsVendorLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isUploadingDocs, setIsUploadingDocs] = useState(false)
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null)
   const router = useRouter()
   const { addToast } = useToast()
-
-  const userId = user?.id || null
-  const { data: vendor, isLoading: vendorLoading } = useVendor(vendorId)
-  const updateVendor = useUpdateVendor()
 
   const {
     register,
@@ -65,64 +109,121 @@ export default function VendorServicesPage() {
     reset,
   } = useForm<VendorFormData>({
     resolver: zodResolver(vendorSchema),
+    defaultValues: {
+      business_name: '',
+      description: '',
+      service_type: 'dj',
+      service_area: 'all_bay_area',
+      setup_time: '60',
+    },
   })
 
   useEffect(() => {
-    if (user) {
-      supabase
-        .from('vendors')
-        .select('id')
-        .eq('owner_id', user.id)
-        .limit(1)
-        .then(({ data: vendors }: { data: { id: string }[] | null }) => {
-          if (vendors && vendors.length > 0) {
-            setVendorId(vendors[0].id)
-          }
-        })
-    }
-  }, [user])
+    let isMounted = true
 
-  useEffect(() => {
-    if (vendor) {
-      reset({
-        business_name: vendor.business_name || vendor.name,
-        description: vendor.description || '',
-        service_type: vendor.service_type,
-        service_area: vendor.city || '',
-        setup_time: '60', // Would come from vendor settings
-      })
+    const loadVendor = async () => {
+      if (!user?.id) {
+        setIsVendorLoading(false)
+        return
+      }
 
-      // Load offerings
-      if (vendorId) {
-        supabase
-          .from('vendor_offerings')
-          .select('offering_name, description')
-          .eq('vendor_id', vendorId)
-          .then(({ data }: { data: { offering_name: string; description: string | null }[] | null }) => {
-            if (data) {
-              const standardIds = data
-                .map((o: { offering_name: string }) => standardOfferings.find((so) => so.label === o.offering_name)?.id)
-                .filter((id: string | undefined): id is string => !!id)
-              setSelectedOfferings(standardIds)
+      setIsVendorLoading(true)
 
-              const custom = data
-                .filter((o: { offering_name: string }) => !standardOfferings.find((so) => so.label === o.offering_name))
-                .map((o: { offering_name: string; description: string | null }, idx: number) => ({
-                  id: `custom-${idx}`,
-                  name: o.offering_name,
-                  description: o.description || '',
-                }))
-              setCustomOfferings(custom)
-            }
+      const { data: vendor, error: vendorError } = await supabase
+        .from('vendor_profiles')
+        .select('id, name, bio, service_type, service_area, setup_time_minutes, photo_url')
+        .eq('user_id', user.id)
+        .maybeSingle()
+
+      if (vendorError) {
+        if (isMounted) {
+          addToast({
+            title: 'Could not load vendor profile',
+            description: vendorError.message,
+            variant: 'destructive',
           })
+          setIsVendorLoading(false)
+        }
+        return
+      }
+
+      const profile = vendor as VendorProfile | null
+      if (!profile) {
+        if (isMounted) {
+          setVendorId(null)
+          setVendorPhotoUrl(null)
+          setDocuments([])
+          setIsVendorLoading(false)
+        }
+        return
+      }
+
+      if (isMounted) {
+        setVendorId(profile.id)
+        setVendorPhotoUrl(profile.photo_url)
+        reset({
+          business_name: profile.name || '',
+          description: profile.bio || '',
+          service_type: (profile.service_type || 'dj') as VendorFormData['service_type'],
+          service_area: (profile.service_area || 'all_bay_area') as VendorFormData['service_area'],
+          setup_time: String(profile.setup_time_minutes || 60) as VendorFormData['setup_time'],
+        })
+      }
+
+      const { data: rawDocuments, error: documentsError } = await supabase
+        .from('documents')
+        .select('id, file_name, file_url, mime_type, file_size')
+        .eq('related_type', 'user')
+        .eq('related_id', user.id)
+        .order('created_at', { ascending: false })
+
+      if (documentsError) {
+        if (isMounted) {
+          addToast({
+            title: 'Could not load vendor documents',
+            description: documentsError.message,
+            variant: 'destructive',
+          })
+        }
+      } else {
+        const docs = await Promise.all(
+          ((rawDocuments as VendorDocumentRow[] | null) || []).map(async (doc) => {
+            const { data: signedUrlData } = await supabase.storage
+              .from('vendor-documents')
+              .createSignedUrl(doc.file_url, 60 * 60)
+
+            return {
+              id: doc.id,
+              name: doc.file_name || doc.file_url.split('/').pop() || 'Document',
+              filePath: doc.file_url,
+              url: signedUrlData?.signedUrl || null,
+              mimeType: doc.mime_type,
+              size: doc.file_size,
+            } satisfies VendorDocument
+          })
+        )
+
+        if (isMounted) {
+          setDocuments(docs)
+        }
+      }
+
+      if (isMounted) {
+        setIsVendorLoading(false)
       }
     }
-  }, [vendor, vendorId, reset])
+
+    loadVendor()
+
+    return () => {
+      isMounted = false
+    }
+  }, [addToast, reset, user?.id])
 
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
+        <div className="text-muted-foreground">Loading...</div>
       </div>
     )
   }
@@ -130,7 +231,7 @@ export default function VendorServicesPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
+        <div className="text-destructive">Please log in to continue</div>
       </div>
     )
   }
@@ -138,105 +239,224 @@ export default function VendorServicesPage() {
   const handleSave = async (data: VendorFormData) => {
     if (!vendorId) return
 
+    setIsSaving(true)
     try {
-      await updateVendor.mutateAsync({
-        id: vendorId,
-        updates: {
-          business_name: data.business_name,
-          description: data.description || null,
+      const { error: updateError } = await supabase
+        .from('vendor_profiles')
+        .update({
+          name: data.business_name,
+          bio: data.description || null,
           service_type: data.service_type,
-          city: data.service_area,
-        },
-      })
-
-      // Update offerings
-      // First, delete existing offerings
-      await supabase
-        .from('vendor_offerings')
-        .delete()
-        .eq('vendor_id', vendorId)
-
-      // Then, insert new ones
-      const offeringsToInsert: any[] = []
-
-      // Standard offerings
-      selectedOfferings.forEach((offeringId) => {
-        const offering = standardOfferings.find((o) => o.id === offeringId)
-        if (offering) {
-          offeringsToInsert.push({
-            vendor_id: vendorId,
-            offering_name: offering.label,
-            description: offering.description,
-            base_price: 0, // Would be set separately
-            pricing_model: 'flat_rate',
-            is_active: true,
-          })
-        }
-      })
-
-      // Custom offerings
-      customOfferings.forEach((custom) => {
-        offeringsToInsert.push({
-          vendor_id: vendorId,
-          offering_name: custom.name,
-          description: custom.description,
-          base_price: 0,
-          pricing_model: 'flat_rate',
-          is_active: true,
+          service_area: data.service_area,
+          regions_served: data.service_area,
+          vendor_type: getVendorType(data.service_type),
+          setup_time_minutes: Number(data.setup_time),
+          updated_at: new Date().toISOString(),
         })
-      })
+        .eq('id', vendorId)
 
-      if (offeringsToInsert.length > 0) {
-        await supabase.from('vendor_offerings').insert(offeringsToInsert)
-      }
+      if (updateError) throw updateError
 
       addToast({
-        title: 'Services updated',
-        description: 'Your service information has been saved successfully.',
+        title: 'Profile updated',
+        description: 'Your vendor profile details have been saved.',
+        variant: 'success',
       })
 
       reset(data)
     } catch (error) {
       addToast({
         title: 'Error',
-        description: 'Failed to update services',
+        description: error instanceof Error ? error.message : 'Failed to update services',
         variant: 'destructive',
       })
+    } finally {
+      setIsSaving(false)
     }
   }
 
-  const handleAddCustomOffering = () => {
-    setCustomOfferings([
-      ...customOfferings,
-      { id: `custom-${Date.now()}`, name: '', description: '' },
-    ])
+  const handlePhotoUploadComplete = async (url: string) => {
+    if (!vendorId) return
+
+    const { error } = await supabase
+      .from('vendor_profiles')
+      .update({
+        photo_url: url,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', vendorId)
+
+    if (error) {
+      addToast({
+        title: 'Photo upload saved to storage but not to profile',
+        description: error.message,
+        variant: 'warning',
+      })
+      return
+    }
+
+    setVendorPhotoUrl(url)
+    addToast({
+      title: 'Photo updated',
+      description: 'Your vendor profile image is live.',
+      variant: 'success',
+    })
   }
 
-  const handleRemoveCustomOffering = (id: string) => {
-    setCustomOfferings(customOfferings.filter((o) => o.id !== id))
+  const handlePhotoRemove = async () => {
+    if (!vendorId) return
+
+    const { error } = await supabase
+      .from('vendor_profiles')
+      .update({
+        photo_url: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', vendorId)
+
+    if (error) {
+      addToast({
+        title: 'Could not update vendor photo',
+        description: error.message,
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setVendorPhotoUrl(null)
+    addToast({
+      title: 'Photo removed',
+      description: 'Your vendor profile image has been cleared.',
+    })
   }
 
-  const handleUpdateCustomOffering = (id: string, field: 'name' | 'description', value: string) => {
-    setCustomOfferings(
-      customOfferings.map((o) => (o.id === id ? { ...o, [field]: value } : o))
-    )
+  const handleVendorDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || !vendorId) return
+
+    setIsUploadingDocs(true)
+    try {
+      const {
+        data: { user: authUser },
+        error: authError,
+      } = await supabase.auth.getUser()
+
+      if (authError || !authUser) {
+        throw new Error('Please log in again before uploading files.')
+      }
+
+      const uploaded: VendorDocument[] = []
+
+      for (const file of Array.from(files)) {
+        const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+        const filePath = `${vendorId}/${Date.now()}-${sanitizedName}`
+
+        const { error: uploadError } = await supabase.storage
+          .from('vendor-documents')
+          .upload(filePath, file, { upsert: false })
+
+        if (uploadError) throw uploadError
+
+        const { data: documentRow, error: insertError } = await supabase
+          .from('documents')
+          .insert({
+            uploader_id: authUser.id,
+            related_type: 'user',
+            related_id: authUser.id,
+            document_type: 'other',
+            file_name: file.name,
+            file_url: filePath,
+            file_size: file.size,
+            mime_type: file.type || null,
+          })
+          .select('id, file_name, file_url, mime_type, file_size')
+          .single()
+
+        if (insertError) {
+          await supabase.storage.from('vendor-documents').remove([filePath])
+          throw insertError
+        }
+
+        const row = documentRow as VendorDocumentRow
+        const { data: signedUrlData } = await supabase.storage
+          .from('vendor-documents')
+          .createSignedUrl(filePath, 60 * 60)
+
+        uploaded.push({
+          id: row.id,
+          name: row.file_name || file.name,
+          filePath: row.file_url,
+          url: signedUrlData?.signedUrl || null,
+          mimeType: row.mime_type,
+          size: row.file_size,
+        })
+      }
+
+      setDocuments((current) => [...uploaded, ...current])
+      addToast({
+        title: 'Documents uploaded',
+        description: `${uploaded.length} vendor file${uploaded.length === 1 ? '' : 's'} uploaded.`,
+        variant: 'success',
+      })
+    } catch (error) {
+      addToast({
+        title: 'Upload failed',
+        description: error instanceof Error ? error.message : 'Could not upload vendor documents',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsUploadingDocs(false)
+      e.target.value = ''
+    }
   }
 
-  if (vendorLoading) {
+  const handleVendorDocumentDelete = async (document: VendorDocument) => {
+    setDeletingDocId(document.id)
+    try {
+      const { error: storageError } = await supabase.storage
+        .from('vendor-documents')
+        .remove([document.filePath])
+
+      if (storageError) throw storageError
+
+      const { error: deleteError } = await supabase
+        .from('documents')
+        .delete()
+        .eq('id', document.id)
+
+      if (deleteError) throw deleteError
+
+      setDocuments((current) => current.filter((item) => item.id !== document.id))
+      addToast({
+        title: 'Document removed',
+        description: `${document.name} has been deleted.`,
+      })
+    } catch (error) {
+      addToast({
+        title: 'Delete failed',
+        description: error instanceof Error ? error.message : 'Could not delete vendor document',
+        variant: 'destructive',
+      })
+    } finally {
+      setDeletingDocId(null)
+    }
+  }
+
+  if (isVendorLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-forest-500 border-t-transparent mx-auto mb-4" />
-          <p className="text-gray-600">Loading services...</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading services...</p>
         </div>
       </div>
     )
   }
 
-  if (!vendor) {
+  if (!vendorId) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-600">No vendor profile found. Please create a vendor profile first.</p>
+        <p className="text-muted-foreground">No vendor profile found. Please complete vendor onboarding first.</p>
       </div>
     )
   }
@@ -244,12 +464,11 @@ export default function VendorServicesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Service Listing</h1>
-        <p className="text-gray-600 mt-1">Manage your service details and offerings</p>
+        <h1 className="text-3xl font-bold text-foreground">Service Listing</h1>
+        <p className="text-muted-foreground mt-1">Manage your vendor profile, bookable services, portfolio, and private documents.</p>
       </div>
 
       <form onSubmit={handleSubmit(handleSave)} className="space-y-6">
-        {/* Basic Information Card */}
         <Card>
           <CardHeader>
             <CardTitle>Basic Information</CardTitle>
@@ -259,7 +478,7 @@ export default function VendorServicesPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
+              <label className="text-sm font-medium text-foreground mb-2 block">
                 Business Name *
               </label>
               <Input
@@ -267,30 +486,30 @@ export default function VendorServicesPage() {
                 placeholder="DJ Services Co."
               />
               {errors.business_name && (
-                <p className="text-sm text-red-500 mt-1">{errors.business_name.message}</p>
+                <p className="text-sm text-destructive mt-1">{errors.business_name.message}</p>
               )}
             </div>
 
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
+              <label className="text-sm font-medium text-foreground mb-2 block">
                 Description
               </label>
               <textarea
                 {...register('description')}
                 rows={4}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500"
+                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 placeholder="Describe your services, experience, and what makes you unique..."
               />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   Service Type *
                 </label>
                 <select
                   {...register('service_type')}
-                  className="flex h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
                 >
                   <option value="dj">DJ</option>
                   <option value="catering">Catering</option>
@@ -305,26 +524,32 @@ export default function VendorServicesPage() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   Service Area *
                 </label>
-                <Input
+                <select
                   {...register('service_area')}
-                  placeholder="San Francisco, CA"
-                />
+                  className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
+                >
+                  {serviceAreaOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
                 {errors.service_area && (
-                  <p className="text-sm text-red-500 mt-1">{errors.service_area.message}</p>
+                  <p className="text-sm text-destructive mt-1">{errors.service_area.message}</p>
                 )}
               </div>
             </div>
 
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
+              <label className="text-sm font-medium text-foreground mb-2 block">
                 Setup Time Required
               </label>
               <select
                 {...register('setup_time')}
-                className="flex h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
               >
                 <option value="30">30 minutes</option>
                 <option value="60">60 minutes (1 hour)</option>
@@ -336,109 +561,111 @@ export default function VendorServicesPage() {
           </CardContent>
         </Card>
 
-        {/* Service Offerings Card */}
         <Card>
           <CardHeader>
-            <CardTitle>Service Offerings</CardTitle>
+            <CardTitle>Profile Photo</CardTitle>
             <CardDescription>
-              Select the services you offer and add custom offerings
+              Upload one public-facing image for your vendor listing.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FileUpload
+              key={vendorPhotoUrl || 'empty-photo'}
+              bucket="vendor-photos"
+              folderPath={vendorId}
+              accept="image/jpeg,image/png,image/webp"
+              maxSize={5 * 1024 * 1024}
+              existingFiles={vendorPhotoUrl ? [vendorPhotoUrl] : []}
+              onUploadComplete={handlePhotoUploadComplete}
+              onRemove={handlePhotoRemove}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Private Documents</CardTitle>
+            <CardDescription>
+              Keep COIs, menus, pricing decks, or setup docs in a vendor-only bucket.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {standardOfferings.map((offering) => (
-                <label
-                  key={offering.id}
-                  className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedOfferings.includes(offering.id)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedOfferings([...selectedOfferings, offering.id])
-                      } else {
-                        setSelectedOfferings(
-                          selectedOfferings.filter((id) => id !== offering.id)
-                        )
-                      }
-                    }}
-                    className="mt-1 h-4 w-4 text-forest-500 focus:ring-forest-500"
-                  />
-                  <div>
-                    <div className="font-medium text-sm text-gray-900">
-                      {offering.label}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      {offering.description}
-                    </div>
-                  </div>
-                </label>
-              ))}
+            <div>
+              <label className="block">
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  multiple
+                  onChange={handleVendorDocumentUpload}
+                  disabled={isUploadingDocs}
+                  className="hidden"
+                />
+                <Button variant="outline" asChild>
+                  <span>
+                    {isUploadingDocs ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                    {isUploadingDocs ? 'Uploading...' : 'Upload Private Documents'}
+                  </span>
+                </Button>
+              </label>
             </div>
 
-            {/* Custom Offerings */}
-            {customOfferings.length > 0 && (
-              <div className="space-y-3 pt-4 border-t border-gray-200">
-                <h4 className="text-sm font-semibold text-gray-900">Custom Offerings</h4>
-                {customOfferings.map((offering) => (
-                  <div key={offering.id} className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg">
-                    <div className="flex-1 space-y-2">
-                      <Input
-                        placeholder="Offering name"
-                        value={offering.name}
-                        onChange={(e) =>
-                          handleUpdateCustomOffering(offering.id, 'name', e.target.value)
-                        }
-                      />
-                      <Input
-                        placeholder="Description"
-                        value={offering.description}
-                        onChange={(e) =>
-                          handleUpdateCustomOffering(offering.id, 'description', e.target.value)
-                        }
-                      />
+            {documents.length > 0 ? (
+              <div className="space-y-2">
+                {documents.map((document) => (
+                  <div
+                    key={document.id}
+                    className="flex items-center gap-3 rounded-lg border border-border p-3"
+                  >
+                    <FileText className="h-5 w-5 text-muted-foreground/60" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-foreground">{document.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {document.mimeType || 'Document'}
+                        {document.size ? ` • ${(document.size / 1024 / 1024).toFixed(1)} MB` : ''}
+                      </p>
                     </div>
+                    {document.url && (
+                      <Button variant="ghost" size="icon" asChild>
+                        <a href={document.url} target="_blank" rel="noreferrer" aria-label={`Open ${document.name}`}>
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      onClick={() => handleRemoveCustomOffering(offering.id)}
+                      disabled={deletingDocId === document.id}
+                      onClick={() => handleVendorDocumentDelete(document)}
+                      aria-label={`Delete ${document.name}`}
                     >
-                      <X className="h-4 w-4" />
+                      {deletingDocId === document.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                     </Button>
                   </div>
                 ))}
               </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
+                No private vendor documents uploaded yet.
+              </div>
             )}
-
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleAddCustomOffering}
-              className="w-full"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Custom Offering
-            </Button>
           </CardContent>
         </Card>
 
-        {/* Action Buttons */}
         <div className="flex items-center justify-end gap-3">
           <Button
             type="button"
             variant="outline"
             onClick={() => router.back()}
-            disabled={updateVendor.isPending}
+            disabled={isSaving}
           >
             Cancel
           </Button>
           <Button
             type="submit"
-            disabled={updateVendor.isPending || !isDirty}
+            disabled={isSaving || !isDirty}
           >
-            {updateVendor.isPending ? (
+            {isSaving ? (
               'Saving...'
             ) : (
               <>
@@ -449,6 +676,18 @@ export default function VendorServicesPage() {
           </Button>
         </div>
       </form>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Bookable Services & Portfolio</CardTitle>
+          <CardDescription>
+            Build polished service listings with price, duration, add-ons, equipment, and photos.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <VendorServicesManager vendorId={vendorId} />
+        </CardContent>
+      </Card>
     </div>
   )
 }

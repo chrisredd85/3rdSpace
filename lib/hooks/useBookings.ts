@@ -113,11 +113,37 @@ export function useCreateVendorBooking() {
       booking: Omit<VendorBooking, 'id' | 'created_at' | 'updated_at'>
     ) => {
       const supabase = createClient()
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser()
+
+      if (userError || !user) throw new Error('Please sign in before requesting a vendor')
+
       const { data, error } = await supabase
         .from('vendor_bookings')
         .insert({
-          ...booking,
+          event_id: booking.event_id,
+          vendor_id: booking.vendor_id,
+          organizer_id: user.id,
+          vendor_offering_id: booking.vendor_offering_id || null,
+          vendor_package_id: booking.vendor_package_id || null,
+          booking_date: booking.requested_date,
+          start_time: booking.requested_start_time || null,
+          end_time: booking.requested_end_time || null,
+          requested_date: booking.requested_date,
+          requested_start_time: booking.requested_start_time || null,
+          requested_end_time: booking.requested_end_time || null,
+          confirmed_date: null,
+          confirmed_start_time: null,
+          confirmed_end_time: null,
           status: 'pending',
+          quoted_price: booking.quoted_price || null,
+          final_price: booking.final_price || null,
+          quantity: booking.quantity || null,
+          deposit_amount: booking.deposit_amount || null,
+          deposit_paid: booking.deposit_paid || false,
+          notes: booking.notes || null,
         } as never)
         .select()
         .single()
@@ -130,6 +156,68 @@ export function useCreateVendorBooking() {
         queryKey: bookingKeys.vendorRequests(data.vendor_id),
       })
       // Invalidate event queries to refresh vendor bookings
+      queryClient.invalidateQueries({ queryKey: ['events'] })
+    },
+  })
+}
+
+/**
+ * Mutation to update booking status for vendor bookings.
+ */
+export function useUpdateVendorBookingStatus() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      bookingId,
+      status,
+      confirmedDate,
+      confirmedStartTime,
+      confirmedEndTime,
+      finalPrice,
+      quotedPrice,
+      notes,
+    }: {
+      bookingId: string
+      status: BookingStatus
+      confirmedDate?: string
+      confirmedStartTime?: string
+      confirmedEndTime?: string
+      finalPrice?: number
+      quotedPrice?: number
+      notes?: string
+    }) => {
+      const response = await fetch(`/api/vendor/bookings/${bookingId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          status,
+          confirmed_date: confirmedDate,
+          confirmed_start_time: confirmedStartTime,
+          confirmed_end_time: confirmedEndTime,
+          final_price: finalPrice,
+          quoted_price: quotedPrice,
+          notes,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to update vendor booking')
+      }
+
+      const data = await response.json()
+      return data.booking as VendorBooking
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({
+        queryKey: bookingKeys.vendorRequests(data.vendor_id),
+      })
+      queryClient.invalidateQueries({ queryKey: ['vendor-bookings'] })
+      queryClient.invalidateQueries({ queryKey: ['availability'] })
       queryClient.invalidateQueries({ queryKey: ['events'] })
     },
   })

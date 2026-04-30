@@ -8,8 +8,15 @@ import type {
   VenueBooking,
   VenueType,
   SavedVenue,
-  Database,
 } from '@/lib/types'
+import {
+  normalizeVenue,
+  normalizeVenues,
+  toVenueRowInsert,
+  toVenueRowUpdate,
+  VENUE_DETAIL_SELECT_COLUMNS,
+  VENUE_SELECT_COLUMNS,
+} from '@/lib/venues/venue-adapter'
 
 // Query keys
 const venueKeys = {
@@ -21,6 +28,7 @@ const venueKeys = {
   bookings: (venueId: string) => [...venueKeys.all, 'bookings', venueId] as const,
   availability: (venueId: string, month: string) =>
     [...venueKeys.all, 'availability', venueId, month] as const,
+  ownerOptions: (userId: string) => [...venueKeys.all, 'owner-options', userId] as const,
   saved: (userId: string) => [...venueKeys.all, 'saved', userId] as const,
 }
 
@@ -33,6 +41,7 @@ interface VenueFilters {
   min_price?: number
   max_price?: number
   is_verified?: boolean
+  unique_feature_tags?: string[]
 }
 
 interface VenueWithRelations extends Venue {
@@ -62,8 +71,8 @@ export function useVenues(
       // Only select needed columns for list view (optimize query)
       let query = supabase
         .from('venues')
-        .select('id, name, venue_type, city, state, capacity, hourly_rate, photo_url, is_verified, created_at')
-        .eq('is_active', true)
+        .select(VENUE_SELECT_COLUMNS)
+        .eq('is_published', true)
         .order('created_at', { ascending: false })
 
       if (filters?.venue_type) {
@@ -76,10 +85,10 @@ export function useVenues(
         query = query.eq('state', filters.state)
       }
       if (filters?.min_capacity) {
-        query = query.gte('capacity', filters.min_capacity)
+        query = query.gte('standing_capacity', filters.min_capacity)
       }
       if (filters?.max_capacity) {
-        query = query.lte('capacity', filters.max_capacity)
+        query = query.lte('standing_capacity', filters.max_capacity)
       }
       if (filters?.min_price) {
         query = query.gte('hourly_rate', filters.min_price)
@@ -88,7 +97,10 @@ export function useVenues(
         query = query.lte('hourly_rate', filters.max_price)
       }
       if (filters?.is_verified !== undefined) {
-        query = query.eq('is_verified', filters.is_verified)
+        query = query.eq('is_published', filters.is_verified)
+      }
+      if (filters?.unique_feature_tags && filters.unique_feature_tags.length > 0) {
+        query = query.overlaps('unique_features_tags', filters.unique_feature_tags)
       }
 
       // Add pagination
@@ -104,7 +116,7 @@ export function useVenues(
       if (options?.page !== undefined) {
         const hasMore = (data || []).length === pageSize
         return {
-          data: (data || []) as Venue[],
+          data: normalizeVenues(data as any[]),
           total: null, // Would need separate count query
           page,
           pageSize,
@@ -113,7 +125,7 @@ export function useVenues(
       }
 
       // Otherwise return simple array for backward compatibility
-      return (data || []) as Venue[]
+      return normalizeVenues(data as any[])
     },
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   })
@@ -131,7 +143,7 @@ export function useVenue(id: string | null) {
       // Fetch venue
       const { data: venue, error: venueError } = await supabase
         .from('venues')
-        .select('*')
+        .select(VENUE_DETAIL_SELECT_COLUMNS)
         .eq('id', id)
         .single()
 
@@ -159,7 +171,7 @@ export function useVenue(id: string | null) {
         ])
 
       const result: VenueWithRelations = {
-        ...(venue as Venue),
+        ...normalizeVenue(venue as Record<string, any>),
         amenities: (amenitiesResult.data || []) as VenueAmenity[],
         photos: (photosResult.data || []) as VenuePhoto[],
         requirements: (requirementsResult.data || []) as VenueRequirement[],
@@ -194,6 +206,33 @@ export function useVenueBookings(venueId: string | null) {
 }
 
 /**
+ * Fetch venues owned by the current user for compact selector controls.
+ */
+export function useVenueOwnerOptions(userId: string | null) {
+  return useQuery({
+    queryKey: venueKeys.ownerOptions(userId || ''),
+    queryFn: async () => {
+      if (!userId) return []
+
+      const { data, error } = await supabase
+        .from('venues')
+        .select(VENUE_SELECT_COLUMNS)
+        .eq('owner_id', userId)
+        .order('venue_name', { ascending: true })
+
+      if (error) throw error
+
+      return normalizeVenues(data as any[]).map((venue) => ({
+        id: venue.id,
+        name: venue.name,
+      }))
+    },
+    enabled: !!userId,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/**
  * Mutation to create a new venue
  */
 export function useCreateVenue() {
@@ -203,12 +242,12 @@ export function useCreateVenue() {
     mutationFn: async (venue: Omit<Venue, 'id' | 'created_at' | 'updated_at'>) => {
       const { data, error } = await supabase
         .from('venues')
-        .insert(venue)
+        .insert(toVenueRowInsert(venue) as never)
         .select()
         .single()
 
       if (error) throw error
-      return data as Venue
+      return normalizeVenue(data as Record<string, any>)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: venueKeys.lists() })
@@ -232,13 +271,13 @@ export function useUpdateVenue() {
     }) => {
       const { data, error } = await supabase
         .from('venues')
-        .update({ ...updates, updated_at: new Date().toISOString() })
+        .update({ ...toVenueRowUpdate(updates), updated_at: new Date().toISOString() } as never)
         .eq('id', id)
         .select()
         .single()
 
       if (error) throw error
-      return data as Venue
+      return normalizeVenue(data as Record<string, any>)
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: venueKeys.lists() })
@@ -265,7 +304,8 @@ export function useVenueAvailability(venueId: string | null, month: string) {
       const { data: blocks, error: blocksError } = await supabase
         .from('availability_blocks')
         .select('*')
-        .eq('venue_id', venueId)
+        .eq('blockable_type', 'venue')
+        .eq('blockable_id', venueId)
         .gte('start_date', startDate)
         .lte('end_date', endDate)
 
@@ -274,22 +314,21 @@ export function useVenueAvailability(venueId: string | null, month: string) {
       // Fetch confirmed bookings
       const { data: bookings, error: bookingsError } = await supabase
         .from('venue_bookings')
-        .select('confirmed_date, confirmed_start_time, confirmed_end_time')
+        .select('booking_date, start_time, end_time')
         .eq('venue_id', venueId)
         .eq('status', 'confirmed')
-        .gte('confirmed_date', startDate)
-        .lte('confirmed_date', endDate)
+        .gte('booking_date', startDate)
+        .lte('booking_date', endDate)
 
       if (bookingsError) throw bookingsError
 
-      type BlockRow = { is_available: boolean }
-      type BookingRow = { confirmed_date: string; confirmed_start_time: string | null; confirmed_end_time: string | null }
+      type BookingRow = { booking_date: string; start_time: string | null; end_time: string | null }
       return {
-        unavailableBlocks: (blocks || []).filter((b: BlockRow) => !b.is_available),
+        unavailableBlocks: blocks || [],
         confirmedBookings: (bookings || []).map((b: BookingRow) => ({
-          date: b.confirmed_date,
-          startTime: b.confirmed_start_time,
-          endTime: b.confirmed_end_time,
+          date: b.booking_date,
+          startTime: b.start_time,
+          endTime: b.end_time,
         })),
       }
     },
@@ -313,7 +352,10 @@ export function useSavedVenues(userId: string | null) {
         .order('created_at', { ascending: false })
 
       if (error) throw error
-      return (data || []) as (SavedVenue & { venues: Venue })[]
+      return ((data || []) as Array<SavedVenue & { venues?: Record<string, any> | null }>).map((savedVenue) => ({
+        ...savedVenue,
+        venues: savedVenue.venues ? normalizeVenue(savedVenue.venues) : null,
+      })) as (SavedVenue & { venues: Venue | null })[]
     },
     enabled: !!userId,
   })

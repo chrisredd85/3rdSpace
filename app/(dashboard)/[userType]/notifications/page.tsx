@@ -27,19 +27,29 @@ import { Badge } from '@/components/shared/Badge'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { useToast } from '@/components/ui/toast'
+import { NotificationPreferences } from '@/components/notifications/NotificationPreferences'
 import { cn } from '@/lib/utils'
 import type { Notification } from '@/lib/types/database'
 
-type TabType = 'all' | 'unread' | 'booking_requests' | 'messages' | 'reviews'
+type TabType = 'all' | 'unread' | 'bookings' | 'messages' | 'payments' | 'reviews'
 
 const NOTIFICATION_TYPES = {
   new_booking_request: 'Booking Requests',
+  new_booking: 'Bookings',
   booking_confirmed: 'Booking Requests',
   booking_declined: 'Booking Requests',
+  booking_approved: 'Bookings',
+  booking_rejected: 'Bookings',
+  booking_cancelled: 'Bookings',
   new_message: 'Messages',
-  payment_received: 'Booking Requests',
+  payment_received: 'Payments',
+  invoice_sent: 'Payments',
+  payment_due: 'Payments',
   review_posted: 'Reviews',
+  review_received: 'Reviews',
+  review_request: 'Reviews',
   reminder: 'All',
+  cancellation: 'Bookings',
 }
 
 export default function NotificationsPage() {
@@ -62,7 +72,7 @@ export default function NotificationsPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
+        <div className="text-muted-foreground">Loading...</div>
       </div>
     )
   }
@@ -70,7 +80,7 @@ export default function NotificationsPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
+        <div className="text-destructive">Please log in to continue</div>
       </div>
     )
   }
@@ -80,16 +90,19 @@ export default function NotificationsPage() {
     if (activeTab === 'unread') {
       return !notification.is_read
     }
-    if (activeTab === 'booking_requests') {
-      return ['new_booking_request', 'booking_confirmed', 'booking_declined', 'payment_received'].includes(
+    if (activeTab === 'bookings') {
+      return ['new_booking_request', 'new_booking', 'booking_confirmed', 'booking_declined', 'booking_approved', 'booking_rejected', 'booking_cancelled', 'cancellation'].includes(
         notification.type
       )
     }
     if (activeTab === 'messages') {
       return notification.type === 'new_message'
     }
+    if (activeTab === 'payments') {
+      return ['payment_received', 'invoice_sent', 'payment_due'].includes(notification.type)
+    }
     if (activeTab === 'reviews') {
-      return notification.type === 'review_posted'
+      return ['review_posted', 'review_received', 'review_request'].includes(notification.type)
     }
     return true
   })
@@ -164,21 +177,30 @@ export default function NotificationsPage() {
   const getNotificationIcon = (notificationType: string) => {
     switch (notificationType) {
       case 'new_booking_request':
-        return <Calendar className="h-5 w-5 text-blue-600" />
+      case 'new_booking':
+        return <Calendar className="h-5 w-5 text-primary" />
       case 'booking_confirmed':
-        return <CheckCircle className="h-5 w-5 text-forest-600" />
+      case 'booking_approved':
+        return <CheckCircle className="h-5 w-5 text-primary" />
       case 'booking_declined':
-        return <XCircle className="h-5 w-5 text-red-600" />
+      case 'booking_rejected':
+      case 'booking_cancelled':
+      case 'cancellation':
+        return <XCircle className="h-5 w-5 text-destructive" />
       case 'new_message':
         return <MessageSquare className="h-5 w-5 text-purple-600" />
       case 'payment_received':
-        return <DollarSign className="h-5 w-5 text-yellow-600" />
+      case 'invoice_sent':
+      case 'payment_due':
+        return <DollarSign className="h-5 w-5 text-yellow-200" />
       case 'review_posted':
-        return <Star className="h-5 w-5 text-yellow-600" />
+      case 'review_received':
+      case 'review_request':
+        return <Star className="h-5 w-5 text-yellow-200" />
       case 'reminder':
         return <Bell className="h-5 w-5 text-orange-600" />
       default:
-        return <Bell className="h-5 w-5 text-gray-600" />
+        return <Bell className="h-5 w-5 text-muted-foreground" />
     }
   }
 
@@ -285,8 +307,8 @@ export default function NotificationsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Notifications</h1>
-          <p className="text-gray-600 mt-1">Stay updated on your events and bookings</p>
+          <h1 className="text-3xl font-bold text-foreground">Notifications</h1>
+          <p className="text-muted-foreground mt-1">Stay updated on your events and bookings</p>
         </div>
         {unreadCount > 0 && (
           <Button variant="outline" onClick={handleMarkAllAsRead}>
@@ -297,12 +319,13 @@ export default function NotificationsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-4 border-b border-gray-200">
+      <div className="flex items-center gap-4 border-b border-border">
         {[
           { id: 'all' as TabType, label: 'All' },
           { id: 'unread' as TabType, label: 'Unread', count: unreadCount },
-          { id: 'booking_requests' as TabType, label: 'Booking Requests' },
+          { id: 'bookings' as TabType, label: 'Bookings' },
           { id: 'messages' as TabType, label: 'Messages' },
+          { id: 'payments' as TabType, label: 'Payments' },
           { id: 'reviews' as TabType, label: 'Reviews' },
         ].map((tab) => (
           <button
@@ -311,14 +334,14 @@ export default function NotificationsPage() {
             className={cn(
               'px-4 py-2 text-sm font-medium border-b-2 transition-colors',
               activeTab === tab.id
-                ? 'border-forest-500 text-forest-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
             )}
           >
             <div className="flex items-center gap-2">
               {tab.label}
               {tab.count !== undefined && tab.count > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-forest-100 text-forest-800 text-xs font-semibold">
+                <span className="px-2 py-0.5 rounded-full bg-primary/15 text-primary text-xs font-semibold">
                   {tab.count}
                 </span>
               )}
@@ -329,10 +352,10 @@ export default function NotificationsPage() {
 
       {/* Bulk Actions */}
       {selectedNotifications.size > 0 && (
-        <Card className="bg-forest-50 border-forest-200">
+        <Card className="bg-primary/10 border-primary/30">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-forest-900">
+              <span className="text-sm font-medium text-primary">
                 {selectedNotifications.size} notification{selectedNotifications.size !== 1 ? 's' : ''} selected
               </span>
               <div className="flex items-center gap-2">
@@ -392,7 +415,7 @@ export default function NotificationsPage() {
               key={notification.id}
               className={cn(
                 'hover:shadow-md transition-shadow cursor-pointer',
-                !notification.is_read && 'border-l-4 border-l-forest-500'
+                !notification.is_read && 'border-l-4 border-l-primary'
               )}
               onClick={() => {
                 if (!notification.is_read) {
@@ -425,22 +448,22 @@ export default function NotificationsPage() {
                             className={cn(
                               'text-sm',
                               !notification.is_read
-                                ? 'font-semibold text-gray-900'
-                                : 'text-gray-700'
+                                ? 'font-semibold text-foreground'
+                                : 'text-foreground'
                             )}
                           >
                             {notification.title}
                           </h3>
                           {!notification.is_read && (
-                            <div className="h-2 w-2 rounded-full bg-forest-500 flex-shrink-0" />
+                            <div className="h-2 w-2 rounded-full bg-primary flex-shrink-0" />
                           )}
                         </div>
                         {notification.message && (
-                          <p className="text-sm text-gray-600 mb-2">
+                          <p className="text-sm text-muted-foreground mb-2">
                             {notification.message}
                           </p>
                         )}
-                        <p className="text-xs text-gray-400">
+                        <p className="text-xs text-muted-foreground/60">
                           {formatTimestamp(notification.created_at)}
                         </p>
                       </div>
@@ -461,7 +484,7 @@ export default function NotificationsPage() {
                             })
                           }}
                           onClick={(e) => e.stopPropagation()}
-                          className="h-4 w-4 text-forest-500"
+                          className="h-4 w-4 text-primary"
                         />
                         {getActionButton(notification)}
                         <Button
@@ -483,6 +506,8 @@ export default function NotificationsPage() {
           ))}
         </div>
       )}
+
+      <NotificationPreferences />
     </div>
   )
 }

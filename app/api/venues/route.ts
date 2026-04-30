@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { normalizeVenues, VENUE_SELECT_COLUMNS } from '@/lib/venues/venue-adapter'
 
 /**
  * GET /api/venues
@@ -18,6 +19,7 @@ import { createClient } from '@/lib/supabase/server'
  * - min_price: Minimum hourly rate
  * - max_price: Maximum hourly rate
  * - is_verified: Filter by verification status
+ * - tags: Comma-separated unique feature tags
  * - page: Page number (default: 0)
  * - pageSize: Items per page (default: 20)
  */
@@ -35,14 +37,15 @@ export async function GET(request: NextRequest) {
     const minPrice = searchParams.get('min_price')
     const maxPrice = searchParams.get('max_price')
     const isVerified = searchParams.get('is_verified')
+    const tagsParam = searchParams.get('tags')
     const page = parseInt(searchParams.get('page') || '0', 10)
     const pageSize = parseInt(searchParams.get('pageSize') || '20', 10)
 
     // Build query - fetch ALL published venues (marketplace)
     let query = supabase
       .from('venues')
-      .select('id, name, venue_type, city, state, capacity, hourly_rate, daily_rate, photo_url, is_verified, description, created_at')
-      .eq('is_active', true) // Only active venues
+      .select(VENUE_SELECT_COLUMNS)
+      .eq('is_published', true) // Only active venues
       .order('created_at', { ascending: false })
 
     // Apply filters
@@ -56,10 +59,10 @@ export async function GET(request: NextRequest) {
       query = query.eq('state', state)
     }
     if (minCapacity) {
-      query = query.gte('capacity', parseInt(minCapacity, 10))
+      query = query.gte('standing_capacity', parseInt(minCapacity, 10))
     }
     if (maxCapacity) {
-      query = query.lte('capacity', parseInt(maxCapacity, 10))
+      query = query.lte('standing_capacity', parseInt(maxCapacity, 10))
     }
     if (minPrice) {
       query = query.gte('hourly_rate', parseFloat(minPrice))
@@ -68,7 +71,17 @@ export async function GET(request: NextRequest) {
       query = query.lte('hourly_rate', parseFloat(maxPrice))
     }
     if (isVerified !== null) {
-      query = query.eq('is_verified', isVerified === 'true')
+      query = query.eq('is_published', isVerified === 'true')
+    }
+    if (tagsParam) {
+      const tags = tagsParam
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+
+      if (tags.length > 0) {
+        query = query.overlaps('unique_features_tags', tags)
+      }
     }
 
     // Apply pagination
@@ -87,7 +100,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      venues: venues || [],
+      venues: normalizeVenues(venues as any[]),
       page,
       pageSize,
       hasMore: (venues || []).length === pageSize,

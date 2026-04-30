@@ -1,12 +1,32 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import type { UserType } from '@/lib/types'
+
+function getLoginPath(userType: UserType) {
+  if (userType === 'community_builder') return '/login/builder'
+  if (userType === 'venue_owner') return '/login/venue'
+  return '/login/vendor'
+}
+
+function getDashboardPath(userType: UserType) {
+  if (userType === 'community_builder') return '/builder'
+  if (userType === 'venue_owner') return '/venue'
+  return '/vendor'
+}
+
+function getRole(userType: UserType) {
+  if (userType === 'community_builder') return 'builder'
+  if (userType === 'venue_owner') return 'owner'
+  return 'vendor'
+}
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
   const next = requestUrl.searchParams.get('next')
+  const expectedUserType = requestUrl.searchParams.get('expected_user_type') as UserType | null
+  const authFlow = requestUrl.searchParams.get('auth_flow')
   const error = requestUrl.searchParams.get('error')
   const errorDescription = requestUrl.searchParams.get('error_description')
 
@@ -28,6 +48,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const supabase = createClient()
+    const admin = createServiceRoleClient()
     
     // Exchange code for session
     const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
@@ -51,7 +72,7 @@ export async function GET(request: NextRequest) {
     } else {
       // Fallback: check profile
       const { data: profile } = await supabase
-        .from('profiles')
+        .from('users')
         .select('user_type')
         .eq('id', data.user.id)
         .single()
@@ -62,13 +83,56 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    if (!userType && expectedUserType && authFlow === 'signup') {
+      if (expectedUserType === 'venue_owner') {
+        await supabase.auth.signOut()
+        const venueSignupUrl = new URL('/signup/venue', request.url)
+        venueSignupUrl.searchParams.set('error', 'venue_requires_details')
+        venueSignupUrl.searchParams.set('message', 'Venue sign up needs venue details, so please use the venue form instead of Google.')
+        return NextResponse.redirect(venueSignupUrl)
+      }
+
+      const companyName =
+        expectedUserType === 'vendor'
+          ? (data.user.user_metadata?.full_name as string | undefined) || data.user.email || 'Vendor'
+          : (data.user.user_metadata?.full_name as string | undefined) || data.user.email || 'Community Builder'
+
+      const { error: profileCreateError } = await admin
+        .from('users')
+        .upsert({
+          id: data.user.id,
+          email: data.user.email!,
+          role: getRole(expectedUserType),
+          user_type: expectedUserType,
+          company_name: companyName,
+          email_verified: Boolean(data.user.email_confirmed_at),
+        } as never, { onConflict: 'id' })
+
+      if (profileCreateError) {
+        console.error('OAuth profile create error:', profileCreateError)
+        const loginUrl = new URL('/login', request.url)
+        loginUrl.searchParams.set('error', 'profile_create_failed')
+        loginUrl.searchParams.set('message', 'We could not finish setting up your account.')
+        return NextResponse.redirect(loginUrl)
+      }
+
+      userType = expectedUserType
+    }
+
+    if (expectedUserType && userType && expectedUserType !== userType) {
+      await supabase.auth.signOut()
+      const wrongPortalUrl = new URL(getLoginPath(userType), request.url)
+      wrongPortalUrl.searchParams.set('error', 'wrong_portal')
+      wrongPortalUrl.searchParams.set(
+        'message',
+        `This account belongs to the ${userType === 'community_builder' ? 'community builder' : userType === 'venue_owner' ? 'venue owner' : 'vendor'} portal.`
+      )
+      return NextResponse.redirect(wrongPortalUrl)
+    }
+
     // Determine dashboard path based on user type
-    if (userType === 'community_builder') {
-      dashboardPath = '/builder'
-    } else if (userType === 'venue_owner') {
-      dashboardPath = '/venue'
-    } else if (userType === 'vendor') {
-      dashboardPath = '/vendor'
+    if (userType) {
+      dashboardPath = getDashboardPath(userType)
     }
 
     // Use provided next URL or default to user's dashboard

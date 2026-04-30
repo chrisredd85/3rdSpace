@@ -95,7 +95,7 @@ export function MessageInput({
   const isOverLimit = characterCount > maxLength
 
   return (
-    <div className={cn('border-t border-gray-200 p-4 bg-white', className)}>
+    <div className={cn('border-t border-border p-4 bg-card/40', className)}>
       <div className="flex items-end gap-2">
         <div className="flex-1 relative">
           <textarea
@@ -108,17 +108,17 @@ export function MessageInput({
             maxLength={maxLength}
             rows={1}
             className={cn(
-              'w-full rounded-lg border border-gray-300 px-4 py-3 pr-12 text-sm',
-              'focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-forest-500',
+              'w-full rounded-lg border border-border px-4 py-3 pr-12 text-sm',
+              'focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary',
               'resize-none overflow-hidden',
-              'disabled:bg-gray-50 disabled:cursor-not-allowed',
+              'disabled:bg-background disabled:cursor-not-allowed',
               isOverLimit && 'border-red-500 focus:border-red-500 focus:ring-red-500'
             )}
             style={{ minHeight: '44px', maxHeight: '200px' }}
           />
           {maxLength && (
-            <div className="absolute bottom-2 right-2 text-xs text-gray-400">
-              <span className={isOverLimit ? 'text-red-500' : ''}>
+            <div className="absolute bottom-2 right-2 text-xs text-muted-foreground/60">
+              <span className={isOverLimit ? 'text-destructive' : ''}>
                 {characterCount}/{maxLength}
               </span>
             </div>
@@ -132,7 +132,7 @@ export function MessageInput({
           <Send className="h-4 w-4" />
         </Button>
       </div>
-      <p className="text-xs text-gray-500 mt-2">
+      <p className="text-xs text-muted-foreground mt-2">
         Press Ctrl+Enter to send
       </p>
     </div>

@@ -132,7 +132,7 @@ export function VenueForm({
               {...register('description')}
               rows={4}
               maxLength={maxDescriptionLength}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               placeholder="Describe your venue, its atmosphere, and what makes it special..."
             />
           </FormField>
@@ -141,7 +141,7 @@ export function VenueForm({
             <FormField label="Venue Type" required error={errors.venue_type?.message}>
               <select
                 {...register('venue_type')}
-                className="flex h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500"
+                className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 <option value="loft_warehouse">Loft/Warehouse</option>
                 <option value="gallery">Gallery</option>

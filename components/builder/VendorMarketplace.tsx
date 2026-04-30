@@ -123,8 +123,8 @@ export function VendorMarketplace({ onClose }: VendorMarketplaceProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Vendor Marketplace</h2>
-          <p className="text-gray-600 mt-1">Find vendors for your events</p>
+          <h2 className="text-2xl font-bold text-foreground">Vendor Marketplace</h2>
+          <p className="text-muted-foreground mt-1">Find vendors for your events</p>
         </div>
         {onClose && (
           <Button variant="ghost" onClick={onClose}>
@@ -148,7 +148,7 @@ export function VendorMarketplace({ onClose }: VendorMarketplaceProps) {
             <CardContent className="space-y-4">
               {/* Service Type */}
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   Service Type
                 </label>
                 <select
@@ -157,7 +157,7 @@ export function VendorMarketplace({ onClose }: VendorMarketplaceProps) {
                     setServiceType(e.target.value as ServiceType | 'all')
                     setCurrentPage(1)
                   }}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-border px-3 py-2 text-sm"
                 >
                   <option value="all">All Services</option>
                   <option value="dj">DJ</option>
@@ -174,7 +174,7 @@ export function VendorMarketplace({ onClose }: VendorMarketplaceProps) {
 
               {/* Service Area */}
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   Service Area
                 </label>
                 <Input
@@ -189,7 +189,7 @@ export function VendorMarketplace({ onClose }: VendorMarketplaceProps) {
 
               {/* Price Range */}
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   Price Range
                 </label>
                 <div className="flex gap-2">
@@ -222,7 +222,7 @@ export function VendorMarketplace({ onClose }: VendorMarketplaceProps) {
           {/* Search Bar */}
           <div className="mb-4">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
               <Input
                 placeholder="Search vendors..."
                 value={searchQuery}
@@ -236,7 +236,7 @@ export function VendorMarketplace({ onClose }: VendorMarketplaceProps) {
           </div>
 
           {/* Results Count */}
-          <div className="mb-4 text-sm text-gray-600">
+          <div className="mb-4 text-sm text-muted-foreground">
             {filteredVendors.length} vendor{filteredVendors.length !== 1 ? 's' : ''} found
           </div>
 
@@ -244,15 +244,15 @@ export function VendorMarketplace({ onClose }: VendorMarketplaceProps) {
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-forest-500 border-t-transparent mx-auto mb-4" />
-                <p className="text-gray-600">Loading vendors...</p>
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4" />
+                <p className="text-muted-foreground">Loading vendors...</p>
               </div>
             </div>
           ) : paginatedVendors.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12">
-                <Package className="h-12 w-12 text-gray-400 mb-4" />
-                <p className="text-gray-600">No vendors found</p>
+                <Package className="h-12 w-12 text-muted-foreground/60 mb-4" />
+                <p className="text-muted-foreground">No vendors found</p>
                 <Button variant="outline" onClick={handleClearFilters} className="mt-4">
                   Clear Filters
                 </Button>
@@ -286,7 +286,7 @@ export function VendorMarketplace({ onClose }: VendorMarketplaceProps) {
                   >
                     Previous
                   </Button>
-                  <span className="text-sm text-gray-600">
+                  <span className="text-sm text-muted-foreground">
                     Page {currentPage} of {totalPages}
                   </span>
                   <Button
@@ -322,7 +322,7 @@ function VendorMarketplaceCard({ vendor, onSave, onViewProfile }: VendorMarketpl
       <CardHeader>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-full bg-gradient-to-br from-forest-400 to-forest-600 flex items-center justify-center text-white font-semibold text-lg">
+            <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center text-white font-semibold text-lg">
               {vendor.name.charAt(0).toUpperCase()}
             </div>
             <div>
@@ -338,30 +338,30 @@ function VendorMarketplaceCard({ vendor, onSave, onViewProfile }: VendorMarketpl
               e.stopPropagation()
               onSave()
             }}
-            className="text-gray-400 hover:text-red-500"
+            className="text-muted-foreground/60 hover:text-destructive"
           >
             <Heart className="h-5 w-5" />
           </button>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex items-center gap-2 text-sm text-gray-600">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <MapPin className="h-4 w-4" />
           <span>{vendor.city && vendor.state ? `${vendor.city}, ${vendor.state}` : 'Multiple areas'}</span>
         </div>
 
         {vendor.description && (
-          <p className="text-sm text-gray-600 line-clamp-2">{vendor.description}</p>
+          <p className="text-sm text-muted-foreground line-clamp-2">{vendor.description}</p>
         )}
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1">
             <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
             <span className="text-sm font-semibold">{rating}</span>
-            <span className="text-sm text-gray-500">({reviewCount})</span>
+            <span className="text-sm text-muted-foreground">({reviewCount})</span>
           </div>
           {vendor.is_verified && (
-            <span className="px-2 py-1 text-xs font-medium rounded-full bg-forest-100 text-forest-700">
+            <span className="px-2 py-1 text-xs font-medium rounded-full bg-primary/15 text-primary">
               Verified
             </span>
           )}

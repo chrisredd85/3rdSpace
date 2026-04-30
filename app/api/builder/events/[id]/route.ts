@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import type { Event, Database } from '@/lib/types'
+import type { Database } from '@/lib/types'
+import {
+  getBuilderProfileId,
+  mapAppEventTypeToDb,
+  mapAppEventStatusToDb,
+  mapDbEventToApp,
+} from '@/lib/supabase/server-helpers'
 
 interface RouteContext {
   params: {
@@ -37,6 +43,14 @@ export async function GET(
       )
     }
 
+    const { builderProfileId, error: builderProfileError } = await getBuilderProfileId(supabase, user.id)
+    if (builderProfileError || !builderProfileId) {
+      return NextResponse.json(
+        { error: 'Builder profile not found' },
+        { status: 404 }
+      )
+    }
+
     const { id } = params
 
     // Fetch event
@@ -44,9 +58,9 @@ export async function GET(
       .from('events')
       .select('*')
       .eq('id', id)
-      .eq('builder_id', user.id)
+      .eq('builder_id', builderProfileId)
       .single()
-    const event = eventData as Event | null
+    const event = eventData ? mapDbEventToApp(eventData as Record<string, any>) : null
 
     if (eventError || !event) {
       return NextResponse.json(
@@ -80,17 +94,17 @@ export async function GET(
     // Fetch vendor bookings and vendors
     const { data: vendorBookings } = await supabase
       .from('vendor_bookings')
-      .select('*, vendors(*)')
+      .select('*, vendor_profiles(*)')
       .eq('event_id', id)
 
     const vendors =
       vendorBookings
-        ?.map((vb: any) => vb.vendors)
+        ?.map((vb: any) => vb.vendor_profiles)
         .filter(Boolean) || []
 
     return NextResponse.json({
       event: {
-        ...(event as Event),
+        ...event,
         venue,
         venue_booking,
         vendor_bookings: vendorBookings || [],
@@ -135,6 +149,14 @@ export async function PATCH(
       )
     }
 
+    const { builderProfileId, error: builderProfileError } = await getBuilderProfileId(supabase, user.id)
+    if (builderProfileError || !builderProfileId) {
+      return NextResponse.json(
+        { error: 'Builder profile not found' },
+        { status: 404 }
+      )
+    }
+
     const { id } = params
     const body = await request.json()
 
@@ -143,7 +165,7 @@ export async function PATCH(
       .from('events')
       .select('id')
       .eq('id', id)
-      .eq('builder_id', user.id)
+      .eq('builder_id', builderProfileId)
       .single()
 
     if (!existingEvent) {
@@ -154,10 +176,31 @@ export async function PATCH(
     }
 
     // Update event
-    const updatePayload: Database['public']['Tables']['events']['Update'] = {
-      ...(body as Partial<Database['public']['Tables']['events']['Update']>),
+    const resolvedExpectedAttendance =
+      body.expected_attendees ?? body.expected_attendance_min ?? body.expected_attendance_max
+
+    const updatePayload = {
+      ...(body.title !== undefined ? { event_name: body.title } : {}),
+      ...(body.name !== undefined ? { event_name: body.name } : {}),
+      ...(body.description !== undefined
+        ? { description: body.description, event_description: body.description }
+        : {}),
+      ...(body.event_type !== undefined ? { event_type: mapAppEventTypeToDb(body.event_type) } : {}),
+      ...(body.event_date !== undefined ? { event_date: body.event_date } : {}),
+      ...(body.start_time !== undefined ? { start_time: body.start_time } : {}),
+      ...(body.end_time !== undefined ? { end_time: body.end_time } : {}),
+      ...(resolvedExpectedAttendance !== undefined
+        ? {
+            expected_attendance: resolvedExpectedAttendance,
+            expected_attendance_min: resolvedExpectedAttendance,
+            expected_attendance_max: resolvedExpectedAttendance,
+          }
+        : {}),
+      ...(body.budget !== undefined ? { budget: body.budget, total_budget: body.budget } : {}),
+      ...(body.venue_id !== undefined ? { venue_id: body.venue_id } : {}),
+      ...(body.status !== undefined ? { status: mapAppEventStatusToDb(body.status) } : {}),
       updated_at: new Date().toISOString(),
-    }
+    } as Record<string, any>
 
     const { data: eventData, error } = await supabase
       .from('events')
@@ -175,9 +218,11 @@ export async function PATCH(
       )
     }
 
+    const updatedEvent = eventData ? mapDbEventToApp(eventData as Record<string, any>) : null
+
     return NextResponse.json({
       success: true,
-      event,
+      event: updatedEvent,
     })
   } catch (error) {
     console.error('Update event error:', error)
@@ -217,6 +262,14 @@ export async function DELETE(
       )
     }
 
+    const { builderProfileId, error: builderProfileError } = await getBuilderProfileId(supabase, user.id)
+    if (builderProfileError || !builderProfileId) {
+      return NextResponse.json(
+        { error: 'Builder profile not found' },
+        { status: 404 }
+      )
+    }
+
     const { id } = params
 
     // Verify event belongs to user
@@ -224,7 +277,7 @@ export async function DELETE(
       .from('events')
       .select('id')
       .eq('id', id)
-      .eq('builder_id', user.id)
+      .eq('builder_id', builderProfileId)
       .single()
 
     if (!existingEvent) {

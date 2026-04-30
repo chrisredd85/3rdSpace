@@ -45,7 +45,7 @@ export default function PastEventsPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
+        <div className="text-muted-foreground">Loading...</div>
       </div>
     )
   }
@@ -53,7 +53,7 @@ export default function PastEventsPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
+        <div className="text-destructive">Please log in to continue</div>
       </div>
     )
   }
@@ -62,8 +62,8 @@ export default function PastEventsPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-forest-500 border-t-transparent mx-auto mb-4" />
-          <p className="text-gray-600">Loading past events...</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading past events...</p>
         </div>
       </div>
     )
@@ -72,8 +72,8 @@ export default function PastEventsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Past Events</h1>
-        <p className="text-gray-600 mt-1">Review your completed events and performance</p>
+        <h1 className="text-3xl font-bold text-foreground">Past Events</h1>
+        <p className="text-muted-foreground mt-1">Review your completed events and performance</p>
       </div>
 
       {/* Stats Cards */}
@@ -81,33 +81,33 @@ export default function PastEventsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Events</CardTitle>
-            <Calendar className="h-4 w-4 text-gray-400" />
+            <Calendar className="h-4 w-4 text-muted-foreground/60" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalEvents}</div>
-            <p className="text-xs text-gray-500">Completed events</p>
+            <p className="text-xs text-muted-foreground">Completed events</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Spent</CardTitle>
-            <DollarSign className="h-4 w-4 text-gray-400" />
+            <DollarSign className="h-4 w-4 text-muted-foreground/60" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">${stats.totalSpent.toLocaleString()}</div>
-            <p className="text-xs text-gray-500">All time</p>
+            <p className="text-xs text-muted-foreground">All time</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Avg Per Event</CardTitle>
-            <TrendingUp className="h-4 w-4 text-gray-400" />
+            <TrendingUp className="h-4 w-4 text-muted-foreground/60" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">${Math.round(stats.avgPerEvent).toLocaleString()}</div>
-            <p className="text-xs text-gray-500">Average cost</p>
+            <p className="text-xs text-muted-foreground">Average cost</p>
           </CardContent>
         </Card>
       </div>
@@ -116,8 +116,8 @@ export default function PastEventsPage() {
       {pastEvents.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <Calendar className="h-12 w-12 text-gray-400 mb-4" />
-            <p className="text-gray-600 mb-2">No past events found</p>
+            <Calendar className="h-12 w-12 text-muted-foreground/60 mb-4" />
+            <p className="text-muted-foreground mb-2">No past events found</p>
             <Link href="/builder/event/new">
               <Button>Create New Event</Button>
             </Link>
@@ -137,7 +137,6 @@ export default function PastEventsPage() {
 function PastEventCard({ event }: { event: Event }) {
   const router = useRouter()
   const eventDate = new Date(event.event_date)
-  const emoji = getEventEmoji(event.event_type || '')
 
   // Mock ratings (would come from reviews table)
   const rating = 4.5
@@ -149,8 +148,8 @@ function PastEventCard({ event }: { event: Event }) {
         <div className="flex items-start gap-4">
           {/* Event Icon */}
           <div className="flex-shrink-0">
-            <div className="h-16 w-16 rounded-lg bg-gradient-to-br from-forest-400 to-forest-600 flex items-center justify-center text-2xl">
-              {emoji}
+            <div className="h-16 w-16 rounded-lg bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center">
+              <Calendar className="h-7 w-7 text-primary-foreground" />
             </div>
           </div>
 
@@ -158,15 +157,15 @@ function PastEventCard({ event }: { event: Event }) {
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">{event.title}</h3>
-                <div className="flex items-center gap-4 text-sm text-gray-600 mb-2">
+                <h3 className="text-lg font-semibold text-foreground mb-1">{event.title}</h3>
+                <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2">
                   <span>{eventDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
                   {event.expected_attendees && (
                     <span>{event.expected_attendees} attendees</span>
                   )}
                 </div>
                 {event.description && (
-                  <p className="text-sm text-gray-600 line-clamp-2 mb-3">{event.description}</p>
+                  <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{event.description}</p>
                 )}
               </div>
             </div>
@@ -175,8 +174,8 @@ function PastEventCard({ event }: { event: Event }) {
             <div className="flex items-center gap-6 mb-4">
               {event.budget && (
                 <div>
-                  <span className="text-sm text-gray-600">Final Cost: </span>
-                  <span className="text-sm font-semibold text-gray-900">
+                  <span className="text-sm text-muted-foreground">Final Cost: </span>
+                  <span className="text-sm font-semibold text-foreground">
                     ${event.budget.toLocaleString()}
                   </span>
                 </div>
@@ -184,7 +183,7 @@ function PastEventCard({ event }: { event: Event }) {
               <div className="flex items-center gap-1">
                 <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                 <span className="text-sm font-semibold">{rating}</span>
-                <span className="text-sm text-gray-600">({reviewCount} reviews)</span>
+                <span className="text-sm text-muted-foreground">({reviewCount} reviews)</span>
               </div>
             </div>
 
@@ -193,13 +192,10 @@ function PastEventCard({ event }: { event: Event }) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  // Download invoice functionality
-                  console.log('Download invoice for event:', event.id)
-                }}
+                disabled
               >
                 <Download className="h-4 w-4 mr-2" />
-                Download Invoice
+                Invoice Pending
               </Button>
               <Button
                 variant="outline"
@@ -215,7 +211,7 @@ function PastEventCard({ event }: { event: Event }) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => router.push(`/builder/events/${event.id}`)}
+                onClick={() => router.push(`/builder/event/${event.id}?step=8`)}
               >
                 <Eye className="h-4 w-4 mr-2" />
                 View Details
@@ -226,15 +222,4 @@ function PastEventCard({ event }: { event: Event }) {
       </CardContent>
     </Card>
   )
-}
-
-function getEventEmoji(type: string | null): string {
-  const emojiMap: Record<string, string> = {
-    networking: '🤝',
-    conference: '🎤',
-    party: '🎉',
-    workshop: '📚',
-    meeting: '💼',
-  }
-  return emojiMap[type || ''] || '📅'
 }

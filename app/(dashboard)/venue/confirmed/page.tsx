@@ -58,7 +58,7 @@ export default function ConfirmedBookingsPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
+        <div className="text-muted-foreground">Loading...</div>
       </div>
     )
   }
@@ -66,7 +66,7 @@ export default function ConfirmedBookingsPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
+        <div className="text-destructive">Please log in to continue</div>
       </div>
     )
   }
@@ -75,8 +75,8 @@ export default function ConfirmedBookingsPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-forest-500 border-t-transparent mx-auto mb-4" />
-          <p className="text-gray-600">Loading bookings...</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading bookings...</p>
         </div>
       </div>
     )
@@ -86,17 +86,17 @@ export default function ConfirmedBookingsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Confirmed Bookings</h1>
-          <p className="text-gray-600 mt-1">Manage your upcoming confirmed bookings</p>
+          <h1 className="text-3xl font-bold text-foreground">Confirmed Bookings</h1>
+          <p className="text-muted-foreground mt-1">Manage your upcoming confirmed bookings</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 border border-gray-300 rounded-md">
+          <div className="flex items-center gap-2 border border-border rounded-md">
             <button
               onClick={() => setViewMode('list')}
               className={`px-4 py-2 text-sm font-medium ${
                 viewMode === 'list'
-                  ? 'bg-forest-500 text-white'
-                  : 'text-gray-700 hover:bg-gray-100'
+                  ? 'bg-primary text-white'
+                  : 'text-foreground hover:bg-sidebar-accent/40'
               }`}
             >
               List
@@ -105,8 +105,8 @@ export default function ConfirmedBookingsPage() {
               onClick={() => setViewMode('calendar')}
               className={`px-4 py-2 text-sm font-medium rounded-r-md ${
                 viewMode === 'calendar'
-                  ? 'bg-forest-500 text-white'
-                  : 'text-gray-700 hover:bg-gray-100'
+                  ? 'bg-primary text-white'
+                  : 'text-foreground hover:bg-sidebar-accent/40'
               }`}
             >
               Calendar
@@ -122,9 +122,9 @@ export default function ConfirmedBookingsPage() {
       {confirmedBookings.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <Calendar className="h-12 w-12 text-gray-400 mb-4" />
-            <p className="text-gray-600 mb-2">No confirmed bookings</p>
-            <p className="text-sm text-gray-500">
+            <Calendar className="h-12 w-12 text-muted-foreground/60 mb-4" />
+            <p className="text-muted-foreground mb-2">No confirmed bookings</p>
+            <p className="text-sm text-muted-foreground">
               Confirmed bookings will appear here once you accept booking requests
             </p>
           </CardContent>
@@ -166,15 +166,15 @@ function ConfirmedBookingCard({ booking }: ConfirmedBookingCardProps) {
       <CardContent className="p-6">
         <div className="flex items-start justify-between">
           <div className="flex-1">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            <h3 className="text-lg font-semibold text-foreground mb-2">
               {event?.title || 'Event'}
             </h3>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
               <div className="flex items-center gap-2 text-sm">
-                <Calendar className="h-4 w-4 text-gray-400" />
+                <Calendar className="h-4 w-4 text-muted-foreground/60" />
                 <div>
-                  <p className="text-gray-600">Date</p>
+                  <p className="text-muted-foreground">Date</p>
                   <p className="font-medium">
                     {confirmedDate
                       ? confirmedDate.toLocaleDateString('en-US', {
@@ -189,9 +189,9 @@ function ConfirmedBookingCard({ booking }: ConfirmedBookingCardProps) {
 
               {booking.confirmed_start_time && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Clock className="h-4 w-4 text-gray-400" />
+                  <Clock className="h-4 w-4 text-muted-foreground/60" />
                   <div>
-                    <p className="text-gray-600">Time</p>
+                    <p className="text-muted-foreground">Time</p>
                     <p className="font-medium">
                       {new Date(`2000-01-01T${booking.confirmed_start_time}`).toLocaleTimeString(
                         'en-US',
@@ -204,18 +204,18 @@ function ConfirmedBookingCard({ booking }: ConfirmedBookingCardProps) {
 
               {event?.expected_attendees && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Users className="h-4 w-4 text-gray-400" />
+                  <Users className="h-4 w-4 text-muted-foreground/60" />
                   <div>
-                    <p className="text-gray-600">Guests</p>
+                    <p className="text-muted-foreground">Guests</p>
                     <p className="font-medium">{event.expected_attendees}</p>
                   </div>
                 </div>
               )}
 
               <div className="flex items-center gap-2 text-sm">
-                <DollarSign className="h-4 w-4 text-gray-400" />
+                <DollarSign className="h-4 w-4 text-muted-foreground/60" />
                 <div>
-                  <p className="text-gray-600">Revenue</p>
+                  <p className="text-muted-foreground">Revenue</p>
                   <p className="font-medium">
                     ${booking.final_price?.toLocaleString() || booking.quoted_price?.toLocaleString() || 'TBD'}
                   </p>
@@ -224,7 +224,7 @@ function ConfirmedBookingCard({ booking }: ConfirmedBookingCardProps) {
             </div>
 
             {venue && (
-              <div className="flex items-center gap-2 text-sm text-gray-600">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <MapPin className="h-4 w-4" />
                 <span>{venue.name}</span>
               </div>
@@ -305,7 +305,7 @@ function CalendarView({ bookings, currentMonth, onMonthChange }: CalendarViewPro
       <CardContent>
         <div className="grid grid-cols-7 gap-1">
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-            <div key={day} className="text-center text-sm font-medium text-gray-700 p-2">
+            <div key={day} className="text-center text-sm font-medium text-foreground p-2">
               {day}
             </div>
           ))}
@@ -323,11 +323,11 @@ function CalendarView({ bookings, currentMonth, onMonthChange }: CalendarViewPro
             return (
               <div
                 key={index}
-                className={`aspect-square border border-gray-200 p-1 ${
-                  isToday ? 'bg-forest-50' : ''
+                className={`aspect-square border border-border p-1 ${
+                  isToday ? 'bg-primary/10' : ''
                 }`}
               >
-                <div className="text-xs font-medium text-gray-700 mb-1">
+                <div className="text-xs font-medium text-foreground mb-1">
                   {date.getDate()}
                 </div>
                 {dayBookings.length > 0 && (
@@ -335,14 +335,14 @@ function CalendarView({ bookings, currentMonth, onMonthChange }: CalendarViewPro
                     {dayBookings.slice(0, 2).map((booking) => (
                       <div
                         key={booking.id}
-                        className="bg-forest-500 text-white text-xs px-1 py-0.5 rounded truncate"
+                        className="bg-primary text-white text-xs px-1 py-0.5 rounded truncate"
                         title={(booking as VenueBookingWithEvent).events?.title || 'Event'}
                       >
                         {(booking as VenueBookingWithEvent).events?.title || 'Event'}
                       </div>
                     ))}
                     {dayBookings.length > 2 && (
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-muted-foreground">
                         +{dayBookings.length - 2} more
                       </div>
                     )}

@@ -1,6 +1,7 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
 import type { Venue, VenueType } from '@/lib/types'
+import { normalizeVenues, VENUE_SELECT_COLUMNS } from '@/lib/venues/venue-adapter'
 
 interface VenueFilters {
   venue_type?: VenueType
@@ -51,10 +52,10 @@ export function useInfiniteVenues(
       // Only select needed columns for list view
       let query = supabase
         .from('venues')
-        .select('id, name, venue_type, city, state, capacity, hourly_rate, photo_url, is_verified, created_at', {
+        .select(VENUE_SELECT_COLUMNS, {
           count: 'exact',
         })
-        .eq('is_active', true)
+        .eq('is_published', true)
         .order('created_at', { ascending: false })
 
       // Apply filters
@@ -68,10 +69,10 @@ export function useInfiniteVenues(
         query = query.eq('state', filters.state)
       }
       if (filters?.min_capacity) {
-        query = query.gte('capacity', filters.min_capacity)
+        query = query.gte('standing_capacity', filters.min_capacity)
       }
       if (filters?.max_capacity) {
-        query = query.lte('capacity', filters.max_capacity)
+        query = query.lte('standing_capacity', filters.max_capacity)
       }
       if (filters?.min_price) {
         query = query.gte('hourly_rate', filters.min_price)
@@ -80,7 +81,7 @@ export function useInfiniteVenues(
         query = query.lte('hourly_rate', filters.max_price)
       }
       if (filters?.is_verified !== undefined) {
-        query = query.eq('is_verified', filters.is_verified)
+        query = query.eq('is_published', filters.is_verified)
       }
 
       // Add pagination
@@ -93,7 +94,7 @@ export function useInfiniteVenues(
       if (error) throw error
 
       return {
-        data: (data || []) as Venue[],
+        data: normalizeVenues(data as any[]),
         nextCursor: (data || []).length === pageSize ? (pageParam as number) + 1 : undefined,
         total: count || 0,
       }

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Save, DollarSign, Percent, Clock } from 'lucide-react'
+import { Clock, DollarSign, Layers, Percent, Save, TrendingUp, Users } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,22 +14,64 @@ import { useUser } from '@/lib/hooks/useUser'
 import { supabase } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
+import { DepositSettings } from '@/components/venue/DepositSettings'
 import type { PricingModel } from '@/lib/types'
 
 const pricingSchema = z.object({
-  pricing_model: z.enum(['hourly', 'revenue_share', 'hybrid', 'flat_rate', 'per_person']),
+  pricing_model: z.enum(['flat_rate', 'per_person', 'hourly', 'revenue_share', 'hybrid']),
   hourly_rate: z.number().optional(),
   daily_rate: z.number().optional(),
+  flat_rate: z.number().optional(),
+  per_person_rate: z.number().optional(),
   min_hours: z.number().optional(),
+  ticket_sales_share: z.boolean().optional(),
+  ticket_sales_share_percent: z.number().min(0).max(100).optional(),
   bar_revenue_share: z.boolean().optional(),
   bar_revenue_percent: z.number().min(0).max(100).optional(),
   per_head_kickback: z.number().optional(),
-  deposit_percent: z.number().min(0).max(100).optional(),
-  deposit_amount: z.number().optional(),
-  deposit_due: z.string().optional(),
 })
 
 type PricingFormData = z.infer<typeof pricingSchema>
+
+type ModelOption = {
+  value: PricingModel
+  label: string
+  description: string
+  icon: React.ElementType
+}
+
+const modelOptions: ModelOption[] = [
+  {
+    value: 'flat_rate',
+    label: 'Flat Rate',
+    description: 'Fixed price per event',
+    icon: DollarSign,
+  },
+  {
+    value: 'per_person',
+    label: 'Per Person',
+    description: 'Rate per attendee',
+    icon: Users,
+  },
+  {
+    value: 'hourly',
+    label: 'Hourly',
+    description: 'Charge per hour',
+    icon: Clock,
+  },
+  {
+    value: 'revenue_share',
+    label: 'Revenue Share',
+    description: 'Share in event revenue',
+    icon: TrendingUp,
+  },
+  {
+    value: 'hybrid',
+    label: 'Hybrid',
+    description: 'Hourly + revenue share',
+    icon: Layers,
+  },
+]
 
 export default function VenuePricingPage() {
   const { user, isLoading: isUserLoading, error: userError } = useUser()
@@ -37,7 +79,6 @@ export default function VenuePricingPage() {
   const router = useRouter()
   const { addToast } = useToast()
 
-  const userId = user?.id || null
   const { data: venue, isLoading } = useVenue(venueId)
   const updateVenue = useUpdateVenue()
 
@@ -53,11 +94,15 @@ export default function VenuePricingPage() {
   })
 
   const pricingModel = watch('pricing_model')
+  const ticketSalesShare = watch('ticket_sales_share')
+  const ticketSalesSharePercent = watch('ticket_sales_share_percent') || 0
   const barRevenueShare = watch('bar_revenue_share')
   const barRevenuePercent = watch('bar_revenue_percent') || 0
   const perHeadKickback = watch('per_head_kickback') || 0
   const hourlyRate = watch('hourly_rate') || 0
   const minHours = watch('min_hours') || 2
+  const flatRate = watch('flat_rate') || 0
+  const perPersonRate = watch('per_person_rate') || 0
 
   useEffect(() => {
     if (user) {
@@ -80,69 +125,63 @@ export default function VenuePricingPage() {
         pricing_model: venue.pricing_model,
         hourly_rate: venue.hourly_rate || undefined,
         daily_rate: venue.daily_rate || undefined,
-        min_hours: 2, // Would come from venue settings
-        bar_revenue_share: false, // Would come from venue settings
-        bar_revenue_percent: 15, // Would come from venue settings
-        per_head_kickback: 0, // Would come from venue settings
-        deposit_percent: 50, // Would come from venue settings
-        deposit_due: '48hrs', // Would come from venue settings
+        flat_rate: venue.daily_rate || undefined,
+        per_person_rate: venue.per_head_kickback_amount || undefined,
+        min_hours: 2,
+        ticket_sales_share: venue.ticket_sales_share_enabled || false,
+        ticket_sales_share_percent: venue.ticket_sales_share_percent ?? 10,
+        bar_revenue_share: venue.bar_revenue_share_enabled || false,
+        bar_revenue_percent: venue.bar_revenue_share_percent ?? 15,
+        per_head_kickback: venue.per_head_kickback_amount ?? 0,
       })
     }
   }, [venue, reset])
 
   if (isUserLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-muted-foreground">Loading…</div>
       </div>
     )
   }
 
   if (userError || !user) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-destructive">Please log in to continue</div>
       </div>
     )
   }
 
   const handleSave = async (data: PricingFormData) => {
     if (!venueId) return
-
     try {
       await updateVenue.mutateAsync({
         id: venueId,
         updates: {
           pricing_model: data.pricing_model,
           hourly_rate: data.hourly_rate || null,
-          daily_rate: data.daily_rate || null,
+          daily_rate: data.flat_rate || data.daily_rate || null,
+          ticket_sales_share_enabled: Boolean(data.ticket_sales_share),
+          ticket_sales_share_percent: data.ticket_sales_share ? (data.ticket_sales_share_percent || 0) : 0,
+          bar_revenue_share_enabled: Boolean(data.bar_revenue_share),
+          bar_revenue_share_percent: data.bar_revenue_share ? (data.bar_revenue_percent || 0) : 0,
+          per_head_kickback_amount: data.per_head_kickback || 0,
         },
       })
-
-      // Save additional pricing settings (would be in a separate table or JSON field)
-      // For now, we'll just update the main venue record
-
-      addToast({
-        title: 'Pricing updated',
-        description: 'Your venue pricing has been saved successfully.',
-      })
-
+      addToast({ title: 'Pricing updated', description: 'Your venue pricing has been saved.' })
       reset(data)
-    } catch (error) {
-      addToast({
-        title: 'Error',
-        description: 'Failed to update pricing',
-        variant: 'destructive',
-      })
+    } catch {
+      addToast({ title: 'Error', description: 'Failed to update pricing', variant: 'destructive' })
     }
   }
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex h-64 items-center justify-center">
         <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-forest-500 border-t-transparent mx-auto mb-4" />
-          <p className="text-gray-600">Loading pricing...</p>
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <p className="text-muted-foreground">Loading pricing…</p>
         </div>
       </div>
     )
@@ -150,64 +189,128 @@ export default function VenuePricingPage() {
 
   if (!venue) {
     return (
-      <div className="text-center py-12">
-        <p className="text-gray-600">No venue found.</p>
+      <div className="py-12 text-center">
+        <p className="text-muted-foreground">No venue found.</p>
       </div>
     )
   }
 
+  const showHourly = pricingModel === 'hourly' || pricingModel === 'hybrid'
+  const showFlatRate = pricingModel === 'flat_rate'
+  const showPerPerson = pricingModel === 'per_person'
+  const showRevenueShare = pricingModel === 'revenue_share' || pricingModel === 'hybrid'
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Pricing & Revenue</h1>
-        <p className="text-gray-600 mt-1">Configure how you charge for your venue</p>
+        <h1 className="font-display text-3xl font-bold text-foreground">Pricing &amp; Revenue</h1>
+        <p className="mt-1 text-muted-foreground">Configure how you charge for your venue</p>
       </div>
 
       <form onSubmit={handleSubmit(handleSave)} className="space-y-6">
-        {/* Pricing Model Toggle */}
+
+        {/* Pricing Model */}
         <Card>
           <CardHeader>
             <CardTitle>Pricing Model</CardTitle>
-            <CardDescription>
-              Choose how you want to charge for your venue
-            </CardDescription>
+            <CardDescription>Choose how you want to charge for your venue</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {(['hourly', 'revenue_share', 'hybrid'] as PricingModel[]).map((model) => (
-                <button
-                  key={model}
-                  type="button"
-                  onClick={() => setValue('pricing_model', model, { shouldDirty: true })}
-                  className={cn(
-                    'p-4 border-2 rounded-lg text-left transition-all',
-                    pricingModel === model
-                      ? 'border-forest-500 bg-forest-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  )}
-                >
-                  <div className="font-semibold text-gray-900 mb-1">
-                    {model === 'hourly'
-                      ? 'Hourly Rate'
-                      : model === 'revenue_share'
-                      ? 'Revenue Share'
-                      : 'Hybrid'}
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    {model === 'hourly'
-                      ? 'Charge per hour'
-                      : model === 'revenue_share'
-                      ? 'Share in event revenue'
-                      : 'Combine hourly + revenue share'}
-                  </div>
-                </button>
-              ))}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              {modelOptions.map((option) => {
+                const Icon = option.icon
+                const active = pricingModel === option.value
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setValue('pricing_model', option.value, { shouldDirty: true })}
+                    className={cn(
+                      'flex flex-col items-start rounded-xl border-2 p-4 text-left transition-smooth',
+                      active
+                        ? 'border-primary bg-primary/10'
+                        : 'border-border hover:border-primary/40'
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        'mb-2 flex h-8 w-8 items-center justify-center rounded-lg',
+                        active ? 'bg-primary/20' : 'bg-sidebar-accent/40'
+                      )}
+                    >
+                      <Icon className={cn('h-4 w-4', active ? 'text-primary' : 'text-foreground')} />
+                    </div>
+                    <p className="text-sm font-semibold text-foreground">{option.label}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{option.description}</p>
+                  </button>
+                )
+              })}
             </div>
           </CardContent>
         </Card>
 
-        {/* Hourly Rate Section */}
-        {(pricingModel === 'hourly' || pricingModel === 'hybrid') && (
+        {/* Flat Rate */}
+        {showFlatRate && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <DollarSign className="h-5 w-5" />
+                Flat Rate
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <label className="mb-2 block text-sm font-medium text-foreground">
+                Rate per event ($)
+              </label>
+              <div className="relative max-w-xs">
+                <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+                <Input
+                  type="number"
+                  {...register('flat_rate', { valueAsNumber: true })}
+                  className="pl-10"
+                  placeholder="2500"
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Per Person */}
+        {showPerPerson && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Per-Person Rate
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-foreground">
+                  Rate per attendee ($)
+                </label>
+                <div className="relative max-w-xs">
+                  <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+                  <Input
+                    type="number"
+                    {...register('per_person_rate', { valueAsNumber: true })}
+                    className="pl-10"
+                    placeholder="20"
+                  />
+                </div>
+              </div>
+              <div className="rounded-xl bg-background/60 p-4">
+                <p className="mb-1 text-sm text-muted-foreground">Example (100 guests)</p>
+                <p className="text-lg font-semibold text-foreground">
+                  ${perPersonRate.toLocaleString()} × 100 = ${(perPersonRate * 100).toLocaleString()}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Hourly Rate */}
+        {showHourly && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -216,94 +319,170 @@ export default function VenuePricingPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
-                  Hourly Rate ($)
-                </label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                  <Input
-                    type="number"
-                    {...register('hourly_rate', { valueAsNumber: true })}
-                    className="pl-10"
-                    placeholder="500"
-                  />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-foreground">
+                    Hourly rate ($)
+                  </label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+                    <Input
+                      type="number"
+                      {...register('hourly_rate', { valueAsNumber: true })}
+                      className="pl-10"
+                      placeholder="500"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-foreground">
+                    Minimum hours
+                  </label>
+                  <select
+                    {...register('min_hours', { valueAsNumber: true })}
+                    className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  >
+                    <option value={2}>2 hours</option>
+                    <option value={3}>3 hours</option>
+                    <option value={4}>4 hours</option>
+                    <option value={6}>6 hours</option>
+                    <option value={8}>8 hours</option>
+                  </select>
                 </div>
               </div>
 
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
-                  Minimum Hours
-                </label>
-                <select
-                  {...register('min_hours', { valueAsNumber: true })}
-                  className="flex h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                >
-                  <option value={2}>2 hours</option>
-                  <option value={3}>3 hours</option>
-                  <option value={4}>4 hours</option>
-                  <option value={6}>6 hours</option>
-                  <option value={8}>8 hours</option>
-                </select>
-              </div>
-
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm text-gray-600 mb-1">Example Calculation</p>
-                <p className="text-lg font-semibold text-gray-900">
-                  ${hourlyRate.toLocaleString()}/hr × {minHours} hrs = $
-                  {(hourlyRate * minHours).toLocaleString()}
+              <div className="rounded-xl bg-background/60 p-4">
+                <p className="mb-1 text-sm text-muted-foreground">Minimum booking</p>
+                <p className="text-lg font-semibold text-foreground">
+                  ${hourlyRate.toLocaleString()}/hr × {minHours} hrs = ${(hourlyRate * minHours).toLocaleString()}
                 </p>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Revenue Share Section */}
-        {(pricingModel === 'revenue_share' || pricingModel === 'hybrid') && (
+        {/* Revenue Share */}
+        {showRevenueShare && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Percent className="h-5 w-5" />
                 Revenue Share
               </CardTitle>
+              <CardDescription>
+                Set optional upside from ticket sales, bar revenue, or verified attendance
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  {...register('bar_revenue_share')}
-                  className="h-4 w-4 text-forest-500"
-                />
-                <label className="text-sm font-medium text-gray-700">
-                  Enable bar revenue share
-                </label>
+            <CardContent className="space-y-5">
+
+              {/* Ticket sales share */}
+              <div className="rounded-xl border border-border bg-card/40 p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Ticket sales share</p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                      Receive a percentage of tracked Posh, Luma, or Eventbrite ticket revenue.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    id="ticket_sales_share"
+                    {...register('ticket_sales_share')}
+                    className="mt-1 h-4 w-4"
+                  />
+                </div>
+
+                {ticketSalesShare && (
+                  <div className="mt-5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-foreground">Share percentage</label>
+                      <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
+                        {ticketSalesSharePercent}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={50}
+                      step={1}
+                      value={ticketSalesSharePercent}
+                      onChange={(e) =>
+                        setValue('ticket_sales_share_percent', Number(e.target.value), {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        })
+                      }
+                      className="h-2 w-full cursor-pointer accent-primary"
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>0%</span><span>25%</span><span>50%</span>
+                    </div>
+                    <div className="rounded-xl bg-background/60 p-3 text-sm text-foreground">
+                      On $5,000 ticket sales: ${(5000 * (ticketSalesSharePercent / 100)).toLocaleString()}
+                    </div>
+                    {errors.ticket_sales_share_percent && (
+                      <p className="text-sm text-destructive">{errors.ticket_sales_share_percent.message}</p>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {barRevenueShare && (
-                <div>
-                  <label className="text-sm font-medium text-gray-700 mb-2 block">
-                    Bar Revenue Share (%)
-                  </label>
-                  <div className="relative">
-                    <Percent className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <Input
-                      type="number"
-                      {...register('bar_revenue_percent', { valueAsNumber: true })}
-                      className="pl-10"
-                      placeholder="15"
-                      min={0}
-                      max={100}
-                    />
+              {/* Bar revenue share */}
+              <div className="rounded-xl border border-border bg-card/40 p-5">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Bar revenue share</p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                      Earn a percentage of bar sales during the event.
+                    </p>
                   </div>
+                  <input
+                    type="checkbox"
+                    id="bar_revenue_share"
+                    {...register('bar_revenue_share')}
+                    className="h-4 w-4"
+                  />
                 </div>
-              )}
 
+                {barRevenueShare && (
+                  <div className="mt-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium text-foreground">Share percentage</label>
+                      <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
+                        {barRevenuePercent}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={50}
+                      step={1}
+                      value={barRevenuePercent}
+                      onChange={(e) =>
+                        setValue('bar_revenue_percent', Number(e.target.value), {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        })
+                      }
+                      className="h-2 w-full cursor-pointer accent-primary"
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>0%</span><span>25%</span><span>50%</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Per-head kickback */}
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
-                  Per-Head Kickback ($)
+                <label className="mb-2 block text-sm font-medium text-foreground">
+                  Per-head kickback ($)
                 </label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <p className="mb-3 text-sm text-muted-foreground">
+                  Fixed amount earned per verified attendee, regardless of ticket or bar sales.
+                </p>
+                <div className="relative max-w-xs">
+                  <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
                   <Input
                     type="number"
                     {...register('per_head_kickback', { valueAsNumber: true })}
@@ -313,72 +492,62 @@ export default function VenuePricingPage() {
                 </div>
               </div>
 
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm text-gray-600 mb-2">Example Calculation (100 guests)</p>
-                <div className="space-y-1 text-sm">
-                  {barRevenueShare && (
-                    <p className="text-gray-700">
-                      Bar revenue (15%): ${(100 * 50 * (barRevenuePercent / 100)).toLocaleString()}
-                    </p>
+              {/* Combined example */}
+              <div className="rounded-xl bg-background/60 p-4">
+                <p className="mb-2 text-sm font-medium text-foreground">Example (100 guests)</p>
+                <div className="space-y-1 text-sm text-muted-foreground">
+                  {ticketSalesShare && (
+                    <div className="flex justify-between">
+                      <span>Ticket sales share ({ticketSalesSharePercent}%)</span>
+                      <span className="font-medium text-foreground">
+                        ${(5000 * (ticketSalesSharePercent / 100)).toLocaleString()}
+                      </span>
+                    </div>
                   )}
-                  <p className="text-gray-700">
-                    Per-head kickback: ${(100 * perHeadKickback).toLocaleString()}
-                  </p>
-                  <p className="font-semibold text-gray-900 mt-2">
-                    Total: $
-                    {(
-                      (barRevenueShare ? 100 * 50 * (barRevenuePercent / 100) : 0) +
-                      100 * perHeadKickback
-                    ).toLocaleString()}
-                  </p>
+                  {barRevenueShare && (
+                    <div className="flex justify-between">
+                      <span>Bar revenue share ({barRevenuePercent}%)</span>
+                      <span className="font-medium text-foreground">
+                        ${(100 * 50 * (barRevenuePercent / 100)).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span>Per-head kickback</span>
+                    <span className="font-medium text-foreground">
+                      ${(100 * perHeadKickback).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t pt-1 font-semibold text-foreground">
+                    <span>Total</span>
+                    <span>
+                      ${(
+                        (ticketSalesShare ? 5000 * (ticketSalesSharePercent / 100) : 0) +
+                        (barRevenueShare ? 100 * 50 * (barRevenuePercent / 100) : 0) +
+                        100 * perHeadKickback
+                      ).toLocaleString()}
+                    </span>
+                  </div>
                 </div>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Deposit Policy Section */}
+        {/* Deposit Policy */}
         <Card>
           <CardHeader>
             <CardTitle>Deposit Policy</CardTitle>
             <CardDescription>
-              Set your deposit requirements
+              Set the up-front payment required before a booking is secured
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
-                Deposit Amount
-              </label>
-              <select
-                {...register('deposit_percent', { valueAsNumber: true })}
-                className="flex h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              >
-                <option value={25}>25%</option>
-                <option value={50}>50%</option>
-                <option value={100}>Full Amount</option>
-                <option value={0}>Custom</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
-                Deposit Due
-              </label>
-              <select
-                {...register('deposit_due')}
-                className="flex h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              >
-                <option value="immediately">Immediately</option>
-                <option value="48hrs">48 hours</option>
-                <option value="1week">1 week</option>
-                <option value="14days">14 days</option>
-              </select>
-            </div>
+          <CardContent>
+            <DepositSettings venueId={venueId ?? undefined} />
           </CardContent>
         </Card>
 
-        {/* Action Buttons */}
+        {/* Save */}
         <div className="flex items-center justify-end gap-3">
           <Button
             type="button"
@@ -388,15 +557,12 @@ export default function VenuePricingPage() {
           >
             Cancel
           </Button>
-          <Button
-            type="submit"
-            disabled={updateVenue.isPending || !isDirty}
-          >
+          <Button type="submit" disabled={updateVenue.isPending || !isDirty}>
             {updateVenue.isPending ? (
-              'Saving...'
+              'Saving…'
             ) : (
               <>
-                <Save className="h-4 w-4 mr-2" />
+                <Save className="mr-2 h-4 w-4" />
                 Save Pricing
               </>
             )}

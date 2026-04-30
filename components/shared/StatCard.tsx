@@ -58,8 +58,8 @@ export function StatCard({
   change,
   changeDirection,
   icon,
-  iconBgColor = 'bg-blue-100',
-  iconColor = 'text-blue-600',
+  iconBgColor = 'bg-primary/15',
+  iconColor = 'text-primary',
   className,
 }: StatCardProps) {
   const formattedValue =
@@ -70,8 +70,8 @@ export function StatCard({
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div className="flex-1 min-w-0">
-            <p className="text-xs sm:text-sm font-semibold text-slate-600 uppercase tracking-wide">{label}</p>
-            <p className="text-3xl sm:text-4xl font-bold text-slate-900 mt-2 tracking-tight">
+            <p className="text-xs sm:text-sm font-semibold text-muted-foreground uppercase tracking-wide">{label}</p>
+            <p className="text-3xl sm:text-4xl font-bold text-foreground mt-2 tracking-tight">
               {formattedValue}
             </p>
             {change !== undefined && (
@@ -79,10 +79,10 @@ export function StatCard({
                 className={cn(
                   'flex items-center gap-1 mt-2 text-sm font-medium',
                   changeDirection === 'up'
-                    ? 'text-forest-600'
+                    ? 'text-primary'
                     : changeDirection === 'down'
-                    ? 'text-red-600'
-                    : 'text-gray-600'
+                    ? 'text-destructive'
+                    : 'text-muted-foreground'
                 )}
               >
                 {changeDirection === 'up' && (

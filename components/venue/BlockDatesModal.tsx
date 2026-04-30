@@ -84,6 +84,7 @@ export function BlockDatesModal({
         end_time: null,
         is_available: false,
         reason,
+        notes: notes || null,
       })
 
       addToast({
@@ -103,7 +104,7 @@ export function BlockDatesModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
           <div className="flex items-start justify-between">
@@ -121,7 +122,7 @@ export function BlockDatesModal({
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="startDate" className="text-sm font-medium text-gray-700 mb-2 block">
+              <label htmlFor="startDate" className="text-sm font-medium text-foreground mb-2 block">
                 Start Date *
               </label>
               <Input
@@ -132,12 +133,12 @@ export function BlockDatesModal({
                 className={errors.startDate ? 'border-red-500' : ''}
               />
               {errors.startDate && (
-                <p className="text-sm text-red-500 mt-1">{errors.startDate}</p>
+                <p className="text-sm text-destructive mt-1">{errors.startDate}</p>
               )}
             </div>
 
             <div>
-              <label htmlFor="endDate" className="text-sm font-medium text-gray-700 mb-2 block">
+              <label htmlFor="endDate" className="text-sm font-medium text-foreground mb-2 block">
                 End Date *
               </label>
               <Input
@@ -149,19 +150,19 @@ export function BlockDatesModal({
                 className={errors.endDate ? 'border-red-500' : ''}
               />
               {errors.endDate && (
-                <p className="text-sm text-red-500 mt-1">{errors.endDate}</p>
+                <p className="text-sm text-destructive mt-1">{errors.endDate}</p>
               )}
             </div>
 
             <div>
-              <label htmlFor="reason" className="text-sm font-medium text-gray-700 mb-2 block">
+              <label htmlFor="reason" className="text-sm font-medium text-foreground mb-2 block">
                 Reason *
               </label>
               <select
                 id="reason"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                className={`flex h-10 w-full rounded-md border border-gray-300 bg-background px-3 py-2 text-sm ${
+                className={`flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm ${
                   errors.reason ? 'border-red-500' : ''
                 }`}
               >
@@ -173,12 +174,12 @@ export function BlockDatesModal({
                 <option value="other">Other</option>
               </select>
               {errors.reason && (
-                <p className="text-sm text-red-500 mt-1">{errors.reason}</p>
+                <p className="text-sm text-destructive mt-1">{errors.reason}</p>
               )}
             </div>
 
             <div>
-              <label htmlFor="notes" className="text-sm font-medium text-gray-700 mb-2 block">
+              <label htmlFor="notes" className="text-sm font-medium text-foreground mb-2 block">
                 Notes (Optional)
               </label>
               <textarea
@@ -187,7 +188,7 @@ export function BlockDatesModal({
                 onChange={(e) => setNotes(e.target.value)}
                 rows={3}
                 placeholder="Add any additional details..."
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500"
+                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
 

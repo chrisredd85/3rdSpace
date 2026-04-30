@@ -1,16 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getOnboardingStatus } from '@/lib/server/account-setup'
 import type { UserType } from '@/lib/types'
 
 interface LoginRequest {
   email: string
   password: string
+  expectedUserType?: UserType
+}
+
+function getDashboardPath(userType: UserType) {
+  if (userType === 'community_builder') return '/builder'
+  if (userType === 'venue_owner') return '/venue'
+  return '/vendor'
+}
+
+function getLoginPath(userType: UserType) {
+  if (userType === 'community_builder') return '/login/builder'
+  if (userType === 'venue_owner') return '/login/venue'
+  return '/login/vendor'
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: LoginRequest = await request.json()
-    const { email, password } = body
+    const { email, password, expectedUserType } = body
 
     if (!email || !password) {
       return NextResponse.json(
@@ -86,15 +100,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Determine dashboard path
-    let dashboardPath = '/dashboard'
-    if (profile.role === 'builder') {
-      dashboardPath = '/builder'
-    } else if (profile.role === 'owner') {
-      dashboardPath = '/venue'
-    } else if (profile.role === 'vendor') {
-      dashboardPath = '/vendor'
+    if (expectedUserType && expectedUserType !== userType) {
+      await supabase.auth.signOut()
+
+      return NextResponse.json(
+        {
+          error: `This account belongs to the ${userType === 'community_builder' ? 'community builder' : userType === 'venue_owner' ? 'venue owner' : 'vendor'} portal. Please sign in there instead.`,
+          expectedLoginPath: getLoginPath(userType),
+          actualUserType: userType,
+        },
+        { status: 403 }
+      )
     }
+
+    const onboarding = await getOnboardingStatus(supabase, data.user.id, userType, profile.company_name)
+    const dashboardPath = onboarding.isOnboarded ? getDashboardPath(userType) : onboarding.redirectPath
 
     // Update last login
     await (supabase

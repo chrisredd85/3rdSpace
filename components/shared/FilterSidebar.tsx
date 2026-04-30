@@ -137,7 +137,7 @@ export function FilterSidebar({
     <>
       {/* Mobile Bottom Sheet Overlay */}
       <div className={cn(
-        'fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden',
+        'fixed inset-0 bg-background/80 backdrop-blur-sm z-40 md:hidden',
         className?.includes('mobile-open') ? 'block' : 'hidden'
       )} />
       
@@ -145,7 +145,7 @@ export function FilterSidebar({
       <div className={cn(
         'w-full md:w-64 space-y-4',
         'fixed md:relative bottom-0 left-0 right-0 md:inset-auto',
-        'bg-white md:bg-transparent',
+        'bg-card/40 md:bg-transparent',
         'rounded-t-2xl md:rounded-none',
         'shadow-lg md:shadow-none',
         'z-50 md:z-auto',
@@ -156,17 +156,17 @@ export function FilterSidebar({
         className
       )}>
         <div className="flex items-center justify-between mb-4 md:mb-0">
-          <h3 className="text-lg font-semibold text-gray-900">Filters</h3>
+          <h3 className="text-lg font-semibold text-foreground">Filters</h3>
         {activeCount > 0 && (
           <div className="flex items-center gap-2">
-            <span className="px-2 py-1 text-xs font-medium rounded-full bg-forest-100 text-forest-800">
+            <span className="px-2 py-1 text-xs font-medium rounded-full bg-primary/15 text-primary">
               {activeCount} active
             </span>
             {onReset && (
               <button
                 type="button"
                 onClick={onReset}
-                className="text-sm text-gray-600 hover:text-gray-900"
+                className="text-sm text-muted-foreground hover:text-foreground"
               >
                 Clear all
               </button>
@@ -191,9 +191,9 @@ export function FilterSidebar({
                     {filter.title}
                   </CardTitle>
                   {isExpanded ? (
-                    <ChevronUp className="h-4 w-4 text-gray-400" />
+                    <ChevronUp className="h-4 w-4 text-muted-foreground/60" />
                   ) : (
-                    <ChevronDown className="h-4 w-4 text-gray-400" />
+                    <ChevronDown className="h-4 w-4 text-muted-foreground/60" />
                   )}
                 </div>
               </CardHeader>
@@ -218,13 +218,13 @@ export function FilterSidebar({
                                   : [...current, option.id]
                                 debouncedFilterChange(filter.id, updated)
                               }}
-                              className="h-4 w-4 text-forest-500 focus:ring-forest-500"
+                              className="h-4 w-4 text-primary focus:ring-primary"
                             />
-                            <span className="text-sm text-gray-700 flex-1">
+                            <span className="text-sm text-foreground flex-1">
                               {option.label}
                             </span>
                             {option.count !== undefined && (
-                              <span className="text-xs text-gray-500">
+                              <span className="text-xs text-muted-foreground">
                                 ({option.count})
                               </span>
                             )}
@@ -235,11 +235,11 @@ export function FilterSidebar({
                   ) : (
                     <div className="space-y-4">
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600">
+                        <span className="text-muted-foreground">
                           {filter.rangeConfig?.unit || '$'}
                           {((filterValue as [number, number])?.[0] || filter.rangeConfig?.min || 0).toLocaleString()}
                         </span>
-                        <span className="text-gray-600">
+                        <span className="text-muted-foreground">
                           {filter.rangeConfig?.unit || '$'}
                           {((filterValue as [number, number])?.[1] || filter.rangeConfig?.max || 1000).toLocaleString()}
                         </span>
@@ -257,9 +257,9 @@ export function FilterSidebar({
                               const max = (filterValue as [number, number])?.[1] || filter.rangeConfig?.max || 1000
                               debouncedFilterChange(filter.id, [min, max])
                             }}
-                            className="flex-1 h-8 rounded-md border border-gray-300 px-2 text-sm"
+                            className="flex-1 h-8 rounded-md border border-border px-2 text-sm"
                           />
-                          <span className="text-gray-400">to</span>
+                          <span className="text-muted-foreground/60">to</span>
                           <input
                             type="number"
                             min={filter.rangeConfig?.min || 0}
@@ -271,7 +271,7 @@ export function FilterSidebar({
                               const max = parseInt(e.target.value) || filter.rangeConfig?.max || 1000
                               debouncedFilterChange(filter.id, [min, max])
                             }}
-                            className="flex-1 h-8 rounded-md border border-gray-300 px-2 text-sm"
+                            className="flex-1 h-8 rounded-md border border-border px-2 text-sm"
                           />
                         </div>
                         <div className="flex gap-2">
@@ -313,7 +313,7 @@ export function FilterSidebar({
       </div>
 
       {onApply && (
-        <div className="pt-4 border-t sticky md:static bottom-0 bg-white md:bg-transparent pb-4 md:pb-0">
+        <div className="pt-4 border-t sticky md:static bottom-0 bg-card/40 md:bg-transparent pb-4 md:pb-0">
           <div className="flex gap-2 md:block">
             {onReset && (
               <Button 

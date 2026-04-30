@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import type { Event } from '@/lib/types'
+import { getBuilderProfileId, getUserAccountRecord, mapDbEventToApp } from '@/lib/supabase/server-helpers'
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,12 +20,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get user profile from profiles table
-    const { data: profileData, error: profileError } = await supabase
-      .from('profiles')
-      .select('user_type')
-      .eq('id', user.id)
-      .single()
+    const { data: profileData, error: profileError } = await getUserAccountRecord(supabase, user.id)
 
     if (profileError || !profileData) {
       console.error('Error fetching user profile:', profileError)
@@ -44,14 +40,22 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const { builderProfileId, error: builderProfileError } = await getBuilderProfileId(supabase, user.id)
+    if (builderProfileError || !builderProfileId) {
+      return NextResponse.json(
+        { error: 'Builder profile not found' },
+        { status: 404 }
+      )
+    }
+
     const now = new Date()
     const startOfYear = new Date(now.getFullYear(), 0, 1)
 
     // Fetch user's events
     const { data: events, error: eventsError } = await supabase
       .from('events')
-      .select('id, event_date, status, budget, builder_id')
-      .eq('builder_id', user.id)
+      .select('*')
+      .eq('builder_id', builderProfileId)
 
     if (eventsError) {
       console.error('Error fetching events:', eventsError)
@@ -61,46 +65,34 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Fetch saved vendors count (table may not exist, handle gracefully)
-    let savedVendorsCount = 0
-    try {
-      const { data: savedVendors, error: vendorsError } = await supabase
-        .from('saved_vendors')
-        .select('vendor_id')
-        .eq('user_id', user.id)
+    const { count: savedVendorsCount, error: vendorsError } = await supabase
+      .from('saved_vendors')
+      .select('vendor_id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
 
-      if (vendorsError) {
-        // Table doesn't exist or other error - just log and continue
-        console.warn('Saved vendors table not available:', vendorsError.message)
-      } else {
-        savedVendorsCount = savedVendors?.length || 0
-      }
-    } catch (err) {
-      // Table doesn't exist - continue with 0
-      console.warn('Saved vendors table not available')
+    if (vendorsError) {
+      console.error('Error fetching saved vendors count:', vendorsError)
+      return NextResponse.json(
+        { error: 'Failed to fetch saved vendors count' },
+        { status: 500 }
+      )
     }
 
-    // Fetch saved venues count (table may not exist, handle gracefully)
-    let savedVenuesCount = 0
-    try {
-      const { data: savedVenues, error: venuesError } = await supabase
-        .from('saved_venues')
-        .select('venue_id')
-        .eq('user_id', user.id)
+    const { count: savedVenuesCount, error: venuesError } = await supabase
+      .from('saved_venues')
+      .select('venue_id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
 
-      if (venuesError) {
-        // Table doesn't exist or other error - just log and continue
-        console.warn('Saved venues table not available:', venuesError.message)
-      } else {
-        savedVenuesCount = savedVenues?.length || 0
-      }
-    } catch (err) {
-      // Table doesn't exist - continue with 0
-      console.warn('Saved venues table not available')
+    if (venuesError) {
+      console.error('Error fetching saved venues count:', venuesError)
+      return NextResponse.json(
+        { error: 'Failed to fetch saved venues count' },
+        { status: 500 }
+      )
     }
 
     // Calculate stats (cast: Supabase client infers never for table rows)
-    const eventsList = (events || []) as Pick<Event, 'id' | 'event_date' | 'status' | 'budget' | 'builder_id'>[]
+    const eventsList = (events || []).map(mapDbEventToApp) as Pick<Event, 'id' | 'event_date' | 'status' | 'budget' | 'builder_id'>[]
     const upcomingEvents = eventsList.filter(
       (e) =>
         new Date(e.event_date) >= now &&
@@ -118,11 +110,15 @@ export async function GET(request: NextRequest) {
     )
 
     // Get unique active vendors from vendor bookings
-    const { data: vendorBookings } = await supabase
-      .from('vendor_bookings')
-      .select('vendor_id, events!inner(builder_id)')
-      .eq('events.builder_id', user.id)
-      .eq('status', 'confirmed')
+    const eventIds = eventsList.map((event) => event.id)
+
+    const { data: vendorBookings } = eventIds.length
+      ? await supabase
+          .from('vendor_bookings')
+          .select('vendor_id, event_id')
+          .in('event_id', eventIds)
+          .eq('status', 'confirmed')
+      : { data: [] }
 
     const activeVendorIds = new Set(
       (vendorBookings || []).map((vb: any) => vb.vendor_id)
@@ -131,8 +127,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       upcomingEvents: upcomingEvents.length,
       activeVendors: activeVendorIds.size,
-      savedVendors: savedVendorsCount,
-      savedVenues: savedVenuesCount,
+      savedVendors: savedVendorsCount || 0,
+      savedVenues: savedVenuesCount || 0,
       ytdSpend,
       eventsThisYear: thisYearEvents.length,
       totalEvents: eventsList.length,

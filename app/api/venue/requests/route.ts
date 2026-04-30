@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import type { BookingStatus } from '@/lib/types'
+import {
+  normalizeVenueBookings,
+  VENUE_BOOKING_WITH_DETAILS_SELECT,
+  type VenueBookingJoinRow,
+} from '@/lib/bookings/venue-booking-adapter'
 
 export async function GET(request: NextRequest) {
   try {
@@ -59,35 +64,7 @@ export async function GET(request: NextRequest) {
     // Build query for bookings
     let query = supabase
       .from('venue_bookings')
-      .select(
-        `
-        *,
-        events (
-          id,
-          title,
-          event_date,
-          start_time,
-          end_time,
-          expected_attendance_min,
-          expected_attendance_max,
-          budget,
-          builder_id,
-          profiles!events_builder_id_fkey (
-            id,
-            name,
-            email,
-            avatar_url
-          )
-        ),
-        venues (
-          id,
-          name,
-          address,
-          city,
-          state
-        )
-      `
-      )
+      .select(VENUE_BOOKING_WITH_DETAILS_SELECT)
       .in('venue_id', venueIds)
       .order('created_at', { ascending: false })
 
@@ -107,7 +84,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      bookings: bookings || [],
+      bookings: normalizeVenueBookings(bookings as VenueBookingJoinRow[] | null),
       count: bookings?.length || 0,
     })
   } catch (error) {

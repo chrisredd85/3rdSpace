@@ -11,6 +11,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
+            networkMode: 'always',
             // Static data (venues, vendors) cached for 5 minutes
             staleTime: 5 * 60 * 1000,
             // User-specific data cached for 1 minute

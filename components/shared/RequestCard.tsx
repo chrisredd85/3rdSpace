@@ -74,7 +74,7 @@ export function RequestCard({
   return (
     <Card
       className={cn(
-        'border border-gray-200 hover:border-forest-500 hover:shadow-md transition-all cursor-pointer',
+        'border border-border hover:border-primary hover:shadow-md transition-all cursor-pointer',
         className
       )}
       onClick={onClick}
@@ -82,10 +82,10 @@ export function RequestCard({
       <CardContent className="p-4 sm:p-6">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2 truncate">
+            <h3 className="text-lg font-semibold text-foreground mb-2 truncate">
               {title}
             </h3>
-            <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
               <span className="font-medium">{organizerName}</span>
               {organizerCompany && (
                 <>
@@ -99,31 +99,31 @@ export function RequestCard({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
-          <div className="flex items-center gap-2 text-slate-600">
-            <Calendar className="h-4 w-4 flex-shrink-0 text-slate-400" />
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Calendar className="h-4 w-4 flex-shrink-0 text-muted-foreground/60" />
             <span>{dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
           </div>
           {time && (
-            <div className="flex items-center gap-2 text-slate-600">
-              <Clock className="h-4 w-4 flex-shrink-0 text-slate-400" />
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Clock className="h-4 w-4 flex-shrink-0 text-muted-foreground/60" />
               <span>{new Date(`2000-01-01T${time}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
             </div>
           )}
           {guestCount && (
-            <div className="flex items-center gap-2 text-slate-600">
-              <Users className="h-4 w-4 flex-shrink-0 text-slate-400" />
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Users className="h-4 w-4 flex-shrink-0 text-muted-foreground/60" />
               <span>{guestCount} guests</span>
             </div>
           )}
           {venueName && (
-            <div className="flex items-center gap-2 text-slate-600">
-              <MapPin className="h-4 w-4 flex-shrink-0 text-slate-400" />
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <MapPin className="h-4 w-4 flex-shrink-0 text-muted-foreground/60" />
               <span className="truncate">{venueName}</span>
             </div>
           )}
           {revenue !== undefined && (
-            <div className="flex items-center gap-2 text-slate-900 font-bold">
-              <DollarSign className="h-4 w-4 flex-shrink-0 text-forest-600" />
+            <div className="flex items-center gap-2 text-foreground font-bold">
+              <DollarSign className="h-4 w-4 flex-shrink-0 text-primary" />
               <span>${revenue.toLocaleString()}</span>
             </div>
           )}

@@ -87,11 +87,11 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="flex min-h-screen items-center justify-center p-4 bg-gray-50">
+        <div className="flex min-h-screen items-center justify-center p-4 bg-background">
           <Card className="w-full max-w-md">
             <CardHeader className="text-center">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
-                <AlertTriangle className="h-6 w-6 text-red-600" />
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/15">
+                <AlertTriangle className="h-6 w-6 text-destructive" />
               </div>
               <CardTitle className="text-xl">Something went wrong</CardTitle>
               <CardDescription>
@@ -100,16 +100,16 @@ export class ErrorBoundary extends Component<Props, State> {
             </CardHeader>
             <CardContent className="space-y-4">
               {process.env.NODE_ENV === 'development' && this.state.error && (
-                <div className="rounded-md bg-red-50 p-3">
-                  <p className="text-xs font-mono text-red-800">
+                <div className="rounded-md bg-destructive/10 p-3">
+                  <p className="text-xs font-mono text-destructive">
                     {this.state.error.toString()}
                   </p>
                   {this.state.errorInfo && (
                     <details className="mt-2">
-                      <summary className="text-xs font-medium text-red-700 cursor-pointer">
+                      <summary className="text-xs font-medium text-destructive cursor-pointer">
                         Stack trace
                       </summary>
-                      <pre className="mt-2 text-xs text-red-600 overflow-auto">
+                      <pre className="mt-2 text-xs text-destructive overflow-auto">
                         {this.state.errorInfo.componentStack}
                       </pre>
                     </details>
@@ -136,7 +136,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 </Button>
               </div>
 
-              <p className="text-center text-xs text-gray-500">
+              <p className="text-center text-xs text-muted-foreground">
                 If this problem persists, please contact support.
               </p>
             </CardContent>

@@ -1,21 +1,19 @@
 import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
-import type { Event } from '@/lib/types'
+import { mapDbEventToApp } from '@/lib/supabase/server-helpers'
 
 type Props = {
   params: { eventId: string }
 }
 
-type EventMeta = Pick<Event, 'title' | 'description' | 'event_date' | 'event_type'> | null
-
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const supabase = createClient()
   const { data } = await supabase
     .from('events')
-    .select('title, description, event_date, event_type')
+    .select('*')
     .eq('id', params.eventId)
     .single()
-  const event = data as EventMeta
+  const event = data ? mapDbEventToApp(data) : null
 
   if (!event) {
     return {

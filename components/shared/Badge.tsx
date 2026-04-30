@@ -46,21 +46,21 @@ export function Badge({ status, size = 'md', className }: BadgeProps) {
     switch (status) {
       case 'pending':
       case 'planning':
-        return 'bg-yellow-100 text-yellow-800'
+        return 'bg-yellow-500/15 text-yellow-200'
       case 'confirmed':
       case 'active':
       case 'verified':
       case 'completed':
-        return 'bg-forest-100 text-forest-800'
+        return 'bg-primary/15 text-primary'
       case 'declined':
       case 'inactive':
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-sidebar-accent/40 text-foreground'
       case 'cancelled':
-        return 'bg-red-100 text-red-800'
+        return 'bg-destructive/15 text-destructive'
       case 'in_progress':
-        return 'bg-blue-100 text-blue-800'
+        return 'bg-primary/15 text-foreground'
       default:
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-sidebar-accent/40 text-foreground'
     }
   }
 

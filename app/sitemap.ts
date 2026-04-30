@@ -31,8 +31,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const { data: venues } = await supabase
     .from('venues')
     .select('id, updated_at')
-    .eq('is_active', true)
-    .eq('is_verified', true)
+    .eq('is_published', true)
     .limit(1000) // Limit to prevent timeout
 
   type SitemapRow = { id: string; updated_at?: string }
@@ -46,10 +45,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // Fetch public vendors
   const { data: vendors } = await supabase
-    .from('vendors')
+    .from('vendor_profiles')
     .select('id, updated_at')
-    .eq('is_active', true)
-    .eq('is_verified', true)
+    .eq('is_published', true)
     .limit(1000)
 
   const vendorPages: MetadataRoute.Sitemap =
@@ -64,7 +62,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const { data: events } = await supabase
     .from('events')
     .select('id, updated_at')
-    .in('status', ['confirmed', 'in_progress'])
+    .in('status', ['confirmed', 'completed'])
     .limit(500)
 
   const eventPages: MetadataRoute.Sitemap =

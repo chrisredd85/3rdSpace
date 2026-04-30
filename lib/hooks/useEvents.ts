@@ -30,10 +30,19 @@ export interface EventWithRelations extends Event {
 
 /**
  * Fetch user's events
+ *
+ * @param organizerId - Authenticated user ID used to enable the query
+ * @param filters - Optional event filters
+ * @param initialEvents - Optional server-loaded events for the first render
  */
-export function useEvents(organizerId: string | null, filters?: { status?: EventStatus; limit?: number; offset?: number }) {
+export function useEvents(
+  organizerId: string | null,
+  filters?: { status?: EventStatus; limit?: number; offset?: number },
+  initialEvents?: Event[]
+) {
   return useQuery({
     queryKey: [...eventKeys.list(organizerId), filters],
+    networkMode: 'always',
     queryFn: async () => {
       if (!organizerId) return []
 
@@ -54,6 +63,7 @@ export function useEvents(organizerId: string | null, filters?: { status?: Event
       const data = await response.json()
       return (data.events || []) as Event[]
     },
+    initialData: initialEvents,
     enabled: !!organizerId,
   })
 }

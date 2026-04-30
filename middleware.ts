@@ -1,3 +1,14 @@
+/**
+ * Next.js Edge Middleware
+ *
+ * Responsibilities:
+ *  1. Session refresh — keeps Supabase cookies alive on every request.
+ *  2. Auth redirect — unauthenticated users hitting dashboard routes are sent to /login.
+ *  3. Role guard — users are redirected to their own dashboard if they land on the
+ *     wrong role prefix (e.g. a venue_owner hitting /builder goes to /venue).
+ *
+ * Public routes bypass all auth checks; API routes and static assets are skipped entirely.
+ */
 import { type NextRequest, NextResponse } from 'next/server'
 import { protectRoute, getAuthUser } from '@/lib/supabase/middleware'
 import type { UserType } from '@/lib/types'
@@ -32,6 +43,8 @@ export async function middleware(request: NextRequest) {
 
       const url = request.nextUrl.clone()
       url.pathname = dashboardPath
+      // Signal that user was redirected because already signed in (dashboard can show a toast)
+      url.searchParams.set('from', 'auth')
       return NextResponse.redirect(url)
     }
     return response

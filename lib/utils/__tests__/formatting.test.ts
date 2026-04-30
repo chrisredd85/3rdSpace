@@ -28,7 +28,7 @@ describe('Formatting Utilities', () => {
         })
       }
 
-      const date = new Date('2024-12-31')
+      const date = new Date(2024, 11, 31)
       expect(formatDate(date)).toBe('December 31, 2024')
     })
   })

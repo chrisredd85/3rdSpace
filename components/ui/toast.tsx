@@ -65,37 +65,37 @@ function ToastContainer({
     switch (variant) {
       case 'success':
         return {
-          border: 'border-forest-500',
-          bg: 'bg-forest-50',
+          border: 'border-primary',
+          bg: 'bg-primary/10',
           icon: CheckCircle,
-          iconColor: 'text-forest-600',
+          iconColor: 'text-primary',
         }
       case 'error':
       case 'destructive':
         return {
           border: 'border-red-500',
-          bg: 'bg-red-50',
+          bg: 'bg-destructive/10',
           icon: AlertCircle,
-          iconColor: 'text-red-600',
+          iconColor: 'text-destructive',
         }
       case 'warning':
         return {
           border: 'border-yellow-500',
-          bg: 'bg-yellow-50',
+          bg: 'bg-yellow-500/10',
           icon: AlertTriangle,
-          iconColor: 'text-yellow-600',
+          iconColor: 'text-yellow-200',
         }
       case 'info':
         return {
           border: 'border-blue-500',
-          bg: 'bg-blue-50',
+          bg: 'bg-primary/10',
           icon: Info,
-          iconColor: 'text-blue-600',
+          iconColor: 'text-primary',
         }
       default:
         return {
-          border: 'border-gray-300',
-          bg: 'bg-white',
+          border: 'border-border',
+          bg: 'bg-card/40',
           icon: null,
           iconColor: '',
         }
@@ -127,8 +127,8 @@ function ToastContainer({
                     className={cn(
                       'font-semibold text-sm',
                       toast.variant === 'error' || toast.variant === 'warning'
-                        ? 'text-gray-900'
-                        : 'text-gray-900'
+                        ? 'text-foreground'
+                        : 'text-foreground'
                     )}
                   >
                     {toast.title}
@@ -139,8 +139,8 @@ function ToastContainer({
                     className={cn(
                       'text-sm mt-1',
                       toast.variant === 'error' || toast.variant === 'warning'
-                        ? 'text-gray-700'
-                        : 'text-gray-600'
+                        ? 'text-foreground'
+                        : 'text-muted-foreground'
                     )}
                   >
                     {toast.description}
@@ -149,7 +149,7 @@ function ToastContainer({
               </div>
               <button
                 onClick={() => removeToast(toast.id)}
-                className="flex-shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
+                className="flex-shrink-0 text-muted-foreground/60 hover:text-muted-foreground transition-colors"
               >
                 <X className="h-4 w-4" />
               </button>

@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import type { BookingStatus } from '@/lib/types'
+import {
+  normalizeVenueBooking,
+  toVenueBookingUpdate,
+  VENUE_BOOKING_WITH_DETAILS_SELECT,
+  type VenueBookingJoinRow,
+} from '@/lib/bookings/venue-booking-adapter'
 
 interface RouteContext {
   params: {
@@ -72,31 +78,22 @@ export async function PATCH(
       )
     }
 
-    // Prepare updates
-    const updates: any = {
-      updated_at: new Date().toISOString(),
-    }
-
-    if (status) {
-      updates.status = status as BookingStatus
-    }
-
-    if (status === 'confirmed') {
-      if (confirmed_date) updates.confirmed_date = confirmed_date
-      if (confirmed_start_time) updates.confirmed_start_time = confirmed_start_time
-      if (confirmed_end_time) updates.confirmed_end_time = confirmed_end_time
-      if (final_price !== undefined) updates.final_price = final_price
-    }
-
-    if (quoted_price !== undefined) updates.quoted_price = quoted_price
-    if (notes !== undefined) updates.notes = notes
+    const updates = toVenueBookingUpdate({
+      status: status as BookingStatus | undefined,
+      confirmed_date,
+      confirmed_start_time,
+      confirmed_end_time,
+      final_price,
+      quoted_price,
+      notes,
+    })
 
     // Update booking
     const { data: updatedBooking, error: updateError } = await supabase
       .from('venue_bookings')
       .update(updates as never)
       .eq('id', id)
-      .select('*, events!inner(builder_id)')
+      .select(VENUE_BOOKING_WITH_DETAILS_SELECT)
       .single()
 
     if (updateError) {
@@ -111,22 +108,24 @@ export async function PATCH(
     if (status === 'confirmed' || status === 'declined') {
       try {
         const event = (updatedBooking as any).events
-        if (event && event.builder_id) {
+        const builderUserId = event?.builder_profiles?.user_id
+        if (event && builderUserId) {
           // Check if thread already exists
           const { data: existingThread } = await supabase
             .from('message_threads')
             .select('id')
-            .eq('event_id', bookingWithVenue.event_id)
-            .eq('venue_id', bookingWithVenue.venue_id)
+            .eq('booking_type', 'venue_booking')
+            .eq('booking_id', id)
             .maybeSingle()
 
           if (!existingThread) {
             // Create message thread
             await supabase.from('message_threads').insert({
               event_id: bookingWithVenue.event_id,
-              venue_id: bookingWithVenue.venue_id,
-              builder_id: event.builder_id,
-              venue_owner_id: user.id,
+              booking_id: id,
+              booking_type: 'venue_booking',
+              participant_1_id: user.id,
+              participant_2_id: builderUserId,
             } as never)
           }
         }
@@ -140,20 +139,17 @@ export async function PATCH(
     if (status === 'confirmed' || status === 'declined') {
       try {
         const event = (updatedBooking as any).events
-        if (event && event.builder_id) {
+        const builderUserId = event?.builder_profiles?.user_id
+        if (event && builderUserId) {
           await supabase.from('notifications').insert({
-            user_id: event.builder_id,
-            type: status === 'confirmed' ? 'booking_confirmed' : 'booking_declined',
+            user_id: builderUserId,
+            notification_type: status === 'confirmed' ? 'booking_confirmed' : 'booking_declined',
             title:
               status === 'confirmed'
                 ? 'Venue booking confirmed!'
                 : 'Venue booking declined',
             message: `Your booking request has been ${status}.`,
-            metadata: {
-              booking_id: id,
-              booking_type: 'venue',
-              event_id: bookingWithVenue.event_id,
-            },
+            link_url: `/builder/event/${bookingWithVenue.event_id}`,
           } as never)
         }
       } catch (notificationError) {
@@ -164,7 +160,7 @@ export async function PATCH(
 
     return NextResponse.json({
       success: true,
-      booking: updatedBooking,
+      booking: normalizeVenueBooking(updatedBooking as VenueBookingJoinRow),
     })
   } catch (error) {
     console.error('Update booking error:', error)

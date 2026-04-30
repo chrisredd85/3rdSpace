@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getOnboardingStatus } from '@/lib/server/account-setup'
+import type { UserType } from '@/lib/types'
 
 /**
  * Check if user has completed onboarding
@@ -22,45 +24,15 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const userType = user.user_metadata?.user_type
+    const userType = user.user_metadata?.user_type as UserType | undefined
+    const companyName = (user.user_metadata?.company_name as string | undefined) ?? null
 
-    // Community builders don't need onboarding
-    if (userType === 'community_builder') {
+    if (userType) {
+      const status = await getOnboardingStatus(supabase, user.id, userType, companyName)
       return NextResponse.json({
-        isOnboarded: true,
+        isOnboarded: status.isOnboarded,
         userType,
-      })
-    }
-
-    // Check if venue owner has a venue
-    if (userType === 'venue_owner') {
-      const { data: venue } = await supabase
-        .from('venues')
-        .select('id, name, address')
-        .eq('owner_id', user.id)
-        .single()
-
-      const venueData = venue as { id: string; name: string; address?: string } | null
-      return NextResponse.json({
-        isOnboarded: !!venueData && !!venueData.address, // Has venue with address
-        userType,
-        hasVenue: !!venueData,
-      })
-    }
-
-    // Check if vendor has a vendor record
-    if (userType === 'vendor') {
-      const { data: vendor } = await supabase
-        .from('vendors')
-        .select('id, business_name, service_type')
-        .eq('owner_id', user.id)
-        .single()
-
-      const vendorData = vendor as { id: string; business_name: string; service_type?: string } | null
-      return NextResponse.json({
-        isOnboarded: !!vendorData && !!vendorData.service_type, // Has vendor with service type
-        userType,
-        hasVendor: !!vendorData,
+        redirectPath: status.redirectPath,
       })
     }
 

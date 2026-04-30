@@ -16,6 +16,8 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+export type DepositType = 'fixed' | 'percentage'
+
 /**
  * User type extending Supabase auth user
  */
@@ -65,6 +67,22 @@ export interface Venue {
   hourly_rate: number | null
   daily_rate: number | null
   pricing_model: PricingModel
+  ticket_sales_share_enabled?: boolean | null
+  ticket_sales_share_percent?: number | null
+  bar_revenue_share_enabled?: boolean | null
+  bar_revenue_share_percent?: number | null
+  per_head_kickback_amount?: number | null
+  bulk_approval_enabled?: boolean | null
+  auto_approve_threshold?: number | null
+  auto_approve_conditions?: Json | null
+  unique_features?: string | null
+  unique_features_tags?: string[] | null
+  requires_deposit?: boolean | null
+  deposit_amount?: number | null
+  deposit_type?: DepositType | null
+  deposit_percentage?: number | null
+  deposit_refundable?: boolean | null
+  deposit_terms?: string | null
   is_active: boolean
   is_verified: boolean
   created_at: string
@@ -79,6 +97,21 @@ export interface VenueAmenity {
   venue_id: string
   amenity_name: string
   description: string | null
+  amenity_type_id?: string | null
+  custom_amenity_name?: string | null
+  created_at: string
+}
+
+/**
+ * Venue amenity master-list table row
+ */
+export interface VenueAmenityType {
+  id: string
+  name: string
+  category: string
+  icon: string
+  description: string | null
+  display_order: number
   created_at: string
 }
 
@@ -107,6 +140,25 @@ export interface VenueRequirement {
   created_at: string
 }
 
+export type VenueRuleType = 'general' | 'insurance' | 'safety' | 'conduct'
+export type VenueRuleAudience = 'all' | 'vendors' | 'organizations' | 'builders'
+
+/**
+ * Venue house rule table row
+ */
+export interface VenueRule {
+  id: string
+  venue_id: string
+  title: string
+  description: string
+  rule_type: VenueRuleType
+  applies_to: VenueRuleAudience
+  is_mandatory: boolean
+  display_order: number
+  created_at: string
+  updated_at: string
+}
+
 /**
  * Vendor table row
  */
@@ -127,8 +179,99 @@ export interface Vendor {
   email: string | null
   website: string | null
   pricing_model: PricingModel
+  hourly_rate?: number | null
+  base_rate?: number | null
+  per_person_rate?: number | null
+  per_head_kickback?: number | null
+  requires_deposit?: boolean | null
+  deposit_amount?: number | null
+  deposit_type?: DepositType | null
+  deposit_percentage?: number | null
+  deposit_refundable?: boolean | null
+  deposit_terms?: string | null
   is_active: boolean
   is_verified: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type VendorStripeAccountStatus = 'pending' | 'active' | 'restricted'
+
+/**
+ * Vendor Stripe Connect account table row
+ */
+export interface VendorStripeAccount {
+  id: string
+  vendor_id: string
+  stripe_account_id: string | null
+  account_status: VendorStripeAccountStatus
+  charges_enabled: boolean
+  payouts_enabled: boolean
+  requirements_due: Json
+  created_at: string
+  updated_at: string
+}
+
+export type VendorPaymentStatus = 'pending' | 'processing' | 'succeeded' | 'fully_paid' | 'failed' | 'refunded'
+export type VendorTransactionPaymentType = 'deposit' | 'final_payment' | 'refund'
+export type VendorTransactionStatus = 'pending' | 'processing' | 'succeeded' | 'failed' | 'refunded'
+
+/**
+ * Vendor payment transaction table row
+ */
+export interface VendorTransaction {
+  id: string
+  booking_id: string
+  vendor_id: string
+  builder_id: string
+  stripe_payment_intent_id: string | null
+  stripe_charge_id: string | null
+  stripe_transfer_id: string | null
+  amount: number
+  platform_fee: number
+  stripe_fee: number
+  vendor_payout: number
+  payment_type: VendorTransactionPaymentType
+  status: VendorTransactionStatus
+  paid_at: string | null
+  created_at: string
+}
+
+export type VendorInvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'
+
+export interface VendorInvoiceLineItem {
+  description: string
+  quantity: number
+  unit_price: number
+  total: number
+}
+
+/**
+ * Vendor invoice table row
+ */
+export interface VendorInvoice {
+  id: string
+  booking_id: string
+  vendor_id: string
+  event_id: string
+  builder_id: string
+  invoice_number: string
+  line_items: VendorInvoiceLineItem[] | Json
+  subtotal: number
+  tax_rate: number
+  tax_amount: number
+  total: number
+  deposit_amount: number
+  deposit_due_date: string | null
+  deposit_paid: boolean
+  deposit_paid_at: string | null
+  final_amount: number
+  final_due_date: string | null
+  final_paid: boolean
+  final_paid_at: string | null
+  status: VendorInvoiceStatus
+  pdf_url: string | null
+  sent_at: string | null
   created_at: string
   updated_at: string
 }
@@ -141,10 +284,17 @@ export interface VendorOffering {
   vendor_id: string
   offering_name: string
   description: string | null
+  is_included?: boolean | null
   base_price: number
   pricing_model: PricingModel
   min_quantity: number | null
   max_quantity: number | null
+  duration_hours: number | null
+  portfolio_images: string[]
+  add_ons: Json
+  service_category: string
+  max_capacity: number | null
+  equipment_included: string[]
   is_active: boolean
   created_at: string
   updated_at: string
@@ -207,6 +357,9 @@ export interface VenueBooking {
   final_price: number | null
   deposit_amount: number | null
   deposit_paid: boolean
+  approved_at?: string | null
+  rejection_reason?: string | null
+  approval_source?: 'manual' | 'bulk' | 'auto' | null
   notes: string | null
   created_at: string
   updated_at: string
@@ -219,9 +372,15 @@ export interface VendorBooking {
   id: string
   event_id: string
   vendor_id: string
+  organizer_id?: string | null
   vendor_offering_id: string | null
   vendor_package_id: string | null
   status: BookingStatus
+  booking_date?: string | null
+  start_time?: string | null
+  end_time?: string | null
+  setup_time?: string | null
+  guest_count?: number | null
   requested_date: string
   requested_start_time: string | null
   requested_end_time: string | null
@@ -230,9 +389,33 @@ export interface VendorBooking {
   confirmed_end_time: string | null
   quoted_price: number | null
   final_price: number | null
+  subtotal?: number | null
+  platform_fee_percentage?: number | null
+  platform_fee_amount?: number | null
+  total_amount?: number | null
+  payment_status?: VendorPaymentStatus | null
+  paid_at?: string | null
+  responded_at?: string | null
+  decline_reason?: string | null
   quantity: number | null
   deposit_amount: number | null
   deposit_paid: boolean
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type VendorAvailabilityStatus = 'available' | 'booked' | 'blocked' | 'tentative'
+
+/**
+ * Vendor per-day availability table row
+ */
+export interface VendorAvailability {
+  id: string
+  vendor_id: string
+  date: string
+  status: VendorAvailabilityStatus
+  booking_id: string | null
   notes: string | null
   created_at: string
   updated_at: string
@@ -251,6 +434,7 @@ export interface AvailabilityBlock {
   end_time: string | null
   is_available: boolean
   reason: string | null
+  notes?: string | null
   created_at: string
   updated_at: string
 }
@@ -261,8 +445,13 @@ export interface AvailabilityBlock {
 export interface Message {
   id: string
   thread_id: string
+  booking_id?: string | null
+  venue_booking_id?: string | null
+  vendor_booking_id?: string | null
   sender_id: string
+  receiver_id?: string | null
   content: string
+  read?: boolean | null
   is_read: boolean
   read_at: string | null
   created_at: string
@@ -276,6 +465,8 @@ export interface MessageThread {
   participant_1_id: string
   participant_2_id: string
   event_id: string | null
+  booking_id?: string | null
+  booking_type?: 'venue_booking' | 'vendor_booking' | 'general' | string | null
   venue_booking_id: string | null
   vendor_booking_id: string | null
   last_message_at: string | null
@@ -306,6 +497,33 @@ export interface SavedVenue {
 }
 
 /**
+ * Event team member table row
+ */
+export interface EventTeamMember {
+  id: string
+  event_id: string
+  email: string
+  role: 'organizer' | 'coordinator' | 'vendor_contact'
+  status: 'invited' | 'accepted' | 'declined'
+  invited_at: string
+  created_at: string
+}
+
+/**
+ * Event task table row
+ */
+export interface EventTask {
+  id: string
+  event_id: string
+  text: string
+  completed: boolean
+  due_date: string | null
+  priority: 'low' | 'medium' | 'high'
+  created_at: string
+  updated_at: string
+}
+
+/**
  * Event template table row
  */
 export interface EventTemplate {
@@ -328,19 +546,29 @@ export interface EventTemplate {
  */
 export interface Review {
   id: string
+  booking_id: string | null
+  vendor_booking_id: string | null
+  vendor_id?: string | null
+  builder_id?: string | null
   reviewer_id: string
   reviewee_id: string
-  reviewee_type: 'venue' | 'vendor' | 'builder'
-  event_id: string | null
-  venue_booking_id: string | null
-  vendor_booking_id: string | null
   rating: number
-  title: string | null
-  comment: string | null
-  is_verified: boolean
-  is_public: boolean
+  review_text: string | null
+  event_type: string | null
+  response_text: string | null
+  responded_at: string | null
+  vendor_response?: string | null
+  response_date?: string | null
+  status: 'pending' | 'published' | 'hidden' | string | null
   created_at: string
   updated_at: string
+  reviewee_type?: 'venue' | 'vendor' | 'builder'
+  event_id?: string | null
+  venue_booking_id?: string | null
+  title?: string | null
+  comment?: string | null
+  is_verified?: boolean
+  is_public?: boolean
 }
 
 /**
@@ -355,6 +583,22 @@ export interface Notification {
   link: string | null
   is_read: boolean
   read_at: string | null
+  metadata: Json | null
+  created_at: string
+}
+
+/**
+ * Venue booking approval audit table row
+ */
+export interface VenueBookingApprovalAudit {
+  id: string
+  venue_id: string
+  booking_id: string
+  actor_id: string | null
+  action: 'bulk_approve' | 'bulk_reject'
+  previous_status: string | null
+  new_status: string
+  message: string | null
   metadata: Json | null
   created_at: string
 }
@@ -412,6 +656,15 @@ export interface Database {
         Update: Partial<Omit<VenueAmenity, 'id' | 'created_at'>>
         Relationships: []
       }
+      venue_amenity_types: {
+        Row: VenueAmenityType
+        Insert: Omit<VenueAmenityType, 'id' | 'created_at'> & {
+          id?: string
+          created_at?: string
+        }
+        Update: Partial<Omit<VenueAmenityType, 'id' | 'created_at'>>
+        Relationships: []
+      }
       venue_photos: {
         Row: VenuePhoto
         Insert: Omit<VenuePhoto, 'id' | 'created_at'> & {
@@ -430,6 +683,18 @@ export interface Database {
         Update: Partial<Omit<VenueRequirement, 'id' | 'created_at'>>
         Relationships: []
       }
+      venue_rules: {
+        Row: VenueRule
+        Insert: Omit<VenueRule, 'id' | 'created_at' | 'updated_at'> & {
+          id?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Omit<VenueRule, 'id' | 'created_at'>> & {
+          updated_at?: string
+        }
+        Relationships: []
+      }
       vendors: {
         Row: Vendor
         Insert: Omit<Vendor, 'id' | 'created_at' | 'updated_at'> & {
@@ -438,6 +703,39 @@ export interface Database {
           updated_at?: string
         }
         Update: Partial<Omit<Vendor, 'id' | 'created_at'>> & {
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      vendor_stripe_accounts: {
+        Row: VendorStripeAccount
+        Insert: Omit<VendorStripeAccount, 'id' | 'created_at' | 'updated_at'> & {
+          id?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Omit<VendorStripeAccount, 'id' | 'created_at'>> & {
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      vendor_transactions: {
+        Row: VendorTransaction
+        Insert: Omit<VendorTransaction, 'id' | 'created_at'> & {
+          id?: string
+          created_at?: string
+        }
+        Update: Partial<Omit<VendorTransaction, 'id' | 'created_at'>>
+        Relationships: []
+      }
+      vendor_invoices: {
+        Row: VendorInvoice
+        Insert: Omit<VendorInvoice, 'id' | 'created_at' | 'updated_at'> & {
+          id?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Omit<VendorInvoice, 'id' | 'created_at'>> & {
           updated_at?: string
         }
         Relationships: []
@@ -490,6 +788,15 @@ export interface Database {
         }
         Relationships: []
       }
+      venue_booking_approval_audit: {
+        Row: VenueBookingApprovalAudit
+        Insert: Omit<VenueBookingApprovalAudit, 'id' | 'created_at'> & {
+          id?: string
+          created_at?: string
+        }
+        Update: Partial<Omit<VenueBookingApprovalAudit, 'id' | 'created_at'>>
+        Relationships: []
+      }
       vendor_bookings: {
         Row: VendorBooking
         Insert: Omit<VendorBooking, 'id' | 'created_at' | 'updated_at'> & {
@@ -498,6 +805,18 @@ export interface Database {
           updated_at?: string
         }
         Update: Partial<Omit<VendorBooking, 'id' | 'created_at'>> & {
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      vendor_availability: {
+        Row: VendorAvailability
+        Insert: Omit<VendorAvailability, 'id' | 'created_at' | 'updated_at'> & {
+          id?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Omit<VendorAvailability, 'id' | 'created_at'>> & {
           updated_at?: string
         }
         Relationships: []
@@ -556,6 +875,28 @@ export interface Database {
         Update: Partial<Omit<SavedVenue, 'id' | 'created_at'>>
         Relationships: []
       }
+      event_team_members: {
+        Row: EventTeamMember
+        Insert: Omit<EventTeamMember, 'id' | 'status' | 'invited_at' | 'created_at'> & {
+          id?: string
+          status?: EventTeamMember['status']
+          invited_at?: string
+          created_at?: string
+        }
+        Update: Partial<Omit<EventTeamMember, 'id' | 'event_id' | 'created_at'>>
+        Relationships: []
+      }
+      event_tasks: {
+        Row: EventTask
+        Insert: Omit<EventTask, 'id' | 'completed' | 'created_at' | 'updated_at'> & {
+          id?: string
+          completed?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<Omit<EventTask, 'id' | 'event_id' | 'created_at'>>
+        Relationships: []
+      }
       event_templates: {
         Row: EventTemplate
         Insert: Omit<EventTemplate, 'id' | 'created_at' | 'updated_at'> & {
@@ -570,8 +911,11 @@ export interface Database {
       }
       reviews: {
         Row: Review
-        Insert: Omit<Review, 'id' | 'created_at' | 'updated_at'> & {
+        Insert: Partial<Omit<Review, 'id' | 'created_at' | 'updated_at'>> & {
           id?: string
+          reviewer_id: string
+          reviewee_id: string
+          rating: number
           created_at?: string
           updated_at?: string
         }

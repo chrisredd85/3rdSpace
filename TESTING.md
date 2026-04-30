@@ -31,6 +31,20 @@ npm run test:e2e:ui
 npm run type-check
 ```
 
+## Final Integration Gate
+
+Week 4 Day 18-20 uses the full release runbook in
+[`docs/FINAL_INTEGRATION_RUNBOOK.md`](docs/FINAL_INTEGRATION_RUNBOOK.md).
+At minimum, run this automated gate before manual payment, messaging, file,
+analytics, notification, mobile, security, and performance checks:
+
+```bash
+npm run type-check
+npm run lint
+npm test -- --runInBand
+npm run build
+```
+
 ## Test Structure
 
 ```

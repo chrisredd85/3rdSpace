@@ -25,14 +25,7 @@ npm install
 cp .env.example .env.local
 ```
 
-Add your Supabase credentials to `.env.local`:
-```
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key  # Optional, for admin operations
-```
-
-**Note**: The `SUPABASE_SERVICE_ROLE_KEY` is optional and only needed for server-side admin operations. Keep it secure and never expose it to the client.
+Fill in the database, Supabase, Stripe, pricing, site, and optional email values in `.env.local`. Keep `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`, webhook secrets, and email provider keys server-only.
 
 3. Run the development server:
 ```bash
@@ -40,6 +33,30 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+## Verification
+
+Core automated checks:
+
+```bash
+npm run type-check
+npm run lint
+npm test -- --runInBand
+npm run build
+```
+
+End-to-end browser checks:
+
+```bash
+npm run dev
+npm run test:e2e
+```
+
+For the Week 4 release pass, use the final integration runbook:
+[`docs/FINAL_INTEGRATION_RUNBOOK.md`](docs/FINAL_INTEGRATION_RUNBOOK.md).
+
+For production cutover, use:
+[`docs/PRODUCTION_LAUNCH_CHECKLIST.md`](docs/PRODUCTION_LAUNCH_CHECKLIST.md).
 
 ## Project Structure
 

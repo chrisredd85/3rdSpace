@@ -18,10 +18,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get user profile from profiles table
+    // Get user profile from users table
     const { data: profileData, error: profileError } = await supabase
-      .from('profiles')
-      .select('user_type')
+      .from('users')
+      .select('role, user_type')
       .eq('id', user.id)
       .single()
 
@@ -45,9 +45,9 @@ export async function GET(request: NextRequest) {
 
     // Get user's vendor
     const { data: vendor, error: vendorError } = await supabase
-      .from('vendors')
+      .from('vendor_profiles')
       .select('id')
-      .eq('owner_id', user.id)
+      .eq('user_id', user.id)
       .single()
 
     if (vendorError || !vendor) {
@@ -63,6 +63,10 @@ export async function GET(request: NextRequest) {
     const now = new Date()
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
+    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59)
+    const prevMonthStartString = prevMonthStart.toISOString().split('T')[0]
+    const monthEndString = monthEnd.toISOString().split('T')[0]
 
     // Fetch new requests (pending)
     const { count: newRequestsCount } = await supabase
@@ -71,18 +75,29 @@ export async function GET(request: NextRequest) {
       .eq('vendor_id', vendorData.id)
       .eq('status', 'pending')
 
-    // Fetch confirmed gigs
-    const { data: confirmedBookings } = await supabase
+    // Fetch confirmed gig count without loading all historical rows
+    const { count: confirmedGigsCount } = await supabase
       .from('vendor_bookings')
-      .select('*')
+      .select('id', { count: 'exact', head: true })
       .eq('vendor_id', vendorData.id)
       .eq('status', 'confirmed')
 
-    type BookingRow = { confirmed_date: string | null; final_price: number | null; quoted_price: number | null }
+    // Fetch only the revenue window needed for current and previous month stats
+    const { data: confirmedBookings } = await supabase
+      .from('vendor_bookings')
+      .select('booking_date, confirmed_date, final_price, quoted_price')
+      .eq('vendor_id', vendorData.id)
+      .eq('status', 'confirmed')
+      .or(
+        `and(booking_date.gte.${prevMonthStartString},booking_date.lte.${monthEndString}),and(confirmed_date.gte.${prevMonthStartString},confirmed_date.lte.${monthEndString})`
+      )
+
+    type BookingRow = { booking_date?: string | null; confirmed_date: string | null; final_price: number | null; quoted_price: number | null }
     const confirmedList = (confirmedBookings || []) as BookingRow[]
     const thisMonthBookings = confirmedList.filter((b) => {
-      if (!b.confirmed_date) return false
-      const bookingDate = new Date(b.confirmed_date)
+      const date = b.confirmed_date || b.booking_date
+      if (!date) return false
+      const bookingDate = new Date(date)
       return bookingDate >= monthStart && bookingDate <= monthEnd
     })
 
@@ -91,25 +106,15 @@ export async function GET(request: NextRequest) {
       0
     )
 
-    // Calculate response rate (would need to track response times)
-    // For now, calculate based on accepted vs declined ratio
-    const { data: allBookings } = await supabase
-      .from('vendor_bookings')
-      .select('status, created_at, updated_at')
-      .eq('vendor_id', vendorData.id)
-      .in('status', ['pending', 'confirmed', 'declined'])
-
     // Calculate response rate: bookings responded to within 24 hours
     // Simplified: assume 95% for now, would need to track actual response times
     const responseRate = 95
 
     // Calculate previous month revenue for change percentage
-    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59)
-    
     const prevMonthBookings = confirmedList.filter((b) => {
-      if (!b.confirmed_date) return false
-      const bookingDate = new Date(b.confirmed_date)
+      const date = b.confirmed_date || b.booking_date
+      if (!date) return false
+      const bookingDate = new Date(date)
       return bookingDate >= prevMonthStart && bookingDate <= prevMonthEnd
     })
 
@@ -124,7 +129,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       newRequests: newRequestsCount || 0,
-      confirmedGigs: confirmedBookings?.length || 0,
+      confirmedGigs: confirmedGigsCount || 0,
       revenueMtd,
       revenueChange,
       responseRate,

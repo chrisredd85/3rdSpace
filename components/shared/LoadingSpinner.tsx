@@ -41,12 +41,12 @@ export function LoadingSpinner({
     <div className={cn('flex flex-col items-center justify-center', className)}>
       <div
         className={cn(
-          'animate-spin rounded-full border-forest-500 border-t-transparent',
+          'animate-spin rounded-full border-primary border-t-transparent',
           sizeClasses[size]
         )}
       />
       {text && (
-        <p className="text-sm text-gray-600 mt-4">{text}</p>
+        <p className="text-sm text-muted-foreground mt-4">{text}</p>
       )}
     </div>
   )

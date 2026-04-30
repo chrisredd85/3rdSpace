@@ -27,20 +27,22 @@ describe('Booking Flow Integration', () => {
     renderWithProviders(
       <BookingRequestForm
         type="venue"
-        venueId="venue-1"
         onSubmit={onSubmit}
       />
     )
 
     // Fill in form
     const dateInput = screen.getByLabelText(/date/i)
-    await user.type(dateInput, '2024-12-31')
+    await user.type(dateInput, '2026-12-31')
 
-    const guestCountInput = screen.getByLabelText(/guest/i)
+    const startTimeInput = screen.getByLabelText(/start time/i)
+    await user.type(startTimeInput, '18:00')
+
+    const guestCountInput = screen.getByLabelText(/expected attendance/i)
     await user.type(guestCountInput, '100')
 
     // Submit form
-    const submitButton = screen.getByRole('button', { name: /submit/i })
+    const submitButton = screen.getByRole('button', { name: /submit request/i })
     await user.click(submitButton)
 
     await waitFor(() => {

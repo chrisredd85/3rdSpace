@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import {
+  normalizeAvailabilityBlocks,
+  normalizeAvailabilityBlock,
+  toAvailabilityBlockInsert,
+  type AvailabilityBlockRow,
+} from '@/lib/bookings/availability-adapter'
 
 export async function GET(request: NextRequest) {
   try {
@@ -55,7 +61,8 @@ export async function GET(request: NextRequest) {
     const { data: blocks, error: blocksError } = await supabase
       .from('availability_blocks')
       .select('*')
-      .in('venue_id', venueIds)
+      .eq('blockable_type', 'venue')
+      .in('blockable_id', venueIds)
       .order('start_date', { ascending: true })
 
     if (blocksError) {
@@ -67,7 +74,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      blocks: blocks || [],
+      blocks: normalizeAvailabilityBlocks(blocks as AvailabilityBlockRow[] | null),
       count: blocks?.length || 0,
     })
   } catch (error) {
@@ -110,10 +117,8 @@ export async function POST(request: NextRequest) {
       venue_id,
       start_date,
       end_date,
-      start_time,
-      end_time,
-      is_available = false,
       reason,
+      notes,
     } = body
 
     // Validate required fields
@@ -163,9 +168,8 @@ export async function POST(request: NextRequest) {
       .select('id')
       .eq('venue_id', venue_id)
       .in('status', ['pending', 'confirmed'])
-      .or(
-        `and(confirmed_date.gte.${start_date},confirmed_date.lte.${end_date}),and(requested_date.gte.${start_date},requested_date.lte.${end_date})`
-      )
+      .gte('booking_date', start_date.split('T')[0])
+      .lte('booking_date', end_date.split('T')[0])
 
     if (overlappingBookings && overlappingBookings.length > 0) {
       return NextResponse.json(
@@ -177,16 +181,13 @@ export async function POST(request: NextRequest) {
     // Create block
     const { data: block, error: blockError } = await supabase
       .from('availability_blocks')
-      .insert({
+      .insert(toAvailabilityBlockInsert({
         venue_id,
-        vendor_id: null,
-        start_date: start_date.split('T')[0], // Ensure date only
-        end_date: end_date.split('T')[0], // Ensure date only
-        start_time: start_time || null,
-        end_time: end_time || null,
-        is_available,
-        reason: reason || null,
-      } as never)
+        start_date,
+        end_date,
+        reason,
+        notes,
+      }) as never)
       .select()
       .single()
 
@@ -200,7 +201,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      block,
+      block: normalizeAvailabilityBlock(block as AvailabilityBlockRow),
     })
   } catch (error) {
     console.error('Create block error:', error)

@@ -1,10 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import {
+  normalizeAvailabilityBlock,
+  toAvailabilityBlockUpdate,
+  type AvailabilityBlockRow,
+} from '@/lib/bookings/availability-adapter'
 
 interface RouteContext {
   params: {
     id: string
   }
+}
+
+async function requireVendorAccount(supabase: ReturnType<typeof createClient>, userId: string) {
+  const { data, error } = await supabase
+    .from('users')
+    .select('role, user_type')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (error) {
+    console.error('[vendor.blocks.id] Failed to load user account', error)
+    return false
+  }
+
+  const account = data as { role?: string | null; user_type?: string | null } | null
+  return account?.role === 'vendor' || account?.user_type === 'vendor'
+}
+
+async function getOwnedVendorIds(supabase: ReturnType<typeof createClient>, userId: string) {
+  const { data, error } = await supabase
+    .from('vendor_profiles')
+    .select('id')
+    .eq('user_id', userId)
+
+  if (error) {
+    console.error('[vendor.blocks.id] Failed to load vendor profiles', error)
+    return null
+  }
+
+  return ((data || []) as Array<{ id: string }>).map((vendor) => vendor.id)
 }
 
 export async function PATCH(
@@ -27,9 +62,7 @@ export async function PATCH(
       )
     }
 
-    // Verify user is a vendor
-    const userType = user.user_metadata?.user_type
-    if (userType !== 'vendor') {
+    if (!(await requireVendorAccount(supabase, user.id))) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }
@@ -38,27 +71,28 @@ export async function PATCH(
 
     const { id } = params
     const body = await request.json()
+    const vendorIds = await getOwnedVendorIds(supabase, user.id)
 
-    // Verify block exists and belongs to user's vendor
+    if (!vendorIds || vendorIds.length === 0) {
+      return NextResponse.json(
+        { error: 'Vendor profile not found' },
+        { status: 404 }
+      )
+    }
+
+    // Verify block exists and belongs to the user's vendor profile
     const { data: block, error: blockError } = await supabase
       .from('availability_blocks')
-      .select('*, vendors!inner(owner_id)')
+      .select('*')
       .eq('id', id)
-      .single()
+      .eq('blockable_type', 'vendor')
+      .in('blockable_id', vendorIds)
+      .maybeSingle()
 
     if (blockError || !block) {
       return NextResponse.json(
         { error: 'Block not found' },
         { status: 404 }
-      )
-    }
-
-    // Verify vendor belongs to user
-    const blockWithVendor = block as { vendors?: { owner_id: string } }
-    if (blockWithVendor.vendors?.owner_id !== user.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 403 }
       )
     }
 
@@ -82,26 +116,14 @@ export async function PATCH(
       }
     }
 
-    // Update block
-    const updates: any = {
-      updated_at: new Date().toISOString(),
-    }
-
-    if (body.start_date !== undefined) {
-      updates.start_date = body.start_date.split('T')[0]
-    }
-    if (body.end_date !== undefined) {
-      updates.end_date = body.end_date.split('T')[0]
-    }
-    if (body.start_time !== undefined) updates.start_time = body.start_time
-    if (body.end_time !== undefined) updates.end_time = body.end_time
-    if (body.is_available !== undefined) updates.is_available = body.is_available
-    if (body.reason !== undefined) updates.reason = body.reason
+    const updates = toAvailabilityBlockUpdate(body)
 
     const { data: updatedBlock, error: updateError } = await supabase
       .from('availability_blocks')
       .update(updates as never)
       .eq('id', id)
+      .eq('blockable_type', 'vendor')
+      .in('blockable_id', vendorIds)
       .select()
       .single()
 
@@ -115,7 +137,7 @@ export async function PATCH(
 
     return NextResponse.json({
       success: true,
-      block: updatedBlock,
+      block: normalizeAvailabilityBlock(updatedBlock as AvailabilityBlockRow),
     })
   } catch (error) {
     console.error('Update block error:', error)
@@ -146,9 +168,7 @@ export async function DELETE(
       )
     }
 
-    // Verify user is a vendor
-    const userType = user.user_metadata?.user_type
-    if (userType !== 'vendor') {
+    if (!(await requireVendorAccount(supabase, user.id))) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }
@@ -156,13 +176,23 @@ export async function DELETE(
     }
 
     const { id } = params
+    const vendorIds = await getOwnedVendorIds(supabase, user.id)
 
-    // Verify block exists and belongs to user's vendor
+    if (!vendorIds || vendorIds.length === 0) {
+      return NextResponse.json(
+        { error: 'Vendor profile not found' },
+        { status: 404 }
+      )
+    }
+
+    // Verify block exists and belongs to the user's vendor profile
     const { data: block, error: blockError } = await supabase
       .from('availability_blocks')
-      .select('*, vendors!inner(owner_id)')
+      .select('*')
       .eq('id', id)
-      .single()
+      .eq('blockable_type', 'vendor')
+      .in('blockable_id', vendorIds)
+      .maybeSingle()
 
     if (blockError || !block) {
       return NextResponse.json(
@@ -171,20 +201,13 @@ export async function DELETE(
       )
     }
 
-    // Verify vendor belongs to user
-    const blockWithVendor = block as { vendors?: { owner_id: string } }
-    if (blockWithVendor.vendors?.owner_id !== user.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 403 }
-      )
-    }
-
     // Delete block
     const { error: deleteError } = await supabase
       .from('availability_blocks')
       .delete()
       .eq('id', id)
+      .eq('blockable_type', 'vendor')
+      .in('blockable_id', vendorIds)
 
     if (deleteError) {
       console.error('Error deleting block:', deleteError)

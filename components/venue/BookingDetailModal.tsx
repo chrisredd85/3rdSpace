@@ -38,6 +38,10 @@ interface BookingDetailModalProps {
   venueOwnerId: string | null
 }
 
+/**
+ * Modal for venue owners to review an incoming booking request and respond
+ * (accept, decline, or send a counter offer).
+ */
 export function BookingDetailModal({
   booking,
   onClose,
@@ -57,11 +61,10 @@ export function BookingDetailModal({
   const event = booking.events as any
   const venue = booking.venues as any
 
-  // Get organizer info (would fetch from profiles table)
-  const organizerId = event?.builder_id
-  const organizerName = 'Event Organizer' // Mock
-  const organizerEmail = 'organizer@example.com' // Mock
-  const organizerPhone = '(555) 123-4567' // Mock
+  const organizerId = event?.profiles?.id || event?.builder_id
+  const organizerName = event?.profiles?.name || 'Event Organizer'
+  const organizerEmail = event?.profiles?.email || '—'
+  const organizerPhone = event?.profiles?.phone || '—'
 
   const handleAccept = async () => {
     if (!venueOwnerId || !organizerId) return
@@ -86,9 +89,8 @@ export function BookingDetailModal({
           venue_booking_id: booking.id,
           vendor_booking_id: null,
         })
-      } catch (error) {
-        // Thread might already exist, that's okay
-        console.log('Thread creation:', error)
+      } catch {
+        // Thread may already exist — that's expected and safe to ignore
       }
 
       addToast({
@@ -145,9 +147,11 @@ export function BookingDetailModal({
       if (note.trim() && thread) {
         await supabase.from('messages').insert({
           thread_id: thread.id,
+          venue_booking_id: booking.id,
           sender_id: venueOwnerId,
+          receiver_id: organizerId,
           content: note.trim(),
-          is_read: false,
+          read: false,
         })
       }
 
@@ -210,9 +214,11 @@ export function BookingDetailModal({
 
         await supabase.from('messages').insert({
           thread_id: thread.id,
+          venue_booking_id: booking.id,
           sender_id: venueOwnerId,
+          receiver_id: organizerId,
           content: messageContent,
-          is_read: false,
+          read: false,
         })
       }
 
@@ -239,7 +245,7 @@ export function BookingDetailModal({
     : null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
       <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto">
         <CardHeader>
           <div className="flex items-start justify-between">
@@ -257,12 +263,12 @@ export function BookingDetailModal({
         <CardContent className="space-y-6">
           {/* Event Information */}
           <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Event Information</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-3">Event Information</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="flex items-center gap-2 text-sm">
-                <Calendar className="h-4 w-4 text-gray-400" />
+                <Calendar className="h-4 w-4 text-muted-foreground/60" />
                 <div>
-                  <p className="text-gray-600">Date</p>
+                  <p className="text-muted-foreground">Date</p>
                   <p className="font-medium">
                     {requestedDate
                       ? requestedDate.toLocaleDateString('en-US', {
@@ -278,9 +284,9 @@ export function BookingDetailModal({
 
               {booking.requested_start_time && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Clock className="h-4 w-4 text-gray-400" />
+                  <Clock className="h-4 w-4 text-muted-foreground/60" />
                   <div>
-                    <p className="text-gray-600">Time</p>
+                    <p className="text-muted-foreground">Time</p>
                     <p className="font-medium">
                       {new Date(`2000-01-01T${booking.requested_start_time}`).toLocaleTimeString(
                         'en-US',
@@ -298,18 +304,18 @@ export function BookingDetailModal({
 
               {event?.expected_attendees && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Users className="h-4 w-4 text-gray-400" />
+                  <Users className="h-4 w-4 text-muted-foreground/60" />
                   <div>
-                    <p className="text-gray-600">Expected Guests</p>
+                    <p className="text-muted-foreground">Expected Guests</p>
                     <p className="font-medium">{event.expected_attendees}</p>
                   </div>
                 </div>
               )}
 
               <div className="flex items-center gap-2 text-sm">
-                <MapPin className="h-4 w-4 text-gray-400" />
+                <MapPin className="h-4 w-4 text-muted-foreground/60" />
                 <div>
-                  <p className="text-gray-600">Venue</p>
+                  <p className="text-muted-foreground">Venue</p>
                   <p className="font-medium">{venue?.name || 'Your Venue'}</p>
                 </div>
               </div>
@@ -317,26 +323,26 @@ export function BookingDetailModal({
 
             {event?.description && (
               <div className="mt-4">
-                <p className="text-sm font-medium text-gray-700 mb-1">Event Description</p>
-                <p className="text-sm text-gray-600">{event.description}</p>
+                <p className="text-sm font-medium text-foreground mb-1">Event Description</p>
+                <p className="text-sm text-muted-foreground">{event.description}</p>
               </div>
             )}
           </section>
 
           {/* Organizer Contact */}
           <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Organizer Contact</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-3">Organizer Contact</h3>
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm">
-                <Users className="h-4 w-4 text-gray-400" />
+                <Users className="h-4 w-4 text-muted-foreground/60" />
                 <span className="font-medium">{organizerName}</span>
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <Mail className="h-4 w-4 text-gray-400" />
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Mail className="h-4 w-4 text-muted-foreground/60" />
                 <span>{organizerEmail}</span>
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <Phone className="h-4 w-4 text-gray-400" />
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Phone className="h-4 w-4 text-muted-foreground/60" />
                 <span>{organizerPhone}</span>
               </div>
             </div>
@@ -344,25 +350,37 @@ export function BookingDetailModal({
 
           {/* Revenue Breakdown */}
           <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Revenue Breakdown</h3>
-            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+            <h3 className="text-sm font-semibold text-foreground mb-3">Revenue Breakdown</h3>
+            <div className="bg-background rounded-lg p-4 space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Base Rate</span>
+                <span className="text-muted-foreground">Base Rate</span>
                 <span className="font-medium">
                   ${venue?.hourly_rate || venue?.daily_rate || 0}
                   {venue?.hourly_rate ? '/hr' : '/day'}
                 </span>
               </div>
-              {venue?.pricing_model === 'revenue_share' && (
+              {venue?.ticket_sales_share_enabled && (
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Revenue Share</span>
-                  <span className="font-medium">15%</span>
+                  <span className="text-muted-foreground">Ticket Sales Share</span>
+                  <span className="font-medium">{venue.ticket_sales_share_percent || 0}%</span>
                 </div>
               )}
-              <div className="border-t border-gray-200 pt-2 mt-2">
+              {venue?.bar_revenue_share_enabled && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Bar Revenue Share</span>
+                  <span className="font-medium">{venue.bar_revenue_share_percent || 0}%</span>
+                </div>
+              )}
+              {venue?.per_head_kickback_amount > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Per-Head Kickback</span>
+                  <span className="font-medium">${venue.per_head_kickback_amount}/guest</span>
+                </div>
+              )}
+              <div className="border-t border-border pt-2 mt-2">
                 <div className="flex justify-between">
-                  <span className="font-semibold text-gray-900">Total Revenue</span>
-                  <span className="font-bold text-lg text-forest-600">
+                  <span className="font-semibold text-foreground">Total Revenue</span>
+                  <span className="font-bold text-lg text-primary">
                     ${booking.quoted_price?.toLocaleString() || 'TBD'}
                   </span>
                 </div>
@@ -373,26 +391,26 @@ export function BookingDetailModal({
           {/* Special Requests */}
           {booking.notes && (
             <section>
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Special Requests</h3>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{booking.notes}</p>
+              <h3 className="text-sm font-semibold text-foreground mb-3">Special Requests</h3>
+              <div className="bg-background rounded-lg p-4">
+                <p className="text-sm text-foreground whitespace-pre-wrap">{booking.notes}</p>
               </div>
             </section>
           )}
 
           {/* Requirements Checklist */}
           <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Requirements Checklist</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-3">Requirements Checklist</h3>
             <div className="space-y-2">
               {[
                 'Insurance certificate provided',
-                'Security deposit received',
+                'Deposit terms reviewed (Stripe pending)',
                 'Event permit obtained',
                 'Vendor list approved',
               ].map((requirement) => (
                 <div key={requirement} className="flex items-center gap-2 text-sm">
-                  <CheckCircle className="h-4 w-4 text-gray-400" />
-                  <span className="text-gray-600">{requirement}</span>
+                  <CheckCircle className="h-4 w-4 text-muted-foreground/60" />
+                  <span className="text-muted-foreground">{requirement}</span>
                 </div>
               ))}
             </div>
@@ -400,21 +418,21 @@ export function BookingDetailModal({
 
           {/* Add Note */}
           <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Add Note (Optional)</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-3">Add Note (Optional)</h3>
             <textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Add a message to the organizer..."
               rows={3}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </section>
 
           {/* Counter Offer Section */}
           <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Counter Offer</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-3">Counter Offer</h3>
             <div className="flex items-center gap-2">
-              <DollarSign className="h-4 w-4 text-gray-400" />
+              <DollarSign className="h-4 w-4 text-muted-foreground/60" />
               <Input
                 type="number"
                 placeholder="Enter counter offer amount"
@@ -426,7 +444,7 @@ export function BookingDetailModal({
           </section>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-3 pt-4 border-t border-gray-200">
+          <div className="flex items-center gap-3 pt-4 border-t border-border">
             <Button
               variant="outline"
               onClick={handleDecline}
@@ -456,7 +474,7 @@ export function BookingDetailModal({
           </div>
 
           {isSubmitting && (
-            <div className="text-center text-sm text-gray-600">
+            <div className="text-center text-sm text-muted-foreground">
               Processing...
             </div>
           )}

@@ -75,26 +75,22 @@ export function createMiddlewareClient(request: NextRequest) {
  */
 export async function getAuthUser(request: NextRequest) {
   const { supabase, response } = createMiddlewareClient(request)
-  
-  // Get user - this will automatically refresh the session if needed
+
   const {
     data: { user },
     error,
   } = await supabase.auth.getUser()
 
-  // If there's an error or no user, try to refresh the session
-  if (error || !user) {
-    // Attempt to refresh the session
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
+  // Invalid or revoked refresh token – clear session so we don't keep sending bad cookies
+  if (error?.code === 'refresh_token_not_found' || error?.message?.includes('Refresh Token Not Found')) {
+    await supabase.auth.signOut()
+    return { user: null, response }
+  }
 
+  if (error || !user) {
+    const { data: { session } } = await supabase.auth.getSession()
     if (session) {
-      // Session refreshed, get user again
-      const {
-        data: { user: refreshedUser },
-      } = await supabase.auth.getUser()
-      
+      const { data: { user: refreshedUser } } = await supabase.auth.getUser()
       return { user: refreshedUser || null, response }
     }
   }

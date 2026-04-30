@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { useVendors } from '@/lib/hooks/useVendors'
 import { useCreateVendorBooking } from '@/lib/hooks/useBookings'
 import { useToast } from '@/components/ui/toast'
+import { DepositDisplay } from '@/components/builder/DepositDisplay'
 import type { Event, ServiceType, Vendor } from '@/lib/types'
 
 interface EventVendorStepProps {
@@ -25,6 +26,28 @@ const SERVICE_TYPES: { value: ServiceType; label: string }[] = [
   { value: 'videography', label: 'Video' },
   { value: 'av_tech', label: 'A/V' },
 ]
+
+/**
+ * Calculates the deposit due for a vendor booking request.
+ *
+ * Vendors may not have a quote selected yet, so percentage deposits are stored
+ * once a quote exists; fixed deposits can be stored immediately.
+ *
+ * @param vendor - Vendor with optional deposit configuration.
+ * @param bookingCost - Current quoted vendor cost, when known.
+ * @returns Deposit amount to store on the booking, or null when not available.
+ */
+function calculateVendorDeposit(vendor: Vendor, bookingCost: number | null) {
+  if (!vendor.requires_deposit) return null
+
+  if (vendor.deposit_type === 'percentage') {
+    return bookingCost && vendor.deposit_percentage
+      ? bookingCost * (vendor.deposit_percentage / 100)
+      : null
+  }
+
+  return vendor.deposit_amount || null
+}
 
 export function EventVendorStep({
   event,
@@ -55,8 +78,8 @@ export function EventVendorStep({
     return (
       <div className="flex items-center justify-center py-16">
         <div className="text-center">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-forest-500 border-t-transparent mx-auto mb-4" />
-          <p className="text-slate-600 font-medium">Loading vendors...</p>
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4" />
+          <p className="text-muted-foreground font-medium">Loading vendors...</p>
         </div>
       </div>
     )
@@ -66,14 +89,14 @@ export function EventVendorStep({
   if (vendorsError) {
     return (
       <div className="text-center py-16">
-        <div className="mb-6 inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-slate-100 to-slate-200 rounded-2xl">
-          <Package className="w-10 h-10 text-slate-400" />
+        <div className="mb-6 inline-flex items-center justify-center w-20 h-20 bg-sidebar-accent rounded-2xl">
+          <Package className="w-10 h-10 text-muted-foreground/60" />
         </div>
-        <h3 className="text-xl font-bold text-slate-900 mb-2">Unable to load vendors</h3>
-        <p className="text-slate-600 mb-6">You can continue to the next step and add vendors later.</p>
+        <h3 className="text-xl font-bold text-foreground mb-2">Unable to load vendors</h3>
+        <p className="text-muted-foreground mb-6">You can continue to the next step and add vendors later.</p>
         <button
           onClick={onNext}
-          className="px-6 py-3 bg-forest-500 hover:bg-forest-600 text-white font-semibold rounded-xl transition-all shadow-lg shadow-forest-500/20 hover:shadow-xl hover:shadow-forest-500/30 hover:scale-105 min-h-[44px]"
+          className="px-6 py-3 bg-gradient-brand text-primary-foreground font-semibold rounded-xl transition-smooth shadow-glow hover:shadow-coral hover:-translate-y-0.5 min-h-[44px]"
         >
           Continue Without Vendors
         </button>
@@ -100,7 +123,7 @@ export function EventVendorStep({
         confirmed_end_time: null,
         final_price: null,
         quantity: null,
-        deposit_amount: null,
+        deposit_amount: calculateVendorDeposit(vendor, null),
         deposit_paid: false,
         notes: null,
       })
@@ -123,7 +146,7 @@ export function EventVendorStep({
     <div className="space-y-6">
           {/* Service Type Selection */}
           <div>
-            <p className="text-sm font-medium text-gray-700 mb-3">Service Types Needed</p>
+            <p className="text-sm font-semibold text-foreground mb-3">Service Types Needed</p>
             <div className="flex flex-wrap gap-2">
               {SERVICE_TYPES.map((service) => (
                 <button
@@ -137,10 +160,10 @@ export function EventVendorStep({
                       setSelectedServiceTypes([...selectedServiceTypes, service.value])
                     }
                   }}
-                  className={`px-4 py-2 rounded-lg text-sm border transition-colors ${
+                  className={`px-4 py-2 rounded-xl text-sm font-medium border transition-smooth ${
                     selectedServiceTypes.includes(service.value)
-                      ? 'bg-forest-500 text-white border-forest-500'
-                      : 'bg-white text-gray-700 border-gray-300 hover:border-forest-500'
+                      ? 'bg-gradient-brand text-primary-foreground border-transparent shadow-glow'
+                      : 'border-border bg-card/40 text-foreground hover:border-primary/40 hover:bg-card'
                   }`}
                 >
                   {service.label}
@@ -152,42 +175,39 @@ export function EventVendorStep({
           {/* Vendor Results */}
           {selectedServiceTypes.length > 0 && (
             <div>
-              <p className="text-sm font-medium text-gray-700 mb-3">
+              <p className="text-sm font-semibold text-foreground mb-3">
                 Available Vendors ({filteredVendors.length})
               </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {filteredVendors.map((vendor) => (
                   <button
                     key={vendor.id}
                     onClick={() => handleSelectVendor(vendor)}
-                    className={`
-                      group relative text-left bg-white rounded-2xl border-2 
-                      transition-all duration-300 overflow-hidden
-                      hover:shadow-xl hover:scale-[1.02]
-                      ${selectedVendors.has(vendor.id) 
-                        ? 'border-forest-500 shadow-xl shadow-forest-500/20 ring-4 ring-forest-500/10' 
-                        : 'border-slate-200 hover:border-forest-300'
-                      }
-                    `}
+                    className={`group relative text-left rounded-2xl border transition-smooth overflow-hidden hover:scale-[1.02] ${
+                      selectedVendors.has(vendor.id)
+                        ? 'border-primary shadow-glow ring-2 ring-primary/20 bg-gradient-card'
+                        : 'border-border bg-gradient-card hover:border-primary/50 hover:shadow-glow'
+                    }`}
                   >
                     {selectedVendors.has(vendor.id) && (
-                      <div className="absolute -top-3 -right-3 w-10 h-10 bg-forest-500 rounded-full flex items-center justify-center shadow-lg shadow-forest-500/50 z-10">
-                        <Check className="w-6 h-6 text-white" />
+                      <div className="absolute -top-3 -right-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-gradient-brand shadow-glow">
+                        <Check className="h-5 w-5 text-primary-foreground" />
                       </div>
                     )}
                     <div className="p-5">
-                      <h3 className="font-bold text-lg text-slate-900 mb-2 group-hover:text-forest-600 transition-colors">
+                      <h3 className="font-display text-lg font-bold text-foreground mb-2 transition-smooth group-hover:text-primary">
                         {vendor.name}
                       </h3>
-                      <div className="flex items-center gap-2 text-sm text-slate-600 mb-3">
-                        <Package className="w-4 h-4 text-slate-400" />
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+                        <Package className="h-4 w-4 text-muted-foreground/60" />
                         <span className="capitalize">{vendor.service_type.replace('_', ' ')}</span>
                       </div>
                       {vendor.description && (
-                        <p className="text-xs text-slate-500 line-clamp-2">
-                          {vendor.description}
-                        </p>
+                        <p className="text-xs text-muted-foreground line-clamp-2">{vendor.description}</p>
                       )}
+                      <div className="mt-4">
+                        <DepositDisplay vendorId={vendor.id} targetType="vendor" compact />
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -197,18 +217,18 @@ export function EventVendorStep({
 
           {selectedServiceTypes.length === 0 && (
             <div className="text-center py-12">
-              <p className="text-gray-600 mb-2">Select service types to see available vendors</p>
-              <p className="text-sm text-gray-500">Choose the services you need for your event</p>
+              <p className="text-foreground mb-2">Select service types to see available vendors</p>
+              <p className="text-sm text-muted-foreground">Choose the services you need for your event</p>
             </div>
           )}
 
           {selectedServiceTypes.length > 0 && filteredVendors.length === 0 && vendors.length === 0 && (
             <div className="text-center py-12">
               <div className="mb-4">
-                <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                <Package className="h-16 w-16 text-muted-foreground/60 mx-auto mb-4" />
               </div>
-              <p className="text-lg font-semibold text-gray-900 mb-2">No vendors available</p>
-              <p className="text-sm text-gray-600 mb-6">
+              <p className="text-lg font-semibold text-foreground mb-2">No vendors available</p>
+              <p className="text-sm text-muted-foreground mb-6">
                 There are currently no vendors available for the selected service types. You can continue planning your event and add vendors later.
               </p>
               <Button onClick={onNext} className="min-h-[44px]">
@@ -219,8 +239,8 @@ export function EventVendorStep({
 
           {selectedServiceTypes.length > 0 && filteredVendors.length === 0 && vendors.length > 0 && (
             <div className="text-center py-12">
-              <p className="text-gray-600 mb-2">No vendors found for the selected service types</p>
-              <p className="text-sm text-gray-500">Try selecting different service types</p>
+              <p className="text-foreground mb-2">No vendors found for the selected service types</p>
+              <p className="text-sm text-muted-foreground">Try selecting different service types</p>
             </div>
           )}
     </div>

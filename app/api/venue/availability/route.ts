@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import {
+  normalizeAvailabilityBlocks,
+  type AvailabilityBlockRow,
+} from '@/lib/bookings/availability-adapter'
+import {
+  normalizeVenueBookings,
+  type VenueBookingJoinRow,
+} from '@/lib/bookings/venue-booking-adapter'
 
 export async function GET(request: NextRequest) {
   try {
@@ -69,13 +77,16 @@ export async function GET(request: NextRequest) {
     // Calculate date range for the month
     const startDate = new Date(year, month - 1, 1)
     const endDate = new Date(year, month, 0, 23, 59, 59)
+    const startDateString = startDate.toISOString().split('T')[0]
+    const endDateString = endDate.toISOString().split('T')[0]
 
     // Fetch bookings (confirmed and pending) for the month
     const { data: bookings, error: bookingsError } = await supabase
       .from('venue_bookings')
       .select('*')
       .in('venue_id', venueIds)
-      .or(`confirmed_date.gte.${startDate.toISOString()},confirmed_date.lte.${endDate.toISOString()},requested_date.gte.${startDate.toISOString()},requested_date.lte.${endDate.toISOString()}`)
+      .gte('booking_date', startDateString)
+      .lte('booking_date', endDateString)
       .in('status', ['pending', 'confirmed'])
 
     if (bookingsError) {
@@ -90,9 +101,10 @@ export async function GET(request: NextRequest) {
     const { data: blocks, error: blocksError } = await supabase
       .from('availability_blocks')
       .select('*')
-      .in('venue_id', venueIds)
-      .lte('start_date', endDate.toISOString())
-      .gte('end_date', startDate.toISOString())
+      .eq('blockable_type', 'venue')
+      .in('blockable_id', venueIds)
+      .lte('start_date', endDateString)
+      .gte('end_date', startDateString)
       .order('start_date', { ascending: true })
 
     if (blocksError) {
@@ -108,9 +120,9 @@ export async function GET(request: NextRequest) {
     const blockedDates = new Set<string>()
 
     // Process bookings
-    type BookingRow = { confirmed_date: string | null; requested_date: string | null }
+    type BookingRow = { booking_date: string | null }
     ;((bookings || []) as BookingRow[]).forEach((booking) => {
-      const date = booking.confirmed_date || booking.requested_date
+      const date = booking.booking_date
       if (date) {
         const dateStr = new Date(date).toISOString().split('T')[0]
         bookedDates.add(dateStr)
@@ -118,9 +130,8 @@ export async function GET(request: NextRequest) {
     })
 
     // Process blocks (where is_available = false)
-    type BlockRow = { is_available: boolean; start_date: string; end_date: string }
+    type BlockRow = { start_date: string; end_date: string }
     ;((blocks || []) as BlockRow[])
-      .filter((block) => !block.is_available)
       .forEach((block) => {
         const start = new Date(block.start_date)
         const end = new Date(block.end_date)
@@ -147,8 +158,8 @@ export async function GET(request: NextRequest) {
     )
 
     return NextResponse.json({
-      bookings: bookings || [],
-      blocks: blocks || [],
+      bookings: normalizeVenueBookings(bookings as VenueBookingJoinRow[] | null),
+      blocks: normalizeAvailabilityBlocks(blocks as AvailabilityBlockRow[] | null),
       availableDates,
       bookedDates: Array.from(bookedDates),
       blockedDates: Array.from(blockedDates),

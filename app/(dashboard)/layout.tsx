@@ -1,6 +1,7 @@
 import { DashboardClientWrapper } from '@/components/shared/DashboardClientWrapper'
 import { createClient } from '@/lib/supabase/server'
 import type { UserType } from '@/lib/types'
+import type { User } from '@/lib/hooks/useUser'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,6 +14,7 @@ export default async function DashboardLayout({
   // Get userType from server-side auth
   // If not available, default to community_builder (client will correct if needed)
   let userType: UserType = 'community_builder'
+  let initialUser: User | null = null
   
   try {
     const supabase = createClient()
@@ -20,13 +22,34 @@ export default async function DashboardLayout({
 
     if (authUser) {
       const { data } = await supabase
-        .from('profiles')
-        .select('user_type')
+        .from('users')
+        .select('role, user_type, company_name, email')
         .eq('id', authUser.id)
         .single()
-      const profile = data as { user_type?: UserType } | null
-      if (profile?.user_type) {
-        userType = profile.user_type
+
+      const profile = data as {
+        role?: 'builder' | 'owner' | 'vendor'
+        user_type?: UserType | null
+        company_name?: string | null
+        email?: string | null
+      } | null
+
+      if (profile) {
+        userType = profile.user_type || (
+          profile.role === 'owner'
+            ? 'venue_owner'
+            : profile.role === 'vendor'
+              ? 'vendor'
+              : 'community_builder'
+        )
+
+        initialUser = {
+          id: authUser.id,
+          email: authUser.email || profile.email || null,
+          userType,
+          role: profile.role || 'builder',
+          companyName: profile.company_name || null,
+        }
       }
     }
   } catch (error) {
@@ -36,7 +59,7 @@ export default async function DashboardLayout({
   }
 
   return (
-    <DashboardClientWrapper userType={userType}>
+    <DashboardClientWrapper userType={userType} initialUser={initialUser}>
       {children}
     </DashboardClientWrapper>
   )

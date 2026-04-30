@@ -48,7 +48,7 @@ export default function SavedVendorsPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
+        <div className="text-muted-foreground">Loading...</div>
       </div>
     )
   }
@@ -56,7 +56,7 @@ export default function SavedVendorsPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-red-600">Please log in to continue</div>
+        <div className="text-destructive">Please log in to continue</div>
       </div>
     )
   }
@@ -89,8 +89,8 @@ export default function SavedVendorsPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-forest-500 border-t-transparent mx-auto mb-4" />
-          <p className="text-gray-600">Loading vendors...</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading vendors...</p>
         </div>
       </div>
     )
@@ -100,8 +100,8 @@ export default function SavedVendorsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Saved Vendors</h1>
-          <p className="text-gray-600 mt-1">Manage your favorite vendors and book them again</p>
+          <h1 className="text-3xl font-bold text-foreground">Saved Vendors</h1>
+          <p className="text-muted-foreground mt-1">Manage your favorite vendors and book them again</p>
         </div>
         <Button onClick={() => router.push('/builder/vendors/marketplace')}>
           <Search className="h-4 w-4 mr-2" />
@@ -114,33 +114,33 @@ export default function SavedVendorsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Saved Vendors</CardTitle>
-            <Heart className="h-4 w-4 text-gray-400" />
+            <Heart className="h-4 w-4 text-muted-foreground/60" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.savedVendors}</div>
-            <p className="text-xs text-gray-500">In your list</p>
+            <p className="text-xs text-muted-foreground">In your list</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Bookings</CardTitle>
-            <TrendingUp className="h-4 w-4 text-gray-400" />
+            <TrendingUp className="h-4 w-4 text-muted-foreground/60" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalBookings}</div>
-            <p className="text-xs text-gray-500">All time</p>
+            <p className="text-xs text-muted-foreground">All time</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Avg Rating</CardTitle>
-            <Star className="h-4 w-4 text-gray-400" />
+            <Star className="h-4 w-4 text-muted-foreground/60" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.avgRating}</div>
-            <p className="text-xs text-gray-500">Out of 5.0</p>
+            <p className="text-xs text-muted-foreground">Out of 5.0</p>
           </CardContent>
         </Card>
       </div>
@@ -149,9 +149,9 @@ export default function SavedVendorsPage() {
       {savedVendors.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <Heart className="h-12 w-12 text-gray-400 mb-4" />
-            <p className="text-gray-600 mb-2">No saved vendors yet</p>
-            <p className="text-sm text-gray-500 mb-4">
+            <Heart className="h-12 w-12 text-muted-foreground/60 mb-4" />
+            <p className="text-muted-foreground mb-2">No saved vendors yet</p>
+            <p className="text-sm text-muted-foreground mb-4">
               Start exploring the vendor marketplace to find vendors for your events
             </p>
             <Button onClick={() => router.push('/builder/vendors/marketplace')}>
@@ -163,7 +163,7 @@ export default function SavedVendorsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {savedVendors.map((savedVendor) => {
-            const vendor = (savedVendor as any).vendors as Vendor
+            const vendor = (savedVendor as any).vendor_profiles as Vendor
             if (!vendor) return null
 
             return (
@@ -202,7 +202,7 @@ function VendorCard({ vendor, onViewProfile, onBookAgain, onToggleSaved }: Vendo
       <CardHeader>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-full bg-gradient-to-br from-forest-400 to-forest-600 flex items-center justify-center text-white font-semibold text-lg">
+            <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center text-white font-semibold text-lg">
               {vendor.name.charAt(0).toUpperCase()}
             </div>
             <div>
@@ -215,7 +215,7 @@ function VendorCard({ vendor, onViewProfile, onBookAgain, onToggleSaved }: Vendo
           </div>
           <button
             onClick={onToggleSaved}
-            className="text-red-500 hover:text-red-600"
+            className="text-destructive hover:text-destructive"
           >
             <Heart className="h-5 w-5 fill-current" />
           </button>
@@ -223,7 +223,7 @@ function VendorCard({ vendor, onViewProfile, onBookAgain, onToggleSaved }: Vendo
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Location */}
-        <div className="flex items-center gap-2 text-sm text-gray-600">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <MapPin className="h-4 w-4" />
           <span>{serviceArea}</span>
         </div>
@@ -233,9 +233,9 @@ function VendorCard({ vendor, onViewProfile, onBookAgain, onToggleSaved }: Vendo
           <div className="flex items-center gap-1">
             <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
             <span className="text-sm font-semibold">{rating}</span>
-            <span className="text-sm text-gray-500">(12 reviews)</span>
+            <span className="text-sm text-muted-foreground">(12 reviews)</span>
           </div>
-          <div className="flex items-center gap-1 text-sm text-gray-600">
+          <div className="flex items-center gap-1 text-sm text-muted-foreground">
             <Users className="h-4 w-4" />
             <span>Used {timesUsed} times</span>
           </div>
@@ -243,7 +243,7 @@ function VendorCard({ vendor, onViewProfile, onBookAgain, onToggleSaved }: Vendo
 
         {/* Description */}
         {vendor.description && (
-          <p className="text-sm text-gray-600 line-clamp-2">{vendor.description}</p>
+          <p className="text-sm text-muted-foreground line-clamp-2">{vendor.description}</p>
         )}
 
         {/* Action Buttons */}

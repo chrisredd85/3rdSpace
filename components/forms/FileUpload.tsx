@@ -198,13 +198,13 @@ export function FileUpload({
       {uploading && (
         <div className="space-y-2">
           <ProgressBar value={uploadProgress} showLabel />
-          <p className="text-sm text-gray-600">Uploading file...</p>
+          <p className="text-sm text-muted-foreground">Uploading file...</p>
         </div>
       )}
 
       {uploadError && (
-        <div className="rounded-md bg-red-50 p-3">
-          <p className="text-sm text-red-800">{uploadError}</p>
+        <div className="rounded-md bg-destructive/10 p-3">
+          <p className="text-sm text-destructive">{uploadError}</p>
         </div>
       )}
 
@@ -216,17 +216,17 @@ export function FileUpload({
                 <img
                   src={url}
                   alt={`Upload ${index + 1}`}
-                  className="w-full h-32 object-cover rounded-lg border border-gray-200"
+                  className="w-full h-32 object-cover rounded-lg border border-border"
                 />
               ) : (
-                <div className="w-full h-32 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center">
-                  <ImageIcon className="h-8 w-8 text-gray-400" />
+                <div className="w-full h-32 bg-sidebar-accent/40 rounded-lg border border-border flex items-center justify-center">
+                  <ImageIcon className="h-8 w-8 text-muted-foreground/60" />
                 </div>
               )}
               <button
                 type="button"
                 onClick={() => handleRemove(url)}
-                className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute top-2 right-2 bg-destructive/100 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <X className="h-3 w-3" />
               </button>

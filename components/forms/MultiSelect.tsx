@@ -80,8 +80,8 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
             className={cn(
               'flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors',
               value.includes(option.id)
-                ? 'border-forest-500 bg-forest-50'
-                : 'border-gray-200 hover:bg-gray-50',
+                ? 'border-primary bg-primary/10'
+                : 'border-border hover:bg-background',
               error && 'border-red-500'
             )}
           >
@@ -89,14 +89,14 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
               type="checkbox"
               checked={value.includes(option.id)}
               onChange={() => handleToggle(option.id)}
-              className="mt-1 h-4 w-4 text-forest-500 focus:ring-forest-500"
+              className="mt-1 h-4 w-4 text-primary focus:ring-primary"
             />
             <div className="flex-1">
-              <div className="font-medium text-sm text-gray-900">
+              <div className="font-medium text-sm text-foreground">
                 {option.label}
               </div>
               {option.description && (
-                <div className="text-xs text-gray-500 mt-0.5">
+                <div className="text-xs text-muted-foreground mt-0.5">
                   {option.description}
                 </div>
               )}
@@ -104,7 +104,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
           </label>
         ))}
         {error && (
-          <p className="text-sm text-red-500 mt-1">{error}</p>
+          <p className="text-sm text-destructive mt-1">{error}</p>
         )}
       </div>
     )
