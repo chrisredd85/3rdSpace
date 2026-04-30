@@ -3,7 +3,8 @@
  *
  * This module is wired up and functional but payment collection is intentionally
  * disabled in the UI until Stripe keys are configured in production.
- * The database schemas (vendor_stripe_accounts, venue_stripe_accounts) and
+ * The database schemas (vendor_stripe_accounts, venue_stripe_accounts,
+ * builder_stripe_accounts) and
  * helper functions here are ready; live flows need STRIPE_SECRET_KEY +
  * NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
  * to be set to go live.
@@ -34,6 +35,19 @@ export type VendorStripeAccountRecord = {
 export type VenueStripeAccountRecord = {
   id?: string
   owner_id: string
+  stripe_account_id: string | null
+  account_status: ConnectedStripeAccountStatus
+  charges_enabled: boolean
+  payouts_enabled: boolean
+  requirements_due: Json
+  created_at?: string
+  updated_at?: string
+}
+
+export type BuilderStripeAccountRecord = {
+  id?: string
+  user_id: string
+  builder_id: string | null
   stripe_account_id: string | null
   account_status: ConnectedStripeAccountStatus
   charges_enabled: boolean
@@ -132,6 +146,22 @@ export function mapVenueStripeAccount(
   }
 }
 
+export function mapBuilderStripeAccount(
+  userId: string,
+  builderId: string | null,
+  account: Stripe.Account
+): BuilderStripeAccountRecord {
+  return {
+    user_id: userId,
+    builder_id: builderId,
+    stripe_account_id: account.id,
+    account_status: getStripeAccountStatus(account),
+    charges_enabled: Boolean(account.charges_enabled),
+    payouts_enabled: Boolean(account.payouts_enabled),
+    requirements_due: getStripeRequirementsDue(account),
+  }
+}
+
 export async function saveVendorStripeAccount(
   supabase: AnySupabaseClient,
   vendorId: string,
@@ -191,6 +221,33 @@ export async function saveVenueStripeAccount(
   }
 
   return data as VenueStripeAccountRecord
+}
+
+export async function saveBuilderStripeAccount(
+  supabase: AnySupabaseClient,
+  userId: string,
+  builderId: string | null,
+  account: Stripe.Account
+) {
+  const payload = mapBuilderStripeAccount(userId, builderId, account)
+
+  const { data, error } = await supabase
+    .from('builder_stripe_accounts')
+    .upsert(
+      {
+        ...payload,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    )
+    .select('*')
+    .single()
+
+  if (error) {
+    throw new Error(`Failed to save Stripe account: ${error.message}`)
+  }
+
+  return data as BuilderStripeAccountRecord
 }
 
 export async function getAuthenticatedVendor(supabase: AnySupabaseClient) {
@@ -295,6 +352,44 @@ export async function getAuthenticatedVenueOwner(supabase: AnySupabaseClient) {
       company_name: ownerAccount.company_name,
       venue_name: (venue as { venue_name?: string | null } | null)?.venue_name ?? null,
     },
+    error: null,
+    status: 200,
+  }
+}
+
+export async function getAuthenticatedBuilderPayoutOwner(supabase: AnySupabaseClient) {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser()
+
+  if (userError || !user) {
+    return {
+      user: null,
+      builder: null,
+      error: 'Not authenticated',
+      status: 401,
+    }
+  }
+
+  const { data: builder, error: builderError } = await supabase
+    .from('builder_profiles')
+    .select('id, user_id, name')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (builderError || !builder) {
+    return {
+      user,
+      builder: null,
+      error: 'Builder profile not found',
+      status: builderError ? 500 : 404,
+    }
+  }
+
+  return {
+    user,
+    builder: builder as { id: string; user_id: string; name?: string | null },
     error: null,
     status: 200,
   }

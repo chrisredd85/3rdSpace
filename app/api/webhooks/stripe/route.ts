@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { getStripeClient, saveVendorStripeAccount, saveVenueStripeAccount } from '@/lib/stripe/connect'
+import {
+  getStripeClient,
+  saveBuilderStripeAccount,
+  saveVendorStripeAccount,
+  saveVenueStripeAccount,
+} from '@/lib/stripe/connect'
 import { allowWebhookRequest, getWebhookRateLimitKey } from '@/lib/server/webhook-rate-limit'
 import {
   applyInvoicePaymentFailed,
@@ -12,8 +17,146 @@ import {
 
 export const runtime = 'nodejs'
 
+function getPaymentIntentId(value: Stripe.PaymentIntent | string | null) {
+  if (!value) return null
+  return typeof value === 'string' ? value : value.id
+}
+
+function getChargeFromPaymentIntent(paymentIntent: Stripe.PaymentIntent) {
+  const charge = paymentIntent.latest_charge
+  if (!charge || typeof charge === 'string') {
+    return {
+      chargeId: typeof charge === 'string' ? charge : null,
+      transferId: null,
+      receiptUrl: null,
+    }
+  }
+
+  return {
+    chargeId: charge.id,
+    transferId: typeof (charge as any).transfer === 'string' ? (charge as any).transfer : (charge as any).transfer?.id ?? null,
+    receiptUrl: charge.receipt_url ?? null,
+  }
+}
+
+async function applyKickbackCheckoutSessionCompleted(admin: any, session: Stripe.Checkout.Session) {
+  if (session.metadata?.payment_kind !== 'venue_builder_kickback') return false
+
+  const paymentId = session.metadata.kickback_payment_id
+  if (!paymentId) return true
+
+  const stripe = getStripeClient()
+  const paymentIntentId = getPaymentIntentId(session.payment_intent)
+  const paymentIntent = paymentIntentId
+    ? await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] })
+    : null
+  const charge = paymentIntent ? getChargeFromPaymentIntent(paymentIntent) : { chargeId: null, transferId: null, receiptUrl: null }
+  const now = new Date().toISOString()
+
+  await admin
+    .from('kickback_payments')
+    .update({
+      status: 'completed',
+      stripe_checkout_session_id: session.id,
+      stripe_payment_intent_id: paymentIntentId,
+      stripe_charge_id: charge.chargeId,
+      stripe_transfer_id: charge.transferId,
+      receipt_url: charge.receiptUrl,
+      completed_at: now,
+      failed_at: null,
+      failure_reason: null,
+    })
+    .eq('id', paymentId)
+
+  if (session.metadata.agreement_id) {
+    await admin
+      .from('event_kickback_agreements')
+      .update({
+        status: 'payment_completed',
+        stripe_transfer_id: charge.transferId,
+        payment_completed_at: now,
+        updated_at: now,
+      })
+      .eq('id', session.metadata.agreement_id)
+  }
+
+  return true
+}
+
+async function applyKickbackPaymentIntent(admin: any, paymentIntent: Stripe.PaymentIntent) {
+  if (paymentIntent.metadata?.payment_kind !== 'venue_builder_kickback') return false
+
+  const paymentId = paymentIntent.metadata.kickback_payment_id
+  if (!paymentId) return true
+
+  if (paymentIntent.status === 'succeeded') {
+    const charge = getChargeFromPaymentIntent(paymentIntent)
+    const now = new Date().toISOString()
+
+    await admin
+      .from('kickback_payments')
+      .update({
+        status: 'completed',
+        stripe_payment_intent_id: paymentIntent.id,
+        stripe_charge_id: charge.chargeId,
+        stripe_transfer_id: charge.transferId,
+        receipt_url: charge.receiptUrl,
+        completed_at: now,
+        failed_at: null,
+        failure_reason: null,
+      })
+      .eq('id', paymentId)
+
+    if (paymentIntent.metadata.agreement_id) {
+      await admin
+        .from('event_kickback_agreements')
+        .update({
+          status: 'payment_completed',
+          stripe_transfer_id: charge.transferId,
+          payment_completed_at: now,
+          updated_at: now,
+        })
+        .eq('id', paymentIntent.metadata.agreement_id)
+    }
+  }
+
+  if (paymentIntent.status === 'requires_payment_method' || paymentIntent.status === 'canceled') {
+    await admin
+      .from('kickback_payments')
+      .update({
+        status: 'failed',
+        stripe_payment_intent_id: paymentIntent.id,
+        failed_at: new Date().toISOString(),
+        failure_reason: paymentIntent.last_payment_error?.message ?? 'Payment failed',
+      })
+      .eq('id', paymentId)
+  }
+
+  return true
+}
+
+async function applyKickbackTransferEvent(admin: any, transfer: Stripe.Transfer, status: 'completed' | 'refunded') {
+  const paymentId = transfer.metadata?.kickback_payment_id
+  const query = admin
+    .from('kickback_payments')
+    .update({
+      status,
+      stripe_transfer_id: transfer.id,
+      ...(status === 'completed' ? { completed_at: new Date().toISOString() } : {}),
+      ...(status === 'refunded' ? { failed_at: null, failure_reason: 'Transfer was reversed in Stripe' } : {}),
+    })
+
+  if (paymentId) {
+    await query.eq('id', paymentId)
+    return true
+  }
+
+  await query.eq('stripe_transfer_id', transfer.id)
+  return true
+}
+
 /**
- * Receives Stripe webhooks for builder billing and connected vendor/venue accounts.
+ * Receives Stripe webhooks for builder billing and connected vendor/venue/builder accounts.
  */
 export async function POST(request: NextRequest) {
   const admin = createServiceRoleClient()
@@ -48,7 +191,10 @@ export async function POST(request: NextRequest) {
 
   try {
     if (event.type === 'checkout.session.completed') {
-      await applyCheckoutSessionCompleted(admin as any, event.data.object as Stripe.Checkout.Session)
+      const handledKickback = await applyKickbackCheckoutSessionCompleted(admin as any, event.data.object as Stripe.Checkout.Session)
+      if (!handledKickback) {
+        await applyCheckoutSessionCompleted(admin as any, event.data.object as Stripe.Checkout.Session)
+      }
     }
 
     if (event.type === 'invoice.payment_succeeded') {
@@ -86,11 +232,38 @@ export async function POST(request: NextRequest) {
         .eq('stripe_account_id', account.id)
         .maybeSingle()
 
-      if (!existingVenue?.owner_id) {
+      if (existingVenue?.owner_id) {
+        await saveVenueStripeAccount(admin as any, existingVenue.owner_id, account)
+        return NextResponse.json({ received: true })
+      }
+
+      const { data: existingBuilder } = await (admin as any)
+        .from('builder_stripe_accounts')
+        .select('user_id, builder_id')
+        .eq('stripe_account_id', account.id)
+        .maybeSingle()
+
+      if (!existingBuilder?.user_id) {
         return NextResponse.json({ received: true, ignored: true, reason: 'unknown_account' })
       }
 
-      await saveVenueStripeAccount(admin as any, existingVenue.owner_id, account)
+      await saveBuilderStripeAccount(admin as any, existingBuilder.user_id, existingBuilder.builder_id ?? null, account)
+    }
+
+    if (event.type === 'payment_intent.succeeded' || event.type === 'payment_intent.payment_failed') {
+      await applyKickbackPaymentIntent(admin as any, event.data.object as Stripe.PaymentIntent)
+    }
+
+    if (event.type === 'transfer.created' || event.type === 'transfer.updated') {
+      await applyKickbackTransferEvent(admin as any, event.data.object as Stripe.Transfer, 'completed')
+    }
+
+    if (event.type === 'transfer.reversed') {
+      await applyKickbackTransferEvent(admin as any, event.data.object as Stripe.Transfer, 'refunded')
+    }
+
+    if (event.type === 'payout.paid' || event.type === 'payout.failed') {
+      return NextResponse.json({ received: true, observed: event.type })
     }
 
     if (event.type === 'account.application.deauthorized') {
@@ -110,6 +283,17 @@ export async function POST(request: NextRequest) {
 
         await (admin as any)
           .from('venue_stripe_accounts')
+          .update({
+            account_status: 'restricted',
+            charges_enabled: false,
+            payouts_enabled: false,
+            requirements_due: { disabled_reason: 'application_deauthorized' },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('stripe_account_id', accountId)
+
+        await (admin as any)
+          .from('builder_stripe_accounts')
           .update({
             account_status: 'restricted',
             charges_enabled: false,

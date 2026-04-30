@@ -23,6 +23,33 @@ type StripeStatusResponse = {
   error?: string
 }
 
+type VenueKickbackPayment = {
+  id: string
+  amount: number
+  currency: string | null
+  status: string
+  event_name: string
+  event_date: string | null
+  builder_name: string
+  actual_attendance: number | null
+  per_head_amount: number | null
+  initiated_at: string | null
+  completed_at: string | null
+  failure_reason: string | null
+}
+
+type VenueKickbackSummaryResponse = {
+  summary: {
+    pending: number
+    processing: number
+    completed: number
+    refunded: number
+    count: number
+  }
+  payments: VenueKickbackPayment[]
+  error?: string
+}
+
 const PAYOUT_CARDS = [
   {
     icon: CreditCard,
@@ -41,6 +68,26 @@ const PAYOUT_CARDS = [
   },
 ]
 
+function formatMoney(amount: number, currency = 'usd') {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+  }).format(amount || 0)
+}
+
+function formatDate(value: string | null) {
+  if (!value) return 'Date TBD'
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value))
+}
+
+function statusLabel(status: string) {
+  if (status === 'completed') return 'Paid'
+  if (status === 'processing') return 'Processing'
+  if (status === 'failed') return 'Failed'
+  if (status === 'refunded') return 'Refunded'
+  return 'Pending'
+}
+
 /**
  * Venue owner Stripe Connect onboarding and payout readiness page.
  */
@@ -53,6 +100,9 @@ export default function VenuePayoutsPage() {
   const [isConnecting, setIsConnecting] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isOpeningDashboard, setIsOpeningDashboard] = useState(false)
+  const [kickbacks, setKickbacks] = useState<VenueKickbackSummaryResponse | null>(null)
+  const [isLoadingKickbacks, setIsLoadingKickbacks] = useState(true)
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -78,6 +128,25 @@ export default function VenuePayoutsPage() {
   useEffect(() => {
     loadStatus()
   }, [loadStatus])
+
+  const loadKickbacks = useCallback(async () => {
+    try {
+      const response = await fetch('/api/venue/kickbacks/summary', { credentials: 'include' })
+      const data = await response.json()
+
+      if (!response.ok) throw new Error(data.error || 'Unable to load kickbacks')
+
+      setKickbacks(data)
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Unable to load kickbacks')
+    } finally {
+      setIsLoadingKickbacks(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadKickbacks()
+  }, [loadKickbacks])
 
   const startConnect = async () => {
     setIsConnecting(true)
@@ -140,8 +209,29 @@ export default function VenuePayoutsPage() {
     }
   }
 
+  const payKickback = async (paymentId: string) => {
+    setCheckoutLoading(paymentId)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/venue/kickbacks/${paymentId}/checkout`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const data = await response.json()
+
+      if (!response.ok) throw new Error(data.error || 'Unable to start kickback payment')
+
+      window.location.href = data.checkoutUrl
+    } catch (checkoutError) {
+      setError(checkoutError instanceof Error ? checkoutError.message : 'Unable to start kickback payment')
+      setCheckoutLoading(null)
+    }
+  }
+
   const isConnected = Boolean(status.account)
   const isDashboardReady = Boolean(status.account?.payouts_enabled || status.account?.charges_enabled)
+  const kickbackPayments = kickbacks?.payments ?? []
 
   return (
     <div className="space-y-6">
@@ -224,6 +314,79 @@ export default function VenuePayoutsPage() {
           )
         })}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Venue Kickbacks</CardTitle>
+          <CardDescription>Qualified payouts owed to builders after verified attendance.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-lg border border-border bg-background p-4">
+              <p className="text-sm text-muted-foreground">Ready to pay</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{formatMoney(kickbacks?.summary.pending ?? 0)}</p>
+            </div>
+            <div className="rounded-lg border border-border bg-background p-4">
+              <p className="text-sm text-muted-foreground">Processing</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{formatMoney(kickbacks?.summary.processing ?? 0)}</p>
+            </div>
+            <div className="rounded-lg border border-border bg-background p-4">
+              <p className="text-sm text-muted-foreground">Paid</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{formatMoney(kickbacks?.summary.completed ?? 0)}</p>
+            </div>
+          </div>
+
+          {isLoadingKickbacks ? (
+            <div className="h-28 animate-pulse rounded-lg bg-sidebar-accent/40" />
+          ) : kickbackPayments.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
+              Kickbacks will appear here after event check-ins qualify for a venue agreement.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {kickbackPayments.map((payment) => {
+                const canPay = payment.status === 'pending' || payment.status === 'failed'
+
+                return (
+                  <div
+                    key={payment.id}
+                    className="flex flex-col gap-3 rounded-lg border border-border bg-background p-4 lg:flex-row lg:items-center lg:justify-between"
+                  >
+                    <div>
+                      <p className="font-medium text-foreground">{payment.event_name}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {payment.builder_name} - {formatDate(payment.event_date)}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {payment.actual_attendance ?? 0} verified attendees
+                        {payment.per_head_amount ? ` at ${formatMoney(payment.per_head_amount)}/head` : ''}
+                      </p>
+                      {payment.failure_reason ? (
+                        <p className="mt-1 text-xs text-destructive">{payment.failure_reason}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
+                      <div className="sm:text-right">
+                        <p className="text-lg font-semibold text-foreground">{formatMoney(payment.amount, payment.currency || 'usd')}</p>
+                        <p className="text-xs font-medium uppercase text-muted-foreground">{statusLabel(payment.status)}</p>
+                      </div>
+                      {canPay ? (
+                        <Button
+                          type="button"
+                          disabled={Boolean(checkoutLoading)}
+                          onClick={() => payKickback(payment.id)}
+                        >
+                          {checkoutLoading === payment.id ? 'Starting...' : 'Pay'}
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <StripeOnboardingModal
         isOpen={isModalOpen}

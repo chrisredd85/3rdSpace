@@ -396,6 +396,60 @@ export type Database = {
           },
         ]
       }
+      builder_stripe_accounts: {
+        Row: {
+          account_status: string
+          builder_id: string | null
+          charges_enabled: boolean
+          created_at: string
+          id: string
+          payouts_enabled: boolean
+          requirements_due: Json
+          stripe_account_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_status?: string
+          builder_id?: string | null
+          charges_enabled?: boolean
+          created_at?: string
+          id?: string
+          payouts_enabled?: boolean
+          requirements_due?: Json
+          stripe_account_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_status?: string
+          builder_id?: string | null
+          charges_enabled?: boolean
+          created_at?: string
+          id?: string
+          payouts_enabled?: boolean
+          requirements_due?: Json
+          stripe_account_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "builder_stripe_accounts_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: true
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "builder_stripe_accounts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       builder_subscriptions: {
         Row: {
           cancel_at: string | null
@@ -1734,8 +1788,11 @@ export type Database = {
           recipient_id: string
           status: string
           stripe_charge_id: string | null
+          stripe_checkout_session_id: string | null
+          stripe_payment_intent_id: string | null
           stripe_payout_id: string | null
           stripe_transfer_id: string | null
+          stripe_transfer_reversal_id: string | null
         }
         Insert: {
           agreement_id: string
@@ -1754,8 +1811,11 @@ export type Database = {
           recipient_id: string
           status?: string
           stripe_charge_id?: string | null
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
           stripe_payout_id?: string | null
           stripe_transfer_id?: string | null
+          stripe_transfer_reversal_id?: string | null
         }
         Update: {
           agreement_id?: string
@@ -1774,8 +1834,11 @@ export type Database = {
           recipient_id?: string
           status?: string
           stripe_charge_id?: string | null
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
           stripe_payout_id?: string | null
           stripe_transfer_id?: string | null
+          stripe_transfer_reversal_id?: string | null
         }
         Relationships: [
           {

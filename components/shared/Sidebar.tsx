@@ -23,6 +23,7 @@ import {
   Inbox,
   Store,
   Ticket,
+  Banknote,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUnreadCount } from '@/lib/hooks/useMessages'
@@ -101,6 +102,7 @@ export function Sidebar({ userType, onClose }: SidebarProps) {
             items: [
               { label: 'Settings', href: '/builder/settings', icon: Settings },
               { label: 'Billing', href: '/builder/billing', icon: CreditCard },
+              { label: 'Payouts', href: '/builder/payouts', icon: Banknote },
             ],
           },
         ]
