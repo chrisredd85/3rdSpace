@@ -19,8 +19,6 @@ import { useVenues, useToggleSavedVenue } from '@/lib/hooks/useVenues'
 import { useUser } from '@/lib/hooks/useUser'
 import { useToast } from '@/components/ui/toast'
 import { supabase } from '@/lib/supabase/client'
-import { VenueAmenitiesBadges } from '@/components/builder/VenueAmenitiesBadges'
-import { VenueUniqueFeatures } from '@/components/builder/VenueUniqueFeatures'
 import { getUniqueFeatureTagOptions } from '@/lib/venues/unique-features'
 import type { Venue, VenueType } from '@/lib/types'
 
@@ -73,6 +71,10 @@ export function VenueMarketplace({ onClose }: VenueMarketplaceProps) {
     [venuesResult]
   )
   const venueIds = useMemo(() => venues.map((venue) => venue.id), [venues])
+  const amenityNameById = useMemo(
+    () => new Map(amenityOptions.map((amenity) => [amenity.id, amenity.name])),
+    [amenityOptions]
+  )
 
   useEffect(() => {
     /**
@@ -418,6 +420,9 @@ export function VenueMarketplace({ onClose }: VenueMarketplaceProps) {
                   <VenueMarketplaceCard
                     key={venue.id}
                     venue={venue}
+                    amenities={Array.from(venueAmenityMap[venue.id] || [])
+                      .map((amenityId) => amenityNameById.get(amenityId))
+                      .filter((name): name is string => Boolean(name))}
                     onSave={() => handleToggleSaved(venue.id, false)}
                     onViewProfile={() => {
                       window.location.href = `/builder/venues/${venue.id}`
@@ -460,13 +465,16 @@ export function VenueMarketplace({ onClose }: VenueMarketplaceProps) {
 
 interface VenueMarketplaceCardProps {
   venue: Venue
+  amenities: string[]
   onSave: () => void
   onViewProfile: () => void
 }
 
-function VenueMarketplaceCard({ venue, onSave, onViewProfile }: VenueMarketplaceCardProps) {
+function VenueMarketplaceCard({ venue, amenities, onSave, onViewProfile }: VenueMarketplaceCardProps) {
   const rating = 4.7 // Mock data
   const reviewCount = 8 // Mock data
+  const displayedAmenities = amenities.slice(0, 3)
+  const remainingAmenityCount = Math.max(0, amenities.length - displayedAmenities.length)
 
   return (
     <Card className="hover:shadow-lg transition-shadow cursor-pointer overflow-hidden" onClick={onViewProfile}>
@@ -512,9 +520,47 @@ function VenueMarketplaceCard({ venue, onSave, onViewProfile }: VenueMarketplace
           <p className="text-sm text-muted-foreground line-clamp-2">{venue.description}</p>
         )}
 
-        <VenueUniqueFeatures venueId={venue.id} compact />
+        {(venue.unique_features || (venue.unique_features_tags?.length || 0) > 0) && (
+          <div className="space-y-2 rounded-lg bg-yellow-500/10 p-3">
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+              <Sparkles className="h-4 w-4 text-yellow-500" />
+              Venue Highlights
+            </div>
+            {venue.unique_features && (
+              <p className="line-clamp-2 text-sm text-foreground">{venue.unique_features}</p>
+            )}
+            {(venue.unique_features_tags?.length || 0) > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {venue.unique_features_tags?.slice(0, 3).map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-md border border-yellow-500/30 bg-card/40 px-2 py-0.5 text-xs font-medium capitalize text-foreground"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
-        <VenueAmenitiesBadges venueId={venue.id} maxDisplay={3} />
+        {displayedAmenities.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {displayedAmenities.map((amenity) => (
+              <span
+                key={amenity}
+                className="rounded-md border border-border bg-sidebar-accent/40 px-2 py-0.5 text-xs font-medium text-foreground"
+              >
+                {amenity}
+              </span>
+            ))}
+            {remainingAmenityCount > 0 && (
+              <span className="rounded-md border border-border bg-sidebar-accent/40 px-2 py-0.5 text-xs font-semibold text-primary">
+                +{remainingAmenityCount} more
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1">

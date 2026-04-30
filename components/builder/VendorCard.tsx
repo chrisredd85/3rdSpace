@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import { Heart, MapPin, Package, Star, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { VendorDiscoveryResult } from '@/lib/vendors/discovery'
@@ -12,6 +13,12 @@ interface VendorCardProps {
   onBook: (vendor: VendorDiscoveryResult) => void
 }
 
+const priceFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0,
+})
+
 /**
  * Formats vendor starting price.
  *
@@ -20,20 +27,17 @@ interface VendorCardProps {
  */
 function formatVendorPrice(amount: number | null) {
   if (amount == null) return 'Price TBD'
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(amount)
+  return priceFormatter.format(amount)
 }
 
+// Parent list components should pass stable callbacks to preserve memoization.
 /**
  * Displays a vendor preview card for builder search results.
  *
  * @param props - Vendor row and card actions.
  * @returns Vendor preview card.
  */
-export function VendorCard({ vendor, isSaved = false, onSave, onView, onBook }: VendorCardProps) {
+function VendorCardComponent({ vendor, isSaved = false, onSave, onView, onBook }: VendorCardProps) {
   const location = vendor.city && vendor.state ? `${vendor.city}, ${vendor.state}` : vendor.address || 'Service area varies'
   const primaryService = vendor.services[0]
 
@@ -112,3 +116,6 @@ export function VendorCard({ vendor, isSaved = false, onSave, onView, onBook }: 
     </div>
   )
 }
+
+export const VendorCard = memo(VendorCardComponent)
+VendorCard.displayName = 'VendorCard'

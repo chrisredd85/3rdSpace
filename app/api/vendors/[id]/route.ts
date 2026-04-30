@@ -7,6 +7,10 @@ import {
   normalizePackageRows,
 } from '@/lib/vendors/discovery'
 
+const MARKETPLACE_CACHE_HEADERS = {
+  'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+}
+
 /**
  * Gets a public vendor profile with services and packages.
  *
@@ -70,7 +74,10 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     ]
     const detail = buildVendorDiscoveryResult(vendor as Record<string, any>, services)
 
-    return NextResponse.json({ vendor: detail })
+    return NextResponse.json(
+      { vendor: detail },
+      { headers: MARKETPLACE_CACHE_HEADERS }
+    )
   } catch (error) {
     console.error('[vendors.detail] Unexpected GET error', error)
     return NextResponse.json({ error: 'Failed to load vendor' }, { status: 500 })

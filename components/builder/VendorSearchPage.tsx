@@ -60,7 +60,7 @@ export function VendorSearchPage() {
     [savedVendors]
   )
 
-  const searchVendors = useCallback(async () => {
+  const searchVendors = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     setError(null)
     try {
@@ -72,20 +72,29 @@ export function VendorSearchPage() {
       if (minRating) params.set('minRating', minRating)
       params.set('sort', sort)
 
-      const response = await fetch(`/api/vendors/search?${params.toString()}`)
+      const response = await fetch(`/api/vendors/search?${params.toString()}`, { signal })
       const data = (await response.json()) as SearchResponse
 
       if (!response.ok) throw new Error(data.error || 'Failed to search vendors')
       setVendors(data.vendors || [])
     } catch (searchError) {
+      if (signal?.aborted) return
       setError(searchError instanceof Error ? searchError.message : 'Failed to search vendors')
     } finally {
-      setLoading(false)
+      if (!signal?.aborted) setLoading(false)
     }
   }, [date, maxPrice, minRating, query, sort, type])
 
   useEffect(() => {
-    searchVendors()
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => {
+      searchVendors(controller.signal)
+    }, 300)
+
+    return () => {
+      window.clearTimeout(timeout)
+      controller.abort()
+    }
   }, [searchVendors])
 
   useEffect(() => {
@@ -111,7 +120,7 @@ export function VendorSearchPage() {
     }
   }, [])
 
-  const handleSave = async (vendor: VendorDiscoveryResult) => {
+  const handleSave = useCallback(async (vendor: VendorDiscoveryResult) => {
     if (!user?.id) {
       addToast({
         title: 'Sign in required',
@@ -135,7 +144,15 @@ export function VendorSearchPage() {
         variant: 'destructive',
       })
     }
-  }
+  }, [addToast, savedIds, toggleSaved, user?.id])
+
+  const handleViewVendor = useCallback((vendor: VendorDiscoveryResult) => {
+    window.location.href = `/builder/vendors/${vendor.id}`
+  }, [])
+
+  const handleBookVendor = useCallback((vendor: VendorDiscoveryResult) => {
+    setSelectedVendor(vendor)
+  }, [])
 
   const clearFilters = () => {
     setQuery('')
@@ -210,8 +227,8 @@ export function VendorSearchPage() {
                 vendor={vendor}
                 isSaved={savedIds.has(vendor.id)}
                 onSave={handleSave}
-                onView={(item) => { window.location.href = `/builder/vendors/${item.id}` }}
-                onBook={setSelectedVendor}
+                onView={handleViewVendor}
+                onBook={handleBookVendor}
               />
             ))}
           </div>
@@ -247,8 +264,8 @@ export function VendorSearchPage() {
                 vendor={vendor}
                 isSaved={savedIds.has(vendor.id)}
                 onSave={handleSave}
-                onView={(item) => { window.location.href = `/builder/vendors/${item.id}` }}
-                onBook={setSelectedVendor}
+                onView={handleViewVendor}
+                onBook={handleBookVendor}
               />
             ))}
           </div>

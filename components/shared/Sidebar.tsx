@@ -1,6 +1,8 @@
 'use client'
 
+import { memo, useCallback, useMemo, type ComponentType } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import {
   LayoutDashboard,
@@ -23,7 +25,6 @@ import {
   Inbox,
   Store,
   Ticket,
-  Banknote,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUnreadCount } from '@/lib/hooks/useMessages'
@@ -35,7 +36,7 @@ import type { UserType } from '@/lib/types'
 interface NavItem {
   label: string
   href: string
-  icon: React.ComponentType<{ className?: string }>
+  icon: ComponentType<{ className?: string }>
   badge?: number
 }
 
@@ -49,7 +50,7 @@ interface SidebarProps {
   onClose?: () => void
 }
 
-const roleMeta: Record<UserType, { icon: React.ComponentType<{ className?: string }>; label: string; tagline: string }> = {
+const roleMeta: Record<UserType, { icon: ComponentType<{ className?: string }>; label: string; tagline: string }> = {
   community_builder: { icon: Ticket, label: 'Event Creator', tagline: 'Plan & book' },
   venue_owner: { icon: Building2, label: 'Venue Owner', tagline: 'Manage your space' },
   vendor: { icon: Store, label: 'Vendor', tagline: 'Grow your business' },
@@ -61,11 +62,12 @@ const roleMeta: Record<UserType, { icon: React.ComponentType<{ className?: strin
  * Renders a different nav section list for each UserType (community_builder,
  * venue_owner, vendor).  Active link detection uses exact match for root routes
  * and prefix match for nested routes to avoid false positives.
- * Badge counts for messages and notifications are polled via React Query hooks.
+ * Badge counts for messages and notifications are loaded via React Query hooks.
  */
-export function Sidebar({ userType, onClose }: SidebarProps) {
+function SidebarComponent({ userType, onClose }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { user } = useUser()
   const { addToast } = useToast()
   const { unreadCount = 0 } = useUnreadCount()
@@ -74,7 +76,7 @@ export function Sidebar({ userType, onClose }: SidebarProps) {
   const meta = roleMeta[userType]
   const RoleIcon = meta.icon
 
-  const getNavigation = (): NavSection[] => {
+  const navigation = useMemo<NavSection[]>(() => {
     switch (userType) {
       case 'community_builder':
         return [
@@ -102,7 +104,6 @@ export function Sidebar({ userType, onClose }: SidebarProps) {
             items: [
               { label: 'Settings', href: '/builder/settings', icon: Settings },
               { label: 'Billing', href: '/builder/billing', icon: CreditCard },
-              { label: 'Payouts', href: '/builder/payouts', icon: Banknote },
             ],
           },
         ]
@@ -130,7 +131,6 @@ export function Sidebar({ userType, onClose }: SidebarProps) {
             title: 'ACCOUNT',
             items: [
               { label: 'Settings', href: '/venue/settings', icon: Settings },
-              { label: 'Payouts', href: '/venue/payouts', icon: CreditCard },
             ],
           },
         ]
@@ -158,7 +158,6 @@ export function Sidebar({ userType, onClose }: SidebarProps) {
             title: 'ACCOUNT',
             items: [
               { label: 'Settings', href: '/vendor/settings', icon: Settings },
-              { label: 'Payouts', href: '/vendor/payouts', icon: CreditCard },
             ],
           },
         ]
@@ -166,15 +165,13 @@ export function Sidebar({ userType, onClose }: SidebarProps) {
       default:
         return []
     }
-  }
+  }, [unreadCount, unreadNotificationCount, userType])
 
-  const navigation = getNavigation()
-
-  const handleLinkClick = () => {
+  const handleLinkClick = useCallback(() => {
     onClose?.()
-  }
+  }, [onClose])
 
-  const handleSignOut = async () => {
+  const handleSignOut = useCallback(async () => {
     try {
       const response = await fetch('/api/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
       const result = await response.json()
@@ -182,11 +179,12 @@ export function Sidebar({ userType, onClose }: SidebarProps) {
         addToast({ title: 'Error', description: result.error || 'Failed to sign out.', variant: 'destructive' })
         return
       }
+      queryClient.clear()
       router.push('/login')
     } catch {
       addToast({ title: 'Error', description: 'Something went wrong. Please try again.', variant: 'destructive' })
     }
-  }
+  }, [addToast, queryClient, router])
 
   const initials = user?.email
     ? user.email.slice(0, 2).toUpperCase()
@@ -288,3 +286,6 @@ export function Sidebar({ userType, onClose }: SidebarProps) {
     </div>
   )
 }
+
+export const Sidebar = memo(SidebarComponent)
+Sidebar.displayName = 'Sidebar'

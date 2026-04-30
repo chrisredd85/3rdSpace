@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import dynamic from 'next/dynamic'
 import {
   Calendar,
   DollarSign,
@@ -31,21 +32,11 @@ import {
 } from '@/lib/bookings/vendor-booking-adapter'
 import type { VenueBooking } from '@/lib/types'
 import type { VendorBookingDashboardItem } from '@/lib/vendors/booking-dashboard'
-import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from 'recharts'
+
+const BuilderMonthlySpendingChart = dynamic(
+  () => import('@/components/analytics/BuilderMonthlySpendingChart').then((mod) => mod.BuilderMonthlySpendingChart),
+  { ssr: false, loading: () => <ChartSkeleton /> }
+)
 
 type SortField = 'name' | 'category' | 'timesUsed' | 'totalSpent' | 'avgRating'
 type SortDirection = 'asc' | 'desc'
@@ -474,18 +465,7 @@ export default function BuilderAnalyticsPage() {
         </CardHeader>
         <CardContent>
           {monthlySpending.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={monthlySpending}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip
-                  formatter={(value: number) => `$${value.toLocaleString()}`}
-                />
-                <Legend />
-                <Bar dataKey="amount" fill="#10B981" name="Spending" />
-              </BarChart>
-            </ResponsiveContainer>
+            <BuilderMonthlySpendingChart data={monthlySpending} />
           ) : (
             <div className="text-center py-12">
               <p className="text-muted-foreground">No spending data for selected date range</p>
@@ -746,4 +726,8 @@ export default function BuilderAnalyticsPage() {
       </Card>
     </div>
   )
+}
+
+function ChartSkeleton() {
+  return <div className="h-[300px] animate-pulse rounded-lg bg-muted" />
 }

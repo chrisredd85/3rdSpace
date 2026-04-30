@@ -66,9 +66,16 @@ export async function GET(request: NextRequest) {
       // For now, we'll just return all vendors and let the client filter
     }
 
-    return NextResponse.json({
-      vendors: filteredVendors,
-    })
+    return NextResponse.json(
+      {
+        vendors: filteredVendors,
+      },
+      {
+        headers: {
+          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+        },
+      }
+    )
   } catch (error) {
     console.error('Unexpected error fetching vendors:', error)
     return NextResponse.json(

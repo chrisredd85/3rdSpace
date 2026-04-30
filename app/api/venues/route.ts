@@ -99,12 +99,19 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    return NextResponse.json({
-      venues: normalizeVenues(venues as any[]),
-      page,
-      pageSize,
-      hasMore: (venues || []).length === pageSize,
-    })
+    return NextResponse.json(
+      {
+        venues: normalizeVenues(venues as any[]),
+        page,
+        pageSize,
+        hasMore: (venues || []).length === pageSize,
+      },
+      {
+        headers: {
+          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+        },
+      }
+    )
   } catch (error) {
     console.error('Unexpected error fetching venues:', error)
     return NextResponse.json(

@@ -56,7 +56,7 @@ export function useUnreadNotificationCount(userId: string | null) {
       return payload.notifications?.length || 0
     },
     enabled: !!userId,
-    refetchInterval: 30000,
+    refetchOnWindowFocus: false,
   })
 
   useEffect(() => {

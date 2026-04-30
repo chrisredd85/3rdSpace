@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     // Get user's venues
     const { data: venues, error: venuesError } = await supabase
       .from('venues')
-      .select('id')
+      .select('id, venue_name, address, city, state, standing_capacity, seated_capacity, is_published')
       .eq('owner_id', user.id)
 
     if (venuesError) {
@@ -58,16 +58,33 @@ export async function GET(request: NextRequest) {
     }
 
     if (!venues || venues.length === 0) {
-      return NextResponse.json({
-        pendingRequests: 0,
-        thisMonthBookings: 0,
-        revenueMtd: 0,
-        acceptanceRate: 0,
-        bookedPercentage: 0,
-      })
+      return NextResponse.json(
+        {
+          pendingRequests: 0,
+          thisMonthBookings: 0,
+          revenueMtd: 0,
+          acceptanceRate: 0,
+          bookedPercentage: 0,
+          venues: [],
+        },
+        {
+          headers: {
+            'Cache-Control': 'private, max-age=60, stale-while-revalidate=300',
+          },
+        }
+      )
     }
 
-    const venuesList = (venues || []) as { id: string }[]
+    const venuesList = (venues || []) as Array<{
+      id: string
+      venue_name?: string | null
+      address?: string | null
+      city?: string | null
+      state?: string | null
+      standing_capacity?: number | null
+      seated_capacity?: number | null
+      is_published?: boolean | null
+    }>
     const venueIds = venuesList.map((v) => v.id)
 
     // Calculate current month range
@@ -124,13 +141,29 @@ export async function GET(request: NextRequest) {
     )
     const bookedPercentage = Math.round((bookedDays.size / daysInMonth) * 100)
 
-    return NextResponse.json({
-      pendingRequests: pendingCount || 0,
-      thisMonthBookings: thisMonthList.length,
-      revenueMtd,
-      acceptanceRate,
-      bookedPercentage,
-    })
+    return NextResponse.json(
+      {
+        pendingRequests: pendingCount || 0,
+        thisMonthBookings: thisMonthList.length,
+        revenueMtd,
+        acceptanceRate,
+        bookedPercentage,
+        venues: venuesList.map((venue) => ({
+          id: venue.id,
+          name: venue.venue_name || 'Untitled venue',
+          address: venue.address || null,
+          city: venue.city || null,
+          state: venue.state || null,
+          capacity: venue.standing_capacity || venue.seated_capacity || null,
+          isPublished: Boolean(venue.is_published),
+        })),
+      },
+      {
+        headers: {
+          'Cache-Control': 'private, max-age=60, stale-while-revalidate=300',
+        },
+      }
+    )
   } catch (error) {
     console.error('Venue stats error:', error)
     return NextResponse.json(

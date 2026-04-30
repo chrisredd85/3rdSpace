@@ -21,6 +21,10 @@ const searchSchema = z.object({
   sort: z.enum(['rating', 'price', 'popularity']).default('rating'),
 })
 
+const MARKETPLACE_CACHE_HEADERS = {
+  'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+}
+
 /**
  * Searches published vendors for builder discovery.
  *
@@ -73,7 +77,10 @@ export async function GET(request: NextRequest) {
 
     const vendorIds = ((vendorRows as Record<string, any>[] | null) || []).map((vendor) => vendor.id)
     if (vendorIds.length === 0) {
-      return NextResponse.json({ vendors: [], count: 0 })
+      return NextResponse.json(
+        { vendors: [], count: 0 },
+        { headers: MARKETPLACE_CACHE_HEADERS }
+      )
     }
 
     const [offeringsResult, packagesResult, availabilityResult, bookingsResult] = await Promise.all([
@@ -153,7 +160,10 @@ export async function GET(request: NextRequest) {
 
     vendors = sortVendorDiscoveryResults(vendors, filters.sort as VendorSearchSort)
 
-    return NextResponse.json({ vendors, count: vendors.length })
+    return NextResponse.json(
+      { vendors, count: vendors.length },
+      { headers: MARKETPLACE_CACHE_HEADERS }
+    )
   } catch (error) {
     console.error('[vendors.search] Unexpected GET error', error)
     return NextResponse.json({ error: 'Failed to search vendors' }, { status: 500 })

@@ -8,6 +8,10 @@ import {
   type VendorDiscoveryService,
 } from '@/lib/vendors/discovery'
 
+const MARKETPLACE_CACHE_HEADERS = {
+  'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+}
+
 /**
  * Gets featured vendors for marketplace entry points.
  *
@@ -39,7 +43,10 @@ export async function GET(request: NextRequest) {
 
     const vendorIds = ((vendorRows as Record<string, any>[] | null) || []).map((vendor) => vendor.id)
     if (vendorIds.length === 0) {
-      return NextResponse.json({ vendors: [], count: 0 })
+      return NextResponse.json(
+        { vendors: [], count: 0 },
+        { headers: MARKETPLACE_CACHE_HEADERS }
+      )
     }
 
     const [offeringsResult, packagesResult] = await Promise.all([
@@ -80,7 +87,10 @@ export async function GET(request: NextRequest) {
       'rating'
     )
 
-    return NextResponse.json({ vendors, count: vendors.length })
+    return NextResponse.json(
+      { vendors, count: vendors.length },
+      { headers: MARKETPLACE_CACHE_HEADERS }
+    )
   } catch (error) {
     console.error('[vendors.featured] Unexpected GET error', error)
     return NextResponse.json({ error: 'Failed to load featured vendors' }, { status: 500 })

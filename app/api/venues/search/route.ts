@@ -4,6 +4,10 @@ import { createClient } from '@/lib/supabase/server'
 import { getUniqueFeatureTagOptions } from '@/lib/venues/unique-features'
 import { normalizeVenues, VENUE_SELECT_COLUMNS } from '@/lib/venues/venue-adapter'
 
+const MARKETPLACE_CACHE_HEADERS = {
+  'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+}
+
 /**
  * Searches venue listings by unique feature tags and common marketplace filters.
  *
@@ -64,10 +68,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to search venues' }, { status: 500 })
     }
 
-    return NextResponse.json({
-      venues: normalizeVenues(venues as any[]),
-      tag_options: getUniqueFeatureTagOptions(),
-    })
+    return NextResponse.json(
+      {
+        venues: normalizeVenues(venues as any[]),
+        tag_options: getUniqueFeatureTagOptions(),
+      },
+      { headers: MARKETPLACE_CACHE_HEADERS }
+    )
   } catch (error) {
     console.error('[venues.search] Unexpected GET error', error)
     return NextResponse.json({ error: 'Failed to search venues' }, { status: 500 })

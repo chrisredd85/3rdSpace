@@ -51,9 +51,6 @@ export function NotificationCenter({ userId, className }: NotificationCenterProp
   useEffect(() => {
     loadNotifications()
     loadSoundPreference()
-
-    const interval = window.setInterval(loadUnreadCount, 30000)
-    return () => window.clearInterval(interval)
   }, [userId])
 
   useEffect(() => {
@@ -112,15 +109,6 @@ export function NotificationCenter({ userId, className }: NotificationCenterProp
     }
 
     setLoading(false)
-  }
-
-  /**
-   * Loads only unread notifications for a lightweight badge refresh.
-   */
-  async function loadUnreadCount() {
-    const res = await fetch('/api/notifications?unread_only=true')
-    const data = await res.json().catch(() => ({}))
-    if (res.ok) setUnreadCount(data.notifications?.length || 0)
   }
 
   /**
