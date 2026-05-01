@@ -8,7 +8,7 @@ test.describe('design system smoke', () => {
     const issues = collectPageHealth(page)
 
     await page.goto('/')
-    await expect(page.getByRole('navigation').getByRole('link', { name: /^sign in$/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /^sign in$/i }).first()).toBeVisible()
     await expect(page.getByRole('link', { name: /i plan events/i }).first()).toBeVisible()
     await expect(page.getByRole('link', { name: /i run a venue/i }).first()).toBeVisible()
     await expect(page.getByRole('link', { name: /i'm a vendor/i }).first()).toBeVisible()

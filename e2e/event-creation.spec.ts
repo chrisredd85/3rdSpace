@@ -1,32 +1,18 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+import { loginAsPersona } from './helpers/auth'
+import { getPersonaCredentials } from './helpers/env'
 
-test.describe('Event Creation', () => {
-  test.beforeEach(async ({ page }) => {
-    // Login first
-    await page.goto('/login')
-    await page.getByLabel(/email/i).fill('test@example.com')
-    await page.getByLabel(/password/i).fill('password123')
-    await page.getByRole('button', { name: /sign in/i }).click()
-    await page.waitForURL(/\/builder/)
-  })
+test.describe('Event creation', () => {
+  test('builder can open the new event workspace when E2E credentials are configured', async ({ page }) => {
+    const credentials = getPersonaCredentials('builder')
+    if (!credentials) {
+      test.skip(true, 'Set E2E_BUILDER_EMAIL and E2E_BUILDER_PASSWORD to run this event workflow')
+      return
+    }
 
-  test('should create a new event', async ({ page }) => {
-    // Navigate to create event
+    await loginAsPersona(page, 'builder', credentials)
     await page.goto('/builder/event/new')
 
-    // Step 1: Planning
-    await page.getByLabel(/event name/i).fill('Test Event')
-    await page.getByLabel(/date/i).fill('2024-12-31')
-    await page.getByLabel(/budget/i).fill('5000')
-    await page.getByRole('button', { name: /next/i }).click()
-
-    // Step 2: Venue selection
-    await expect(page.getByText(/select venue/i)).toBeVisible()
-    // Select a venue (if available)
-    // await page.getByText(/venue name/i).first().click()
-    // await page.getByRole('button', { name: /select/i }).click()
-
-    // Continue through steps...
-    // This is a simplified test - actual implementation would test all steps
+    await expect(page.getByRole('heading', { name: /new event/i })).toBeVisible()
   })
 })

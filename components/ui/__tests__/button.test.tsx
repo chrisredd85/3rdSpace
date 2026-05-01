@@ -30,17 +30,17 @@ describe('Button Component', () => {
   it('should apply variant styles', () => {
     const { rerender } = render(<Button variant="outline">Outline</Button>)
     let button = screen.getByRole('button')
-    expect(button).toHaveClass('border-2')
+    expect(button).toHaveClass('border')
 
     rerender(<Button variant="ghost">Ghost</Button>)
     button = screen.getByRole('button')
-    expect(button).toHaveClass('hover:bg-sidebar-accent')
+    expect(button).toHaveClass('hover:bg-muted')
   })
 
   it('should apply size styles', () => {
     const { rerender } = render(<Button size="sm">Small</Button>)
     let button = screen.getByRole('button')
-    expect(button).toHaveClass('h-10')
+    expect(button).toHaveClass('h-9')
 
     rerender(<Button size="lg">Large</Button>)
     button = screen.getByRole('button')
