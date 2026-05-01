@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'

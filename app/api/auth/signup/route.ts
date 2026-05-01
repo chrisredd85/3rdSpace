@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { ensureBuilderProfile, ensureOwnerProfile, ensureVenueSetup, ensureVendorProfile } from '@/lib/server/account-setup'

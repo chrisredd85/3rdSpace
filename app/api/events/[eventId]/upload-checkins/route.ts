@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { parse } from 'csv-parse/sync'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'

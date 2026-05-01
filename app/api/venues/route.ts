@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { normalizeVenues, VENUE_SELECT_COLUMNS } from '@/lib/venues/venue-adapter'
