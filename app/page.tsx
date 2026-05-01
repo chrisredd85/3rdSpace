@@ -14,13 +14,13 @@ import {
 import { Button } from '@/components/ui/button'
 
 export const metadata: Metadata = {
-  title: '3rdSpace — The Operating Layer for Live Events',
+  title: '3rdPlace - Event Profitability Optimization',
   description:
-    "Plan it. Book it. Make it make money. 3rdSpace connects event creators, venues, and vendors in one platform.",
+    "3rdPlace is the Bay Area's leading event profitability optimization engine for planning, booking, vendor coordination, and automated kickbacks.",
   openGraph: {
-    title: '3rdSpace — The Operating Layer for Live Events',
+    title: '3rdPlace - Event Profitability Optimization',
     description:
-      "3rdSpace connects three sides of every event — the creators throwing it, the venues hosting it, and the vendors making it run.",
+      "3rdPlace helps event creators book venues and vendors, automate kickbacks, and understand profitability before the doors open.",
   },
 }
 
@@ -99,7 +99,7 @@ export default function HomePage() {
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
             <Sparkles className="h-5 w-5 text-primary-foreground" />
           </div>
-          <span className="font-display text-xl font-bold tracking-tight">3rdSpace</span>
+          <span className="font-display text-xl font-bold tracking-tight">3rdPlace</span>
         </Link>
         <div className="hidden items-center gap-8 text-sm md:flex">
           <a href="#roles" className="text-muted-foreground transition-smooth hover:text-foreground">
@@ -120,17 +120,17 @@ export default function HomePage() {
             <div className="max-w-xl">
               <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-                The operating layer for live events
+                Bay Area event profitability engine
               </div>
               <h1 className="mt-6 font-display text-5xl font-bold leading-[0.95] tracking-tight md:text-6xl lg:text-7xl">
-                Plan it.{' '}
-                <span className="text-gradient-brand">Book it.</span>
+                3rdPlace is the{' '}
+                <span className="text-gradient-brand">Bay Area&apos;s leading</span>
                 <br />
-                Make it make money.
+                event profitability engine.
               </h1>
               <p className="mt-6 text-lg text-muted-foreground">
-                3rdSpace connects three sides of every event — the creators throwing it, the venues
-                hosting it, and the vendors making it run. Pick your side to get started.
+                Plan events, book venues and vendors, automate kickbacks, and understand the money
+                before the doors open. Pick your side to get started.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Button variant="hero" size="xl" asChild>
@@ -169,8 +169,8 @@ export default function HomePage() {
                   <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-brand shadow-glow">
                     <Sparkles className="h-10 w-10 text-primary-foreground" />
                   </div>
-                  <p className="font-display text-2xl font-bold">3rdSpace</p>
-                  <p className="mt-1 text-sm text-muted-foreground">Event command center</p>
+                  <p className="font-display text-2xl font-bold">3rdPlace</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Profitability command center</p>
                 </div>
               </div>
               <div className="absolute -bottom-6 -left-6 hidden rounded-2xl border border-border bg-card/90 p-4 shadow-card backdrop-blur-xl md:block">
@@ -266,7 +266,7 @@ export default function HomePage() {
               </h2>
               <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
                 Stop juggling DMs, spreadsheets, and three different calendars. Pick your role and
-                join 3rdSpace.
+                join 3rdPlace.
               </p>
               <Button variant="hero" size="xl" className="mt-8" asChild>
                 <a href="#roles">
@@ -279,7 +279,7 @@ export default function HomePage() {
       </section>
 
       <footer className="border-t border-border py-8 text-center text-sm text-muted-foreground">
-        © 2026 3rdSpace. The operating layer for live events.
+        © 2026 3rdPlace. Event profitability optimization for live events.
       </footer>
     </div>
   )
