@@ -22,7 +22,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/components/ui/toast'
 import { TicketingSetupGuide } from '@/components/auth/TicketingSetupGuide'
-import type { UserType } from '@/lib/types'
+import type { ServiceType, UserType, VenueType } from '@/lib/types'
 
 // ─── Shared primitives ───────────────────────────────────────────────────────
 
@@ -233,6 +233,73 @@ const ticketPlatformIds: Record<string, 'eventbrite' | 'posh' | 'luma'> = {
   Luma: 'luma',
 }
 
+const stripeOnboardingConfig: Record<
+  UserType,
+  {
+    connectEndpoint: string
+    dashboardPath: string
+    loginPath: string
+  }
+> = {
+  community_builder: {
+    connectEndpoint: '/api/builder/stripe/connect',
+    dashboardPath: '/builder/payouts',
+    loginPath: '/login/builder',
+  },
+  venue_owner: {
+    connectEndpoint: '/api/venue/stripe/connect',
+    dashboardPath: '/venue/payouts',
+    loginPath: '/login/venue',
+  },
+  vendor: {
+    connectEndpoint: '/api/vendor/stripe/connect',
+    dashboardPath: '/vendor/payouts',
+    loginPath: '/login/vendor',
+  },
+}
+
+function getStripeLoginRedirect(userType: UserType) {
+  const config = stripeOnboardingConfig[userType]
+  return `${config.loginPath}?redirect=${encodeURIComponent(`${config.dashboardPath}?connect=stripe`)}`
+}
+
+async function startStripeOnboardingAfterSignup({
+  userType,
+  router,
+  addToast,
+}: {
+  userType: UserType
+  router: ReturnType<typeof useRouter>
+  addToast: ReturnType<typeof useToast>['addToast']
+}) {
+  const config = stripeOnboardingConfig[userType]
+
+  try {
+    const response = await fetch(config.connectEndpoint, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    const result = await response.json().catch(() => null)
+
+    if (!response.ok || !result?.url) {
+      throw new Error(result?.error || 'Unable to start Stripe onboarding')
+    }
+
+    addToast({ title: 'Account created', description: 'Continue with Stripe to finish payout setup.' })
+    window.location.href = result.url
+  } catch (connectError) {
+    addToast({
+      title: 'Account created',
+      description:
+        connectError instanceof Error
+          ? `Stripe setup still needs attention: ${connectError.message}`
+          : 'Stripe setup still needs attention.',
+      variant: 'destructive',
+    })
+    router.push(config.dashboardPath)
+  }
+}
+
 function BuilderSignupFlow({ onBack }: { onBack: () => void }) {
   const router = useRouter()
   const { addToast } = useToast()
@@ -297,8 +364,8 @@ function BuilderSignupFlow({ onBack }: { onBack: () => void }) {
         return
       }
       if (result.requiresEmailConfirmation) {
-        addToast({ title: 'Check your email', description: 'Confirm your email address, then log in.' })
-        router.push('/login')
+        addToast({ title: 'Check your email', description: 'Confirm your email address, then log in to finish Stripe payout setup.' })
+        router.push(getStripeLoginRedirect('community_builder'))
         return
       }
 
@@ -322,8 +389,7 @@ function BuilderSignupFlow({ onBack }: { onBack: () => void }) {
         }
       }
 
-      addToast({ title: 'Welcome to 3rdSpace!', description: 'Your creator account is ready.' })
-      router.push('/builder')
+      await startStripeOnboardingAfterSignup({ userType: 'community_builder', router, addToast })
     } catch {
       addToast({ title: 'Error', description: 'An unexpected error occurred.', variant: 'destructive' })
       setIsLoading(false)
@@ -458,6 +524,16 @@ function BuilderSignupFlow({ onBack }: { onBack: () => void }) {
 // ─── Venue signup ─────────────────────────────────────────────────────────────
 
 const venueTypes = ['Bar', 'Club / Nightlife', 'Restaurant', 'Loft / Studio', 'Rooftop', 'Warehouse', 'Gallery', 'Outdoor']
+const venueTypeIds: Record<string, VenueType> = {
+  Bar: 'other',
+  'Club / Nightlife': 'other',
+  Restaurant: 'restaurant',
+  'Loft / Studio': 'loft_warehouse',
+  Rooftop: 'rooftop',
+  Warehouse: 'loft_warehouse',
+  Gallery: 'gallery',
+  Outdoor: 'other',
+}
 const venueAmenities = ['DJ booth', 'Stage', 'PA / sound system', 'Lighting rig', 'Full bar', 'Kitchen', 'Green room', 'Coat check', 'Parking', 'Loading dock', 'ADA access', 'Wifi']
 const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -519,7 +595,7 @@ function VenueSignupFlow({ onBack }: { onBack: () => void }) {
           contact_role: form.contactRole,
           phone: form.phone,
           venue_name: form.venueName,
-          venue_type: form.venueType.toLowerCase().replace(/ \/ /g, '_').replace(/ /g, '_'),
+          venue_type: venueTypeIds[form.venueType] || 'other',
           address: form.address,
           city: form.city || addressParts[1] || '',
           state: form.state || addressParts[2] || '',
@@ -548,12 +624,11 @@ function VenueSignupFlow({ onBack }: { onBack: () => void }) {
         return
       }
       if (result.requiresEmailConfirmation) {
-        addToast({ title: 'Check your email', description: 'Confirm your email address, then log in.' })
-        router.push('/login')
+        addToast({ title: 'Check your email', description: 'Confirm your email address, then log in to finish Stripe payout setup.' })
+        router.push(getStripeLoginRedirect('venue_owner'))
         return
       }
-      addToast({ title: 'Welcome to 3rdSpace!', description: 'Your venue listing is live.' })
-      router.push('/venue')
+      await startStripeOnboardingAfterSignup({ userType: 'venue_owner', router, addToast })
     } catch {
       addToast({ title: 'Error', description: 'An unexpected error occurred.', variant: 'destructive' })
       setIsLoading(false)
@@ -756,6 +831,20 @@ function VenueSignupFlow({ onBack }: { onBack: () => void }) {
 // ─── Vendor signup ────────────────────────────────────────────────────────────
 
 const vendorServices = ['DJ', 'Live band', 'Photographer', 'Videographer', 'Catering', 'Bartending', 'AV / Production', 'Lighting', 'Florals', 'Security', 'Hosts / Staffing', 'Decor']
+const vendorServiceTypeIds: Record<string, ServiceType> = {
+  DJ: 'dj',
+  'Live band': 'other',
+  Photographer: 'photography',
+  Videographer: 'videography',
+  Catering: 'catering',
+  Bartending: 'bartending',
+  'AV / Production': 'av_tech',
+  Lighting: 'av_tech',
+  Florals: 'florist',
+  Security: 'event_planning',
+  'Hosts / Staffing': 'event_planning',
+  Decor: 'florist',
+}
 
 function VendorSignupFlow({ onBack }: { onBack: () => void }) {
   const router = useRouter()
@@ -795,7 +884,7 @@ function VendorSignupFlow({ onBack }: { onBack: () => void }) {
   const finish = async () => {
     setIsLoading(true)
     try {
-      const serviceType = form.services[0]?.toLowerCase().replace(/ \/ /g, '_').replace(/ /g, '_') || 'other'
+      const serviceType = form.services[0] ? vendorServiceTypeIds[form.services[0]] || 'other' : 'other'
       const response = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -822,7 +911,7 @@ function VendorSignupFlow({ onBack }: { onBack: () => void }) {
           emergency_rate_uplift: form.emergencyAvailable ? parseFloat(form.emergencyRate) : null,
           availability_notes: `Available: ${form.availableDays.join(', ')}. Lead time: ${form.leadTimeDays} days.`,
           bank_account_holder_name: form.fullName,
-          bank_name: '',
+          bank_name: 'Pending Stripe onboarding',
         }),
       })
       const result = await response.json()
@@ -832,12 +921,11 @@ function VendorSignupFlow({ onBack }: { onBack: () => void }) {
         return
       }
       if (result.requiresEmailConfirmation) {
-        addToast({ title: 'Check your email', description: 'Confirm your email address, then log in.' })
-        router.push('/login')
+        addToast({ title: 'Check your email', description: 'Confirm your email address, then log in to finish Stripe payout setup.' })
+        router.push(getStripeLoginRedirect('vendor'))
         return
       }
-      addToast({ title: 'Welcome to 3rdSpace!', description: 'Your vendor profile is live.' })
-      router.push('/vendor')
+      await startStripeOnboardingAfterSignup({ userType: 'vendor', router, addToast })
     } catch {
       addToast({ title: 'Error', description: 'An unexpected error occurred.', variant: 'destructive' })
       setIsLoading(false)

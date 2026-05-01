@@ -55,6 +55,11 @@ const portalConfig: Record<
   },
 }
 
+function getSafeInternalRedirect(value: string | null) {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return null
+  return value
+}
+
 export function RoleLoginPage({ portal }: { portal: PortalKey }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -64,7 +69,7 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
   const [portalHandoff, setPortalHandoff] = useState<{ message: string; href: string } | null>(null)
   const config = portalConfig[portal]
-  const redirect = searchParams.get('redirect')
+  const redirect = getSafeInternalRedirect(searchParams.get('redirect'))
 
   const {
     register,
@@ -115,7 +120,7 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
       addToast({ title: 'Welcome back!', description: 'You have been successfully logged in.' })
       queryClient.clear()
       queryClient.setQueryData(userKeys.current, result.user)
-      router.push(result.dashboardPath || redirect || '/dashboard')
+      router.push(redirect || result.dashboardPath || '/dashboard')
     } catch {
       addToast({ title: 'Error', description: 'Connection failed. Please try again.', variant: 'destructive' })
       setIsLoading(false)
@@ -128,6 +133,7 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
       const supabase = createClient()
       const callbackUrl = new URL('/auth/callback', window.location.origin)
       callbackUrl.searchParams.set('expected_user_type', config.expectedUserType)
+      if (redirect) callbackUrl.searchParams.set('next', redirect)
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: callbackUrl.toString() },

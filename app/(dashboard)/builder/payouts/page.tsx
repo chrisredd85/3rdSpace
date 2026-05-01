@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { AlertCircle, Banknote, CalendarClock, CreditCard, Info, ReceiptText } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -74,6 +75,8 @@ function statusLabel(status: string) {
  * Builder payout setup and incoming venue kickback tracking.
  */
 export default function BuilderPayoutsPage() {
+  const searchParams = useSearchParams()
+  const didAutoStartStripe = useRef(false)
   const [status, setStatus] = useState<StripeStatusResponse>({
     account: null,
     completionPercent: 0,
@@ -124,7 +127,7 @@ export default function BuilderPayoutsPage() {
     loadSummary()
   }, [loadStatus, loadSummary])
 
-  const startConnect = async () => {
+  const startConnect = useCallback(async () => {
     setIsConnecting(true)
     setError(null)
 
@@ -143,7 +146,14 @@ export default function BuilderPayoutsPage() {
       setIsConnecting(false)
       setIsModalOpen(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    if (didAutoStartStripe.current || isLoadingStatus || searchParams.get('connect') !== 'stripe') return
+
+    didAutoStartStripe.current = true
+    startConnect()
+  }, [isLoadingStatus, searchParams, startConnect])
 
   const refreshStatus = async () => {
     setIsRefreshing(true)

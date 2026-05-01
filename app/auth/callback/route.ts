@@ -21,10 +21,15 @@ function getRole(userType: UserType) {
   return 'vendor'
 }
 
+function getSafeInternalRedirect(value: string | null) {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return null
+  return value
+}
+
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
-  const next = requestUrl.searchParams.get('next')
+  const next = getSafeInternalRedirect(requestUrl.searchParams.get('next'))
   const expectedUserType = requestUrl.searchParams.get('expected_user_type') as UserType | null
   const authFlow = requestUrl.searchParams.get('auth_flow')
   const error = requestUrl.searchParams.get('error')

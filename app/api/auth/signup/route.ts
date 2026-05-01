@@ -129,7 +129,7 @@ function getVendorDetails(body: SignupRequest): VendorSignupDetails | null {
   if (body.userType !== 'vendor') return null
 
   const { name, service_type, bank_account_holder_name, bank_name, availability_notes } = body
-  if (!name || !service_type || !bank_account_holder_name || !bank_name || !availability_notes) {
+  if (!name || !service_type || !bank_account_holder_name || !availability_notes) {
     return null
   }
 
@@ -137,7 +137,7 @@ function getVendorDetails(body: SignupRequest): VendorSignupDetails | null {
     name,
     service_type,
     bank_account_holder_name,
-    bank_name,
+    bank_name: bank_name?.trim() || 'Pending Stripe onboarding',
     availability_notes,
   }
 }
