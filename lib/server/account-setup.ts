@@ -43,6 +43,16 @@ function getAccountWebhookUrl(origin: string, platform: TicketPlatform, connecti
   return url.toString()
 }
 
+function isMissingTicketingConnectionsTable(error: { code?: string; message?: string } | null | undefined) {
+  return (
+    error?.code === 'PGRST205' ||
+    (
+      /builder_ticketing_connections/i.test(error?.message ?? '') &&
+      /schema cache|does not exist|could not find/i.test(error?.message ?? '')
+    )
+  )
+}
+
 export async function ensureBuilderTicketingConnections(
   admin: SupabaseLikeClient,
   builderId: string,
@@ -70,6 +80,13 @@ export async function ensureBuilderTicketingConnections(
       .single()
 
     if (error) {
+      if (isMissingTicketingConnectionsTable(error)) {
+        console.warn(
+          '[account-setup] Skipping builder ticketing connection setup because builder_ticketing_connections is unavailable.'
+        )
+        return
+      }
+
       throw new Error(`Failed to save ${platform} ticketing connection: ${error.message}`)
     }
 

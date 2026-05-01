@@ -56,6 +56,8 @@ interface VendorSignupDetails {
   availability_notes: string
 }
 
+const VALID_TICKETING_PLATFORMS = new Set<TicketPlatform>(['eventbrite', 'luma', 'posh'])
+
 function getRole(userType: UserType): string {
   if (userType === 'community_builder') return 'builder'
   if (userType === 'venue_owner') return 'owner'
@@ -93,14 +95,22 @@ function serializeAuthError(error: unknown) {
 function getBuilderDetails(body: SignupRequest): BuilderSignupDetails | null {
   if (body.userType !== 'community_builder') return null
 
-  if (!body.organization_name || !body.event_types?.length || !body.ticket_platforms?.length) {
+  const organizationName = body.organization_name?.trim()
+  const eventTypes = body.event_types
+    ?.map((eventType) => eventType.trim())
+    .filter(Boolean)
+  const ticketPlatforms = body.ticket_platforms
+    ?.map((platform) => platform.trim())
+    .filter((platform): platform is TicketPlatform => VALID_TICKETING_PLATFORMS.has(platform as TicketPlatform))
+
+  if (!organizationName || !eventTypes?.length || !ticketPlatforms?.length) {
     return null
   }
 
   return {
-    organization_name: body.organization_name,
-    event_types: body.event_types,
-    ticket_platforms: body.ticket_platforms,
+    organization_name: organizationName,
+    event_types: eventTypes,
+    ticket_platforms: ticketPlatforms,
   }
 }
 
@@ -203,6 +213,33 @@ async function ensureRoleSetup(
       bankName: vendorDetails.bank_name,
       availabilityNotes: vendorDetails.availability_notes,
     })
+  }
+}
+
+async function cleanupFailedSignup(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  userId: string
+) {
+  const cleanupSteps = [
+    () => admin.from('builder_profiles').delete().eq('user_id', userId),
+    () => admin.from('owner_profiles').delete().eq('user_id', userId),
+    () => admin.from('vendor_profiles').delete().eq('user_id', userId),
+    () => admin.from('users').delete().eq('id', userId),
+  ]
+
+  for (const step of cleanupSteps) {
+    try {
+      const { error } = await step()
+      if (error) console.error('Signup cleanup step failed:', error)
+    } catch (cleanupError) {
+      console.error('Signup cleanup step threw:', cleanupError)
+    }
+  }
+
+  try {
+    await admin.auth.admin.deleteUser(userId)
+  } catch (cleanupError) {
+    console.error('Cleanup error (delete auth user):', cleanupError)
   }
 }
 
@@ -395,11 +432,7 @@ export async function POST(request: NextRequest) {
         console.log('public.users already created (e.g. by trigger), continuing')
       } else {
         console.error('Error creating user profile:', userError)
-        try {
-          await admin.auth.admin.deleteUser(authData.user.id)
-        } catch (cleanupError) {
-          console.error('Cleanup error (delete auth user):', cleanupError)
-        }
+        await cleanupFailedSignup(admin, authData.user.id)
         return NextResponse.json(
           { error: `Failed to create profile: ${userError.message}` },
           { status: 500 }
@@ -411,11 +444,7 @@ export async function POST(request: NextRequest) {
       await ensureRoleSetup(admin, authData.user.id, body, builderDetails, venueDetails, vendorDetails, request.nextUrl.origin)
     } catch (setupError) {
       console.error('Error completing role setup during signup:', setupError)
-      try {
-        await admin.auth.admin.deleteUser(authData.user.id)
-      } catch (cleanupError) {
-        console.error('Cleanup error (delete auth user after setup failure):', cleanupError)
-      }
+      await cleanupFailedSignup(admin, authData.user.id)
       return NextResponse.json(
         {
           error:
