@@ -20,6 +20,8 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { IntakeAgentOutput } from '@/lib/ai/agents/intakeAgent'
+import { buildEventPlanFromPlannerPlan } from '@/lib/planner/agentPlanAdapter'
 import { determineNextResponse } from '@/lib/planner/agentResponder'
 import { parseEventIntent } from '@/lib/planner/intentParser'
 import { createVenueOpportunityBundle } from '@/lib/planner/opportunityBuilder'
@@ -27,6 +29,7 @@ import { checkRateLimit, rateLimitHeaders } from '@/lib/server/rate-limit'
 import { createClient } from '@/lib/supabase/server'
 import type {
   Json,
+  AgentResponseDraft,
   Plan,
   PlanIntent,
   PlanMessage,
@@ -36,6 +39,7 @@ import type {
 } from '@/lib/types'
 
 type PlannerDb = { from: (table: string) => any }
+type AgentMode = 'openai' | 'deterministic'
 type AuthResult =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
@@ -184,11 +188,19 @@ export async function POST(
 
     const userMessage = userMessageData as PlanMessage
     const messages = await loadMessages(auth.db, context.params.planId)
-    const agentDraft = determineNextResponse(planAfterFieldUpdates, messages)
+    const agentResponse = await buildPlannerAgentResponse({
+      db: auth.db,
+      planId: context.params.planId,
+      userId: auth.userId,
+      userMessage: body.data.message,
+      plan: planAfterFieldUpdates,
+      messages,
+    })
+    const agentDraft = agentResponse.agentDraft
     const finalPlan = await maybeMarkPlanReady(
       auth.db,
       context.params.planId,
-      planAfterFieldUpdates,
+      agentResponse.plan,
       agentDraft.message_type
     )
 
@@ -239,6 +251,7 @@ export async function POST(
       after_state: toJson({
         plan: finalPlan,
         intent,
+        agent_mode: agentResponse.agentMode,
         user_message_id: userMessage.id,
         agent_message_id: agentMessage.id,
         follow_up_message_ids: followUpMessages.map((message) => message.id),
@@ -313,6 +326,63 @@ async function loadMessages(db: PlannerDb, planId: string): Promise<PlanMessage[
   return (data ?? []) as PlanMessage[]
 }
 
+async function buildPlannerAgentResponse(input: {
+  db: PlannerDb
+  planId: string
+  userId: string
+  userMessage: string
+  plan: Plan
+  messages: PlanMessage[]
+}): Promise<{ agentDraft: AgentResponseDraft; plan: Plan; agentMode: AgentMode }> {
+  const deterministicDraft = () => ({
+    agentDraft: determineNextResponse(input.plan, input.messages),
+    plan: input.plan,
+    agentMode: 'deterministic' as AgentMode,
+  })
+
+  if (!process.env.OPENAI_API_KEY) {
+    console.warn('[planner.intake] Falling back to deterministic response: OPENAI_API_KEY is not set')
+    return deterministicDraft()
+  }
+
+  try {
+    const { runAgent } = await import('@/lib/ai/agents')
+    const agentResult = await runAgent({
+      agent_name: 'intake',
+      event_id: null,
+      user_id: input.userId,
+      payload: {
+        messages: input.messages.map((message) => ({ role: message.role, content: message.content })),
+        user_message: input.userMessage,
+        current_plan: input.plan,
+        existing_event_plan: buildEventPlanFromPlannerPlan(input.plan),
+      },
+    })
+
+    if ((agentResult.status as string) !== 'succeeded') {
+      console.warn('[planner.intake] Falling back to deterministic response: intake agent did not succeed')
+      return deterministicDraft()
+    }
+
+    const intakeOutput = agentResult.output as IntakeAgentOutput
+    const planWithAgentUpdates = await updatePlanIfNeeded(
+      input.db,
+      input.planId,
+      input.plan,
+      buildPlanUpdatesFromIntakeOutput(intakeOutput)
+    )
+
+    return {
+      agentDraft: buildIntakeAgentDraft(intakeOutput),
+      plan: planWithAgentUpdates,
+      agentMode: 'openai',
+    }
+  } catch (error) {
+    console.warn('[planner.intake] Falling back to deterministic response:', error)
+    return deterministicDraft()
+  }
+}
+
 async function updatePlanIfNeeded(
   db: PlannerDb,
   planId: string,
@@ -339,6 +409,73 @@ async function updatePlanIfNeeded(
   await insertPlanUpdateRows(db, currentPlan, changedUpdates)
 
   return data as Plan
+}
+
+function buildIntakeAgentDraft(output: IntakeAgentOutput): AgentResponseDraft {
+  const missingQuestions = output.missing_questions
+    .map((question) => question.trim())
+    .filter((question) => question.length > 0)
+  const nextBestQuestion = output.next_best_question?.trim() || null
+  const content = nextBestQuestion
+    ?? (missingQuestions.length > 0
+      ? `I still need: ${missingQuestions.join(' ')}`
+      : 'I have enough to start venue matching and economics recommendations.')
+
+  return {
+    content,
+    message_type: missingQuestions.length > 0 ? 'text' : 'recommendation',
+    metadata: toJson({
+      agent_name: 'intake',
+      agent_output: output,
+    }),
+  }
+}
+
+function buildPlanUpdatesFromIntakeOutput(output: IntakeAgentOutput): Record<string, unknown> {
+  const eventPlan = output.updated_event_plan
+  const updates: Record<string, unknown> = {}
+
+  if (eventPlan.event_name) updates.title = eventPlan.event_name
+  if (eventPlan.venue_type) updates.event_type = eventPlan.venue_type
+
+  const guestCount = eventPlan.expected_attendance ?? eventPlan.headcount_max ?? eventPlan.headcount_min
+  if (typeof guestCount === 'number') updates.guest_count = guestCount
+
+  if (typeof eventPlan.budget === 'number') updates.budget_cap_cents = normalizePlanningMoneyToCents(eventPlan.budget)
+  if (typeof eventPlan.profit_goal === 'number') {
+    updates.profit_goal_cents = normalizePlanningMoneyToCents(eventPlan.profit_goal)
+  }
+
+  const neighborhood = output.neighborhood ?? eventPlan.city
+  if (neighborhood) updates.neighborhood = neighborhood
+
+  if (eventPlan.event_date) {
+    updates.date_window_start = eventPlan.event_date
+    updates.date_window_end = eventPlan.event_date
+  }
+
+  if (eventPlan.monetization_model) {
+    updates.ticketing_model = eventPlan.monetization_model
+    const monetizationModel = eventPlan.monetization_model.trim().toLowerCase()
+    if (monetizationModel.includes('ticket') || monetizationModel.includes('paid')) updates.ticketed = true
+    if (
+      monetizationModel.includes('free') ||
+      monetizationModel.includes('rsvp') ||
+      monetizationModel.includes('invite') ||
+      monetizationModel.includes('sponsor')
+    ) {
+      updates.ticketed = false
+    }
+  }
+
+  if (output.food_drink_needs) updates.food_responsibility = output.food_drink_needs
+
+  return updates
+}
+
+function normalizePlanningMoneyToCents(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0
+  return Math.round(value < 10000 ? value * 100 : value)
 }
 
 async function maybeMarkPlanReady(

@@ -18,12 +18,14 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { IntakeAgentOutput } from '@/lib/ai/agents/intakeAgent'
 import { determineNextResponse } from '@/lib/planner/agentResponder'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import { parseEventIntent } from '@/lib/planner/intentParser'
 import { createClient } from '@/lib/supabase/server'
 import type {
   Json,
+  AgentResponseDraft,
   Plan,
   PlanIntent,
   PlanMessage,
@@ -33,6 +35,8 @@ import type {
 } from '@/lib/types'
 
 type PlannerDb = { from: (table: string) => any }
+type AgentMode = 'openai' | 'deterministic'
+type InitialMessageResult = { plan: Plan; messages: PlanMessage[] | null; agentMode: AgentMode }
 type AuthResult =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
@@ -150,32 +154,44 @@ export async function POST(
     }
 
     const plan = planData as Plan
-    const messages = draftMessages.length > 0
-      ? await insertDraftMessages(auth.db, plan.id, draftMessages)
-      : await insertInitialMessages(auth.db, plan, body.data.message, intent)
+    const initialExchange: InitialMessageResult = draftMessages.length > 0
+      ? {
+        plan,
+        messages: await insertDraftMessages(auth.db, plan.id, draftMessages),
+        agentMode: 'deterministic',
+      }
+      : await insertInitialMessages(auth.db, plan, body.data.message, intent, auth.userId)
 
-    if (!messages) {
+    if (!initialExchange.messages) {
       return NextResponse.json({ error: 'Failed to create initial messages' }, { status: 500 })
     }
 
+    const finalPlan = initialExchange.plan
+    const messages = initialExchange.messages
+
     await recordEventTypeCandidate(auth.db, {
       userId: auth.userId,
-      planId: plan.id,
+      planId: finalPlan.id,
       intent,
     })
     await insertAuditLog(auth.db, {
       user_id: auth.userId,
-      plan_id: plan.id,
+      plan_id: finalPlan.id,
       action: 'planner.plan.created',
       entity_type: 'plan',
-      entity_id: plan.id,
+      entity_id: finalPlan.id,
       before_state: null,
-      after_state: toJson({ plan, intent, message_ids: messages.map((message) => message.id) }),
+      after_state: toJson({
+        plan: finalPlan,
+        intent,
+        agent_mode: initialExchange.agentMode,
+        message_ids: messages.map((message) => message.id),
+      }),
       ip_address: getIpAddress(request),
     })
 
     return NextResponse.json({
-      plan,
+      plan: finalPlan,
       messages,
       intent,
     })
@@ -238,8 +254,9 @@ async function insertInitialMessages(
   db: PlannerDb,
   plan: Plan,
   message: string,
-  intent: Partial<PlanIntent>
-): Promise<PlanMessage[] | null> {
+  intent: Partial<PlanIntent>,
+  userId: string
+): Promise<InitialMessageResult> {
   const { data: userMessageData, error: userMessageError } = await db
     .from('plan_messages')
     .insert({
@@ -254,29 +271,211 @@ async function insertInitialMessages(
 
   if (userMessageError || !userMessageData) {
     console.error('Planner initial message create error:', userMessageError)
-    return null
+    return { plan, messages: null, agentMode: 'deterministic' }
   }
 
   const userMessage = userMessageData as PlanMessage
-  const agentDraft = determineNextResponse(plan, [userMessage])
+  const agentResponse = await buildInitialAgentResponse({
+    db,
+    plan,
+    userId,
+    userMessage: message,
+    messages: [userMessage],
+  })
+  const finalPlan = await maybeMarkPlanReady(db, agentResponse.plan, agentResponse.agentDraft.message_type)
   const { data: agentMessageData, error: agentMessageError } = await db
     .from('plan_messages')
     .insert({
       plan_id: plan.id,
       role: 'agent',
-      content: agentDraft.content,
-      message_type: agentDraft.message_type,
-      metadata: agentDraft.metadata,
+      content: agentResponse.agentDraft.content,
+      message_type: agentResponse.agentDraft.message_type,
+      metadata: agentResponse.agentDraft.metadata,
     })
     .select(PLAN_MESSAGE_SELECT_COLUMNS)
     .single()
 
   if (agentMessageError || !agentMessageData) {
     console.error('Planner initial agent response error:', agentMessageError)
-    return null
+    return { plan: finalPlan, messages: null, agentMode: agentResponse.agentMode }
   }
 
-  return [userMessage, agentMessageData as PlanMessage]
+  return {
+    plan: finalPlan,
+    messages: [userMessage, agentMessageData as PlanMessage],
+    agentMode: agentResponse.agentMode,
+  }
+}
+
+async function buildInitialAgentResponse(input: {
+  db: PlannerDb
+  plan: Plan
+  userId: string
+  userMessage: string
+  messages: PlanMessage[]
+}): Promise<{ agentDraft: AgentResponseDraft; plan: Plan; agentMode: AgentMode }> {
+  const deterministicDraft = () => ({
+    agentDraft: determineNextResponse(input.plan, input.messages),
+    plan: input.plan,
+    agentMode: 'deterministic' as AgentMode,
+  })
+
+  if (!process.env.OPENAI_API_KEY) {
+    console.warn('[planner.intake] Falling back to deterministic response: OPENAI_API_KEY is not set')
+    return deterministicDraft()
+  }
+
+  try {
+    const { runAgent } = await import('@/lib/ai/agents')
+    const agentResult = await runAgent({
+      agent_name: 'intake',
+      event_id: null,
+      user_id: input.userId,
+      payload: {
+        messages: [{ role: 'user', content: input.userMessage }],
+        user_message: input.userMessage,
+        current_plan: null,
+        existing_event_plan: null,
+      },
+    })
+
+    if ((agentResult.status as string) !== 'succeeded') {
+      console.warn('[planner.intake] Falling back to deterministic response: intake agent did not succeed')
+      return deterministicDraft()
+    }
+
+    const intakeOutput = agentResult.output as IntakeAgentOutput
+    const planWithAgentUpdates = await updatePlanIfNeeded(
+      input.db,
+      input.plan,
+      buildPlanUpdatesFromIntakeOutput(intakeOutput)
+    )
+
+    return {
+      agentDraft: buildIntakeAgentDraft(intakeOutput),
+      plan: planWithAgentUpdates,
+      agentMode: 'openai',
+    }
+  } catch (error) {
+    console.warn('[planner.intake] Falling back to deterministic response:', error)
+    return deterministicDraft()
+  }
+}
+
+async function updatePlanIfNeeded(
+  db: PlannerDb,
+  currentPlan: Plan,
+  updates: Record<string, unknown>
+): Promise<Plan> {
+  const changedUpdates = Object.fromEntries(
+    Object.entries(updates).filter(([field, value]) => currentPlan[field as keyof Plan] !== value)
+  )
+  if (Object.keys(changedUpdates).length === 0) return currentPlan
+
+  const { data, error } = await db
+    .from('plans')
+    .update(changedUpdates)
+    .eq('id', currentPlan.id)
+    .select(PLAN_SELECT_COLUMNS)
+    .single()
+
+  if (error || !data) {
+    console.error('Planner initial plan field update error:', error)
+    return currentPlan
+  }
+
+  await insertPlanUpdateRows(db, currentPlan, changedUpdates)
+
+  return data as Plan
+}
+
+async function maybeMarkPlanReady(
+  db: PlannerDb,
+  currentPlan: Plan,
+  messageType: PlanMessage['message_type']
+): Promise<Plan> {
+  if (messageType !== 'recommendation' || currentPlan.status !== 'drafting') return currentPlan
+
+  const { data, error } = await db
+    .from('plans')
+    .update({ status: 'ready' })
+    .eq('id', currentPlan.id)
+    .select(PLAN_SELECT_COLUMNS)
+    .single()
+
+  if (error || !data) {
+    console.error('Planner initial ready status update error:', error)
+    return currentPlan
+  }
+
+  return data as Plan
+}
+
+function buildIntakeAgentDraft(output: IntakeAgentOutput): AgentResponseDraft {
+  const missingQuestions = output.missing_questions
+    .map((question) => question.trim())
+    .filter((question) => question.length > 0)
+  const nextBestQuestion = output.next_best_question?.trim() || null
+  const content = nextBestQuestion
+    ?? (missingQuestions.length > 0
+      ? `I still need: ${missingQuestions.join(' ')}`
+      : 'I have enough to start venue matching and economics recommendations.')
+
+  return {
+    content,
+    message_type: missingQuestions.length > 0 ? 'text' : 'recommendation',
+    metadata: toJson({
+      agent_name: 'intake',
+      agent_output: output,
+    }),
+  }
+}
+
+function buildPlanUpdatesFromIntakeOutput(output: IntakeAgentOutput): Record<string, unknown> {
+  const eventPlan = output.updated_event_plan
+  const updates: Record<string, unknown> = {}
+
+  if (eventPlan.event_name) updates.title = eventPlan.event_name
+  if (eventPlan.venue_type) updates.event_type = eventPlan.venue_type
+
+  const guestCount = eventPlan.expected_attendance ?? eventPlan.headcount_max ?? eventPlan.headcount_min
+  if (typeof guestCount === 'number') updates.guest_count = guestCount
+
+  if (typeof eventPlan.budget === 'number') updates.budget_cap_cents = normalizePlanningMoneyToCents(eventPlan.budget)
+  if (typeof eventPlan.profit_goal === 'number') {
+    updates.profit_goal_cents = normalizePlanningMoneyToCents(eventPlan.profit_goal)
+  }
+
+  const neighborhood = output.neighborhood ?? eventPlan.city
+  if (neighborhood) updates.neighborhood = neighborhood
+
+  if (eventPlan.event_date) {
+    updates.date_window_start = eventPlan.event_date
+    updates.date_window_end = eventPlan.event_date
+  }
+
+  if (eventPlan.monetization_model) {
+    updates.ticketing_model = eventPlan.monetization_model
+    const monetizationModel = eventPlan.monetization_model.trim().toLowerCase()
+    if (monetizationModel.includes('ticket') || monetizationModel.includes('paid')) updates.ticketed = true
+    if (
+      monetizationModel.includes('free') ||
+      monetizationModel.includes('rsvp') ||
+      monetizationModel.includes('invite') ||
+      monetizationModel.includes('sponsor')
+    ) {
+      updates.ticketed = false
+    }
+  }
+
+  if (output.food_drink_needs) updates.food_responsibility = output.food_drink_needs
+
+  return updates
+}
+
+function normalizePlanningMoneyToCents(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0
+  return Math.round(value < 10000 ? value * 100 : value)
 }
 
 async function insertDraftMessages(
@@ -315,6 +514,20 @@ function buildPlanTitle(message: string, intent: Partial<PlanIntent>): string {
 
   const compact = message.replace(/\s+/g, ' ').trim()
   return compact.length > 64 ? `${compact.slice(0, 61)}...` : compact
+}
+
+async function insertPlanUpdateRows(db: PlannerDb, plan: Plan, updates: Record<string, unknown>) {
+  const rows = Object.entries(updates).map(([field, newValue]) => ({
+    plan_id: plan.id,
+    field,
+    old_value: toJsonValue(plan[field as keyof Plan]),
+    new_value: toJsonValue(newValue),
+  }))
+
+  if (rows.length === 0) return
+
+  const { error } = await db.from('planner_plan_updates').insert(rows)
+  if (error) console.error('Planner initial update audit insert error:', error)
 }
 
 async function recordEventTypeCandidate(
