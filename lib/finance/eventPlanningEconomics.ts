@@ -1,0 +1,180 @@
+import { z } from 'zod'
+import { eventPlanSchema } from '@/lib/ai/types'
+
+const SCENARIO_ATTENDANCE_RATES = {
+  conservative: 0.7,
+  expected: 0.85,
+  optimistic: 1,
+} as const
+
+const TARGET_PROFIT_MARGIN = 0.2
+
+export const budgetLineItemSchema = z.object({
+  label: z.string().trim().min(1),
+  amount_cents: z.number().int().nonnegative(),
+  category: z.string().trim().min(1).optional(),
+})
+
+export const eventPlanningEconomicsInputSchema = z.object({
+  event_plan: eventPlanSchema,
+  budget_line_items: z.array(budgetLineItemSchema).default([]),
+  expected_attendance: z.number().int().nonnegative(),
+  venue_cost_cents: z.number().int().nonnegative(),
+  vendor_cost_cents: z.number().int().nonnegative(),
+  ticket_price_cents: z.number().int().nonnegative(),
+  sponsorship_revenue_cents: z.number().int().nonnegative().default(0),
+})
+
+export const revenueScenarioSchema = z.object({
+  attendance: z.number().int().nonnegative(),
+  ticket_revenue_cents: z.number().int(),
+  sponsorship_revenue_cents: z.number().int(),
+  total_revenue_cents: z.number().int(),
+  total_cost_cents: z.number().int(),
+  profit_cents: z.number().int(),
+  profit_margin: z.number(),
+})
+
+export const eventPlanningEconomicsOutputSchema = z.object({
+  break_even_attendance: z.number().int().nonnegative().nullable(),
+  recommended_ticket_price_range: z.object({
+    min_cents: z.number().int().nonnegative(),
+    max_cents: z.number().int().nonnegative(),
+  }),
+  revenue_scenarios: z.object({
+    conservative: revenueScenarioSchema,
+    expected: revenueScenarioSchema,
+    optimistic: revenueScenarioSchema,
+  }),
+  cost_summary_cents: z.object({
+    venue_cost_cents: z.number().int().nonnegative(),
+    vendor_cost_cents: z.number().int().nonnegative(),
+    budget_line_items_total_cents: z.number().int().nonnegative(),
+    total_cost_cents: z.number().int().nonnegative(),
+  }),
+  profit_projection_cents: z.number().int(),
+  risk_flags: z.array(z.string().trim().min(1)),
+})
+
+export type BudgetLineItem = z.infer<typeof budgetLineItemSchema>
+export type EventPlanningEconomicsInput = z.infer<typeof eventPlanningEconomicsInputSchema>
+export type EventPlanningEconomicsOutput = z.infer<typeof eventPlanningEconomicsOutputSchema>
+export type RevenueScenarioName = keyof typeof SCENARIO_ATTENDANCE_RATES
+
+export function calculateEventPlanningEconomics(
+  rawInput: EventPlanningEconomicsInput
+): EventPlanningEconomicsOutput {
+  const input = eventPlanningEconomicsInputSchema.parse(rawInput)
+  const budgetLineItemsTotalCents = input.budget_line_items.reduce(
+    (sum, item) => sum + item.amount_cents,
+    0
+  )
+  const totalCostCents = input.venue_cost_cents + input.vendor_cost_cents + budgetLineItemsTotalCents
+  const netCostAfterSponsorshipCents = Math.max(totalCostCents - input.sponsorship_revenue_cents, 0)
+  const breakEvenAttendance =
+    input.ticket_price_cents > 0 ? Math.ceil(netCostAfterSponsorshipCents / input.ticket_price_cents) : null
+  const revenueScenarios = {
+    conservative: buildRevenueScenario('conservative', input, totalCostCents),
+    expected: buildRevenueScenario('expected', input, totalCostCents),
+    optimistic: buildRevenueScenario('optimistic', input, totalCostCents),
+  }
+  const expectedScenario = revenueScenarios.expected
+
+  return eventPlanningEconomicsOutputSchema.parse({
+    break_even_attendance: breakEvenAttendance,
+    recommended_ticket_price_range: buildRecommendedTicketPriceRange(
+      input.expected_attendance,
+      totalCostCents,
+      input.sponsorship_revenue_cents
+    ),
+    revenue_scenarios: revenueScenarios,
+    cost_summary_cents: {
+      venue_cost_cents: input.venue_cost_cents,
+      vendor_cost_cents: input.vendor_cost_cents,
+      budget_line_items_total_cents: budgetLineItemsTotalCents,
+      total_cost_cents: totalCostCents,
+    },
+    profit_projection_cents: expectedScenario.profit_cents,
+    risk_flags: buildRiskFlags(input, breakEvenAttendance, expectedScenario),
+  })
+}
+
+function buildRevenueScenario(
+  scenario: RevenueScenarioName,
+  input: EventPlanningEconomicsInput,
+  totalCostCents: number
+) {
+  const attendance = Math.floor(input.expected_attendance * SCENARIO_ATTENDANCE_RATES[scenario])
+  const ticketRevenueCents = attendance * input.ticket_price_cents
+  const totalRevenueCents = ticketRevenueCents + input.sponsorship_revenue_cents
+  const profitCents = totalRevenueCents - totalCostCents
+
+  return revenueScenarioSchema.parse({
+    attendance,
+    ticket_revenue_cents: ticketRevenueCents,
+    sponsorship_revenue_cents: input.sponsorship_revenue_cents,
+    total_revenue_cents: totalRevenueCents,
+    total_cost_cents: totalCostCents,
+    profit_cents: profitCents,
+    profit_margin: calculateProfitMargin(profitCents, totalRevenueCents),
+  })
+}
+
+function buildRecommendedTicketPriceRange(
+  expectedAttendance: number,
+  totalCostCents: number,
+  sponsorshipRevenueCents: number
+) {
+  const expectedPaidAttendance = Math.floor(expectedAttendance * SCENARIO_ATTENDANCE_RATES.expected)
+  if (expectedPaidAttendance <= 0) {
+    return { min_cents: 0, max_cents: 0 }
+  }
+
+  const netCostAfterSponsorshipCents = Math.max(totalCostCents - sponsorshipRevenueCents, 0)
+  const breakEvenPriceCents = roundUpToNearestDollarCents(
+    Math.ceil(netCostAfterSponsorshipCents / expectedPaidAttendance)
+  )
+  const targetMarginPriceCents = roundUpToNearestDollarCents(
+    Math.ceil(netCostAfterSponsorshipCents / ((1 - TARGET_PROFIT_MARGIN) * expectedPaidAttendance))
+  )
+
+  return {
+    min_cents: breakEvenPriceCents,
+    max_cents: Math.max(breakEvenPriceCents, targetMarginPriceCents),
+  }
+}
+
+function buildRiskFlags(
+  input: EventPlanningEconomicsInput,
+  breakEvenAttendance: number | null,
+  expectedScenario: z.infer<typeof revenueScenarioSchema>
+) {
+  const flags: string[] = []
+
+  if (expectedScenario.profit_margin < TARGET_PROFIT_MARGIN) {
+    flags.push('Expected scenario is below a 20% projected profit margin.')
+  }
+
+  if (breakEvenAttendance !== null && breakEvenAttendance > input.expected_attendance) {
+    flags.push('Break-even attendance is higher than expected attendance.')
+  }
+
+  if (input.ticket_price_cents === 0 && expectedScenario.profit_cents < 0) {
+    flags.push('Ticket price is zero while projected costs exceed sponsorship revenue.')
+  }
+
+  if (input.sponsorship_revenue_cents === 0 && input.event_plan.monetization_model === 'free') {
+    flags.push('Free event has no sponsorship revenue in the planning inputs.')
+  }
+
+  return flags
+}
+
+function calculateProfitMargin(profitCents: number, totalRevenueCents: number) {
+  if (totalRevenueCents <= 0) return 0
+  return profitCents / totalRevenueCents
+}
+
+function roundUpToNearestDollarCents(valueCents: number) {
+  return Math.ceil(valueCents / 100) * 100
+}
