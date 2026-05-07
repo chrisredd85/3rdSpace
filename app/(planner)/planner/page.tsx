@@ -10,7 +10,7 @@
 
 import { Suspense, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { CalendarDays, CheckCircle2, ChevronDown, ExternalLink, Loader2, MessageSquare, RefreshCw, SendHorizontal, Sparkles } from 'lucide-react'
+import { CalendarDays, CheckCircle2, ChevronDown, Copy, ExternalLink, LayoutTemplate, Loader2, MessageSquare, RefreshCw, SendHorizontal, Sparkles, X } from 'lucide-react'
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
 import { PlannerSignupGate } from '@/components/planner/PlannerSignupGate'
 import { PlannerTopBar } from '@/components/planner/PlannerTopBar'
@@ -38,6 +38,7 @@ const planTabs = [
   { id: 'plan', label: 'Plan' },
   { id: 'recommendations', label: 'Recommendations' },
   { id: 'approvals', label: 'Approvals' },
+  { id: 'timeline', label: 'Timeline' },
 ] as const
 
 const quickActionChips = [
@@ -70,6 +71,67 @@ interface PendingConversionAction {
     externalUrl?: string
   }
 }
+
+interface PlannerTemplateSummary {
+  id: string
+  name: string
+  description: string | null
+  snapshot: unknown
+  created_at: string
+}
+
+interface EventPlanPayload {
+  event_name: string | null
+  expected_attendance: number | null
+  city: string | null
+  venue_type: string | null
+  budget: number | null
+  event_date: string | null
+  monetization_model: string | null
+  headcount_min: number | null
+  headcount_max: number | null
+  ticket_price_target: number | null
+  profit_goal: number | null
+}
+
+interface ResponseAnalysisOutput {
+  availability_status: 'available' | 'unavailable' | 'tentative' | 'unknown'
+  quoted_price_cents: number | null
+  minimum_spend_cents: number | null
+  deposit_required_cents: number | null
+  capacity_notes: string | null
+  included_services: string[]
+  exclusions: string[]
+  hidden_fees: string[]
+  cancellation_terms: string | null
+  required_next_steps: string[]
+  summary: string
+  risk_flags: string[]
+  extracted_questions: string[]
+}
+
+interface TimelineMilestone {
+  title: string
+  due_date: string
+  category: string
+  is_blocking: boolean
+}
+
+interface TimelineOutput {
+  planning_milestones: TimelineMilestone[]
+  day_of_timeline: Array<{
+    time: string
+    activity: string
+    owner: string
+    notes: string | null
+  }>
+  staffing_needs: string[]
+  reminders: string[]
+  dependency_warnings: string[]
+  impossible_timeline: boolean
+}
+
+type TimelineMilestoneStatus = 'pending' | 'done' | 'at_risk'
 
 /**
  * Planner route with empty-state creation and API-backed active-plan chat.
@@ -106,6 +168,20 @@ function PlannerPageContent() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isSignupGateOpen, setIsSignupGateOpen] = useState(false)
   const [pendingAction, setPendingAction] = useState<PendingConversionAction | null>(null)
+  const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false)
+  const [plannerTemplates, setPlannerTemplates] = useState<PlannerTemplateSummary[]>([])
+  const [hasLoadedTemplates, setHasLoadedTemplates] = useState(false)
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false)
+  const [templateError, setTemplateError] = useState<string | null>(null)
+  const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(null)
+  const [isReplyAnalysisOpen, setIsReplyAnalysisOpen] = useState(false)
+  const [replyAnalysisText, setReplyAnalysisText] = useState('')
+  const [isAnalyzingReply, setIsAnalyzingReply] = useState(false)
+  const [replyAnalysisError, setReplyAnalysisError] = useState<string | null>(null)
+  const [replyAnalysisResult, setReplyAnalysisResult] = useState<ResponseAnalysisOutput | null>(null)
+  const [timelineResult, setTimelineResult] = useState<TimelineOutput | null>(null)
+  const [isTimelineLoading, setIsTimelineLoading] = useState(false)
+  const [timelineError, setTimelineError] = useState<string | null>(null)
   // Demo mode state
   const [isDemoAuthed, setIsDemoAuthed] = useState(!isDemoSession)
   const [isDemoResetting, setIsDemoResetting] = useState(false)
@@ -312,6 +388,11 @@ function PlannerPageContent() {
     void startInitialDraftPlan(initialDraft)
   }, [activePlan, hasLoadedStoredConversation, initialDraft])
 
+  useEffect(() => {
+    setTimelineResult(null)
+    setTimelineError(null)
+  }, [activePlan?.id])
+
   /**
    * Starts a homepage/public-intake draft and then removes the draft query so
    * refreshes do not create duplicate plans.
@@ -419,7 +500,7 @@ function PlannerPageContent() {
     setIsSendingReply(true)
     setErrorMessage(null)
 
-    if (persistenceMode !== 'server' || activePlan.id.startsWith('mock-plan-')) {
+    if (shouldUseMockReplyPath(persistenceMode, activePlan.id, isDemoSession)) {
       const userMessage = buildMockMessage(activePlan.id, 'user', trimmed, 'text', {})
       const mockResponse = getMockAgentResponse([...messages, userMessage], trimmed, activePlan)
       const finalPlan = applyMockPlanPatch(activePlan, mockResponse.planPatch)
@@ -465,7 +546,13 @@ function PlannerPageContent() {
       ])
       setReply('')
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to send planner reply')
+      const description = error instanceof Error ? error.message : 'Unable to send planner reply'
+      setErrorMessage(description)
+      addToast({
+        title: 'Reply not sent',
+        description,
+        variant: 'destructive',
+      })
     } finally {
       setIsSendingReply(false)
     }
@@ -548,6 +635,172 @@ function PlannerPageContent() {
       replyRef.current?.focus()
       replyRef.current?.setSelectionRange(template.length, template.length)
     }, 0)
+  }
+
+  function handlePlannerTabSelect(tabId: PlannerTab) {
+    setActiveTab(tabId)
+    if (tabId === 'timeline' && !timelineResult && !isTimelineLoading) {
+      void loadPlannerTimeline()
+    }
+  }
+
+  async function loadPlannerTimeline() {
+    if (!activePlan) return
+
+    const eventDate = activePlan.date_window_start ?? activePlan.date_window_end
+    if (!eventDate) {
+      setTimelineError('Could not generate timeline. Try again.')
+      return
+    }
+
+    setIsTimelineLoading(true)
+    setTimelineError(null)
+
+    try {
+      const response = await fetch('/api/ai/agents/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agent_name: 'timeline',
+          plan_id: activePlan.id,
+          payload: {
+            event_plan: buildEventPlanPayload(activePlan),
+            event_date: eventDate,
+            confirmed_venue_bookings: [],
+            confirmed_vendor_bookings: [],
+            venue_requirements: [],
+          },
+        }),
+      })
+      const payload = await response.json()
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Could not generate timeline. Try again.')
+      }
+
+      const output = readAgentOutput(payload)
+      if (!isTimelineOutput(output)) {
+        throw new Error('Could not generate timeline. Try again.')
+      }
+
+      setTimelineResult(output)
+    } catch (error) {
+      setTimelineError(error instanceof Error ? error.message : 'Could not generate timeline. Try again.')
+    } finally {
+      setIsTimelineLoading(false)
+    }
+  }
+
+  async function openTemplatesModal() {
+    setIsTemplatesModalOpen(true)
+    if (!hasLoadedTemplates) {
+      await loadPlannerTemplates()
+    }
+  }
+
+  async function loadPlannerTemplates() {
+    setIsLoadingTemplates(true)
+    setTemplateError(null)
+
+    try {
+      const response = await fetch('/api/planner/templates', { method: 'GET' })
+      const payload = await response.json()
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Unable to load templates')
+      }
+
+      const templatesPayload = payload as { templates?: PlannerTemplateSummary[] }
+      setPlannerTemplates(Array.isArray(templatesPayload.templates) ? templatesPayload.templates : [])
+      setHasLoadedTemplates(true)
+    } catch (error) {
+      setTemplateError(error instanceof Error ? error.message : 'Unable to load templates')
+    } finally {
+      setIsLoadingTemplates(false)
+    }
+  }
+
+  async function applyPlannerTemplate(templateId: string) {
+    if (!activePlan || persistenceMode !== 'server' || activePlan.id.startsWith('mock-plan-')) {
+      addToast({
+        title: 'Save the plan first',
+        description: 'Templates can only be applied to a saved planner plan.',
+        variant: 'warning',
+      })
+      return
+    }
+
+    setApplyingTemplateId(templateId)
+    setTemplateError(null)
+
+    try {
+      const response = await fetch(`/api/planner/templates/${templateId}/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_id: activePlan.id }),
+      })
+      const payload = await response.json()
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Unable to apply template')
+      }
+
+      setIsTemplatesModalOpen(false)
+      addToast({
+        title: 'Template applied',
+        variant: 'success',
+      })
+    } catch (error) {
+      setTemplateError(error instanceof Error ? error.message : 'Unable to apply template')
+    } finally {
+      setApplyingTemplateId(null)
+    }
+  }
+
+  async function analyzePartnerReply() {
+    if (!activePlan) return
+
+    const rawEmailText = replyAnalysisText.trim()
+    if (!rawEmailText) {
+      setReplyAnalysisError('Paste a venue or vendor reply first.')
+      return
+    }
+
+    setIsAnalyzingReply(true)
+    setReplyAnalysisError(null)
+    setReplyAnalysisResult(null)
+
+    try {
+      const response = await fetch('/api/ai/agents/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agent_name: 'response_analysis',
+          plan_id: activePlan.id,
+          payload: {
+            raw_email_text: rawEmailText,
+            event_plan: buildEventPlanPayload(activePlan),
+            partner_type: 'venue',
+          },
+        }),
+      })
+      const payload = await response.json()
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Unable to analyze reply')
+      }
+
+      const output = readAgentOutput(payload)
+      if (!isResponseAnalysisOutput(output)) {
+        throw new Error('Response analysis returned an unexpected shape')
+      }
+
+      setReplyAnalysisResult(output)
+    } catch (error) {
+      setReplyAnalysisError(error instanceof Error ? error.message : 'Unable to analyze reply')
+    } finally {
+      setIsAnalyzingReply(false)
+    }
   }
 
   /**
@@ -794,12 +1047,13 @@ function PlannerPageContent() {
 
         <div className="mb-5 flex gap-2 overflow-x-auto rounded-2xl border border-border bg-card/40 p-1">
           {planTabs.map((tab) => {
+            if (tab.id === 'timeline' && persistenceMode !== 'server') return null
             const count = getTabCount(tab.id, recommendationMessages.length, approvalMessages.length)
             return (
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handlePlannerTabSelect(tab.id)}
               className={cn(
                 'inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-semibold transition-smooth',
                 activeTab === tab.id
@@ -922,6 +1176,16 @@ function PlannerPageContent() {
               </>
             ) : null}
 
+            {activeTab === 'timeline' && persistenceMode === 'server' ? (
+              <PlannerTimelinePanel
+                plan={activePlan}
+                timeline={timelineResult}
+                isLoading={isTimelineLoading}
+                error={timelineError}
+                onRefresh={() => void loadPlannerTimeline()}
+              />
+            ) : null}
+
             {errorMessage ? (
               <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                 {errorMessage}
@@ -956,7 +1220,59 @@ function PlannerPageContent() {
                   </div>
                 </form>
 
+                {persistenceMode === 'server' ? (
+                  <div className="rounded-2xl border border-border bg-background/60">
+                    <button
+                      type="button"
+                      onClick={() => setIsReplyAnalysisOpen((current) => !current)}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold transition-smooth hover:text-foreground"
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-primary" />
+                        Analyze a Reply
+                      </span>
+                      <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', isReplyAnalysisOpen && 'rotate-180')} />
+                    </button>
+
+                    {isReplyAnalysisOpen ? (
+                      <div className="space-y-3 border-t border-border p-4">
+                        <Textarea
+                          value={replyAnalysisText}
+                          onChange={(event) => setReplyAnalysisText(event.target.value)}
+                          rows={5}
+                          placeholder="Paste venue or vendor reply"
+                          className="min-h-32 resize-y bg-card/60"
+                        />
+                        <Button
+                          type="button"
+                          variant="hero"
+                          size="sm"
+                          onClick={() => void analyzePartnerReply()}
+                          disabled={isAnalyzingReply}
+                        >
+                          {isAnalyzingReply ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                          Analyze
+                        </Button>
+
+                        {replyAnalysisError ? (
+                          <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                            {replyAnalysisError}
+                          </div>
+                        ) : null}
+
+                        {replyAnalysisResult ? (
+                          <ReplyAnalysisResult result={replyAnalysisResult} />
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 <div className="flex flex-wrap gap-2 pt-2">
+                  <Button variant="glass" size="sm" type="button" onClick={() => void openTemplatesModal()}>
+                    <LayoutTemplate className="h-4 w-4" />
+                    Templates
+                  </Button>
                   {quickActionChips.map((chip) => (
                     <Button key={chip.label} variant="glass" size="sm" type="button" onClick={() => handleQuickAction(chip.template)}>
                       {chip.label}
@@ -973,8 +1289,429 @@ function PlannerPageContent() {
         onClose={() => setIsSignupGateOpen(false)}
         onSignedIn={(plan) => void handlePlannerGateSignedIn(plan)}
       />
+      <PlannerTemplatesModal
+        isOpen={isTemplatesModalOpen}
+        templates={plannerTemplates}
+        isLoading={isLoadingTemplates}
+        error={templateError}
+        applyingTemplateId={applyingTemplateId}
+        onClose={() => setIsTemplatesModalOpen(false)}
+        onRefresh={() => void loadPlannerTemplates()}
+        onApply={(templateId) => void applyPlannerTemplate(templateId)}
+      />
     </div>
   )
+}
+
+function PlannerTemplatesModal(props: {
+  isOpen: boolean
+  templates: PlannerTemplateSummary[]
+  isLoading: boolean
+  error: string | null
+  applyingTemplateId: string | null
+  onClose: () => void
+  onRefresh: () => void
+  onApply: (templateId: string) => void
+}) {
+  if (!props.isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 px-4 py-6 backdrop-blur-md">
+      <div className="max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-3xl border border-border bg-card shadow-card">
+        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-primary">Planner templates</p>
+            <h2 className="mt-1 font-display text-xl font-bold">Use a proven event shape</h2>
+          </div>
+          <button
+            type="button"
+            onClick={props.onClose}
+            className="rounded-xl border border-border bg-background/60 p-2 text-muted-foreground transition-smooth hover:text-foreground"
+            aria-label="Close templates"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="max-h-[65vh] space-y-4 overflow-y-auto p-5">
+          {props.error ? (
+            <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {props.error}
+            </div>
+          ) : null}
+
+          {props.isLoading ? (
+            <div className="flex items-center justify-center gap-2 rounded-2xl border border-border bg-background/60 px-4 py-10 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              Loading templates…
+            </div>
+          ) : null}
+
+          {!props.isLoading && props.templates.length === 0 ? (
+            <div className="rounded-2xl border border-border bg-background/60 px-4 py-10 text-center text-sm text-muted-foreground">
+              No saved templates yet.
+            </div>
+          ) : null}
+
+          {!props.isLoading ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {props.templates.map((template) => (
+                <div key={template.id} className="rounded-2xl border border-border bg-background/60 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
+                      <LayoutTemplate className="h-5 w-5 text-primary-foreground" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="break-words font-display text-base font-bold">{template.name}</h3>
+                      <p className="mt-1 line-clamp-3 text-sm text-muted-foreground">
+                        {template.description ?? 'Reusable planner template'}
+                      </p>
+                      <p className="mt-2 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+                        {formatTemplateCreatedAt(template.created_at)}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="hero"
+                    size="sm"
+                    className="mt-4 w-full"
+                    disabled={props.applyingTemplateId !== null}
+                    onClick={() => props.onApply(template.id)}
+                  >
+                    {props.applyingTemplateId === template.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <LayoutTemplate className="h-4 w-4" />
+                    )}
+                    Use this template
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
+          <Button type="button" variant="glass" size="sm" onClick={props.onRefresh} disabled={props.isLoading}>
+            <RefreshCw className={cn('h-4 w-4', props.isLoading && 'animate-spin')} />
+            Refresh
+          </Button>
+          <Button type="button" variant="glass" size="sm" onClick={props.onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function formatTemplateCreatedAt(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Saved template'
+  return `Saved ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+}
+
+function ReplyAnalysisResult({ result }: { result: ResponseAnalysisOutput }) {
+  const suggestedReply = buildSuggestedReplyFromAnalysis(result)
+  const actionItems = result.required_next_steps.length > 0
+    ? result.required_next_steps
+    : result.extracted_questions
+
+  return (
+    <div className="space-y-4 rounded-2xl border border-border bg-card/60 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={cn('rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-widest', getAvailabilityBadgeClass(result.availability_status))}>
+          {result.availability_status}
+        </span>
+        {result.quoted_price_cents !== null ? (
+          <span className="rounded-full border border-border bg-background/70 px-3 py-1 text-xs font-semibold text-muted-foreground">
+            Quote {formatMockCents(result.quoted_price_cents)}
+          </span>
+        ) : null}
+        {result.minimum_spend_cents !== null ? (
+          <span className="rounded-full border border-border bg-background/70 px-3 py-1 text-xs font-semibold text-muted-foreground">
+            Minimum {formatMockCents(result.minimum_spend_cents)}
+          </span>
+        ) : null}
+        {result.deposit_required_cents !== null ? (
+          <span className="rounded-full border border-border bg-background/70 px-3 py-1 text-xs font-semibold text-muted-foreground">
+            Deposit {formatMockCents(result.deposit_required_cents)}
+          </span>
+        ) : null}
+      </div>
+
+      <p className="text-sm leading-relaxed text-muted-foreground">{result.summary}</p>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-foreground">Action items</p>
+          <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+            {actionItems.length > 0 ? actionItems.map((item) => (
+              <li key={item} className="flex gap-2">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                <span>{item}</span>
+              </li>
+            )) : (
+              <li>No action items extracted.</li>
+            )}
+          </ul>
+        </div>
+
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-destructive">Risk flags</p>
+          <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+            {result.risk_flags.length > 0 ? result.risk_flags.map((flag) => (
+              <li key={flag} className="flex gap-2 text-destructive">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" />
+                <span>{flag}</span>
+              </li>
+            )) : (
+              <li>No risks flagged.</li>
+            )}
+          </ul>
+        </div>
+      </div>
+
+      <div>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="text-xs font-bold uppercase tracking-widest text-foreground">Suggested reply</p>
+          <Button
+            type="button"
+            variant="glass"
+            size="sm"
+            onClick={() => void navigator.clipboard?.writeText(suggestedReply)}
+          >
+            <Copy className="h-4 w-4" />
+            Copy
+          </Button>
+        </div>
+        <pre className="whitespace-pre-wrap rounded-xl border border-border bg-background/80 p-3 text-sm text-muted-foreground">
+          {suggestedReply}
+        </pre>
+      </div>
+    </div>
+  )
+}
+
+function getAvailabilityBadgeClass(status: ResponseAnalysisOutput['availability_status']): string {
+  if (status === 'available') return 'border-success/30 bg-success/10 text-success'
+  if (status === 'unavailable') return 'border-destructive/30 bg-destructive/10 text-destructive'
+  return 'border-secondary/30 bg-secondary/10 text-secondary'
+}
+
+function buildSuggestedReplyFromAnalysis(result: ResponseAnalysisOutput): string {
+  const nextSteps = result.required_next_steps.length > 0
+    ? result.required_next_steps.join('\n- ')
+    : 'Please confirm availability, pricing, deposit requirements, and any remaining terms.'
+  const questions = result.extracted_questions.length > 0
+    ? `\n\nQuestions to answer:\n- ${result.extracted_questions.join('\n- ')}`
+    : ''
+
+  return [
+    'Thanks for the details. This is helpful.',
+    '',
+    `I have you marked as ${result.availability_status}.`,
+    result.capacity_notes ? `Capacity note: ${result.capacity_notes}` : null,
+    result.cancellation_terms ? `Cancellation terms noted: ${result.cancellation_terms}` : null,
+    '',
+    `Next steps:\n- ${nextSteps}`,
+    questions,
+  ].filter((part): part is string => Boolean(part)).join('\n')
+}
+
+function readAgentOutput(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
+  const data = (payload as Record<string, unknown>).data
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+  return (data as Record<string, unknown>).output
+}
+
+function isResponseAnalysisOutput(value: unknown): value is ResponseAnalysisOutput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const output = value as Record<string, unknown>
+  return (
+    isAvailabilityStatus(output.availability_status) &&
+    typeof output.summary === 'string' &&
+    Array.isArray(output.required_next_steps) &&
+    Array.isArray(output.risk_flags) &&
+    Array.isArray(output.extracted_questions)
+  )
+}
+
+function isAvailabilityStatus(value: unknown): value is ResponseAnalysisOutput['availability_status'] {
+  return value === 'available' || value === 'unavailable' || value === 'tentative' || value === 'unknown'
+}
+
+function buildEventPlanPayload(plan: Plan): EventPlanPayload {
+  return {
+    event_name: plan.title ?? null,
+    expected_attendance: plan.guest_count,
+    city: inferPlanCity(plan.neighborhood),
+    venue_type: plan.event_type,
+    budget: plan.budget_cap_cents,
+    event_date: plan.date_window_start ?? plan.date_window_end,
+    monetization_model: plan.ticketed ? 'ticketed' : plan.ticketing_model ?? 'free',
+    headcount_min: plan.guest_count,
+    headcount_max: plan.guest_count,
+    ticket_price_target: null,
+    profit_goal: plan.profit_goal_cents,
+  }
+}
+
+function inferPlanCity(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase()
+  if (!normalized) return null
+  if (normalized === 'sf' || normalized.includes('san francisco')) return 'San Francisco'
+  if (normalized.includes('oakland')) return 'Oakland'
+  if (normalized.includes('berkeley')) return 'Berkeley'
+  return value ?? null
+}
+
+function PlannerTimelinePanel(props: {
+  plan: Plan
+  timeline: TimelineOutput | null
+  isLoading: boolean
+  error: string | null
+  onRefresh: () => void
+}) {
+  const eventDate = props.plan.date_window_start ?? props.plan.date_window_end
+  const milestones = props.timeline
+    ? [...props.timeline.planning_milestones].sort((first, second) => first.due_date.localeCompare(second.due_date))
+    : []
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 px-4 py-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-primary">Timeline</p>
+          <h3 className="mt-1 font-display text-lg font-bold">Planning milestones</h3>
+        </div>
+        <Button type="button" variant="glass" size="sm" onClick={props.onRefresh} disabled={props.isLoading}>
+          <RefreshCw className={cn('h-4 w-4', props.isLoading && 'animate-spin')} />
+          Refresh
+        </Button>
+      </div>
+
+      {props.isLoading ? (
+        <div className="space-y-3">
+          {[0, 1, 2, 3].map((index) => (
+            <div key={index} className="h-20 animate-pulse rounded-2xl border border-border bg-muted/40" />
+          ))}
+        </div>
+      ) : null}
+
+      {!props.isLoading && props.error ? (
+        <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Could not generate timeline. Try again.
+        </div>
+      ) : null}
+
+      {!props.isLoading && !props.error && props.timeline ? (
+        <>
+          {props.timeline.impossible_timeline ? (
+            <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              This timeline is compressed. Critical milestones may not be realistic before the event date.
+            </div>
+          ) : null}
+
+          {props.timeline.dependency_warnings.length > 0 ? (
+            <div className="rounded-2xl border border-secondary/30 bg-secondary/10 px-4 py-3 text-sm text-secondary">
+              {props.timeline.dependency_warnings.join(' ')}
+            </div>
+          ) : null}
+
+          <div className="relative space-y-3 pl-4">
+            <div className="absolute bottom-0 left-[1.1rem] top-0 w-px bg-border" />
+            {milestones.map((milestone) => {
+              const status = getTimelineMilestoneStatus(milestone)
+              return (
+                <div key={`${milestone.due_date}:${milestone.title}`} className="relative flex gap-4 rounded-2xl border border-border bg-background/60 p-4">
+                  <span className="absolute -left-[0.15rem] top-6 h-3 w-3 rounded-full border-2 border-background bg-primary" />
+                  <div className="w-24 shrink-0 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                    {formatTimelineDateLabel(milestone.due_date, eventDate)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="font-display text-base font-bold">{milestone.title}</h4>
+                      <span className="rounded-full border border-border bg-card/70 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+                        {milestone.category}
+                      </span>
+                      <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-bold uppercase tracking-widest', getTimelineStatusClass(status))}>
+                        {status}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="rounded-full border border-border bg-card/70 px-2 py-1 text-xs text-muted-foreground">
+                        Owner: Event lead
+                      </span>
+                      {milestone.is_blocking ? (
+                        <span className="rounded-full border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive">
+                          Blocking
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      ) : null}
+
+      {!props.isLoading && !props.error && !props.timeline ? (
+        <div className="rounded-2xl border border-border bg-background/60 px-4 py-10 text-center text-sm text-muted-foreground">
+          Open this tab to generate a timeline from the current plan.
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function isTimelineOutput(value: unknown): value is TimelineOutput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const output = value as Record<string, unknown>
+  return (
+    Array.isArray(output.planning_milestones) &&
+    Array.isArray(output.day_of_timeline) &&
+    Array.isArray(output.staffing_needs) &&
+    Array.isArray(output.reminders) &&
+    Array.isArray(output.dependency_warnings) &&
+    typeof output.impossible_timeline === 'boolean'
+  )
+}
+
+function formatTimelineDateLabel(dueDate: string, eventDate: string | null): string {
+  if (!eventDate) return dueDate
+
+  const due = parseDateOnly(dueDate)
+  const event = parseDateOnly(eventDate)
+  if (!due || !event) return dueDate
+
+  const diffDays = Math.round((event.getTime() - due.getTime()) / (24 * 60 * 60 * 1000))
+  if (diffDays === 0) return 'Event day'
+  if (diffDays > 0) return `T-${diffDays} days`
+  return `T+${Math.abs(diffDays)} days`
+}
+
+function getTimelineMilestoneStatus(milestone: TimelineMilestone): TimelineMilestoneStatus {
+  const due = parseDateOnly(milestone.due_date)
+  if (!due) return 'pending'
+
+  const today = parseDateOnly(new Date().toISOString().slice(0, 10))
+  if (today && due.getTime() < today.getTime()) return 'at_risk'
+  return 'pending'
+}
+
+function getTimelineStatusClass(status: TimelineMilestoneStatus): string {
+  if (status === 'done') return 'border-success/30 bg-success/10 text-success'
+  if (status === 'at_risk') return 'border-destructive/30 bg-destructive/10 text-destructive'
+  return 'border-border bg-muted text-muted-foreground'
+}
+
+function parseDateOnly(value: string): Date | null {
+  const parsed = new Date(`${value.slice(0, 10)}T00:00:00Z`)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
 /**
@@ -1197,6 +1934,18 @@ function applyMockPlanPatch(plan: Plan, patch: Partial<Plan>): Plan {
   }
 }
 
+function shouldUseMockReplyPath(
+  persistenceMode: PlannerPersistenceMode,
+  planId: string,
+  isDemoSession: boolean
+): boolean {
+  const isMockPlan = planId.startsWith('mock-plan-')
+  const isRealServerPlan = persistenceMode === 'server' && !isMockPlan
+  if (isRealServerPlan) return false
+
+  return persistenceMode === 'draft' || isMockPlan || isDemoSession
+}
+
 function buildMockMessage(
   planId: string,
   role: PlanMessage['role'],
@@ -1262,7 +2011,7 @@ function buildMockAgentReply(
           id: `mock-approval-${plan.id}`,
           label: 'Request venue hold + vendor availability',
           amount_cents: plan.budget_cap_cents ? Math.round(plan.budget_cap_cents * 0.55) : 0,
-          provider: '3rdSpace concierge',
+          provider: '3rdPlace concierge',
           event_date: plan.date_window_start ?? '',
           delivery_email: 'you@example.com',
           terms: 'No payment is made in mock mode. User approval required before real booking.',
@@ -1789,7 +2538,7 @@ function PlannerMessageBubble({
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-card">
               <Sparkles className="h-3.5 w-3.5" />
             </span>
-            <span className="text-xs font-semibold text-muted-foreground">3rdSpace Agent</span>
+            <span className="text-xs font-semibold text-muted-foreground">3rdPlace Agent</span>
           </div>
         ) : null}
 
@@ -2632,7 +3381,7 @@ function buildRecommendationAgentActionPayload(
   actionKind: RecommendationActionKind,
   recommendation: Record<string, unknown>
 ): PlannerAgentActionRequest {
-  const provider = readRecommendationString(recommendation, 'name') || '3rdSpace recommendation'
+  const provider = readRecommendationString(recommendation, 'name') || '3rdPlace recommendation'
   const priceCents = readRecommendationPriceCents(recommendation)
   const targetId = readRecommendationString(recommendation, 'id')
   const targetType = normalizeRecommendationTargetType(actionKind, recommendation)
@@ -2697,7 +3446,7 @@ function buildApprovalAgentActionPayload(
   amountCents: number
 ): PlannerAgentActionRequest {
   const label = readApprovalString(approval, 'label') || readApprovalString(approval, 'action_label') || 'Authorize planner action'
-  const provider = readApprovalString(approval, 'provider') || '3rdSpace partner'
+  const provider = readApprovalString(approval, 'provider') || '3rdPlace partner'
   const packageDetails =
     readApprovalString(approval, 'package_details') ||
     readApprovalString(approval, 'terms') ||
@@ -2879,7 +3628,7 @@ function PlannerApprovalCard({
   }, [approval])
 
   const label = readApprovalString(approval, 'label') || readApprovalString(approval, 'action_label') || 'Approval required'
-  const provider = readApprovalString(approval, 'provider') || '3rdSpace'
+  const provider = readApprovalString(approval, 'provider') || '3rdPlace'
   const deliveryEmail = readApprovalString(approval, 'delivery_email') || 'Needed'
   const terms = readApprovalString(approval, 'terms') || readApprovalString(approval, 'refund_terms') || 'Approval required before payment.'
   const amountCents = readApprovalAmount(approval)

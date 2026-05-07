@@ -7,11 +7,11 @@ test.describe('design system smoke', () => {
     annotateFailure(testInfo, 'DESIGN_REGRESSION', 'Homepage shell should preserve the Lovable dark vibrant system')
     const issues = collectPageHealth(page)
 
-    await page.goto('/')
+    await page.goto('/', { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('link', { name: /^sign in$/i }).first()).toBeVisible()
-    await expect(page.getByRole('link', { name: /i plan events/i }).first()).toBeVisible()
-    await expect(page.getByRole('link', { name: /i run a venue/i }).first()).toBeVisible()
-    await expect(page.getByRole('link', { name: /i'm a vendor/i }).first()).toBeVisible()
+    await expect(page.getByRole('link', { name: /list your venue/i }).first()).toBeVisible()
+    await expect(page.getByRole('link', { name: /list as vendor/i }).first()).toBeVisible()
+    await expect(page.getByRole('textbox', { name: /describe the event you want to host/i })).toBeVisible()
 
     const bodyStyles = await page.locator('body').evaluate((body) => {
       const styles = window.getComputedStyle(body)
@@ -29,13 +29,13 @@ test.describe('design system smoke', () => {
   })
 
   test('signup portals render branded role-specific forms', async ({ page }) => {
-    await page.goto('/signup/builder')
+    await page.goto('/signup/builder', { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('heading', { name: /set up your creator account/i })).toBeVisible()
 
-    await page.goto('/signup/venue')
-    await expect(page.getByRole('heading', { name: /list your venue on 3rdspace/i })).toBeVisible()
+    await page.goto('/signup/venue', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByRole('heading', { name: /list your venue on 3rdplace/i })).toBeVisible()
 
-    await page.goto('/signup/vendor')
-    await expect(page.getByRole('heading', { name: /get booked on 3rdspace/i })).toBeVisible()
+    await page.goto('/signup/vendor', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByRole('heading', { name: /join 3rdplace as a vendor/i })).toBeVisible()
   })
 })

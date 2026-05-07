@@ -19,8 +19,8 @@ export const viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://3rdspace.com'),
   title: {
-    default: "3rdSpace · Agent Planner",
-    template: "%s | 3rdSpace",
+    default: "3rdPlace · Agent Planner",
+    template: "%s | 3rdPlace",
   },
   description: "An agent-like planning workspace for Bay Area event creators to shape plans, compare options, and coordinate bookings.",
   keywords: [
@@ -33,9 +33,9 @@ export const metadata: Metadata = {
     "venue rental",
     "event services",
   ],
-  authors: [{ name: "3rdSpace" }],
-  creator: "3rdSpace",
-  publisher: "3rdSpace",
+  authors: [{ name: "3rdPlace" }],
+  creator: "3rdPlace",
+  publisher: "3rdPlace",
   formatDetection: {
     email: false,
     address: false,
@@ -45,21 +45,21 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: process.env.NEXT_PUBLIC_SITE_URL || "https://3rdspace.com",
-    siteName: "3rdSpace",
-    title: "3rdSpace · Agent Planner",
+    siteName: "3rdPlace",
+    title: "3rdPlace · Agent Planner",
     description: "An agent-like planning workspace for Bay Area event creators.",
     images: [
       {
         url: "/og-default.png",
         width: 1200,
         height: 630,
-        alt: "3rdSpace · Agent Planner",
+        alt: "3rdPlace · Agent Planner",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "3rdSpace · Agent Planner",
+    title: "3rdPlace · Agent Planner",
     description: "An agent-like planning workspace for Bay Area event creators.",
     images: ["/og-default.png"],
     creator: "@3rdspace",
@@ -93,7 +93,7 @@ export default function RootLayout({
   const organizationSchema = {
     '@context': 'https://schema.org',
     '@type': 'Organization',
-    name: '3rdSpace',
+    name: '3rdPlace',
     url: baseUrl,
     logo: `${baseUrl}/logo.png`,
     description: "An agent-like planning workspace for Bay Area event creators.",

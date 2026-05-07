@@ -169,7 +169,7 @@ export const PlannerSidebar = memo(function PlannerSidebar({
           </div>
           <div className={cn('min-w-0', isCollapsed && 'sr-only')}>
             <div className="flex items-baseline gap-2">
-              <span className="font-display text-xl font-bold tracking-tight">3rdSpace</span>
+              <span className="font-display text-xl font-bold tracking-tight">3rdPlace</span>
               <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">Bay Area</span>
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground">Agent Planner OS</p>

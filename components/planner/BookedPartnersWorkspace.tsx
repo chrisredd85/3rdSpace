@@ -610,7 +610,7 @@ function readLivePlanId() {
 
 function getAuthorLabel(sender: BookedPartnerMessage['sender']) {
   if (sender === 'host' || sender === 'organizer') return 'You'
-  if (sender === 'agent') return '3rdSpace Agent'
+  if (sender === 'agent') return '3rdPlace Agent'
   if (sender === 'concierge') return 'Concierge'
   return 'Partner'
 }

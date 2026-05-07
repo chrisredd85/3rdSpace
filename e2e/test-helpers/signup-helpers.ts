@@ -183,7 +183,7 @@ export async function completeVendorSignup(
  */
 export async function verifySignupPage(page: Page): Promise<void> {
   await page.waitForLoadState('networkidle')
-  await expect(page.getByText(/join 3rdspace/i)).toBeVisible()
+  await expect(page.getByText(/join 3rdplace/i)).toBeVisible()
   await expect(page.getByText(/choose your account type/i)).toBeVisible()
   await expect(page.getByText(/community builder/i)).toBeVisible()
   await expect(page.getByText(/venue owner/i)).toBeVisible()

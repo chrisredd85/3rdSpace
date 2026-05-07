@@ -48,9 +48,9 @@ export const PlannerTopBar = memo(function PlannerTopBar({
       <div className="relative min-w-0 flex-1">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          aria-label="Ask 3rdSpace anything"
+          aria-label="Ask 3rdPlace anything"
         className="h-11 min-w-0 rounded-2xl border-border bg-card/60 pl-10 pr-14 text-sm shadow-card"
-          placeholder="Ask 3rdSpace anything — 'rooftop mixer for 120...'"
+          placeholder="Ask 3rdPlace anything — 'rooftop mixer for 120...'"
         />
         <span className="absolute right-3 top-1/2 hidden -translate-y-1/2 rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground sm:block">
           ⌘K

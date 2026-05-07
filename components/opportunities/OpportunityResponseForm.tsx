@@ -71,7 +71,7 @@ export function OpportunityResponseForm({ token, opportunity }: OpportunityRespo
 
     if (!response.ok) {
       setSubmitState('error')
-      setError('Unable to save your response. Try again or contact 3rdSpace.')
+      setError('Unable to save your response. Try again or contact 3rdPlace.')
       return
     }
 
@@ -90,7 +90,7 @@ export function OpportunityResponseForm({ token, opportunity }: OpportunityRespo
         <StatusBlock
           icon="expired"
           title="This opportunity link has expired."
-          body="The host deadline has passed. Contact 3rdSpace if you still want to respond."
+          body="The host deadline has passed. Contact 3rdPlace if you still want to respond."
         />
       </ResponseShell>
     )
@@ -278,7 +278,7 @@ function SubmittedResponseScreen({
             {actionUi.title}
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-            3rdSpace will update the organizer and keep the next steps moving from their planner workspace.
+            3rdPlace will update the organizer and keep the next steps moving from their planner workspace.
           </p>
         </div>
       </div>
@@ -322,7 +322,7 @@ function SubmittedResponseScreen({
       </div>
 
       <p className="mt-6 border-t border-border pt-4 text-xs text-muted-foreground">
-        Questions? Reply to the email or contact 3rdSpace.
+        Questions? Reply to the email or contact 3rdPlace.
       </p>
     </div>
   )
@@ -482,7 +482,7 @@ function buildCalendarEvent(opportunity: OpportunityResponseContext): CalendarEv
 
   return {
     title: getBriefTitle(opportunity),
-    description: readString(opportunity.brief.summary) ?? '3rdSpace opportunity response',
+    description: readString(opportunity.brief.summary) ?? '3rdPlace opportunity response',
     startDate: parsedRange.startDate,
     endDate: parsedRange.endDate,
     isAllDay: parsedRange.isAllDay,
@@ -536,7 +536,7 @@ function downloadIcsFile(event: CalendarEventData) {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//3rdSpace//Opportunity Response//EN',
+    'PRODID:-//3rdPlace//Opportunity Response//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',
@@ -607,7 +607,7 @@ function ResponseShell({
         <div className="mb-6">
           <p className="font-display text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{eyebrow}</p>
           <h1 className="mt-2 font-display text-3xl font-bold text-foreground">{partnerName}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Secure 3rdSpace response link</p>
+          <p className="mt-2 text-sm text-muted-foreground">Secure 3rdPlace response link</p>
         </div>
         <div className="space-y-4">{children}</div>
       </div>

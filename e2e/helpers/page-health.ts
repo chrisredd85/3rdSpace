@@ -8,6 +8,7 @@ type PageIssue = {
 const ignoredConsoleSubstrings = [
   'Download the React DevTools',
   'Fast Refresh',
+  'Failed to load resource: net::ERR_CONNECTION_CLOSED',
 ]
 
 export function collectPageHealth(page: Page) {
