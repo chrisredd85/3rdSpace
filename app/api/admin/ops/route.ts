@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAdminContext } from '@/lib/server/admin-auth'
+import { getAdminHealthData } from '@/lib/server/admin-health'
 import { getAdminOpsData } from '@/lib/server/admin-ops'
 
 export async function GET() {
@@ -11,6 +12,10 @@ export async function GET() {
   }
 
   const admin = createServiceRoleClient()
-  const data = await getAdminOpsData(admin as any)
-  return NextResponse.json(data)
+  const [data, health] = await Promise.all([
+    getAdminOpsData(admin as any),
+    getAdminHealthData(admin as any),
+  ])
+
+  return NextResponse.json({ ...data, health })
 }
