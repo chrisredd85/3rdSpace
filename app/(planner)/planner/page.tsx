@@ -8,7 +8,7 @@
  */
 'use client'
 
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { Suspense, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { CalendarDays, CheckCircle2, ChevronDown, ExternalLink, Loader2, MessageSquare, RefreshCw, SendHorizontal, Sparkles } from 'lucide-react'
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
@@ -75,6 +75,14 @@ interface PendingConversionAction {
  * Planner route with empty-state creation and API-backed active-plan chat.
  */
 export default function PlannerPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background" />}>
+      <PlannerPageContent />
+    </Suspense>
+  )
+}
+
+function PlannerPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { addToast } = useToast()

@@ -65,7 +65,7 @@ const templates: Template[] = [
 export default function PlannerTemplatesPage() {
   const router = useRouter()
 
-  function useTemplate(template: Template) {
+  function selectTemplate(template: Template) {
     router.push(`/planner?draft=${encodeURIComponent(template.draft)}`)
   }
 
@@ -81,7 +81,7 @@ export default function PlannerTemplatesPage() {
           const Icon = template.icon
 
           return (
-            <Card key={template.id} className="cursor-pointer transition-shadow hover:shadow-card" onClick={() => useTemplate(template)}>
+            <Card key={template.id} className="cursor-pointer transition-shadow hover:shadow-card" onClick={() => selectTemplate(template)}>
               <CardHeader>
                 <div className="mb-2 flex items-start justify-between">
                   <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
@@ -122,7 +122,7 @@ export default function PlannerTemplatesPage() {
                   className="w-full"
                   onClick={(event) => {
                     event.stopPropagation()
-                    useTemplate(template)
+                    selectTemplate(template)
                   }}
                 >
                   Use Template

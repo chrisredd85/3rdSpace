@@ -281,7 +281,7 @@ function pickChangedFields(plan: Plan, updates: Record<string, unknown>) {
   )
 }
 
-export function isAllowedPlanStatusTransition(current: PlanStatus, next: PlanStatus) {
+function isAllowedPlanStatusTransition(current: PlanStatus, next: PlanStatus) {
   if (current === next) return true
 
   const allowed: Record<PlanStatus, PlanStatus[]> = {
