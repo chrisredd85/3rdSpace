@@ -7,8 +7,385 @@ export type Json =
   | Json[]
 
 export type Database = {
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
+      admin_audit_log: {
+        Row: {
+          action: string
+          admin_user_id: string | null
+          after_state: Json | null
+          before_state: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          id: string
+          metadata: Json
+        }
+        Insert: {
+          action: string
+          admin_user_id?: string | null
+          after_state?: Json | null
+          before_state?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          id?: string
+          metadata?: Json
+        }
+        Update: {
+          action?: string
+          admin_user_id?: string | null
+          after_state?: Json | null
+          before_state?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          id?: string
+          metadata?: Json
+        }
+        Relationships: []
+      }
+      admin_tasks: {
+        Row: {
+          assigned_to: string | null
+          completed_at: string | null
+          created_at: string
+          description: string
+          due_at: string | null
+          id: string
+          notes: string | null
+          plan_id: string
+          status: string
+          task_type: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          completed_at?: string | null
+          created_at?: string
+          description: string
+          due_at?: string | null
+          id?: string
+          notes?: string | null
+          plan_id: string
+          status?: string
+          task_type: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string | null
+          completed_at?: string | null
+          created_at?: string
+          description?: string
+          due_at?: string | null
+          id?: string
+          notes?: string | null
+          plan_id?: string
+          status?: string
+          task_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_tasks_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admin_tasks_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_action_audit_log: {
+        Row: {
+          action_id: string | null
+          actor_id: string | null
+          actor_role: string
+          created_at: string
+          from_status: string | null
+          id: string
+          metadata: Json
+          plan_id: string | null
+          reason: string
+          to_status: string
+        }
+        Insert: {
+          action_id?: string | null
+          actor_id?: string | null
+          actor_role?: string
+          created_at?: string
+          from_status?: string | null
+          id?: string
+          metadata?: Json
+          plan_id?: string | null
+          reason: string
+          to_status: string
+        }
+        Update: {
+          action_id?: string | null
+          actor_id?: string | null
+          actor_role?: string
+          created_at?: string
+          from_status?: string | null
+          id?: string
+          metadata?: Json
+          plan_id?: string | null
+          reason?: string
+          to_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_action_audit_log_action_id_fkey"
+            columns: ["action_id"]
+            isOneToOne: false
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_action_audit_log_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_actions: {
+        Row: {
+          action_type: string
+          amount_cents: number | null
+          approval_id: string | null
+          created_at: string
+          currency: string
+          description: string
+          executed_at: string | null
+          id: string
+          payload_json: Json
+          plan_id: string
+          provider: string | null
+          result_metadata: Json
+          status: string
+          target_id: string | null
+          target_type: string | null
+          updated_at: string
+        }
+        Insert: {
+          action_type: string
+          amount_cents?: number | null
+          approval_id?: string | null
+          created_at?: string
+          currency?: string
+          description: string
+          executed_at?: string | null
+          id?: string
+          payload_json?: Json
+          plan_id: string
+          provider?: string | null
+          result_metadata?: Json
+          status?: string
+          target_id?: string | null
+          target_type?: string | null
+          updated_at?: string
+        }
+        Update: {
+          action_type?: string
+          amount_cents?: number | null
+          approval_id?: string | null
+          created_at?: string
+          currency?: string
+          description?: string
+          executed_at?: string | null
+          id?: string
+          payload_json?: Json
+          plan_id?: string
+          provider?: string | null
+          result_metadata?: Json
+          status?: string
+          target_id?: string | null
+          target_type?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_actions_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_actions_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_authorizations: {
+        Row: {
+          approved_vendor_ids: string[]
+          auto_approve_under_cents: number | null
+          created_at: string
+          id: string
+          monthly_spend_cap_cents: number | null
+          pause_agent_spending: boolean
+          plan_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approved_vendor_ids?: string[]
+          auto_approve_under_cents?: number | null
+          created_at?: string
+          id?: string
+          monthly_spend_cap_cents?: number | null
+          pause_agent_spending?: boolean
+          plan_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approved_vendor_ids?: string[]
+          auto_approve_under_cents?: number | null
+          created_at?: string
+          id?: string
+          monthly_spend_cap_cents?: number | null
+          pause_agent_spending?: boolean
+          plan_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_authorizations_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_authorizations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_runs: {
+        Row: {
+          agent_name: string
+          completion_tokens: number | null
+          created_at: string
+          duration_ms: number
+          error: string | null
+          event_id: string | null
+          id: string
+          input_payload: Json
+          messages_payload: Json | null
+          model: string
+          output_payload: Json | null
+          plan_id: string | null
+          prompt_tokens: number | null
+          quality_label: string | null
+          raw_model_output: string | null
+          status: string
+          user_id: string | null
+        }
+        Insert: {
+          agent_name: string
+          completion_tokens?: number | null
+          created_at?: string
+          duration_ms?: number
+          error?: string | null
+          event_id?: string | null
+          id?: string
+          input_payload?: Json
+          messages_payload?: Json | null
+          model?: string
+          output_payload?: Json | null
+          plan_id?: string | null
+          prompt_tokens?: number | null
+          quality_label?: string | null
+          raw_model_output?: string | null
+          status: string
+          user_id?: string | null
+        }
+        Update: {
+          agent_name?: string
+          completion_tokens?: number | null
+          created_at?: string
+          duration_ms?: number
+          error?: string | null
+          event_id?: string | null
+          id?: string
+          input_payload?: Json
+          messages_payload?: Json | null
+          model?: string
+          output_payload?: Json | null
+          plan_id?: string | null
+          prompt_tokens?: number | null
+          quality_label?: string | null
+          raw_model_output?: string | null
+          status?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_runs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_runs_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_runs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       analytics_events: {
         Row: {
           created_at: string | null
@@ -97,6 +474,163 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      approvals: {
+        Row: {
+          action_label: string
+          agent_action_id: string
+          approved_at: string | null
+          approved_by: string | null
+          authorized_amount_cents: number | null
+          authorized_at: string | null
+          authorized_by: string | null
+          cancellation_terms: string | null
+          created_at: string
+          delivery_email: string | null
+          event_date: string | null
+          expires_at: string | null
+          fees_cents: number | null
+          id: string
+          package_details: string | null
+          payment_method_id: string | null
+          plan_id: string
+          price_cents: number | null
+          provider: string | null
+          refund_terms: string | null
+          requested_amount_cents: number
+          snapshot_hash: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          action_label: string
+          agent_action_id: string
+          approved_at?: string | null
+          approved_by?: string | null
+          authorized_amount_cents?: number | null
+          authorized_at?: string | null
+          authorized_by?: string | null
+          cancellation_terms?: string | null
+          created_at?: string
+          delivery_email?: string | null
+          event_date?: string | null
+          expires_at?: string | null
+          fees_cents?: number | null
+          id?: string
+          package_details?: string | null
+          payment_method_id?: string | null
+          plan_id: string
+          price_cents?: number | null
+          provider?: string | null
+          refund_terms?: string | null
+          requested_amount_cents?: number
+          snapshot_hash?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          action_label?: string
+          agent_action_id?: string
+          approved_at?: string | null
+          approved_by?: string | null
+          authorized_amount_cents?: number | null
+          authorized_at?: string | null
+          authorized_by?: string | null
+          cancellation_terms?: string | null
+          created_at?: string
+          delivery_email?: string | null
+          event_date?: string | null
+          expires_at?: string | null
+          fees_cents?: number | null
+          id?: string
+          package_details?: string | null
+          payment_method_id?: string | null
+          plan_id?: string
+          price_cents?: number | null
+          provider?: string | null
+          refund_terms?: string | null
+          requested_amount_cents?: number
+          snapshot_hash?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "approvals_agent_action_id_fkey"
+            columns: ["agent_action_id"]
+            isOneToOne: false
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "approvals_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "approvals_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audit_logs: {
+        Row: {
+          action: string
+          after_state: Json | null
+          before_state: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          id: string
+          ip_address: unknown
+          plan_id: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          after_state?: Json | null
+          before_state?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          id?: string
+          ip_address?: unknown
+          plan_id?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          after_state?: Json | null
+          before_state?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          id?: string
+          ip_address?: unknown
+          plan_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       availability_blocks: {
         Row: {
@@ -310,16 +844,105 @@ export type Database = {
           },
         ]
       }
+      builder_event_usage: {
+        Row: {
+          builder_id: string | null
+          could_have_saved: number | null
+          events_booked: number | null
+          id: string
+          month: string
+          total_fees_paid: number | null
+        }
+        Insert: {
+          builder_id?: string | null
+          could_have_saved?: number | null
+          events_booked?: number | null
+          id?: string
+          month: string
+          total_fees_paid?: number | null
+        }
+        Update: {
+          builder_id?: string | null
+          could_have_saved?: number | null
+          events_booked?: number | null
+          id?: string
+          month?: string
+          total_fees_paid?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "builder_event_usage_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      builder_payment_methods: {
+        Row: {
+          builder_id: string | null
+          card_brand: string | null
+          card_exp_month: number | null
+          card_exp_year: number | null
+          card_last4: string | null
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          is_default: boolean | null
+          stripe_payment_method_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          builder_id?: string | null
+          card_brand?: string | null
+          card_exp_month?: number | null
+          card_exp_year?: number | null
+          card_last4?: string | null
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_default?: boolean | null
+          stripe_payment_method_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          builder_id?: string | null
+          card_brand?: string | null
+          card_exp_month?: number | null
+          card_exp_year?: number | null
+          card_last4?: string | null
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_default?: boolean | null
+          stripe_payment_method_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "builder_payment_methods_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       builder_profiles: {
         Row: {
+          billing_tier: string | null
           created_at: string | null
           event_types: string[] | null
           eventbrite_connected: boolean | null
           eventbrite_organizer_id: string | null
+          free_events_granted: number | null
+          free_events_used: number | null
           id: string
           luma_calendar_id: string | null
           luma_connected: boolean | null
           name: string
+          paid_event_credits: number | null
           phone: string | null
           photo_url: string | null
           posh_connected: boolean | null
@@ -337,14 +960,18 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          billing_tier?: string | null
           created_at?: string | null
           event_types?: string[] | null
           eventbrite_connected?: boolean | null
           eventbrite_organizer_id?: string | null
+          free_events_granted?: number | null
+          free_events_used?: number | null
           id?: string
           luma_calendar_id?: string | null
           luma_connected?: boolean | null
           name: string
+          paid_event_credits?: number | null
           phone?: string | null
           photo_url?: string | null
           posh_connected?: boolean | null
@@ -362,14 +989,18 @@ export type Database = {
           user_id: string
         }
         Update: {
+          billing_tier?: string | null
           created_at?: string | null
           event_types?: string[] | null
           eventbrite_connected?: boolean | null
           eventbrite_organizer_id?: string | null
+          free_events_granted?: number | null
+          free_events_used?: number | null
           id?: string
           luma_calendar_id?: string | null
           luma_connected?: boolean | null
           name?: string
+          paid_event_credits?: number | null
           phone?: string | null
           photo_url?: string | null
           posh_connected?: boolean | null
@@ -452,60 +1083,76 @@ export type Database = {
       }
       builder_subscriptions: {
         Row: {
+          builder_id: string | null
           cancel_at: string | null
           cancel_at_period_end: boolean | null
           canceled_at: string | null
+          cancelled_at: string | null
           created_at: string | null
           current_period_end: string | null
           current_period_start: string | null
           events_used_this_period: number | null
           id: string
-          plan_id: string
+          plan_id: string | null
+          plan_type: string | null
           status: string
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
           trial_end: string | null
           trial_start: string | null
           updated_at: string | null
-          user_id: string
+          user_id: string | null
         }
         Insert: {
+          builder_id?: string | null
           cancel_at?: string | null
           cancel_at_period_end?: boolean | null
           canceled_at?: string | null
+          cancelled_at?: string | null
           created_at?: string | null
           current_period_end?: string | null
           current_period_start?: string | null
           events_used_this_period?: number | null
           id?: string
-          plan_id: string
+          plan_id?: string | null
+          plan_type?: string | null
           status?: string
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
           trial_end?: string | null
           trial_start?: string | null
           updated_at?: string | null
-          user_id: string
+          user_id?: string | null
         }
         Update: {
+          builder_id?: string | null
           cancel_at?: string | null
           cancel_at_period_end?: boolean | null
           canceled_at?: string | null
+          cancelled_at?: string | null
           created_at?: string | null
           current_period_end?: string | null
           current_period_start?: string | null
           events_used_this_period?: number | null
           id?: string
-          plan_id?: string
+          plan_id?: string | null
+          plan_type?: string | null
           status?: string
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
           trial_end?: string | null
           trial_start?: string | null
           updated_at?: string | null
-          user_id?: string
+          user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "builder_subscriptions_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "builder_subscriptions_plan_id_fkey"
             columns: ["plan_id"]
@@ -642,42 +1289,92 @@ export type Database = {
           },
         ]
       }
+      concierge_actions: {
+        Row: {
+          action_type: string
+          admin_user_id: string | null
+          created_at: string
+          id: string
+          invite_id: string
+          notes: string | null
+          outcome_payload: Json
+        }
+        Insert: {
+          action_type: string
+          admin_user_id?: string | null
+          created_at?: string
+          id?: string
+          invite_id: string
+          notes?: string | null
+          outcome_payload?: Json
+        }
+        Update: {
+          action_type?: string
+          admin_user_id?: string | null
+          created_at?: string
+          id?: string
+          invite_id?: string
+          notes?: string | null
+          outcome_payload?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "concierge_actions_invite_id_fkey"
+            columns: ["invite_id"]
+            isOneToOne: false
+            referencedRelation: "venue_opportunity_invites"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       documents: {
         Row: {
           created_at: string | null
+          document_group_id: string | null
           document_type: string | null
           file_name: string | null
           file_size: number | null
+          file_type: string | null
           file_url: string
           id: string
           mime_type: string | null
+          original_file_name: string | null
           related_id: string | null
           related_type: string | null
           uploader_id: string
+          version: number
         }
         Insert: {
           created_at?: string | null
+          document_group_id?: string | null
           document_type?: string | null
           file_name?: string | null
           file_size?: number | null
+          file_type?: string | null
           file_url: string
           id?: string
           mime_type?: string | null
+          original_file_name?: string | null
           related_id?: string | null
           related_type?: string | null
           uploader_id: string
+          version?: number
         }
         Update: {
           created_at?: string | null
+          document_group_id?: string | null
           document_type?: string | null
           file_name?: string | null
           file_size?: number | null
+          file_type?: string | null
           file_url?: string
           id?: string
           mime_type?: string | null
+          original_file_name?: string | null
           related_id?: string | null
           related_type?: string | null
           uploader_id?: string
+          version?: number
         }
         Relationships: [
           {
@@ -688,6 +1385,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      error_logs: {
+        Row: {
+          created_at: string
+          id: string
+          message: string
+          metadata: Json
+          path: string | null
+          source: string
+          stack: string | null
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message: string
+          metadata?: Json
+          path?: string | null
+          source: string
+          stack?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message?: string
+          metadata?: Json
+          path?: string | null
+          source?: string
+          stack?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
       }
       event_check_ins: {
         Row: {
@@ -1022,11 +1755,13 @@ export type Database = {
           agreement_id: string | null
           baseline_sales: number | null
           created_at: string | null
+          currency: string
           data_source: string
           discount_code: string | null
           entered_by: string
           event_id: string
           fees: number | null
+          fees_cents: number | null
           id: string
           integration_id: string | null
           is_refund: boolean | null
@@ -1036,15 +1771,21 @@ export type Database = {
           platform: string | null
           purchase_timestamp: string | null
           raw_data: Json
+          raw_ticket_class_id: string | null
           receipt_urls: string[] | null
+          sales_channel: string | null
           sales_lift: number | null
           submitted_at: string | null
           ticket_buyer_email: string | null
           ticket_buyer_name: string | null
           ticket_price: number | null
+          ticket_price_cents: number | null
           ticket_quantity: number | null
+          ticket_tier_category: string
+          ticket_tier_name: string | null
           ticket_type: string | null
           total_amount: number | null
+          total_amount_cents: number | null
           total_sales: number
           updated_at: string | null
           verified_at: string | null
@@ -1054,11 +1795,13 @@ export type Database = {
           agreement_id?: string | null
           baseline_sales?: number | null
           created_at?: string | null
+          currency?: string
           data_source: string
           discount_code?: string | null
           entered_by: string
           event_id: string
           fees?: number | null
+          fees_cents?: number | null
           id?: string
           integration_id?: string | null
           is_refund?: boolean | null
@@ -1068,15 +1811,21 @@ export type Database = {
           platform?: string | null
           purchase_timestamp?: string | null
           raw_data?: Json
+          raw_ticket_class_id?: string | null
           receipt_urls?: string[] | null
+          sales_channel?: string | null
           sales_lift?: number | null
           submitted_at?: string | null
           ticket_buyer_email?: string | null
           ticket_buyer_name?: string | null
           ticket_price?: number | null
+          ticket_price_cents?: number | null
           ticket_quantity?: number | null
+          ticket_tier_category?: string
+          ticket_tier_name?: string | null
           ticket_type?: string | null
           total_amount?: number | null
+          total_amount_cents?: number | null
           total_sales: number
           updated_at?: string | null
           verified_at?: string | null
@@ -1086,11 +1835,13 @@ export type Database = {
           agreement_id?: string | null
           baseline_sales?: number | null
           created_at?: string | null
+          currency?: string
           data_source?: string
           discount_code?: string | null
           entered_by?: string
           event_id?: string
           fees?: number | null
+          fees_cents?: number | null
           id?: string
           integration_id?: string | null
           is_refund?: boolean | null
@@ -1100,15 +1851,21 @@ export type Database = {
           platform?: string | null
           purchase_timestamp?: string | null
           raw_data?: Json
+          raw_ticket_class_id?: string | null
           receipt_urls?: string[] | null
+          sales_channel?: string | null
           sales_lift?: number | null
           submitted_at?: string | null
           ticket_buyer_email?: string | null
           ticket_buyer_name?: string | null
           ticket_price?: number | null
+          ticket_price_cents?: number | null
           ticket_quantity?: number | null
+          ticket_tier_category?: string
+          ticket_tier_name?: string | null
           ticket_type?: string | null
           total_amount?: number | null
+          total_amount_cents?: number | null
           total_sales?: number
           updated_at?: string | null
           verified_at?: string | null
@@ -1148,6 +1905,85 @@ export type Database = {
             columns: ["verified_by"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_tasks: {
+        Row: {
+          completed: boolean
+          created_at: string
+          due_date: string | null
+          event_id: string
+          id: string
+          priority: string
+          text: string
+          updated_at: string
+        }
+        Insert: {
+          completed?: boolean
+          created_at?: string
+          due_date?: string | null
+          event_id: string
+          id?: string
+          priority?: string
+          text: string
+          updated_at?: string
+        }
+        Update: {
+          completed?: boolean
+          created_at?: string
+          due_date?: string | null
+          event_id?: string
+          id?: string
+          priority?: string
+          text?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_tasks_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_team_members: {
+        Row: {
+          created_at: string
+          email: string
+          event_id: string
+          id: string
+          invited_at: string
+          role: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          event_id: string
+          id?: string
+          invited_at?: string
+          role: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          event_id?: string
+          id?: string
+          invited_at?: string
+          role?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_team_members_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
@@ -1214,6 +2050,65 @@ export type Database = {
           },
         ]
       }
+      event_type_candidates: {
+        Row: {
+          created_at: string
+          event_components: Json
+          example_plan_ids: string[]
+          frequency_count: number
+          id: string
+          inferred_archetype: string
+          normalized_phrase: string
+          plan_id: string | null
+          raw_phrase: string
+          status: string
+          suggested_event_type: string | null
+          suggested_questions: Json
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_components?: Json
+          example_plan_ids?: string[]
+          frequency_count?: number
+          id?: string
+          inferred_archetype: string
+          normalized_phrase: string
+          plan_id?: string | null
+          raw_phrase: string
+          status?: string
+          suggested_event_type?: string | null
+          suggested_questions?: Json
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_components?: Json
+          example_plan_ids?: string[]
+          frequency_count?: number
+          id?: string
+          inferred_archetype?: string
+          normalized_phrase?: string
+          plan_id?: string | null
+          raw_phrase?: string
+          status?: string
+          suggested_event_type?: string | null
+          suggested_questions?: Json
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_type_candidates_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_vendor_bookings: {
         Row: {
           booking_id: string | null
@@ -1273,6 +2168,13 @@ export type Database = {
             foreignKeyName: "event_vendor_bookings_vendor_id_fkey"
             columns: ["vendor_id"]
             isOneToOne: false
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "event_vendor_bookings_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
             referencedRelation: "vendor_profiles"
             referencedColumns: ["id"]
           },
@@ -1322,6 +2224,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_vendors_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
           },
           {
             foreignKeyName: "event_vendors_vendor_id_fkey"
@@ -1527,6 +2436,41 @@ export type Database = {
           },
         ]
       }
+      exports: {
+        Row: {
+          created_at: string
+          export_type: string
+          file_url: string | null
+          id: string
+          plan_id: string
+          sent_to_email: string | null
+        }
+        Insert: {
+          created_at?: string
+          export_type: string
+          file_url?: string | null
+          id?: string
+          plan_id: string
+          sent_to_email?: string | null
+        }
+        Update: {
+          created_at?: string
+          export_type?: string
+          file_url?: string | null
+          id?: string
+          plan_id?: string
+          sent_to_email?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exports_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       external_event_integrations: {
         Row: {
           access_token_encrypted: string | null
@@ -1619,6 +2563,57 @@ export type Database = {
           },
         ]
       }
+      historical_event_signals: {
+        Row: {
+          created_at: string
+          event_date: string | null
+          event_type: string | null
+          external_id: string | null
+          guest_count: number | null
+          id: string
+          neighborhood: string | null
+          raw_data: Json
+          revenue_cents: number | null
+          rsvp_rate: number | null
+          show_rate: number | null
+          signal_scope: string
+          source: string
+          ticket_price_cents: number | null
+        }
+        Insert: {
+          created_at?: string
+          event_date?: string | null
+          event_type?: string | null
+          external_id?: string | null
+          guest_count?: number | null
+          id?: string
+          neighborhood?: string | null
+          raw_data?: Json
+          revenue_cents?: number | null
+          rsvp_rate?: number | null
+          show_rate?: number | null
+          signal_scope?: string
+          source: string
+          ticket_price_cents?: number | null
+        }
+        Update: {
+          created_at?: string
+          event_date?: string | null
+          event_type?: string | null
+          external_id?: string | null
+          guest_count?: number | null
+          id?: string
+          neighborhood?: string | null
+          raw_data?: Json
+          revenue_cents?: number | null
+          rsvp_rate?: number | null
+          show_rate?: number | null
+          signal_scope?: string
+          source?: string
+          ticket_price_cents?: number | null
+        }
+        Relationships: []
+      }
       imported_attendees: {
         Row: {
           check_in_method: string | null
@@ -1634,8 +2629,12 @@ export type Database = {
           last_name: string | null
           order_id: string | null
           raw_data: Json | null
+          raw_ticket_class_id: string | null
           ticket_class: string | null
           ticket_price: number | null
+          ticket_price_cents: number | null
+          ticket_tier_category: string
+          ticket_tier_name: string | null
           ticket_type: string | null
           updated_at: string | null
         }
@@ -1653,8 +2652,12 @@ export type Database = {
           last_name?: string | null
           order_id?: string | null
           raw_data?: Json | null
+          raw_ticket_class_id?: string | null
           ticket_class?: string | null
           ticket_price?: number | null
+          ticket_price_cents?: number | null
+          ticket_tier_category?: string
+          ticket_tier_name?: string | null
           ticket_type?: string | null
           updated_at?: string | null
         }
@@ -1672,8 +2675,12 @@ export type Database = {
           last_name?: string | null
           order_id?: string | null
           raw_data?: Json | null
+          raw_ticket_class_id?: string | null
           ticket_class?: string | null
           ticket_price?: number | null
+          ticket_price_cents?: number | null
+          ticket_tier_category?: string
+          ticket_tier_name?: string | null
           ticket_type?: string | null
           updated_at?: string | null
         }
@@ -2222,6 +3229,529 @@ export type Database = {
           },
         ]
       }
+      partnership_documents: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          signed_at: string | null
+          thread_id: string
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind: string
+          signed_at?: string | null
+          thread_id: string
+          url: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          signed_at?: string | null
+          thread_id?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "partnership_documents_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "partnership_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      partnership_messages: {
+        Row: {
+          attachments: Json
+          body: string
+          created_at: string
+          id: string
+          sender_kind: string
+          thread_id: string
+        }
+        Insert: {
+          attachments?: Json
+          body: string
+          created_at?: string
+          id?: string
+          sender_kind: string
+          thread_id: string
+        }
+        Update: {
+          attachments?: Json
+          body?: string
+          created_at?: string
+          id?: string
+          sender_kind?: string
+          thread_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "partnership_messages_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "partnership_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      partnership_milestones: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          due_date: string | null
+          id: string
+          label: string
+          thread_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          label: string
+          thread_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          label?: string
+          thread_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "partnership_milestones_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "partnership_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      partnership_threads: {
+        Row: {
+          created_at: string
+          id: string
+          partner_id: string
+          partner_kind: string
+          plan_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          partner_id: string
+          partner_kind: string
+          plan_id: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          partner_id?: string
+          partner_kind?: string
+          plan_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "partnership_threads_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_intents: {
+        Row: {
+          amount_cents: number
+          approval_id: string
+          authorized_at: string | null
+          captured_at: string | null
+          created_at: string
+          currency: string
+          id: string
+          partner_id: string
+          partner_kind: string
+          plan_id: string
+          platform_fee_cents: number
+          refund_terms: string
+          status: string
+          stripe_payment_intent_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount_cents: number
+          approval_id: string
+          authorized_at?: string | null
+          captured_at?: string | null
+          created_at?: string
+          currency?: string
+          id?: string
+          partner_id: string
+          partner_kind: string
+          plan_id: string
+          platform_fee_cents?: number
+          refund_terms?: string
+          status?: string
+          stripe_payment_intent_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount_cents?: number
+          approval_id?: string
+          authorized_at?: string | null
+          captured_at?: string | null
+          created_at?: string
+          currency?: string
+          id?: string
+          partner_id?: string
+          partner_kind?: string
+          plan_id?: string
+          platform_fee_cents?: number
+          refund_terms?: string
+          status?: string
+          stripe_payment_intent_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_intents_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_intents_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payouts: {
+        Row: {
+          amount_cents: number
+          created_at: string
+          currency: string
+          id: string
+          partner_id: string
+          partner_kind: string
+          payment_intent_id: string
+          status: string
+          stripe_payout_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount_cents: number
+          created_at?: string
+          currency?: string
+          id?: string
+          partner_id: string
+          partner_kind: string
+          payment_intent_id: string
+          status?: string
+          stripe_payout_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount_cents?: number
+          created_at?: string
+          currency?: string
+          id?: string
+          partner_id?: string
+          partner_kind?: string
+          payment_intent_id?: string
+          status?: string
+          stripe_payout_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payouts_payment_intent_id_fkey"
+            columns: ["payment_intent_id"]
+            isOneToOne: false
+            referencedRelation: "payment_intents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          message_type: string
+          metadata: Json
+          plan_id: string
+          role: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          message_type?: string
+          metadata?: Json
+          plan_id: string
+          role: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          message_type?: string
+          metadata?: Json
+          plan_id?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_messages_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_versions: {
+        Row: {
+          change_reason: string | null
+          changed_by: string | null
+          created_at: string
+          id: string
+          plan_id: string
+          snapshot: Json
+          version_number: number
+        }
+        Insert: {
+          change_reason?: string | null
+          changed_by?: string | null
+          created_at?: string
+          id?: string
+          plan_id: string
+          snapshot?: Json
+          version_number: number
+        }
+        Update: {
+          change_reason?: string | null
+          changed_by?: string | null
+          created_at?: string
+          id?: string
+          plan_id?: string
+          snapshot?: Json
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_versions_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_versions_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      planner_plan_updates: {
+        Row: {
+          created_at: string
+          field: string
+          id: string
+          new_value: Json | null
+          old_value: Json | null
+          plan_id: string
+        }
+        Insert: {
+          created_at?: string
+          field: string
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          plan_id: string
+        }
+        Update: {
+          created_at?: string
+          field?: string
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          plan_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "planner_plan_updates_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plans: {
+        Row: {
+          agent_action: string | null
+          budget_cap_cents: number | null
+          created_at: string
+          date_window_end: string | null
+          date_window_start: string | null
+          event_type: string | null
+          food_responsibility: string | null
+          guest_count: number | null
+          id: string
+          metadata: Json
+          neighborhood: string | null
+          notes: string | null
+          profit_goal_cents: number | null
+          status: Database["public"]["Enums"]["planner_plan_status"]
+          ticketed: boolean
+          ticketing_model: string | null
+          title: string
+          updated_at: string
+          user_id: string
+          venue_terms: string | null
+        }
+        Insert: {
+          agent_action?: string | null
+          budget_cap_cents?: number | null
+          created_at?: string
+          date_window_end?: string | null
+          date_window_start?: string | null
+          event_type?: string | null
+          food_responsibility?: string | null
+          guest_count?: number | null
+          id?: string
+          metadata?: Json
+          neighborhood?: string | null
+          notes?: string | null
+          profit_goal_cents?: number | null
+          status?: Database["public"]["Enums"]["planner_plan_status"]
+          ticketed?: boolean
+          ticketing_model?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+          venue_terms?: string | null
+        }
+        Update: {
+          agent_action?: string | null
+          budget_cap_cents?: number | null
+          created_at?: string
+          date_window_end?: string | null
+          date_window_start?: string | null
+          event_type?: string | null
+          food_responsibility?: string | null
+          guest_count?: number | null
+          id?: string
+          metadata?: Json
+          neighborhood?: string | null
+          notes?: string | null
+          profit_goal_cents?: number | null
+          status?: Database["public"]["Enums"]["planner_plan_status"]
+          ticketed?: boolean
+          ticketing_model?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+          venue_terms?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plans_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      platform_fee_transactions: {
+        Row: {
+          amount: number
+          billing_period_end: string | null
+          billing_period_start: string | null
+          booking_id: string | null
+          builder_id: string | null
+          created_at: string | null
+          failed_at: string | null
+          fee_type: string
+          id: string
+          paid_at: string | null
+          refunded_at: string | null
+          status: string | null
+          stripe_checkout_session_id: string | null
+          stripe_invoice_id: string | null
+          stripe_payment_intent_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          amount: number
+          billing_period_end?: string | null
+          billing_period_start?: string | null
+          booking_id?: string | null
+          builder_id?: string | null
+          created_at?: string | null
+          failed_at?: string | null
+          fee_type: string
+          id?: string
+          paid_at?: string | null
+          refunded_at?: string | null
+          status?: string | null
+          stripe_checkout_session_id?: string | null
+          stripe_invoice_id?: string | null
+          stripe_payment_intent_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          amount?: number
+          billing_period_end?: string | null
+          billing_period_start?: string | null
+          booking_id?: string | null
+          builder_id?: string | null
+          created_at?: string | null
+          failed_at?: string | null
+          fee_type?: string
+          id?: string
+          paid_at?: string | null
+          refunded_at?: string | null
+          status?: string | null
+          stripe_checkout_session_id?: string | null
+          stripe_invoice_id?: string | null
+          stripe_payment_intent_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_fee_transactions_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "platform_fee_transactions_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       platform_fees: {
         Row: {
           amount: number
@@ -2294,6 +3824,125 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provider_connections: {
+        Row: {
+          builder_id: string | null
+          config: Json
+          created_at: string
+          encrypted_credentials: Json
+          external_account_id: string | null
+          id: string
+          last_connected_at: string | null
+          last_error: string | null
+          plan_id: string | null
+          provider: string
+          status: string
+          updated_at: string
+          user_id: string
+          webhook_url: string | null
+        }
+        Insert: {
+          builder_id?: string | null
+          config?: Json
+          created_at?: string
+          encrypted_credentials?: Json
+          external_account_id?: string | null
+          id?: string
+          last_connected_at?: string | null
+          last_error?: string | null
+          plan_id?: string | null
+          provider: string
+          status?: string
+          updated_at?: string
+          user_id: string
+          webhook_url?: string | null
+        }
+        Update: {
+          builder_id?: string | null
+          config?: Json
+          created_at?: string
+          encrypted_credentials?: Json
+          external_account_id?: string | null
+          id?: string
+          last_connected_at?: string | null
+          last_error?: string | null
+          plan_id?: string | null
+          provider?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+          webhook_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_connections_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_connections_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      recommendations: {
+        Row: {
+          created_at: string
+          external_name: string | null
+          id: string
+          is_best_fit: boolean
+          metadata: Json
+          notes: string | null
+          plan_id: string
+          price_cents: number | null
+          rank: number
+          reference_id: string | null
+          status: string
+          type: string
+        }
+        Insert: {
+          created_at?: string
+          external_name?: string | null
+          id?: string
+          is_best_fit?: boolean
+          metadata?: Json
+          notes?: string | null
+          plan_id: string
+          price_cents?: number | null
+          rank: number
+          reference_id?: string | null
+          status?: string
+          type: string
+        }
+        Update: {
+          created_at?: string
+          external_name?: string | null
+          id?: string
+          is_best_fit?: boolean
+          metadata?: Json
+          notes?: string | null
+          plan_id?: string
+          price_cents?: number | null
+          rank?: number
+          reference_id?: string | null
+          status?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recommendations_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
             referencedColumns: ["id"]
           },
         ]
@@ -2389,6 +4038,13 @@ export type Database = {
             foreignKeyName: "reviews_vendor_id_fkey"
             columns: ["vendor_id"]
             isOneToOne: false
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "reviews_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
             referencedRelation: "vendor_profiles"
             referencedColumns: ["id"]
           },
@@ -2450,6 +4106,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "builder_profiles"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "saved_vendors_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
           },
           {
             foreignKeyName: "saved_vendors_vendor_id_fkey"
@@ -2606,6 +4269,30 @@ export type Database = {
           },
         ]
       }
+      spatial_ref_sys: {
+        Row: {
+          auth_name: string | null
+          auth_srid: number | null
+          proj4text: string | null
+          srid: number
+          srtext: string | null
+        }
+        Insert: {
+          auth_name?: string | null
+          auth_srid?: number | null
+          proj4text?: string | null
+          srid: number
+          srtext?: string | null
+        }
+        Update: {
+          auth_name?: string | null
+          auth_srid?: number | null
+          proj4text?: string | null
+          srid?: number
+          srtext?: string | null
+        }
+        Relationships: []
+      }
       stripe_accounts: {
         Row: {
           account_type: string
@@ -2698,6 +4385,7 @@ export type Database = {
       subscription_plans: {
         Row: {
           amount: number
+          billing_interval: string | null
           created_at: string | null
           currency: string | null
           description: string | null
@@ -2709,17 +4397,19 @@ export type Database = {
           is_featured: boolean | null
           max_attendees_per_event: number | null
           name: string
+          plan_name: string | null
           plan_type: string | null
           platform_fee_discount: number | null
           price: number | null
           slug: string
           sort_order: number | null
-          stripe_price_id: string
+          stripe_price_id: string | null
           stripe_product_id: string | null
           updated_at: string | null
         }
         Insert: {
           amount: number
+          billing_interval?: string | null
           created_at?: string | null
           currency?: string | null
           description?: string | null
@@ -2731,17 +4421,19 @@ export type Database = {
           is_featured?: boolean | null
           max_attendees_per_event?: number | null
           name: string
+          plan_name?: string | null
           plan_type?: string | null
           platform_fee_discount?: number | null
           price?: number | null
           slug: string
           sort_order?: number | null
-          stripe_price_id: string
+          stripe_price_id?: string | null
           stripe_product_id?: string | null
           updated_at?: string | null
         }
         Update: {
           amount?: number
+          billing_interval?: string | null
           created_at?: string | null
           currency?: string | null
           description?: string | null
@@ -2753,12 +4445,13 @@ export type Database = {
           is_featured?: boolean | null
           max_attendees_per_event?: number | null
           name?: string
+          plan_name?: string | null
           plan_type?: string | null
           platform_fee_discount?: number | null
           price?: number | null
           slug?: string
           sort_order?: number | null
-          stripe_price_id?: string
+          stripe_price_id?: string | null
           stripe_product_id?: string | null
           updated_at?: string | null
         }
@@ -2813,6 +4506,144 @@ export type Database = {
             columns: ["integration_id"]
             isOneToOne: false
             referencedRelation: "external_event_integrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      template_runs: {
+        Row: {
+          budget_override_cents: number | null
+          created_at: string
+          expected_guest_count: number | null
+          id: string
+          new_date: string | null
+          plan_id: string
+          status: string
+          template_id: string
+          use_same_vendors: boolean
+          use_same_venue: boolean
+        }
+        Insert: {
+          budget_override_cents?: number | null
+          created_at?: string
+          expected_guest_count?: number | null
+          id?: string
+          new_date?: string | null
+          plan_id: string
+          status?: string
+          template_id: string
+          use_same_vendors?: boolean
+          use_same_venue?: boolean
+        }
+        Update: {
+          budget_override_cents?: number | null
+          created_at?: string
+          expected_guest_count?: number | null
+          id?: string
+          new_date?: string | null
+          plan_id?: string
+          status?: string
+          template_id?: string
+          use_same_vendors?: boolean
+          use_same_venue?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "template_runs_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "template_runs_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      templates: {
+        Row: {
+          approval_checklist: Json
+          budget_model: Json
+          created_at: string
+          email_copy: string | null
+          event_type: string | null
+          export_copy: string | null
+          guest_count_max: number | null
+          guest_count_min: number | null
+          historical_performance: Json
+          id: string
+          kickback_model: Json
+          name: string
+          profit_assumptions: Json
+          run_of_show: Json
+          shopping_list: Json
+          source_plan_id: string | null
+          target_audience: string | null
+          ticket_price_model: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approval_checklist?: Json
+          budget_model?: Json
+          created_at?: string
+          email_copy?: string | null
+          event_type?: string | null
+          export_copy?: string | null
+          guest_count_max?: number | null
+          guest_count_min?: number | null
+          historical_performance?: Json
+          id?: string
+          kickback_model?: Json
+          name: string
+          profit_assumptions?: Json
+          run_of_show?: Json
+          shopping_list?: Json
+          source_plan_id?: string | null
+          target_audience?: string | null
+          ticket_price_model?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approval_checklist?: Json
+          budget_model?: Json
+          created_at?: string
+          email_copy?: string | null
+          event_type?: string | null
+          export_copy?: string | null
+          guest_count_max?: number | null
+          guest_count_min?: number | null
+          historical_performance?: Json
+          id?: string
+          kickback_model?: Json
+          name?: string
+          profit_assumptions?: Json
+          run_of_show?: Json
+          shopping_list?: Json
+          source_plan_id?: string | null
+          target_audience?: string | null
+          ticket_price_model?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "templates_source_plan_id_fkey"
+            columns: ["source_plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "templates_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -2943,6 +4774,13 @@ export type Database = {
             foreignKeyName: "vendor_availability_vendor_id_fkey"
             columns: ["vendor_id"]
             isOneToOne: false
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "vendor_availability_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
             referencedRelation: "vendor_profiles"
             referencedColumns: ["id"]
           },
@@ -2951,6 +4789,8 @@ export type Database = {
       vendor_bookings: {
         Row: {
           booking_date: string
+          cancellation_reason: string | null
+          cancelled_at: string | null
           confirmed_date: string | null
           confirmed_end_time: string | null
           confirmed_start_time: string | null
@@ -2971,6 +4811,7 @@ export type Database = {
           platform_fee_percentage: number | null
           quantity: number | null
           quoted_price: number | null
+          refund_amount: number | null
           requested_date: string | null
           requested_end_time: string | null
           requested_start_time: string | null
@@ -2989,6 +4830,8 @@ export type Database = {
         }
         Insert: {
           booking_date: string
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
           confirmed_date?: string | null
           confirmed_end_time?: string | null
           confirmed_start_time?: string | null
@@ -3009,6 +4852,7 @@ export type Database = {
           platform_fee_percentage?: number | null
           quantity?: number | null
           quoted_price?: number | null
+          refund_amount?: number | null
           requested_date?: string | null
           requested_end_time?: string | null
           requested_start_time?: string | null
@@ -3027,6 +4871,8 @@ export type Database = {
         }
         Update: {
           booking_date?: string
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
           confirmed_date?: string | null
           confirmed_end_time?: string | null
           confirmed_start_time?: string | null
@@ -3047,6 +4893,7 @@ export type Database = {
           platform_fee_percentage?: number | null
           quantity?: number | null
           quoted_price?: number | null
+          refund_amount?: number | null
           requested_date?: string | null
           requested_end_time?: string | null
           requested_start_time?: string | null
@@ -3082,6 +4929,13 @@ export type Database = {
             foreignKeyName: "vendor_bookings_vendor_id_fkey"
             columns: ["vendor_id"]
             isOneToOne: false
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "vendor_bookings_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
             referencedRelation: "vendor_profiles"
             referencedColumns: ["id"]
           },
@@ -3097,6 +4951,287 @@ export type Database = {
             columns: ["vendor_package_id"]
             isOneToOne: false
             referencedRelation: "vendor_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_invoice_sequences: {
+        Row: {
+          invoice_year: number
+          last_value: number
+        }
+        Insert: {
+          invoice_year: number
+          last_value?: number
+        }
+        Update: {
+          invoice_year?: number
+          last_value?: number
+        }
+        Relationships: []
+      }
+      vendor_invoices: {
+        Row: {
+          booking_id: string
+          builder_id: string
+          created_at: string
+          deposit_amount: number
+          deposit_due_date: string | null
+          deposit_paid: boolean
+          deposit_paid_at: string | null
+          event_id: string
+          final_amount: number
+          final_due_date: string | null
+          final_paid: boolean
+          final_paid_at: string | null
+          id: string
+          invoice_number: string
+          line_items: Json
+          pdf_url: string | null
+          sent_at: string | null
+          status: string
+          subtotal: number
+          tax_amount: number
+          tax_rate: number
+          total: number
+          updated_at: string
+          vendor_id: string
+        }
+        Insert: {
+          booking_id: string
+          builder_id: string
+          created_at?: string
+          deposit_amount?: number
+          deposit_due_date?: string | null
+          deposit_paid?: boolean
+          deposit_paid_at?: string | null
+          event_id: string
+          final_amount?: number
+          final_due_date?: string | null
+          final_paid?: boolean
+          final_paid_at?: string | null
+          id?: string
+          invoice_number: string
+          line_items?: Json
+          pdf_url?: string | null
+          sent_at?: string | null
+          status?: string
+          subtotal?: number
+          tax_amount?: number
+          tax_rate?: number
+          total?: number
+          updated_at?: string
+          vendor_id: string
+        }
+        Update: {
+          booking_id?: string
+          builder_id?: string
+          created_at?: string
+          deposit_amount?: number
+          deposit_due_date?: string | null
+          deposit_paid?: boolean
+          deposit_paid_at?: string | null
+          event_id?: string
+          final_amount?: number
+          final_due_date?: string | null
+          final_paid?: boolean
+          final_paid_at?: string | null
+          id?: string
+          invoice_number?: string
+          line_items?: Json
+          pdf_url?: string | null
+          sent_at?: string | null
+          status?: string
+          subtotal?: number
+          tax_amount?: number
+          tax_rate?: number
+          total?: number
+          updated_at?: string
+          vendor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_invoices_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_invoices_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_invoices_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_invoices_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "vendor_invoices_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_message_threads: {
+        Row: {
+          booking_id: string
+          builder_id: string
+          created_at: string | null
+          id: string
+          last_message_at: string | null
+          status: string
+          subject: string
+          updated_at: string | null
+          vendor_id: string
+        }
+        Insert: {
+          booking_id: string
+          builder_id: string
+          created_at?: string | null
+          id?: string
+          last_message_at?: string | null
+          status?: string
+          subject?: string
+          updated_at?: string | null
+          vendor_id: string
+        }
+        Update: {
+          booking_id?: string
+          builder_id?: string
+          created_at?: string | null
+          id?: string
+          last_message_at?: string | null
+          status?: string
+          subject?: string
+          updated_at?: string | null
+          vendor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_message_threads_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: true
+            referencedRelation: "vendor_bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_message_threads_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_message_threads_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "vendor_message_threads_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_message_typing_indicators: {
+        Row: {
+          sender_type: string
+          thread_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          sender_type: string
+          thread_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          sender_type?: string
+          thread_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_message_typing_indicators_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_message_threads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_message_typing_indicators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_messages: {
+        Row: {
+          attachments: Json | null
+          created_at: string | null
+          id: string
+          message: string
+          read_at: string | null
+          sender_id: string
+          sender_type: string
+          thread_id: string
+        }
+        Insert: {
+          attachments?: Json | null
+          created_at?: string | null
+          id?: string
+          message?: string
+          read_at?: string | null
+          sender_id: string
+          sender_type: string
+          thread_id: string
+        }
+        Update: {
+          attachments?: Json | null
+          created_at?: string | null
+          id?: string
+          message?: string
+          read_at?: string | null
+          sender_id?: string
+          sender_type?: string
+          thread_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_messages_sender_id_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_messages_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_message_threads"
             referencedColumns: ["id"]
           },
         ]
@@ -3167,6 +5302,143 @@ export type Database = {
             foreignKeyName: "vendor_offerings_vendor_id_fkey"
             columns: ["vendor_id"]
             isOneToOne: false
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "vendor_offerings_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_opportunity_briefs: {
+        Row: {
+          approval_status: string
+          budget_range_cents: unknown
+          created_at: string
+          date_needed: string | null
+          id: string
+          organizer_user_id: string
+          outreach_message: Json | null
+          package_type: string
+          plan_id: string
+          quote_requested: boolean
+          requirements: Json
+          response_deadline: string | null
+          summary: string
+        }
+        Insert: {
+          approval_status?: string
+          budget_range_cents?: unknown
+          created_at?: string
+          date_needed?: string | null
+          id?: string
+          organizer_user_id: string
+          outreach_message?: Json | null
+          package_type: string
+          plan_id: string
+          quote_requested?: boolean
+          requirements?: Json
+          response_deadline?: string | null
+          summary: string
+        }
+        Update: {
+          approval_status?: string
+          budget_range_cents?: unknown
+          created_at?: string
+          date_needed?: string | null
+          id?: string
+          organizer_user_id?: string
+          outreach_message?: Json | null
+          package_type?: string
+          plan_id?: string
+          quote_requested?: boolean
+          requirements?: Json
+          response_deadline?: string | null
+          summary?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_opportunity_briefs_organizer_user_id_fkey"
+            columns: ["organizer_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_opportunity_briefs_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_opportunity_invites: {
+        Row: {
+          brief_id: string
+          created_at: string
+          id: string
+          magic_link_expires_at: string | null
+          magic_link_token: string | null
+          quoted_amount_cents: number | null
+          response_at: string | null
+          response_payload: Json
+          sent_at: string | null
+          status: string
+          vendor_id: string
+          viewed_at: string | null
+        }
+        Insert: {
+          brief_id: string
+          created_at?: string
+          id?: string
+          magic_link_expires_at?: string | null
+          magic_link_token?: string | null
+          quoted_amount_cents?: number | null
+          response_at?: string | null
+          response_payload?: Json
+          sent_at?: string | null
+          status?: string
+          vendor_id: string
+          viewed_at?: string | null
+        }
+        Update: {
+          brief_id?: string
+          created_at?: string
+          id?: string
+          magic_link_expires_at?: string | null
+          magic_link_token?: string | null
+          quoted_amount_cents?: number | null
+          response_at?: string | null
+          response_payload?: Json
+          sent_at?: string | null
+          status?: string
+          vendor_id?: string
+          viewed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_opportunity_invites_brief_id_fkey"
+            columns: ["brief_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_opportunity_briefs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_opportunity_invites_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "vendor_opportunity_invites_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
             referencedRelation: "vendor_profiles"
             referencedColumns: ["id"]
           },
@@ -3214,6 +5486,13 @@ export type Database = {
             foreignKeyName: "vendor_packages_vendor_id_fkey"
             columns: ["vendor_id"]
             isOneToOne: false
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "vendor_packages_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
             referencedRelation: "vendor_profiles"
             referencedColumns: ["id"]
           },
@@ -3227,18 +5506,27 @@ export type Database = {
           bank_name: string | null
           base_rate: number | null
           bio: string | null
+          cancellation_terms: string | null
+          claimed_user_id: string | null
           compatible_features: string[] | null
+          contact_email: string | null
           created_at: string | null
+          default_tax_rate: number | null
           deposit_amount: number | null
           deposit_percentage: number | null
           deposit_refundable: boolean | null
           deposit_required: number | null
           deposit_terms: string | null
           deposit_type: string | null
+          emergency_available: boolean | null
+          emergency_rate_uplift: number | null
           hourly_rate: number | null
           id: string
+          is_admin_seeded: boolean
+          is_claimed: boolean
           is_published: boolean | null
           languages: string[] | null
+          lead_time_days: number | null
           minimum_hours: number | null
           name: string
           payout_enabled: boolean | null
@@ -3246,6 +5534,7 @@ export type Database = {
           per_person_rate: number | null
           phone: string | null
           photo_url: string | null
+          portfolio_url: string | null
           pricing_model: string | null
           rating: number | null
           regions_served: string | null
@@ -3262,7 +5551,7 @@ export type Database = {
           total_gigs: number | null
           travel_radius: string | null
           updated_at: string | null
-          user_id: string
+          user_id: string | null
           vendor_type: string
           years_experience: number | null
         }
@@ -3273,18 +5562,27 @@ export type Database = {
           bank_name?: string | null
           base_rate?: number | null
           bio?: string | null
+          cancellation_terms?: string | null
+          claimed_user_id?: string | null
           compatible_features?: string[] | null
+          contact_email?: string | null
           created_at?: string | null
+          default_tax_rate?: number | null
           deposit_amount?: number | null
           deposit_percentage?: number | null
           deposit_refundable?: boolean | null
           deposit_required?: number | null
           deposit_terms?: string | null
           deposit_type?: string | null
+          emergency_available?: boolean | null
+          emergency_rate_uplift?: number | null
           hourly_rate?: number | null
           id?: string
+          is_admin_seeded?: boolean
+          is_claimed?: boolean
           is_published?: boolean | null
           languages?: string[] | null
+          lead_time_days?: number | null
           minimum_hours?: number | null
           name: string
           payout_enabled?: boolean | null
@@ -3292,6 +5590,7 @@ export type Database = {
           per_person_rate?: number | null
           phone?: string | null
           photo_url?: string | null
+          portfolio_url?: string | null
           pricing_model?: string | null
           rating?: number | null
           regions_served?: string | null
@@ -3308,7 +5607,7 @@ export type Database = {
           total_gigs?: number | null
           travel_radius?: string | null
           updated_at?: string | null
-          user_id: string
+          user_id?: string | null
           vendor_type: string
           years_experience?: number | null
         }
@@ -3319,18 +5618,27 @@ export type Database = {
           bank_name?: string | null
           base_rate?: number | null
           bio?: string | null
+          cancellation_terms?: string | null
+          claimed_user_id?: string | null
           compatible_features?: string[] | null
+          contact_email?: string | null
           created_at?: string | null
+          default_tax_rate?: number | null
           deposit_amount?: number | null
           deposit_percentage?: number | null
           deposit_refundable?: boolean | null
           deposit_required?: number | null
           deposit_terms?: string | null
           deposit_type?: string | null
+          emergency_available?: boolean | null
+          emergency_rate_uplift?: number | null
           hourly_rate?: number | null
           id?: string
+          is_admin_seeded?: boolean
+          is_claimed?: boolean
           is_published?: boolean | null
           languages?: string[] | null
+          lead_time_days?: number | null
           minimum_hours?: number | null
           name?: string
           payout_enabled?: boolean | null
@@ -3338,6 +5646,7 @@ export type Database = {
           per_person_rate?: number | null
           phone?: string | null
           photo_url?: string | null
+          portfolio_url?: string | null
           pricing_model?: string | null
           rating?: number | null
           regions_served?: string | null
@@ -3354,7 +5663,7 @@ export type Database = {
           total_gigs?: number | null
           travel_radius?: string | null
           updated_at?: string | null
-          user_id?: string
+          user_id?: string | null
           vendor_type?: string
           years_experience?: number | null
         }
@@ -3362,7 +5671,7 @@ export type Database = {
           {
             foreignKeyName: "vendor_profiles_user_id_fkey"
             columns: ["user_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
@@ -3394,6 +5703,13 @@ export type Database = {
           vendor_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "vendor_requirements_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
           {
             foreignKeyName: "vendor_requirements_vendor_id_fkey"
             columns: ["vendor_id"]
@@ -3442,6 +5758,96 @@ export type Database = {
             foreignKeyName: "vendor_stripe_accounts_vendor_id_fkey"
             columns: ["vendor_id"]
             isOneToOne: true
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "vendor_stripe_accounts_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: true
+            referencedRelation: "vendor_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_transactions: {
+        Row: {
+          amount: number
+          booking_id: string
+          builder_id: string
+          created_at: string
+          id: string
+          paid_at: string | null
+          payment_type: string
+          platform_fee: number
+          status: string
+          stripe_charge_id: string | null
+          stripe_fee: number
+          stripe_payment_intent_id: string | null
+          stripe_transfer_id: string | null
+          vendor_id: string
+          vendor_payout: number
+        }
+        Insert: {
+          amount: number
+          booking_id: string
+          builder_id: string
+          created_at?: string
+          id?: string
+          paid_at?: string | null
+          payment_type: string
+          platform_fee?: number
+          status?: string
+          stripe_charge_id?: string | null
+          stripe_fee?: number
+          stripe_payment_intent_id?: string | null
+          stripe_transfer_id?: string | null
+          vendor_id: string
+          vendor_payout?: number
+        }
+        Update: {
+          amount?: number
+          booking_id?: string
+          builder_id?: string
+          created_at?: string
+          id?: string
+          paid_at?: string | null
+          payment_type?: string
+          platform_fee?: number
+          status?: string
+          stripe_charge_id?: string | null
+          stripe_fee?: number
+          stripe_payment_intent_id?: string | null
+          stripe_transfer_id?: string | null
+          vendor_id?: string
+          vendor_payout?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_transactions_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_transactions_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_transactions_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "vendor_transactions_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
             referencedRelation: "vendor_profiles"
             referencedColumns: ["id"]
           },
@@ -3774,6 +6180,231 @@ export type Database = {
           },
         ]
       }
+      venue_opportunity_briefs: {
+        Row: {
+          approval_status: string
+          budget_cents: number | null
+          budget_range_cents: unknown
+          created_at: string
+          date_window: unknown
+          date_window_end: string | null
+          date_window_start: string | null
+          deposit_target_cents: number | null
+          event_components: Json
+          event_type: string | null
+          guest_count: number | null
+          id: string
+          must_haves: Json
+          neighborhood: string | null
+          organizer_user_id: string
+          outreach_message: Json | null
+          plan_id: string
+          requested_terms: Json
+          requirements: Json
+          response_deadline: string | null
+          status: string
+          summary: string | null
+          time_preference: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          approval_status?: string
+          budget_cents?: number | null
+          budget_range_cents?: unknown
+          created_at?: string
+          date_window?: unknown
+          date_window_end?: string | null
+          date_window_start?: string | null
+          deposit_target_cents?: number | null
+          event_components?: Json
+          event_type?: string | null
+          guest_count?: number | null
+          id?: string
+          must_haves?: Json
+          neighborhood?: string | null
+          organizer_user_id: string
+          outreach_message?: Json | null
+          plan_id: string
+          requested_terms?: Json
+          requirements?: Json
+          response_deadline?: string | null
+          status?: string
+          summary?: string | null
+          time_preference?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          approval_status?: string
+          budget_cents?: number | null
+          budget_range_cents?: unknown
+          created_at?: string
+          date_window?: unknown
+          date_window_end?: string | null
+          date_window_start?: string | null
+          deposit_target_cents?: number | null
+          event_components?: Json
+          event_type?: string | null
+          guest_count?: number | null
+          id?: string
+          must_haves?: Json
+          neighborhood?: string | null
+          organizer_user_id?: string
+          outreach_message?: Json | null
+          plan_id?: string
+          requested_terms?: Json
+          requirements?: Json
+          response_deadline?: string | null
+          status?: string
+          summary?: string | null
+          time_preference?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "venue_opportunity_briefs_organizer_user_id_fkey"
+            columns: ["organizer_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_opportunity_briefs_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      venue_opportunity_invites: {
+        Row: {
+          admin_notes: string | null
+          brief_id: string
+          budget_fit: boolean
+          capacity_fit: boolean
+          created_at: string
+          expires_at: string | null
+          id: string
+          is_claimed: boolean
+          magic_link_expires_at: string | null
+          magic_link_token: string | null
+          match_score: number
+          opportunity_id: string
+          proposed_deposit_cents: number | null
+          quoted_price_cents: number | null
+          requirement_fit: Json
+          responded_at: string | null
+          response_at: string | null
+          response_payload: Json
+          route_to_concierge: boolean
+          sent_at: string | null
+          status: string
+          target_type: string
+          updated_at: string
+          vendor_profile_id: string | null
+          venue_id: string | null
+          venue_response_json: Json
+          viewed_at: string | null
+        }
+        Insert: {
+          admin_notes?: string | null
+          brief_id: string
+          budget_fit?: boolean
+          capacity_fit?: boolean
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          is_claimed?: boolean
+          magic_link_expires_at?: string | null
+          magic_link_token?: string | null
+          match_score?: number
+          opportunity_id: string
+          proposed_deposit_cents?: number | null
+          quoted_price_cents?: number | null
+          requirement_fit?: Json
+          responded_at?: string | null
+          response_at?: string | null
+          response_payload?: Json
+          route_to_concierge?: boolean
+          sent_at?: string | null
+          status?: string
+          target_type: string
+          updated_at?: string
+          vendor_profile_id?: string | null
+          venue_id?: string | null
+          venue_response_json?: Json
+          viewed_at?: string | null
+        }
+        Update: {
+          admin_notes?: string | null
+          brief_id?: string
+          budget_fit?: boolean
+          capacity_fit?: boolean
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          is_claimed?: boolean
+          magic_link_expires_at?: string | null
+          magic_link_token?: string | null
+          match_score?: number
+          opportunity_id?: string
+          proposed_deposit_cents?: number | null
+          quoted_price_cents?: number | null
+          requirement_fit?: Json
+          responded_at?: string | null
+          response_at?: string | null
+          response_payload?: Json
+          route_to_concierge?: boolean
+          sent_at?: string | null
+          status?: string
+          target_type?: string
+          updated_at?: string
+          vendor_profile_id?: string | null
+          venue_id?: string | null
+          venue_response_json?: Json
+          viewed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "venue_opportunity_invites_brief_id_fkey"
+            columns: ["brief_id"]
+            isOneToOne: false
+            referencedRelation: "venue_opportunity_briefs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_opportunity_invites_opportunity_id_fkey"
+            columns: ["opportunity_id"]
+            isOneToOne: false
+            referencedRelation: "venue_opportunity_briefs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_opportunity_invites_vendor_profile_id_fkey"
+            columns: ["vendor_profile_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "venue_opportunity_invites_vendor_profile_id_fkey"
+            columns: ["vendor_profile_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_opportunity_invites_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       venue_photos: {
         Row: {
           created_at: string | null
@@ -3952,12 +6583,18 @@ export type Database = {
           address: string | null
           auto_approve_conditions: Json | null
           auto_approve_threshold: number | null
+          available_days: string[] | null
           average_rating: number | null
+          bar_rev_share_enabled: boolean
+          bar_rev_share_pct: number
           bar_revenue_percentage: number | null
           bar_revenue_share_enabled: boolean | null
           bar_revenue_share_percent: number | null
           bulk_approval_enabled: boolean | null
+          cancellation_terms: string | null
           city: string | null
+          claimed_user_id: string | null
+          contact_email: string | null
           created_at: string | null
           default_kickback_type: string | null
           deposit_amount: number | null
@@ -3969,23 +6606,33 @@ export type Database = {
           description: string | null
           hourly_rate: number | null
           id: string
+          is_admin_seeded: boolean
+          is_claimed: boolean
           is_published: boolean | null
           latitude: number | null
+          loading_address: string | null
           longitude: number | null
           minimum_hours: number | null
           offers_kickbacks: boolean | null
-          owner_id: string
+          open_from: string | null
+          open_to: string | null
+          owner_id: string | null
           per_head_kickback: number | null
           per_head_kickback_amount: number | null
+          per_head_kickback_cents: number
+          prep_time_hours: number | null
           pricing_model: string | null
           requires_deposit: boolean | null
           seated_capacity: number | null
           slug: string | null
+          sponsor_rev_share_enabled: boolean
+          sponsor_rev_share_pct: number
           square_footage: number | null
           standing_capacity: number | null
           state: string | null
           stripe_account_id: string | null
-          ticket_sales_share_enabled: boolean | null
+          ticket_sales_share_enabled: boolean
+          ticket_sales_share_pct: number
           ticket_sales_share_percent: number | null
           total_bookings: number | null
           unique_features: string | null
@@ -3999,12 +6646,18 @@ export type Database = {
           address?: string | null
           auto_approve_conditions?: Json | null
           auto_approve_threshold?: number | null
+          available_days?: string[] | null
           average_rating?: number | null
+          bar_rev_share_enabled?: boolean
+          bar_rev_share_pct?: number
           bar_revenue_percentage?: number | null
           bar_revenue_share_enabled?: boolean | null
           bar_revenue_share_percent?: number | null
           bulk_approval_enabled?: boolean | null
+          cancellation_terms?: string | null
           city?: string | null
+          claimed_user_id?: string | null
+          contact_email?: string | null
           created_at?: string | null
           default_kickback_type?: string | null
           deposit_amount?: number | null
@@ -4016,23 +6669,33 @@ export type Database = {
           description?: string | null
           hourly_rate?: number | null
           id?: string
+          is_admin_seeded?: boolean
+          is_claimed?: boolean
           is_published?: boolean | null
           latitude?: number | null
+          loading_address?: string | null
           longitude?: number | null
           minimum_hours?: number | null
           offers_kickbacks?: boolean | null
-          owner_id: string
+          open_from?: string | null
+          open_to?: string | null
+          owner_id?: string | null
           per_head_kickback?: number | null
           per_head_kickback_amount?: number | null
+          per_head_kickback_cents?: number
+          prep_time_hours?: number | null
           pricing_model?: string | null
           requires_deposit?: boolean | null
           seated_capacity?: number | null
           slug?: string | null
+          sponsor_rev_share_enabled?: boolean
+          sponsor_rev_share_pct?: number
           square_footage?: number | null
           standing_capacity?: number | null
           state?: string | null
           stripe_account_id?: string | null
-          ticket_sales_share_enabled?: boolean | null
+          ticket_sales_share_enabled?: boolean
+          ticket_sales_share_pct?: number
           ticket_sales_share_percent?: number | null
           total_bookings?: number | null
           unique_features?: string | null
@@ -4046,12 +6709,18 @@ export type Database = {
           address?: string | null
           auto_approve_conditions?: Json | null
           auto_approve_threshold?: number | null
+          available_days?: string[] | null
           average_rating?: number | null
+          bar_rev_share_enabled?: boolean
+          bar_rev_share_pct?: number
           bar_revenue_percentage?: number | null
           bar_revenue_share_enabled?: boolean | null
           bar_revenue_share_percent?: number | null
           bulk_approval_enabled?: boolean | null
+          cancellation_terms?: string | null
           city?: string | null
+          claimed_user_id?: string | null
+          contact_email?: string | null
           created_at?: string | null
           default_kickback_type?: string | null
           deposit_amount?: number | null
@@ -4063,23 +6732,33 @@ export type Database = {
           description?: string | null
           hourly_rate?: number | null
           id?: string
+          is_admin_seeded?: boolean
+          is_claimed?: boolean
           is_published?: boolean | null
           latitude?: number | null
+          loading_address?: string | null
           longitude?: number | null
           minimum_hours?: number | null
           offers_kickbacks?: boolean | null
-          owner_id?: string
+          open_from?: string | null
+          open_to?: string | null
+          owner_id?: string | null
           per_head_kickback?: number | null
           per_head_kickback_amount?: number | null
+          per_head_kickback_cents?: number
+          prep_time_hours?: number | null
           pricing_model?: string | null
           requires_deposit?: boolean | null
           seated_capacity?: number | null
           slug?: string | null
+          sponsor_rev_share_enabled?: boolean
+          sponsor_rev_share_pct?: number
           square_footage?: number | null
           standing_capacity?: number | null
           state?: string | null
           stripe_account_id?: string | null
-          ticket_sales_share_enabled?: boolean | null
+          ticket_sales_share_enabled?: boolean
+          ticket_sales_share_pct?: number
           ticket_sales_share_percent?: number | null
           total_bookings?: number | null
           unique_features?: string | null
@@ -4098,6 +6777,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      webhook_logs: {
+        Row: {
+          created_at: string
+          entity_id: string | null
+          entity_type: string | null
+          error: string | null
+          event_type: string
+          id: string
+          outcome: string
+          provider: string | null
+          request_payload: Json
+          response_payload: Json
+          source: string
+          status_code: number | null
+        }
+        Insert: {
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          error?: string | null
+          event_type: string
+          id?: string
+          outcome: string
+          provider?: string | null
+          request_payload?: Json
+          response_payload?: Json
+          source: string
+          status_code?: number | null
+        }
+        Update: {
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          error?: string | null
+          event_type?: string
+          id?: string
+          outcome?: string
+          provider?: string | null
+          request_payload?: Json
+          response_payload?: Json
+          source?: string
+          status_code?: number | null
+        }
+        Relationships: []
       }
       webhook_rate_limits: {
         Row: {
@@ -4119,9 +6843,222 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      event_ticket_sales_rollups: {
+        Row: {
+          average_ticket_price_cents: number | null
+          currency: string | null
+          event_id: string | null
+          fees_cents: number | null
+          first_sale_at: string | null
+          gross_revenue_cents: number | null
+          last_sale_at: string | null
+          net_revenue_cents: number | null
+          platform: string | null
+          ticket_tier_category: string | null
+          ticket_tier_name: string | null
+          tickets_refunded: number | null
+          tickets_sold: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_sales_data_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      geography_columns: {
+        Row: {
+          coord_dimension: number | null
+          f_geography_column: unknown
+          f_table_catalog: unknown
+          f_table_name: unknown
+          f_table_schema: unknown
+          srid: number | null
+          type: string | null
+        }
+        Relationships: []
+      }
+      geometry_columns: {
+        Row: {
+          coord_dimension: number | null
+          f_geometry_column: unknown
+          f_table_catalog: string | null
+          f_table_name: unknown
+          f_table_schema: unknown
+          srid: number | null
+          type: string | null
+        }
+        Insert: {
+          coord_dimension?: number | null
+          f_geometry_column?: unknown
+          f_table_catalog?: string | null
+          f_table_name?: unknown
+          f_table_schema?: unknown
+          srid?: number | null
+          type?: string | null
+        }
+        Update: {
+          coord_dimension?: number | null
+          f_geometry_column?: unknown
+          f_table_catalog?: string | null
+          f_table_name?: unknown
+          f_table_schema?: unknown
+          srid?: number | null
+          type?: string | null
+        }
+        Relationships: []
+      }
+      vendor_analytics: {
+        Row: {
+          acceptance_rate: number | null
+          average_rating: number | null
+          avg_booking_value: number | null
+          avg_response_hours: number | null
+          cancellation_rate: number | null
+          cancelled_bookings: number | null
+          completed_bookings: number | null
+          confirmed_bookings: number | null
+          conversion_rate: number | null
+          refreshed_at: string | null
+          total_bookings: number | null
+          total_revenue: number | null
+          total_reviews: number | null
+          vendor_id: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      _postgis_deprecate: {
+        Args: { newname: string; oldname: string; version: string }
+        Returns: undefined
+      }
+      _postgis_index_extent: {
+        Args: { col: string; tbl: unknown }
+        Returns: unknown
+      }
+      _postgis_pgsql_version: { Args: never; Returns: string }
+      _postgis_scripts_pgsql_version: { Args: never; Returns: string }
+      _postgis_selectivity: {
+        Args: { att_name: string; geom: unknown; mode?: string; tbl: unknown }
+        Returns: number
+      }
+      _postgis_stats: {
+        Args: { ""?: string; att_name: string; tbl: unknown }
+        Returns: string
+      }
+      _st_3dintersects: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_contains: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_containsproperly: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_coveredby:
+        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      _st_covers:
+        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      _st_crosses: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_dwithin: {
+        Args: {
+          geog1: unknown
+          geog2: unknown
+          tolerance: number
+          use_spheroid?: boolean
+        }
+        Returns: boolean
+      }
+      _st_equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      _st_intersects: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_linecrossingdirection: {
+        Args: { line1: unknown; line2: unknown }
+        Returns: number
+      }
+      _st_longestline: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      _st_maxdistance: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      _st_orderingequals: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_overlaps: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_sortablehash: { Args: { geom: unknown }; Returns: number }
+      _st_touches: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      _st_voronoi: {
+        Args: {
+          clip?: unknown
+          g1: unknown
+          return_polygons?: boolean
+          tolerance?: number
+        }
+        Returns: unknown
+      }
+      _st_within: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      addauth: { Args: { "": string }; Returns: boolean }
+      addgeometrycolumn:
+        | {
+            Args: {
+              catalog_name: string
+              column_name: string
+              new_dim: number
+              new_srid_in: number
+              new_type: string
+              schema_name: string
+              table_name: string
+              use_typmod?: boolean
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              column_name: string
+              new_dim: number
+              new_srid: number
+              new_type: string
+              schema_name: string
+              table_name: string
+              use_typmod?: boolean
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              column_name: string
+              new_dim: number
+              new_srid: number
+              new_type: string
+              table_name: string
+              use_typmod?: boolean
+            }
+            Returns: string
+          }
       calculate_builder_savings: {
         Args: { p_builder_id: string; p_month: string }
         Returns: number
@@ -4166,9 +7103,147 @@ export type Database = {
         Args: { p_key: string; p_limit?: number; p_window_seconds?: number }
         Returns: boolean
       }
+      disablelongtransactions: { Args: never; Returns: string }
+      dropgeometrycolumn:
+        | {
+            Args: {
+              catalog_name: string
+              column_name: string
+              schema_name: string
+              table_name: string
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              column_name: string
+              schema_name: string
+              table_name: string
+            }
+            Returns: string
+          }
+        | { Args: { column_name: string; table_name: string }; Returns: string }
+      dropgeometrytable:
+        | {
+            Args: {
+              catalog_name: string
+              schema_name: string
+              table_name: string
+            }
+            Returns: string
+          }
+        | { Args: { schema_name: string; table_name: string }; Returns: string }
+        | { Args: { table_name: string }; Returns: string }
+      earth: { Args: never; Returns: number }
+      enablelongtransactions: { Args: never; Returns: string }
+      equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      geometry: { Args: { "": string }; Returns: unknown }
+      geometry_above: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_below: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_cmp: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      geometry_contained_3d: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_contains: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_contains_3d: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_distance_box: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      geometry_distance_centroid: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      geometry_eq: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_ge: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_gt: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_le: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_left: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_lt: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_overabove: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_overbelow: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_overlaps: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_overlaps_3d: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_overleft: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_overright: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_right: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_same: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_same_3d: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geometry_within: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      geomfromewkt: { Args: { "": string }; Returns: unknown }
       get_event_kickback_summary: {
         Args: { p_event_id: string }
         Returns: Json
+      }
+      get_vendor_booking_amount: {
+        Args: {
+          p_booking: Database["public"]["Tables"]["vendor_bookings"]["Row"]
+        }
+        Returns: number
       }
       get_vendor_booking_calendar_date: {
         Args: {
@@ -4176,6 +7251,43 @@ export type Database = {
         }
         Returns: string
       }
+      get_vendor_bookings_by_month: {
+        Args: { p_end_date?: string; p_start_date: string; p_vendor_id: string }
+        Returns: {
+          bookings: number
+          month: string
+        }[]
+      }
+      get_vendor_pending_revenue: {
+        Args: { p_start_date?: string; p_vendor_id: string }
+        Returns: {
+          pending_revenue: number
+        }[]
+      }
+      get_vendor_period_summary: {
+        Args: { p_end_date: string; p_start_date: string; p_vendor_id: string }
+        Returns: {
+          avg_booking_value: number
+          bookings: number
+          revenue: number
+        }[]
+      }
+      get_vendor_popular_services: {
+        Args: { p_end_date: string; p_start_date: string; p_vendor_id: string }
+        Returns: {
+          bookings: number
+          revenue: number
+          service_name: string
+        }[]
+      }
+      get_vendor_revenue_by_month: {
+        Args: { p_end_date?: string; p_start_date: string; p_vendor_id: string }
+        Returns: {
+          month: string
+          revenue: number
+        }[]
+      }
+      gettransactionid: { Args: never; Returns: unknown }
       increment_event_usage: {
         Args: { p_builder_id: string; p_fee_paid: number; p_month: string }
         Returns: undefined
@@ -4193,10 +7305,53 @@ export type Database = {
         }
         Returns: string
       }
+      longtransactionsenabled: { Args: never; Returns: boolean }
+      next_vendor_invoice_number: { Args: { p_year: number }; Returns: string }
+      populate_geometry_columns:
+        | { Args: { tbl_oid: unknown; use_typmod?: boolean }; Returns: number }
+        | { Args: { use_typmod?: boolean }; Returns: string }
+      postgis_constraint_dims: {
+        Args: { geomcolumn: string; geomschema: string; geomtable: string }
+        Returns: number
+      }
+      postgis_constraint_srid: {
+        Args: { geomcolumn: string; geomschema: string; geomtable: string }
+        Returns: number
+      }
+      postgis_constraint_type: {
+        Args: { geomcolumn: string; geomschema: string; geomtable: string }
+        Returns: string
+      }
+      postgis_extensions_upgrade: { Args: never; Returns: string }
+      postgis_full_version: { Args: never; Returns: string }
+      postgis_geos_version: { Args: never; Returns: string }
+      postgis_lib_build_date: { Args: never; Returns: string }
+      postgis_lib_revision: { Args: never; Returns: string }
+      postgis_lib_version: { Args: never; Returns: string }
+      postgis_libjson_version: { Args: never; Returns: string }
+      postgis_liblwgeom_version: { Args: never; Returns: string }
+      postgis_libprotobuf_version: { Args: never; Returns: string }
+      postgis_libxml_version: { Args: never; Returns: string }
+      postgis_proj_version: { Args: never; Returns: string }
+      postgis_scripts_build_date: { Args: never; Returns: string }
+      postgis_scripts_installed: { Args: never; Returns: string }
+      postgis_scripts_released: { Args: never; Returns: string }
+      postgis_svn_version: { Args: never; Returns: string }
+      postgis_type_name: {
+        Args: {
+          coord_dimension: number
+          geomname: string
+          use_new_name?: boolean
+        }
+        Returns: string
+      }
+      postgis_version: { Args: never; Returns: string }
+      postgis_wagyu_version: { Args: never; Returns: string }
       recalculate_vendor_review_stats: {
         Args: { p_vendor_id: string }
         Returns: undefined
       }
+      refresh_vendor_analytics: { Args: never; Returns: undefined }
       save_vendor_manual_availability: {
         Args: {
           p_dates: string[]
@@ -4221,12 +7376,618 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      st_3dclosestpoint: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_3ddistance: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      st_3dintersects: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      st_3dlongestline: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_3dmakebox: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_3dmaxdistance: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      st_3dshortestline: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_addpoint: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_angle:
+        | { Args: { line1: unknown; line2: unknown }; Returns: number }
+        | {
+            Args: { pt1: unknown; pt2: unknown; pt3: unknown; pt4?: unknown }
+            Returns: number
+          }
+      st_area:
+        | { Args: { geog: unknown; use_spheroid?: boolean }; Returns: number }
+        | { Args: { "": string }; Returns: number }
+      st_asencodedpolyline: {
+        Args: { geom: unknown; nprecision?: number }
+        Returns: string
+      }
+      st_asewkt: { Args: { "": string }; Returns: string }
+      st_asgeojson:
+        | {
+            Args: { geog: unknown; maxdecimaldigits?: number; options?: number }
+            Returns: string
+          }
+        | {
+            Args: { geom: unknown; maxdecimaldigits?: number; options?: number }
+            Returns: string
+          }
+        | {
+            Args: {
+              geom_column?: string
+              maxdecimaldigits?: number
+              pretty_bool?: boolean
+              r: Record<string, unknown>
+            }
+            Returns: string
+          }
+        | { Args: { "": string }; Returns: string }
+      st_asgml:
+        | {
+            Args: {
+              geog: unknown
+              id?: string
+              maxdecimaldigits?: number
+              nprefix?: string
+              options?: number
+            }
+            Returns: string
+          }
+        | {
+            Args: { geom: unknown; maxdecimaldigits?: number; options?: number }
+            Returns: string
+          }
+        | { Args: { "": string }; Returns: string }
+        | {
+            Args: {
+              geog: unknown
+              id?: string
+              maxdecimaldigits?: number
+              nprefix?: string
+              options?: number
+              version: number
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              geom: unknown
+              id?: string
+              maxdecimaldigits?: number
+              nprefix?: string
+              options?: number
+              version: number
+            }
+            Returns: string
+          }
+      st_askml:
+        | {
+            Args: { geog: unknown; maxdecimaldigits?: number; nprefix?: string }
+            Returns: string
+          }
+        | {
+            Args: { geom: unknown; maxdecimaldigits?: number; nprefix?: string }
+            Returns: string
+          }
+        | { Args: { "": string }; Returns: string }
+      st_aslatlontext: {
+        Args: { geom: unknown; tmpl?: string }
+        Returns: string
+      }
+      st_asmarc21: { Args: { format?: string; geom: unknown }; Returns: string }
+      st_asmvtgeom: {
+        Args: {
+          bounds: unknown
+          buffer?: number
+          clip_geom?: boolean
+          extent?: number
+          geom: unknown
+        }
+        Returns: unknown
+      }
+      st_assvg:
+        | {
+            Args: { geog: unknown; maxdecimaldigits?: number; rel?: number }
+            Returns: string
+          }
+        | {
+            Args: { geom: unknown; maxdecimaldigits?: number; rel?: number }
+            Returns: string
+          }
+        | { Args: { "": string }; Returns: string }
+      st_astext: { Args: { "": string }; Returns: string }
+      st_astwkb:
+        | {
+            Args: {
+              geom: unknown
+              prec?: number
+              prec_m?: number
+              prec_z?: number
+              with_boxes?: boolean
+              with_sizes?: boolean
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              geom: unknown[]
+              ids: number[]
+              prec?: number
+              prec_m?: number
+              prec_z?: number
+              with_boxes?: boolean
+              with_sizes?: boolean
+            }
+            Returns: string
+          }
+      st_asx3d: {
+        Args: { geom: unknown; maxdecimaldigits?: number; options?: number }
+        Returns: string
+      }
+      st_azimuth:
+        | { Args: { geog1: unknown; geog2: unknown }; Returns: number }
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: number }
+      st_boundingdiagonal: {
+        Args: { fits?: boolean; geom: unknown }
+        Returns: unknown
+      }
+      st_buffer:
+        | {
+            Args: { geom: unknown; options?: string; radius: number }
+            Returns: unknown
+          }
+        | {
+            Args: { geom: unknown; quadsegs: number; radius: number }
+            Returns: unknown
+          }
+      st_centroid: { Args: { "": string }; Returns: unknown }
+      st_clipbybox2d: {
+        Args: { box: unknown; geom: unknown }
+        Returns: unknown
+      }
+      st_closestpoint: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_collect: { Args: { geom1: unknown; geom2: unknown }; Returns: unknown }
+      st_concavehull: {
+        Args: {
+          param_allow_holes?: boolean
+          param_geom: unknown
+          param_pctconvex: number
+        }
+        Returns: unknown
+      }
+      st_contains: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      st_containsproperly: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      st_coorddim: { Args: { geometry: unknown }; Returns: number }
+      st_coveredby:
+        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      st_covers:
+        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      st_crosses: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      st_curvetoline: {
+        Args: { flags?: number; geom: unknown; tol?: number; toltype?: number }
+        Returns: unknown
+      }
+      st_delaunaytriangles: {
+        Args: { flags?: number; g1: unknown; tolerance?: number }
+        Returns: unknown
+      }
+      st_difference: {
+        Args: { geom1: unknown; geom2: unknown; gridsize?: number }
+        Returns: unknown
+      }
+      st_disjoint: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      st_distance:
+        | {
+            Args: { geog1: unknown; geog2: unknown; use_spheroid?: boolean }
+            Returns: number
+          }
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: number }
+      st_distancesphere:
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: number }
+        | {
+            Args: { geom1: unknown; geom2: unknown; radius: number }
+            Returns: number
+          }
+      st_distancespheroid: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      st_dwithin: {
+        Args: {
+          geog1: unknown
+          geog2: unknown
+          tolerance: number
+          use_spheroid?: boolean
+        }
+        Returns: boolean
+      }
+      st_equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      st_expand:
+        | { Args: { box: unknown; dx: number; dy: number }; Returns: unknown }
+        | {
+            Args: { box: unknown; dx: number; dy: number; dz?: number }
+            Returns: unknown
+          }
+        | {
+            Args: {
+              dm?: number
+              dx: number
+              dy: number
+              dz?: number
+              geom: unknown
+            }
+            Returns: unknown
+          }
+      st_force3d: { Args: { geom: unknown; zvalue?: number }; Returns: unknown }
+      st_force3dm: {
+        Args: { geom: unknown; mvalue?: number }
+        Returns: unknown
+      }
+      st_force3dz: {
+        Args: { geom: unknown; zvalue?: number }
+        Returns: unknown
+      }
+      st_force4d: {
+        Args: { geom: unknown; mvalue?: number; zvalue?: number }
+        Returns: unknown
+      }
+      st_generatepoints:
+        | { Args: { area: unknown; npoints: number }; Returns: unknown }
+        | {
+            Args: { area: unknown; npoints: number; seed: number }
+            Returns: unknown
+          }
+      st_geogfromtext: { Args: { "": string }; Returns: unknown }
+      st_geographyfromtext: { Args: { "": string }; Returns: unknown }
+      st_geohash:
+        | { Args: { geog: unknown; maxchars?: number }; Returns: string }
+        | { Args: { geom: unknown; maxchars?: number }; Returns: string }
+      st_geomcollfromtext: { Args: { "": string }; Returns: unknown }
+      st_geometricmedian: {
+        Args: {
+          fail_if_not_converged?: boolean
+          g: unknown
+          max_iter?: number
+          tolerance?: number
+        }
+        Returns: unknown
+      }
+      st_geometryfromtext: { Args: { "": string }; Returns: unknown }
+      st_geomfromewkt: { Args: { "": string }; Returns: unknown }
+      st_geomfromgeojson:
+        | { Args: { "": Json }; Returns: unknown }
+        | { Args: { "": Json }; Returns: unknown }
+        | { Args: { "": string }; Returns: unknown }
+      st_geomfromgml: { Args: { "": string }; Returns: unknown }
+      st_geomfromkml: { Args: { "": string }; Returns: unknown }
+      st_geomfrommarc21: { Args: { marc21xml: string }; Returns: unknown }
+      st_geomfromtext: { Args: { "": string }; Returns: unknown }
+      st_gmltosql: { Args: { "": string }; Returns: unknown }
+      st_hasarc: { Args: { geometry: unknown }; Returns: boolean }
+      st_hausdorffdistance: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      st_hexagon: {
+        Args: { cell_i: number; cell_j: number; origin?: unknown; size: number }
+        Returns: unknown
+      }
+      st_hexagongrid: {
+        Args: { bounds: unknown; size: number }
+        Returns: Record<string, unknown>[]
+      }
+      st_interpolatepoint: {
+        Args: { line: unknown; point: unknown }
+        Returns: number
+      }
+      st_intersection: {
+        Args: { geom1: unknown; geom2: unknown; gridsize?: number }
+        Returns: unknown
+      }
+      st_intersects:
+        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      st_isvaliddetail: {
+        Args: { flags?: number; geom: unknown }
+        Returns: Database["public"]["CompositeTypes"]["valid_detail"]
+        SetofOptions: {
+          from: "*"
+          to: "valid_detail"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      st_length:
+        | { Args: { geog: unknown; use_spheroid?: boolean }; Returns: number }
+        | { Args: { "": string }; Returns: number }
+      st_letters: { Args: { font?: Json; letters: string }; Returns: unknown }
+      st_linecrossingdirection: {
+        Args: { line1: unknown; line2: unknown }
+        Returns: number
+      }
+      st_linefromencodedpolyline: {
+        Args: { nprecision?: number; txtin: string }
+        Returns: unknown
+      }
+      st_linefromtext: { Args: { "": string }; Returns: unknown }
+      st_linelocatepoint: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      st_linetocurve: { Args: { geometry: unknown }; Returns: unknown }
+      st_locatealong: {
+        Args: { geometry: unknown; leftrightoffset?: number; measure: number }
+        Returns: unknown
+      }
+      st_locatebetween: {
+        Args: {
+          frommeasure: number
+          geometry: unknown
+          leftrightoffset?: number
+          tomeasure: number
+        }
+        Returns: unknown
+      }
+      st_locatebetweenelevations: {
+        Args: { fromelevation: number; geometry: unknown; toelevation: number }
+        Returns: unknown
+      }
+      st_longestline: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_makebox2d: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_makeline: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_makevalid: {
+        Args: { geom: unknown; params: string }
+        Returns: unknown
+      }
+      st_maxdistance: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: number
+      }
+      st_minimumboundingcircle: {
+        Args: { inputgeom: unknown; segs_per_quarter?: number }
+        Returns: unknown
+      }
+      st_mlinefromtext: { Args: { "": string }; Returns: unknown }
+      st_mpointfromtext: { Args: { "": string }; Returns: unknown }
+      st_mpolyfromtext: { Args: { "": string }; Returns: unknown }
+      st_multilinestringfromtext: { Args: { "": string }; Returns: unknown }
+      st_multipointfromtext: { Args: { "": string }; Returns: unknown }
+      st_multipolygonfromtext: { Args: { "": string }; Returns: unknown }
+      st_node: { Args: { g: unknown }; Returns: unknown }
+      st_normalize: { Args: { geom: unknown }; Returns: unknown }
+      st_offsetcurve: {
+        Args: { distance: number; line: unknown; params?: string }
+        Returns: unknown
+      }
+      st_orderingequals: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      st_overlaps: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: boolean
+      }
+      st_perimeter: {
+        Args: { geog: unknown; use_spheroid?: boolean }
+        Returns: number
+      }
+      st_pointfromtext: { Args: { "": string }; Returns: unknown }
+      st_pointm: {
+        Args: {
+          mcoordinate: number
+          srid?: number
+          xcoordinate: number
+          ycoordinate: number
+        }
+        Returns: unknown
+      }
+      st_pointz: {
+        Args: {
+          srid?: number
+          xcoordinate: number
+          ycoordinate: number
+          zcoordinate: number
+        }
+        Returns: unknown
+      }
+      st_pointzm: {
+        Args: {
+          mcoordinate: number
+          srid?: number
+          xcoordinate: number
+          ycoordinate: number
+          zcoordinate: number
+        }
+        Returns: unknown
+      }
+      st_polyfromtext: { Args: { "": string }; Returns: unknown }
+      st_polygonfromtext: { Args: { "": string }; Returns: unknown }
+      st_project: {
+        Args: { azimuth: number; distance: number; geog: unknown }
+        Returns: unknown
+      }
+      st_quantizecoordinates: {
+        Args: {
+          g: unknown
+          prec_m?: number
+          prec_x: number
+          prec_y?: number
+          prec_z?: number
+        }
+        Returns: unknown
+      }
+      st_reduceprecision: {
+        Args: { geom: unknown; gridsize: number }
+        Returns: unknown
+      }
+      st_relate: { Args: { geom1: unknown; geom2: unknown }; Returns: string }
+      st_removerepeatedpoints: {
+        Args: { geom: unknown; tolerance?: number }
+        Returns: unknown
+      }
+      st_segmentize: {
+        Args: { geog: unknown; max_segment_length: number }
+        Returns: unknown
+      }
+      st_setsrid:
+        | { Args: { geog: unknown; srid: number }; Returns: unknown }
+        | { Args: { geom: unknown; srid: number }; Returns: unknown }
+      st_sharedpaths: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_shortestline: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_simplifypolygonhull: {
+        Args: { geom: unknown; is_outer?: boolean; vertex_fraction: number }
+        Returns: unknown
+      }
+      st_split: { Args: { geom1: unknown; geom2: unknown }; Returns: unknown }
+      st_square: {
+        Args: { cell_i: number; cell_j: number; origin?: unknown; size: number }
+        Returns: unknown
+      }
+      st_squaregrid: {
+        Args: { bounds: unknown; size: number }
+        Returns: Record<string, unknown>[]
+      }
+      st_srid:
+        | { Args: { geog: unknown }; Returns: number }
+        | { Args: { geom: unknown }; Returns: number }
+      st_subdivide: {
+        Args: { geom: unknown; gridsize?: number; maxvertices?: number }
+        Returns: unknown[]
+      }
+      st_swapordinates: {
+        Args: { geom: unknown; ords: unknown }
+        Returns: unknown
+      }
+      st_symdifference: {
+        Args: { geom1: unknown; geom2: unknown; gridsize?: number }
+        Returns: unknown
+      }
+      st_symmetricdifference: {
+        Args: { geom1: unknown; geom2: unknown }
+        Returns: unknown
+      }
+      st_tileenvelope: {
+        Args: {
+          bounds?: unknown
+          margin?: number
+          x: number
+          y: number
+          zoom: number
+        }
+        Returns: unknown
+      }
+      st_touches: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      st_transform:
+        | {
+            Args: { from_proj: string; geom: unknown; to_proj: string }
+            Returns: unknown
+          }
+        | {
+            Args: { from_proj: string; geom: unknown; to_srid: number }
+            Returns: unknown
+          }
+        | { Args: { geom: unknown; to_proj: string }; Returns: unknown }
+      st_triangulatepolygon: { Args: { g1: unknown }; Returns: unknown }
+      st_union:
+        | { Args: { geom1: unknown; geom2: unknown }; Returns: unknown }
+        | {
+            Args: { geom1: unknown; geom2: unknown; gridsize: number }
+            Returns: unknown
+          }
+      st_voronoilines: {
+        Args: { extend_to?: unknown; g1: unknown; tolerance?: number }
+        Returns: unknown
+      }
+      st_voronoipolygons: {
+        Args: { extend_to?: unknown; g1: unknown; tolerance?: number }
+        Returns: unknown
+      }
+      st_within: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      st_wkbtosql: { Args: { wkb: string }; Returns: unknown }
+      st_wkttosql: { Args: { "": string }; Returns: unknown }
+      st_wrapx: {
+        Args: { geom: unknown; move: number; wrap: number }
+        Returns: unknown
+      }
+      unlockrows: { Args: { "": string }; Returns: number }
+      updategeometrysrid: {
+        Args: {
+          catalogn_name: string
+          column_name: string
+          new_srid_in: number
+          schema_name: string
+          table_name: string
+        }
+        Returns: string
+      }
     }
     Enums: {
-      [_ in never]: never
+      planner_plan_status:
+        | "drafting"
+        | "ready"
+        | "approved"
+        | "executing"
+        | "complete"
+        | "archived"
     }
     CompositeTypes: {
-      [_ in never]: never
+      geometry_dump: {
+        path: number[] | null
+        geom: unknown
+      }
+      valid_detail: {
+        valid: boolean | null
+        reason: string | null
+        location: unknown
+      }
     }
   }
 }
@@ -4349,8 +8110,20 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  public: {
+  graphql_public: {
     Enums: {},
+  },
+  public: {
+    Enums: {
+      planner_plan_status: [
+        "drafting",
+        "ready",
+        "approved",
+        "executing",
+        "complete",
+        "archived",
+      ],
+    },
   },
 } as const
 
