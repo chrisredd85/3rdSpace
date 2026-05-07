@@ -103,7 +103,7 @@ export async function POST(
               currency: payment.currency || 'usd',
               unit_amount: dollarsToCents(Number(payment.amount)),
               product_data: {
-                name: `3rdSpace kickback: ${eventName}`,
+                name: `3rdPlace kickback: ${eventName}`,
                 metadata,
               },
             },

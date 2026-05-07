@@ -1,11 +1,17 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 import { recalculateEventFinancials } from '@/lib/finance/calculate-event-financials'
+import {
+  centsFromMajorAmount,
+  classifyTicketTier,
+  normalizeCurrency,
+  type TicketTierCategory,
+} from '@/lib/server/ticket-normalization'
 import { decryptSecret } from '@/lib/server/token-crypto'
 
 type SupabaseAdminClient = any
 type JsonObject = Record<string, any>
 
-export type WebhookPlatform = 'posh' | 'luma'
+export type WebhookPlatform = 'posh' | 'luma' | 'partiful'
 
 type IntegrationContext = {
   integrationId: string | null
@@ -29,12 +35,20 @@ type SalesPayload = {
   ticket_buyer_email: string | null
   ticket_quantity: number
   ticket_type: string | null
+  ticket_tier_name: string | null
+  ticket_tier_category: TicketTierCategory
   ticket_price: number | null
+  ticket_price_cents: number | null
   total_amount: number
+  total_amount_cents: number
   fees: number
+  fees_cents: number
+  currency: string
   discount_code: string | null
   is_refund: boolean
   purchase_timestamp: string | null
+  raw_ticket_class_id: string | null
+  sales_channel: string | null
   raw_data: JsonObject
 }
 
@@ -47,11 +61,15 @@ type ImportedAttendeePayload = {
   email: string | null
   ticket_type: string | null
   ticket_class: string | null
+  ticket_tier_name: string | null
+  ticket_tier_category: TicketTierCategory
   order_id: string | null
   checked_in: boolean
   check_in_time: string | null
   check_in_method: string | null
   ticket_price: number | null
+  ticket_price_cents: number | null
+  raw_ticket_class_id: string | null
   raw_data: JsonObject
 }
 
@@ -236,6 +254,26 @@ export function extractPoshExternalEventId(payload: JsonObject) {
 }
 
 /**
+ * Extracts the external Partiful event id from known webhook/import shapes.
+ *
+ * @param payload - Raw Partiful webhook payload.
+ * @returns Partiful event id when present.
+ */
+export function extractPartifulExternalEventId(payload: JsonObject) {
+  return firstString(payload, [
+    'event_id',
+    'partiful_event_id',
+    'party_id',
+    'data.event_id',
+    'data.event.id',
+    'data.party_id',
+    'data.party.id',
+    'event.id',
+    'party.id',
+  ])
+}
+
+/**
  * Extracts the webhook type discriminator from a payload.
  *
  * @param payload - Raw webhook payload.
@@ -311,7 +349,11 @@ export async function resolveIntegrationContext(
   const builderConnectionId = searchParams.get('builderConnectionId')
   const eventId = searchParams.get('eventId')
   const externalEventId =
-    platform === 'posh' ? extractPoshExternalEventId(payload) : extractLumaExternalEventId(payload)
+    platform === 'posh'
+      ? extractPoshExternalEventId(payload)
+      : platform === 'partiful'
+        ? extractPartifulExternalEventId(payload)
+        : extractLumaExternalEventId(payload)
   let builderConnectionConfig: JsonObject = {}
 
   if (builderConnectionId) {
@@ -454,6 +496,25 @@ function getDeliveryId(platform: WebhookPlatform, payload: JsonObject, headers: 
     return orderId ? `${type}:${eventId}:${orderId}:${updatedAt ?? 'initial'}` : null
   }
 
+  if (platform === 'partiful') {
+    const type = getWebhookType(payload) ?? 'unknown'
+    const eventId = extractPartifulExternalEventId(payload) ?? 'partiful'
+    const recordId = firstString(payload, [
+      'order_id',
+      'ticket_id',
+      'rsvp_id',
+      'guest_id',
+      'attendee_id',
+      'data.order_id',
+      'data.ticket_id',
+      'data.rsvp_id',
+      'data.guest.id',
+      'data.attendee.id',
+      'id',
+    ])
+    return recordId ? `${type}:${eventId}:${recordId}` : null
+  }
+
   return firstString(payload, [
     'webhook_id',
     'id',
@@ -516,6 +577,13 @@ function mapPoshSale(context: IntegrationContext, payload: JsonObject): SalesPay
     (items.map((item) => asString(item.name)).filter(Boolean).join(', ') || null)
   const firstItemPrice = asNumber(payload.ticket_price) ?? (quantity === 1 ? asNumber(items[0]?.price) : null)
   const averageItemPrice = quantity > 0 && subtotal > 0 ? subtotal / quantity : null
+  const ticketPrice = firstItemPrice ?? (averageItemPrice === null ? null : roundMoney(averageItemPrice))
+  const totalAmount = roundMoney(isRefundUpdate ? -Math.abs(refundAmount) : total)
+  const fees = isRefundUpdate ? 0 : roundMoney(asNumber(payload.fees) ?? Math.max(total - subtotal, 0))
+  const ticketPriceCents = centsFromMajorAmount(ticketPrice)
+  const totalAmountCents = centsFromMajorAmount(totalAmount) ?? 0
+  const feesCents = centsFromMajorAmount(fees) ?? 0
+  const ticketTierName = ticketType ?? 'Unknown'
   const buyerName = asString(payload.ticket_buyer_name) ?? [asString(payload.account_first_name), asString(payload.account_last_name)]
     .filter(Boolean)
     .join(' ')
@@ -530,12 +598,20 @@ function mapPoshSale(context: IntegrationContext, payload: JsonObject): SalesPay
     ticket_buyer_email: asString(payload.ticket_buyer_email) ?? asString(payload.account_email),
     ticket_quantity: isRefundUpdate ? -quantity : quantity,
     ticket_type: ticketType,
-    ticket_price: firstItemPrice ?? (averageItemPrice === null ? null : roundMoney(averageItemPrice)),
-    total_amount: roundMoney(isRefundUpdate ? -Math.abs(refundAmount) : total),
-    fees: isRefundUpdate ? 0 : roundMoney(asNumber(payload.fees) ?? Math.max(total - subtotal, 0)),
+    ticket_tier_name: ticketTierName,
+    ticket_tier_category: classifyTicketTier(ticketTierName, ticketPriceCents),
+    ticket_price: ticketPrice,
+    ticket_price_cents: ticketPriceCents,
+    total_amount: totalAmount,
+    total_amount_cents: totalAmountCents,
+    fees,
+    fees_cents: feesCents,
+    currency: normalizeCurrency(payload.currency),
     discount_code: asString(payload.discount_code) ?? asString(payload.promo_code),
     is_refund: isRefundUpdate,
     purchase_timestamp: asString(payload.purchase_timestamp) ?? asString(payload.date_purchased) ?? asString(payload.update_date),
+    raw_ticket_class_id: asString(items[0]?.ticket_id) ?? asString(items[0]?.item_id) ?? asString(payload.ticket_class_id),
+    sales_channel: asString(payload.sales_channel) ?? asString(payload.source) ?? asString(payload.platform),
     raw_data: payload,
   }
 }
@@ -580,11 +656,15 @@ function mapPoshAttendees(context: IntegrationContext, payload: JsonObject): Imp
     email: asString(payload.ticket_buyer_email) ?? asString(payload.account_email),
     ticket_type: asString(item.name),
     ticket_class: asString(item.name),
+    ticket_tier_name: asString(item.name) ?? 'Unknown',
+    ticket_tier_category: classifyTicketTier(asString(item.name), centsFromMajorAmount(asNumber(item.price))),
     order_id: orderId,
     checked_in: false,
     check_in_time: null,
     check_in_method: null,
     ticket_price: asNumber(item.price),
+    ticket_price_cents: centsFromMajorAmount(asNumber(item.price)),
+    raw_ticket_class_id: asString((item as JsonObject).ticket_id) ?? asString(item.item_id),
     raw_data: {
       order: payload,
       item,
@@ -646,6 +726,17 @@ function mapLumaSale(context: IntegrationContext, payload: JsonObject, webhookId
     ['total_amount', 'data.total_amount', 'data.total', 'data.order.total_amount', 'data.order.total'],
     ['total_amount_cents', 'data.total_amount_cents', 'data.total_cents', 'data.order.total_amount_cents', 'data.order.total_cents']
   )
+  const feeAmount = firstMoney(payload, ['fees', 'data.fees', 'data.fee'], ['fees_cents', 'data.fees_cents', 'data.fee_cents']) ?? 0
+  const isRefund = asString(payload.refund_status) === 'completed'
+  const signedQuantity = isRefund ? -Math.abs(asNumber(payload.ticket_quantity) ?? 1) : asNumber(payload.ticket_quantity) ?? 1
+  const signedTotalAmount = isRefund ? -Math.abs(totalAmount ?? ticketPrice ?? 0) : totalAmount ?? ticketPrice ?? 0
+  const ticketTierName = asString(payload.ticket_type) ?? firstString(payload, [
+    'data.ticket_type.name',
+    'data.event_ticket_type.name',
+    'data.ticket.name',
+    'data.ticket_type',
+  ]) ?? 'Unknown'
+  const ticketPriceCents = centsFromMajorAmount(ticketPrice)
   const buyerName = asString(payload.ticket_buyer_name) ?? firstString(payload, [
     'data.guest.name',
     'data.guest.full_name',
@@ -667,33 +758,36 @@ function mapLumaSale(context: IntegrationContext, payload: JsonObject, webhookId
       'data.email',
       'data.user_email',
     ]),
-    ticket_quantity:
-      asString(payload.refund_status) === 'completed'
-        ? -Math.abs(asNumber(payload.ticket_quantity) ?? 1)
-        : asNumber(payload.ticket_quantity) ?? 1,
-    ticket_type: asString(payload.ticket_type) ?? firstString(payload, [
-      'data.ticket_type.name',
-      'data.event_ticket_type.name',
-      'data.ticket.name',
-      'data.ticket_type',
-    ]),
+    ticket_quantity: signedQuantity,
+    ticket_type: ticketTierName,
+    ticket_tier_name: ticketTierName,
+    ticket_tier_category: classifyTicketTier(ticketTierName, ticketPriceCents),
     ticket_price: ticketPrice,
-    total_amount:
-      asString(payload.refund_status) === 'completed'
-        ? -Math.abs(totalAmount ?? ticketPrice ?? 0)
-        : totalAmount ?? ticketPrice ?? 0,
-    fees: firstMoney(payload, ['fees', 'data.fees', 'data.fee'], ['fees_cents', 'data.fees_cents', 'data.fee_cents']) ?? 0,
+    ticket_price_cents: ticketPriceCents,
+    total_amount: signedTotalAmount,
+    total_amount_cents: centsFromMajorAmount(signedTotalAmount) ?? 0,
+    fees: feeAmount,
+    fees_cents: centsFromMajorAmount(feeAmount) ?? 0,
+    currency: normalizeCurrency(firstString(payload, ['currency', 'data.currency', 'data.ticket.currency', 'data.order.currency'])),
     discount_code: asString(payload.discount_code) ?? firstString(payload, [
       'data.coupon_info.code',
       'data.coupon.code',
       'data.discount_code',
       'data.order.coupon_info.code',
     ]),
-    is_refund: asString(payload.refund_status) === 'completed',
+    is_refund: isRefund,
     purchase_timestamp:
       asString(payload.purchase_timestamp) ??
       firstString(payload, ['data.registered_at', 'data.created_at', 'data.ticket.created_at']) ??
       new Date().toISOString(),
+    raw_ticket_class_id: firstString(payload, [
+      'data.ticket_type.api_id',
+      'data.ticket_type.id',
+      'data.event_ticket_type.api_id',
+      'data.event_ticket_type.id',
+      'data.ticket.ticket_type_id',
+    ]),
+    sales_channel: firstString(payload, ['data.source', 'data.channel', 'source', 'channel']),
     raw_data: data,
   }
 }
@@ -742,6 +836,31 @@ function mapLumaAttendee(context: IntegrationContext, payload: JsonObject, webho
       'data.ticket_type',
     ]),
     ticket_class: approvalStatus,
+    ticket_tier_name: asString(payload.ticket_type) ?? firstString(payload, [
+      'data.ticket_type.name',
+      'data.event_ticket_type.name',
+      'data.ticket.name',
+      'data.ticket_type',
+    ]) ?? 'Unknown',
+    ticket_tier_category: classifyTicketTier(
+      asString(payload.ticket_type) ?? firstString(payload, [
+        'data.ticket_type.name',
+        'data.event_ticket_type.name',
+        'data.ticket.name',
+        'data.ticket_type',
+      ]),
+      firstMoney(
+        payload,
+        ['ticket_price', 'data.ticket.price', 'data.ticket_type.price', 'data.event_ticket_type.price', 'data.price'],
+        ['ticket_price_cents', 'data.ticket.price_cents', 'data.ticket_type.cents', 'data.event_ticket_type.cents', 'data.price_cents']
+      ) === null
+        ? null
+        : centsFromMajorAmount(firstMoney(
+            payload,
+            ['ticket_price', 'data.ticket.price', 'data.ticket_type.price', 'data.event_ticket_type.price', 'data.price'],
+            ['ticket_price_cents', 'data.ticket.price_cents', 'data.ticket_type.cents', 'data.event_ticket_type.cents', 'data.price_cents']
+          ))
+    ),
     order_id: asString(payload.order_id) ?? firstString(payload, ['data.order.id', 'data.order.api_id', 'data.ticket.order_id', 'data.ticket.id']),
     checked_in: Boolean(getPath(payload, 'data.checked_in_at') || getPath(payload, 'data.checked_in')),
     check_in_time: firstString(payload, ['data.checked_in_at']),
@@ -751,6 +870,179 @@ function mapLumaAttendee(context: IntegrationContext, payload: JsonObject, webho
       ['ticket_price', 'data.ticket.price', 'data.ticket_type.price', 'data.event_ticket_type.price', 'data.price'],
       ['ticket_price_cents', 'data.ticket.price_cents', 'data.ticket_type.cents', 'data.event_ticket_type.cents', 'data.price_cents']
     ),
+    ticket_price_cents: centsFromMajorAmount(firstMoney(
+      payload,
+      ['ticket_price', 'data.ticket.price', 'data.ticket_type.price', 'data.event_ticket_type.price', 'data.price'],
+      ['ticket_price_cents', 'data.ticket.price_cents', 'data.ticket_type.cents', 'data.event_ticket_type.cents', 'data.price_cents']
+    )),
+    raw_ticket_class_id: firstString(payload, [
+      'data.ticket_type.api_id',
+      'data.ticket_type.id',
+      'data.event_ticket_type.api_id',
+      'data.event_ticket_type.id',
+      'data.ticket.ticket_type_id',
+    ]),
+    raw_data: isObject(payload.data) ? payload.data : payload,
+  }
+}
+
+/**
+ * Maps Partiful RSVP/ticket payloads into normalized ticket sales.
+ *
+ * Partiful integration starts as event-link and webhook import support, so this
+ * accepts broad normalized field names in addition to likely RSVP shapes.
+ */
+function mapPartifulSale(context: IntegrationContext, payload: JsonObject, webhookId: string | null): SalesPayload | null {
+  if (!context.eventId) return null
+
+  const recordId = firstString(payload, [
+    'order_id',
+    'ticket_id',
+    'rsvp_id',
+    'guest_id',
+    'attendee_id',
+    'data.order_id',
+    'data.ticket_id',
+    'data.rsvp_id',
+    'data.guest.id',
+    'data.attendee.id',
+  ]) ?? webhookId
+
+  if (!recordId) return null
+
+  const eventId = asString(payload.event_id) ?? context.externalEventId ?? extractPartifulExternalEventId(payload) ?? 'partiful'
+  const status = firstString(payload, ['status', 'data.status', 'data.rsvp.status'])?.toLowerCase() ?? ''
+  const type = getWebhookType(payload)?.toLowerCase() ?? ''
+  const isRefund = /refund|cancel|declin|remove/.test(`${type} ${status}`)
+  const quantity = Math.max(Math.abs(firstNumber(payload, ['ticket_quantity', 'quantity', 'data.quantity']) ?? 1), 1)
+  const ticketPrice = firstMoney(
+    payload,
+    ['ticket_price', 'price', 'amount', 'data.ticket.price', 'data.price', 'data.amount'],
+    ['ticket_price_cents', 'price_cents', 'amount_cents', 'data.ticket.price_cents', 'data.price_cents', 'data.amount_cents']
+  )
+  const totalAmount = firstMoney(
+    payload,
+    ['total_amount', 'total', 'data.total_amount', 'data.total'],
+    ['total_amount_cents', 'total_cents', 'data.total_amount_cents', 'data.total_cents']
+  ) ?? roundMoney((ticketPrice ?? 0) * quantity)
+  const feeAmount = firstMoney(payload, ['fees', 'fee', 'data.fees', 'data.fee'], ['fees_cents', 'fee_cents', 'data.fees_cents', 'data.fee_cents']) ?? 0
+  const ticketTierName = firstString(payload, [
+    'ticket_tier_name',
+    'ticket_type',
+    'tier_name',
+    'data.ticket_tier_name',
+    'data.ticket_type',
+    'data.ticket.name',
+    'data.tier.name',
+  ]) ?? (ticketPrice === 0 ? 'Free RSVP' : 'General Admission')
+  const ticketPriceCents = centsFromMajorAmount(ticketPrice)
+  const buyerName = asString(payload.ticket_buyer_name) ?? firstString(payload, [
+    'data.guest.name',
+    'data.guest.full_name',
+    'data.attendee.name',
+    'data.name',
+  ])
+
+  return {
+    event_id: context.eventId,
+    integration_id: context.integrationId,
+    order_id: `${eventId}:${recordId}${isRefund ? ':refund' : ''}`,
+    platform: 'partiful',
+    ticket_buyer_name: buyerName,
+    ticket_buyer_email: asString(payload.ticket_buyer_email) ?? firstString(payload, [
+      'data.guest.email',
+      'data.attendee.email',
+      'data.email',
+      'email',
+    ]),
+    ticket_quantity: isRefund ? -quantity : quantity,
+    ticket_type: ticketTierName,
+    ticket_tier_name: ticketTierName,
+    ticket_tier_category: classifyTicketTier(ticketTierName, ticketPriceCents),
+    ticket_price: ticketPrice,
+    ticket_price_cents: ticketPriceCents,
+    total_amount: isRefund ? -Math.abs(totalAmount) : totalAmount,
+    total_amount_cents: centsFromMajorAmount(isRefund ? -Math.abs(totalAmount) : totalAmount) ?? 0,
+    fees: isRefund ? 0 : feeAmount,
+    fees_cents: isRefund ? 0 : centsFromMajorAmount(feeAmount) ?? 0,
+    currency: normalizeCurrency(firstString(payload, ['currency', 'data.currency'])),
+    discount_code: asString(payload.discount_code) ?? firstString(payload, ['promo_code', 'data.discount_code', 'data.promo_code']),
+    is_refund: isRefund,
+    purchase_timestamp:
+      asString(payload.purchase_timestamp) ??
+      firstString(payload, ['created_at', 'updated_at', 'data.created_at', 'data.updated_at']) ??
+      new Date().toISOString(),
+    raw_ticket_class_id: firstString(payload, ['ticket_class_id', 'tier_id', 'data.ticket.id', 'data.tier.id']),
+    sales_channel: firstString(payload, ['sales_channel', 'source', 'data.source']) ?? 'partiful_import',
+    raw_data: payload,
+  }
+}
+
+/**
+ * Maps Partiful RSVP/ticket payloads into imported attendee records.
+ */
+function mapPartifulAttendee(context: IntegrationContext, payload: JsonObject, webhookId: string | null): ImportedAttendeePayload | null {
+  if (!context.integrationId || !context.eventId) return null
+
+  const attendeeId = firstString(payload, [
+    'attendee_id',
+    'guest_id',
+    'rsvp_id',
+    'ticket_id',
+    'order_id',
+    'data.attendee.id',
+    'data.guest.id',
+    'data.rsvp_id',
+    'data.ticket_id',
+  ]) ?? webhookId
+
+  if (!attendeeId) return null
+
+  const fullName = asString(payload.ticket_buyer_name) ?? firstString(payload, [
+    'data.guest.name',
+    'data.guest.full_name',
+    'data.attendee.name',
+    'data.name',
+  ])
+  const { firstName, lastName } = splitName(fullName)
+  const ticketPrice = firstMoney(
+    payload,
+    ['ticket_price', 'price', 'amount', 'data.ticket.price', 'data.price', 'data.amount'],
+    ['ticket_price_cents', 'price_cents', 'amount_cents', 'data.ticket.price_cents', 'data.price_cents', 'data.amount_cents']
+  )
+  const ticketTierName = firstString(payload, [
+    'ticket_tier_name',
+    'ticket_type',
+    'tier_name',
+    'data.ticket_tier_name',
+    'data.ticket_type',
+    'data.ticket.name',
+    'data.tier.name',
+  ]) ?? (ticketPrice === 0 ? 'Free RSVP' : 'General Admission')
+
+  return {
+    integration_id: context.integrationId,
+    event_id: context.eventId,
+    external_attendee_id: `${asString(payload.event_id) ?? context.externalEventId ?? 'partiful'}:${attendeeId}`,
+    first_name: firstString(payload, ['first_name', 'data.guest.first_name', 'data.attendee.first_name']) ?? firstName,
+    last_name: firstString(payload, ['last_name', 'data.guest.last_name', 'data.attendee.last_name']) ?? lastName,
+    email: asString(payload.ticket_buyer_email) ?? firstString(payload, [
+      'email',
+      'data.guest.email',
+      'data.attendee.email',
+      'data.email',
+    ]),
+    ticket_type: ticketTierName,
+    ticket_class: firstString(payload, ['status', 'data.status', 'data.rsvp.status']),
+    ticket_tier_name: ticketTierName,
+    ticket_tier_category: classifyTicketTier(ticketTierName, centsFromMajorAmount(ticketPrice)),
+    order_id: firstString(payload, ['order_id', 'data.order_id', 'ticket_id', 'data.ticket_id']),
+    checked_in: Boolean(getPath(payload, 'checked_in') || getPath(payload, 'data.checked_in') || getPath(payload, 'data.checked_in_at')),
+    check_in_time: firstString(payload, ['check_in_time', 'checked_in_at', 'data.checked_in_at']),
+    check_in_method: firstString(payload, ['check_in_method', 'data.check_in_method']),
+    ticket_price: ticketPrice,
+    ticket_price_cents: centsFromMajorAmount(ticketPrice),
+    raw_ticket_class_id: firstString(payload, ['ticket_class_id', 'tier_id', 'data.ticket.id', 'data.tier.id']),
     raw_data: isObject(payload.data) ? payload.data : payload,
   }
 }
@@ -848,6 +1140,52 @@ export async function processLumaWebhook(
 ): Promise<ProcessWebhookResult> {
   const sale = mapLumaSale(context, payload, webhookId)
   const attendee = mapLumaAttendee(context, payload, webhookId)
+
+  if (!context.eventId) {
+    return {
+      processed: false,
+      integrationId: context.integrationId,
+      eventId: null,
+      externalEventId: context.externalEventId,
+      webhookType: getWebhookType(payload),
+      salesUpserted: 0,
+      attendeesUpserted: 0,
+      skippedReason: 'No linked 3rdSpace event found',
+    }
+  }
+
+  await upsertSales(admin, sale ? [sale] : [])
+  await upsertAttendees(admin, attendee ? [attendee] : [])
+  await recalculateEventFinancials(admin, context.eventId)
+
+  return {
+    processed: true,
+    integrationId: context.integrationId,
+    eventId: context.eventId,
+    externalEventId: context.externalEventId,
+    webhookType: getWebhookType(payload),
+    salesUpserted: sale ? 1 : 0,
+    attendeesUpserted: attendee ? 1 : 0,
+  }
+}
+
+/**
+ * Processes a Partiful webhook into sales, attendees, and financial summaries.
+ *
+ * @param admin - Service-role Supabase client.
+ * @param payload - Raw Partiful webhook payload.
+ * @param context - Resolved event/integration context.
+ * @param webhookId - Optional provider/header id.
+ * @returns Processing summary for logging/API response.
+ */
+export async function processPartifulWebhook(
+  admin: SupabaseAdminClient,
+  payload: JsonObject,
+  context: IntegrationContext,
+  webhookId: string | null
+): Promise<ProcessWebhookResult> {
+  const sale = mapPartifulSale(context, payload, webhookId)
+  const attendee = mapPartifulAttendee(context, payload, webhookId)
 
   if (!context.eventId) {
     return {

@@ -78,7 +78,7 @@ async function emailInvoiceToBuilder(admin: any, invoiceId: string, pdfUrl: stri
 
   return sendInvoiceEmail({
     to: context.builderEmail,
-    subject: `${context.invoice.invoice_number} from ${context.vendor.name || '3rdSpace vendor'}`,
+    subject: `${context.invoice.invoice_number} from ${context.vendor.name || '3rdPlace vendor'}`,
     html: buildInvoiceEmailHtml(context, pdfUrl),
     attachment: {
       filename: `${context.invoice.invoice_number}.pdf`,

@@ -77,7 +77,8 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: 'Vendor not found' }, { status: 404 })
     }
 
-    if ((vendor as { user_id: string }).user_id !== user.id) {
+    const vendorRow = vendor as { user_id: string | null }
+    if (vendorRow.user_id !== user.id) {
       return NextResponse.json({ error: 'Not authorized to respond to this review' }, { status: 403 })
     }
 

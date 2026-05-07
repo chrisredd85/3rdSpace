@@ -18,6 +18,30 @@ const nextConfig = {
   experimental: {
     optimizeCss: true,
   },
+  async redirects() {
+    return [
+      { source: '/builder', destination: '/planner', statusCode: 301 },
+      { source: '/builder/events', destination: '/planner/experiences', statusCode: 301 },
+      { source: '/builder/upcoming', destination: '/planner/experiences', statusCode: 301 },
+      { source: '/builder/past', destination: '/planner/experiences?filter=archived', statusCode: 301 },
+      { source: '/builder/templates', destination: '/planner/templates', statusCode: 301 },
+      { source: '/builder/messages', destination: '/planner/messages', statusCode: 301 },
+      { source: '/builder/notifications', destination: '/planner', statusCode: 301 },
+      { source: '/builder/venues', destination: '/planner/venues', statusCode: 301 },
+      { source: '/builder/venues/marketplace', destination: '/planner/venues/marketplace', statusCode: 301 },
+      { source: '/builder/venues/:venueId', destination: '/planner/venues/:venueId', statusCode: 301 },
+      { source: '/builder/vendors', destination: '/planner/vendors', statusCode: 301 },
+      { source: '/builder/vendors/marketplace', destination: '/planner/vendors/marketplace', statusCode: 301 },
+      { source: '/builder/vendors/:vendorId', destination: '/planner/vendors/:vendorId', statusCode: 301 },
+      { source: '/builder/analytics', destination: '/planner/analytics', statusCode: 301 },
+      { source: '/builder/settings', destination: '/planner/settings', statusCode: 301 },
+      { source: '/builder/billing', destination: '/planner/billing', statusCode: 301 },
+      { source: '/builder/payouts', destination: '/planner/payments', statusCode: 301 },
+      { source: '/builder/pricing', destination: '/planner/billing', statusCode: 301 },
+      { source: '/builder/event/:path*', destination: '/planner', statusCode: 301 },
+      { source: '/builder/:path*', destination: '/planner', statusCode: 301 },
+    ]
+  },
 }
 
 module.exports = nextConfig

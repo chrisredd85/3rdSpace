@@ -103,7 +103,7 @@ export function EventFinalizeStep({ event }: EventFinalizeStepProps) {
     try {
       await updateEvent.mutateAsync({ id: event.id, updates: { status: 'confirmed' } })
       addToast({ title: 'Event finalized!', description: 'Your event has been confirmed and booking requests have been sent.' })
-      router.push('/builder')
+      router.push('/planner')
     } catch {
       addToast({ title: 'Error', description: 'Failed to finalize event', variant: 'destructive' })
     }

@@ -1,6 +1,6 @@
 import type { ServiceType } from '@/lib/types'
 
-export type TicketPlatform = 'eventbrite' | 'luma' | 'posh'
+export type TicketPlatform = 'eventbrite' | 'luma' | 'posh' | 'partiful'
 
 export const BUILDER_EVENT_TYPE_OPTIONS = [
   'Concerts',
@@ -17,6 +17,7 @@ export const TICKET_PLATFORM_OPTIONS: Array<{ id: TicketPlatform; label: string 
   { id: 'eventbrite', label: 'Eventbrite' },
   { id: 'luma', label: 'Luma' },
   { id: 'posh', label: 'Posh' },
+  { id: 'partiful', label: 'Partiful' },
 ]
 
 export const VENUE_AMENITIES = [

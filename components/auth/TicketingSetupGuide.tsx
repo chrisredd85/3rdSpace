@@ -30,9 +30,9 @@ const setupCards: Record<
   eventbrite: {
     title: 'Eventbrite account',
     eyebrow: 'OAuth connection',
-    description: 'Connect your Eventbrite account once. You will choose the matching Eventbrite event later from each 3rdSpace event.',
+    description: 'Connect your Eventbrite account once. You will choose the matching Eventbrite event later from each 3rdPlace event.',
     steps: [
-      'Create your 3rdSpace account first so the Eventbrite connection can be saved securely.',
+      'Create your 3rdPlace account first so the Eventbrite connection can be saved securely.',
       'Authorize Eventbrite when prompted.',
       'Choose the matching Eventbrite event before importing attendees.',
     ],
@@ -47,7 +47,7 @@ const setupCards: Record<
     getUrl: (origin) => `${origin}/api/webhooks/posh`,
     steps: [
       'Paste the endpoint into Posh webhook settings.',
-      'Keep the Posh event id available; you will use it when linking a 3rdSpace event.',
+      'Keep the Posh event id available; you will use it when linking a 3rdPlace event.',
       'Send a test webhook after your event is linked.',
     ],
     icon: Webhook,
@@ -61,7 +61,7 @@ const setupCards: Record<
     getUrl: (origin) => `${origin}/api/webhooks/luma`,
     steps: [
       'Paste the endpoint into Luma webhook settings.',
-      'Keep the Luma event id available; you will use it when linking a 3rdSpace event.',
+      'Keep the Luma event id available; you will use it when linking a 3rdPlace event.',
       'Send a test webhook after your event is linked.',
     ],
     icon: Webhook,

@@ -26,6 +26,40 @@ const MARKETPLACE_CACHE_HEADERS = {
   'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
 }
 
+const PUBLIC_VENDOR_DISCOVERY_SELECT_COLUMNS = `
+  id,
+  user_id,
+  name,
+  vendor_type,
+  service_type,
+  bio,
+  regions_served,
+  service_area,
+  availability_notes,
+  pricing_model,
+  hourly_rate,
+  base_rate,
+  per_person_rate,
+  per_head_kickback,
+  requires_deposit,
+  deposit_amount,
+  deposit_type,
+  deposit_percentage,
+  deposit_refundable,
+  deposit_terms,
+  is_published,
+  is_claimed,
+  claimed_user_id,
+  is_admin_seeded,
+  average_rating,
+  rating,
+  review_count,
+  total_bookings,
+  total_gigs,
+  created_at,
+  updated_at
+`
+
 /**
  * Searches published vendors for builder discovery.
  *
@@ -58,7 +92,7 @@ export async function GET(request: NextRequest) {
 
     let vendorQuery = supabase
       .from('vendor_profiles')
-      .select('*')
+      .select(PUBLIC_VENDOR_DISCOVERY_SELECT_COLUMNS)
       .eq('is_published', true)
 
     if (serviceType) {
@@ -145,7 +179,9 @@ export async function GET(request: NextRequest) {
 
     let vendors = ((vendorRows as Record<string, any>[] | null) || [])
       .filter((vendor) => !filters.date || !unavailableVendorIds.has(vendor.id))
-      .map((vendor) => buildVendorDiscoveryResult(vendor, servicesByVendor.get(vendor.id) || [], filters.date ? true : undefined))
+      .map((vendor) =>
+        buildVendorDiscoveryResult(vendor, servicesByVendor.get(vendor.id) || [], filters.date ? true : undefined)
+      )
 
     if (filters.minRating != null) {
       vendors = vendors.filter((vendor) => vendor.rating >= Number(filters.minRating))
@@ -159,14 +195,20 @@ export async function GET(request: NextRequest) {
       vendors = vendors.filter((vendor) => (vendor.starting_price ?? Number.MAX_SAFE_INTEGER) <= Number(filters.maxPrice))
     }
 
-    vendors = sortVendorDiscoveryResults(vendors, filters.sort as VendorSearchSort)
+    const publicVendors = sortVendorDiscoveryResults(vendors, filters.sort as VendorSearchSort).map(stripContactEmail)
 
     return NextResponse.json(
-      { vendors, count: vendors.length },
+      { vendors: publicVendors, count: publicVendors.length },
       { headers: MARKETPLACE_CACHE_HEADERS }
     )
   } catch (error) {
     console.error('[vendors.search] Unexpected GET error', error)
     return NextResponse.json({ error: 'Failed to search vendors' }, { status: 500 })
   }
+}
+
+function stripContactEmail<T extends { contact_email?: unknown }>(item: T): Omit<T, 'contact_email'> {
+  const publicItem = { ...item }
+  delete publicItem.contact_email
+  return publicItem
 }

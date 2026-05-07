@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 import { encryptSecret } from '@/lib/server/token-crypto'
+import { tryUpsertProviderConnection } from '@/lib/server/provider-connections'
 import type { TicketPlatform } from '@/lib/constants/account-setup'
 
 type ConnectionBody = {
@@ -10,9 +11,10 @@ type ConnectionBody = {
   externalAccountId?: string
   accountLabel?: string
   webhookSecret?: string
+  eventUrl?: string
 }
 
-const ticketPlatforms = new Set<TicketPlatform>(['eventbrite', 'luma', 'posh'])
+const ticketPlatforms = new Set<TicketPlatform>(['eventbrite', 'luma', 'posh', 'partiful'])
 
 function buildAccountWebhookUrl(origin: string, platform: TicketPlatform, connectionId: string) {
   const url = new URL(`/api/webhooks/${platform}`, origin)
@@ -66,7 +68,7 @@ export async function GET() {
  * Creates or updates an account-level ticketing connection placeholder.
  */
 export async function POST(request: NextRequest) {
-  const { supabase, builderProfileId, error, status } = await getAuthenticatedBuilder()
+  const { supabase, user, builderProfileId, error, status } = await getAuthenticatedBuilder()
   if (!builderProfileId) {
     return NextResponse.json({ error }, { status })
   }
@@ -91,6 +93,8 @@ export async function POST(request: NextRequest) {
   const config = {
     ...(((existingConnection as { config?: Record<string, unknown> | null } | null)?.config) ?? {}),
     selected_from_setup_center: true,
+    ...(body.eventUrl?.trim() && { event_url: body.eventUrl.trim() }),
+    ...(body.platform === 'partiful' && { import_mode: 'webhook_or_event_link' }),
     ...(encryptedWebhookSecret && { has_webhook_secret: true }),
   }
 
@@ -120,7 +124,7 @@ export async function POST(request: NextRequest) {
   let connection = data as { id: string; platform: TicketPlatform; webhook_url?: string | null }
   let webhookUrl = connection.webhook_url ?? null
 
-  if (body.platform !== 'eventbrite') {
+  if (body.platform === 'luma' || body.platform === 'posh' || body.platform === 'partiful') {
     webhookUrl = buildAccountWebhookUrl(request.nextUrl.origin, body.platform, connection.id)
     const { data: updatedConnection, error: updateError } = await supabase
       .from('builder_ticketing_connections')
@@ -139,6 +143,17 @@ export async function POST(request: NextRequest) {
 
     connection = updatedConnection as typeof connection
   }
+
+  await tryUpsertProviderConnection(supabase, {
+    userId: user!.id,
+    builderId: builderProfileId,
+    provider: body.platform,
+    status: 'setup_required',
+    encryptedCredentials: encryptedWebhookSecret ? { webhook_secret: encryptedWebhookSecret } : {},
+    externalAccountId: body.externalAccountId?.trim() || body.eventUrl?.trim() || null,
+    webhookUrl,
+    config,
+  })
 
   return NextResponse.json({
     success: true,

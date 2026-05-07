@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { normalizeVenues, VENUE_SELECT_COLUMNS } from '@/lib/venues/venue-adapter'
+import { normalizeVenues, VENUE_LEGACY_SELECT_COLUMNS, VENUE_SELECT_COLUMNS } from '@/lib/venues/venue-adapter'
 
 /**
  * GET /api/venues
@@ -42,55 +42,63 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '0', 10)
     const pageSize = parseInt(searchParams.get('pageSize') || '20', 10)
 
-    // Build query - fetch ALL published venues (marketplace)
-    let query = supabase
-      .from('venues')
-      .select(VENUE_SELECT_COLUMNS)
-      .eq('is_published', true) // Only active venues
-      .order('created_at', { ascending: false })
-
-    // Apply filters
-    if (venueType) {
-      query = query.eq('venue_type', venueType)
-    }
-    if (city) {
-      query = query.eq('city', city)
-    }
-    if (state) {
-      query = query.eq('state', state)
-    }
-    if (minCapacity) {
-      query = query.gte('standing_capacity', parseInt(minCapacity, 10))
-    }
-    if (maxCapacity) {
-      query = query.lte('standing_capacity', parseInt(maxCapacity, 10))
-    }
-    if (minPrice) {
-      query = query.gte('hourly_rate', parseFloat(minPrice))
-    }
-    if (maxPrice) {
-      query = query.lte('hourly_rate', parseFloat(maxPrice))
-    }
-    if (isVerified !== null) {
-      query = query.eq('is_published', isVerified === 'true')
-    }
-    if (tagsParam) {
-      const tags = tagsParam
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean)
-
-      if (tags.length > 0) {
-        query = query.overlaps('unique_features_tags', tags)
-      }
-    }
-
-    // Apply pagination
     const from = page * pageSize
     const to = from + pageSize - 1
-    query = query.range(from, to)
 
-    const { data: venues, error } = await query
+    const buildQuery = (selectColumns: string) => {
+      // Build query - fetch ALL published venues (marketplace)
+      let query = supabase
+        .from('venues')
+        .select(selectColumns)
+        .eq('is_published', true) // Only active venues
+        .order('created_at', { ascending: false })
+
+      // Apply filters
+      if (venueType) {
+        query = query.eq('venue_type', venueType)
+      }
+      if (city) {
+        query = query.eq('city', city)
+      }
+      if (state) {
+        query = query.eq('state', state)
+      }
+      if (minCapacity) {
+        query = query.gte('standing_capacity', parseInt(minCapacity, 10))
+      }
+      if (maxCapacity) {
+        query = query.lte('standing_capacity', parseInt(maxCapacity, 10))
+      }
+      if (minPrice) {
+        query = query.gte('hourly_rate', parseFloat(minPrice))
+      }
+      if (maxPrice) {
+        query = query.lte('hourly_rate', parseFloat(maxPrice))
+      }
+      if (isVerified !== null) {
+        query = query.eq('is_published', isVerified === 'true')
+      }
+      if (tagsParam) {
+        const tags = tagsParam
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean)
+
+        if (tags.length > 0) {
+          query = query.overlaps('unique_features_tags', tags)
+        }
+      }
+
+      return query.range(from, to)
+    }
+
+    let { data: venues, error } = await buildQuery(VENUE_SELECT_COLUMNS)
+
+    if (error && isMissingVenueCatalogColumn(error.message)) {
+      const fallback = await buildQuery(VENUE_LEGACY_SELECT_COLUMNS)
+      venues = fallback.data
+      error = fallback.error
+    }
 
     if (error) {
       console.error('Error fetching venues:', error)
@@ -100,9 +108,11 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const publicVenues = normalizeVenues(venues as any[]).map(stripContactEmail)
+
     return NextResponse.json(
       {
-        venues: normalizeVenues(venues as any[]),
+        venues: publicVenues,
         page,
         pageSize,
         hasMore: (venues || []).length === pageSize,
@@ -120,4 +130,16 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+function isMissingVenueCatalogColumn(message: string) {
+  return /column venues\.(ticket_sales_share_enabled|ticket_sales_share_pct|bar_rev_share_enabled|bar_rev_share_pct|sponsor_rev_share_enabled|sponsor_rev_share_pct|per_head_kickback_cents|is_claimed|is_admin_seeded) does not exist/.test(
+    message
+  )
+}
+
+function stripContactEmail<T extends { contact_email?: unknown }>(item: T): Omit<T, 'contact_email'> {
+  const publicItem = { ...item }
+  delete publicItem.contact_email
+  return publicItem
 }

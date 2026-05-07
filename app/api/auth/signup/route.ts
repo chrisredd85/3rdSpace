@@ -11,6 +11,7 @@ interface SignupRequest {
   email: string
   password: string
   name: string
+  phone?: string
   organization_name?: string
   event_types?: string[]
   ticket_platforms?: TicketPlatform[]
@@ -23,7 +24,29 @@ interface SignupRequest {
   capacity?: number
   house_rules?: string
   amenities?: string[]
+  has_bar?: boolean | null
+  bar_kickback_pct?: number | null
+  per_head_drink_pct?: number | null
+  min_bar_spend?: number | null
+  price_per_night?: number | null
+  deposit?: number | null
+  cancellation_terms?: string | null
+  available_days?: string[] | null
+  open_from?: string | null
+  open_to?: string | null
+  loading_address?: string | null
+  prep_time?: number | null
   service_type?: ServiceType
+  service_area?: string | null
+  portfolio_url?: string | null
+  bio?: string | null
+  base_price?: number | null
+  package_name?: string | null
+  package_details?: string | null
+  deposit_pct?: number | null
+  lead_time_days?: number | null
+  emergency_available?: boolean | null
+  emergency_rate_uplift?: number | null
   bank_account_holder_name?: string
   bank_name?: string
   availability_notes?: string
@@ -46,6 +69,19 @@ interface VenueSignupDetails {
   capacity: number
   house_rules: string
   amenities: string[]
+  phone?: string | null
+  has_bar?: boolean | null
+  bar_kickback_pct?: number | null
+  per_head_drink_pct?: number | null
+  min_bar_spend?: number | null
+  price_per_night?: number | null
+  deposit?: number | null
+  cancellation_terms?: string | null
+  available_days?: string[] | null
+  open_from?: string | null
+  open_to?: string | null
+  loading_address?: string | null
+  prep_time?: number | null
 }
 
 interface VendorSignupDetails {
@@ -54,9 +90,22 @@ interface VendorSignupDetails {
   bank_account_holder_name: string
   bank_name: string
   availability_notes: string
+  phone?: string | null
+  service_area?: string | null
+  portfolio_url?: string | null
+  bio?: string | null
+  base_price?: number | null
+  package_name?: string | null
+  package_details?: string | null
+  deposit_pct?: number | null
+  lead_time_days?: number | null
+  cancellation_terms?: string | null
+  available_days?: string[] | null
+  emergency_available?: boolean | null
+  emergency_rate_uplift?: number | null
 }
 
-const VALID_TICKETING_PLATFORMS = new Set<TicketPlatform>(['eventbrite', 'luma', 'posh'])
+const VALID_TICKETING_PLATFORMS = new Set<TicketPlatform>(['eventbrite', 'luma', 'posh', 'partiful'])
 
 function getRole(userType: UserType): string {
   if (userType === 'community_builder') return 'builder'
@@ -117,7 +166,18 @@ function getBuilderDetails(body: SignupRequest): BuilderSignupDetails | null {
 function getVenueDetails(body: SignupRequest): VenueSignupDetails | null {
   if (body.userType !== 'venue_owner') return null
 
-  const { name, venue_name, address, city, state, zip_code, venue_type, capacity, house_rules, amenities } = body
+  const {
+    name,
+    venue_name,
+    address,
+    city,
+    state,
+    zip_code,
+    venue_type,
+    capacity,
+    house_rules,
+    amenities,
+  } = body
   if (!name || !venue_name || !address || !city || !state || !zip_code || !venue_type || !capacity || !house_rules || !(amenities?.length)) {
     return null
   }
@@ -133,6 +193,19 @@ function getVenueDetails(body: SignupRequest): VenueSignupDetails | null {
     capacity,
     house_rules,
     amenities,
+    phone: body.phone ?? null,
+    has_bar: body.has_bar ?? null,
+    bar_kickback_pct: body.bar_kickback_pct ?? null,
+    per_head_drink_pct: body.per_head_drink_pct ?? null,
+    min_bar_spend: body.min_bar_spend ?? null,
+    price_per_night: body.price_per_night ?? null,
+    deposit: body.deposit ?? null,
+    cancellation_terms: body.cancellation_terms ?? null,
+    available_days: body.available_days ?? null,
+    open_from: body.open_from ?? null,
+    open_to: body.open_to ?? null,
+    loading_address: body.loading_address ?? null,
+    prep_time: body.prep_time ?? null,
   }
 }
 
@@ -150,6 +223,19 @@ function getVendorDetails(body: SignupRequest): VendorSignupDetails | null {
     bank_account_holder_name,
     bank_name: bank_name?.trim() || 'Pending Stripe onboarding',
     availability_notes,
+    phone: body.phone ?? null,
+    service_area: body.service_area ?? null,
+    portfolio_url: body.portfolio_url ?? null,
+    bio: body.bio ?? null,
+    base_price: body.base_price ?? null,
+    package_name: body.package_name ?? null,
+    package_details: body.package_details ?? null,
+    deposit_pct: body.deposit_pct ?? null,
+    lead_time_days: body.lead_time_days ?? null,
+    cancellation_terms: body.cancellation_terms ?? null,
+    available_days: body.available_days ?? null,
+    emergency_available: body.emergency_available ?? null,
+    emergency_rate_uplift: body.emergency_rate_uplift ?? null,
   }
 }
 
@@ -187,6 +273,7 @@ async function ensureRoleSetup(
       capacity: venueDetails.capacity,
       houseRules: venueDetails.house_rules,
       amenities: venueDetails.amenities,
+      phone: venueDetails.phone ?? null,
     })
     await ensureVenueSetup(admin, {
       userId,
@@ -200,6 +287,19 @@ async function ensureRoleSetup(
       capacity: venueDetails.capacity,
       houseRules: venueDetails.house_rules,
       amenities: venueDetails.amenities,
+      phone: venueDetails.phone ?? null,
+      hasBar: venueDetails.has_bar ?? null,
+      barKickbackPct: venueDetails.bar_kickback_pct ?? null,
+      perHeadDrinkPct: venueDetails.per_head_drink_pct ?? null,
+      minBarSpend: venueDetails.min_bar_spend ?? null,
+      pricePerNight: venueDetails.price_per_night ?? null,
+      deposit: venueDetails.deposit ?? null,
+      cancellationTerms: venueDetails.cancellation_terms ?? null,
+      availableDays: venueDetails.available_days ?? null,
+      openFrom: venueDetails.open_from ?? null,
+      openTo: venueDetails.open_to ?? null,
+      loadingAddress: venueDetails.loading_address ?? null,
+      prepTimeHours: venueDetails.prep_time ?? null,
     })
     return
   }
@@ -212,6 +312,19 @@ async function ensureRoleSetup(
       bankAccountHolderName: vendorDetails.bank_account_holder_name,
       bankName: vendorDetails.bank_name,
       availabilityNotes: vendorDetails.availability_notes,
+      phone: vendorDetails.phone ?? null,
+      serviceArea: vendorDetails.service_area ?? null,
+      portfolioUrl: vendorDetails.portfolio_url ?? null,
+      bio: vendorDetails.bio ?? null,
+      basePrice: vendorDetails.base_price ?? null,
+      packageName: vendorDetails.package_name ?? null,
+      packageDetails: vendorDetails.package_details ?? null,
+      depositPct: vendorDetails.deposit_pct ?? null,
+      leadTimeDays: vendorDetails.lead_time_days ?? null,
+      cancellationTerms: vendorDetails.cancellation_terms ?? null,
+      availableDays: vendorDetails.available_days ?? null,
+      emergencyAvailable: vendorDetails.emergency_available ?? null,
+      emergencyRateUplift: vendorDetails.emergency_rate_uplift ?? null,
     })
   }
 }

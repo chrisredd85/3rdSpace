@@ -137,7 +137,7 @@ export function VendorProfilePage({ vendorId }: VendorProfilePageProps) {
   return (
     <div className="space-y-6">
       <Button asChild variant="ghost" size="sm" className="-ml-3">
-        <Link href="/builder/vendors/marketplace">
+        <Link href="/planner/vendors/marketplace">
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to marketplace
         </Link>

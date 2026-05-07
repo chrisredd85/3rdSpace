@@ -87,13 +87,13 @@ export function Header({
   const handleUserTypeChange = (newType: UserType) => {
     setIsTypeMenuOpen(false)
     onUserTypeChange?.(newType)
-    if (newType === 'community_builder') router.push('/builder')
+    if (newType === 'community_builder') router.push('/planner')
     else if (newType === 'venue_owner') router.push('/venue')
     else router.push('/vendor')
   }
 
   const initials = user?.email ? user.email.slice(0, 2).toUpperCase() : 'ME'
-  const dashBase = userType === 'community_builder' ? 'builder' : userType === 'venue_owner' ? 'venue' : 'vendor'
+  const dashBase = userType === 'community_builder' ? 'planner' : userType === 'venue_owner' ? 'venue' : 'vendor'
 
   return (
     <header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b border-border bg-background/70 px-4 backdrop-blur-xl sm:px-6">
@@ -161,7 +161,7 @@ export function Header({
         {/* New event CTA — builder only */}
         {userType === 'community_builder' && (
           <Button variant="hero" size="sm" asChild className="hidden sm:inline-flex">
-            <Link href="/builder/event/new">+ New Event</Link>
+            <Link href="/planner">+ New Event</Link>
           </Button>
         )}
 

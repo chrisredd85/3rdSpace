@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       {
-        venues: normalizeVenues(venues as any[]),
+        venues: normalizeVenues(venues as any[]).map(stripContactEmail),
         tag_options: getUniqueFeatureTagOptions(),
       },
       { headers: MARKETPLACE_CACHE_HEADERS }
@@ -80,4 +80,10 @@ export async function GET(request: NextRequest) {
     console.error('[venues.search] Unexpected GET error', error)
     return NextResponse.json({ error: 'Failed to search venues' }, { status: 500 })
   }
+}
+
+function stripContactEmail<T extends { contact_email?: unknown }>(item: T): Omit<T, 'contact_email'> {
+  const publicItem = { ...item }
+  delete publicItem.contact_email
+  return publicItem
 }

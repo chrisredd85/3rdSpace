@@ -71,7 +71,7 @@ export async function PATCH(
     }
 
     // Verify venue belongs to user
-    const bookingWithVenue = booking as { venues?: { owner_id: string }; event_id: string; venue_id: string }
+    const bookingWithVenue = booking as { venues?: { owner_id: string | null }; event_id: string; venue_id: string }
     if (bookingWithVenue.venues?.owner_id !== user.id) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -150,7 +150,7 @@ export async function PATCH(
                 ? 'Venue booking confirmed!'
                 : 'Venue booking declined',
             message: `Your booking request has been ${status}.`,
-            link_url: `/builder/event/${bookingWithVenue.event_id}`,
+            link_url: '/planner/experiences',
           } as never)
         }
       } catch (notificationError) {

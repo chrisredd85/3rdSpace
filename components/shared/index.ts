@@ -1,7 +1,7 @@
 /**
  * Shared component exports
  * 
- * Reusable UI components used across the 3rdSpace platform
+ * Reusable UI components used across the 3rdPlace platform
  */
 
 export { StatCard } from './StatCard'

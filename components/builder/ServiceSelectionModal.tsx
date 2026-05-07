@@ -46,7 +46,7 @@ export function ServiceSelectionModal({ vendor, onClose }: ServiceSelectionModal
       service: service.id,
       serviceType: service.type,
     })
-    router.push(`/builder/event/new?${params.toString()}`)
+    router.push(`/planner?${params.toString()}`)
   }
 
   return (
@@ -69,7 +69,7 @@ export function ServiceSelectionModal({ vendor, onClose }: ServiceSelectionModal
               <Package className="mx-auto mb-3 h-10 w-10 text-muted-foreground/60" />
               <p className="font-semibold text-foreground">No published services yet</p>
               <p className="mt-1 text-sm text-muted-foreground">You can still start an event with this vendor and define the service request there.</p>
-              <Button type="button" className="mt-4" onClick={() => router.push(`/builder/event/new?vendor=${vendor.id}`)}>
+              <Button type="button" className="mt-4" onClick={() => router.push(`/planner?vendor=${vendor.id}`)}>
                 Start Custom Request
               </Button>
             </div>

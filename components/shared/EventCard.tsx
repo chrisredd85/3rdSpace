@@ -44,7 +44,7 @@ export interface EventCardProps {
  *   event={event}
  *   variant="upcoming"
  *   progress={75}
- *   onClick={() => router.push(`/builder/event/${event.id}`)}
+ *   onClick={() => router.push('/planner/experiences')}
  * />
  * ```
  */

@@ -364,7 +364,7 @@ function generateICS(bookings: VenueBooking[]): string {
 
   let ics = 'BEGIN:VCALENDAR\n'
   ics += 'VERSION:2.0\n'
-  ics += 'PRODID:-//3rdSpace//Venue Bookings//EN\n'
+  ics += 'PRODID:-//3rdPlace//Venue Bookings//EN\n'
   ics += 'CALSCALE:GREGORIAN\n'
   ics += 'METHOD:PUBLISH\n'
 

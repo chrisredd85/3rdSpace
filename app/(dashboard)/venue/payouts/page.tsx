@@ -55,7 +55,7 @@ const PAYOUT_CARDS = [
   {
     icon: CreditCard,
     title: 'Stripe Connect account',
-    description: 'Connect Stripe Express so 3rdSpace can route venue deposits, balances, and revenue-share payouts.',
+    description: 'Connect Stripe Express so 3rdPlace can route venue deposits, balances, and revenue-share payouts.',
   },
   {
     icon: CalendarClock,
@@ -265,7 +265,7 @@ export default function VenuePayoutsPage() {
             <div>
               <CardTitle>Stripe Connect</CardTitle>
               <CardDescription className="mt-2">
-                Connect a Stripe Express account so 3rdSpace can route venue payouts directly.
+                Connect a Stripe Express account so 3rdPlace can route venue payouts directly.
               </CardDescription>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">

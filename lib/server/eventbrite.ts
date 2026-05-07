@@ -114,8 +114,15 @@ export async function fetchEventbriteAttendeePage(
       id: string
       checked_in?: boolean | null
       checked_in_at?: string | null
+      ticket_class_id?: string | null
       ticket_class_name?: string | null
       order_id?: string | null
+      costs?: {
+        gross?: Record<string, unknown> | null
+        eventbrite_fee?: Record<string, unknown> | null
+        payment_fee?: Record<string, unknown> | null
+        tax?: Record<string, unknown> | null
+      } | null
       profile?: {
         first_name?: string | null
         last_name?: string | null

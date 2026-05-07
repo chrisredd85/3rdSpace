@@ -6,6 +6,13 @@ import {
   getEventbriteAccessToken,
   type EventbriteIntegrationRow,
 } from '@/lib/server/eventbrite'
+import {
+  centsFromEventbriteCost,
+  classifyTicketTier,
+  majorAmountFromCents,
+  normalizeCurrency,
+  type TicketTierCategory,
+} from '@/lib/server/ticket-normalization'
 
 type ImportedAttendeePayload = {
   integration_id: string
@@ -15,9 +22,39 @@ type ImportedAttendeePayload = {
   last_name: string | null
   email: string | null
   ticket_type: string | null
+  ticket_tier_name: string | null
+  ticket_tier_category: TicketTierCategory
   order_id: string | null
   checked_in: boolean
   check_in_time: string | null
+  ticket_price_cents: number | null
+  raw_ticket_class_id: string | null
+  raw_data: Record<string, any>
+}
+
+type ImportedSalePayload = {
+  integration_id: string
+  event_id: string
+  order_id: string
+  platform: 'eventbrite'
+  ticket_buyer_name: string | null
+  ticket_buyer_email: string | null
+  ticket_quantity: number
+  ticket_type: string | null
+  ticket_tier_name: string | null
+  ticket_tier_category: TicketTierCategory
+  ticket_price: number | null
+  ticket_price_cents: number | null
+  total_amount: number
+  total_amount_cents: number
+  fees: number
+  fees_cents: number
+  currency: string
+  discount_code: string | null
+  is_refund: boolean
+  purchase_timestamp: string | null
+  raw_ticket_class_id: string | null
+  sales_channel: string | null
   raw_data: Record<string, any>
 }
 
@@ -28,8 +65,15 @@ function mapEventbriteAttendee(
     id: string
     checked_in?: boolean | null
     checked_in_at?: string | null
+    ticket_class_id?: string | null
     ticket_class_name?: string | null
     order_id?: string | null
+    costs?: {
+      gross?: Record<string, unknown> | null
+      eventbrite_fee?: Record<string, unknown> | null
+      payment_fee?: Record<string, unknown> | null
+      tax?: Record<string, unknown> | null
+    } | null
     profile?: {
       first_name?: string | null
       last_name?: string | null
@@ -37,6 +81,9 @@ function mapEventbriteAttendee(
     } | null
   }
 ): ImportedAttendeePayload {
+  const ticketPriceCents = centsFromEventbriteCost(attendee.costs?.gross)
+  const tierName = attendee.ticket_class_name ?? 'Unknown'
+
   return {
     integration_id: integrationId,
     event_id: eventId,
@@ -45,9 +92,54 @@ function mapEventbriteAttendee(
     last_name: attendee.profile?.last_name ?? null,
     email: attendee.profile?.email ?? null,
     ticket_type: attendee.ticket_class_name ?? null,
+    ticket_tier_name: tierName,
+    ticket_tier_category: classifyTicketTier(tierName, ticketPriceCents),
     order_id: attendee.order_id ?? null,
     checked_in: Boolean(attendee.checked_in),
     check_in_time: attendee.checked_in ? attendee.checked_in_at ?? null : null,
+    ticket_price_cents: ticketPriceCents,
+    raw_ticket_class_id: attendee.ticket_class_id ?? null,
+    raw_data: attendee as Record<string, any>,
+  }
+}
+
+function mapEventbriteSale(
+  integrationId: string,
+  eventId: string,
+  attendee: Parameters<typeof mapEventbriteAttendee>[2]
+): ImportedSalePayload {
+  const ticketPriceCents = centsFromEventbriteCost(attendee.costs?.gross) ?? 0
+  const eventbriteFeeCents = centsFromEventbriteCost(attendee.costs?.eventbrite_fee) ?? 0
+  const paymentFeeCents = centsFromEventbriteCost(attendee.costs?.payment_fee) ?? 0
+  const feesCents = eventbriteFeeCents + paymentFeeCents
+  const tierName = attendee.ticket_class_name ?? 'Unknown'
+  const orderId = attendee.order_id
+    ? `${attendee.order_id}:${attendee.id}`
+    : `${eventId}:${attendee.id}`
+
+  return {
+    integration_id: integrationId,
+    event_id: eventId,
+    order_id: orderId,
+    platform: 'eventbrite',
+    ticket_buyer_name: [attendee.profile?.first_name, attendee.profile?.last_name].filter(Boolean).join(' ') || null,
+    ticket_buyer_email: attendee.profile?.email ?? null,
+    ticket_quantity: 1,
+    ticket_type: attendee.ticket_class_name ?? null,
+    ticket_tier_name: tierName,
+    ticket_tier_category: classifyTicketTier(tierName, ticketPriceCents),
+    ticket_price: majorAmountFromCents(ticketPriceCents),
+    ticket_price_cents: ticketPriceCents,
+    total_amount: majorAmountFromCents(ticketPriceCents) ?? 0,
+    total_amount_cents: ticketPriceCents,
+    fees: majorAmountFromCents(feesCents) ?? 0,
+    fees_cents: feesCents,
+    currency: normalizeCurrency((attendee.costs?.gross as Record<string, unknown> | null | undefined)?.currency),
+    discount_code: null,
+    is_refund: false,
+    purchase_timestamp: null,
+    raw_ticket_class_id: attendee.ticket_class_id ?? null,
+    sales_channel: 'eventbrite_import',
     raw_data: attendee as Record<string, any>,
   }
 }
@@ -71,6 +163,28 @@ async function upsertAttendeeChunks(
       chunkGroup.map((attendeeChunk) =>
         admin.from('imported_attendees').upsert(attendeeChunk as never, {
           onConflict: 'integration_id,external_attendee_id',
+        })
+      )
+    )
+
+    const failedResult = results.find((result) => result.error)
+    if (failedResult?.error) {
+      throw failedResult.error
+    }
+  }
+}
+
+async function upsertSaleChunks(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  saleChunks: ImportedSalePayload[][]
+) {
+  const chunkGroups = chunk(saleChunks, 4)
+
+  for (const chunkGroup of chunkGroups) {
+    const results = await Promise.all(
+      chunkGroup.map((saleChunk) =>
+        admin.from('event_sales_data').upsert(saleChunk as never, {
+          onConflict: 'platform,order_id',
         })
       )
     )
@@ -125,6 +239,7 @@ export async function runEventbriteImport(
     lockedIntegrationId = typedIntegration.id
 
     const allAttendees: ImportedAttendeePayload[] = []
+    const allSales: ImportedSalePayload[] = []
     let continuation: string | undefined
     let hasMore = true
 
@@ -134,6 +249,7 @@ export async function runEventbriteImport(
 
       attendees.forEach((attendee) => {
         allAttendees.push(mapEventbriteAttendee(typedIntegration.id, typedIntegration.event_id, attendee))
+        allSales.push(mapEventbriteSale(typedIntegration.id, typedIntegration.event_id, attendee))
       })
 
       hasMore = Boolean(response.pagination?.has_more_items)
@@ -157,6 +273,7 @@ export async function runEventbriteImport(
     const updated = allAttendees.length - imported
 
     await upsertAttendeeChunks(admin, chunk(allAttendees, 100))
+    await upsertSaleChunks(admin, chunk(allSales, 100))
 
     const { error: updateError } = await admin
       .from('external_event_integrations')
@@ -181,6 +298,7 @@ export async function runEventbriteImport(
       updated,
       checked_in: checkedInCount,
       total: allAttendees.length,
+      sales_imported: allSales.length,
       message: `Successfully imported ${allAttendees.length} attendees`,
     }
   } catch (error) {

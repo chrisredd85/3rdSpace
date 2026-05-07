@@ -14,7 +14,7 @@ const STEPS = [
   'Confirm your business details',
   'Add payout banking information',
   'Complete Stripe identity verification',
-  'Return to 3rdSpace to start receiving payments',
+  'Return to 3rdPlace to start receiving payments',
 ]
 
 /**

@@ -425,7 +425,7 @@ export function VenueMarketplace({ onClose }: VenueMarketplaceProps) {
                       .filter((name): name is string => Boolean(name))}
                     onSave={() => handleToggleSaved(venue.id, false)}
                     onViewProfile={() => {
-                      window.location.href = `/builder/venues/${venue.id}`
+                      window.location.href = `/planner/venues/${venue.id}`
                     }}
                   />
                 ))}

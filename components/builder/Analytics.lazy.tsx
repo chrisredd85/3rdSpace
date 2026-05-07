@@ -5,7 +5,7 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 
 // Lazy load analytics page (heavy component with charts)
 const AnalyticsPage = lazy(() => 
-  import('@/app/(dashboard)/builder/analytics/page').then((mod) => ({ default: mod.default }))
+  import('@/app/(planner)/planner/analytics/page').then((mod) => ({ default: mod.default }))
 )
 
 export default function AnalyticsLazy() {

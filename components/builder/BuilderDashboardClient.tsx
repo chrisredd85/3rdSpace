@@ -150,12 +150,12 @@ export function BuilderDashboardClient({
             <h2 className="font-display text-xl font-semibold">Upcoming events</h2>
             <div className="flex items-center gap-2">
               <Button variant="hero" size="sm" asChild>
-                <Link href="/builder/event/new">
+                <Link href="/planner">
                   <Plus className="h-4 w-4" /> New Event
                 </Link>
               </Button>
               <Button variant="ghost" size="sm" asChild>
-                <Link href="/builder/events">
+                <Link href="/planner/experiences">
                   View all <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
@@ -168,7 +168,7 @@ export function BuilderDashboardClient({
               <p className="mt-3 font-display font-semibold">No upcoming events</p>
               <p className="mt-1 text-sm text-muted-foreground">Create your first event to get started</p>
               <Button variant="hero" className="mt-5" asChild>
-                <Link href="/builder/event/new">
+                <Link href="/planner">
                   <Plus className="h-4 w-4" /> Create your first event
                 </Link>
               </Button>
@@ -178,7 +178,7 @@ export function BuilderDashboardClient({
               {upcomingEvents.map((e) => (
                 <Link
                   key={e.id}
-                  href={`/builder/event/${e.id}`}
+                  href="/planner/experiences"
                   className="group flex items-center gap-4 rounded-2xl border border-border bg-card/40 p-3 transition-smooth hover:border-primary/50 hover:bg-card"
                 >
                   <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
@@ -222,10 +222,10 @@ export function BuilderDashboardClient({
           <h2 className="mb-5 font-display text-xl font-semibold">Quick actions</h2>
           <div className="space-y-3">
             {[
-              { label: 'Find Venues', href: '/builder/venues', hint: 'Browse available spaces', icon: Building2 },
-              { label: 'Find Vendors', href: '/builder/vendors/marketplace', hint: 'Service providers', icon: Store },
-              { label: 'View Analytics', href: '/builder/analytics', hint: 'Spend & ROI', icon: BarChart3 },
-              { label: 'Past Events', href: '/builder/past', hint: 'Review & rebook', icon: ClipboardList },
+              { label: 'Find Venues', href: '/planner/venues', hint: 'Browse available spaces', icon: Building2 },
+              { label: 'Find Vendors', href: '/planner/vendors/marketplace', hint: 'Service providers', icon: Store },
+              { label: 'View Analytics', href: '/planner/analytics', hint: 'Spend & ROI', icon: BarChart3 },
+              { label: 'Past Events', href: '/planner/experiences?filter=archived', hint: 'Review & rebook', icon: ClipboardList },
             ].map((a) => {
               const Icon = a.icon
               return (

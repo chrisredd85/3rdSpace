@@ -2,97 +2,69 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import {
   Sparkles,
-  Calendar,
   Building2,
-  Users,
-  Wallet,
-  MessageSquare,
+  Store,
+  Zap,
+  ShieldCheck,
+  BarChart3,
   ArrowRight,
-  Ticket,
-  Music2,
 } from 'lucide-react'
+import { HomePlannerStart } from '@/components/planner/HomePlannerStart'
 import { Button } from '@/components/ui/button'
+import {
+  FloatingStartChip,
+  StartPlanningButton,
+} from '@/components/landing/StartPlanningActions'
 
 export const metadata: Metadata = {
   title: '3rdPlace - Event Profitability Optimization',
   description:
-    "3rdPlace is the Bay Area's leading event profitability optimization engine for planning, booking, vendor coordination, and automated kickbacks.",
+    "3rdPlace is the Bay Area's leading event profitability engine.",
   openGraph: {
     title: '3rdPlace - Event Profitability Optimization',
     description:
-      "3rdPlace helps event creators book venues and vendors, automate kickbacks, and understand profitability before the doors open.",
+      "3rdPlace helps event creators book venues and vendors, coordinate partners, and understand profitability before the doors open.",
   },
 }
 
-const roles = [
+const personas = [
   {
-    key: 'creator',
-    title: 'Event Creators',
-    icon: Ticket,
-    pitch:
-      'Plan events, invite collaborators, book venues + vendors, and watch ticket revenue vs costs in real time.',
-    accent: 'from-primary to-primary-glow',
-    cta: 'I plan events',
-    href: '/signup/builder',
+    title: 'Dinner series hosts',
+    body: 'Intimate founder dinners, supper clubs, tasting events',
   },
   {
-    key: 'venue',
-    title: 'Venues & Bars',
-    icon: Building2,
-    pitch:
-      'Show off your space, set house rules and kickback rates, and manage one calendar that prevents double-bookings.',
-    accent: 'from-secondary to-primary',
-    cta: 'I run a venue',
-    href: '/signup/venue',
+    title: 'Pop-up producers',
+    body: 'Markets, art shows, brand activations, seasonal events',
   },
   {
-    key: 'vendor',
-    title: 'Vendors',
-    icon: Music2,
-    pitch:
-      'List your services, set your rates and deposit terms, and opt in to emergency last-minute gigs.',
-    accent: 'from-accent to-secondary',
-    cta: "I'm a vendor",
-    href: '/signup/vendor',
+    title: 'Community builders',
+    body: 'Networking events, meetups, rooftop socials, mixers',
   },
 ]
 
 const features = [
   {
-    icon: Calendar,
-    title: 'Event Workspace',
-    desc: 'Every booking, message, doc, and milestone — one screen per event.',
+    icon: Zap,
+    title: 'Agent-first planning',
+    body: 'Describe your event in plain language. The agent builds the plan, sources venues, and coordinates vendors automatically.',
   },
   {
-    icon: Building2,
-    title: 'Venue Marketplace',
-    desc: 'Filter by date, capacity, amenities, and book in a few taps.',
+    icon: ShieldCheck,
+    title: 'Approval-gated spending',
+    body: 'Nothing gets booked without your say. Review holds, deposits, and contracts before any money moves.',
   },
   {
-    icon: Users,
-    title: 'Vendor Network',
-    desc: 'DJs, caterers, photo, AV, florals — pick a package, send the request.',
-  },
-  {
-    icon: Wallet,
-    title: 'Live Finances',
-    desc: 'Projected revenue, deposits due, kickbacks, and real profit/loss.',
-  },
-  {
-    icon: MessageSquare,
-    title: 'Event-Threaded Chat',
-    desc: 'Conversations stay attached to the event they belong to.',
-  },
-  {
-    icon: Sparkles,
-    title: 'Status That Updates Itself',
-    desc: 'Requested → quoted → confirmed. Everyone sees the same truth.',
+    icon: BarChart3,
+    title: 'Profitability tracking',
+    body: 'Real-time budget tracking, ticket revenue projections, and post-event P&L — built for operators who need to make money.',
   },
 ]
 
 export default function HomePage() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-background">
+      <FloatingStartChip />
+
       {/* Nav */}
       <nav className="absolute inset-x-0 top-0 z-50 flex items-center justify-between px-6 py-5 lg:px-12">
         <Link href="/" className="flex items-center gap-2">
@@ -102,126 +74,96 @@ export default function HomePage() {
           <span className="font-display text-xl font-bold tracking-tight">3rdPlace</span>
         </Link>
         <div className="hidden items-center gap-8 text-sm md:flex">
-          <a href="#roles" className="text-muted-foreground transition-smooth hover:text-foreground">
+          <a href="#who" className="text-muted-foreground transition-smooth hover:text-foreground">
             Who it&apos;s for
           </a>
           <a href="#features" className="text-muted-foreground transition-smooth hover:text-foreground">
             Features
           </a>
         </div>
-        <div />
+        <div className="hidden md:flex items-center gap-2">
+          <Button variant="glass" size="sm" asChild>
+            <Link href="/signup/venue">
+              <Building2 className="h-4 w-4" />
+              List your venue
+            </Link>
+          </Button>
+          <Button variant="glass" size="sm" asChild>
+            <Link href="/signup/vendor">
+              <Store className="h-4 w-4" />
+              List as vendor
+            </Link>
+          </Button>
+          <Link
+            href="/login"
+            className="ml-2 text-xs font-medium text-muted-foreground transition-smooth hover:text-foreground"
+          >
+            Sign in
+          </Link>
+        </div>
       </nav>
 
       {/* Hero */}
       <section className="relative pb-20 pt-32 lg:pb-28 lg:pt-40">
         <div className="absolute inset-0 bg-gradient-mesh" />
         <div className="container relative mx-auto max-w-7xl px-6 lg:px-12">
-          <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
-            <div className="max-w-xl">
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+          <div className="grid gap-14 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-bold uppercase tracking-widest text-primary">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
                 Bay Area event profitability engine
               </div>
-              <h1 className="mt-6 font-display text-5xl font-bold leading-[0.95] tracking-tight md:text-6xl lg:text-7xl">
+              <h1 className="mt-8 font-display text-5xl font-bold leading-[1.0] tracking-tight md:text-6xl lg:text-7xl">
                 3rdPlace is the{' '}
-                <span className="text-gradient-brand">Bay Area&apos;s leading</span>
-                <br />
+                <span className="text-gradient-brand">Bay Area&apos;s leading</span>{' '}
                 event profitability engine.
               </h1>
-              <p className="mt-6 text-lg text-muted-foreground">
-                Plan events, book venues and vendors, automate kickbacks, and understand the money
-                before the doors open. Pick your side to get started.
+              <p className="mt-8 max-w-xl text-lg text-muted-foreground">
+                Describe the event first. The agent builds the plan, recommends venues and vendors,
+                and asks you to sign in only when you save, book, pay, or export.
               </p>
-              <div className="mt-8 flex flex-wrap items-center gap-3">
-                <Button variant="hero" size="xl" asChild>
-                  <a href="#roles">
-                    Get Started <ArrowRight className="h-4 w-4" />
-                  </a>
-                </Button>
-                <Button variant="glass" size="xl" asChild>
-                  <Link href="/login">Sign in</Link>
-                </Button>
-              </div>
-              <div className="mt-10 flex items-center gap-6 text-sm text-muted-foreground">
-                <div>
-                  <span className="font-display text-2xl text-foreground">2.4k+</span>
-                  <div className="text-xs">events planned</div>
-                </div>
-                <div className="h-8 w-px bg-border" />
-                <div>
-                  <span className="font-display text-2xl text-foreground">480</span>
-                  <div className="text-xs">venues</div>
-                </div>
-                <div className="h-8 w-px bg-border" />
-                <div>
-                  <span className="font-display text-2xl text-foreground">1.2k</span>
-                  <div className="text-xs">vendors</div>
-                </div>
-              </div>
             </div>
 
-            {/* Hero visual — gradient placeholder */}
-            <div className="relative">
-              <div className="absolute -inset-8 bg-gradient-brand opacity-30 blur-3xl" />
-              <div className="relative flex h-80 items-center justify-center overflow-hidden rounded-3xl border border-border bg-gradient-card shadow-glow lg:h-96">
-                <div className="absolute inset-0 bg-gradient-mesh opacity-60" />
-                <div className="relative text-center">
-                  <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-brand shadow-glow">
-                    <Sparkles className="h-10 w-10 text-primary-foreground" />
-                  </div>
-                  <p className="font-display text-2xl font-bold">3rdPlace</p>
-                  <p className="mt-1 text-sm text-muted-foreground">Profitability command center</p>
-                </div>
-              </div>
-              <div className="absolute -bottom-6 -left-6 hidden rounded-2xl border border-border bg-card/90 p-4 shadow-card backdrop-blur-xl md:block">
-                <p className="text-xs text-muted-foreground">Projected profit</p>
-                <p className="font-display text-2xl font-bold text-green-400">+$6,200</p>
-              </div>
-              <div className="absolute -right-4 top-12 hidden rounded-2xl border border-border bg-card/90 p-4 shadow-card backdrop-blur-xl lg:block">
-                <p className="text-xs text-muted-foreground">Venue confirmed</p>
-                <p className="font-display text-base font-semibold">The Foundry Loft</p>
+            {/* Live chat composer (the hero's primary action) */}
+            <div id="hero-chat" className="relative scroll-mt-24">
+              <div className="absolute -inset-8 bg-gradient-brand opacity-25 blur-3xl" />
+              <div className="relative">
+                <span className="absolute -top-3 left-6 z-10 inline-flex items-center gap-1.5 rounded-full bg-gradient-brand px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-primary-foreground shadow-glow">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+                  Try it now — free
+                </span>
+                <HomePlannerStart />
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Roles */}
-      <section id="roles" className="py-20 lg:py-28">
-        <div className="container mx-auto max-w-7xl px-6 lg:px-12">
-          <div className="mb-14 text-center">
-            <p className="text-sm font-semibold uppercase tracking-widest text-secondary">
-              Three roles. Three different sign-ups.
+      {/* Who it's for */}
+      <section id="who" className="py-20 lg:py-28">
+        <div className="container mx-auto max-w-6xl px-6 lg:px-12">
+          <div className="text-center">
+            <p className="text-sm font-bold uppercase tracking-widest text-primary">
+              Who it&apos;s for
             </p>
             <h2 className="mt-3 font-display text-4xl font-bold lg:text-5xl">
-              Which side are you on?
+              Small-scale professional event organizers
             </h2>
-            <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
-              Each role has its own onboarding because each role needs different info. Pick yours
-              below.
+            <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
+              If you run 5–50 events a year and care about margins, 3rdPlace is your operating
+              system. We handle the sourcing, logistics, and vendor coordination — you focus on
+              curation and community.
             </p>
           </div>
-          <div className="grid gap-6 md:grid-cols-3">
-            {roles.map((r) => (
-              <Link
-                key={r.key}
-                href={r.href}
-                className="group relative flex min-h-[300px] flex-col overflow-hidden rounded-3xl border border-border bg-gradient-card p-7 shadow-card transition-smooth hover:-translate-y-1 hover:border-primary/40 hover:shadow-glow md:min-h-[360px]"
+          <div className="mt-14 grid gap-6 md:grid-cols-3">
+            {personas.map((p) => (
+              <div
+                key={p.title}
+                className="rounded-2xl border border-border bg-card/50 px-6 py-8 text-center transition-smooth hover:border-primary/40 hover:bg-card/70"
               >
-                <div
-                  className={`absolute -right-10 -top-10 h-32 w-32 rounded-full bg-gradient-to-br ${r.accent} opacity-25 blur-2xl transition-smooth group-hover:opacity-50`}
-                />
-                <div className="relative flex flex-1 flex-col">
-                  <div className="mb-8 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-brand shadow-glow">
-                    <r.icon className="h-7 w-7 text-primary-foreground" />
-                  </div>
-                  <h3 className="font-display text-2xl font-bold md:text-3xl">{r.title}</h3>
-                  <p className="mt-5 max-w-sm text-lg leading-relaxed text-muted-foreground">{r.pitch}</p>
-                  <div className="mt-auto pt-8 text-base font-semibold text-primary">
-                    {r.cta} <ArrowRight className="ml-2 inline h-5 w-5 transition-smooth group-hover:translate-x-1" />
-                  </div>
-                </div>
-              </Link>
+                <p className="font-display text-xl font-bold text-foreground">{p.title}</p>
+                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{p.body}</p>
+              </div>
             ))}
           </div>
         </div>
@@ -229,26 +171,26 @@ export default function HomePage() {
 
       {/* Features */}
       <section id="features" className="py-20 lg:py-28">
-        <div className="container mx-auto max-w-7xl px-6 lg:px-12">
-          <div className="mb-14 max-w-2xl">
-            <p className="text-sm font-semibold uppercase tracking-widest text-accent">
-              What&apos;s inside
+        <div className="container mx-auto max-w-6xl px-6 lg:px-12">
+          <div className="text-center">
+            <p className="text-sm font-bold uppercase tracking-widest text-primary">
+              Features
             </p>
             <h2 className="mt-3 font-display text-4xl font-bold lg:text-5xl">
-              The shared operating layer for event planning.
+              Built for profitable events
             </h2>
           </div>
-          <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-14 grid gap-6 md:grid-cols-3">
             {features.map((f) => (
               <div
                 key={f.title}
-                className="rounded-2xl border border-border bg-card/40 p-6 transition-smooth hover:border-primary/50 hover:bg-card"
+                className="rounded-2xl border border-border bg-card/50 p-7 transition-smooth hover:border-primary/40 hover:bg-card/70"
               >
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
-                  <f.icon className="h-5 w-5 text-primary-foreground" />
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-brand shadow-glow">
+                  <f.icon className="h-6 w-6 text-primary-foreground" />
                 </div>
-                <h3 className="mt-4 font-display text-lg font-semibold">{f.title}</h3>
-                <p className="mt-2 text-sm text-muted-foreground">{f.desc}</p>
+                <h3 className="mt-6 font-display text-xl font-bold text-foreground">{f.title}</h3>
+                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
               </div>
             ))}
           </div>
@@ -256,30 +198,22 @@ export default function HomePage() {
       </section>
 
       {/* CTA */}
-      <section className="pb-24">
-        <div className="container mx-auto max-w-7xl px-6 lg:px-12">
-          <div className="relative overflow-hidden rounded-3xl border border-border bg-gradient-card p-10 text-center md:p-16">
-            <div className="absolute inset-0 bg-gradient-brand opacity-20" />
-            <div className="relative">
-              <h2 className="font-display text-4xl font-bold lg:text-5xl">
-                Your next event, fully booked.
-              </h2>
-              <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
-                Stop juggling DMs, spreadsheets, and three different calendars. Pick your role and
-                join 3rdPlace.
-              </p>
-              <Button variant="hero" size="xl" className="mt-8" asChild>
-                <a href="#roles">
-                  Choose your role <ArrowRight className="h-4 w-4" />
-                </a>
-              </Button>
-            </div>
-          </div>
+      <section className="pb-24 pt-12">
+        <div className="container mx-auto max-w-4xl px-6 lg:px-12 text-center">
+          <h2 className="font-display text-4xl font-bold lg:text-5xl">
+            Ready to plan profitably?
+          </h2>
+          <p className="mx-auto mt-5 max-w-xl text-lg text-muted-foreground">
+            No sign-up required. Describe your event and see what the agent builds.
+          </p>
+          <StartPlanningButton className="mt-10">
+            Start your first event <ArrowRight className="h-4 w-4" />
+          </StartPlanningButton>
         </div>
       </section>
 
       <footer className="border-t border-border py-8 text-center text-sm text-muted-foreground">
-        © 2026 3rdPlace. Event profitability optimization for live events.
+        © 2026 3rdPlace. Agent-first event planning for the Bay Area.
       </footer>
     </div>
   )

@@ -12,7 +12,6 @@ import { Input } from '@/components/ui/input'
 import { loginSchema, type LoginInput } from '@/lib/validations/auth'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/toast'
-import { cn } from '@/lib/utils'
 import { userKeys } from '@/lib/hooks/useUser'
 import type { UserType } from '@/lib/types'
 
@@ -162,7 +161,7 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
               <Sparkles className="h-5 w-5 text-primary-foreground" />
             </div>
-            <span className="font-display text-xl font-bold tracking-tight">3rdSpace</span>
+            <span className="font-display text-xl font-bold tracking-tight">3rdPlace</span>
           </Link>
         </div>
 
@@ -248,33 +247,25 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
             </Button>
           </form>
 
-          {/* Portal switcher */}
-          <div className="mt-6">
-            <p className="mb-2.5 text-center text-xs text-muted-foreground">Wrong portal?</p>
-            <div className="grid grid-cols-3 gap-2 text-sm">
-              {(['builder', 'venue', 'vendor'] as PortalKey[]).map((p) => (
-                <Link
-                  key={p}
-                  href={`/login/${p}`}
-                  className={cn(
-                    'rounded-xl border px-3 py-2 text-center text-xs font-medium transition-smooth',
-                    portal === p
-                      ? 'border-primary/50 bg-primary/15 text-primary'
-                      : 'border-border bg-card/40 text-muted-foreground hover:border-primary/30 hover:text-foreground'
-                  )}
-                >
-                  {p === 'builder' ? 'Creator' : p.charAt(0).toUpperCase() + p.slice(1)}
-                </Link>
-              ))}
-            </div>
-          </div>
-
           <p className="mt-5 text-center text-sm text-muted-foreground">
-            No account?{' '}
+            Don&apos;t have an account?{' '}
             <Link href={signupHref} className="font-medium text-primary hover:underline">
-              Sign up
+              Start planning →
             </Link>
           </p>
+
+          {portal === 'builder' && (
+            <div className="mt-6 flex items-center justify-center gap-3 text-xs text-muted-foreground/60">
+              <Link href="/login/venue" className="hover:text-muted-foreground transition-smooth">Venue partner login</Link>
+              <span>·</span>
+              <Link href="/login/vendor" className="hover:text-muted-foreground transition-smooth">Vendor login</Link>
+            </div>
+          )}
+          {portal !== 'builder' && (
+            <div className="mt-6 text-center text-xs text-muted-foreground/60">
+              <Link href="/login/builder" className="hover:text-muted-foreground transition-smooth">← Back to Event Creator login</Link>
+            </div>
+          )}
         </div>
       </div>
     </div>

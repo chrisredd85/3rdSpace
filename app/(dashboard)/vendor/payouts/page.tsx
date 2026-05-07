@@ -244,7 +244,7 @@ export default function VendorPayoutsPage() {
             <div>
               <CardTitle>Stripe Connect</CardTitle>
               <CardDescription className="mt-2">
-                Connect a Stripe Express account so 3rdSpace can route vendor payments and payouts directly.
+                Connect a Stripe Express account so 3rdPlace can route vendor payments and payouts directly.
               </CardDescription>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">

@@ -58,8 +58,8 @@ export function DashboardClientWrapper({
 
     if (user?.userType) {
       setUserType(user.userType)
-      if (user.userType === 'community_builder' && !pathname.startsWith('/builder')) {
-        router.push('/builder')
+      if (user.userType === 'community_builder') {
+        router.push('/planner')
         return
       } else if (user.userType === 'venue_owner' && !pathname.startsWith('/venue')) {
         router.push('/venue')
@@ -69,8 +69,7 @@ export function DashboardClientWrapper({
         return
       }
     } else {
-      if (pathname.startsWith('/builder')) setUserType('community_builder')
-      else if (pathname.startsWith('/venue')) setUserType('venue_owner')
+      if (pathname.startsWith('/venue')) setUserType('venue_owner')
       else if (pathname.startsWith('/vendor')) setUserType('vendor')
     }
   }, [user, isUserLoading, isAuthenticated, pathname, router])
@@ -82,7 +81,7 @@ export function DashboardClientWrapper({
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-brand shadow-glow">
             <Sparkles className="h-7 w-7 animate-pulse text-primary-foreground" />
           </div>
-          <p className="font-display text-lg font-semibold text-foreground">3rdSpace</p>
+          <p className="font-display text-lg font-semibold text-foreground">3rdPlace</p>
           <p className="mt-1 text-sm text-muted-foreground">Loading your dashboard...</p>
         </div>
       </div>
@@ -90,6 +89,7 @@ export function DashboardClientWrapper({
   }
 
   if (!isAuthenticated) return null
+  if (userType === 'community_builder') return null
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">

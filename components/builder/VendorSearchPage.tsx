@@ -147,7 +147,7 @@ export function VendorSearchPage() {
   }, [addToast, savedIds, toggleSaved, user?.id])
 
   const handleViewVendor = useCallback((vendor: VendorDiscoveryResult) => {
-    window.location.href = `/builder/vendors/${vendor.id}`
+    window.location.href = `/planner/vendors/${vendor.id}`
   }, [])
 
   const handleBookVendor = useCallback((vendor: VendorDiscoveryResult) => {

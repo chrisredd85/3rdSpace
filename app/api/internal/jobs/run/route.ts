@@ -3,9 +3,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getWorkerOrAdminContext } from '@/lib/server/admin-auth'
 import { claimJobs, completeJob, failJob, type AppJob } from '@/lib/server/job-queue'
+import { runOpportunityInviteJob } from '@/lib/server/opportunity-email-worker'
 import { runEventbriteImport } from '@/lib/server/eventbrite-import'
 import {
   processLumaWebhook,
+  processPartifulWebhook,
   processPoshWebhook,
   recordWebhookDelivery,
   resolveIntegrationContext,
@@ -90,6 +92,45 @@ async function processLumaWebhookJob(admin: ReturnType<typeof createServiceRoleC
   return result
 }
 
+async function processPartifulWebhookJob(admin: ReturnType<typeof createServiceRoleClient>, job: AppJob) {
+  const payload = job.payload.payload as Record<string, any>
+  const headers = headersFromPayload(job.payload.headers)
+  const searchParams = searchParamsFromPayload(job.payload.searchParams)
+  const context = await resolveIntegrationContext(admin, 'partiful', payload, searchParams)
+  const configuredSecret =
+    typeof context.config?.webhook_secret === 'string'
+      ? context.config.webhook_secret
+      : process.env.PARTIFUL_WEBHOOK_SECRET
+
+  if (
+    configuredSecret &&
+    !verifyPoshSecret(
+      configuredSecret,
+      headers.get('partiful-secret') ?? headers.get('x-partiful-secret')
+    )
+  ) {
+    await recordWebhookDelivery(admin, 'partiful', payload, headers, context, 'Invalid Partiful webhook secret')
+    return {
+      processed: false,
+      ignored: true,
+      reason: 'invalid_secret',
+      integrationId: context.integrationId,
+      eventId: context.eventId,
+    }
+  }
+
+  const result = await processPartifulWebhook(admin, payload, context, headers.get('webhook-id'))
+  await recordWebhookDelivery(
+    admin,
+    'partiful',
+    payload,
+    headers,
+    context,
+    result.processed ? null : result.skippedReason
+  )
+  return result
+}
+
 async function processJob(admin: ReturnType<typeof createServiceRoleClient>, job: AppJob) {
   if (job.job_type === 'eventbrite.import') {
     const integrationId = job.payload.integrationId
@@ -103,6 +144,21 @@ async function processJob(admin: ReturnType<typeof createServiceRoleClient>, job
 
   if (job.job_type === 'webhook.luma') {
     return processLumaWebhookJob(admin, job)
+  }
+
+  if (job.job_type === 'webhook.partiful') {
+    return processPartifulWebhookJob(admin, job)
+  }
+
+  if (
+    job.job_type === 'opportunity_send_venue_invite' ||
+    job.job_type === 'opportunity_remind_venue_invite' ||
+    job.job_type === 'opportunity_expire_venue_invite' ||
+    job.job_type === 'opportunity_send_vendor_invite' ||
+    job.job_type === 'opportunity_remind_vendor_invite' ||
+    job.job_type === 'opportunity_expire_vendor_invite'
+  ) {
+    return runOpportunityInviteJob(admin, job)
   }
 
   throw new Error(`Unsupported job type: ${job.job_type}`)

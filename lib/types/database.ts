@@ -49,7 +49,7 @@ export interface Profile {
  */
 export interface Venue {
   id: string
-  owner_id: string
+  owner_id: string | null
   name: string
   description: string | null
   venue_type: VenueType
@@ -77,6 +77,10 @@ export interface Venue {
   auto_approve_conditions?: Json | null
   unique_features?: string | null
   unique_features_tags?: string[] | null
+  contact_email: string | null
+  is_claimed: boolean
+  claimed_user_id: string | null
+  is_admin_seeded: boolean
   requires_deposit?: boolean | null
   deposit_amount?: number | null
   deposit_type?: DepositType | null
@@ -164,7 +168,7 @@ export interface VenueRule {
  */
 export interface Vendor {
   id: string
-  owner_id: string
+  owner_id: string | null
   name: string
   description: string | null
   service_type: ServiceType
@@ -183,6 +187,10 @@ export interface Vendor {
   base_rate?: number | null
   per_person_rate?: number | null
   per_head_kickback?: number | null
+  contact_email: string | null
+  is_claimed: boolean
+  claimed_user_id: string | null
+  is_admin_seeded: boolean
   requires_deposit?: boolean | null
   deposit_amount?: number | null
   deposit_type?: DepositType | null

@@ -7,7 +7,7 @@ import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 /**
  * Verifies that the authenticated user owns the requested event.
  *
- * @param eventId - Internal 3rdSpace event id.
+ * @param eventId - Internal 3rdPlace event id.
  * @returns HTTP response on failure, otherwise null.
  */
 async function verifyBuilderEventAccess(eventId: string) {

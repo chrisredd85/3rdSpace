@@ -4,7 +4,7 @@ export const metadata: Metadata = {
   title: 'Vendor Dashboard',
   description: 'Manage your service listings, booking requests, calendar, and pricing packages.',
   openGraph: {
-    title: 'Vendor Dashboard | 3rdSpace',
+    title: 'Vendor Dashboard | 3rdPlace',
     description: 'Manage your service listings, booking requests, calendar, and pricing packages.',
   },
 }

@@ -101,13 +101,13 @@ export default function MessagesPage() {
 
   const getContextLink = (thread: MessageThread) => {
     if (thread.venue_booking_id) {
-      return `/builder/events?booking=${thread.venue_booking_id}`
+      return userType === 'builder' ? `/planner/experiences?booking=${thread.venue_booking_id}` : `/${userType}/bookings`
     }
     if (thread.vendor_booking_id) {
-      return `/builder/events?booking=${thread.vendor_booking_id}`
+      return userType === 'builder' ? `/planner/experiences?booking=${thread.vendor_booking_id}` : `/${userType}/bookings`
     }
     if (thread.event_id) {
-      return `/builder/event/${thread.event_id}`
+      return userType === 'builder' ? '/planner/experiences' : `/${userType}/bookings`
     }
     return null
   }
@@ -495,8 +495,8 @@ function MessageView({
               onClick={() => {
                 // Navigate to profile
                 const profilePath = userType === 'builder'
-                  ? `/builder/vendors/${thread.other_participant?.id}`
-                  : `/builder/venues/${thread.other_participant?.id}`
+                  ? `/planner/vendors/${thread.other_participant?.id}`
+                  : `/${userType}/bookings`
                 router.push(profilePath)
               }}
             >

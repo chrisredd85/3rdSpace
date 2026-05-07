@@ -280,7 +280,7 @@ export function EventbriteImportPanel({
   }
 
   /**
-   * Links the current 3rdSpace event to the selected Eventbrite event.
+   * Links the current 3rdPlace event to the selected Eventbrite event.
    */
   const handleLink = async () => {
     if (!integration?.id || !selectedEventbriteEventId) return

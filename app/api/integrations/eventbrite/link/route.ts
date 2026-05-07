@@ -14,7 +14,7 @@ interface LinkRequestBody {
 }
 
 /**
- * Links a 3rdSpace event to a specific Eventbrite event.
+ * Links a 3rdPlace event to a specific Eventbrite event.
  *
  * @route POST /api/integrations/eventbrite/link
  * @auth Required - Event creator only

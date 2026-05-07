@@ -55,7 +55,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const invoiceUrl = `${baseUrl}/api/vendor/invoices/${context.invoice.id}/pdf`
     const result = await sendInvoiceEmail({
       to,
-      subject: `${context.invoice.invoice_number} from ${context.vendor.name || '3rdSpace vendor'}`,
+      subject: `${context.invoice.invoice_number} from ${context.vendor.name || '3rdPlace vendor'}`,
       html: buildInvoiceEmailHtml(context, invoiceUrl),
       attachment: {
         filename: `${context.invoice.invoice_number}.pdf`,

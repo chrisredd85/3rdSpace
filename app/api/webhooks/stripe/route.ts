@@ -15,6 +15,10 @@ import {
   applyInvoicePayment,
   syncBuilderSubscription,
 } from '@/lib/billing/builder-billing'
+import {
+  applyPlannerStripePaymentIntentWebhook,
+  applyPlannerStripeRefundWebhook,
+} from '@/lib/planner/depositPayments'
 
 export const runtime = 'nodejs'
 
@@ -38,6 +42,12 @@ function getChargeFromPaymentIntent(paymentIntent: Stripe.PaymentIntent) {
     transferId: typeof (charge as any).transfer === 'string' ? (charge as any).transfer : (charge as any).transfer?.id ?? null,
     receiptUrl: charge.receipt_url ?? null,
   }
+}
+
+function getPaymentIntentIdFromCharge(charge: Stripe.Charge) {
+  const paymentIntent = charge.payment_intent
+  if (!paymentIntent) return null
+  return typeof paymentIntent === 'string' ? paymentIntent : paymentIntent.id
 }
 
 async function applyKickbackCheckoutSessionCompleted(admin: any, session: Stripe.Checkout.Session) {
@@ -252,7 +262,20 @@ export async function POST(request: NextRequest) {
     }
 
     if (event.type === 'payment_intent.succeeded' || event.type === 'payment_intent.payment_failed') {
-      await applyKickbackPaymentIntent(admin as any, event.data.object as Stripe.PaymentIntent)
+      const handledPlannerDeposit = await applyPlannerStripePaymentIntentWebhook(
+        admin as any,
+        event.data.object as Stripe.PaymentIntent
+      )
+      if (!handledPlannerDeposit) {
+        await applyKickbackPaymentIntent(admin as any, event.data.object as Stripe.PaymentIntent)
+      }
+    }
+
+    if (event.type === 'charge.refunded') {
+      await applyPlannerStripeRefundWebhook(
+        admin as any,
+        getPaymentIntentIdFromCharge(event.data.object as Stripe.Charge)
+      )
     }
 
     if (event.type === 'transfer.created' || event.type === 'transfer.updated') {

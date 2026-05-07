@@ -3,28 +3,29 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 import { encryptSecret } from '@/lib/server/token-crypto'
+import { tryUpsertProviderConnection } from '@/lib/server/provider-connections'
 
 type SetupWebhookBody = {
   eventId?: string
-  platform?: 'posh' | 'luma'
+  platform?: 'posh' | 'luma' | 'partiful'
   externalEventId?: string
   webhookSecret?: string
 }
 
-function buildWebhookUrl(origin: string, platform: 'posh' | 'luma', integrationId: string) {
+function buildWebhookUrl(origin: string, platform: 'posh' | 'luma' | 'partiful', integrationId: string) {
   const url = new URL(`/api/webhooks/${platform}`, origin)
   url.searchParams.set('integrationId', integrationId)
   return url.toString()
 }
 
-function buildAccountWebhookUrl(origin: string, platform: 'posh' | 'luma', connectionId: string) {
+function buildAccountWebhookUrl(origin: string, platform: 'posh' | 'luma' | 'partiful', connectionId: string) {
   const url = new URL(`/api/webhooks/${platform}`, origin)
   url.searchParams.set('builderConnectionId', connectionId)
   return url.toString()
 }
 
 /**
- * Creates or updates a webhook-based Posh/Luma integration for an event.
+ * Creates or updates a webhook-based Posh/Luma/Partiful integration for an event.
  *
  * @route POST /api/integrations/webhooks/setup
  * @auth Required - Event creator only
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing platform' }, { status: 400 })
     }
 
-    if (!['posh', 'luma'].includes(body.platform)) {
+    if (!['posh', 'luma', 'partiful'].includes(body.platform)) {
       return NextResponse.json({ error: 'Unsupported webhook platform' }, { status: 400 })
     }
 
@@ -104,6 +105,22 @@ export async function POST(request: NextRequest) {
         console.error('[webhooks.setup] Failed to save account-level webhook URL', updateConnectionError)
         return NextResponse.json({ error: 'Failed to save webhook URL' }, { status: 500 })
       }
+
+      await tryUpsertProviderConnection(supabase, {
+        userId: user.id,
+        builderId: builderProfileId,
+        provider: body.platform,
+        status: 'setup_required',
+        encryptedCredentials: encryptedWebhookSecret ? { webhook_secret: encryptedWebhookSecret } : {},
+        externalAccountId: body.externalEventId || null,
+        webhookUrl,
+        config: {
+          account_level_webhook: true,
+          has_webhook_secret: Boolean(encryptedWebhookSecret),
+          configured_by: user.id,
+          configured_at: new Date().toISOString(),
+        },
+      })
 
       return NextResponse.json({
         success: true,
@@ -207,6 +224,21 @@ export async function POST(request: NextRequest) {
     if (webhookUrlError) {
       console.error('[webhooks.setup] Failed to save webhook URL', webhookUrlError)
     }
+
+    await tryUpsertProviderConnection(supabase, {
+      userId: user.id,
+      builderId: builderProfileId,
+      provider: body.platform,
+      status: 'connected',
+      encryptedCredentials: config.webhook_secret ? { webhook_secret: config.webhook_secret } : {},
+      externalAccountId: body.externalEventId || null,
+      webhookUrl,
+      config: {
+        ...config,
+        event_id: body.eventId,
+        integration_id: integrationId,
+      },
+    })
 
     return NextResponse.json({
       success: true,

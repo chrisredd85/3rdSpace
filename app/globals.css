@@ -17,12 +17,12 @@
     --muted: 250 22% 15%;
     --muted-foreground: 250 12% 65%;
 
-    --primary: 280 90% 62%;
-    --primary-foreground: 250 20% 98%;
-    --primary-glow: 290 100% 72%;
+    --primary: 20 88% 55%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 36 95% 63%;
 
-    --secondary: 12 95% 60%;
-    --secondary-foreground: 250 20% 98%;
+    --secondary: 15 85% 50%;
+    --secondary-foreground: 0 0% 100%;
 
     --accent: 80 90% 60%;
     --accent-foreground: 250 30% 8%;
@@ -35,28 +35,28 @@
 
     --border: 250 20% 18%;
     --input: 250 22% 16%;
-    --ring: 280 90% 62%;
+    --ring: 20 88% 55%;
     --radius: 1rem;
 
-    --gradient-brand: linear-gradient(135deg, hsl(280 90% 62%) 0%, hsl(330 95% 60%) 50%, hsl(12 95% 60%) 100%);
-    --gradient-glow: radial-gradient(circle at 30% 20%, hsl(280 90% 62% / 0.35), transparent 60%),
-                     radial-gradient(circle at 80% 80%, hsl(12 95% 60% / 0.3), transparent 55%);
+    --gradient-brand: linear-gradient(135deg, hsl(15 85% 50%) 0%, hsl(30 95% 60%) 100%);
+    --gradient-glow: radial-gradient(circle at 30% 20%, hsl(20 88% 55% / 0.28), transparent 60%),
+                     radial-gradient(circle at 80% 80%, hsl(15 85% 50% / 0.22), transparent 55%);
     --gradient-card: linear-gradient(160deg, hsl(250 28% 12%) 0%, hsl(260 30% 9%) 100%);
-    --gradient-mesh: linear-gradient(135deg, hsl(280 90% 62% / 0.15), hsl(80 90% 60% / 0.08));
+    --gradient-mesh: linear-gradient(135deg, hsl(20 88% 55% / 0.12), hsl(36 95% 63% / 0.07));
 
-    --shadow-glow: 0 20px 60px -20px hsl(280 90% 62% / 0.55);
-    --shadow-coral: 0 20px 60px -20px hsl(12 95% 60% / 0.5);
+    --shadow-glow: 0 20px 60px -20px hsl(20 88% 55% / 0.55);
+    --shadow-coral: 0 20px 60px -20px hsl(15 85% 50% / 0.5);
     --shadow-card: 0 10px 40px -15px hsl(250 50% 2% / 0.6);
     --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
     --sidebar-background: 250 32% 6%;
     --sidebar-foreground: 250 18% 88%;
-    --sidebar-primary: 280 90% 62%;
+    --sidebar-primary: 20 88% 55%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 250 25% 12%;
     --sidebar-accent-foreground: 250 20% 96%;
     --sidebar-border: 250 22% 14%;
-    --sidebar-ring: 280 90% 62%;
+    --sidebar-ring: 20 88% 55%;
 
     --font-display: 'Space Grotesk', system-ui, sans-serif;
     --font-body: 'Inter', system-ui, sans-serif;
@@ -127,6 +127,16 @@
   }
   .font-display { font-family: var(--font-display); }
   .tabular-nums { font-feature-settings: 'tnum' 1; font-variant-numeric: tabular-nums; }
+  .planner-product-shell :where(h1, h2, h3, h4, p, span, a, button, label, input, textarea) {
+    min-width: 0;
+  }
+  .planner-product-shell :where(h1, h2, h3, h4) {
+    overflow-wrap: anywhere;
+    text-wrap: balance;
+  }
+  .planner-product-shell :where(p, a, label) {
+    overflow-wrap: anywhere;
+  }
   .text-success { color: hsl(var(--success)); }
   .text-warning { color: hsl(var(--warning)); }
   .text-info { color: hsl(var(--info)); }

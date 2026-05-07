@@ -321,7 +321,7 @@ function getFallbackLink(notification: NotificationItem, pathname: string) {
 
   if (metadata.thread_id) return `/${role}/messages`
   if (metadata.booking_id) return `/${role}/bookings`
-  if (metadata.event_id) return role === 'builder' ? `/builder/event/${metadata.event_id}` : `/${role}/bookings`
+  if (metadata.event_id) return role === 'builder' ? '/planner/experiences' : `/${role}/bookings`
   return null
 }
 

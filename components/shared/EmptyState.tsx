@@ -41,7 +41,7 @@ export interface EmptyStateProps {
  *   title="No events yet"
  *   description="Create your first event to get started"
  *   actionLabel="Create Event"
- *   onAction={() => router.push('/builder/event/new')}
+ *   onAction={() => router.push('/planner')}
  * />
  * ```
  */

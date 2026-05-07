@@ -182,7 +182,7 @@ export async function GET(request: NextRequest) {
         booking_id: review.vendor_booking_id,
         rating: review.rating,
         review_text: review.review_text,
-        reviewer_name: profile?.name || '3rdSpace builder',
+        reviewer_name: profile?.name || '3rdPlace builder',
         reviewer_photo_url: profile?.photo_url || null,
         vendor_response: review.vendor_response || review.response_text,
         response_date: review.response_date || review.responded_at,
@@ -297,6 +297,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Vendor not found' }, { status: 404 })
     }
 
+    const vendorRow = vendor as { user_id: string | null }
+    if (!vendorRow.user_id) {
+      return NextResponse.json({ error: 'Vendor profile has not been claimed yet' }, { status: 409 })
+    }
+
     const { data: existingReview, error: existingError } = await supabase
       .from('reviews')
       .select('id')
@@ -320,7 +325,7 @@ export async function POST(request: NextRequest) {
         vendor_id: bookingRow.vendor_id,
         builder_id: user.id,
         reviewer_id: user.id,
-        reviewee_id: (vendor as { user_id: string }).user_id,
+        reviewee_id: vendorRow.user_id,
         rating: parsedBody.data.rating,
         review_text: parsedBody.data.reviewText,
         event_type: 'vendor',

@@ -11,7 +11,7 @@ function getLoginPath(userType: UserType) {
 }
 
 function getDashboardPath(userType: UserType) {
-  if (userType === 'community_builder') return '/builder'
+  if (userType === 'community_builder') return '/planner'
   if (userType === 'venue_owner') return '/venue'
   return '/vendor'
 }

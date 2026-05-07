@@ -13,6 +13,40 @@ const MARKETPLACE_CACHE_HEADERS = {
   'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
 }
 
+const PUBLIC_VENDOR_DISCOVERY_SELECT_COLUMNS = `
+  id,
+  user_id,
+  name,
+  vendor_type,
+  service_type,
+  bio,
+  regions_served,
+  service_area,
+  availability_notes,
+  pricing_model,
+  hourly_rate,
+  base_rate,
+  per_person_rate,
+  per_head_kickback,
+  requires_deposit,
+  deposit_amount,
+  deposit_type,
+  deposit_percentage,
+  deposit_refundable,
+  deposit_terms,
+  is_published,
+  is_claimed,
+  claimed_user_id,
+  is_admin_seeded,
+  average_rating,
+  rating,
+  review_count,
+  total_bookings,
+  total_gigs,
+  created_at,
+  updated_at
+`
+
 /**
  * Gets featured vendors for marketplace entry points.
  *
@@ -31,7 +65,7 @@ export async function GET(request: NextRequest) {
 
     const { data: vendorRows, error: vendorError } = await supabase
       .from('vendor_profiles')
-      .select('*')
+      .select(PUBLIC_VENDOR_DISCOVERY_SELECT_COLUMNS)
       .eq('is_published', true)
       .order('average_rating', { ascending: false, nullsFirst: false })
       .order('total_bookings', { ascending: false, nullsFirst: false })
@@ -86,7 +120,7 @@ export async function GET(request: NextRequest) {
         buildVendorDiscoveryResult(vendor, servicesByVendor.get(vendor.id) || [])
       ),
       'rating'
-    )
+    ).map(stripContactEmail)
 
     return NextResponse.json(
       { vendors, count: vendors.length },
@@ -96,4 +130,10 @@ export async function GET(request: NextRequest) {
     console.error('[vendors.featured] Unexpected GET error', error)
     return NextResponse.json({ error: 'Failed to load featured vendors' }, { status: 500 })
   }
+}
+
+function stripContactEmail<T extends { contact_email?: unknown }>(item: T): Omit<T, 'contact_email'> {
+  const publicItem = { ...item }
+  delete publicItem.contact_email
+  return publicItem
 }

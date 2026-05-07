@@ -4,14 +4,27 @@
  * Responsibilities:
  *  1. Session refresh — keeps Supabase cookies alive on every request.
  *  2. Auth redirect — unauthenticated users hitting dashboard routes are sent to /login.
- *  3. Role guard — users are redirected to their own dashboard if they land on the
- *     wrong role prefix (e.g. a venue_owner hitting /builder goes to /venue).
+ *  3. Role guard — users are redirected to their own dashboard if they land on
+ *     the wrong role prefix.
  *
  * Public routes bypass all auth checks; API routes and static assets are skipped entirely.
  */
 import { type NextRequest, NextResponse } from 'next/server'
 import { protectRoute, getAuthUser } from '@/lib/supabase/middleware'
 import type { UserType } from '@/lib/types'
+
+function isAdminUser(user: { email?: string | null; app_metadata?: Record<string, unknown> | null }) {
+  const configuredAdmins = new Set(
+    (process.env.ADMIN_EMAILS || process.env.INTERNAL_ADMIN_EMAILS || '')
+      .split(',')
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean)
+  )
+  const email = user.email?.toLowerCase() ?? ''
+  const appMetadata = user.app_metadata ?? null
+
+  return configuredAdmins.has(email) || appMetadata?.role === 'admin' || appMetadata?.is_admin === true
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -31,14 +44,14 @@ export async function middleware(request: NextRequest) {
     if (user) {
       // Get user type and redirect to appropriate dashboard
       const userType = (user.user_metadata?.user_type as UserType) || null
-      let dashboardPath = '/builder' // Default
+      let dashboardPath = '/planner' // Default
 
       if (userType === 'venue_owner') {
         dashboardPath = '/venue'
       } else if (userType === 'vendor') {
         dashboardPath = '/vendor'
       } else if (userType === 'community_builder') {
-        dashboardPath = '/builder'
+        dashboardPath = '/planner'
       }
 
       const url = request.nextUrl.clone()
@@ -60,8 +73,30 @@ export async function middleware(request: NextRequest) {
     return result.response
   }
 
-  // Protect dashboard routes (builder, venue, vendor)
-  const dashboardRoutes = ['/builder', '/venue', '/vendor']
+  if (pathname.startsWith('/admin')) {
+    const result = await protectRoute(request)
+    if (result instanceof NextResponse) {
+      return result
+    }
+
+    if (!isAdminUser(result.user)) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/planner'
+      return NextResponse.redirect(url)
+    }
+
+    return result.response
+  }
+
+  // Public planner intake — creators can draft an event before account creation.
+  if (pathname === '/planner') {
+    const { response } = await getAuthUser(request)
+    return response
+  }
+
+  // Protect dashboard routes (venue, vendor, planner). Legacy /builder paths
+  // are handled by permanent redirects in next.config.js before route access.
+  const dashboardRoutes = ['/venue', '/vendor', '/planner']
   if (dashboardRoutes.some((route) => pathname.startsWith(route))) {
     const result = await protectRoute(request)
     if (result instanceof NextResponse) {
@@ -72,24 +107,10 @@ export async function middleware(request: NextRequest) {
     const { user } = result
     const userType = (user.user_metadata?.user_type as UserType) || null
 
-    // Check if user is accessing the correct dashboard
-    if (pathname.startsWith('/builder') && userType !== 'community_builder') {
-      // Redirect to correct dashboard
-      const url = request.nextUrl.clone()
-      if (userType === 'venue_owner') {
-        url.pathname = '/venue'
-      } else if (userType === 'vendor') {
-        url.pathname = '/vendor'
-      } else {
-        url.pathname = '/builder'
-      }
-      return NextResponse.redirect(url)
-    }
-
     if (pathname.startsWith('/venue') && userType !== 'venue_owner') {
       const url = request.nextUrl.clone()
       if (userType === 'community_builder') {
-        url.pathname = '/builder'
+        url.pathname = '/planner'
       } else if (userType === 'vendor') {
         url.pathname = '/vendor'
       } else {
@@ -101,11 +122,23 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith('/vendor') && userType !== 'vendor') {
       const url = request.nextUrl.clone()
       if (userType === 'community_builder') {
-        url.pathname = '/builder'
+        url.pathname = '/planner'
       } else if (userType === 'venue_owner') {
         url.pathname = '/venue'
       } else {
         url.pathname = '/vendor'
+      }
+      return NextResponse.redirect(url)
+    }
+
+    if (pathname.startsWith('/planner') && userType !== 'community_builder') {
+      const url = request.nextUrl.clone()
+      if (userType === 'venue_owner') {
+        url.pathname = '/venue'
+      } else if (userType === 'vendor') {
+        url.pathname = '/vendor'
+      } else {
+        url.pathname = '/login'
       }
       return NextResponse.redirect(url)
     }

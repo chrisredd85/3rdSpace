@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 import { encryptSecret } from '@/lib/server/token-crypto'
 import { getEventbriteErrorMessage } from '@/lib/server/eventbrite'
+import { tryUpsertProviderConnection } from '@/lib/server/provider-connections'
 
 type IntegrationRow = {
   id: string
@@ -17,10 +18,11 @@ type BuilderTicketingConnectionRow = {
 }
 
 /**
- * Builds the redirect URL back into the builder event flow with status context.
+ * Builds the redirect URL back into the planner event flow with status context.
  */
 function buildEventRedirect(request: NextRequest, eventId: string, status: 'success' | 'error', message?: string) {
-  const url = new URL(`/builder/event/${eventId}`, request.url)
+  const url = new URL('/planner/experiences', request.url)
+  url.searchParams.set('event', eventId)
   url.searchParams.set('integration', 'eventbrite')
   url.searchParams.set('status', status)
   if (message) {
@@ -30,7 +32,7 @@ function buildEventRedirect(request: NextRequest, eventId: string, status: 'succ
 }
 
 function buildAccountRedirect(request: NextRequest, status: 'success' | 'error', message?: string) {
-  const url = new URL('/builder', request.url)
+  const url = new URL('/planner', request.url)
   url.searchParams.set('integration', 'eventbrite')
   url.searchParams.set('status', status)
   if (message) {
@@ -145,13 +147,16 @@ export async function GET(request: NextRequest) {
 
       const tokenData = await exchangeCodeForTokens(code)
       const typedConnection = accountConnection as BuilderTicketingConnectionRow
+      const encryptedAccessToken = encryptSecret(tokenData.access_token)
+      const encryptedRefreshToken = tokenData.refresh_token ? encryptSecret(tokenData.refresh_token) : null
+      const tokenExpiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
 
       const { error: updateConnectionError } = await supabase
         .from('builder_ticketing_connections')
         .update({
-          access_token_encrypted: encryptSecret(tokenData.access_token),
-          refresh_token_encrypted: tokenData.refresh_token ? encryptSecret(tokenData.refresh_token) : null,
-          token_expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+          access_token_encrypted: encryptedAccessToken,
+          refresh_token_encrypted: encryptedRefreshToken,
+          token_expires_at: tokenExpiresAt,
           status: 'connected',
           last_connected_at: new Date().toISOString(),
           last_error: null,
@@ -171,6 +176,23 @@ export async function GET(request: NextRequest) {
           buildAccountRedirect(request, 'error', 'We connected to Eventbrite but could not save the integration')
         )
       }
+
+      await tryUpsertProviderConnection(supabase, {
+        userId: user.id,
+        builderId: builderProfileId,
+        provider: 'eventbrite',
+        status: 'connected',
+        encryptedCredentials: {
+          access_token: encryptedAccessToken,
+          refresh_token: encryptedRefreshToken,
+          token_expires_at: tokenExpiresAt,
+        },
+        config: {
+          account_connection_id: typedConnection.id,
+          token_type: tokenData.token_type ?? 'Bearer',
+        },
+        lastConnectedAt: new Date().toISOString(),
+      })
 
       return NextResponse.redirect(buildAccountRedirect(request, 'success'))
     }
@@ -215,13 +237,16 @@ export async function GET(request: NextRequest) {
     }
 
     const tokenData = await exchangeCodeForTokens(code)
+    const encryptedAccessToken = encryptSecret(tokenData.access_token)
+    const encryptedRefreshToken = tokenData.refresh_token ? encryptSecret(tokenData.refresh_token) : null
+    const tokenExpiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
 
     const { error: updateError } = await supabase
       .from('external_event_integrations')
       .update({
-        access_token_encrypted: encryptSecret(tokenData.access_token),
-        refresh_token_encrypted: tokenData.refresh_token ? encryptSecret(tokenData.refresh_token) : null,
-        token_expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+        access_token_encrypted: encryptedAccessToken,
+        refresh_token_encrypted: encryptedRefreshToken,
+        token_expires_at: tokenExpiresAt,
         sync_status: 'connected',
         sync_error: null,
         last_sync_status: 'connected',
@@ -243,6 +268,24 @@ export async function GET(request: NextRequest) {
         buildEventRedirect(request, typedIntegration.event_id, 'error', 'We connected to Eventbrite but could not save the integration')
       )
     }
+
+    await tryUpsertProviderConnection(supabase, {
+      userId: user.id,
+      builderId: builderProfileId,
+      provider: 'eventbrite',
+      status: 'connected',
+      encryptedCredentials: {
+        access_token: encryptedAccessToken,
+        refresh_token: encryptedRefreshToken,
+        token_expires_at: tokenExpiresAt,
+      },
+      config: {
+        event_id: typedIntegration.event_id,
+        integration_id: typedIntegration.id,
+        token_type: tokenData.token_type ?? 'Bearer',
+      },
+      lastConnectedAt: new Date().toISOString(),
+    })
 
     return NextResponse.redirect(buildEventRedirect(request, typedIntegration.event_id, 'success'))
   } catch (error) {

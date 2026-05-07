@@ -169,7 +169,7 @@ export async function POST(request: NextRequest) {
       customer: customerId,
       payment_method: parsedBody.data.paymentMethodId,
       confirm: true,
-      description: '3rdSpace booking fee - Event booking',
+      description: '3rdPlace booking fee - Event booking',
       metadata: {
         booking_id: parsedBody.data.bookingId,
         builder_id: auth.builder.id,

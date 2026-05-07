@@ -83,7 +83,7 @@ async function notifyBuilders(supabase: ReturnType<typeof createClient>, booking
       notification_type: 'booking_confirmed',
       title: 'Venue booking confirmed',
       message: message || `Your booking request for ${booking.events?.event_name || 'your event'} has been approved.`,
-      link_url: `/builder/event/${booking.event_id}`,
+      link_url: '/planner/experiences',
     }))
 
   if (notifications.length === 0) return

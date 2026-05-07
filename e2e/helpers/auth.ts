@@ -6,6 +6,12 @@ type PersonaCredentials = {
   password: string
 }
 
+const expectedDashboardPath: Record<PersonaRole, string> = {
+  builder: '/planner',
+  venue: '/venue',
+  vendor: '/vendor',
+}
+
 export async function loginAsPersona(
   page: Page,
   role: PersonaRole,
@@ -15,5 +21,5 @@ export async function loginAsPersona(
   await page.getByLabel(/^email$/i).fill(credentials.email)
   await page.getByLabel(/^password$/i).fill(credentials.password)
   await page.getByRole('button', { name: /^sign in/i }).click()
-  await expect(page).toHaveURL(new RegExp(`/${role}`), { timeout: 15000 })
+  await expect(page).toHaveURL(new RegExp(expectedDashboardPath[role]), { timeout: 15000 })
 }

@@ -4,7 +4,17 @@ import { randomUUID } from 'crypto'
 
 type SupabaseAdminClient = any
 
-export type AppJobType = 'eventbrite.import' | 'webhook.posh' | 'webhook.luma'
+export type AppJobType =
+  | 'eventbrite.import'
+  | 'webhook.posh'
+  | 'webhook.luma'
+  | 'webhook.partiful'
+  | 'opportunity_send_venue_invite'
+  | 'opportunity_remind_venue_invite'
+  | 'opportunity_expire_venue_invite'
+  | 'opportunity_send_vendor_invite'
+  | 'opportunity_remind_vendor_invite'
+  | 'opportunity_expire_vendor_invite'
 
 export type AppJob = {
   id: string

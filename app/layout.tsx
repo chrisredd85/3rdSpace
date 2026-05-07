@@ -19,10 +19,10 @@ export const viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://3rdspace.com'),
   title: {
-    default: "3rdSpace - B2B Event Marketplace",
+    default: "3rdSpace · Agent Planner",
     template: "%s | 3rdSpace",
   },
-  description: "Bay Area's leading B2B event marketplace connecting community builders, venue owners, and vendors. Find venues, book vendors, and create unforgettable events.",
+  description: "An agent-like planning workspace for Bay Area event creators to shape plans, compare options, and coordinate bookings.",
   keywords: [
     "event marketplace",
     "venue booking",
@@ -46,21 +46,21 @@ export const metadata: Metadata = {
     locale: "en_US",
     url: process.env.NEXT_PUBLIC_SITE_URL || "https://3rdspace.com",
     siteName: "3rdSpace",
-    title: "3rdSpace - B2B Event Marketplace",
-    description: "Bay Area's leading B2B event marketplace connecting community builders, venue owners, and vendors.",
+    title: "3rdSpace · Agent Planner",
+    description: "An agent-like planning workspace for Bay Area event creators.",
     images: [
       {
         url: "/og-default.png",
         width: 1200,
         height: 630,
-        alt: "3rdSpace - B2B Event Marketplace",
+        alt: "3rdSpace · Agent Planner",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "3rdSpace - B2B Event Marketplace",
-    description: "Bay Area's leading B2B event marketplace connecting community builders, venue owners, and vendors.",
+    title: "3rdSpace · Agent Planner",
+    description: "An agent-like planning workspace for Bay Area event creators.",
     images: ["/og-default.png"],
     creator: "@3rdspace",
   },
@@ -96,7 +96,7 @@ export default function RootLayout({
     name: '3rdSpace',
     url: baseUrl,
     logo: `${baseUrl}/logo.png`,
-    description: "Bay Area's leading B2B event marketplace connecting community builders, venue owners, and vendors.",
+    description: "An agent-like planning workspace for Bay Area event creators.",
     contactPoint: {
       '@type': 'ContactPoint',
       contactType: 'Customer Service',

@@ -269,7 +269,7 @@ export function VendorMarketplace({ onClose }: VendorMarketplaceProps) {
                     onSave={() => handleToggleSaved(vendor.id, false)}
                     onViewProfile={() => {
                       // Navigate to vendor profile
-                      window.location.href = `/builder/vendors/${vendor.id}`
+                      window.location.href = `/planner/vendors/${vendor.id}`
                     }}
                   />
                 ))}

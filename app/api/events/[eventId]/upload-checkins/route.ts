@@ -52,7 +52,7 @@ function splitName(name: string) {
 /**
  * Verifies that the current authenticated user owns the event as its builder.
  *
- * @param eventId - Internal 3rdSpace event id.
+ * @param eventId - Internal 3rdPlace event id.
  * @returns Authenticated user and builder profile id, or an HTTP response on failure.
  */
 async function verifyBuilderEventAccess(eventId: string) {
@@ -114,7 +114,7 @@ async function parseCheckInCsv(file: File) {
  * Matching is primarily by email because Posh/Luma exports vary, but fallback
  * name matching is attempted when no email is present.
  *
- * @param eventId - Internal 3rdSpace event id.
+ * @param eventId - Internal 3rdPlace event id.
  * @param records - Parsed CSV records.
  * @returns Count of CSV rows matched to attendee updates.
  */
@@ -166,7 +166,7 @@ async function updateAttendeeCheckIns(eventId: string, records: CsvCheckInRow[])
 /**
  * Loads the post-upload attendance summary used for kickback reporting.
  *
- * @param eventId - Internal 3rdSpace event id.
+ * @param eventId - Internal 3rdPlace event id.
  * @returns Ticket count, checked-in count, no-shows, and show-up rate.
  */
 async function loadAttendanceSummary(eventId: string) {

@@ -3,6 +3,40 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { normalizeVendorProfile } from '@/lib/vendors/profile-adapter'
 
+const PUBLIC_VENDOR_SELECT_COLUMNS = `
+  id,
+  user_id,
+  name,
+  vendor_type,
+  service_type,
+  bio,
+  regions_served,
+  service_area,
+  availability_notes,
+  pricing_model,
+  hourly_rate,
+  base_rate,
+  per_person_rate,
+  per_head_kickback,
+  requires_deposit,
+  deposit_amount,
+  deposit_type,
+  deposit_percentage,
+  deposit_refundable,
+  deposit_terms,
+  is_published,
+  is_claimed,
+  claimed_user_id,
+  is_admin_seeded,
+  average_rating,
+  rating,
+  review_count,
+  total_bookings,
+  total_gigs,
+  created_at,
+  updated_at
+`
+
 /**
  * GET /api/vendors
  * 
@@ -35,7 +69,7 @@ export async function GET(request: NextRequest) {
     // Build query - fetch ALL published vendors (marketplace)
     let query = supabase
       .from('vendor_profiles')
-      .select('*')
+      .select(PUBLIC_VENDOR_SELECT_COLUMNS)
       .eq('is_published', true) // Only active vendors
       .order('created_at', { ascending: false })
 
@@ -61,7 +95,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter by price range if provided (would need to check vendor packages/offerings)
-    let filteredVendors = ((vendors || []) as Record<string, any>[]).map(normalizeVendorProfile)
+    let filteredVendors = ((vendors || []) as Record<string, any>[])
+      .map(normalizeVendorProfile)
+      .map(stripContactEmail)
     if (minPrice || maxPrice) {
       // Note: This is a simplified filter. In production, you'd check vendor packages/offerings
       // For now, we'll just return all vendors and let the client filter
@@ -84,4 +120,10 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+function stripContactEmail<T extends { contact_email?: unknown }>(item: T): Omit<T, 'contact_email'> {
+  const publicItem = { ...item }
+  delete publicItem.contact_email
+  return publicItem
 }

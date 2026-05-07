@@ -22,6 +22,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/components/ui/toast'
 import { TicketingSetupGuide } from '@/components/auth/TicketingSetupGuide'
+import { migratePlannerDraftToServer } from '@/lib/planner/migrateDraft'
 import type { ServiceType, UserType, VenueType } from '@/lib/types'
 
 // ─── Shared primitives ───────────────────────────────────────────────────────
@@ -59,7 +60,7 @@ function AuthShell({
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
             <Sparkles className="h-5 w-5 text-primary-foreground" />
           </div>
-          <span className="font-display text-xl font-bold tracking-tight">3rdSpace</span>
+          <span className="font-display text-xl font-bold tracking-tight">3rdPlace</span>
         </Link>
         <Link
           href="/"
@@ -158,13 +159,13 @@ function RoleSelector({ onSelect }: { onSelect: (role: UserType) => void }) {
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
             <Sparkles className="h-5 w-5 text-primary-foreground" />
           </div>
-          <span className="font-display text-xl font-bold tracking-tight">3rdSpace</span>
+          <span className="font-display text-xl font-bold tracking-tight">3rdPlace</span>
         </Link>
       </header>
 
       <main className="relative mx-auto w-full max-w-4xl px-6 pb-20 pt-10">
         <div className="mb-10 text-center">
-          <h1 className="font-display text-4xl font-bold md:text-5xl">Join 3rdSpace</h1>
+          <h1 className="font-display text-4xl font-bold md:text-5xl">Join 3rdPlace</h1>
           <p className="mt-3 text-lg text-muted-foreground">Choose your account type to get started</p>
         </div>
 
@@ -181,14 +182,14 @@ function RoleSelector({ onSelect }: { onSelect: (role: UserType) => void }) {
               type: 'venue_owner' as UserType,
               icon: <Building2 className="h-8 w-8" />,
               label: 'Venue Owner',
-              description: 'List your space, set your rates, and let creators find and book you.',
+              description: 'Get your space in front of SF Tech Week hosts, startup organizers, and community builders. Free to list.',
               accent: 'border-secondary/40 hover:border-secondary',
             },
             {
               type: 'vendor' as UserType,
               icon: <Store className="h-8 w-8" />,
               label: 'Vendor',
-              description: 'Offer your services, set packages, and get booked by event creators.',
+              description: 'Join a curated network of Bay Area caterers, AV crews, photographers, DJs, and more. Free to list.',
               accent: 'border-accent/40 hover:border-accent',
             },
           ].map((item) => (
@@ -236,68 +237,27 @@ const ticketPlatformIds: Record<string, 'eventbrite' | 'posh' | 'luma'> = {
 const stripeOnboardingConfig: Record<
   UserType,
   {
-    connectEndpoint: string
     dashboardPath: string
     loginPath: string
   }
 > = {
   community_builder: {
-    connectEndpoint: '/api/builder/stripe/connect',
-    dashboardPath: '/builder/payouts',
+    dashboardPath: '/planner',
     loginPath: '/login/builder',
   },
   venue_owner: {
-    connectEndpoint: '/api/venue/stripe/connect',
-    dashboardPath: '/venue/payouts',
+    dashboardPath: '/venue',
     loginPath: '/login/venue',
   },
   vendor: {
-    connectEndpoint: '/api/vendor/stripe/connect',
-    dashboardPath: '/vendor/payouts',
+    dashboardPath: '/vendor',
     loginPath: '/login/vendor',
   },
 }
 
 function getStripeLoginRedirect(userType: UserType) {
   const config = stripeOnboardingConfig[userType]
-  return `${config.loginPath}?redirect=${encodeURIComponent(`${config.dashboardPath}?connect=stripe`)}`
-}
-
-async function startStripeOnboardingAfterSignup({
-  userType,
-  router,
-  addToast,
-}: {
-  userType: UserType
-  router: ReturnType<typeof useRouter>
-  addToast: ReturnType<typeof useToast>['addToast']
-}) {
-  const config = stripeOnboardingConfig[userType]
-
-  try {
-    const response = await fetch(config.connectEndpoint, {
-      method: 'POST',
-      credentials: 'include',
-    })
-    const result = await response.json().catch(() => null)
-
-    if (!response.ok || !result?.url) {
-      throw new Error(result?.error || 'Unable to start Stripe onboarding')
-    }
-
-    addToast({ title: 'Account created', description: 'Continue with Stripe to finish payout setup.' })
-    window.location.href = result.url
-  } catch (connectError) {
-    addToast({
-      title: 'Account created',
-      description:
-        connectError instanceof Error
-          ? `Stripe setup still needs attention: ${connectError.message}`
-          : 'Stripe setup still needs attention.',
-      variant: 'destructive',
-    })
-    router.push(config.dashboardPath)
-  }
+  return `${config.loginPath}?redirect=${encodeURIComponent(config.dashboardPath)}`
 }
 
 function BuilderSignupFlow({ onBack }: { onBack: () => void }) {
@@ -364,32 +324,21 @@ function BuilderSignupFlow({ onBack }: { onBack: () => void }) {
         return
       }
       if (result.requiresEmailConfirmation) {
-        addToast({ title: 'Check your email', description: 'Confirm your email address, then log in to finish Stripe payout setup.' })
+        addToast({ title: 'Check your email', description: 'Confirm your email address, then log in to continue planning.' })
         router.push(getStripeLoginRedirect('community_builder'))
         return
       }
 
-      if (form.platforms.includes('Eventbrite')) {
-        try {
-          const connectResponse = await fetch('/api/integrations/eventbrite/connect', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({}),
-          })
-          const connectResult = await connectResponse.json().catch(() => null)
-
-          if (connectResponse.ok && connectResult?.authUrl) {
-            addToast({ title: 'Account created', description: 'Connect your Eventbrite account to finish setup.' })
-            window.location.href = connectResult.authUrl
-            return
-          }
-        } catch (connectError) {
-          console.error('Eventbrite connection could not start after signup:', connectError)
-        }
+      try {
+        const migratedPlan = await migratePlannerDraftToServer()
+        const newPlanId = migratedPlan?.plan.id ?? null
+        addToast({ title: 'Account created', description: newPlanId ? 'Your planner draft is saved.' : 'Continue planning your event.' })
+        router.push(newPlanId ? `/planner?plan=${encodeURIComponent(newPlanId)}` : '/planner')
+      } catch (migrationError) {
+        console.error('Planner draft migration failed after signup:', migrationError)
+        addToast({ title: 'Account created', description: 'Saved your account — re-enter your event details', variant: 'destructive' })
+        router.push('/planner?draftMigration=failed')
       }
-
-      await startStripeOnboardingAfterSignup({ userType: 'community_builder', router, addToast })
     } catch {
       addToast({ title: 'Error', description: 'An unexpected error occurred.', variant: 'destructive' })
       setIsLoading(false)
@@ -624,11 +573,12 @@ function VenueSignupFlow({ onBack }: { onBack: () => void }) {
         return
       }
       if (result.requiresEmailConfirmation) {
-        addToast({ title: 'Check your email', description: 'Confirm your email address, then log in to finish Stripe payout setup.' })
+        addToast({ title: 'Check your email', description: 'Confirm your email address, then log in to manage your venue.' })
         router.push(getStripeLoginRedirect('venue_owner'))
         return
       }
-      await startStripeOnboardingAfterSignup({ userType: 'venue_owner', router, addToast })
+      addToast({ title: 'Venue account created', description: 'You can connect Stripe when a paid opportunity is ready.' })
+      router.push(stripeOnboardingConfig.venue_owner.dashboardPath)
     } catch {
       addToast({ title: 'Error', description: 'An unexpected error occurred.', variant: 'destructive' })
       setIsLoading(false)
@@ -638,7 +588,7 @@ function VenueSignupFlow({ onBack }: { onBack: () => void }) {
   return (
     <AuthShell
       eyebrow={`Venue sign-up · Step ${step} of ${total}`}
-      title="List your venue on 3rdSpace"
+      title="List your venue on 3rdPlace"
       subtitle="Show creators what makes your space special. Set your rules, your rates, and your calendar — once."
       accent="secondary"
     >
@@ -921,11 +871,12 @@ function VendorSignupFlow({ onBack }: { onBack: () => void }) {
         return
       }
       if (result.requiresEmailConfirmation) {
-        addToast({ title: 'Check your email', description: 'Confirm your email address, then log in to finish Stripe payout setup.' })
+        addToast({ title: 'Check your email', description: 'Confirm your email address, then log in to manage your vendor profile.' })
         router.push(getStripeLoginRedirect('vendor'))
         return
       }
-      await startStripeOnboardingAfterSignup({ userType: 'vendor', router, addToast })
+      addToast({ title: 'Vendor account created', description: 'You can connect Stripe when a paid opportunity is ready.' })
+      router.push(stripeOnboardingConfig.vendor.dashboardPath)
     } catch {
       addToast({ title: 'Error', description: 'An unexpected error occurred.', variant: 'destructive' })
       setIsLoading(false)
@@ -935,7 +886,7 @@ function VendorSignupFlow({ onBack }: { onBack: () => void }) {
   return (
     <AuthShell
       eyebrow={`Vendor sign-up · Step ${step} of ${total}`}
-      title="Get booked on 3rdSpace"
+      title="Get booked on 3rdPlace"
       subtitle="List your services, set your rates, and choose whether you're available for last-minute emergency gigs."
       accent="accent"
     >

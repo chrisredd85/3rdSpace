@@ -11,7 +11,7 @@ import {
 export const runtime = 'nodejs'
 
 function redirectToPayouts(request: NextRequest, status: string, message?: string) {
-  const url = new URL('/builder/payouts', request.url)
+  const url = new URL('/planner/payments', request.url)
   url.searchParams.set('stripe', status)
   if (message) url.searchParams.set('message', message)
   return NextResponse.redirect(url)

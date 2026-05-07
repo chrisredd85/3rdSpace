@@ -46,7 +46,7 @@ function mapPaymentIntentStatus(status: string): VendorTransactionStatus {
 }
 
 /**
- * Processes a direct vendor service payment with zero 3rdSpaces application fee.
+ * Processes a direct vendor service payment with zero 3rdPlaces application fee.
  *
  * @route POST /api/payments/vendor
  * @auth Required - builder owner of the booking's event.
@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
         platform_fee: '0',
         payment_type: 'service_payment',
       },
-      description: `3rdSpace vendor payment: ${booking.vendor_profiles?.business_name || booking.vendor_profiles?.name || 'service'}`,
+      description: `3rdPlace vendor payment: ${booking.vendor_profiles?.business_name || booking.vendor_profiles?.name || 'service'}`,
     })
     const status = mapPaymentIntentStatus(paymentIntent.status)
     const paidAt = paymentIntent.status === 'succeeded' ? new Date().toISOString() : null

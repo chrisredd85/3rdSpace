@@ -24,7 +24,19 @@ export type VenueSetupInput = {
   capacity: number
   houseRules: string
   amenities: string[]
-  phone?: string
+  phone?: string | null
+  hasBar?: boolean | null
+  barKickbackPct?: number | null
+  perHeadDrinkPct?: number | null
+  minBarSpend?: number | null
+  pricePerNight?: number | null
+  deposit?: number | null
+  cancellationTerms?: string | null
+  availableDays?: string[] | null
+  openFrom?: string | null
+  openTo?: string | null
+  loadingAddress?: string | null
+  prepTimeHours?: number | null
 }
 
 export type VendorSetupInput = {
@@ -34,7 +46,19 @@ export type VendorSetupInput = {
   bankAccountHolderName: string
   bankName: string
   availabilityNotes: string
-  phone?: string
+  phone?: string | null
+  serviceArea?: string | null
+  portfolioUrl?: string | null
+  bio?: string | null
+  basePrice?: number | null
+  packageName?: string | null
+  packageDetails?: string | null
+  depositPct?: number | null
+  leadTimeDays?: number | null
+  cancellationTerms?: string | null
+  availableDays?: string[] | null
+  emergencyAvailable?: boolean | null
+  emergencyRateUplift?: number | null
 }
 
 function getAccountWebhookUrl(origin: string, platform: TicketPlatform, connectionId: string) {
@@ -51,6 +75,22 @@ function isMissingTicketingConnectionsTable(error: { code?: string; message?: st
       /schema cache|does not exist|could not find/i.test(error?.message ?? '')
     )
   )
+}
+
+function toPositiveNumberOrNull(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
+  return value
+}
+
+function toIntegerCentsOrNull(value: number | null | undefined) {
+  const positiveValue = toPositiveNumberOrNull(value)
+  return positiveValue === null ? null : Math.round(positiveValue * 100)
+}
+
+function toPositivePercentageOrNull(value: number | null | undefined) {
+  const positiveValue = toPositiveNumberOrNull(value)
+  if (positiveValue === null || positiveValue > 100) return null
+  return Math.round(positiveValue)
 }
 
 export async function ensureBuilderTicketingConnections(
@@ -157,6 +197,8 @@ export async function ensureOwnerProfile(admin: SupabaseLikeClient, input: Venue
 
 export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSetupInput) {
   let venueId: string
+  const depositAmount = toPositiveNumberOrNull(input.deposit)
+  const minimumSpendCents = toIntegerCentsOrNull(input.minBarSpend)
 
   const { data: existingVenue, error: existingVenueError } = await admin
     .from('venues')
@@ -179,6 +221,25 @@ export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSe
     standing_capacity: input.capacity,
     seated_capacity: input.capacity,
     pricing_model: 'hourly',
+    hourly_rate: input.pricePerNight ?? null,
+    bar_revenue_share_enabled: input.hasBar ?? null,
+    offers_kickbacks: input.hasBar ?? null,
+    bar_revenue_percentage: input.barKickbackPct ?? null,
+    bar_revenue_share_percent: input.perHeadDrinkPct ?? null,
+    deposit_amount: depositAmount,
+    deposit_type: depositAmount === null ? null : 'fixed',
+    requires_deposit: depositAmount !== null,
+    cancellation_terms: input.cancellationTerms ?? null,
+    available_days: input.availableDays ?? null,
+    open_from: input.openFrom ?? null,
+    open_to: input.openTo ?? null,
+    loading_address: input.loadingAddress ?? null,
+    prep_time_hours: input.prepTimeHours ?? null,
+    ...(minimumSpendCents !== null && {
+      auto_approve_conditions: {
+        minimum_spend_cents: minimumSpendCents,
+      },
+    }),
     updated_at: new Date().toISOString(),
   }
 
@@ -272,6 +333,7 @@ export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSe
 export async function ensureVendorProfile(admin: SupabaseLikeClient, input: VendorSetupInput) {
   const now = new Date().toISOString()
   const vendorType = SERVICE_TYPE_LABELS[input.serviceType]
+  const depositPercentage = toPositivePercentageOrNull(input.depositPct)
 
   const { error } = await admin
     .from('vendor_profiles')
@@ -285,7 +347,16 @@ export async function ensureVendorProfile(admin: SupabaseLikeClient, input: Vend
         bank_account_holder_name: input.bankAccountHolderName,
         bank_name: input.bankName,
         availability_notes: input.availabilityNotes,
-        bio: input.availabilityNotes,
+        service_area: input.serviceArea ?? null,
+        portfolio_url: input.portfolioUrl ?? null,
+        base_rate: input.basePrice ?? null,
+        deposit_percentage: depositPercentage,
+        requires_deposit: depositPercentage !== null,
+        lead_time_days: input.leadTimeDays ?? null,
+        cancellation_terms: input.cancellationTerms ?? null,
+        emergency_available: input.emergencyAvailable ?? null,
+        emergency_rate_uplift: input.emergencyRateUplift ?? null,
+        bio: input.bio ?? input.availabilityNotes,
         updated_at: now,
       } as never,
       { onConflict: 'user_id' }
@@ -319,17 +390,29 @@ export async function getOnboardingStatus(
       (builder.event_types?.length ?? 0) > 0 &&
       (builder.preferred_ticket_platforms?.length ?? 0) > 0
 
-    return { isOnboarded, redirectPath: isOnboarded ? '/builder' : '/onboarding' }
+    return { isOnboarded, redirectPath: isOnboarded ? '/planner' : '/onboarding' }
   }
 
   if (userType === 'venue_owner') {
     const { data: venue } = await supabase
       .from('venues')
-      .select('id, address, standing_capacity')
+      .select('id, address, standing_capacity, is_admin_seeded, is_claimed')
       .eq('owner_id', userId)
       .maybeSingle()
 
-    const venueData = venue as { id: string; address?: string | null; standing_capacity?: number | null } | null
+    const venueData = venue as
+      | {
+          id: string
+          address?: string | null
+          standing_capacity?: number | null
+          is_admin_seeded?: boolean | null
+          is_claimed?: boolean | null
+        }
+      | null
+
+    if (venueData?.id && venueData.is_admin_seeded && !venueData.is_claimed) {
+      return { isOnboarded: false, redirectPath: '/venue/claim-pending' }
+    }
 
     if (!venueData?.id || !venueData.address || !venueData.standing_capacity) {
       return { isOnboarded: false, redirectPath: '/onboarding' }
@@ -352,7 +435,7 @@ export async function getOnboardingStatus(
 
   const { data: vendor } = await supabase
     .from('vendor_profiles')
-    .select('id, service_type, bank_account_holder_name, bank_name, availability_notes')
+    .select('id, service_type, bank_account_holder_name, bank_name, availability_notes, is_admin_seeded, is_claimed')
     .eq('user_id', userId)
     .maybeSingle()
 
@@ -363,8 +446,14 @@ export async function getOnboardingStatus(
         bank_account_holder_name?: string | null
         bank_name?: string | null
         availability_notes?: string | null
+        is_admin_seeded?: boolean | null
+        is_claimed?: boolean | null
       }
     | null
+
+  if (vendorData?.id && vendorData.is_admin_seeded && !vendorData.is_claimed) {
+    return { isOnboarded: false, redirectPath: '/vendor/claim-pending' }
+  }
 
   const isOnboarded =
     !!vendorData?.id &&

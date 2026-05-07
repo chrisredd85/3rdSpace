@@ -129,7 +129,7 @@ function BuilderOnboardingForm() {
       return
     }
     addToast({ title: 'Builder profile saved', description: 'You can start creating events now.' })
-    router.push('/builder')
+    router.push('/planner')
   }
 
   return (

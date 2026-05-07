@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { TrendingUp, Calendar, PiggyBank, FileText, Send, ArrowRight, Music2, DollarSign } from 'lucide-react'
+import { AlertCircle, TrendingUp, Calendar, PiggyBank, FileText, Send, ArrowRight, Music2, DollarSign } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PayoutOverviewPanel } from '@/components/dashboard/PayoutOverviewPanel'
 import { useUser } from '@/lib/hooks/useUser'
@@ -59,6 +59,8 @@ export default function VendorDashboard() {
   const { addToast } = useToast()
   const [stats, setStats] = useState<VendorStats | null>(null)
   const [pendingRequests, setPendingRequests] = useState<any[]>([])
+  const [hasStripeAccount, setHasStripeAccount] = useState<boolean | null>(null)
+  const [isStripeBannerDismissed, setIsStripeBannerDismissed] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -66,10 +68,12 @@ export default function VendorDashboard() {
     Promise.all([
       fetch('/api/vendor/stats', { credentials: 'include' }).then((r) => r.ok ? r.json() : null),
       fetch('/api/vendor/bookings?status=pending&limit=5', { credentials: 'include' }).then((r) => r.ok ? r.json() : null),
+      fetch('/api/vendor/stripe/status', { credentials: 'include' }).then((r) => r.ok ? r.json() : null),
     ])
-      .then(([statsData, bookingsData]) => {
+      .then(([statsData, bookingsData, stripeData]) => {
         if (statsData) setStats(statsData)
         if (bookingsData) setPendingRequests(bookingsData.bookings || [])
+        if (stripeData) setHasStripeAccount(Boolean(stripeData.account?.stripe_account_id))
       })
       .catch(console.error)
       .finally(() => setIsLoading(false))
@@ -96,6 +100,30 @@ export default function VendorDashboard() {
         <p className="text-sm text-muted-foreground">Welcome back</p>
         <h1 className="mt-1 font-display text-4xl font-bold">Your Vendor Dashboard</h1>
       </div>
+
+      {!isStripeBannerDismissed && hasStripeAccount === false ? (
+        <div className="rounded-3xl border border-primary/30 bg-primary/10 p-5 shadow-card">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                <AlertCircle className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="font-display text-lg font-bold">Connect Stripe to receive deposits when you accept an opportunity</p>
+                <p className="mt-1 text-sm text-muted-foreground">You can explore requests before setup. Payouts are only required when money needs to move.</p>
+              </div>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button variant="hero" size="sm" asChild>
+                <Link href="/vendor/payouts">Set up payouts</Link>
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setIsStripeBannerDismissed(true)}>
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

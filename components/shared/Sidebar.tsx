@@ -6,15 +6,9 @@ import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import {
   LayoutDashboard,
-  Calendar,
-  Clock,
-  FileText,
-  Heart,
   Building2,
-  MessageSquare,
   BarChart3,
   Settings,
-  CreditCard,
   Bell,
   Calendar as CalendarIcon,
   DollarSign,
@@ -24,10 +18,8 @@ import {
   LogOut,
   Inbox,
   Store,
-  Ticket,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useUnreadCount } from '@/lib/hooks/useMessages'
 import { useUnreadNotificationCount } from '@/lib/hooks/useNotifications'
 import { useUser } from '@/lib/hooks/useUser'
 import { useToast } from '@/components/ui/toast'
@@ -46,12 +38,11 @@ interface NavSection {
 }
 
 interface SidebarProps {
-  userType: UserType
+  userType: Exclude<UserType, 'community_builder'>
   onClose?: () => void
 }
 
-const roleMeta: Record<UserType, { icon: ComponentType<{ className?: string }>; label: string; tagline: string }> = {
-  community_builder: { icon: Ticket, label: 'Event Creator', tagline: 'Plan & book' },
+const roleMeta: Record<Exclude<UserType, 'community_builder'>, { icon: ComponentType<{ className?: string }>; label: string; tagline: string }> = {
   venue_owner: { icon: Building2, label: 'Venue Owner', tagline: 'Manage your space' },
   vendor: { icon: Store, label: 'Vendor', tagline: 'Grow your business' },
 }
@@ -59,9 +50,10 @@ const roleMeta: Record<UserType, { icon: ComponentType<{ className?: string }>; 
 /**
  * Role-aware sidebar navigation.
  *
- * Renders a different nav section list for each UserType (community_builder,
- * venue_owner, vendor).  Active link detection uses exact match for root routes
- * and prefix match for nested routes to avoid false positives.
+ * Renders venue_owner and vendor dashboard navigation. Community builders use
+ * the dedicated PlannerSidebar under /planner.
+ * Active link detection uses exact match for root routes and prefix match for
+ * nested routes to avoid false positives.
  * Badge counts for messages and notifications are loaded via React Query hooks.
  */
 function SidebarComponent({ userType, onClose }: SidebarProps) {
@@ -70,7 +62,6 @@ function SidebarComponent({ userType, onClose }: SidebarProps) {
   const queryClient = useQueryClient()
   const { user } = useUser()
   const { addToast } = useToast()
-  const { unreadCount = 0 } = useUnreadCount()
   const { data: unreadNotificationCount = 0 } = useUnreadNotificationCount(user?.id || null)
 
   const meta = roleMeta[userType]
@@ -78,36 +69,6 @@ function SidebarComponent({ userType, onClose }: SidebarProps) {
 
   const navigation = useMemo<NavSection[]>(() => {
     switch (userType) {
-      case 'community_builder':
-        return [
-          {
-            title: 'MAIN',
-            items: [
-              { label: 'Dashboard', href: '/builder', icon: LayoutDashboard },
-              { label: 'My Events', href: '/builder/events', icon: Calendar },
-              { label: 'Past Events', href: '/builder/past', icon: Clock },
-              { label: 'Templates', href: '/builder/templates', icon: FileText },
-            ],
-          },
-          {
-            title: 'BUSINESS',
-            items: [
-              { label: 'Browse Venues', href: '/builder/venues', icon: Building2 },
-              { label: 'Browse Vendors', href: '/builder/vendors/marketplace', icon: Heart },
-              { label: 'Messages', href: '/builder/messages', icon: MessageSquare, badge: unreadCount > 0 ? unreadCount : undefined },
-              { label: 'Notifications', href: '/builder/notifications', icon: Bell, badge: unreadNotificationCount > 0 ? unreadNotificationCount : undefined },
-              { label: 'Analytics', href: '/builder/analytics', icon: BarChart3 },
-            ],
-          },
-          {
-            title: 'ACCOUNT',
-            items: [
-              { label: 'Settings', href: '/builder/settings', icon: Settings },
-              { label: 'Billing', href: '/builder/billing', icon: CreditCard },
-            ],
-          },
-        ]
-
       case 'venue_owner':
         return [
           {
@@ -165,7 +126,7 @@ function SidebarComponent({ userType, onClose }: SidebarProps) {
       default:
         return []
     }
-  }, [unreadCount, unreadNotificationCount, userType])
+  }, [unreadNotificationCount, userType])
 
   const handleLinkClick = useCallback(() => {
     onClose?.()
@@ -197,7 +158,7 @@ function SidebarComponent({ userType, onClose }: SidebarProps) {
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
           <Sparkles className="h-5 w-5 text-primary-foreground" />
         </div>
-        <span className="font-display text-xl font-bold tracking-tight text-sidebar-foreground">3rdSpace</span>
+        <span className="font-display text-xl font-bold tracking-tight text-sidebar-foreground">3rdPlace</span>
       </Link>
 
       {/* Role card */}
@@ -222,7 +183,7 @@ function SidebarComponent({ userType, onClose }: SidebarProps) {
             </p>
             <div className="space-y-0.5">
               {section.items.map((item) => {
-                const isActive = pathname === item.href || (item.href !== '/builder' && item.href !== '/venue' && item.href !== '/vendor' && pathname.startsWith(item.href + '/'))
+                const isActive = pathname === item.href || (item.href !== '/venue' && item.href !== '/vendor' && pathname.startsWith(item.href + '/'))
                 const Icon = item.icon
                 return (
                   <Link
@@ -267,7 +228,7 @@ function SidebarComponent({ userType, onClose }: SidebarProps) {
             <p className="truncate text-xs text-muted-foreground">{meta.label}</p>
           </div>
           <Link
-            href={`/${userType === 'community_builder' ? 'builder' : userType === 'venue_owner' ? 'venue' : 'vendor'}/settings`}
+            href={`/${userType === 'venue_owner' ? 'venue' : 'vendor'}/settings`}
             onClick={handleLinkClick}
             className="text-muted-foreground transition-smooth hover:text-foreground"
             aria-label="Settings"

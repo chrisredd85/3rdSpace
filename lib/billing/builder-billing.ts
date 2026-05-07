@@ -285,8 +285,8 @@ export async function createBuilderCheckoutSession(params: {
         ],
     client_reference_id: params.builder.id,
     metadata,
-    success_url: `${baseUrl}/builder/billing?checkout=success`,
-    cancel_url: `${baseUrl}/builder/billing?checkout=cancelled`,
+    success_url: `${baseUrl}/planner/billing?checkout=success`,
+    cancel_url: `${baseUrl}/planner/billing?checkout=cancelled`,
     subscription_data: isSubscription
       ? {
           metadata,
