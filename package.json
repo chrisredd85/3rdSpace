@@ -10,6 +10,7 @@
     "worker:jobs": "node scripts/run-job-worker.mjs",
     "worker:jobs:once": "node scripts/run-job-worker.mjs --once",
     "seed:catalog": "npx tsx scripts/seed-catalog.ts",
+    "seed:archetypes": "npx tsx scripts/seed-archetypes.ts",
     "db:types": "supabase gen types typescript --local > lib/types/database-generated.ts",
     "db:audit": "psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -v ON_ERROR_STOP=1 -f scripts/schema-audit.sql",
     "test": "jest",
@@ -53,6 +54,7 @@
     "zustand": "^4.4.7"
   },
   "devDependencies": {
+    "@next/bundle-analyzer": "^14.2.35",
     "@playwright/test": "^1.41.0",
     "@testing-library/jest-dom": "^6.1.5",
     "@testing-library/react": "^14.1.2",
