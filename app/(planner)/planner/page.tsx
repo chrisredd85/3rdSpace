@@ -18,9 +18,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/components/ui/toast'
-import { createClient as createBrowserSupabaseClient } from '@/lib/supabase/client'
 import { plannerDraftStorageKey } from '@/lib/planner/migrateDraft'
-import { getMockAgentResponse } from '@/lib/planner/mockAgentResponses'
 import type {
   Plan,
   PlanMessage,
@@ -30,8 +28,6 @@ import type {
   PlannerPostMessageResponse,
 } from '@/lib/types'
 import { cn } from '@/lib/utils'
-
-const isDemoModeEnabled = process.env.NEXT_PUBLIC_DEMO_MODE === 'true'
 
 const planTabs = [
   { id: 'chat', label: 'Chat' },
@@ -131,6 +127,25 @@ interface TimelineOutput {
   impossible_timeline: boolean
 }
 
+interface PublicDraftIntakeData {
+  agent_draft: {
+    content: string
+    message_type: PlanMessage['message_type']
+    metadata: Record<string, unknown>
+  }
+  plan_patch: Partial<Plan>
+}
+
+type PlannerStateLoadResult =
+  | { status: 'unauthorized' }
+  | { status: 'loaded'; plan: Plan | null; messages: PlanMessage[] }
+
+const PLANNER_STATE_CACHE_TTL_MS = 5_000
+const plannerStateRequestCache = new Map<string, {
+  createdAt: number
+  promise: Promise<PlannerStateLoadResult>
+}>()
+
 type TimelineMilestoneStatus = 'pending' | 'done' | 'at_risk'
 
 /**
@@ -149,7 +164,8 @@ function PlannerPageContent() {
   const searchParams = useSearchParams()
   const { addToast } = useToast()
   const forceDraftMode = searchParams.get('mock') === '1'
-  const isDemoSession = isDemoModeEnabled && searchParams.get('demo') === '1'
+  const isDemoSession = searchParams.get('demo') === '1'
+  const shouldHardResetDemo = isDemoSession && searchParams.get('reset') === '1'
   const initialDraft = searchParams.get('draft')
   const requestedPlanId = searchParams.get('plan')
   const draftMigrationStatus = searchParams.get('draftMigration')
@@ -159,6 +175,7 @@ function PlannerPageContent() {
   const [reply, setReply] = useState('')
   const replyRef = useRef<HTMLTextAreaElement>(null)
   const hasStartedInitialDraftRef = useRef(false)
+  const hasTriggeredDemoResetRef = useRef(false)
   const ignoredDraftRef = useRef<string | null>(null)
   const [persistenceMode, setPersistenceMode] = useState<PlannerPersistenceMode>('loading')
   const [hasLoadedStoredConversation, setHasLoadedStoredConversation] = useState(false)
@@ -182,55 +199,11 @@ function PlannerPageContent() {
   const [timelineResult, setTimelineResult] = useState<TimelineOutput | null>(null)
   const [isTimelineLoading, setIsTimelineLoading] = useState(false)
   const [timelineError, setTimelineError] = useState<string | null>(null)
-  // Demo mode state
-  const [isDemoAuthed, setIsDemoAuthed] = useState(!isDemoSession)
   const [isDemoResetting, setIsDemoResetting] = useState(false)
-
+  const [demoResetError, setDemoResetError] = useState<string | null>(null)
   useEffect(() => {
     setIsAuthenticated(persistenceMode === 'server')
   }, [persistenceMode])
-
-  /**
-   * Demo mode: exchanges credentials server-side and sets the Supabase session
-   * in the browser before the main state loader runs.  This keeps the demo
-   * password out of the client bundle while allowing real DB writes.
-   */
-  useEffect(() => {
-    if (!isDemoSession) return
-
-    let cancelled = false
-
-    async function autoDemoSignIn() {
-      try {
-        const res = await fetch('/api/demo/session')
-        if (!res.ok) {
-          console.warn('[demo] Session endpoint failed:', res.status)
-          if (!cancelled) setIsDemoAuthed(true) // fall through to draft mode
-          return
-        }
-
-        const { access_token, refresh_token } = await res.json() as {
-          access_token: string
-          refresh_token: string
-        }
-
-        const supabase = createBrowserSupabaseClient()
-        const { error } = await supabase.auth.setSession({ access_token, refresh_token })
-
-        if (error) {
-          console.warn('[demo] setSession failed:', error.message)
-        }
-      } catch (err) {
-        console.warn('[demo] Auto sign-in failed:', err)
-      } finally {
-        if (!cancelled) setIsDemoAuthed(true)
-      }
-    }
-
-    void autoDemoSignIn()
-    return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDemoSession])
 
   useEffect(() => {
     function handleExternalSignupGateRequest(event: Event) {
@@ -255,9 +228,14 @@ function PlannerPageContent() {
   }, [addToast, draftMigrationStatus, forceDraftMode, router])
 
   useEffect(() => {
-    // Wait for demo auto-auth to complete before loading state so the session
-    // cookie is present when the planner API calls run.
-    if (!isDemoAuthed) return
+    if (!shouldHardResetDemo || hasTriggeredDemoResetRef.current) return
+
+    hasTriggeredDemoResetRef.current = true
+    void resetDemoSession()
+  }, [shouldHardResetDemo])
+
+  useEffect(() => {
+    if (shouldHardResetDemo) return
 
     let isCancelled = false
 
@@ -277,36 +255,9 @@ function PlannerPageContent() {
       }
 
       try {
-        if (requestedPlanId) {
-          const detailResponse = await fetch(`/api/planner/plans/${requestedPlanId}`, { method: 'GET' })
+        const plannerState = await loadPlannerStateFromApiCached(requestedPlanId)
 
-          if (detailResponse.status === 401 || detailResponse.status === 403) {
-            if (!isCancelled) {
-              restoreDraftConversation()
-              setPersistenceMode('draft')
-            }
-            return
-          }
-
-          const detailPayload = await detailResponse.json()
-          if (!detailResponse.ok) {
-            throw new Error(detailPayload?.error ?? 'Unable to load planner plan')
-          }
-
-          const detailData = detailPayload as PlannerFullPlanResponse
-          if (!isCancelled) {
-            setActivePlan(detailData.plan)
-            setMessages(detailData.messages)
-            setActiveTab('chat')
-            clearStoredPlannerConversation()
-            setPersistenceMode('server')
-          }
-          return
-        }
-
-        const response = await fetch('/api/planner/plans?limit=10', { method: 'GET' })
-
-        if (response.status === 401 || response.status === 403) {
+        if (plannerState.status === 'unauthorized') {
           if (!isCancelled) {
             restoreDraftConversation()
             setPersistenceMode('draft')
@@ -314,31 +265,10 @@ function PlannerPageContent() {
           return
         }
 
-        const payload = await response.json()
-        if (!response.ok) {
-          throw new Error(payload?.error ?? 'Unable to load planner plans')
-        }
-
-        const listData = payload as PlannerListPlansResponse
-        const activeStoredPlan = listData.plans.find((plan) => plan.status !== 'archived')
-
-        if (activeStoredPlan) {
-          const detailResponse = await fetch(`/api/planner/plans/${activeStoredPlan.id}`, { method: 'GET' })
-          const detailPayload = await detailResponse.json()
-
-          if (!detailResponse.ok) {
-            throw new Error(detailPayload?.error ?? 'Unable to load active planner plan')
-          }
-
-          const detailData = detailPayload as PlannerFullPlanResponse
-          if (!isCancelled) {
-            setActivePlan(detailData.plan)
-            setMessages(detailData.messages)
-            setActiveTab('chat')
-          }
-        }
-
         if (!isCancelled) {
+          setActivePlan(plannerState.plan)
+          setMessages(plannerState.messages)
+          setActiveTab('chat')
           clearStoredPlannerConversation()
           setPersistenceMode('server')
         }
@@ -363,7 +293,7 @@ function PlannerPageContent() {
     return () => {
       isCancelled = true
     }
-  }, [forceDraftMode, initialDraft, isDemoAuthed, requestedPlanId])
+  }, [forceDraftMode, initialDraft, requestedPlanId, shouldHardResetDemo])
 
   useEffect(() => {
     if (!hasLoadedStoredConversation) return
@@ -421,20 +351,27 @@ function PlannerPageContent() {
   /**
    * Creates a local-only draft when server persistence is unavailable.
    */
-  function createDraftPlan(message: string) {
+  async function createDraftPlan(message: string) {
     const plan = buildMockPlan(message)
     const userMessage = buildMockMessage(plan.id, 'user', message, 'text', {})
-    const mockResponse = getMockAgentResponse([userMessage], message, plan)
-    const finalPlan = applyMockPlanPatch(plan, mockResponse.planPatch)
-    const agentMessages = mockResponse.messages.map((agentMessage) =>
-      buildMockMessage(
-        finalPlan.id,
-        agentMessage.role,
-        agentMessage.content,
-        agentMessage.message_type,
-        agentMessage.metadata
-      )
-    )
+    const publicIntake = await tryRunPublicDraftIntake(message, plan)
+    const deterministicExchange = publicIntake
+      ? null
+      : await buildDeterministicDraftExchange(message, plan, [userMessage])
+    const finalPlan = publicIntake
+      ? applyMockPlanPatch(plan, publicIntake.plan_patch)
+      : deterministicExchange?.finalPlan ?? plan
+    const agentMessages = publicIntake
+      ? [
+        buildMockMessage(
+          finalPlan.id,
+          'agent',
+          publicIntake.agent_draft.content,
+          publicIntake.agent_draft.message_type,
+          publicIntake.agent_draft.metadata
+        ),
+      ]
+      : deterministicExchange?.agentMessages ?? []
     const nextMessages = [userMessage, ...agentMessages]
 
     setActivePlan(finalPlan)
@@ -452,7 +389,7 @@ function PlannerPageContent() {
     setErrorMessage(null)
 
     if (persistenceMode !== 'server') {
-      createDraftPlan(message)
+      await createDraftPlan(message)
       setIsCreatingPlan(false)
       return true
     }
@@ -467,7 +404,7 @@ function PlannerPageContent() {
 
       if (response.status === 401 || response.status === 403) {
         setPersistenceMode('draft')
-        createDraftPlan(message)
+        await createDraftPlan(message)
         return true
       }
 
@@ -479,11 +416,12 @@ function PlannerPageContent() {
       setActivePlan(data.plan)
       setMessages(data.messages)
       setActiveTab('chat')
+      publishLivePlan(data.plan, data.messages)
       return true
     } catch (error) {
       console.warn('[planner] Falling back to local draft mode after create failed', error)
       setPersistenceMode('draft')
-      createDraftPlan(message)
+      await createDraftPlan(message)
       return true
     } finally {
       setIsCreatingPlan(false)
@@ -500,19 +438,26 @@ function PlannerPageContent() {
     setIsSendingReply(true)
     setErrorMessage(null)
 
-    if (shouldUseMockReplyPath(persistenceMode, activePlan.id, isDemoSession)) {
+    if (shouldUseMockReplyPath(persistenceMode, activePlan.id)) {
       const userMessage = buildMockMessage(activePlan.id, 'user', trimmed, 'text', {})
-      const mockResponse = getMockAgentResponse([...messages, userMessage], trimmed, activePlan)
-      const finalPlan = applyMockPlanPatch(activePlan, mockResponse.planPatch)
-      const agentMessages = mockResponse.messages.map((agentMessage) =>
-        buildMockMessage(
-          finalPlan.id,
-          agentMessage.role,
-          agentMessage.content,
-          agentMessage.message_type,
-          agentMessage.metadata
-        )
-      )
+      const publicIntake = await tryRunPublicDraftIntake(trimmed, activePlan)
+      const deterministicExchange = publicIntake
+        ? null
+        : await buildDeterministicDraftExchange(trimmed, activePlan, [...messages, userMessage])
+      const finalPlan = publicIntake
+        ? applyMockPlanPatch(activePlan, publicIntake.plan_patch)
+        : deterministicExchange?.finalPlan ?? activePlan
+      const agentMessages = publicIntake
+        ? [
+          buildMockMessage(
+            finalPlan.id,
+            'agent',
+            publicIntake.agent_draft.content,
+            publicIntake.agent_draft.message_type,
+            publicIntake.agent_draft.metadata
+          ),
+        ]
+        : deterministicExchange?.agentMessages ?? []
       const nextMessages = [...messages, userMessage, ...agentMessages]
 
       setActivePlan(finalPlan)
@@ -537,14 +482,16 @@ function PlannerPageContent() {
       }
 
       const data = payload as PlannerPostMessageResponse
-      setActivePlan(data.plan)
-      setMessages((currentMessages) => [
-        ...currentMessages,
+      const nextMessages = [
+        ...messages,
         data.user_message,
         data.agent_message,
         ...(data.follow_up_messages ?? []),
-      ])
+      ]
+      setActivePlan(data.plan)
+      setMessages(nextMessages)
       setReply('')
+      publishLivePlan(data.plan, nextMessages)
     } catch (error) {
       const description = error instanceof Error ? error.message : 'Unable to send planner reply'
       setErrorMessage(description)
@@ -598,27 +545,30 @@ function PlannerPageContent() {
     }
   }
 
-  /**
-   * Resets the demo account to its seeded state: wipes all plans/messages,
-   * re-inserts the seed conversation, then reloads the page so the fresh
-   * data appears as if a new demo is starting.
-   */
-  async function handleDemoReset() {
-    if (!isDemoSession || isDemoResetting) return
+  async function resetDemoSession() {
     setIsDemoResetting(true)
+    setDemoResetError(null)
 
     try {
-      const res = await fetch('/api/demo/reset', { method: 'POST' })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error((body as { error?: string }).error ?? 'Reset failed')
+      const response = await fetch('/api/demo/reset', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const payload = await response.json().catch(() => ({} as { error?: string }))
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Demo reset failed')
       }
-      // Hard-reload to show the fresh seeded plan
+
+      clearStoredPlannerConversation()
+      publishLivePlan(null, [])
       window.location.replace('/planner?demo=1')
-    } catch (err) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Demo reset failed'
+      setDemoResetError(message)
       addToast({
         title: 'Demo reset failed',
-        description: err instanceof Error ? err.message : 'Try again',
+        description: message,
         variant: 'destructive',
       })
       setIsDemoResetting(false)
@@ -945,32 +895,27 @@ function PlannerPageContent() {
     }
   }
 
-  /** Demo banner — shown at the top of every planner view while in demo mode. */
-  const demoBanner = isDemoSession ? (
-    <div className="flex items-center justify-between gap-3 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-600 dark:text-amber-400">
-      <span>🎬 Demo mode — changes write to a real Supabase DB. Safe to approve, reject, and explore.</span>
-      <button
-        type="button"
-        onClick={() => void handleDemoReset()}
-        disabled={isDemoResetting}
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-bold transition hover:bg-amber-500/20 disabled:opacity-50"
-      >
-        {isDemoResetting ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <RefreshCw className="h-3.5 w-3.5" />
-        )}
-        Reset demo
-      </button>
-    </div>
-  ) : null
-
-  if (!isDemoAuthed) {
+  if (shouldHardResetDemo) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin text-primary" />
-          Starting demo…
+      <div className="flex min-h-screen items-center justify-center px-4">
+        <div className="w-full max-w-md rounded-3xl border border-border bg-card/70 p-6 text-center shadow-card">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary/15 text-secondary">
+            <RefreshCw className={cn('h-5 w-5', isDemoResetting && 'animate-spin')} />
+          </div>
+          <h1 className="mt-4 font-display text-xl font-bold text-foreground">Resetting demo session</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Clearing the previous demo plan and loading a fresh one.
+          </p>
+          {demoResetError ? (
+            <div className="mt-4 rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {demoResetError}
+            </div>
+          ) : null}
+          {demoResetError ? (
+            <Button type="button" variant="hero" className="mt-4" onClick={() => void resetDemoSession()}>
+              Try again
+            </Button>
+          ) : null}
         </div>
       </div>
     )
@@ -979,7 +924,6 @@ function PlannerPageContent() {
   if (!activePlan) {
     return (
       <div>
-        {demoBanner}
         {errorMessage ? (
           <div className="mx-auto mt-6 max-w-3xl rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {errorMessage}
@@ -1001,6 +945,14 @@ function PlannerPageContent() {
   const approvalSummary = getApprovalSummary(approvalMessages)
   const activeTabLabel = planTabs.find((tab) => tab.id === activeTab)?.label ?? 'Chat'
   const activeDateChip = getActivePlanDateChip(activePlan, messages)
+  const demoBanner = isDemoSession ? (
+    <DemoSessionBanner
+      updatedAt={activePlan.updated_at}
+      isResetting={isDemoResetting}
+      error={demoResetError}
+      onStartOver={() => void resetDemoSession()}
+    />
+  ) : null
 
   return (
     <div className="min-h-screen">
@@ -1527,6 +1479,56 @@ function readAgentOutput(payload: unknown): unknown {
   return (data as Record<string, unknown>).output
 }
 
+function DemoSessionBanner({
+  updatedAt,
+  isResetting,
+  error,
+  onStartOver,
+}: {
+  updatedAt: string | null
+  isResetting: boolean
+  error: string | null
+  onStartOver: () => void
+}) {
+  return (
+    <div className="border-b border-secondary/30 bg-secondary/10 px-4 py-3">
+      <div className="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">
+            Continuing demo session from {formatDemoSessionTime(updatedAt)}.
+          </p>
+          {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
+        </div>
+        <Button
+          type="button"
+          variant="hero"
+          size="sm"
+          onClick={onStartOver}
+          disabled={isResetting}
+          className="shrink-0"
+        >
+          <RefreshCw className={cn('h-4 w-4', isResetting && 'animate-spin')} />
+          Start over
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function formatDemoSessionTime(value: string | null | undefined) {
+  if (!value) return 'earlier'
+
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return 'earlier'
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date)
+}
+
 function isResponseAnalysisOutput(value: unknown): value is ResponseAnalysisOutput {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const output = value as Record<string, unknown>
@@ -1809,6 +1811,15 @@ function publishLivePlan(plan: Plan | null, messages: PlanMessage[]) {
     dateWindowStart: plan.date_window_start,
     dateWindowEnd: plan.date_window_end,
     ticketed: plan.ticketed,
+    ticketingModel: plan.ticketing_model ?? null,
+    ticketPriceTargetCents: readPlanTicketPriceTargetCents(plan),
+    foodResponsibility: plan.food_responsibility ?? null,
+    venueTerms: plan.venue_terms ?? null,
+    actionPermission: plan.agent_action ?? null,
+    notes: plan.notes ?? null,
+    runOfShow: readPlanAgentCacheOutput(plan, 'timeline'),
+    workspaceSummary: readPlanAgentCacheOutput(plan, 'workspace_summary'),
+    updatedAt: plan.updated_at,
   }
 
   const payload = {
@@ -1819,6 +1830,33 @@ function publishLivePlan(plan: Plan | null, messages: PlanMessage[]) {
 
   window.localStorage.setItem('planner-live-plan', JSON.stringify(payload))
   window.dispatchEvent(new CustomEvent('planner-live-plan:update', { detail: payload }))
+}
+
+function readPlanTicketPriceTargetCents(plan: Plan): number | null {
+  const metadata = readRecord(plan.metadata)
+  const cents = readFiniteNumber(metadata?.ticket_price_target_cents)
+  if (cents !== null && cents > 0) return cents
+
+  const value = readFiniteNumber(metadata?.ticket_price_target)
+  if (value !== null && value > 0) return Math.round(value < 10000 ? value * 100 : value)
+
+  return null
+}
+
+function readPlanAgentCacheOutput(plan: Plan, key: 'timeline' | 'workspace_summary'): Record<string, unknown> | null {
+  const metadata = readRecord(plan.metadata)
+  const agentCache = readRecord(metadata?.agent_cache)
+  const cacheEntry = readRecord(agentCache?.[key])
+  return readRecord(cacheEntry?.output)
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  return null
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 /**
@@ -1912,6 +1950,50 @@ function buildMockPlan(message: string): Plan {
   }
 }
 
+async function tryRunPublicDraftIntake(message: string, plan: Plan): Promise<PublicDraftIntakeData | null> {
+  try {
+    const response = await fetch('/api/planner/public-intake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_message: message,
+        current_plan: plan,
+      }),
+    })
+    const payload = await response.json().catch(() => null) as { data?: PublicDraftIntakeData; error?: string } | null
+
+    if (!response.ok || !payload?.data) {
+      throw new Error(payload?.error ?? 'Public intake unavailable')
+    }
+
+    return payload.data
+  } catch (error) {
+    console.warn('[planner.public-intake] Falling back to deterministic draft:', error)
+    return null
+  }
+}
+
+async function buildDeterministicDraftExchange(
+  message: string,
+  plan: Plan,
+  conversationMessages: PlanMessage[]
+): Promise<{ finalPlan: Plan; agentMessages: PlanMessage[] }> {
+  const { getMockAgentResponse } = await import('@/lib/planner/mockAgentResponses')
+  const mockResponse = getMockAgentResponse(conversationMessages, message, plan)
+  const finalPlan = applyMockPlanPatch(plan, mockResponse.planPatch)
+  const agentMessages = mockResponse.messages.map((agentMessage) =>
+    buildMockMessage(
+      finalPlan.id,
+      agentMessage.role,
+      agentMessage.content,
+      agentMessage.message_type,
+      agentMessage.metadata
+    )
+  )
+
+  return { finalPlan, agentMessages }
+}
+
 /**
  * Applies defined mock-agent plan fields without wiping existing context.
  */
@@ -1929,21 +2011,98 @@ function applyMockPlanPatch(plan: Plan, patch: Partial<Plan>): Plan {
       patch.date_window_start === undefined ? plan.date_window_start : patch.date_window_start,
     date_window_end:
       patch.date_window_end === undefined ? plan.date_window_end : patch.date_window_end,
+    ticketed: patch.ticketed ?? plan.ticketed,
+    ticketing_model:
+      patch.ticketing_model === undefined ? plan.ticketing_model : patch.ticketing_model,
+    food_responsibility:
+      patch.food_responsibility === undefined ? plan.food_responsibility : patch.food_responsibility,
+    venue_terms: patch.venue_terms === undefined ? plan.venue_terms : patch.venue_terms,
+    agent_action: patch.agent_action === undefined ? plan.agent_action : patch.agent_action,
+    profit_goal_cents:
+      patch.profit_goal_cents === undefined ? plan.profit_goal_cents : patch.profit_goal_cents,
     notes: patch.notes ?? plan.notes,
+    metadata: patch.metadata === undefined
+      ? plan.metadata
+      : ({
+          ...(readRecord(plan.metadata) ?? {}),
+          ...(readRecord(patch.metadata) ?? {}),
+        } as Plan['metadata']),
     updated_at: patch.updated_at ?? new Date().toISOString(),
+  }
+}
+
+async function loadPlannerStateFromApiCached(requestedPlanId: string | null): Promise<PlannerStateLoadResult> {
+  const cacheKey = requestedPlanId ? `plan:${requestedPlanId}` : 'active-plan'
+  const cached = plannerStateRequestCache.get(cacheKey)
+  const now = Date.now()
+
+  if (cached && now - cached.createdAt < PLANNER_STATE_CACHE_TTL_MS) {
+    return cached.promise
+  }
+
+  const promise = loadPlannerStateFromApi(requestedPlanId)
+  plannerStateRequestCache.set(cacheKey, { createdAt: now, promise })
+
+  try {
+    return await promise
+  } catch (error) {
+    plannerStateRequestCache.delete(cacheKey)
+    throw error
+  }
+}
+
+async function loadPlannerStateFromApi(requestedPlanId: string | null): Promise<PlannerStateLoadResult> {
+  if (requestedPlanId) {
+    return loadPlannerPlanDetail(requestedPlanId)
+  }
+
+  const response = await fetch('/api/planner/plans?limit=10', { method: 'GET' })
+
+  if (response.status === 401 || response.status === 403) {
+    return { status: 'unauthorized' }
+  }
+
+  const payload = await response.json()
+  if (!response.ok) {
+    throw new Error(payload?.error ?? 'Unable to load planner plans')
+  }
+
+  const listData = payload as PlannerListPlansResponse
+  const activeStoredPlan = listData.plans.find((plan) => plan.status !== 'archived')
+  if (!activeStoredPlan) return { status: 'loaded', plan: null, messages: [] }
+
+  return loadPlannerPlanDetail(activeStoredPlan.id)
+}
+
+async function loadPlannerPlanDetail(planId: string): Promise<PlannerStateLoadResult> {
+  const detailResponse = await fetch(`/api/planner/plans/${planId}`, { method: 'GET' })
+
+  if (detailResponse.status === 401 || detailResponse.status === 403) {
+    return { status: 'unauthorized' }
+  }
+
+  const detailPayload = await detailResponse.json()
+  if (!detailResponse.ok) {
+    throw new Error(detailPayload?.error ?? 'Unable to load active planner plan')
+  }
+
+  const detailData = detailPayload as PlannerFullPlanResponse
+  return {
+    status: 'loaded',
+    plan: detailData.plan,
+    messages: detailData.messages,
   }
 }
 
 function shouldUseMockReplyPath(
   persistenceMode: PlannerPersistenceMode,
-  planId: string,
-  isDemoSession: boolean
+  planId: string
 ): boolean {
   const isMockPlan = planId.startsWith('mock-plan-')
   const isRealServerPlan = persistenceMode === 'server' && !isMockPlan
   if (isRealServerPlan) return false
 
-  return persistenceMode === 'draft' || isMockPlan || isDemoSession
+  return persistenceMode === 'draft' || isMockPlan
 }
 
 function buildMockMessage(
@@ -1981,7 +2140,7 @@ interface MockPlanGaps {
 }
 
 /**
- * Returns the next deterministic mock reply so the demo does not repeat itself.
+ * Returns the next deterministic draft reply without repeating prior prompts.
  */
 function buildMockAgentReply(
   plan: Plan,
@@ -2867,6 +3026,13 @@ function buildApprovalDisplayMetadata(
 
   return {
     ...approval,
+    kind: metadata.kind,
+    venue_ids: metadata.venue_ids,
+    vendor_ids: metadata.vendor_ids,
+    projected_costs_cents: metadata.projected_costs_cents,
+    requires_user_action: metadata.requires_user_action,
+    summary: metadata.summary,
+    response_deadline: metadata.response_deadline,
     opportunity: metadata.opportunity,
     invites: metadata.invites,
     invite_stats: metadata.invite_stats,
@@ -2925,6 +3091,10 @@ function PlannerMessageMetadata({
   const nextActions = message.metadata.next_actions
   const approval = message.metadata.approval
   const hasStructuredQuestion = Array.isArray(questions) && questions.length > 0
+  const matchedArchetype = readRecommendationMetadataArchetype(message.metadata)
+  const vendorStackGroups = readVendorRecommendationGroups(message.metadata)
+  const capacityCalibration = readRecommendationCapacityCalibration(message.metadata)
+  const economicsDetails = readRecommendationEconomicsDetails(message.metadata)
 
   return (
     <div className={cn('space-y-3', hasStructuredQuestion ? 'mt-0' : 'mt-4')}>
@@ -2973,11 +3143,52 @@ function PlannerMessageMetadata({
       ) : null}
 
       {Array.isArray(recommendations) ? (
-        <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+        <div className="space-y-3">
+          {capacityCalibration?.calibration_signal === 'historical_higher' ? (
+            <div className="rounded-2xl border border-primary/30 bg-primary/10 p-4 text-xs leading-snug text-foreground">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-primary">Sized for historical attendance</span>
+                <span
+                  className="cursor-help rounded-full border border-primary/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary"
+                  title={`Based on ${capacityCalibration.sample_size} past event${capacityCalibration.sample_size === 1 ? '' : 's'} analyzed from connected ticketing imports.`}
+                >
+                  What&apos;s this?
+                </span>
+              </div>
+              <p className="mt-2 text-muted-foreground">
+                Sized for both your stated {capacityCalibration.stated_guest_count ?? 'planned'} guests and your typical attendance
+                {capacityCalibration.history_p75 ? ` (~${Math.round(capacityCalibration.history_p75)} in recent similar events)` : ''}.
+                Showing venues that fit both.
+              </p>
+            </div>
+          ) : null}
+          {matchedArchetype || vendorStackGroups.length > 0 ? (
+            <div className="rounded-2xl border border-border bg-background/50 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                {matchedArchetype ? (
+                  <span className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                    Matched: {matchedArchetype}
+                  </span>
+                ) : null}
+                {vendorStackGroups.map((group) => (
+                  <span key={`${group.necessity}-${group.service_type}`} className="rounded-full border border-border bg-muted px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {group.necessity}: {group.service_type.replace(/_/g, ' ')}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
           {recommendations.map((recommendation, index) => {
             if (!recommendation || typeof recommendation !== 'object' || Array.isArray(recommendation)) return null
             const name = typeof recommendation.name === 'string' ? recommendation.name : `Option ${index + 1}`
             const type = typeof recommendation.type === 'string' ? recommendation.type : 'Option'
+            const commercialModelMatch = typeof recommendation.commercial_model_match === 'string'
+              ? recommendation.commercial_model_match
+              : null
+            const archetypeReasons = Array.isArray(recommendation.archetype_reasons)
+              ? recommendation.archetype_reasons.filter((reason): reason is string => typeof reason === 'string' && reason.trim().length > 0)
+              : []
             const fit = sanitizeRecommendationDisplayText(
               typeof recommendation.fit === 'string' ? recommendation.fit : 'Review',
               recommendation as Record<string, unknown>
@@ -3024,7 +3235,23 @@ function PlannerMessageMetadata({
                       <span className="shrink-0 font-semibold text-foreground">{capacity}</span>
                     </div>
                   ) : null}
+                  {commercialModelMatch ? (
+                    <div className="flex min-w-0 items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Model</span>
+                      <span className="shrink-0 font-semibold text-foreground">{commercialModelMatch.replace(/_/g, ' ')}</span>
+                    </div>
+                  ) : null}
                 </div>
+                {archetypeReasons.length > 0 ? (
+                  <ul className="mt-3 space-y-1.5 text-xs leading-snug text-muted-foreground">
+                    {archetypeReasons.slice(0, 2).map((reason) => (
+                      <li key={reason} className="flex gap-2">
+                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                        <span className="min-w-0 break-words">{reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
                 {tags.length > 0 ? (
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {tags.map((tag) => (
@@ -3046,6 +3273,88 @@ function PlannerMessageMetadata({
               </div>
             )
           })}
+          </div>
+        </div>
+      ) : null}
+
+      {economicsDetails ? (
+        <div className="rounded-2xl border border-border bg-background/50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Pricing economics</p>
+              <p className="mt-1 text-sm leading-snug text-foreground">{economicsDetails.narrative}</p>
+            </div>
+            {economicsDetails.recommended_price_cents > 0 ? (
+              <span className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                Recommended {formatMockCents(economicsDetails.recommended_price_cents)}
+              </span>
+            ) : null}
+          </div>
+          {economicsDetails.historical_anchor ? (
+            <p className="mt-3 border-l-2 border-primary/50 pl-3 text-xs italic leading-snug text-muted-foreground">
+              {economicsDetails.historical_anchor}
+            </p>
+          ) : null}
+          {economicsDetails.price_points.length > 0 ? (
+            <div className="mt-4 grid gap-2">
+              {economicsDetails.price_points.map((point) => {
+                const isRecommended = point.recommendation === 'recommended'
+                const isAvoid = point.recommendation === 'avoid'
+
+                return (
+                  <div
+                    key={`${point.price_cents}-${point.recommendation}`}
+                    className={cn(
+                      'rounded-xl border bg-card/60 p-3 text-xs',
+                      isRecommended ? 'border-primary/60 shadow-glow' : 'border-border',
+                      isAvoid ? 'opacity-60' : ''
+                    )}
+                  >
+                    <div className="grid gap-2 sm:grid-cols-[0.8fr_1fr_1fr_auto] sm:items-center">
+                      <span className={cn('font-semibold text-foreground', isAvoid ? 'line-through' : '')}>
+                        {formatMockCents(point.price_cents)}
+                      </span>
+                      <span className="text-muted-foreground">
+                        Net {formatMockCents(point.projected_net_cents)}
+                      </span>
+                      <span className="text-muted-foreground">
+                        Break-even {point.break_even_tickets} tickets
+                      </span>
+                      <span className={cn(
+                        'w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                        isRecommended ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                      )}>
+                        {point.recommendation}
+                      </span>
+                    </div>
+                    <p className="mt-2 leading-snug text-muted-foreground">{point.reasoning}</p>
+                  </div>
+                )
+              })}
+            </div>
+          ) : null}
+          {economicsDetails.elasticity ? (
+            <details className="mt-4 rounded-xl border border-border bg-background/40 p-3 text-xs text-muted-foreground">
+              <summary className="cursor-pointer font-semibold text-foreground">How was this priced?</summary>
+              <div className="mt-3 space-y-2">
+                <p>
+                  {economicsDetails.elasticity.sample_size} events analyzed · pattern {economicsDetails.elasticity.tier_pattern.replace(/_/g, ' ')}
+                </p>
+                {economicsDetails.elasticity.velocity_vector.length > 0 ? (
+                  <div className="grid gap-1">
+                    {economicsDetails.elasticity.velocity_vector.map((point) => (
+                      <div key={point.price_cents} className="flex flex-wrap justify-between gap-2">
+                        <span>{formatMockCents(point.price_cents)}</span>
+                        <span>
+                          {point.avg_days_to_sellout === null ? 'No sellout' : `${point.avg_days_to_sellout} days to sell out`} · {Math.round(point.sellout_rate * 100)}% sellout rate
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </details>
+          ) : null}
         </div>
       ) : null}
 
@@ -3543,6 +3852,160 @@ function sanitizeRecommendationDisplayText(value: string, recommendation: Record
   return `${name} is matched on the stated event requirements and budget.`
 }
 
+function readRecommendationMetadataArchetype(metadata: unknown): string | null {
+  const root = readUnknownRecord(metadata)
+  const response = readUnknownRecord(root?.recommendation_response)
+  const archetype = readUnknownRecord(root?.resolved_archetype) ?? readUnknownRecord(response?.resolved_archetype)
+  const displayName = archetype?.display_name
+  return typeof displayName === 'string' && displayName.trim() ? displayName : null
+}
+
+function readVendorRecommendationGroups(metadata: unknown): Array<{
+  service_type: string
+  necessity: string
+}> {
+  const root = readUnknownRecord(metadata)
+  const response = readUnknownRecord(root?.recommendation_response)
+  const groups = Array.isArray(root?.vendor_recommendation_groups)
+    ? root?.vendor_recommendation_groups
+    : Array.isArray(response?.vendor_recommendation_groups)
+      ? response?.vendor_recommendation_groups
+      : []
+
+  return groups.flatMap((item) => {
+    const group = readUnknownRecord(item)
+    const serviceType = group?.service_type
+    const necessity = group?.necessity
+    if (typeof serviceType !== 'string' || typeof necessity !== 'string') return []
+
+    return [{
+      service_type: serviceType,
+      necessity,
+    }]
+  })
+}
+
+function readRecommendationCapacityCalibration(metadata: unknown): {
+  calibration_signal: string
+  stated_guest_count: number | null
+  projected_attendance: number | null
+  history_p75: number | null
+  sample_size: number
+} | null {
+  const root = readUnknownRecord(metadata)
+  const response = readUnknownRecord(root?.recommendation_response)
+  const calibration = readUnknownRecord(root?.capacity_calibration) ?? readUnknownRecord(response?.capacity_calibration)
+  if (!calibration) return null
+
+  const signal = calibration.calibration_signal
+  if (typeof signal !== 'string') return null
+
+  return {
+    calibration_signal: signal,
+    stated_guest_count: typeof calibration.stated_guest_count === 'number' ? calibration.stated_guest_count : null,
+    projected_attendance: typeof calibration.projected_attendance === 'number' ? calibration.projected_attendance : null,
+    history_p75: typeof calibration.history_p75 === 'number' ? calibration.history_p75 : null,
+    sample_size: typeof calibration.sample_size === 'number' ? calibration.sample_size : 0,
+  }
+}
+
+function readRecommendationEconomicsDetails(metadata: unknown): {
+  narrative: string
+  historical_anchor: string | null
+  recommended_price_cents: number
+  price_points: Array<{
+    price_cents: number
+    projected_net_cents: number
+    break_even_tickets: number
+    recommendation: string
+    reasoning: string
+  }>
+  elasticity: {
+    sample_size: number
+    tier_pattern: string
+    velocity_vector: Array<{
+      price_cents: number
+      avg_days_to_sellout: number | null
+      sellout_rate: number
+    }>
+  } | null
+} | null {
+  const root = readUnknownRecord(metadata)
+  const response = readUnknownRecord(root?.recommendation_response)
+  const economics = readUnknownRecord(root?.economics) ?? readUnknownRecord(response?.economics)
+  if (!economics) return null
+
+  const narrative =
+    typeof economics.narrative === 'string' && economics.narrative.trim()
+      ? economics.narrative.trim()
+      : typeof economics.recommendation_summary === 'string' && economics.recommendation_summary.trim()
+        ? economics.recommendation_summary.trim()
+        : null
+  if (!narrative) return null
+
+  const pricePoints = Array.isArray(economics.price_points)
+    ? economics.price_points.flatMap((item) => {
+      const point = readUnknownRecord(item)
+      if (!point) return []
+      const priceCents = typeof point.price_cents === 'number' ? point.price_cents : null
+      const projectedNetCents = typeof point.projected_net_cents === 'number' ? point.projected_net_cents : null
+      const breakEvenTickets = typeof point.break_even_tickets === 'number' ? point.break_even_tickets : null
+      const recommendation = typeof point.recommendation === 'string' ? point.recommendation : null
+      const reasoning = typeof point.reasoning === 'string' ? point.reasoning : null
+      if (priceCents === null || projectedNetCents === null || breakEvenTickets === null || !recommendation || !reasoning) return []
+
+      return [{
+        price_cents: priceCents,
+        projected_net_cents: projectedNetCents,
+        break_even_tickets: breakEvenTickets,
+        recommendation,
+        reasoning,
+      }]
+    })
+    : []
+
+  return {
+    narrative,
+    historical_anchor: typeof economics.historical_anchor === 'string' ? economics.historical_anchor : null,
+    recommended_price_cents: typeof economics.recommended_price_cents === 'number' ? economics.recommended_price_cents : 0,
+    price_points: pricePoints,
+    elasticity: readEconomicsElasticity(root?.elasticity ?? response?.elasticity),
+  }
+}
+
+function readEconomicsElasticity(value: unknown): {
+  sample_size: number
+  tier_pattern: string
+  velocity_vector: Array<{
+    price_cents: number
+    avg_days_to_sellout: number | null
+    sellout_rate: number
+  }>
+} | null {
+  const elasticity = readUnknownRecord(value)
+  if (!elasticity) return null
+  const sampleSize = typeof elasticity.sample_size === 'number' ? elasticity.sample_size : 0
+  const tierPattern = typeof elasticity.tier_pattern === 'string' ? elasticity.tier_pattern : 'unknown'
+  const velocityVector = Array.isArray(elasticity.velocity_vector)
+    ? elasticity.velocity_vector.flatMap((item) => {
+      const point = readUnknownRecord(item)
+      if (!point || typeof point.price_cents !== 'number' || typeof point.sellout_rate !== 'number') return []
+      return [{
+        price_cents: point.price_cents,
+        avg_days_to_sellout: typeof point.avg_days_to_sellout === 'number' ? point.avg_days_to_sellout : null,
+        sellout_rate: point.sellout_rate,
+      }]
+    })
+    : []
+
+  return { sample_size: sampleSize, tier_pattern: tierPattern, velocity_vector: velocityVector }
+}
+
+function readUnknownRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  return null
+}
+
 /**
  * Reads a string field from recommendation metadata.
  */
@@ -3635,7 +4098,9 @@ function PlannerApprovalCard({
   const venueNames = readApprovalVenueNames(approval)
   const briefPreview = readApprovalBriefPreview(approval)
   const responseDeadline = readApprovalResponseDeadline(approval)
-  const isSendToVenues = /send to venues/i.test(label)
+  const approvalKind = readApprovalString(approval, 'kind')
+  const isVenueOutreachApproval = approvalKind === 'venue_outreach' || /outreach/i.test(label)
+  const isSendToVenues = isVenueOutreachApproval || /send to venues/i.test(label)
   const inviteStats = readApprovalInviteStats(approval)
   const queuedInviteCount = readApprovalQueuedInviteCount(approval) ?? venueNames.length
   const sentAt = inviteStats?.last_sent_at ? formatApprovalTimestamp(inviteStats.last_sent_at) : null
@@ -3652,12 +4117,12 @@ function PlannerApprovalCard({
     })
   }
 
-  async function patchApproval(action: 'authorize' | 'cancel', nextAuthorizedAmountCents?: number) {
+  async function patchApproval(action: 'authorize' | 'approve' | 'cancel', nextAuthorizedAmountCents?: number) {
     if (planId.startsWith('mock-plan-') || approvalId.startsWith('mock-approval-')) {
       return {
         ...approval,
-        status: action === 'authorize' ? 'authorized' : 'cancelled',
-        authorized_amount_cents: action === 'authorize' ? nextAuthorizedAmountCents ?? amountCents : null,
+        status: action === 'authorize' || action === 'approve' ? action : 'cancelled',
+        authorized_amount_cents: action === 'authorize' || action === 'approve' ? nextAuthorizedAmountCents ?? amountCents : null,
       }
     }
 
@@ -3667,12 +4132,13 @@ function PlannerApprovalCard({
       body: JSON.stringify({
         approvalId,
         action,
-        authorizedAmountCents: action === 'authorize' ? nextAuthorizedAmountCents ?? amountCents : undefined,
+        authorizedAmountCents: action === 'authorize' || action === 'approve' ? nextAuthorizedAmountCents ?? amountCents : undefined,
       }),
     })
 
     if (!response.ok) {
-      throw new Error('Approval update failed')
+      const payload = await response.json().catch(() => ({} as { error?: string }))
+      throw new Error(payload?.error ?? 'Approval update failed')
     }
 
     const payload = (await response.json()) as { approval?: Record<string, unknown> }
@@ -3689,12 +4155,12 @@ function PlannerApprovalCard({
     setInlineError(null)
 
     try {
-      const updatedApproval = await patchApproval('authorize', amountCents)
+      const updatedApproval = await patchApproval(isVenueOutreachApproval ? 'approve' : 'authorize', amountCents)
       setAuthorizedAmountCents(readAuthorizedApprovalAmount(updatedApproval ?? approval) ?? amountCents)
       setStatus('approved')
       onStatusChange(approvalId, 'approved', updatedApproval ?? { status: 'authorized', authorized_amount_cents: amountCents })
-    } catch {
-      setInlineError('Authorization failed — try again')
+    } catch (error) {
+      setInlineError(error instanceof Error ? error.message : 'Authorization failed — try again')
     } finally {
       setIsSubmitting(false)
     }
@@ -3735,7 +4201,7 @@ function PlannerApprovalCard({
     setEditNotice(null)
 
     try {
-      const updatedApproval = await patchApproval('authorize', nextAuthorizedAmountCents)
+      const updatedApproval = await patchApproval(isVenueOutreachApproval ? 'approve' : 'authorize', nextAuthorizedAmountCents)
       setAuthorizedAmountCents(nextAuthorizedAmountCents)
       setStatus('approved')
       setMode('view')
@@ -3752,8 +4218,8 @@ function PlannerApprovalCard({
         description: 'Approval updated with the authorized amount.',
         variant: 'success',
       })
-    } catch {
-      setInlineError('Authorization failed — try again')
+    } catch (error) {
+      setInlineError(error instanceof Error ? error.message : 'Authorization failed — try again')
     } finally {
       setIsSubmitting(false)
     }
@@ -3915,10 +4381,10 @@ function PlannerApprovalCard({
             <div className="mt-4 flex flex-wrap gap-2">
               <Button type="button" size="sm" onClick={handleAuthorize} disabled={isSubmitting}>
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Authorize
+                {isVenueOutreachApproval ? 'Approve and send' : 'Authorize'}
               </Button>
               <Button type="button" variant="glass" size="sm" onClick={() => setMode('edit')} disabled={isSubmitting}>
-                Edit
+                {isVenueOutreachApproval ? 'Edit picks' : 'Edit'}
               </Button>
               <Button type="button" variant="ghost" size="sm" onClick={() => setMode('confirm_cancel')} disabled={isSubmitting}>
                 Cancel

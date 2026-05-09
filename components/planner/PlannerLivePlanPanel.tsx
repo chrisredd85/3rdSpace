@@ -14,14 +14,17 @@ import {
   ChevronRight,
   ClipboardList,
   MapPin,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
   TrendingUp,
   WalletCards,
 } from 'lucide-react'
 import Link from 'next/link'
+import { plannerDraftStorageKey } from '@/lib/planner/migrateDraft'
 import type { PlanMessage } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { formatRelativeTime } from '@/lib/utils/relativeTime'
 
 interface BudgetLineItem {
   label: string
@@ -49,6 +52,26 @@ interface RecommendationSummary {
   holdDurationHours: number | null
 }
 
+interface RunOfShowMilestone {
+  title: string
+  dueDate: string
+  category: string
+  isBlocking: boolean
+}
+
+interface RunOfShowSnapshot {
+  planningMilestones: RunOfShowMilestone[]
+  impossibleTimeline: boolean
+}
+
+interface WorkspaceSummarySnapshot {
+  workspaceSummary: string
+  currentStatus: 'on_track' | 'at_risk' | 'blocked'
+  blockers: string[]
+  recommendedNextActions: string[]
+  approvalsNeeded: string[]
+}
+
 interface SpendingRule {
   label: string
   enabled: boolean
@@ -70,7 +93,7 @@ interface EventSummary {
   must_haves: string | null
   dress_code: string | null
   duration: string | null
-  ticketed: boolean
+  ticketed: boolean | null
 }
 
 interface PlannerLivePlanPanelProps {
@@ -93,7 +116,16 @@ interface LivePlanSnapshot {
   neighborhood: string | null
   dateWindowStart: string | null
   dateWindowEnd: string | null
-  ticketed: boolean
+  ticketed: boolean | null
+  ticketingModel: string | null
+  ticketPriceTargetCents: number | null
+  foodResponsibility: string | null
+  venueTerms: string | null
+  actionPermission: string | null
+  notes: string | null
+  runOfShow: RunOfShowSnapshot | null
+  workspaceSummary: WorkspaceSummarySnapshot | null
+  updatedAt: string | null
 }
 
 interface LivePlanPanelPayload {
@@ -177,6 +209,19 @@ function readLivePlanPayload(): LivePlanPanelPayload {
   if (typeof window === 'undefined') return emptyPayload
 
   const raw = window.localStorage.getItem('planner-live-plan')
+  if (!raw) return readStoredDraftLivePlanPayload()
+
+  try {
+    return normalizeLivePlanPayload(JSON.parse(raw))
+  } catch {
+    return readStoredDraftLivePlanPayload()
+  }
+}
+
+function readStoredDraftLivePlanPayload(): LivePlanPanelPayload {
+  if (typeof window === 'undefined') return emptyPayload
+
+  const raw = window.localStorage.getItem(plannerDraftStorageKey)
   if (!raw) return emptyPayload
 
   try {
@@ -194,10 +239,15 @@ function normalizeLivePlanPayload(value: unknown): LivePlanPanelPayload {
   if (!record) return emptyPayload
 
   if ('plan' in record || 'messages' in record || 'planId' in record) {
+    const planRecord = asRecord(record.plan)
     return {
-      plan: normalizeLivePlanSnapshot(record.plan),
+      plan: normalizeLivePlanSnapshot(planRecord),
       messages: Array.isArray(record.messages) ? (record.messages as PlanMessage[]) : [],
-      planId: typeof record.planId === 'string' ? record.planId : null,
+      planId: typeof record.planId === 'string'
+        ? record.planId
+        : typeof planRecord?.id === 'string'
+          ? planRecord.id
+          : null,
     }
   }
 
@@ -214,17 +264,40 @@ function normalizeLivePlanPayload(value: unknown): LivePlanPanelPayload {
 function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
   const record = asRecord(value)
   if (!record) return null
+  const ticketingModel = readString(record.ticketingModel) ?? readString(record.ticketing_model)
+  const metadata = asRecord(record.metadata)
+  const agentCache = asRecord(metadata?.agent_cache)
+  const cachedTimeline = asRecord(agentCache?.timeline)
+  const cachedWorkspace = asRecord(agentCache?.workspace_summary)
 
   return {
     title: readString(record.title) ?? 'Untitled plan',
-    eventType: readString(record.eventType),
+    eventType: readString(record.eventType) ?? readString(record.event_type),
     status: readString(record.status) ?? 'drafting',
-    guestCount: readNumber(record.guestCount),
-    budgetCapCents: readNumber(record.budgetCapCents),
-    neighborhood: readString(record.neighborhood),
-    dateWindowStart: readString(record.dateWindowStart),
-    dateWindowEnd: readString(record.dateWindowEnd),
-    ticketed: Boolean(record.ticketed),
+    guestCount: readNumber(record.guestCount) ?? readNumber(record.guest_count),
+    budgetCapCents: readNumber(record.budgetCapCents) ?? readNumber(record.budget_cap_cents),
+    neighborhood: readString(record.neighborhood) ?? readString(record.area),
+    dateWindowStart: readString(record.dateWindowStart) ?? readString(record.date_window_start),
+    dateWindowEnd: readString(record.dateWindowEnd) ?? readString(record.date_window_end),
+    ticketed: readBoolean(record.ticketed) ?? isPaidTicketingModel(ticketingModel),
+    ticketingModel,
+    ticketPriceTargetCents:
+      readNumber(record.ticketPriceTargetCents) ??
+      readNumber(record.ticket_price_target_cents) ??
+      readNumber(metadata?.ticket_price_target_cents),
+    foodResponsibility: readString(record.foodResponsibility) ?? readString(record.food_responsibility),
+    venueTerms: readString(record.venueTerms) ?? readString(record.venue_terms),
+    actionPermission: readString(record.actionPermission) ?? readString(record.agent_action),
+    notes: readString(record.notes),
+    runOfShow:
+      normalizeRunOfShow(record.runOfShow) ??
+      normalizeRunOfShow(record.run_of_show) ??
+      normalizeRunOfShow(cachedTimeline?.output),
+    workspaceSummary:
+      normalizeWorkspaceSummary(record.workspaceSummary) ??
+      normalizeWorkspaceSummary(record.workspace_summary) ??
+      normalizeWorkspaceSummary(cachedWorkspace?.output),
+    updatedAt: readString(record.updatedAt) ?? readString(record.updated_at),
   }
 }
 
@@ -253,23 +326,26 @@ function formatEventType(value: string | null) {
  * Returns the latest structured event summary from confirmation messages.
  */
 function deriveEventSummary(messages: PlanMessage[], plan: LivePlanSnapshot | null): EventSummary {
+  const ticketingModel = plan?.ticketingModel ?? null
+  const ticketed = plan?.ticketed ?? isPaidTicketingModel(ticketingModel)
+  const budgetCents = deriveBudgetCapCentsFromMessages(messages) ?? plan?.budgetCapCents ?? null
   const fallback: EventSummary = {
     event_type: plan?.eventType ?? null,
     guest_count: plan?.guestCount ?? null,
     date: formatDateWindow(plan),
     area: plan?.neighborhood ?? null,
-    budget_cents: plan?.budgetCapCents ?? null,
-    ticketing_model: null,
-    food_responsibility: null,
+    budget_cents: budgetCents,
+    ticketing_model: ticketingModel,
+    food_responsibility: plan?.foodResponsibility ?? null,
     vendor_needs: null,
     amenities: null,
-    venue_terms: null,
+    venue_terms: plan?.venueTerms ?? null,
     revenue_share: null,
-    action_permission: null,
+    action_permission: plan?.actionPermission ?? null,
     must_haves: null,
     dress_code: null,
     duration: null,
-    ticketed: Boolean(plan?.ticketed),
+    ticketed,
   }
 
   const confirmationMessage = [...messages]
@@ -282,22 +358,22 @@ function deriveEventSummary(messages: PlanMessage[], plan: LivePlanSnapshot | nu
   const summary = asRecord(metadata?.summary)
   if (summary) {
     return {
-      event_type: readString(summary.event_type) ?? fallback.event_type,
-      guest_count: readNumber(summary.guest_count) ?? fallback.guest_count,
-      date: readString(summary.date) ?? fallback.date,
-      area: readString(summary.area) ?? fallback.area,
-      budget_cents: readNumber(summary.budget_cents) ?? fallback.budget_cents,
-      ticketing_model: readString(summary.ticketing_model) ?? fallback.ticketing_model,
-      food_responsibility: readString(summary.food_responsibility) ?? fallback.food_responsibility,
+      event_type: fallback.event_type ?? readString(summary.event_type),
+      guest_count: fallback.guest_count ?? readNumber(summary.guest_count),
+      date: fallback.date ?? readString(summary.date),
+      area: fallback.area ?? readString(summary.area),
+      budget_cents: fallback.budget_cents ?? readNumber(summary.budget_cents),
+      ticketing_model: fallback.ticketing_model ?? readString(summary.ticketing_model),
+      food_responsibility: fallback.food_responsibility ?? readString(summary.food_responsibility),
       vendor_needs: readString(summary.vendor_needs) ?? fallback.vendor_needs,
       amenities: readString(summary.amenities) ?? fallback.amenities,
-      venue_terms: readString(summary.venue_terms) ?? fallback.venue_terms,
+      venue_terms: fallback.venue_terms ?? readString(summary.venue_terms),
       revenue_share: readString(summary.revenue_share) ?? fallback.revenue_share,
-      action_permission: readString(summary.action_permission) ?? fallback.action_permission,
+      action_permission: fallback.action_permission ?? readString(summary.action_permission),
       must_haves: readStringListValue(summary.must_haves) ?? fallback.must_haves,
       dress_code: readString(summary.dress_code) ?? fallback.dress_code,
       duration: readString(summary.duration) ?? fallback.duration,
-      ticketed: readBoolean(summary.ticketed) ?? isPaidTicketingModel(readString(summary.ticketing_model)) ?? fallback.ticketed,
+      ticketed: fallback.ticketed ?? readBoolean(summary.ticketed) ?? isPaidTicketingModel(readString(summary.ticketing_model)),
     }
   }
 
@@ -320,21 +396,21 @@ function deriveSummaryFromConfirmationItems(
     const value = readString(record?.value)
     if (!value || /^need\b/i.test(value)) continue
 
-    if (label.includes('event')) nextSummary.event_type = value
-    if (label.includes('guest')) nextSummary.guest_count = readNumber(value.match(/\d+/)?.[0]) ?? nextSummary.guest_count
-    if (label.includes('date')) nextSummary.date = value
-    if (label.includes('area')) nextSummary.area = value
-    if (label.includes('budget')) nextSummary.budget_cents = parseMoneyToCents(value) ?? nextSummary.budget_cents
+    if (label.includes('event') && !nextSummary.event_type) nextSummary.event_type = value
+    if (label.includes('guest') && !nextSummary.guest_count) nextSummary.guest_count = readNumber(value.match(/\d+/)?.[0]) ?? nextSummary.guest_count
+    if (label.includes('date') && !nextSummary.date) nextSummary.date = value
+    if (label.includes('area') && !nextSummary.area) nextSummary.area = value
+    if (label.includes('budget') && !nextSummary.budget_cents) nextSummary.budget_cents = parseMoneyToCents(value) ?? nextSummary.budget_cents
     if (label.includes('ticketing')) {
-      nextSummary.ticketing_model = value
-      nextSummary.ticketed = isPaidTicketingModel(value) ?? nextSummary.ticketed
+      if (!nextSummary.ticketing_model) nextSummary.ticketing_model = value
+      nextSummary.ticketed = nextSummary.ticketed ?? isPaidTicketingModel(value)
     }
-    if (label.includes('food')) nextSummary.food_responsibility = value
+    if (label.includes('food') && !nextSummary.food_responsibility) nextSummary.food_responsibility = value
     if (label.includes('vendors')) nextSummary.vendor_needs = value
     if (label.includes('amenities')) nextSummary.amenities = value
-    if (label.includes('venue terms')) nextSummary.venue_terms = value
+    if (label.includes('venue terms') && !nextSummary.venue_terms) nextSummary.venue_terms = value
     if (label.includes('revenue')) nextSummary.revenue_share = value
-    if (label.includes('agent action')) nextSummary.action_permission = value
+    if (label.includes('agent action') && !nextSummary.action_permission) nextSummary.action_permission = value
     if (label.includes('duration')) nextSummary.duration = /^not specified$/i.test(value) ? null : value
     if (label.includes('must')) nextSummary.must_haves = value
   }
@@ -375,12 +451,16 @@ function deriveApprovals(messages: PlanMessage[]): PendingApproval[] {
     })
 }
 
+function isRecommendationPlanMessage(message: PlanMessage) {
+  return String(message.message_type) === 'recommendation'
+}
+
 /**
  * Returns compact recommendation summaries from recommendation messages.
  */
 function deriveRecommendations(messages: PlanMessage[]): RecommendationSummary[] {
   return messages.flatMap((message) => {
-    if (String(message.message_type) !== 'recommendation') return []
+    if (!isRecommendationPlanMessage(message)) return []
 
     const metadata = asRecord(message.metadata)
     const recommendations = Array.isArray(metadata?.recommendations) ? metadata.recommendations : []
@@ -515,6 +595,9 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const [livePayload, setLivePayload] = useState<LivePlanPanelPayload>(emptyPayload)
   const [actionFeedback, setActionFeedback] = useState<Record<string, 'loading' | 'sent' | 'error'>>({})
   const [expandedAuthorizationDetails, setExpandedAuthorizationDetails] = useState<Record<string, boolean>>({})
+  const [relativeNowMs, setRelativeNowMs] = useState(() => Date.now())
+  const [isGeneratingTimeline, setIsGeneratingTimeline] = useState(false)
+  const [timelineRetryError, setTimelineRetryError] = useState<string | null>(null)
 
   useEffect(() => {
     setLivePayload(readLivePlanPayload())
@@ -528,13 +611,30 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
     return () => window.removeEventListener('planner-live-plan:update', handleLivePlanUpdate)
   }, [])
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setRelativeNowMs(Date.now()), 30_000)
+    return () => window.clearInterval(intervalId)
+  }, [])
+
   const activeMessages = messages ?? livePayload.messages
   const livePlan = livePayload.plan
   const activePlanId = planId ?? livePayload.planId
-  const eventSummary = deriveEventSummary(activeMessages, livePlan)
+  const runOfShow = livePlan?.runOfShow ?? deriveRunOfShowFromMessages(activeMessages)
+  const workspaceSummary = livePlan?.workspaceSummary ?? deriveWorkspaceSummaryFromMessages(activeMessages)
+  const updatedAtLabel = useMemo(
+    () => formatRelativeTime(livePlan?.updatedAt ?? null, relativeNowMs),
+    [livePlan?.updatedAt, relativeNowMs]
+  )
+  const baseEventSummary = deriveEventSummary(activeMessages, livePlan)
+  const ticketPriceTargetCents = deriveTicketPriceTargetCents(baseEventSummary, livePlan, activeMessages)
+  const eventSummary = applyTicketPriceIntent(baseEventSummary, ticketPriceTargetCents)
   const renderedBudgetLineItems = budgetLineItems ?? buildBudgetItems(eventSummary, livePlan)
   const renderedApprovals = approvals ?? deriveApprovals(activeMessages)
   const renderedRecommendations = deriveRecommendations(activeMessages)
+  const recommendationMessageCount = useMemo(
+    () => activeMessages.filter(isRecommendationPlanMessage).length,
+    [activeMessages]
+  )
   const primaryVenue = renderedRecommendations.find((recommendation) => /venue/i.test(recommendation.type)) ?? renderedRecommendations[0] ?? null
   const openQuestions = buildOpenQuestions(eventSummary, renderedRecommendations)
   const authorizationCards = buildAuthorizationCards(renderedApprovals, primaryVenue, renderedBudgetLineItems)
@@ -544,12 +644,58 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   )
   const renderedEstimatedTotal =
     estimatedTotalCents !== undefined ? formatCents(estimatedTotalCents) : formatCents(eventSummary.budget_cents)
-  const renderedCapLabel = capLabel ?? (eventSummary.budget_cents ? 'Recommended' : 'Budget pending')
   const title = derivePlanTitle(livePlan, eventSummary)
-  const ticketPriceCents = profitModel.ticketPricing.recommendedCents
+  const suggestedTicketPriceCents = ticketPriceTargetCents ?? profitModel.ticketPricing.recommendedCents
+  const statusPillLabel = getStatusPillLabel({
+    budgetCents: eventSummary.budget_cents,
+    capLabel,
+    recommendationCount: recommendationMessageCount,
+    planStatus: livePlan?.status ?? null,
+  })
   const isComparingCommercialModels = isRecommendBestModel(eventSummary.revenue_share)
   const primaryAuthorization = authorizationCards[0] ?? null
   const shoppingListItems = buildShoppingList(primaryVenue, renderedBudgetLineItems, eventSummary)
+
+  async function handleGenerateTimeline() {
+    if (!activePlanId || activePlanId.startsWith('mock-plan-') || isGeneratingTimeline) return
+
+    setIsGeneratingTimeline(true)
+    setTimelineRetryError(null)
+
+    try {
+      const response = await fetch(`/api/planner/plans/${activePlanId}/recommend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venueLimit: 3, vendorLimit: 3 }),
+      })
+      const payload = await response.json().catch(() => ({})) as Record<string, unknown>
+      if (!response.ok) throw new Error(readString(payload.error) ?? 'Could not generate timeline.')
+
+      const nextRunOfShow = normalizeRunOfShow(payload.timeline)
+      const nextWorkspaceSummary = normalizeWorkspaceSummary(payload.workspace_summary)
+      if (!nextRunOfShow && !nextWorkspaceSummary) throw new Error('Could not generate timeline.')
+
+      setLivePayload((current) => {
+        if (!current.plan) return current
+        const nextPayload = {
+          ...current,
+          plan: {
+            ...current.plan,
+            runOfShow: nextRunOfShow ?? current.plan.runOfShow,
+            workspaceSummary: nextWorkspaceSummary ?? current.plan.workspaceSummary,
+          },
+        }
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('planner-live-plan', JSON.stringify(nextPayload))
+        }
+        return nextPayload
+      })
+    } catch (error) {
+      setTimelineRetryError(error instanceof Error ? error.message : 'Could not generate timeline.')
+    } finally {
+      setIsGeneratingTimeline(false)
+    }
+  }
 
   async function handleAuthorizationAction(card: AuthorizationCardModel) {
     if (!activePlanId || activePlanId.startsWith('mock-plan-')) {
@@ -623,22 +769,28 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
       <div className="border-b border-border px-4 py-6">
         <div className="space-y-2">
           <p className="whitespace-nowrap text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Event Plan</p>
-          <span className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-emerald-600">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            Updated 2s ago
-          </span>
+          {updatedAtLabel ? (
+            <span className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-emerald-600">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              Updated {updatedAtLabel}
+            </span>
+          ) : null}
         </div>
         <h2 className="mt-4 break-words font-display text-2xl leading-[1.05] tracking-normal text-foreground" title={title}>
           {title}
         </h2>
         <div className="mt-5 flex flex-wrap gap-2">
           <PlanPill>
-            {(eventSummary.area ?? 'Area').toUpperCase()} · {eventSummary.guest_count ? `${eventSummary.guest_count} GUESTS` : 'GUESTS TBD'}
+            {eventSummary.area ? eventSummary.area.toUpperCase() : 'NEED AREA'} · {eventSummary.guest_count ? `${eventSummary.guest_count} GUESTS` : 'GUESTS TBD'}
           </PlanPill>
           <PlanPill>
-            {eventSummary.ticketed ? `TICKETED · ${formatCents(ticketPriceCents)}` : 'RSVP · FREE'}
+            {formatTicketingPill(eventSummary, ticketPriceTargetCents)}
           </PlanPill>
-          <PlanPill intent="recommended">{renderedCapLabel.toUpperCase()}</PlanPill>
+          {statusPillLabel ? (
+            <PlanPill intent={recommendationMessageCount > 0 ? 'recommended' : 'neutral'}>
+              {statusPillLabel}
+            </PlanPill>
+          ) : null}
         </div>
       </div>
 
@@ -647,15 +799,23 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           <div className="grid gap-x-5 gap-y-5 [grid-template-columns:repeat(auto-fit,minmax(120px,1fr))]">
             <ArtifactField label="Event Type" value={formatEventType(eventSummary.event_type)} />
             <ArtifactField label="Date Window" value={eventSummary.date ?? 'Need date'} />
-            <ArtifactField label="Neighborhood" value={eventSummary.area ?? 'TBD'} />
-            <ArtifactField label="Guest Target" value={eventSummary.guest_count ? String(eventSummary.guest_count) : 'TBD'} />
-            <ArtifactField label="Ticketing" value={formatTicketingModel(eventSummary, ticketPriceCents)} />
-            <ArtifactField label="Suggested Price" value={eventSummary.ticketed ? formatCents(ticketPriceCents) : 'No ticket price'} />
+            <ArtifactField label="Neighborhood" value={eventSummary.area ?? 'Need area'} />
+            <ArtifactField label="Guest Target" value={eventSummary.guest_count ? String(eventSummary.guest_count) : 'Guests TBD'} />
+            <ArtifactField label="Ticketing" value={formatTicketingModel(eventSummary, ticketPriceTargetCents)} />
+            <ArtifactField label="Suggested Price" value={formatSuggestedPrice(eventSummary, ticketPriceTargetCents, suggestedTicketPriceCents)} />
+            <ArtifactField label="Budget" value={livePlan?.budgetCapCents && livePlan.budgetCapCents > 0 ? formatCents(livePlan.budgetCapCents) : 'No cap set'} />
             <ArtifactField label="Food + Beverage" value={formatFoodResponsibilityValue(eventSummary.food_responsibility)} />
             <ArtifactField label="Venue Terms" value={formatVenueTermsValue(eventSummary)} />
             <ArtifactField label="Revenue Model" value={formatRevenueModelValue(eventSummary)} />
             <ArtifactField label="Agent Action" value={eventSummary.action_permission ?? 'Need approval rules'} />
-            <ArtifactField label="Run of Show" value={deriveRunOfShow(eventSummary)} />
+            <RunOfShowField
+              runOfShow={runOfShow}
+              eventDate={livePlan?.dateWindowStart ?? livePlan?.dateWindowEnd ?? null}
+              canGenerate={Boolean(activePlanId && !activePlanId.startsWith('mock-plan-'))}
+              isGenerating={isGeneratingTimeline}
+              error={timelineRetryError}
+              onGenerate={handleGenerateTimeline}
+            />
           </div>
 
           <div className="mt-7 rounded-2xl border border-primary/20 bg-primary/5 p-5">
@@ -670,10 +830,30 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                   {venueMetaLabel(primaryVenue, eventSummary)}
                 </p>
                 <p className="mt-3 break-words text-sm leading-snug text-primary/70">
-                  {primaryVenue?.name
-                    ? `${primaryVenue.name} will receive the plan after approval.`
-                    : 'The agent will confirm details before outreach.'}
+                  {workspaceSummary?.workspaceSummary
+                    ?? (primaryVenue?.name
+                      ? `${primaryVenue.name} will receive the plan after approval.`
+                      : 'The agent will confirm details before outreach.')}
                 </p>
+                {workspaceSummary ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className={cn(
+                      'rounded-full px-2 py-1 text-[11px] font-bold uppercase tracking-[0.06em]',
+                      workspaceSummary.currentStatus === 'blocked'
+                        ? 'bg-destructive/15 text-destructive'
+                        : workspaceSummary.currentStatus === 'at_risk'
+                          ? 'bg-warning/15 text-warning'
+                          : 'bg-success/15 text-success'
+                    )}>
+                      {workspaceSummary.currentStatus.replace(/_/g, ' ')}
+                    </span>
+                    {workspaceSummary.approvalsNeeded.slice(0, 1).map((approval) => (
+                      <span key={approval} className="rounded-full bg-muted px-2 py-1 text-[11px] font-semibold text-muted-foreground">
+                        {approval}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <Link
                 href="/planner/venues"
@@ -951,6 +1131,65 @@ function ArtifactField({ label, value }: { label: string; value: string }) {
   )
 }
 
+function RunOfShowField({
+  runOfShow,
+  eventDate,
+  canGenerate,
+  isGenerating,
+  error,
+  onGenerate,
+}: {
+  runOfShow: RunOfShowSnapshot | null
+  eventDate: string | null
+  canGenerate: boolean
+  isGenerating: boolean
+  error: string | null
+  onGenerate: () => void
+}) {
+  const milestones = runOfShow?.planningMilestones ?? []
+  const visibleMilestones = milestones.slice(0, 3)
+  const hiddenCount = Math.max(milestones.length - visibleMilestones.length, 0)
+
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">Run of Show</p>
+      {visibleMilestones.length > 0 ? (
+        <div className="mt-2 space-y-2">
+          {visibleMilestones.map((milestone) => (
+            <p key={`${milestone.dueDate}-${milestone.title}`} className="break-words text-sm leading-snug text-foreground" title={milestone.title}>
+              <span className="font-semibold text-primary">{formatRunOfShowDateLabel(milestone.dueDate, eventDate)}</span>
+              <span className="text-muted-foreground"> · </span>
+              {milestone.title}
+              <span className="text-muted-foreground"> · pending</span>
+            </p>
+          ))}
+          {hiddenCount > 0 ? (
+            <Link href="/planner?tab=timeline" className="inline-flex text-sm font-semibold text-primary hover:text-primary/80">
+              + {hiddenCount} more
+            </Link>
+          ) : null}
+        </div>
+      ) : (
+        <div className="mt-2 space-y-2">
+          <p className="break-words text-lg leading-tight text-foreground sm:text-xl">Not set</p>
+          {canGenerate ? (
+            <button
+              type="button"
+              onClick={onGenerate}
+              disabled={isGenerating}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-bold text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', isGenerating ? 'animate-spin' : '')} />
+              {isGenerating ? 'Generating' : 'Generate timeline'}
+            </button>
+          ) : null}
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PlanPill({ children, intent = 'neutral' }: { children: React.ReactNode; intent?: 'neutral' | 'recommended' }) {
   return (
     <span
@@ -1042,15 +1281,156 @@ function isPaidTicketingModel(value: string | null) {
   return null
 }
 
-function formatTicketingModel(summary: EventSummary, ticketPriceCents: number) {
-  if (summary.ticketing_model) {
-    if (summary.ticketed && ticketPriceCents > 0 && /paid|ticket/i.test(summary.ticketing_model)) {
-      return `${summary.ticketing_model} · est. ${formatCents(ticketPriceCents)}`
-    }
-    return summary.ticketing_model
+function applyTicketPriceIntent(summary: EventSummary, ticketPriceTargetCents: number | null): EventSummary {
+  if (!ticketPriceTargetCents || ticketPriceTargetCents <= 0 || summary.ticketed === true) return summary
+
+  return {
+    ...summary,
+    ticketed: true,
+    ticketing_model: summary.ticketing_model ?? 'Ticketed',
+  }
+}
+
+function getTicketedState(summary: EventSummary, ticketPriceTargetCents: number | null) {
+  if (ticketPriceTargetCents && ticketPriceTargetCents > 0) return true
+  return summary.ticketed
+}
+
+function formatTicketingModel(summary: EventSummary, ticketPriceTargetCents: number | null) {
+  const ticketed = getTicketedState(summary, ticketPriceTargetCents)
+
+  if (ticketed === true) {
+    return ticketPriceTargetCents && ticketPriceTargetCents > 0
+      ? `Ticketed · ${formatCents(ticketPriceTargetCents)} per ticket`
+      : 'Ticketed · price TBD'
   }
 
-  return summary.ticketed ? `Ticketed · ${formatCents(ticketPriceCents)}` : 'RSVP page not created'
+  if (ticketed === false) return 'RSVP only'
+  return 'Need ticketing model'
+}
+
+function formatSuggestedPrice(
+  summary: EventSummary,
+  ticketPriceTargetCents: number | null,
+  suggestedTicketPriceCents: number
+) {
+  const ticketed = getTicketedState(summary, ticketPriceTargetCents)
+  if (ticketed === false) return 'Not ticketed'
+  if (ticketed !== true) return 'Need ticketing model'
+  if (ticketPriceTargetCents && ticketPriceTargetCents > 0) return formatCents(ticketPriceTargetCents)
+  if (suggestedTicketPriceCents > 0) return formatCents(suggestedTicketPriceCents)
+  return 'Price TBD'
+}
+
+function deriveTicketPriceTargetCents(
+  summary: EventSummary,
+  plan: LivePlanSnapshot | null,
+  messages: PlanMessage[]
+) {
+  if (plan?.ticketPriceTargetCents && plan.ticketPriceTargetCents > 0) return plan.ticketPriceTargetCents
+
+  const metadataPrice = findTicketPriceInMessageMetadata(messages)
+  if (metadataPrice) return metadataPrice
+
+  const textCandidates = [
+    summary.ticketing_model,
+    plan?.ticketingModel,
+    plan?.notes,
+    ...messages.slice(-6).map((message) => message.content),
+  ]
+
+  for (const candidate of textCandidates) {
+    const parsed = extractTicketPriceCents(candidate)
+    if (parsed) return parsed
+  }
+
+  return null
+}
+
+function findTicketPriceInMessageMetadata(messages: PlanMessage[]) {
+  for (const message of [...messages].reverse()) {
+    const found = findTicketPriceInUnknown(message.metadata)
+    if (found) return found
+  }
+
+  return null
+}
+
+function findTicketPriceInUnknown(value: unknown): number | null {
+  if (!value || typeof value !== 'object') return null
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findTicketPriceInUnknown(item)
+      if (found) return found
+    }
+    return null
+  }
+
+  const record = value as Record<string, unknown>
+  const direct =
+    readNumber(record.ticket_price_target_cents) ??
+    readNumber(record.ticket_price_cents) ??
+    normalizePotentialTicketPrice(readNumber(record.ticket_price_target))
+  if (direct && direct > 0) return direct
+
+  for (const nested of Object.values(record)) {
+    const found = findTicketPriceInUnknown(nested)
+    if (found) return found
+  }
+
+  return null
+}
+
+function normalizePotentialTicketPrice(value: number | null) {
+  if (!value || value <= 0) return null
+  return value >= 1000 ? Math.round(value) : Math.round(value * 100)
+}
+
+function extractTicketPriceCents(value: string | null | undefined) {
+  if (!value) return null
+
+  const patterns = [
+    /\b(?:ticketed|tickets?|ticket\s+price|price|admission|ga|general admission)\s*(?:is|at|for|=|:)?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)\s*(k)?\b/i,
+    /\$\s*([\d,]+(?:\.\d{1,2})?)\s*(k)?\s*(?:per\s+)?(?:ticket|admission|ga)\b/i,
+  ]
+
+  for (const pattern of patterns) {
+    const match = value.match(pattern)
+    if (!match) continue
+    const dollars = Number(match[1].replaceAll(',', '')) * (match[2] ? 1000 : 1)
+    if (Number.isFinite(dollars) && dollars > 0) return Math.round(dollars * 100)
+  }
+
+  return null
+}
+
+function deriveBudgetCapCentsFromMessages(messages: PlanMessage[]) {
+  for (const message of [...messages].reverse()) {
+    if (message.role !== 'user') continue
+    const parsed = extractBudgetCapCents(message.content)
+    if (parsed) return parsed
+  }
+
+  return null
+}
+
+function extractBudgetCapCents(value: string | null | undefined) {
+  if (!value) return null
+
+  const patterns = [
+    /\b(?:budget|spend|spending cap|target spend|all-in|all in)\b.{0,32}?\$?\s*([\d,]+(?:\.\d{1,2})?)\s*(k)?\b/i,
+    /\$\s*([\d,]+(?:\.\d{1,2})?)\s*(k)?\s*(?:budget|spend|spending cap|target spend|all-in|all in)\b/i,
+    /\b(?:under|up to|max(?:imum)?|cap(?:ped)? at)\s*\$?\s*([\d,]+(?:\.\d{1,2})?)\s*(k)?\b/i,
+  ]
+
+  for (const pattern of patterns) {
+    const match = value.match(pattern)
+    if (!match) continue
+    const dollars = Number(match[1].replaceAll(',', '')) * (match[2] ? 1000 : 1)
+    if (Number.isFinite(dollars) && dollars > 0) return Math.round(dollars * 100)
+  }
+
+  return null
 }
 
 function formatFoodResponsibilityValue(value: string | null) {
@@ -1071,6 +1451,36 @@ function formatRevenueModelValue(summary: EventSummary) {
 
 function isRecommendBestModel(value: string | null | undefined) {
   return /\brecommend best model|recommend model|compare\b/i.test(value ?? '')
+}
+
+function getStatusPillLabel({
+  budgetCents,
+  capLabel,
+  recommendationCount,
+  planStatus,
+}: {
+  budgetCents: number | null
+  capLabel?: string
+  recommendationCount: number
+  planStatus: string | null
+}) {
+  if (recommendationCount > 0) return capLabel?.toUpperCase() ?? 'RECOMMENDED'
+  if (!budgetCents || budgetCents <= 0) return 'BUDGET PENDING'
+  if (planStatus === 'ready') return 'AWAITING RECS'
+  return null
+}
+
+function formatTicketingPill(summary: EventSummary, ticketPriceTargetCents: number | null) {
+  const ticketed = getTicketedState(summary, ticketPriceTargetCents)
+
+  if (ticketed === true) {
+    return ticketPriceTargetCents && ticketPriceTargetCents > 0
+      ? `TICKETED · ${formatCents(ticketPriceTargetCents)}`
+      : 'TICKETED · PRICE TBD'
+  }
+
+  if (ticketed === false) return 'RSVP ONLY'
+  return 'TICKETING TBD'
 }
 
 function hasNoOrganizerFoodCost(summary: EventSummary) {
@@ -1192,9 +1602,93 @@ function buildTicketPricingRationale(
   return `Market average is around ${formatCents(marketAverageCents)}, but current costs imply a ${formatCents(breakEvenCents)} break-even. The agent should reduce venue/vendor cost before raising ticket price.`
 }
 
-function deriveRunOfShow(summary: EventSummary) {
-  if (summary.duration) return summary.duration
-  return 'Not set'
+function deriveRunOfShowFromMessages(messages: PlanMessage[]): RunOfShowSnapshot | null {
+  const recommendation = readLatestRecommendationResponse(messages)
+  return normalizeRunOfShow(recommendation?.timeline)
+}
+
+function deriveWorkspaceSummaryFromMessages(messages: PlanMessage[]): WorkspaceSummarySnapshot | null {
+  const recommendation = readLatestRecommendationResponse(messages)
+  return normalizeWorkspaceSummary(recommendation?.workspace_summary)
+}
+
+function readLatestRecommendationResponse(messages: PlanMessage[]): Record<string, unknown> | null {
+  for (const message of [...messages].reverse()) {
+    if (String(message.message_type) !== 'recommendation') continue
+    const metadata = asRecord(message.metadata)
+    const response = asRecord(metadata?.recommendation_response)
+    if (response) return response
+    if (asRecord(metadata?.timeline) || asRecord(metadata?.workspace_summary)) return metadata
+  }
+
+  return null
+}
+
+function normalizeRunOfShow(value: unknown): RunOfShowSnapshot | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const rawMilestones = Array.isArray(record.planningMilestones)
+    ? record.planningMilestones
+    : Array.isArray(record.planning_milestones)
+      ? record.planning_milestones
+      : []
+  const planningMilestones = rawMilestones
+    .map((item) => {
+      const milestone = asRecord(item)
+      if (!milestone) return null
+      const title = readString(milestone.title)
+      const dueDate = readString(milestone.dueDate) ?? readString(milestone.due_date)
+      if (!title || !dueDate) return null
+      return {
+        title,
+        dueDate,
+        category: readString(milestone.category) ?? 'planning',
+        isBlocking: readBoolean(milestone.isBlocking) ?? readBoolean(milestone.is_blocking) ?? false,
+      }
+    })
+    .filter((item): item is RunOfShowMilestone => item !== null)
+
+  if (planningMilestones.length === 0) return null
+  return {
+    planningMilestones,
+    impossibleTimeline: readBoolean(record.impossibleTimeline) ?? readBoolean(record.impossible_timeline) ?? false,
+  }
+}
+
+function normalizeWorkspaceSummary(value: unknown): WorkspaceSummarySnapshot | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const workspaceSummary = readString(record.workspaceSummary) ?? readString(record.workspace_summary)
+  if (!workspaceSummary) return null
+  const currentStatus = readString(record.currentStatus) ?? readString(record.current_status)
+  const parsedStatus =
+    currentStatus === 'blocked' || currentStatus === 'at_risk' || currentStatus === 'on_track'
+      ? currentStatus
+      : 'at_risk'
+
+  return {
+    workspaceSummary,
+    currentStatus: parsedStatus,
+    blockers: readStringArray(record.blockers),
+    recommendedNextActions: readStringArray(record.recommendedNextActions ?? record.recommended_next_actions),
+    approvalsNeeded: readStringArray(record.approvalsNeeded ?? record.approvals_needed),
+  }
+}
+
+function formatRunOfShowDateLabel(dueDate: string, eventDate: string | null): string {
+  if (!eventDate) return dueDate
+  const due = parseDateOnly(dueDate)
+  const event = parseDateOnly(eventDate)
+  if (!due || !event) return dueDate
+  const diffDays = Math.round((event.getTime() - due.getTime()) / (24 * 60 * 60 * 1000))
+  if (diffDays === 0) return 'Event day'
+  if (diffDays > 0) return `T-${diffDays} days`
+  return `T+${Math.abs(diffDays)} days`
+}
+
+function parseDateOnly(value: string): Date | null {
+  const parsed = new Date(`${value.slice(0, 10)}T00:00:00Z`)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
 function venueMetaLabel(recommendation: RecommendationSummary | null, summary: EventSummary) {
@@ -1527,6 +2021,13 @@ function readStringListValue(value: unknown) {
   }
 
   return readString(value)
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => readString(item))
+    .filter((item): item is string => Boolean(item))
 }
 
 function readNumber(value: unknown) {
