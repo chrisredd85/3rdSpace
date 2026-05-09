@@ -1,4 +1,8 @@
 import { rankVenueCommercialModels } from '@/lib/planner/commercialModelRanker'
+import { archetypeFor } from '@/lib/planner/archetypes'
+import type { EventArchetypeConfig } from '@/lib/planner/archetypes'
+import type { BuilderAttendanceSummary } from '@/lib/server/builderAttendanceHistory'
+import { scoreVenueAgainstArchetype } from '@/lib/venues/venueRanker'
 
 export type CatalogPartnerKind = 'venue' | 'vendor'
 
@@ -47,6 +51,7 @@ export interface RankedCatalogRecommendation {
 }
 
 export interface CatalogRankingResult {
+  archetype: EventArchetypeConfig
   recommendations: RankedCatalogRecommendation[]
   rejected: RankedCatalogRecommendation[]
 }
@@ -55,6 +60,8 @@ interface RankCatalogPartnersInput {
   plan: CatalogPlanRankingInput
   venues: CatalogVenueRankingInput[]
   vendors: CatalogVendorRankingInput[]
+  archetype?: EventArchetypeConfig
+  builderAttendance?: BuilderAttendanceSummary | null
   limit?: number
   venueLimit?: number
   vendorLimit?: number
@@ -148,9 +155,10 @@ export function rankCatalogPartners(input: RankCatalogPartnersInput): CatalogRan
   const venueLimit = input.venueLimit ?? Math.min(3, limit)
   const vendorLimit = input.vendorLimit ?? Math.min(3, Math.max(limit - venueLimit, 0))
   const rejected: RankedCatalogRecommendation[] = []
+  const archetype = input.archetype ?? archetypeFor(input.plan.event_type ?? null)
 
   const venueRecommendations = attachCategoryRanks(input.venues
-    .map((venue) => rankVenue(input.plan, venue))
+    .map((venue) => rankVenue(input.plan, venue, archetype, input.builderAttendance ?? null))
     .filter((recommendation) => {
       if (recommendation.blocking_issues.length === 0) return true
       rejected.push(recommendation)
@@ -170,6 +178,7 @@ export function rankCatalogPartners(input: RankCatalogPartnersInput): CatalogRan
   const vendorRecommendations = selectTopVendorsByCategory(input.plan, vendorCandidates, vendorLimit)
 
   return {
+    archetype,
     recommendations: [...venueRecommendations, ...vendorRecommendations].slice(0, limit),
     rejected,
   }
@@ -177,7 +186,9 @@ export function rankCatalogPartners(input: RankCatalogPartnersInput): CatalogRan
 
 function rankVenue(
   plan: CatalogPlanRankingInput,
-  venue: CatalogVenueRankingInput
+  venue: CatalogVenueRankingInput,
+  archetype: EventArchetypeConfig,
+  builderAttendance: BuilderAttendanceSummary | null
 ): RankedCatalogRecommendation {
   const headcount = readNumber(plan.headcount ?? plan.guest_count) ?? 0
   const budgetCents = readNumber(plan.budget_cents ?? plan.budget_cap_cents) ?? 0
@@ -207,8 +218,20 @@ function rankVenue(
   ])
   const blockingIssues: string[] = []
 
-  if (headcount > 0 && capacity !== null && capacity < headcount) {
-    blockingIssues.push(`Capacity ${capacity} is below ${headcount} guests`)
+  const archetypeScore = scoreVenueAgainstArchetype({
+    plan,
+    venue,
+    archetype,
+    context: { builder_attendance: builderAttendance },
+  })
+  const projectedAttendance = archetypeScore.projected_attendance ?? headcount
+
+  if (projectedAttendance > 0 && capacity !== null && capacity < projectedAttendance) {
+    const capacityTarget =
+      builderAttendance && builderAttendance.sample_size > 0 && projectedAttendance !== headcount
+        ? `${projectedAttendance} projected guests`
+        : `${headcount} guests`
+    blockingIssues.push(`Capacity ${capacity} is below ${capacityTarget}`)
   }
   if (area && !matchesAreaPreference(area, searchText)) {
     blockingIssues.push(`Area does not match ${area}`)
@@ -220,13 +243,25 @@ function rankVenue(
     blockingIssues.push(`Does not support ${plan.venue_terms}`)
   }
 
+  const cateringBlock = getCateringBlockingIssue(archetypeScore.warnings)
+  if (cateringBlock) blockingIssues.push(cateringBlock)
+
   const amenity = scoreAmenityCoverage(mustHaves, searchText)
   const budgetScore = scoreBudgetFit(estimateCents, budgetAllocationCents)
   const foodScore = scoreFoodAlignment(plan.food_responsibility, searchText)
   const dateScore = scoreDateAvailability(plan, venue)
   const partnerScore = scorePartnerSignals(venue)
   const dinnerScore = scoreDinnerVenueFit(plan, searchText)
-  const score = Math.round(budgetScore + amenity.score + foodScore + dateScore + partnerScore + dinnerScore)
+  const score = Math.round(
+    budgetScore +
+      amenity.score +
+      foodScore +
+      dateScore +
+      partnerScore +
+      dinnerScore +
+      archetypeScore.venue_type_score +
+      archetypeScore.commercial_model_alignment_score
+  )
   const overBudget = budgetAllocationCents > 0 && estimateCents > budgetAllocationCents
   const fitLabel = chooseFitLabel(score, overBudget, false)
   const reasoning = buildVenueReasoning({
@@ -238,6 +273,8 @@ function rankVenue(
     amenityMatches: amenity.matched,
     searchText,
     commercialReasoning: commercialRanking.recommended.reasoning,
+    archetypeReasons: archetypeScore.reasons,
+    archetypeWarnings: archetypeScore.warnings,
   })
 
   return {
@@ -268,6 +305,24 @@ function rankVenue(
       date_score: dateScore,
       partner_score: partnerScore,
       dinner_score: dinnerScore,
+      archetype: {
+        key: archetype.key,
+        display_name: archetype.display_name,
+      },
+      archetype_vendor_stack: archetype.vendor_stack,
+      archetype_warnings: archetypeScore.warnings,
+      archetype_reasons: archetypeScore.reasons,
+      capacity_calibration: {
+        projected_attendance: archetypeScore.projected_attendance,
+        calibration_signal: archetypeScore.calibration_signal,
+        history_p75: archetypeScore.score_breakdown.capacity.details.history_p75,
+        sample_size: builderAttendance?.sample_size ?? 0,
+        confidence: builderAttendance?.confidence ?? null,
+      },
+      venue_type_score: archetypeScore.venue_type_score,
+      commercial_model_alignment_score: archetypeScore.commercial_model_alignment_score,
+      commercial_model_match: archetypeScore.commercial_model_match,
+      primary_commercial_model: archetypeScore.primary_commercial_model,
       budget_allocation_cents: budgetAllocationCents,
     },
   }
@@ -329,6 +384,7 @@ function rankVendor(
     tags: readTags(vendor, ['services_offered', 'compatible_features', 'tags']),
     metadata: {
       category,
+      service_type: category,
       category_label: formatServiceType(category),
       budget_score: budgetScore,
       service_score: amenity.score,
@@ -602,6 +658,8 @@ function buildVenueReasoning(input: {
   amenityMatches: string[]
   searchText: string
   commercialReasoning: string[]
+  archetypeReasons: string[]
+  archetypeWarnings: string[]
 }): string[] {
   const reasons: string[] = []
   const headcount = readNumber(input.plan.headcount ?? input.plan.guest_count)
@@ -623,9 +681,15 @@ function buildVenueReasoning(input: {
     reasons.push('AV or production signals present')
   }
   if (input.commercialReasoning[0]) reasons.push(input.commercialReasoning[0])
+  input.archetypeReasons.slice(0, 2).forEach((reason) => reasons.push(reason))
+  input.archetypeWarnings.slice(0, 1).forEach((warning) => reasons.push(warning))
   if (input.plan.event_type) reasons.push(`Supports ${input.plan.event_type}`)
 
   return reasons.slice(0, 5)
+}
+
+function getCateringBlockingIssue(warnings: string[]): string | null {
+  return warnings.find((warning) => /usually needs in-house food|kitchen/i.test(warning)) ?? null
 }
 
 function buildVendorReasoning(input: {
