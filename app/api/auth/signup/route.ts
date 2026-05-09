@@ -163,6 +163,58 @@ function getBuilderDetails(body: SignupRequest): BuilderSignupDetails | null {
   }
 }
 
+function getBuilderSignupValidationError(body: SignupRequest): string | null {
+  if (body.userType !== 'community_builder') return null
+  if (!body.name?.trim()) return 'Missing point of contact name'
+  if (!body.organization_name?.trim()) return 'Missing organization name'
+
+  const eventTypes = body.event_types
+    ?.map((eventType) => eventType.trim())
+    .filter(Boolean)
+  if (!eventTypes?.length) return 'Select at least one event type'
+
+  const ticketPlatforms = body.ticket_platforms
+    ?.map((platform) => platform.trim())
+    .filter((platform): platform is TicketPlatform => VALID_TICKETING_PLATFORMS.has(platform as TicketPlatform))
+  if (!ticketPlatforms?.length) return 'Connect at least one supported ticketing platform (Eventbrite, Luma, Posh, or Partiful)'
+
+  return null
+}
+
+function getVenueSignupValidationError(body: SignupRequest): string | null {
+  if (body.userType !== 'venue_owner') return null
+  if (!body.name?.trim()) return 'Missing point of contact name'
+  if (!body.venue_name?.trim()) return 'Missing venue name'
+  if (!body.address?.trim()) return 'Missing venue address'
+  if (!body.city?.trim()) return 'Missing venue city'
+  if (!body.state?.trim()) return 'Missing venue state'
+  if (!body.zip_code?.trim()) return 'Missing venue ZIP code'
+  if (!body.venue_type) return 'Select a venue type'
+  if (!body.capacity || body.capacity <= 0) return 'Enter venue capacity'
+  if (!body.house_rules?.trim()) return 'Add venue house rules'
+  if (!body.amenities?.length) return 'Select at least one venue amenity'
+
+  return null
+}
+
+function getVendorSignupValidationError(body: SignupRequest): string | null {
+  if (body.userType !== 'vendor') return null
+  if (!body.name?.trim()) return 'Missing vendor contact name'
+  if (!body.service_type) return 'Select at least one vendor service'
+  if (!body.bank_account_holder_name?.trim()) return 'Missing bank account holder name'
+  if (!body.availability_notes?.trim()) return 'Add vendor availability details'
+
+  return null
+}
+
+function getRoleSignupValidationError(body: SignupRequest): string | null {
+  return (
+    getBuilderSignupValidationError(body) ??
+    getVenueSignupValidationError(body) ??
+    getVendorSignupValidationError(body)
+  )
+}
+
 function getVenueDetails(body: SignupRequest): VenueSignupDetails | null {
   if (body.userType !== 'venue_owner') return null
 
@@ -366,9 +418,17 @@ export async function POST(request: NextRequest) {
       name,
     } = body
 
-    if (!email || !password || !name || !userType) {
+    if (!email?.trim() || !password || !userType) {
       return NextResponse.json(
-        { error: 'Missing required fields: email, password, name, and user type are required.' },
+        { error: 'Missing required fields: email, password, and user type are required.' },
+        { status: 400 }
+      )
+    }
+
+    const roleValidationError = getRoleSignupValidationError(body)
+    if (roleValidationError) {
+      return NextResponse.json(
+        { error: roleValidationError },
         { status: 400 }
       )
     }
@@ -383,30 +443,21 @@ export async function POST(request: NextRequest) {
 
     if (userType === 'community_builder' && !builderDetails) {
       return NextResponse.json(
-        {
-          error:
-            'Community builders must provide a point of contact, organization name, event types, and at least one ticket platform.',
-        },
+        { error: 'Creator signup details are invalid. Check event types and ticketing platforms.' },
         { status: 400 }
       )
     }
 
     if (userType === 'venue_owner' && !venueDetails) {
       return NextResponse.json(
-        {
-          error:
-            'Venue owners must provide venue name, address, city, state, ZIP code, venue type, house rules, amenities, and capacity.',
-        },
+        { error: 'Venue signup details are invalid. Check venue details, capacity, house rules, and amenities.' },
         { status: 400 }
       )
     }
 
     if (userType === 'vendor' && !vendorDetails) {
       return NextResponse.json(
-        {
-          error:
-            'Vendors must provide name, service type, bank account holder name, bank name, and availability details.',
-        },
+        { error: 'Vendor signup details are invalid. Check contact, service type, and availability details.' },
         { status: 400 }
       )
     }
@@ -430,8 +481,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Create new auth user (metadata so trigger can create public.users if it runs first).
-    console.log('Creating new auth user')
-
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
@@ -522,8 +571,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('Auth user created:', authData.user.id)
-
     // Step 3: Create app user profile (idempotent with trigger: if trigger ran first with ON CONFLICT DO NOTHING, this may duplicate – we treat conflict as success)
     const { error: userError } = await admin
       .from('users')
@@ -541,9 +588,7 @@ export async function POST(request: NextRequest) {
       const isConflict =
         (userError as { code?: string }).code === '23505' ||
         /duplicate key|unique constraint/i.test(userError.message)
-      if (isConflict) {
-        console.log('public.users already created (e.g. by trigger), continuing')
-      } else {
+      if (!isConflict) {
         console.error('Error creating user profile:', userError)
         await cleanupFailedSignup(admin, authData.user.id)
         return NextResponse.json(

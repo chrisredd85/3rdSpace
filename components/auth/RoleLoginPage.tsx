@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { loginSchema, type LoginInput } from '@/lib/validations/auth'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/toast'
+import { InlineFormError } from '@/components/ui/inline-form-error'
 import { userKeys } from '@/lib/hooks/useUser'
 import type { UserType } from '@/lib/types'
 
@@ -66,6 +67,7 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
   const queryClient = useQueryClient()
   const [isLoading, setIsLoading] = useState(false)
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
   const [portalHandoff, setPortalHandoff] = useState<{ message: string; href: string } | null>(null)
   const config = portalConfig[portal]
   const redirect = getSafeInternalRedirect(searchParams.get('redirect'))
@@ -73,8 +75,15 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors },
   } = useForm<LoginInput>({ resolver: zodResolver(loginSchema) })
+  const emailValue = watch('email')
+  const passwordValue = watch('password')
+
+  useEffect(() => {
+    if (loginError) setLoginError(null)
+  }, [emailValue, passwordValue])
 
   useEffect(() => {
     const error = searchParams.get('error')
@@ -89,15 +98,16 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
           : '/login/builder'
       setPortalHandoff({ message, href: actualPortal })
     } else {
-      addToast({ title: 'Authentication Error', description: message, variant: 'destructive' })
+      setLoginError(message)
     }
     router.replace(config.loginHref)
-  }, [addToast, config.loginHref, router, searchParams])
+  }, [config.loginHref, router, searchParams])
 
   const signupHref = useMemo(() => config.signupHref, [config.signupHref])
 
   const onSubmit = async (data: LoginInput) => {
     setIsLoading(true)
+    setLoginError(null)
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
@@ -110,7 +120,7 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
         if (response.status === 403 && result.expectedLoginPath) {
           setPortalHandoff({ message: result.error || 'This account belongs to a different portal.', href: result.expectedLoginPath })
         } else {
-          addToast({ title: 'Login failed', description: result.error || 'Login failed', variant: 'destructive' })
+          setLoginError(result.error || 'Login failed')
         }
         setIsLoading(false)
         return
@@ -121,13 +131,14 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
       queryClient.setQueryData(userKeys.current, result.user)
       router.push(redirect || result.dashboardPath || '/dashboard')
     } catch {
-      addToast({ title: 'Error', description: 'Connection failed. Please try again.', variant: 'destructive' })
+      setLoginError('Connection failed. Please try again.')
       setIsLoading(false)
     }
   }
 
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true)
+    setLoginError(null)
     try {
       const supabase = createClient()
       const callbackUrl = new URL('/auth/callback', window.location.origin)
@@ -138,11 +149,11 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
         options: { redirectTo: callbackUrl.toString() },
       })
       if (error) {
-        addToast({ title: 'Google sign in failed', description: error.message, variant: 'destructive' })
+        setLoginError(error.message)
         setIsGoogleLoading(false)
       }
     } catch {
-      addToast({ title: 'Error', description: 'Connection failed. Please try again.', variant: 'destructive' })
+      setLoginError('Connection failed. Please try again.')
       setIsGoogleLoading(false)
     }
   }
@@ -241,6 +252,8 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
               </div>
               {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
             </div>
+
+            <InlineFormError message={loginError} />
 
             <Button variant="hero" type="submit" className="w-full" disabled={isLoading || isGoogleLoading}>
               {isLoading ? 'Signing in...' : <>Sign in <ArrowRight className="h-4 w-4" /></>}

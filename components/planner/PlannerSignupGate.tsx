@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Loader2, Sparkles, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { InlineFormError } from '@/components/ui/inline-form-error'
 import { migratePlannerDraftToServer } from '@/lib/planner/migrateDraft'
 import type { PlannerCreatePlanResponse } from '@/lib/types'
 
@@ -22,6 +23,10 @@ export function PlannerSignupGate({ isOpen, onClose, onSignedIn }: PlannerSignup
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (errorMessage) setErrorMessage(null)
+  }, [fullName, email, password])
 
   if (!isOpen) return null
 
@@ -135,11 +140,7 @@ export function PlannerSignupGate({ isOpen, onClose, onSignedIn }: PlannerSignup
             />
           </label>
 
-          {errorMessage ? (
-            <div className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">
-              {errorMessage}
-            </div>
-          ) : null}
+          <InlineFormError message={errorMessage} />
 
           <Button type="submit" className="h-12 w-full rounded-2xl" disabled={isSubmitting}>
             {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

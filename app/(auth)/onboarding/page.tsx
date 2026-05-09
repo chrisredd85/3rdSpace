@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/components/ui/toast'
+import { InlineFormError } from '@/components/ui/inline-form-error'
 import { useUser } from '@/lib/hooks/useUser'
 import { TicketingSetupGuide } from '@/components/auth/TicketingSetupGuide'
 import {
@@ -111,25 +112,36 @@ export default function OnboardingPage() {
 function BuilderOnboardingForm() {
   const router = useRouter()
   const { addToast } = useToast()
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<BuilderSignupInput>({
     resolver: zodResolver(builderSignupSchema.omit({ email: true, password: true })),
   } as any)
   const selectedEventTypes = watch('event_types') || []
   const selectedPlatforms = watch('ticket_platforms') || []
 
+  useEffect(() => {
+    const subscription = watch(() => setSubmitError(null))
+    return () => subscription.unsubscribe()
+  }, [watch])
+
   const onSubmit = async (data: any) => {
-    const response = await fetch('/api/onboarding/builder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    })
-    const result = await response.json()
-    if (!response.ok || !result.success) {
-      addToast({ title: 'Setup failed', description: result.error || 'Please try again.', variant: 'destructive' })
-      return
+    setSubmitError(null)
+    try {
+      const response = await fetch('/api/onboarding/builder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      const result = await response.json()
+      if (!response.ok || !result.success) {
+        setSubmitError(result.error || 'Please try again.')
+        return
+      }
+      addToast({ title: 'Builder profile saved', description: 'You can start creating events now.' })
+      router.push('/planner')
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Please try again.')
     }
-    addToast({ title: 'Builder profile saved', description: 'You can start creating events now.' })
-    router.push('/planner')
   }
 
   return (
@@ -167,6 +179,7 @@ function BuilderOnboardingForm() {
               />
             </Field>
             <TicketingSetupGuide selectedPlatforms={selectedPlatforms} persistConnections />
+            <InlineFormError message={submitError} />
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? 'Saving...' : <>Continue <ArrowRight className="ml-2 h-4 w-4" /></>}
             </Button>
@@ -180,25 +193,36 @@ function BuilderOnboardingForm() {
 function VenueOnboardingForm() {
   const router = useRouter()
   const { addToast } = useToast()
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const amenityGroups = groupedVenueAmenities()
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<VenueSignupInput>({
     resolver: zodResolver(venueSignupSchema.omit({ email: true, password: true })),
   } as any)
   const selectedAmenities = watch('amenities') || []
 
+  useEffect(() => {
+    const subscription = watch(() => setSubmitError(null))
+    return () => subscription.unsubscribe()
+  }, [watch])
+
   const onSubmit = async (data: any) => {
-    const response = await fetch('/api/onboarding/venue', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    })
-    const result = await response.json()
-    if (!response.ok || !result.success) {
-      addToast({ title: 'Setup failed', description: result.error || 'Please try again.', variant: 'destructive' })
-      return
+    setSubmitError(null)
+    try {
+      const response = await fetch('/api/onboarding/venue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      const result = await response.json()
+      if (!response.ok || !result.success) {
+        setSubmitError(result.error || 'Please try again.')
+        return
+      }
+      addToast({ title: 'Venue saved', description: 'Your venue profile is ready.' })
+      router.push('/venue')
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Please try again.')
     }
-    addToast({ title: 'Venue saved', description: 'Your venue profile is ready.' })
-    router.push('/venue')
   }
 
   return (
@@ -259,6 +283,7 @@ function VenueOnboardingForm() {
                 ))}
               </div>
             </Field>
+            <InlineFormError message={submitError} />
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? 'Saving...' : <>Continue <ArrowRight className="ml-2 h-4 w-4" /></>}
             </Button>
@@ -272,23 +297,34 @@ function VenueOnboardingForm() {
 function VendorOnboardingForm() {
   const router = useRouter()
   const { addToast } = useToast()
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<VendorSignupInput>({
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<VendorSignupInput>({
     resolver: zodResolver(vendorSignupSchema.omit({ email: true, password: true })),
   } as any)
 
+  useEffect(() => {
+    const subscription = watch(() => setSubmitError(null))
+    return () => subscription.unsubscribe()
+  }, [watch])
+
   const onSubmit = async (data: any) => {
-    const response = await fetch('/api/onboarding/vendor', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    })
-    const result = await response.json()
-    if (!response.ok || !result.success) {
-      addToast({ title: 'Setup failed', description: result.error || 'Please try again.', variant: 'destructive' })
-      return
+    setSubmitError(null)
+    try {
+      const response = await fetch('/api/onboarding/vendor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      const result = await response.json()
+      if (!response.ok || !result.success) {
+        setSubmitError(result.error || 'Please try again.')
+        return
+      }
+      addToast({ title: 'Vendor profile saved', description: 'You can start reviewing booking requests now.' })
+      router.push('/vendor')
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Please try again.')
     }
-    addToast({ title: 'Vendor profile saved', description: 'You can start reviewing booking requests now.' })
-    router.push('/vendor')
   }
 
   return (
@@ -331,6 +367,7 @@ function VendorOnboardingForm() {
             <Field label="Availability" error={errors.availability_notes?.message}>
               <textarea rows={4} className="flex w-full rounded-md border border-border bg-background px-3 py-2 text-sm" {...register('availability_notes')} />
             </Field>
+            <InlineFormError message={submitError} />
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? 'Saving...' : <>Continue <ArrowRight className="ml-2 h-4 w-4" /></>}
             </Button>
