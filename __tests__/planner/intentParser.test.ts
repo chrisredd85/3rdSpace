@@ -34,6 +34,19 @@ describe('parseEventIntent', () => {
     expect(intent.date_hint).toBe('friday night')
   })
 
+  it.each([
+    ['SOMA', 'SOMA'],
+    ['soma', 'SOMA'],
+    ['SF', 'SF'],
+    ['NOPA', 'NOPA'],
+    ['FiDi', 'FiDi'],
+    ['Mission', 'Mission'],
+  ])('normalizes "%s" to "%s"', (area, expected) => {
+    const intent = parseEventIntent(`Founder dinner for 20 people in ${area}`)
+
+    expect(intent.neighborhood).toBe(expected)
+  })
+
   it('extracts SF Tech Week mixer intent and invite-only ticketing signal', () => {
     const intent = parseEventIntent(
       'SF Tech Week mixer for 120 founders and investors, invite-only, late October'

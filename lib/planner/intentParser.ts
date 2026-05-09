@@ -38,30 +38,41 @@ const EVENT_TYPE_PATTERNS: Array<{
 ]
 
 const NEIGHBORHOODS = [
-  ['soma', 'SoMa'],
-  ['so ma', 'SoMa'],
-  ['mission', 'Mission'],
-  ['embarcadero', 'Embarcadero'],
-  ['hayes valley', 'Hayes Valley'],
-  ['castro', 'Castro'],
-  ['marina', 'Marina'],
+  'soma',
+  'so ma',
+  'mission',
+  'embarcadero',
+  'hayes valley',
+  'castro',
+  'marina',
+  'fidi',
+  'financial district',
+  'nopa',
+  'tenderloin',
+  'dogpatch',
+  'potrero',
+  'nob hill',
+  'north beach',
+  'downtown sf',
+  'downtown san francisco',
+  'san francisco',
+  'sf',
+  'oakland',
+  'downtown oakland',
+  'berkeley',
+  'napa',
+  'napa valley',
+] as const
+
+const SF_ACRONYM_NEIGHBORHOODS = new Map<string, string>([
+  ['soma', 'SOMA'],
+  ['so ma', 'SOMA'],
+  ['sf', 'SF'],
+  ['downtown sf', 'Downtown SF'],
   ['fidi', 'FiDi'],
   ['financial district', 'FiDi'],
-  ['tenderloin', 'Tenderloin'],
-  ['dogpatch', 'Dogpatch'],
-  ['potrero', 'Potrero'],
-  ['nob hill', 'Nob Hill'],
-  ['north beach', 'North Beach'],
-  ['downtown sf', 'Downtown SF'],
-  ['downtown san francisco', 'Downtown SF'],
-  ['san francisco', 'San Francisco'],
-  ['sf', 'SF'],
-  ['oakland', 'Oakland'],
-  ['downtown oakland', 'Downtown Oakland'],
-  ['berkeley', 'Berkeley'],
-  ['napa', 'Napa'],
-  ['napa valley', 'Napa Valley'],
-] as const
+  ['nopa', 'NOPA'],
+])
 
 const MONTHS: Record<string, number> = {
   january: 1,
@@ -239,9 +250,10 @@ function extractNeighborhood(lowerMessage: string): { value: string; confidence:
 function extractAreas(lowerMessage: string): string[] {
   const matches: Array<{ area: string; index: number }> = []
 
-  for (const [match, canonical] of NEIGHBORHOODS) {
+  for (const match of NEIGHBORHOODS) {
     const pattern = new RegExp(`\\b${escapeRegExp(match)}\\b`, 'i')
     const found = lowerMessage.match(pattern)
+    const canonical = normalizeNeighborhoodLabel(match)
     if (found?.index != null && !matches.some((areaMatch) => areaMatch.area === canonical)) {
       matches.push({ area: canonical, index: found.index })
     }
@@ -250,6 +262,15 @@ function extractAreas(lowerMessage: string): string[] {
   return matches
     .sort((a, b) => a.index - b.index)
     .map((match) => match.area)
+}
+
+function normalizeNeighborhoodLabel(value: string): string {
+  const normalized = value.trim().toLowerCase()
+  return SF_ACRONYM_NEIGHBORHOODS.get(normalized) ?? toTitleCase(normalized)
+}
+
+function toTitleCase(value: string): string {
+  return value.replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
 }
 
 function extractDateWindow(message: string):
