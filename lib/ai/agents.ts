@@ -86,6 +86,11 @@ type AgentDefinition = {
 )
 
 type ChatCompletionClient = Pick<OpenAI['chat']['completions'], 'create'>
+type ChatCompletionCreate = OpenAI['chat']['completions']['create']
+type ChatCompletionCreateBody = Parameters<ChatCompletionCreate>[0]
+type ChatCompletionCreateOptions = Parameters<ChatCompletionCreate>[1]
+
+const AGENT_OPENAI_TIMEOUT_MS = 15_000
 
 export type RunAgentInput = {
   agent_name: AgentName
@@ -153,6 +158,25 @@ export const AGENT_REGISTRY: Record<AgentName, AgentDefinition> = {
   },
 }
 
+const timedOpenAIChatCompletionClient: ChatCompletionClient = {
+  create: (async (
+    body: ChatCompletionCreateBody,
+    options?: ChatCompletionCreateOptions
+  ) => {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), AGENT_OPENAI_TIMEOUT_MS)
+
+    try {
+      return await openai.chat.completions.create(body, {
+        ...(options ?? {}),
+        signal: controller.signal,
+      } as ChatCompletionCreateOptions)
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  }) as ChatCompletionCreate,
+}
+
 /**
  * Add future agents to AGENT_REGISTRY with a dedicated prompt and output schema.
  * Keep each agent single-shot: structured input in, validated JSON out, human approval
@@ -160,7 +184,7 @@ export const AGENT_REGISTRY: Record<AgentName, AgentDefinition> = {
  */
 export async function runAgent(
   input: RunAgentInput,
-  client: ChatCompletionClient = openai.chat.completions
+  client: ChatCompletionClient = timedOpenAIChatCompletionClient
 ): Promise<
   | AgentResult
   | IntakeAgentResult

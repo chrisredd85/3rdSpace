@@ -91,11 +91,7 @@ export async function loadPlanAgentFields(input: {
     workspaceCacheKey,
     workspaceAgentOutputSchema
   )
-  const workspaceSummary = cachedWorkspace ?? await generateWorkspaceSummary({
-    userId: input.userId,
-    planId: input.plan.id,
-    payload: workspaceInput,
-  })
+  const workspaceSummary = cachedWorkspace ?? buildDeterministicWorkspaceOutput(workspaceInput)
 
   const timelineCacheKey = timelineInput
     ? buildCacheKey({
@@ -111,11 +107,7 @@ export async function loadPlanAgentFields(input: {
     ? readCachedOutput(readRecord(agentCache.timeline), timelineCacheKey, milestoneTemplateOutputSchema)
     : null
   const timeline = timelineInput
-    ? cachedTimeline ?? await generateTimeline({
-      userId: input.userId,
-      planId: input.plan.id,
-      payload: timelineInput,
-    })
+    ? cachedTimeline ?? generateMilestoneTemplate(timelineInput)
     : null
   const nextAgentCache = {
     ...agentCache,
