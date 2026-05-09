@@ -8,6 +8,7 @@
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import {
   createVenueOpportunityBrief,
@@ -84,7 +85,7 @@ const APPROVAL_SELECT_COLUMNS = `
   updated_at
 `
 
-const AGENT_ACTION_STATUS_SELECT_COLUMNS = 'id, status'
+const AGENT_ACTION_STATUS_SELECT_COLUMNS = 'id, status, action_type'
 
 const AGENT_ACTION_OPPORTUNITY_SELECT_COLUMNS = 'id, action_type, payload_json'
 
@@ -162,6 +163,20 @@ export async function PATCH(
     const existingApproval = await loadApproval(auth.db, context.params.planId, parsed.data.approvalId)
     if (!existingApproval) return NextResponse.json({ error: 'Approval not found' }, { status: 404 })
 
+    if (
+      (parsed.data.action === 'authorize' || parsed.data.action === 'approve') &&
+      approvalRequiresFreshReview(plan, existingApproval)
+    ) {
+      const staleApproval = await markApprovalReapprovalRequired(auth.db, context.params.planId, existingApproval.id)
+      if (staleApproval) {
+        await syncApprovalMessageMetadata(auth.db, context.params.planId, staleApproval)
+      }
+      return NextResponse.json(
+        { error: 'Plan details changed after this approval was created. Review the latest recommendations and approve again.' },
+        { status: 409 }
+      )
+    }
+
     const updates = buildApprovalUpdates(parsed.data.action, auth.userId, parsed.data.authorizedAmountCents)
     const { data, error } = await auth.db
       .from('approvals')
@@ -184,6 +199,13 @@ export async function PATCH(
       approvalStatus: approval.status,
     })
     await syncOpportunityInviteStatuses(auth.db, plan, auth.userId, approval)
+    if (approval.status === 'authorized' || approval.status === 'approved') {
+      await markAgentActionExecuted(auth.db, {
+        actionId: approval.agent_action_id,
+        planId: context.params.planId,
+        actorId: auth.userId,
+      })
+    }
     await syncApprovalMessageMetadata(auth.db, context.params.planId, approval)
 
     return NextResponse.json({ approval })
@@ -252,7 +274,7 @@ function buildApprovalUpdates(
   if (action === 'authorize' || action === 'approve') {
     const authorizedAt = new Date().toISOString()
     return {
-      status: 'authorized',
+      status: action === 'approve' ? 'approved' : 'authorized',
       authorized_by: userId,
       authorized_at: authorizedAt,
       authorized_amount_cents: authorizedAmountCents ?? null,
@@ -266,6 +288,49 @@ function buildApprovalUpdates(
   }
 
   return { status: 'rejected' }
+}
+
+function approvalRequiresFreshReview(plan: Plan, approval: Approval): boolean {
+  if (!approval.snapshot_hash) return false
+  return approval.snapshot_hash !== buildPlanApprovalSnapshotHash(plan)
+}
+
+async function markApprovalReapprovalRequired(
+  db: PlannerDb,
+  planId: string,
+  approvalId: string
+): Promise<Approval | null> {
+  const { data, error } = await db
+    .from('approvals')
+    .update({ status: 're_approval_required' })
+    .eq('id', approvalId)
+    .eq('plan_id', planId)
+    .select(APPROVAL_SELECT_COLUMNS)
+    .single()
+
+  if (error || !data) {
+    console.error('Planner approval stale status update error:', error)
+    return null
+  }
+
+  return data as Approval
+}
+
+function buildPlanApprovalSnapshotHash(plan: Plan): string {
+  const snapshot = {
+    event_type: plan.event_type,
+    guest_count: plan.guest_count,
+    budget_cap_cents: plan.budget_cap_cents,
+    neighborhood: plan.neighborhood,
+    date_window_start: plan.date_window_start,
+    date_window_end: plan.date_window_end,
+    ticketed: plan.ticketed,
+    ticketing_model: plan.ticketing_model,
+    food_responsibility: plan.food_responsibility,
+    profit_goal_cents: plan.profit_goal_cents,
+  }
+
+  return createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')
 }
 
 async function syncAgentActionStatus(
@@ -311,6 +376,50 @@ async function syncAgentActionStatus(
     actorId: payload.actorId,
     reason: 'approval.status_changed',
     metadata: { approval_status: payload.approvalStatus },
+  })
+}
+
+async function markAgentActionExecuted(
+  db: PlannerDb,
+  payload: {
+    actionId: string
+    planId: string
+    actorId: string
+  }
+) {
+  const { data: currentAction, error: currentActionError } = await db
+    .from('agent_actions')
+    .select(AGENT_ACTION_STATUS_SELECT_COLUMNS)
+    .eq('id', payload.actionId)
+    .maybeSingle()
+
+  if (currentActionError) {
+    console.error('Planner agent action executed status lookup error:', currentActionError)
+  }
+
+  const fromStatus = typeof currentAction?.status === 'string' ? currentAction.status : null
+  const actionType = typeof currentAction?.action_type === 'string' ? currentAction.action_type : null
+  if (actionType !== 'opportunity_send_venues' && actionType !== 'opportunity_send_vendors') return
+  if (fromStatus === 'complete') return
+
+  const { error } = await db
+    .from('agent_actions')
+    .update({ status: 'complete', executed_at: new Date().toISOString() })
+    .eq('id', payload.actionId)
+
+  if (error) {
+    console.error('Planner agent action executed status sync error:', error)
+    return
+  }
+
+  await insertAgentActionAuditLog(db, {
+    actionId: payload.actionId,
+    planId: payload.planId,
+    fromStatus,
+    toStatus: 'complete',
+    actorId: payload.actorId,
+    reason: 'approval.executed',
+    metadata: { execution: 'outreach_jobs_enqueued' },
   })
 }
 
@@ -427,7 +536,7 @@ async function syncVendorOpportunitySendApproval(
       opportunity_brief_id: vendorBriefId,
       approval_id: approval.id,
       status: 'queued',
-      content: `Queued — ${invites.length} vendor quote request${invites.length === 1 ? '' : 's'} ready to send.`,
+      content: `Sent inquiries to ${invites.length} vendor${invites.length === 1 ? '' : 's'} — I'll ping you when they reply.`,
     })
     return
   }
@@ -463,7 +572,7 @@ async function syncVendorOpportunitySendApproval(
     opportunity_brief_id: String(result.brief.id),
     approval_id: approval.id,
     status: 'queued',
-    content: `Queued — ${result.invites.length} vendor quote request${result.invites.length === 1 ? '' : 's'} ready to send.`,
+    content: `Sent inquiries to ${result.invites.length} vendor${result.invites.length === 1 ? '' : 's'} — I'll ping you when they reply.`,
   })
 }
 
@@ -504,13 +613,20 @@ async function syncVenueOpportunitySendApproval(
       opportunity_brief_id: opportunityBriefId,
       approval_id: approval.id,
       status: 'queued',
-      content: `Queued — ${invites.length} invite${invites.length === 1 ? '' : 's'} ready to send.`,
+      content: `Sent inquiries to ${invites.length} venue${invites.length === 1 ? '' : 's'} — I'll ping you when they reply.`,
     })
+    if (hasVendorOutreachPayload(payload)) {
+      await syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
+    }
     return
   }
 
   const venueIds = readStringArray(payload.venue_ids).filter(isUuid)
   if (venueIds.length === 0) {
+    if (hasVendorOutreachPayload(payload)) {
+      await syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
+      return
+    }
     console.error('Planner venue opportunity send approval missing venue_ids')
     return
   }
@@ -538,8 +654,17 @@ async function syncVenueOpportunitySendApproval(
     opportunity_brief_id: String(result.brief.id),
     approval_id: approval.id,
     status: 'queued',
-    content: `Queued — ${result.invites.length} invite${result.invites.length === 1 ? '' : 's'} ready to send.`,
+    content: `Sent inquiries to ${result.invites.length} venue${result.invites.length === 1 ? '' : 's'} — I'll ping you when they reply.`,
   })
+
+  if (hasVendorOutreachPayload(payload)) {
+    await syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
+  }
+}
+
+function hasVendorOutreachPayload(payload: Record<string, unknown>): boolean {
+  return Boolean(readString(payload.vendor_opportunity_brief_id)) ||
+    readStringArray(payload.vendor_ids).length > 0
 }
 
 async function enqueueVenueInviteSendJobs(invites: Array<Record<string, unknown>>) {

@@ -52,7 +52,7 @@ class MemoryDb {
 }
 
 class MemoryQuery {
-  private filters: Array<[string, unknown]> = []
+  private filters: Array<(row: Row) => boolean> = []
   private operation: 'select' | 'insert' | 'update' = 'select'
   private payload: unknown
   private orderBy: { field: string; ascending: boolean } | null = null
@@ -60,7 +60,7 @@ class MemoryQuery {
 
   constructor(private db: MemoryDb, private table: string) {}
 
-  select() {
+  select(_columns = '*') {
     return this
   }
 
@@ -77,7 +77,12 @@ class MemoryQuery {
   }
 
   eq(field: string, value: unknown) {
-    this.filters.push([field, value])
+    this.filters.push((row) => row[field] === value)
+    return this
+  }
+
+  in(field: string, values: unknown[]) {
+    this.filters.push((row) => values.includes(row[field]))
     return this
   }
 
@@ -143,7 +148,7 @@ class MemoryQuery {
   }
 
   private matches(row: Row) {
-    return this.filters.every(([field, value]) => row[field] === value)
+    return this.filters.every((filter) => filter(row))
   }
 
   private withDefaults(row: Row) {

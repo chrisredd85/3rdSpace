@@ -333,7 +333,7 @@ describe('MVP launch API contracts', () => {
 
     expect(response.status).toBe(200)
     expect(db.rows.approvals[0].status).toBe('authorized')
-    expect(db.rows.agent_actions[0].status).toBe('approved')
+    expect(db.rows.agent_actions[0].status).toBe('complete')
     expect(db.rows.venue_opportunity_briefs).toHaveLength(1)
     expect(db.rows.venue_opportunity_invites).toHaveLength(2)
     expect(db.rows.venue_opportunity_invites.map((invite) => invite.status)).toEqual(['queued', 'queued'])
@@ -351,7 +351,7 @@ describe('MVP launch API contracts', () => {
     )
   })
 
-  it('POST venue opportunities creates queued invites without leaking token state before approval', async () => {
+  it('POST venue opportunities blocks outreach draft generation before approval', async () => {
     db.rows.venues.push({ id: VENUE_ID_1, venue_name: 'Foundry Rooftop', standing_capacity: 160, is_claimed: true })
 
     const response = await createVenueOpportunity(
@@ -365,27 +365,10 @@ describe('MVP launch API contracts', () => {
     )
     const json = await readJson(response)
 
-    expect(response.status).toBe(200)
-    expect(json.brief).toEqual(expect.objectContaining({
-      approval_status: 'pending',
-      outreach_message: expect.objectContaining({
-        approval_status: 'pending',
-        source: 'deterministic_fallback',
-        drafts: expect.arrayContaining([
-          expect.objectContaining({
-            approval_required: true,
-            target_name: 'Foundry Rooftop',
-          }),
-        ]),
-      }),
-    }))
-    expect(json.invites).toHaveLength(1)
-    expect(json.invites[0]).toEqual(expect.objectContaining({
-      venue_id: VENUE_ID_1,
-      status: 'queued',
-      magic_link_token: null,
-      magic_link_expires_at: null,
-    }))
+    expect(response.status).toBe(403)
+    expect(json.error).toMatch(/Approved outreach approval is required/)
+    expect(db.rows.venue_opportunity_briefs).toHaveLength(0)
+    expect(db.rows.venue_opportunity_invites).toHaveLength(0)
   })
 
   it('normalizes Eventbrite tier data into rollups used by analytics', () => {

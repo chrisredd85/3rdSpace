@@ -10,7 +10,12 @@ import type { Json, Plan } from '@/lib/types'
 type QueryError = { message: string } | null
 type QueryResult = { data: unknown[] | null; error: QueryError }
 type SelectQuery = {
-  in(column: string, values: string[]): PromiseLike<QueryResult>
+  eq(column: string, value: unknown): SelectQuery
+  in(column: string, values: string[]): SelectQuery
+  then<TResult1 = QueryResult, TResult2 = never>(
+    onfulfilled?: ((value: QueryResult) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+  ): PromiseLike<TResult1 | TResult2>
 }
 type PlannerDb = {
   from(table: string): {
@@ -59,6 +64,13 @@ const VENDOR_OUTREACH_SELECT = `
 const OUTREACH_AGENT_NAME = 'outreach'
 const OUTREACH_AGENT_MODEL = 'gpt-4o'
 
+export class OutreachApprovalRequiredError extends Error {
+  constructor() {
+    super('Approved outreach approval is required before generating partner outreach.')
+    this.name = 'OutreachApprovalRequiredError'
+  }
+}
+
 export async function buildVenueOpportunityOutreach(input: {
   db: PlannerDb
   plan: Plan
@@ -68,6 +80,12 @@ export async function buildVenueOpportunityOutreach(input: {
   requirements: Record<string, unknown>
   responseDeadline: string | null
 }): Promise<OpportunityOutreachBundle> {
+  await assertApprovedOutreachGate({
+    db: input.db,
+    planId: input.plan.id,
+    venueIds: input.venueIds,
+    vendorIds: [],
+  })
   const targets = await loadVenueTargets(input.db, input.venueIds)
   return buildOpportunityOutreach({
     plan: input.plan,
@@ -91,6 +109,12 @@ export async function buildVendorOpportunityOutreach(input: {
   requirements: Record<string, unknown>
   responseDeadline: string | null
 }): Promise<OpportunityOutreachBundle> {
+  await assertApprovedOutreachGate({
+    db: input.db,
+    planId: input.plan.id,
+    venueIds: [],
+    vendorIds: input.vendorIds,
+  })
   const targets = await loadVendorTargets(input.db, input.vendorIds)
   return buildOpportunityOutreach({
     plan: input.plan,
@@ -170,6 +194,66 @@ async function buildOpportunityOutreach(input: {
       outreach_drafts: drafts,
     },
   }
+}
+
+async function assertApprovedOutreachGate(input: {
+  db: PlannerDb
+  planId: string
+  venueIds: string[]
+  vendorIds: string[]
+}) {
+  const targetVenueIds = new Set(input.venueIds)
+  const targetVendorIds = new Set(input.vendorIds)
+  const { data: actionRows, error: actionError } = await input.db
+    .from('agent_actions')
+    .select('id, action_type, payload_json')
+    .eq('plan_id', input.planId)
+    .in('action_type', ['opportunity_send_venues', 'opportunity_send_vendors'])
+
+  if (actionError) {
+    console.error('[agent.run] Outreach approval action lookup failed', actionError)
+    throw new OutreachApprovalRequiredError()
+  }
+
+  const actions = Array.isArray(actionRows)
+    ? actionRows.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === 'object' && !Array.isArray(row)))
+    : []
+  const matchingActionIds = actions
+    .filter((action) => actionCoversTargets(action, targetVenueIds, targetVendorIds))
+    .map((action) => typeof action.id === 'string' ? action.id : null)
+    .filter((id): id is string => Boolean(id))
+
+  if (matchingActionIds.length === 0) throw new OutreachApprovalRequiredError()
+
+  const { data: approvalRows, error: approvalError } = await input.db
+    .from('approvals')
+    .select('id, status, agent_action_id')
+    .in('agent_action_id', matchingActionIds)
+    .in('status', ['approved', 'authorized'])
+
+  if (approvalError) {
+    console.error('[agent.run] Outreach approval lookup failed', approvalError)
+    throw new OutreachApprovalRequiredError()
+  }
+
+  if (!Array.isArray(approvalRows) || approvalRows.length === 0) {
+    throw new OutreachApprovalRequiredError()
+  }
+}
+
+function actionCoversTargets(
+  action: Record<string, unknown>,
+  venueIds: Set<string>,
+  vendorIds: Set<string>
+): boolean {
+  const payload = action.payload_json
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false
+  const record = payload as Record<string, unknown>
+  const actionVenueIds = new Set(readStringArray(record.venue_ids))
+  const actionVendorIds = new Set(readStringArray(record.vendor_ids))
+  const coversVenues = venueIds.size === 0 || Array.from(venueIds).every((id) => actionVenueIds.has(id))
+  const coversVendors = vendorIds.size === 0 || Array.from(vendorIds).every((id) => actionVendorIds.has(id))
+  return coversVenues && coversVendors
 }
 
 async function runLoggedOutreachAgent(input: {
@@ -375,6 +459,11 @@ function readString(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed || null
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
 }
 
 function readNumber(value: unknown): number | null {

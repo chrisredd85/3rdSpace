@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
-import { buildVendorOpportunityOutreach } from '@/lib/planner/opportunityOutreach'
+import { buildVendorOpportunityOutreach, OutreachApprovalRequiredError } from '@/lib/planner/opportunityOutreach'
 import {
   createVendorOpportunityBrief,
   listVendorOpportunityBriefs,
@@ -101,6 +101,9 @@ export async function POST(
 
     return NextResponse.json(result)
   } catch (error) {
+    if (error instanceof OutreachApprovalRequiredError) {
+      return NextResponse.json({ error: error.message }, { status: 403 })
+    }
     console.error('[agent.run] Planner vendor opportunities POST error', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
   }
