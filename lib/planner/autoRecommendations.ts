@@ -1,0 +1,231 @@
+import { NextRequest } from 'next/server'
+import { PLAN_MESSAGE_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import type { Json, PlanMessage } from '@/lib/types'
+
+type PlanMessageInsertDb = {
+  from: (table: 'plan_messages') => {
+    insert: (payload: Record<string, unknown>) => {
+      select: (columns: string) => {
+        single: () => Promise<{
+          data: unknown
+          error: { message?: string } | null
+        }>
+      }
+    }
+    select: (columns: string) => {
+      eq: (column: string, value: string) => {
+        maybeSingle: () => Promise<{
+          data: unknown
+          error: { message?: string } | null
+        }>
+      }
+    }
+  }
+}
+
+export async function createAutoRecommendationMessage(input: {
+  db: PlanMessageInsertDb
+  request: NextRequest
+  planId: string
+}): Promise<PlanMessage[]> {
+  const recommendationData = await requestRecommendationRun(input.request, input.planId)
+  if (!recommendationData) return []
+
+  const { data, error } = await input.db
+    .from('plan_messages')
+    .insert({
+      plan_id: input.planId,
+      role: 'agent',
+      content: buildRecommendationContent(recommendationData),
+      message_type: 'recommendation',
+      metadata: toJson({
+        source: 'planner_recommendations',
+        recommendations: buildDisplayRecommendations(recommendationData),
+        recommendation_response: recommendationData,
+        venue_match_notice: readRecord(recommendationData.venue_match_notice),
+        vendor_match_notice: readRecord(recommendationData.vendor_match_notice),
+        resolved_archetype: readRecord(recommendationData.resolved_archetype),
+        ranked_venues: readArray(recommendationData.ranked_venues),
+        vendor_recommendations: readArray(recommendationData.vendor_recommendations),
+        vendor_recommendation_groups: readArray(recommendationData.vendor_recommendation_groups),
+        capacity_calibration: readRecord(recommendationData.capacity_calibration),
+        elasticity: readRecord(recommendationData.elasticity),
+        economics: readRecord(recommendationData.economics),
+        profit_projection: readRecord(recommendationData.profit_projection),
+        workspace_summary: readRecord(recommendationData.workspace_summary),
+        timeline: readRecord(recommendationData.timeline),
+        persisted_recommendation_ids: readArray(recommendationData.persisted_recommendation_ids),
+      }),
+    })
+    .select(PLAN_MESSAGE_SELECT_COLUMNS)
+    .single()
+
+  if (error || !data) {
+    console.error('[planner.recommend] Auto recommendation message insert error', error)
+    return []
+  }
+
+  const messages = [data as PlanMessage]
+  const approvalMessageId = readString(recommendationData.outreach_approval_message_id)
+  if (approvalMessageId) {
+    const approvalMessage = await loadPlanMessage(input.db, approvalMessageId)
+    if (approvalMessage) messages.push(approvalMessage)
+  }
+
+  return messages
+}
+
+async function requestRecommendationRun(
+  request: NextRequest,
+  planId: string
+): Promise<Record<string, unknown> | null> {
+  try {
+    const url = new URL(`/api/planner/plans/${planId}/recommend`, request.url)
+    const response = await fetch(url, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: request.headers.get('cookie') ?? '',
+      },
+      body: JSON.stringify({ venueLimit: 3, vendorLimit: 3 }),
+    })
+
+    if (!response.ok) {
+      console.warn('[planner.recommend] Auto recommendation fallback skipped:', response.status)
+      return null
+    }
+
+    return readRecord(await response.json())
+  } catch (error) {
+    console.warn('[planner.recommend] Auto recommendation route failed:', error)
+    return null
+  }
+}
+
+function buildRecommendationContent(data: Record<string, unknown>): string {
+  const venueCount = readArray(data.ranked_venues).length
+  const vendorCount = readArray(data.vendor_recommendations).length
+  const venueNoticeMessage = readString(readRecord(data.venue_match_notice)?.message)
+  const vendorNoticeMessage = readString(readRecord(data.vendor_match_notice)?.message)
+  const recommendedProjection = readRecord(readRecord(data.profit_projection)?.recommended_projection)
+  const ticketPriceCents = readNumber(recommendedProjection?.ticket_price_cents)
+  const profitCents = readNumber(recommendedProjection?.net_profit_cents)
+  const breakEvenTickets = readNumber(recommendedProjection?.break_even_tickets)
+
+  const parts = [
+    venueNoticeMessage ??
+      (venueCount > 0
+        ? `I found ${venueCount} venue ${venueCount === 1 ? 'match' : 'matches'}`
+        : 'I could not find a strong venue match yet'),
+    vendorNoticeMessage ??
+      (vendorCount > 0
+      ? `and ${vendorCount} suggested vendor ${vendorCount === 1 ? 'type' : 'options'}`
+      : null),
+  ].filter((part): part is string => part !== null)
+
+  const projection =
+    ticketPriceCents !== null && profitCents !== null && breakEvenTickets !== null
+      ? ` At ${formatCurrency(ticketPriceCents)} per ticket, projected profit is ${formatCurrency(profitCents)} with break-even at ${breakEvenTickets} tickets.`
+      : ''
+
+  return `${parts.join(' ')}.${projection}`
+}
+
+function buildDisplayRecommendations(data: Record<string, unknown>): Array<Record<string, unknown>> {
+  const archetype = readRecord(data.resolved_archetype)
+  const archetypeLabel = readString(archetype?.display_name)
+  const venues = readArray(data.ranked_venues).map((item, index) => {
+    const venue = readRecord(item) ?? {}
+    const pros = readStringArray(venue.pros)
+    const cons = readStringArray(venue.cons)
+    const intro = readString(venue.user_facing_intro)
+    const archetypeReasons = readStringArray(venue.archetype_reasons)
+    const commercialModelMatch = readString(venue.commercial_model_match)
+    const capacityCalibration = readRecord(venue.capacity_calibration) ?? readRecord(data.capacity_calibration)
+
+    return {
+      name: readString(venue.venue_name) ?? `Venue option ${index + 1}`,
+      type: 'Venue',
+      fit: `${readNumber(venue.fit_score) ?? 0}% fit`,
+      action: 'Review venue',
+      note: [intro, ...pros, ...cons].filter((value): value is string => Boolean(value)).join(' '),
+      price_cents: null,
+      matched_archetype: archetypeLabel,
+      commercial_model_match: commercialModelMatch,
+      capacity_calibration: capacityCalibration,
+      archetype_reasons: [...archetypeReasons, intro, ...pros].filter((value): value is string => Boolean(value)).slice(0, 2),
+      tags: ['venue match'],
+    }
+  })
+  const vendors = readArray(data.vendor_recommendations).map((item, index) => {
+    const vendor = readRecord(item) ?? {}
+    const serviceType = readString(vendor.service_type)
+    const necessity = readString(vendor.necessity)
+
+    return {
+      name: readString(vendor.name) ?? `Vendor option ${index + 1}`,
+      type: serviceType ? `Vendor · ${serviceType.replace(/_/g, ' ')}` : 'Vendor',
+      fit: `${readNumber(vendor.fit_score) ?? 0}% fit`,
+      action: 'Review vendor',
+      note: readStringArray(vendor.pros).join(' '),
+      price_cents: readNumber(vendor.base_rate_cents),
+      matched_archetype: archetypeLabel,
+      necessity,
+      tags: [serviceType, necessity].filter((value): value is string => Boolean(value)),
+    }
+  })
+
+  return [...venues, ...vendors]
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  return null
+}
+
+function readString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed || null
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+}
+
+function readArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+async function loadPlanMessage(db: PlanMessageInsertDb, messageId: string): Promise<PlanMessage | null> {
+  const { data, error } = await db
+    .from('plan_messages')
+    .select(PLAN_MESSAGE_SELECT_COLUMNS)
+    .eq('id', messageId)
+    .maybeSingle()
+
+  if (error || !data) {
+    if (error) console.error('[planner.recommend] Auto recommendation approval message lookup error', error)
+    return null
+  }
+
+  return data as PlanMessage
+}
+
+function formatCurrency(cents: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(cents / 100)
+}
+
+function toJson(value: Record<string, unknown>): Json {
+  return value as Json
+}
