@@ -32,12 +32,14 @@ function AuthShell({
   title,
   subtitle,
   accent = 'primary',
+  alreadySignedInWarning = false,
   children,
 }: {
   eyebrow: string
   title: string
   subtitle?: string
   accent?: 'primary' | 'secondary' | 'accent'
+  alreadySignedInWarning?: boolean
   children: React.ReactNode
 }) {
   const glowMap = {
@@ -72,6 +74,7 @@ function AuthShell({
 
       <main className="relative mx-auto w-full max-w-2xl px-6 pb-20 pt-6 lg:pt-12">
         <div className="rounded-3xl border border-border bg-card/70 p-8 shadow-card backdrop-blur-xl md:p-10">
+          {alreadySignedInWarning ? <AlreadySignedInBanner /> : null}
           <p className="text-xs font-semibold uppercase tracking-widest text-secondary">{eyebrow}</p>
           <h1 className="mt-2 font-display text-3xl font-bold md:text-4xl">{title}</h1>
           {subtitle && <p className="mt-3 text-muted-foreground">{subtitle}</p>}
@@ -84,6 +87,41 @@ function AuthShell({
           </Link>
         </p>
       </main>
+    </div>
+  )
+}
+
+function AlreadySignedInBanner() {
+  const router = useRouter()
+  const [isSigningOut, setIsSigningOut] = useState(false)
+
+  async function handleSignOut() {
+    setIsSigningOut(true)
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+    } finally {
+      router.refresh()
+      setIsSigningOut(false)
+    }
+  }
+
+  return (
+    <div className="mb-6 rounded-2xl border border-secondary/40 bg-secondary/10 p-4 text-sm text-muted-foreground">
+      <p className="font-medium text-foreground">You're already signed in.</p>
+      <p className="mt-1">Sign out to create a new account, or go back to your planner.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={handleSignOut}
+          disabled={isSigningOut}
+          className="rounded-full bg-secondary px-4 py-2 text-xs font-bold text-secondary-foreground transition-smooth hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isSigningOut ? 'Signing out...' : 'Sign out and continue'}
+        </button>
+        <Link href="/planner" className="rounded-full border border-border px-4 py-2 text-xs font-bold text-foreground transition-smooth hover:border-primary/50">
+          Back to planner
+        </Link>
+      </div>
     </div>
   )
 }
@@ -147,7 +185,13 @@ function ChipGroup({
 
 // ─── Role selector ────────────────────────────────────────────────────────────
 
-function RoleSelector({ onSelect }: { onSelect: (role: UserType) => void }) {
+function RoleSelector({
+  onSelect,
+  alreadySignedInWarning = false,
+}: {
+  onSelect: (role: UserType) => void
+  alreadySignedInWarning?: boolean
+}) {
   return (
     <div className="relative min-h-screen overflow-hidden bg-background">
       <div className="absolute inset-0 bg-gradient-mesh opacity-60" />
@@ -164,6 +208,7 @@ function RoleSelector({ onSelect }: { onSelect: (role: UserType) => void }) {
       </header>
 
       <main className="relative mx-auto w-full max-w-4xl px-6 pb-20 pt-10">
+        {alreadySignedInWarning ? <AlreadySignedInBanner /> : null}
         <div className="mb-10 text-center">
           <h1 className="font-display text-4xl font-bold md:text-5xl">Join 3rdPlace</h1>
           <p className="mt-3 text-lg text-muted-foreground">Choose your account type to get started</p>
@@ -260,7 +305,13 @@ function getStripeLoginRedirect(userType: UserType) {
   return `${config.loginPath}?redirect=${encodeURIComponent(config.dashboardPath)}`
 }
 
-function BuilderSignupFlow({ onBack }: { onBack: () => void }) {
+function BuilderSignupFlow({
+  onBack,
+  alreadySignedInWarning = false,
+}: {
+  onBack: () => void
+  alreadySignedInWarning?: boolean
+}) {
   const router = useRouter()
   const { addToast } = useToast()
   const [step, setStep] = useState(1)
@@ -351,6 +402,7 @@ function BuilderSignupFlow({ onBack }: { onBack: () => void }) {
       title="Set up your Creator account"
       subtitle="Tell us about your organization and the events you throw so we can match you to the right venues and vendors."
       accent="primary"
+      alreadySignedInWarning={alreadySignedInWarning}
     >
       <Stepper step={step} total={total} />
 
@@ -486,7 +538,13 @@ const venueTypeIds: Record<string, VenueType> = {
 const venueAmenities = ['DJ booth', 'Stage', 'PA / sound system', 'Lighting rig', 'Full bar', 'Kitchen', 'Green room', 'Coat check', 'Parking', 'Loading dock', 'ADA access', 'Wifi']
 const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-function VenueSignupFlow({ onBack }: { onBack: () => void }) {
+function VenueSignupFlow({
+  onBack,
+  alreadySignedInWarning = false,
+}: {
+  onBack: () => void
+  alreadySignedInWarning?: boolean
+}) {
   const router = useRouter()
   const { addToast } = useToast()
   const [step, setStep] = useState(1)
@@ -591,6 +649,7 @@ function VenueSignupFlow({ onBack }: { onBack: () => void }) {
       title="List your venue on 3rdPlace"
       subtitle="Show creators what makes your space special. Set your rules, your rates, and your calendar — once."
       accent="secondary"
+      alreadySignedInWarning={alreadySignedInWarning}
     >
       <Stepper step={step} total={total} />
 
@@ -796,7 +855,13 @@ const vendorServiceTypeIds: Record<string, ServiceType> = {
   Decor: 'florist',
 }
 
-function VendorSignupFlow({ onBack }: { onBack: () => void }) {
+function VendorSignupFlow({
+  onBack,
+  alreadySignedInWarning = false,
+}: {
+  onBack: () => void
+  alreadySignedInWarning?: boolean
+}) {
   const router = useRouter()
   const { addToast } = useToast()
   const [step, setStep] = useState(1)
@@ -889,6 +954,7 @@ function VendorSignupFlow({ onBack }: { onBack: () => void }) {
       title="Get booked on 3rdPlace"
       subtitle="List your services, set your rates, and choose whether you're available for last-minute emergency gigs."
       accent="accent"
+      alreadySignedInWarning={alreadySignedInWarning}
     >
       <Stepper step={step} total={total} />
 
@@ -1034,14 +1100,20 @@ function VendorSignupFlow({ onBack }: { onBack: () => void }) {
 
 // ─── Root export ──────────────────────────────────────────────────────────────
 
-export function SignupExperience({ initialUserType = null }: { initialUserType?: UserType | null }) {
+export function SignupExperience({
+  initialUserType = null,
+  alreadySignedInWarning = false,
+}: {
+  initialUserType?: UserType | null
+  alreadySignedInWarning?: boolean
+}) {
   const [role, setRole] = useState<UserType | null>(initialUserType)
 
   const handleBack = () => setRole(null)
 
-  if (!role) return <RoleSelector onSelect={setRole} />
-  if (role === 'community_builder') return <BuilderSignupFlow onBack={handleBack} />
-  if (role === 'venue_owner') return <VenueSignupFlow onBack={handleBack} />
-  if (role === 'vendor') return <VendorSignupFlow onBack={handleBack} />
+  if (!role) return <RoleSelector onSelect={setRole} alreadySignedInWarning={alreadySignedInWarning} />
+  if (role === 'community_builder') return <BuilderSignupFlow onBack={handleBack} alreadySignedInWarning={alreadySignedInWarning} />
+  if (role === 'venue_owner') return <VenueSignupFlow onBack={handleBack} alreadySignedInWarning={alreadySignedInWarning} />
+  if (role === 'vendor') return <VendorSignupFlow onBack={handleBack} alreadySignedInWarning={alreadySignedInWarning} />
   return null
 }

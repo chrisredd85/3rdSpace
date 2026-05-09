@@ -41,6 +41,12 @@ export async function middleware(request: NextRequest) {
   // Auth routes - redirect to appropriate dashboard if already authenticated
   if (pathname === '/login' || pathname === '/signup') {
     const { user, response } = await getAuthUser(request)
+    const forceSignup = pathname === '/signup' && (
+      request.nextUrl.searchParams.get('force') === '1' ||
+      request.nextUrl.searchParams.get('switch_account') === '1'
+    )
+    if (forceSignup) return response
+
     if (user) {
       // Get user type and redirect to appropriate dashboard
       const userType = (user.user_metadata?.user_type as UserType) || null
