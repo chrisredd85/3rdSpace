@@ -1765,10 +1765,15 @@ function isPlanArtifactMessage(message: PlanMessage) {
 }
 
 /**
- * Matches planner recommendation messages.
+ * Matches planner recommendation messages that contain actual venue/vendor cards.
+ * Excludes "ready to recommend" acknowledgement messages which have no recommendations array.
  */
 function isRecommendationMessage(message: PlanMessage) {
-  return String(message.message_type) === 'recommendation'
+  if (String(message.message_type) !== 'recommendation') return false
+  const meta = message.metadata
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return false
+  const recs = (meta as Record<string, unknown>).recommendations
+  return Array.isArray(recs) && recs.length > 0
 }
 
 /**

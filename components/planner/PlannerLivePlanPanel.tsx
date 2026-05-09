@@ -449,9 +449,10 @@ function buildProfitModel(summary: EventSummary, recommendations: Recommendation
     Math.max(0, Math.round((summary.budget_cents ?? 0) * 0.3))
   const ticketPricing = buildTicketPricingModel(summary, paidAverage, venueCostCents, vendorCostCents)
   const ticketRevenueCents = summary.ticketed && paidAverage > 0 ? ticketPricing.recommendedCents * paidAverage : 0
-  const barRevenueCents = paidAverage > 0 && !/no food|no drinks/i.test(summary.food_responsibility ?? '')
-    ? Math.round(paidAverage * 2600)
-    : 0
+  const hasBarRevenue = paidAverage > 0
+    && summary.ticketed
+    && /guests pay venue|cash bar|no-host/i.test(summary.food_responsibility ?? '')
+  const barRevenueCents = hasBarRevenue ? Math.round(paidAverage * 2600) : 0
   const feesCents = Math.round(ticketRevenueCents * 0.049)
   const venueKickbackCents = guestCount > 100 ? (guestCount - 100) * 800 : 0
   const revenueShareCents = Math.round(Math.max(0, ticketRevenueCents - feesCents) * 0.12)
