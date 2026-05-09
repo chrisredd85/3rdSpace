@@ -1,0 +1,5 @@
+# TODO
+
+- Add real planner agent spend telemetry when it becomes part of MVP billing: compute monthly OpenAI spend from `agent_runs.prompt_tokens`, `agent_runs.completion_tokens`, and model pricing, then expose it through a server-authenticated planner API before showing the sidebar spend widget again.
+- After vendor ranker launch, add `supabase/migrations/<future>_add_vendor_availability_status.sql`: `vendor_profiles.availability_status TEXT DEFAULT 'active'` with allowed values `active`, `paused`, `inactive`, plus `idx_vendor_profiles_availability`; then update the vendor hard gate to skip non-active vendors.
+- After auditing live vendor data, add `supabase/migrations/<future>_canonicalize_vendor_service_types.sql`: map historical `vendor_profiles.service_type` values like `photography -> photographer`, `videography -> videographer`, `dj_services -> dj`, and other discovered variants to the canonical `ServiceType` enum in `lib/planner/archetypes/types.ts`; then remove the runtime normalizer in `lib/vendors/serviceTypeNormalizer.ts` if it exists.

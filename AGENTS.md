@@ -149,6 +149,13 @@ Do not use plain white backgrounds, default rounded corners (`rounded-md`), or T
 | Styling | Tailwind CSS + custom utilities in `globals.css` |
 | Testing | Playwright (e2e in `e2e/`), Jest (unit/integration in `__tests__/`) |
 
+### Test email convention
+
+Use `example.com` for deterministic local and E2E signup accounts:
+`test-<role>-<timestamp>-<random>@example.com`.
+
+The hosted Supabase project must allow this test domain in Auth email provider settings, or local QA signup checks will fail before app validation runs.
+
 ---
 
 ## Hard rules
