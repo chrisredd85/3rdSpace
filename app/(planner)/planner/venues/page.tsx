@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query'
 import { Building2, CheckCircle2, MapPin, Search, SlidersHorizontal, Users } from 'lucide-react'
 import { BookedPartnersWorkspace } from '@/components/planner/BookedPartnersWorkspace'
 import { Button } from '@/components/ui/button'
@@ -37,6 +38,17 @@ interface VenuesApiResponse {
   error?: string
 }
 
+async function fetchPlannerVenueCatalog(): Promise<CatalogVenue[]> {
+  const response = await fetch('/api/venues')
+  const payload = (await response.json()) as VenuesApiResponse
+
+  if (!response.ok) {
+    throw new Error(payload.error || 'Catalog temporarily unavailable')
+  }
+
+  return (payload.venues || []).filter((venue) => venue.is_admin_seeded === true)
+}
+
 /**
  * Planner catalog page for browsing admin-seeded venues.
  *
@@ -44,47 +56,20 @@ interface VenuesApiResponse {
  * and exposes lightweight search for planner users without relying on saved venues.
  */
 export default function PlannerVenuesPage() {
-  const [venues, setVenues] = useState<CatalogVenue[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedArea, setSelectedArea] = useState('All')
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let mounted = true
-
-    async function loadVenues() {
-      try {
-        setIsLoading(true)
-        setError(null)
-
-        const response = await fetch('/api/venues')
-        const payload = (await response.json()) as VenuesApiResponse
-
-        if (!response.ok) {
-          throw new Error(payload.error || 'Unable to load venues')
-        }
-
-        if (mounted) {
-          setVenues((payload.venues || []).filter((venue) => venue.is_admin_seeded === true))
-        }
-      } catch {
-        if (mounted) {
-          setError('Unable to load venues — try refreshing.')
-        }
-      } finally {
-        if (mounted) {
-          setIsLoading(false)
-        }
-      }
-    }
-
-    loadVenues()
-
-    return () => {
-      mounted = false
-    }
-  }, [])
+  const {
+    data: venues = [],
+    isLoading,
+    isError,
+    refetch,
+    isFetching,
+  } = useQuery({
+    queryKey: ['planner-venue-catalog'],
+    queryFn: fetchPlannerVenueCatalog,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  })
 
   const filteredVenues = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase()
@@ -198,25 +183,29 @@ export default function PlannerVenuesPage() {
 
         {isLoading ? <VenueSkeletonGrid /> : null}
 
-        {!isLoading && error ? (
+        {!isLoading && isError ? (
           <div className="rounded-lg border border-border bg-card px-5 py-8 text-sm text-muted-foreground">
-            {error}
+            <p className="font-semibold text-foreground">Catalog temporarily unavailable</p>
+            <p className="mt-1">Venue listings could not be loaded right now.</p>
+            <Button className="mt-4" variant="glass" size="sm" onClick={() => void refetch()} disabled={isFetching}>
+              {isFetching ? 'Retrying...' : 'Retry'}
+            </Button>
           </div>
         ) : null}
 
-        {!isLoading && !error && venues.length === 0 ? (
+        {!isLoading && !isError && venues.length === 0 ? (
           <div className="rounded-lg border border-border bg-card px-5 py-8 text-sm text-muted-foreground">
             No venues in the catalog yet.
           </div>
         ) : null}
 
-        {!isLoading && !error && venues.length > 0 && filteredVenues.length === 0 ? (
+        {!isLoading && !isError && venues.length > 0 && filteredVenues.length === 0 ? (
           <div className="rounded-lg border border-border bg-card px-5 py-8 text-sm text-muted-foreground">
             No venues match that search.
           </div>
         ) : null}
 
-        {!isLoading && !error && filteredVenues.length > 0 ? (
+        {!isLoading && !isError && filteredVenues.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {filteredVenues.map((venue) => (
               <VenueCard key={venue.id} venue={venue} />

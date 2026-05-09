@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query'
 import { CheckCircle2, MapPin, Package, Search, SlidersHorizontal } from 'lucide-react'
 import { BookedPartnersWorkspace } from '@/components/planner/BookedPartnersWorkspace'
 import { Button } from '@/components/ui/button'
@@ -32,6 +33,17 @@ interface VendorsApiResponse {
   error?: string
 }
 
+async function fetchPlannerVendorCatalog(): Promise<CatalogVendor[]> {
+  const response = await fetch('/api/vendors')
+  const payload = (await response.json()) as VendorsApiResponse
+
+  if (!response.ok) {
+    throw new Error(payload.error || 'Catalog temporarily unavailable')
+  }
+
+  return (payload.vendors || []).filter((vendor) => vendor.is_admin_seeded === true)
+}
+
 /**
  * Planner catalog page for browsing admin-seeded vendors.
  *
@@ -39,47 +51,20 @@ interface VendorsApiResponse {
  * and exposes lightweight search without relying on saved vendors.
  */
 export default function PlannerVendorsPage() {
-  const [vendors, setVendors] = useState<CatalogVendor[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedService, setSelectedService] = useState('All')
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let mounted = true
-
-    async function loadVendors() {
-      try {
-        setIsLoading(true)
-        setError(null)
-
-        const response = await fetch('/api/vendors')
-        const payload = (await response.json()) as VendorsApiResponse
-
-        if (!response.ok) {
-          throw new Error(payload.error || 'Unable to load vendors')
-        }
-
-        if (mounted) {
-          setVendors((payload.vendors || []).filter((vendor) => vendor.is_admin_seeded === true))
-        }
-      } catch {
-        if (mounted) {
-          setError('Unable to load vendors — try refreshing.')
-        }
-      } finally {
-        if (mounted) {
-          setIsLoading(false)
-        }
-      }
-    }
-
-    loadVendors()
-
-    return () => {
-      mounted = false
-    }
-  }, [])
+  const {
+    data: vendors = [],
+    isLoading,
+    isError,
+    refetch,
+    isFetching,
+  } = useQuery({
+    queryKey: ['planner-vendor-catalog'],
+    queryFn: fetchPlannerVendorCatalog,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  })
 
   const filteredVendors = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase()
@@ -191,25 +176,29 @@ export default function PlannerVendorsPage() {
 
         {isLoading ? <VendorSkeletonGrid /> : null}
 
-        {!isLoading && error ? (
+        {!isLoading && isError ? (
           <div className="rounded-lg border border-border bg-card px-5 py-8 text-sm text-muted-foreground">
-            {error}
+            <p className="font-semibold text-foreground">Catalog temporarily unavailable</p>
+            <p className="mt-1">Vendor listings could not be loaded right now.</p>
+            <Button className="mt-4" variant="glass" size="sm" onClick={() => void refetch()} disabled={isFetching}>
+              {isFetching ? 'Retrying...' : 'Retry'}
+            </Button>
           </div>
         ) : null}
 
-        {!isLoading && !error && vendors.length === 0 ? (
+        {!isLoading && !isError && vendors.length === 0 ? (
           <div className="rounded-lg border border-border bg-card px-5 py-8 text-sm text-muted-foreground">
             No vendors in the catalog yet.
           </div>
         ) : null}
 
-        {!isLoading && !error && vendors.length > 0 && filteredVendors.length === 0 ? (
+        {!isLoading && !isError && vendors.length > 0 && filteredVendors.length === 0 ? (
           <div className="rounded-lg border border-border bg-card px-5 py-8 text-sm text-muted-foreground">
             No vendors match that search.
           </div>
         ) : null}
 
-        {!isLoading && !error && filteredVendors.length > 0 ? (
+        {!isLoading && !isError && filteredVendors.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {filteredVendors.map((vendor) => (
               <VendorCard key={vendor.id} vendor={vendor} />

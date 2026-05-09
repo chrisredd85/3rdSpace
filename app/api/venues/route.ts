@@ -92,19 +92,35 @@ export async function GET(request: NextRequest) {
       return query.range(from, to)
     }
 
-    let { data: venues, error } = await buildQuery(VENUE_SELECT_COLUMNS)
+    let primaryResult = await buildQuery(VENUE_SELECT_COLUMNS)
+    if (primaryResult.error && shouldRetryVenueQuery(primaryResult.error)) {
+      await wait(200)
+      primaryResult = await buildQuery(VENUE_SELECT_COLUMNS)
+    }
 
-    if (error && isMissingVenueCatalogColumn(error.message)) {
-      const fallback = await buildQuery(VENUE_LEGACY_SELECT_COLUMNS)
+    let { data: venues, error } = primaryResult
+
+    if (error && isVenueCatalogSchemaCacheError(error)) {
+      let fallback = await buildQuery(VENUE_LEGACY_SELECT_COLUMNS)
+      if (fallback.error && shouldRetryVenueQuery(fallback.error)) {
+        await wait(200)
+        fallback = await buildQuery(VENUE_LEGACY_SELECT_COLUMNS)
+      }
       venues = fallback.data
       error = fallback.error
     }
 
     if (error) {
-      console.error('Error fetching venues:', error)
+      const status = shouldTreatAsUpstreamUnavailable(error) ? 503 : 500
+      console.error('[/api/venues]', {
+        status,
+        code: error.code,
+        message: error.message,
+        hint: error.hint,
+      })
       return NextResponse.json(
         { error: 'Failed to fetch venues', details: error.message },
-        { status: 500 }
+        { status }
       )
     }
 
@@ -119,23 +135,84 @@ export async function GET(request: NextRequest) {
       },
       {
         headers: {
-          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+          'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=600',
         },
       }
     )
   } catch (error) {
-    console.error('Unexpected error fetching venues:', error)
+    console.error('[/api/venues]', {
+      status: 503,
+      code: null,
+      message: error instanceof Error ? error.message : 'Unexpected error fetching venues',
+      hint: null,
+    })
     return NextResponse.json(
       { error: 'An unexpected error occurred' },
-      { status: 500 }
+      { status: 503 }
     )
   }
 }
 
-function isMissingVenueCatalogColumn(message: string) {
-  return /column venues\.(ticket_sales_share_enabled|ticket_sales_share_pct|bar_rev_share_enabled|bar_rev_share_pct|sponsor_rev_share_enabled|sponsor_rev_share_pct|per_head_kickback_cents|is_claimed|is_admin_seeded) does not exist/.test(
-    message
+const VENUE_CATALOG_OPTIONAL_COLUMNS = [
+  'ticket_sales_share_enabled',
+  'ticket_sales_share_pct',
+  'bar_rev_share_enabled',
+  'bar_rev_share_pct',
+  'sponsor_rev_share_enabled',
+  'sponsor_rev_share_pct',
+  'per_head_kickback_cents',
+  'is_claimed',
+  'is_admin_seeded',
+  'requires_deposit',
+  'deposit_amount',
+  'deposit_type',
+  'deposit_refundable',
+  'deposit_terms',
+  'bulk_approval_enabled',
+  'auto_approve_threshold',
+  'auto_approve_conditions',
+  'unique_features',
+  'unique_features_tags',
+]
+
+type VenueCatalogQueryError = {
+  code?: string | null
+  message?: string | null
+  hint?: string | null
+}
+
+function isVenueCatalogSchemaCacheError(error: VenueCatalogQueryError) {
+  const message = error.message ?? ''
+  if (error.code === 'PGRST204') return true
+  return VENUE_CATALOG_OPTIONAL_COLUMNS.some((column) => {
+    return (
+      message.includes(`venues.${column}`) ||
+      message.includes(`'${column}' column`) ||
+      message.includes(`'${column}'`)
+    )
+  })
+}
+
+function shouldRetryVenueQuery(error: VenueCatalogQueryError) {
+  const code = error.code ?? ''
+  const message = (error.message ?? '').toLowerCase()
+  return (
+    code === 'PGRST000' ||
+    code === 'PGRST001' ||
+    code === 'PGRST002' ||
+    code === 'PGRST003' ||
+    message.includes('connection') ||
+    message.includes('timeout') ||
+    message.includes('temporarily unavailable')
   )
+}
+
+function shouldTreatAsUpstreamUnavailable(error: VenueCatalogQueryError) {
+  return shouldRetryVenueQuery(error) || isVenueCatalogSchemaCacheError(error)
+}
+
+function wait(durationMs: number) {
+  return new Promise((resolve) => setTimeout(resolve, durationMs))
 }
 
 function stripContactEmail<T extends { contact_email?: unknown }>(item: T): Omit<T, 'contact_email'> {

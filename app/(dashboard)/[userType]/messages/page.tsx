@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo } from 'react'
+import Image from 'next/image'
 import { useParams, useRouter } from 'next/navigation'
 import {
   Search,
@@ -308,9 +309,12 @@ function ThreadItem({ thread, isSelected, unreadCount, onClick, userType }: Thre
         <div className="flex-shrink-0">
           <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center text-white">
             {thread.other_participant?.avatar_url ? (
-              <img
+              <Image
                 src={thread.other_participant.avatar_url}
                 alt={participantName}
+                width={40}
+                height={40}
+                unoptimized
                 className="h-10 w-10 rounded-full object-cover"
               />
             ) : (
@@ -457,9 +461,12 @@ function MessageView({
             )}
             <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center text-white">
               {thread.other_participant?.avatar_url ? (
-                <img
+                <Image
                   src={thread.other_participant.avatar_url}
                   alt={participantName}
+                  width={40}
+                  height={40}
+                  unoptimized
                   className="h-10 w-10 rounded-full object-cover"
                 />
               ) : (

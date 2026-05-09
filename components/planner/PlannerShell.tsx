@@ -8,10 +8,8 @@
 'use client'
 
 import { Suspense, useEffect, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
+import dynamic from 'next/dynamic'
 import { usePathname } from 'next/navigation'
-import { ActivePlanContextHeader } from '@/components/planner/ActivePlanContextHeader'
-import { PlannerLivePlanPanel } from '@/components/planner/PlannerLivePlanPanel'
-import { PlannerSidebar } from '@/components/planner/PlannerSidebar'
 import { cn } from '@/lib/utils'
 
 interface PlannerShellProps {
@@ -23,6 +21,27 @@ const rightPanelMaxWidth = 460
 const leftPanelCollapsedWidth = 72
 const leftMinimumOpenWidth = 220
 const rightMinimumOpenWidth = 220
+
+const ActivePlanContextHeader = dynamic(
+  () => import('@/components/planner/ActivePlanContextHeader').then((module) => module.ActivePlanContextHeader),
+  { ssr: false }
+)
+
+const PlannerSidebar = dynamic(
+  () => import('@/components/planner/PlannerSidebar').then((module) => module.PlannerSidebar),
+  {
+    ssr: false,
+    loading: () => <div className="h-screen w-full border-r border-sidebar-border bg-sidebar" />,
+  }
+)
+
+const PlannerLivePlanPanel = dynamic(
+  () => import('@/components/planner/PlannerLivePlanPanel').then((module) => module.PlannerLivePlanPanel),
+  {
+    ssr: false,
+    loading: () => <div className="h-full w-full border-l border-border bg-card" />,
+  }
+)
 
 /**
  * Light planner shell with ChatGPT-style draggable side panels.

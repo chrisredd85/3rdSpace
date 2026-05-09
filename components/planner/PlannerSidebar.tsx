@@ -1,9 +1,8 @@
 /**
  * Purpose: Renders the fixed Agent Planner navigation sidebar for the new `/planner` shell.
- * Props: Accepts optional workspace, navigation count, spending, and active-plan stubs so
- * the layout can be wired before backend data exists.
+ * Props: Accepts optional workspace, navigation count, and active-plan stubs.
  * Key behaviors: Uses responsive icon-rail behavior on smaller screens, highlights active
- * links from the current pathname, and displays spend progress against the monthly cap.
+ * links from the current pathname, and keeps planner navigation in sync with the live plan.
  */
 'use client'
 
@@ -31,6 +30,7 @@ interface PlannerNavItem {
   icon: ComponentType<{ className?: string }>
   badge?: string | number
   live?: boolean
+  prefetch?: boolean
 }
 
 interface PlannerSidebarProps {
@@ -40,9 +40,6 @@ interface PlannerSidebarProps {
   hasActivePlan?: boolean
   planId?: string | null
   counts?: PlannerSidebarCounts
-  spendUsedCents?: number
-  spendCapCents?: number | null
-  resetLabel?: string
 }
 
 interface PlannerSidebarCounts {
@@ -60,19 +57,6 @@ interface LivePlanSidebarPayload {
     message_type?: string
     metadata?: unknown
   }>
-}
-
-/**
- * Formats integer cents as whole-dollar currency for compact sidebar display.
- */
-function formatMoney(valueCents: number | null | undefined) {
-  if (typeof valueCents !== 'number') return '—'
-
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(valueCents / 100)
 }
 
 /**
@@ -114,24 +98,19 @@ export const PlannerSidebar = memo(function PlannerSidebar({
   hasActivePlan,
   planId,
   counts,
-  spendUsedCents = 0,
-  spendCapCents,
-  resetLabel,
 }: PlannerSidebarProps) {
   const pathname = usePathname()
   const [livePayload, setLivePayload] = useState<LivePlanSidebarPayload>({ plan: null, planId: null, messages: [] })
   const activePlanId = planId ?? livePayload.planId
   const activePlanExists = hasActivePlan ?? Boolean(activePlanId)
   const pendingApprovalCount = counts?.pendingApprovals ?? countApprovalMessages(livePayload.messages)
-  const spendCap = spendCapCents ?? livePayload.plan?.budgetCapCents ?? null
-  const spendPercent = spendCap && spendCap > 0 ? Math.min(100, Math.round((spendUsedCents / spendCap) * 100)) : 0
   const navItems: PlannerNavItem[] = [
     { label: 'Agent Planner', href: '/planner', icon: Sparkles, live: activePlanExists },
-    { label: 'Experiences', href: '/planner/experiences', icon: Bell, badge: counts?.experiences ?? 0 },
+    { label: 'Experiences', href: '/planner/experiences', icon: Bell, badge: counts?.experiences ?? 0, prefetch: true },
     { label: 'Templates', href: '/planner/templates', icon: FileText },
-    { label: 'Venues', href: '/planner/venues', icon: Building2 },
+    { label: 'Venues', href: '/planner/venues', icon: Building2, prefetch: true },
     { label: 'Tickets', href: '/planner/tickets', icon: Ticket, badge: counts?.tickets ?? 0 },
-    { label: 'Vendors', href: '/planner/vendors', icon: Store },
+    { label: 'Vendors', href: '/planner/vendors', icon: Store, prefetch: true },
     { label: 'Messages', href: '/planner/messages', icon: MessageSquare },
     { label: 'Payments', href: '/planner/payments', icon: CreditCard, badge: pendingApprovalCount },
     { label: 'Billing', href: '/planner/billing', icon: WalletCards },
@@ -202,6 +181,7 @@ export const PlannerSidebar = memo(function PlannerSidebar({
             <Link
               key={item.href}
               href={item.href}
+              prefetch={item.prefetch}
               title={isCollapsed ? item.label : undefined}
               className={cn(
                 'group flex min-h-11 items-center gap-3 rounded-xl border-l-2 text-sm font-semibold transition-smooth',
@@ -228,22 +208,6 @@ export const PlannerSidebar = memo(function PlannerSidebar({
         })}
       </nav>
 
-      <div className={cn('border-t border-sidebar-border px-3 py-4 lg:px-5', isCollapsed && 'hidden')}>
-        <div className="rounded-2xl border border-sidebar-border bg-sidebar-accent/50 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Agent Spend</span>
-            <WalletCards className="h-4 w-4 text-primary" />
-          </div>
-          <div className="flex items-end justify-between gap-3">
-            <span className="font-display text-lg font-bold">{formatMoney(spendUsedCents)} spent</span>
-            <span className="text-xs text-muted-foreground">{spendCap ? `/ ${formatMoney(spendCap)}` : '/ —'}</span>
-          </div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-background">
-            <div className="h-full rounded-full bg-gradient-brand" style={{ width: `${spendPercent}%` }} />
-          </div>
-          <p className="mt-3 text-xs text-muted-foreground">{resetLabel ? `Monthly cap · resets ${resetLabel}` : 'Monthly cap'}</p>
-        </div>
-      </div>
     </aside>
   )
 })

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -474,9 +475,11 @@ export default function VenueListingPage() {
                     key={photo.id}
                     className="relative group aspect-square rounded-lg overflow-hidden border border-border"
                   >
-                    <img
+                    <Image
                       src={photo.photo_url}
                       alt={photo.caption || `Photo ${index + 1}`}
+                      fill
+                      sizes="(min-width: 768px) 25vw, 50vw"
                       className="w-full h-full object-cover"
                     />
                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">

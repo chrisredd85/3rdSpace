@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import Image from 'next/image'
 import { Upload, X, Image as ImageIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ProgressBar } from '@/components/shared/ProgressBar'
@@ -213,9 +214,12 @@ export function FileUpload({
           {previewUrls.map((url, index) => (
             <div key={index} className="relative group">
               {accept.includes('image') ? (
-                <img
+                <Image
                   src={url}
                   alt={`Upload ${index + 1}`}
+                  width={256}
+                  height={128}
+                  unoptimized
                   className="w-full h-32 object-cover rounded-lg border border-border"
                 />
               ) : (
