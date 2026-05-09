@@ -7,7 +7,8 @@
  */
 'use client'
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, ExternalLink, Link2, Loader2, Ticket, WifiOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -57,6 +58,16 @@ interface TicketAnalyticsPayload {
   rollups: TicketAnalyticsRollup[]
 }
 
+interface TicketingConnectionsQueryResult {
+  connections: TicketingConnection[]
+  emptyMessage: string | null
+}
+
+interface TicketAnalyticsQueryResult {
+  analytics: TicketAnalyticsPayload | null
+  emptyMessage: string | null
+}
+
 const platformCopy: Record<TicketPlatform, { label: string; description: string; mode: string }> = {
   eventbrite: {
     label: 'Eventbrite',
@@ -80,6 +91,48 @@ const platformCopy: Record<TicketPlatform, { label: string; description: string;
   },
 }
 
+async function fetchTicketingConnections(): Promise<TicketingConnectionsQueryResult> {
+  const response = await fetch('/api/integrations/ticketing/connections')
+  const payload = await response.json().catch(() => ({}))
+
+  if (response.status === 401 || response.status === 403) {
+    return {
+      connections: [],
+      emptyMessage: 'Sign in as an event creator to save ticketing connections.',
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(payload?.error ?? 'Unable to load ticketing connections')
+  }
+
+  return {
+    connections: (payload.connections ?? []) as TicketingConnection[],
+    emptyMessage: null,
+  }
+}
+
+async function fetchTicketingAnalytics(): Promise<TicketAnalyticsQueryResult> {
+  const response = await fetch('/api/planner/ticketing/analytics')
+  const payload = await response.json().catch(() => ({}))
+
+  if (response.status === 401 || response.status === 403) {
+    return {
+      analytics: null,
+      emptyMessage: 'Ticket analytics appear after sales or RSVP data is imported.',
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(payload?.error ?? 'Unable to load ticketing analytics')
+  }
+
+  return {
+    analytics: payload as TicketAnalyticsPayload,
+    emptyMessage: null,
+  }
+}
+
 /**
  * Renders ticketing platform connection status and setup actions.
  */
@@ -88,8 +141,7 @@ export function PlannerTicketingConnectPanel({
   ticketed = false,
   className,
 }: PlannerTicketingConnectPanelProps) {
-  const [connections, setConnections] = useState<TicketingConnection[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [activePlatform, setActivePlatform] = useState<TicketPlatform>('luma')
   const [eventUrl, setEventUrl] = useState('')
   const [accountLabel, setAccountLabel] = useState('')
@@ -97,77 +149,31 @@ export function PlannerTicketingConnectPanel({
   const [pendingPlatform, setPendingPlatform] = useState<TicketPlatform | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
-  const [analytics, setAnalytics] = useState<TicketAnalyticsPayload | null>(null)
-  const [analyticsError, setAnalyticsError] = useState<string | null>(null)
+  const connectionsQuery = useQuery({
+    queryKey: ['ticketing-connections'],
+    queryFn: fetchTicketingConnections,
+    retry: false,
+    staleTime: 60_000,
+  })
+  const analyticsQuery = useQuery({
+    queryKey: ['planner-ticketing-analytics'],
+    queryFn: fetchTicketingAnalytics,
+    retry: false,
+    staleTime: 60_000,
+  })
 
-  useEffect(() => {
-    let isMounted = true
-
-    async function loadConnections() {
-      setIsLoading(true)
-      setErrorMessage(null)
-
-      try {
-        const response = await fetch('/api/integrations/ticketing/connections')
-        const payload = await response.json()
-
-        if (response.status === 401 || response.status === 403) {
-          throw new Error('Sign in as an event creator to save ticketing connections.')
-        }
-
-        if (!response.ok) {
-          throw new Error(payload?.error ?? 'Unable to load ticketing connections')
-        }
-
-        if (isMounted) {
-          setConnections((payload.connections ?? []) as TicketingConnection[])
-        }
-      } catch (error) {
-        if (isMounted) {
-          const message = error instanceof Error ? error.message : ''
-          setErrorMessage(
-            message.includes('Sign in')
-              ? message
-              : 'Ticketing connections load after the planner is saved to an event creator account.'
-          )
-        }
-      } finally {
-        if (isMounted) setIsLoading(false)
-      }
-    }
-
-    async function loadAnalytics() {
-      setAnalyticsError(null)
-
-      try {
-        const response = await fetch('/api/planner/ticketing/analytics')
-        const payload = await response.json()
-
-        if (response.status === 401 || response.status === 403) {
-          setAnalytics(null)
-          return
-        }
-
-        if (!response.ok) {
-          throw new Error(payload?.error ?? 'Unable to load ticketing analytics')
-        }
-
-        if (isMounted) {
-          setAnalytics(payload as TicketAnalyticsPayload)
-        }
-      } catch {
-        if (isMounted) {
-          setAnalyticsError('Ticket analytics appear after sales or RSVP data is imported.')
-        }
-      }
-    }
-
-    void loadConnections()
-    void loadAnalytics()
-    return () => {
-      isMounted = false
-    }
-  }, [])
+  const connections = connectionsQuery.data?.connections ?? []
+  const isLoading = connectionsQuery.isLoading
+  const connectionLoadMessage =
+    connectionsQuery.data?.emptyMessage ??
+    (connectionsQuery.isError
+      ? 'Ticketing connections load after the planner is saved to an event creator account.'
+      : null)
+  const showConnectionsEmptyState = !connectionsQuery.isLoading && connections.length === 0 && Boolean(connectionLoadMessage)
+  const analytics = analyticsQuery.data?.analytics ?? null
+  const analyticsError =
+    analyticsQuery.data?.emptyMessage ??
+    (analyticsQuery.isError ? 'Ticket analytics appear after sales or RSVP data is imported.' : null)
 
   const connectedCount = useMemo(
     () => connections.filter((connection) => isConnectedStatus(connection.status)).length,
@@ -219,10 +225,13 @@ export function PlannerTicketingConnectPanel({
       if (!response.ok) throw new Error(payload?.error ?? `Unable to connect ${platformCopy[platform].label}`)
 
       const nextConnection = payload.connection as TicketingConnection
-      setConnections((current) => [
-        ...current.filter((connection) => connection.platform !== nextConnection.platform),
-        nextConnection,
-      ])
+      queryClient.setQueryData<TicketingConnectionsQueryResult>(['ticketing-connections'], (current) => ({
+        emptyMessage: null,
+        connections: [
+          ...(current?.connections ?? connections).filter((connection) => connection.platform !== nextConnection.platform),
+          nextConnection,
+        ],
+      }))
       setSuccessMessage(
         platform === 'partiful'
           ? 'Partiful link saved for import tracking.'
@@ -265,6 +274,10 @@ export function PlannerTicketingConnectPanel({
         <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading connections
+        </div>
+      ) : showConnectionsEmptyState ? (
+        <div className="mt-4 rounded-xl border border-dashed border-border bg-background/60 px-4 py-5 text-sm text-muted-foreground">
+          {connectionLoadMessage}
         </div>
       ) : (
         <>
@@ -358,6 +371,9 @@ export function PlannerTicketingConnectPanel({
       )}
 
       {successMessage ? <p className="mt-3 text-sm font-semibold text-success">{successMessage}</p> : null}
+      {connectionLoadMessage && !showConnectionsEmptyState ? (
+        <p className="mt-3 text-sm font-semibold text-muted-foreground">{connectionLoadMessage}</p>
+      ) : null}
       {errorMessage ? <p className="mt-3 text-sm font-semibold text-destructive">{errorMessage}</p> : null}
 
       {mode === 'full' ? (
