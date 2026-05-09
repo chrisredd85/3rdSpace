@@ -20,9 +20,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { IntakeAgentOutput } from '@/lib/ai/agents/intakeAgent'
 import { determineNextResponse } from '@/lib/planner/agentResponder'
+import { buildEventPlanFromPlannerPlan } from '@/lib/planner/agentPlanAdapter'
+import { resolveArchetypeContext } from '@/lib/planner/archetypes'
+import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import { parseEventIntent } from '@/lib/planner/intentParser'
+import { isIntakeReadyForRecommendations } from '@/lib/planner/intakeReadiness'
+import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
+import {
+  getBuilderProfileIdForUser,
+  summarizeBuilderAttendance,
+  type BuilderAttendanceSummary,
+} from '@/lib/server/builderAttendanceHistory'
 import { createClient } from '@/lib/supabase/server'
+import type { TicketPlatform } from '@/lib/constants/account-setup'
 import type {
   Json,
   AgentResponseDraft,
@@ -167,7 +178,18 @@ export async function POST(
     }
 
     const finalPlan = initialExchange.plan
-    const messages = initialExchange.messages
+    let messages = initialExchange.messages
+    const shouldRunRecommendations =
+      initialExchange.agentMode === 'openai' &&
+      messages.some((message) => message.role === 'agent' && message.message_type === 'recommendation')
+    if (shouldRunRecommendations) {
+      const recommendationMessages = await createAutoRecommendationMessage({
+        db: auth.db,
+        request,
+        planId: finalPlan.id,
+      })
+      messages = [...messages, ...recommendationMessages]
+    }
 
     await recordEventTypeCandidate(auth.db, {
       userId: auth.userId,
@@ -327,6 +349,9 @@ async function buildInitialAgentResponse(input: {
 
   try {
     const { runAgent } = await import('@/lib/ai/agents')
+    const connectedPlatforms = await getBuilderConnectedTicketingPlatforms(input.db, input.userId)
+    const resolvedArchetype = resolveArchetypeContext(`${input.userMessage} ${input.plan.event_type ?? ''}`)
+    const builderHistory = await loadBuilderHistoryForIntake(input.db, input.userId, resolvedArchetype?.key ?? null)
     const agentResult = await runAgent({
       agent_name: 'intake',
       event_id: null,
@@ -334,8 +359,11 @@ async function buildInitialAgentResponse(input: {
       payload: {
         messages: [{ role: 'user', content: input.userMessage }],
         user_message: input.userMessage,
-        current_plan: null,
-        existing_event_plan: null,
+        current_plan: input.plan,
+        existing_event_plan: buildEventPlanFromPlannerPlan(input.plan),
+        connected_platforms: connectedPlatforms,
+        resolved_archetype: resolvedArchetype,
+        builder_history: builderHistory ? toIntakeBuilderHistory(builderHistory) : null,
       },
     })
 
@@ -348,11 +376,11 @@ async function buildInitialAgentResponse(input: {
     const planWithAgentUpdates = await updatePlanIfNeeded(
       input.db,
       input.plan,
-      buildPlanUpdatesFromIntakeOutput(intakeOutput)
+      buildPlanUpdatesFromIntakeOutput(intakeOutput, input.plan, input.userMessage)
     )
 
     return {
-      agentDraft: buildIntakeAgentDraft(intakeOutput),
+      agentDraft: buildIntakeAgentDraft(intakeOutput, planWithAgentUpdates),
       plan: planWithAgentUpdates,
       agentMode: 'openai',
     }
@@ -389,6 +417,30 @@ async function updatePlanIfNeeded(
   return data as Plan
 }
 
+async function loadBuilderHistoryForIntake(
+  db: PlannerDb,
+  userId: string,
+  archetypeKey: string | null
+): Promise<BuilderAttendanceSummary | null> {
+  const builderId = await getBuilderProfileIdForUser(db, userId)
+  if (!builderId) return null
+
+  return summarizeBuilderAttendance(db, builderId, {
+    archetype_key: archetypeKey ?? undefined,
+    window_days: 365,
+  })
+}
+
+function toIntakeBuilderHistory(summary: BuilderAttendanceSummary) {
+  return {
+    sample_size: summary.sample_size,
+    avg: summary.avg_tickets_sold,
+    p75: summary.p75_tickets_sold,
+    confidence: summary.confidence,
+    last_event_at: summary.last_event_at,
+  }
+}
+
 async function maybeMarkPlanReady(
   db: PlannerDb,
   currentPlan: Plan,
@@ -411,19 +463,22 @@ async function maybeMarkPlanReady(
   return data as Plan
 }
 
-function buildIntakeAgentDraft(output: IntakeAgentOutput): AgentResponseDraft {
+function buildIntakeAgentDraft(output: IntakeAgentOutput, plan: Plan): AgentResponseDraft {
   const missingQuestions = output.missing_questions
     .map((question) => question.trim())
     .filter((question) => question.length > 0)
   const nextBestQuestion = output.next_best_question?.trim() || null
-  const content = nextBestQuestion
-    ?? (missingQuestions.length > 0
-      ? `I still need: ${missingQuestions.join(' ')}`
-      : 'I have enough to start venue matching and economics recommendations.')
+  const reflection = output.reflection.trim()
+  const isReady = isIntakeReadyForRecommendations(output, plan)
+  const content = isReady
+    ? reflection
+    : nextBestQuestion
+      ? `${reflection} ${nextBestQuestion}`
+      : `${reflection} ${missingQuestions[0] ?? 'What should I know next?'}`
 
   return {
     content,
-    message_type: missingQuestions.length > 0 ? 'text' : 'recommendation',
+    message_type: isReady ? 'recommendation' : 'text',
     metadata: toJson({
       agent_name: 'intake',
       agent_output: output,
@@ -431,30 +486,56 @@ function buildIntakeAgentDraft(output: IntakeAgentOutput): AgentResponseDraft {
   }
 }
 
-function buildPlanUpdatesFromIntakeOutput(output: IntakeAgentOutput): Record<string, unknown> {
+function buildPlanUpdatesFromIntakeOutput(
+  output: IntakeAgentOutput,
+  currentPlan: Plan,
+  userMessage: string
+): Record<string, unknown> {
   const eventPlan = output.updated_event_plan
+  const extracted = output.extracted_fields
   const updates: Record<string, unknown> = {}
 
-  if (eventPlan.event_name) updates.title = eventPlan.event_name
-  if (eventPlan.venue_type) updates.event_type = eventPlan.venue_type
-
-  const guestCount = eventPlan.expected_attendance ?? eventPlan.headcount_max ?? eventPlan.headcount_min
-  if (typeof guestCount === 'number') updates.guest_count = guestCount
-
-  if (typeof eventPlan.budget === 'number') updates.budget_cap_cents = normalizePlanningMoneyToCents(eventPlan.budget)
-  if (typeof eventPlan.profit_goal === 'number') {
-    updates.profit_goal_cents = normalizePlanningMoneyToCents(eventPlan.profit_goal)
+  if (!currentPlan.title && eventPlan.event_name) updates.title = eventPlan.event_name
+  if (!currentPlan.event_type && (extracted.event_type || eventPlan.venue_type)) {
+    updates.event_type = extracted.event_type ?? eventPlan.venue_type
   }
 
-  const neighborhood = output.neighborhood ?? eventPlan.city
-  if (neighborhood) updates.neighborhood = neighborhood
+  const guestCount = extracted.guest_count ?? eventPlan.expected_attendance ?? eventPlan.headcount_max ?? eventPlan.headcount_min
+  if (currentPlan.guest_count == null && typeof guestCount === 'number') updates.guest_count = guestCount
 
-  if (eventPlan.event_date) {
-    updates.date_window_start = eventPlan.event_date
-    updates.date_window_end = eventPlan.event_date
+  if (currentPlan.budget_cap_cents == null) {
+    if (typeof extracted.budget_cap_cents === 'number') {
+      updates.budget_cap_cents = extracted.budget_cap_cents
+    } else if (typeof eventPlan.budget === 'number') {
+      updates.budget_cap_cents = normalizePlanningMoneyToCents(eventPlan.budget)
+    }
+  }
+  if (currentPlan.profit_goal_cents == null) {
+    if (typeof extracted.profit_goal_cents === 'number') {
+      updates.profit_goal_cents = extracted.profit_goal_cents
+    } else if (typeof eventPlan.profit_goal === 'number') {
+      updates.profit_goal_cents = normalizePlanningMoneyToCents(eventPlan.profit_goal)
+    }
   }
 
-  if (eventPlan.monetization_model) {
+  const neighborhood = extracted.neighborhood ?? output.neighborhood ?? eventPlan.city
+  if (!currentPlan.neighborhood && neighborhood) updates.neighborhood = neighborhood
+
+  if (!currentPlan.date_window_start && !currentPlan.date_window_end) {
+    if (extracted.date_window_start || extracted.date_window_end) {
+      updates.date_window_start = extracted.date_window_start
+      updates.date_window_end = extracted.date_window_end ?? extracted.date_window_start
+    } else if (eventPlan.event_date) {
+      updates.date_window_start = eventPlan.event_date
+      updates.date_window_end = eventPlan.event_date
+    }
+  }
+
+  if (typeof extracted.ticketed === 'boolean' && currentPlan.ticketed !== extracted.ticketed) {
+    updates.ticketed = extracted.ticketed
+    updates.ticketing_model = extracted.ticketed ? 'ticketed' : 'rsvp'
+  }
+  if (!currentPlan.ticketing_model && eventPlan.monetization_model) {
     updates.ticketing_model = eventPlan.monetization_model
     const monetizationModel = eventPlan.monetization_model.trim().toLowerCase()
     if (monetizationModel.includes('ticket') || monetizationModel.includes('paid')) updates.ticketed = true
@@ -468,7 +549,15 @@ function buildPlanUpdatesFromIntakeOutput(output: IntakeAgentOutput): Record<str
     }
   }
 
-  if (output.food_drink_needs) updates.food_responsibility = output.food_drink_needs
+  if (extracted.food_responsibility) updates.food_responsibility = extracted.food_responsibility
+  else if (output.food_drink_needs) updates.food_responsibility = output.food_drink_needs
+
+  const metadata = buildMetadataUpdates(
+    currentPlan,
+    readTicketingPlatform(userMessage),
+    extracted.ticket_price_target
+  )
+  if (metadata) updates.metadata = metadata
 
   return updates
 }
@@ -585,6 +674,29 @@ function getIpAddress(request: NextRequest): string | null {
 
 function readRecord(value: unknown): Record<string, unknown> | null {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  return null
+}
+
+function buildMetadataUpdates(
+  currentPlan: Plan,
+  intendedPlatform: TicketPlatform | null,
+  ticketPriceTargetCents: number | null
+): Record<string, unknown> | null {
+  const metadata = readRecord(currentPlan.metadata) ?? {}
+  const nextMetadata = { ...metadata }
+  if (intendedPlatform) nextMetadata.intended_platform = intendedPlatform
+  if (typeof ticketPriceTargetCents === 'number' && ticketPriceTargetCents > 0) {
+    nextMetadata.ticket_price_target_cents = normalizePlanningMoneyToCents(ticketPriceTargetCents)
+  }
+  return Object.keys(nextMetadata).some((key) => nextMetadata[key] !== metadata[key]) ? nextMetadata : null
+}
+
+function readTicketingPlatform(message: string): TicketPlatform | null {
+  const normalized = message.toLowerCase()
+  if (/\bevent\s*brite\b|\beventbrite\b/.test(normalized)) return 'eventbrite'
+  if (/\bluma\b|\blu\.ma\b/.test(normalized)) return 'luma'
+  if (/\bposh\b/.test(normalized)) return 'posh'
+  if (/\bpartiful\b/.test(normalized)) return 'partiful'
   return null
 }
 

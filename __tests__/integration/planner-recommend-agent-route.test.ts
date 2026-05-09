@@ -1,10 +1,16 @@
 jest.mock('server-only', () => ({}))
 
 import type { NextRequest } from 'next/server'
+import { PATCH as patchPlan } from '@/app/api/planner/plans/[planId]/route'
 import { POST as recommendPlan } from '@/app/api/planner/plans/[planId]/recommend/route'
+import { runAgent } from '@/lib/ai/agents'
 import { runEconomicsAgent } from '@/lib/ai/agents/economicsAgent'
 import { runVenueMatchingAgent } from '@/lib/ai/agents/venueMatchingAgent'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+
+jest.mock('@/lib/ai/agents', () => ({
+  runAgent: jest.fn(),
+}))
 
 jest.mock('@/lib/ai/agents/venueMatchingAgent', () => ({
   venueMatchingAgentDefinition: { agentName: 'venue_matching', model: 'gpt-4o' },
@@ -38,12 +44,17 @@ jest.mock('next/server', () => ({
 
 type Row = Record<string, unknown>
 
+const VENUE_ID = '550e8400-e29b-41d4-a716-446655440101'
+
 class MemoryDb {
   rows: Record<string, Row[]> = {
     plans: [],
     plan_messages: [],
     venues: [],
     recommendations: [],
+    agent_actions: [],
+    approvals: [],
+    planner_plan_updates: [],
     audit_logs: [],
     agent_runs: [],
   }
@@ -63,14 +74,14 @@ class MemoryDb {
 
 class MemoryQuery {
   private filters: Array<(row: Row) => boolean> = []
-  private operation: 'select' | 'insert' = 'select'
+  private operation: 'select' | 'insert' | 'update' = 'select'
   private payload: unknown
   private rowLimit: number | null = null
   private orderBy: { field: string; ascending: boolean } | null = null
 
   constructor(private db: MemoryDb, private table: string) {}
 
-  select() {
+  select(_columns = '*') {
     return this
   }
 
@@ -80,8 +91,19 @@ class MemoryQuery {
     return this
   }
 
+  update(payload: unknown) {
+    this.operation = 'update'
+    this.payload = payload
+    return this
+  }
+
   eq(field: string, value: unknown) {
     this.filters.push((row) => row[field] === value)
+    return this
+  }
+
+  in(field: string, values: unknown[]) {
+    this.filters.push((row) => values.includes(row[field]))
     return this
   }
 
@@ -120,6 +142,12 @@ class MemoryQuery {
     return { data: row ?? null, error: null }
   }
 
+  async single() {
+    const result = await this.execute()
+    const row = Array.isArray(result.data) ? result.data[0] : result.data
+    return { data: row ?? null, error: row ? null : { message: 'No row' } }
+  }
+
   then<TResult1 = { data: Row[]; error: null }, TResult2 = never>(
     onfulfilled?: ((value: { data: Row[]; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
@@ -133,6 +161,17 @@ class MemoryQuery {
       const inserted = values.map((value) => this.withDefaults(value as Row))
       this.db.rows[this.table].push(...inserted)
       return { data: inserted, error: null }
+    }
+
+    if (this.operation === 'update') {
+      const updated: Row[] = []
+      this.db.rows[this.table] = this.db.rows[this.table].map((row) => {
+        if (!this.filters.every((filter) => filter(row))) return row
+        const next = { ...row, ...(this.payload as Row), updated_at: new Date().toISOString() }
+        updated.push(next)
+        return next
+      })
+      return { data: updated, error: null }
     }
 
     let selected = this.db.rows[this.table].filter((row) => this.filters.every((filter) => filter(row)))
@@ -157,12 +196,17 @@ class MemoryQuery {
 
 const mockRunVenueMatchingAgent = runVenueMatchingAgent as jest.Mock
 const mockRunEconomicsAgent = runEconomicsAgent as jest.Mock
+const mockRunAgent = runAgent as jest.Mock
 const mockCreateClient = createClient as jest.Mock
 const mockCreateServiceRoleClient = createServiceRoleClient as jest.Mock
 
-function makeRequest(body: Row = {}) {
-  return new Request('http://localhost/api/planner/plans/plan-1/recommend', {
-    method: 'POST',
+function makeRequest(
+  body: Row = {},
+  path = '/api/planner/plans/plan-1/recommend',
+  method = 'POST'
+) {
+  return new Request(`http://localhost${path}`, {
+    method,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   }) as NextRequest
@@ -200,7 +244,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       notes: null,
     })
     db.rows.venues.push({
-      id: 'venue-1',
+      id: VENUE_ID,
       venue_name: 'Mission Hall',
       venue_type: 'restaurant',
       standing_capacity: 120,
@@ -216,7 +260,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       cancellation_terms: 'Refundable until 14 days out.',
       available_days: ['friday'],
       bar_revenue_share_enabled: false,
-      venue_amenities: [{ venue_id: 'venue-1', amenity_name: 'private dining room' }],
+      venue_amenities: [{ venue_id: VENUE_ID, amenity_name: 'private dining room' }],
     })
 
     mockCreateClient.mockReturnValue({
@@ -241,7 +285,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       duration_ms: 50,
       output: {
         ranked_venues: [{
-          venue_id: 'venue-1',
+          venue_id: VENUE_ID,
           venue_name: 'Mission Hall',
           fit_score: 91,
           pros: ['Strong seated capacity and city fit.'],
@@ -305,6 +349,38 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
         recommendation_summary: 'Works if tickets clear $75.',
       },
     })
+    mockRunAgent.mockImplementation(async ({ agent_name }: { agent_name: string }) => ({
+      agent_name,
+      status: 'succeeded',
+      model: 'gpt-4o-mini',
+      prompt_tokens: 30,
+      completion_tokens: 12,
+      messages_payload: [{ role: 'system', content: `Run ${agent_name}.` }],
+      raw_model_output: '{}',
+      duration_ms: 25,
+      output: agent_name === 'timeline'
+        ? {
+            planning_milestones: [{
+              title: 'Confirm venue booking',
+              due_date: '2026-05-20',
+              category: 'booking',
+              is_blocking: true,
+            }],
+            day_of_timeline: [],
+            staffing_needs: [],
+            reminders: [],
+            dependency_warnings: [],
+            impossible_timeline: false,
+          }
+        : {
+            workspace_summary: 'Mission Hall is queued for approval and outreach.',
+            current_status: 'at_risk',
+            blockers: ['User approval is required before outreach.'],
+            overdue_items: [],
+            recommended_next_actions: ['Approve outreach.'],
+            approvals_needed: ['Approve venue outreach.'],
+          },
+    }))
   })
 
   afterEach(() => {
@@ -319,7 +395,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
 
     expect(response.status).toBe(200)
     expect(json.ranked_venues).toEqual([expect.objectContaining({
-      venue_id: 'venue-1',
+      venue_id: VENUE_ID,
       fit_score: 91,
       pros: ['Strong seated capacity and city fit.'],
       cons: ['Deposit terms need confirmation.'],
@@ -349,10 +425,10 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       expect.objectContaining({
         plan_id: 'plan-1',
         type: 'venue',
-        reference_id: 'venue-1',
+        reference_id: VENUE_ID,
         metadata: expect.objectContaining({
           recommendation_type: 'venue',
-          entity_id: 'venue-1',
+          entity_id: VENUE_ID,
           fit_score: 91,
           questions_to_ask_venue: ['Can you confirm the private dining minimum?'],
         }),
@@ -366,6 +442,134 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
         }),
       }),
     ]))
-    expect(db.rows.agent_runs).toHaveLength(2)
+    expect(db.rows.agent_actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        plan_id: 'plan-1',
+        action_type: 'opportunity_send_venues',
+        status: 'pending',
+        payload_json: expect.objectContaining({
+          kind: 'venue_outreach',
+          venue_ids: [VENUE_ID],
+          requires_user_action: true,
+        }),
+      }),
+    ]))
+    expect(db.rows.approvals).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        plan_id: 'plan-1',
+        status: 'pending',
+        snapshot_hash: expect.any(String),
+      }),
+    ]))
+    expect(db.rows.plan_messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        plan_id: 'plan-1',
+        message_type: 'approval_request',
+        metadata: expect.objectContaining({
+          kind: 'venue_outreach',
+          venue_ids: [VENUE_ID],
+          requires_user_action: true,
+        }),
+      }),
+    ]))
+    expect(json.outreach_approval_message_id).toEqual(expect.any(String))
+    expect(db.rows.agent_runs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agent_name: 'timeline', status: 'succeeded' }),
+      expect.objectContaining({ agent_name: 'workspace', status: 'succeeded' }),
+    ]))
+    expect(db.rows.agent_runs).toHaveLength(4)
+  })
+
+  it('supersedes stale recommendations and refreshes the thread when match-affecting fields change', async () => {
+    const initialResponse = await recommendPlan(makeRequest({ venueLimit: 3 }), {
+      params: { planId: 'plan-1' },
+    })
+    expect(initialResponse.status).toBe(200)
+
+    const staleRecommendationIds = db.rows.recommendations.map((row) => row.id)
+    expect(staleRecommendationIds).toHaveLength(2)
+
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async () => (
+      recommendPlan(makeRequest({ venueLimit: 3 }), {
+        params: { planId: 'plan-1' },
+      }) as Promise<Response>
+    ))
+
+    try {
+      const response = await patchPlan(
+        makeRequest({ guest_count: 120 }, '/api/planner/plans/plan-1', 'PATCH'),
+        { params: { planId: 'plan-1' } }
+      )
+      const json = await readJson(response)
+
+      expect(response.status).toBe(200)
+      expect(json.plan).toEqual(expect.objectContaining({ guest_count: 120 }))
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toBe('http://localhost/api/planner/plans/plan-1/recommend')
+      expect(fetchSpy.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ method: 'POST' }))
+
+      const staleRecommendations = db.rows.recommendations.filter((row) =>
+        staleRecommendationIds.includes(row.id)
+      )
+      expect(staleRecommendations).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          status: 'rejected',
+          metadata: expect.objectContaining({
+            superseded_reason: 'match_affecting_plan_change',
+            superseded_changed_fields: ['guest_count'],
+          }),
+        }),
+      ]))
+      expect(staleRecommendations.every((row) =>
+        typeof (row.metadata as Row).superseded_at === 'string'
+      )).toBe(true)
+
+      const refreshedRecommendations = db.rows.recommendations.filter((row) =>
+        !staleRecommendationIds.includes(row.id)
+      )
+      expect(refreshedRecommendations).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          plan_id: 'plan-1',
+          status: 'pending',
+          type: 'venue',
+          reference_id: VENUE_ID,
+        }),
+        expect.objectContaining({
+          plan_id: 'plan-1',
+          status: 'pending',
+          type: 'external',
+        }),
+      ]))
+
+      expect(db.rows.approvals).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          status: 're_approval_required',
+        }),
+        expect.objectContaining({
+          status: 'pending',
+          snapshot_hash: expect.any(String),
+        }),
+      ]))
+      expect(json.follow_up_messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          role: 'agent',
+          message_type: 'status_update',
+          content: 'Updated the plan — re-checking venues against the new numbers.',
+        }),
+        expect.objectContaining({
+          role: 'agent',
+          message_type: 'recommendation',
+        }),
+        expect.objectContaining({
+          role: 'agent',
+          message_type: 'approval_request',
+        }),
+      ]))
+      expect(json.follow_up_messages[0]).toEqual(expect.objectContaining({
+        message_type: 'status_update',
+      }))
+    } finally {
+      fetchSpy.mockRestore()
+    }
   })
 })

@@ -15,6 +15,7 @@ import {
   PLAN_SELECT_COLUMNS,
   RECOMMENDATION_SELECT_COLUMNS,
 } from '@/lib/planner/dbSelects'
+import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
 import { loadPlanAgentFields } from '@/lib/planner/planAgentSummaries'
 import { createClient } from '@/lib/supabase/server'
 import type {
@@ -49,6 +50,7 @@ const patchPlanSchema = z.object({
   budget_cap_cents: z.number().int().nonnegative().nullable().optional(),
   budget_cents: z.number().int().nonnegative().nullable().optional(),
   ticketed: z.boolean().optional(),
+  ticket_price_target: z.number().int().nonnegative().nullable().optional(),
   ticketing_model: z.string().trim().max(160).nullable().optional(),
   food_responsibility: z.string().trim().max(160).nullable().optional(),
   venue_terms: z.string().trim().max(160).nullable().optional(),
@@ -108,7 +110,7 @@ export async function GET(
 export async function PATCH(
   request: NextRequest,
   context: RouteContext
-): Promise<NextResponse<{ plan: Plan } | PlannerApiErrorResponse>> {
+): Promise<NextResponse<{ plan: Plan; follow_up_messages?: PlanMessage[] } | PlannerApiErrorResponse>> {
   try {
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
@@ -124,7 +126,7 @@ export async function PATCH(
     const existingPlan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
     if (!existingPlan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const updates = normalizePlanPatch(parsed.data)
+    const updates = normalizePlanPatch(parsed.data, existingPlan)
     if (updates.status && !isAllowedPlanStatusTransition(existingPlan.status, updates.status as PlanStatus)) {
       return NextResponse.json(
         { error: `Illegal status transition from ${existingPlan.status} to ${updates.status}` },
@@ -151,8 +153,20 @@ export async function PATCH(
     }
 
     await insertPlanUpdateRows(auth.db, existingPlan, changedUpdates)
+    const plan = data as Plan
+    const followUpMessages = didMatchAffectingFieldsChange(existingPlan, plan)
+      ? await refreshRecommendationsAfterPlanChange({
+          db: auth.db,
+          request,
+          plan,
+          changedFields: findMatchAffectingChangedFields(existingPlan, plan),
+        })
+      : []
 
-    return NextResponse.json({ plan: data as Plan })
+    return NextResponse.json({
+      plan,
+      follow_up_messages: followUpMessages.length > 0 ? followUpMessages : undefined,
+    })
   } catch (error) {
     console.error('Planner plan PATCH unexpected error:', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
@@ -239,7 +253,7 @@ async function loadApprovals(db: PlannerDb, planId: string): Promise<Approval[]>
   return (data ?? []) as Approval[]
 }
 
-function normalizePlanPatch(input: z.infer<typeof patchPlanSchema>): Record<string, unknown> {
+function normalizePlanPatch(input: z.infer<typeof patchPlanSchema>, currentPlan: Plan): Record<string, unknown> {
   const updates: Record<string, unknown> = {}
 
   for (const key of [
@@ -265,6 +279,13 @@ function normalizePlanPatch(input: z.infer<typeof patchPlanSchema>): Record<stri
   if (input.area !== undefined) updates.neighborhood = input.area
   if (input.budget_cap_cents !== undefined) updates.budget_cap_cents = input.budget_cap_cents
   if (input.budget_cents !== undefined) updates.budget_cap_cents = input.budget_cents
+  if (input.ticket_price_target !== undefined) {
+    const metadata = readRecord(currentPlan.metadata) ?? {}
+    updates.metadata = {
+      ...metadata,
+      ticket_price_target_cents: input.ticket_price_target,
+    }
+  }
 
   if (input.date_window !== undefined && input.date_window !== null) {
     updates.notes = [typeof updates.notes === 'string' ? updates.notes : null, `Date window: ${input.date_window}`]
@@ -273,6 +294,211 @@ function normalizePlanPatch(input: z.infer<typeof patchPlanSchema>): Record<stri
   }
 
   return updates
+}
+
+async function refreshRecommendationsAfterPlanChange(input: {
+  db: PlannerDb
+  request: NextRequest
+  plan: Plan
+  changedFields: string[]
+}): Promise<PlanMessage[]> {
+  const recommendations = await loadActiveRecommendations(input.db, input.plan.id)
+  if (recommendations.length === 0 || input.plan.status !== 'ready') return []
+
+  const supersededAt = new Date().toISOString()
+  await Promise.all(recommendations.map((recommendation) => supersedeRecommendation(input.db, recommendation, supersededAt, input.changedFields)))
+  await invalidatePendingOutreachApprovals(input.db, input.plan.id, supersededAt, input.changedFields)
+
+  const statusMessage = await insertRecommendationRefreshStatusMessage(input.db, input.plan.id, input.changedFields)
+  const recommendationMessages = await createAutoRecommendationMessage({
+    db: input.db,
+    request: input.request,
+    planId: input.plan.id,
+  })
+
+  return [statusMessage, ...recommendationMessages].filter((message): message is PlanMessage => message !== null)
+}
+
+async function loadActiveRecommendations(db: PlannerDb, planId: string): Promise<Recommendation[]> {
+  const { data, error } = await db
+    .from('recommendations')
+    .select(RECOMMENDATION_SELECT_COLUMNS)
+    .eq('plan_id', planId)
+    .in('status', ['pending', 'selected'])
+
+  if (error) {
+    console.error('Planner active recommendation lookup error:', error)
+    return []
+  }
+
+  return (data ?? []) as Recommendation[]
+}
+
+async function supersedeRecommendation(
+  db: PlannerDb,
+  recommendation: Recommendation,
+  supersededAt: string,
+  changedFields: string[]
+) {
+  const metadata = readRecord(recommendation.metadata) ?? {}
+  const { error } = await db
+    .from('recommendations')
+    .update({
+      status: 'rejected',
+      metadata: {
+        ...metadata,
+        superseded_at: supersededAt,
+        superseded_reason: 'match_affecting_plan_change',
+        superseded_changed_fields: changedFields,
+      } as Json,
+    })
+    .eq('id', recommendation.id)
+
+  if (error) console.error('Planner recommendation supersede error:', error)
+}
+
+async function invalidatePendingOutreachApprovals(
+  db: PlannerDb,
+  planId: string,
+  supersededAt: string,
+  changedFields: string[]
+) {
+  const { data, error } = await db
+    .from('agent_actions')
+    .select('id, action_type, status, payload_json')
+    .eq('plan_id', planId)
+    .in('action_type', ['opportunity_send_venues', 'opportunity_send_vendors'])
+
+  if (error) {
+    console.error('Planner outreach approval action invalidation lookup error:', error)
+    return
+  }
+
+  const actionIds = ((data ?? []) as Array<Record<string, unknown>>)
+    .filter((action) => action.status !== 'complete')
+    .filter((action) => readRecord(action.payload_json)?.kind === 'venue_outreach')
+    .map((action) => readString(action.id))
+    .filter((id): id is string => Boolean(id))
+  if (actionIds.length === 0) return
+
+  const { error: approvalError } = await db
+    .from('approvals')
+    .update({ status: 're_approval_required' })
+    .in('agent_action_id', actionIds)
+    .in('status', ['pending', 'approved', 'authorized'])
+
+  if (approvalError) console.error('Planner outreach approval invalidation error:', approvalError)
+
+  await markOutreachApprovalMessagesReapprovalRequired(db, planId, supersededAt, changedFields)
+}
+
+async function markOutreachApprovalMessagesReapprovalRequired(
+  db: PlannerDb,
+  planId: string,
+  supersededAt: string,
+  changedFields: string[]
+) {
+  const { data, error } = await db
+    .from('plan_messages')
+    .select(PLAN_MESSAGE_SELECT_COLUMNS)
+    .eq('plan_id', planId)
+    .eq('message_type', 'approval_request')
+
+  if (error) {
+    console.error('Planner outreach approval message invalidation lookup error:', error)
+    return
+  }
+
+  await Promise.all(((data ?? []) as PlanMessage[]).map(async (message) => {
+    const metadata = readRecord(message.metadata)
+    if (metadata?.kind !== 'venue_outreach') return
+    const approval = readRecord(metadata.approval)
+    const nextMetadata = {
+      ...metadata,
+      status: 're_approval_required',
+      superseded_at: supersededAt,
+      superseded_changed_fields: changedFields,
+      approval: approval
+        ? {
+            ...approval,
+            status: 're_approval_required',
+          }
+        : approval,
+    } as Json
+
+    const { error: updateError } = await db
+      .from('plan_messages')
+      .update({ metadata: nextMetadata })
+      .eq('id', message.id)
+
+    if (updateError) console.error('Planner outreach approval message invalidation error:', updateError)
+  }))
+}
+
+async function insertRecommendationRefreshStatusMessage(
+  db: PlannerDb,
+  planId: string,
+  changedFields: string[]
+): Promise<PlanMessage | null> {
+  const { data, error } = await db
+    .from('plan_messages')
+    .insert({
+      plan_id: planId,
+      role: 'agent',
+      content: 'Updated the plan — re-checking venues against the new numbers.',
+      message_type: 'status_update',
+      metadata: {
+        reason: 'recommendations_superseded',
+        changed_fields: changedFields,
+      } as Json,
+    })
+    .select(PLAN_MESSAGE_SELECT_COLUMNS)
+    .single()
+
+  if (error || !data) {
+    console.error('Planner recommendation refresh status message insert error:', error)
+    return null
+  }
+
+  return data as PlanMessage
+}
+
+function didMatchAffectingFieldsChange(before: Plan, after: Plan): boolean {
+  const beforeSnapshot = buildMatchAffectingSnapshot(before)
+  const afterSnapshot = buildMatchAffectingSnapshot(after)
+  return Object.keys(beforeSnapshot).some((key) => beforeSnapshot[key] !== afterSnapshot[key])
+}
+
+function findMatchAffectingChangedFields(before: Plan, after: Plan): string[] {
+  const beforeSnapshot = buildMatchAffectingSnapshot(before)
+  const afterSnapshot = buildMatchAffectingSnapshot(after)
+  return Object.keys(beforeSnapshot).filter((key) => beforeSnapshot[key] !== afterSnapshot[key])
+}
+
+function buildMatchAffectingSnapshot(plan: Plan): Record<string, unknown> {
+  const metadata = readRecord(plan.metadata)
+  return {
+    neighborhood: plan.neighborhood,
+    guest_count: plan.guest_count,
+    budget_cap_cents: plan.budget_cap_cents,
+    ticketed: plan.ticketed,
+    ticket_price_target: readNumber(metadata?.ticket_price_target_cents) ?? readNumber(metadata?.ticket_price_target),
+    date_window_start: plan.date_window_start,
+    date_window_end: plan.date_window_end,
+  }
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  return null
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 function pickChangedFields(plan: Plan, updates: Record<string, unknown>) {

@@ -23,10 +23,20 @@ import { z } from 'zod'
 import type { IntakeAgentOutput } from '@/lib/ai/agents/intakeAgent'
 import { buildEventPlanFromPlannerPlan } from '@/lib/planner/agentPlanAdapter'
 import { determineNextResponse } from '@/lib/planner/agentResponder'
+import { resolveArchetypeContext } from '@/lib/planner/archetypes'
+import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
 import { parseEventIntent } from '@/lib/planner/intentParser'
+import { isIntakeReadyForRecommendations } from '@/lib/planner/intakeReadiness'
 import { createVenueOpportunityBundle } from '@/lib/planner/opportunityBuilder'
+import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
+import {
+  getBuilderProfileIdForUser,
+  summarizeBuilderAttendance,
+  type BuilderAttendanceSummary,
+} from '@/lib/server/builderAttendanceHistory'
 import { checkRateLimit, rateLimitHeaders } from '@/lib/server/rate-limit'
 import { createClient } from '@/lib/supabase/server'
+import type { TicketPlatform } from '@/lib/constants/account-setup'
 import type {
   Json,
   AgentResponseDraft,
@@ -36,6 +46,7 @@ import type {
   PlannerApiErrorResponse,
   PlannerMessagesResponse,
   PlannerPostMessageResponse,
+  Recommendation,
 } from '@/lib/types'
 
 type PlannerDb = { from: (table: string) => any }
@@ -66,6 +77,7 @@ const PLAN_SELECT_COLUMNS = `
   agent_action,
   profit_goal_cents,
   notes,
+  metadata,
   created_at,
   updated_at
 `
@@ -76,6 +88,21 @@ const PLAN_MESSAGE_SELECT_COLUMNS = `
   role,
   content,
   message_type,
+  metadata,
+  created_at
+`
+
+const RECOMMENDATION_SELECT_COLUMNS = `
+  id,
+  plan_id,
+  type,
+  reference_id,
+  external_name,
+  price_cents,
+  notes,
+  rank,
+  is_best_fit,
+  status,
   metadata,
   created_at
 `
@@ -223,16 +250,39 @@ export async function POST(
 
     const agentMessage = agentMessageData as PlanMessage
     const followUpMessages: PlanMessage[] = []
-    if (agentMessage.message_type === 'recommendation') {
-      const opportunityBundle = await createVenueOpportunityBundle({
-        db: auth.db,
-        plan: finalPlan,
-        messages: [...messages, agentMessage],
-        userId: auth.userId,
-      })
+    const didMarkPlanReady = agentResponse.plan.status !== finalPlan.status && finalPlan.status === 'ready'
+    const recommendationRefreshMessages = didMatchAffectingFieldsChange(existingPlan, finalPlan)
+      ? await refreshRecommendationsAfterPlanChange({
+          db: auth.db,
+          request,
+          plan: finalPlan,
+          changedFields: findMatchAffectingChangedFields(existingPlan, finalPlan),
+        })
+      : []
 
-      if (opportunityBundle) {
-        followUpMessages.push(opportunityBundle.approvalMessage)
+    if (recommendationRefreshMessages.length > 0) {
+      followUpMessages.push(...recommendationRefreshMessages)
+    } else if (agentMessage.message_type === 'recommendation') {
+      if (agentResponse.agentMode === 'openai' && didMarkPlanReady) {
+        const recommendationMessages = await createAutoRecommendationMessage({
+          db: auth.db,
+          request,
+          planId: context.params.planId,
+        })
+        followUpMessages.push(...recommendationMessages)
+      }
+
+      if (!(agentResponse.agentMode === 'openai' && didMarkPlanReady)) {
+        const opportunityBundle = await createVenueOpportunityBundle({
+          db: auth.db,
+          plan: finalPlan,
+          messages: [...messages, agentMessage, ...followUpMessages],
+          userId: auth.userId,
+        })
+
+        if (opportunityBundle) {
+          followUpMessages.push(opportunityBundle.approvalMessage)
+        }
       }
     }
 
@@ -326,6 +376,198 @@ async function loadMessages(db: PlannerDb, planId: string): Promise<PlanMessage[
   return (data ?? []) as PlanMessage[]
 }
 
+async function refreshRecommendationsAfterPlanChange(input: {
+  db: PlannerDb
+  request: NextRequest
+  plan: Plan
+  changedFields: string[]
+}): Promise<PlanMessage[]> {
+  const recommendations = await loadActiveRecommendations(input.db, input.plan.id)
+  if (recommendations.length === 0 || input.plan.status !== 'ready') return []
+
+  const supersededAt = new Date().toISOString()
+  await Promise.all(recommendations.map((recommendation) => supersedeRecommendation(input.db, recommendation, supersededAt, input.changedFields)))
+  await invalidatePendingOutreachApprovals(input.db, input.plan.id, supersededAt, input.changedFields)
+
+  const statusMessage = await insertRecommendationRefreshStatusMessage(input.db, input.plan.id, input.changedFields)
+  const recommendationMessages = await createAutoRecommendationMessage({
+    db: input.db,
+    request: input.request,
+    planId: input.plan.id,
+  })
+
+  return [statusMessage, ...recommendationMessages].filter((message): message is PlanMessage => message !== null)
+}
+
+async function loadActiveRecommendations(db: PlannerDb, planId: string): Promise<Recommendation[]> {
+  const { data, error } = await db
+    .from('recommendations')
+    .select(RECOMMENDATION_SELECT_COLUMNS)
+    .eq('plan_id', planId)
+    .in('status', ['pending', 'selected'])
+
+  if (error) {
+    console.error('Planner active recommendation lookup error:', error)
+    return []
+  }
+
+  return (data ?? []) as Recommendation[]
+}
+
+async function supersedeRecommendation(
+  db: PlannerDb,
+  recommendation: Recommendation,
+  supersededAt: string,
+  changedFields: string[]
+) {
+  const metadata = readRecord(recommendation.metadata) ?? {}
+  const { error } = await db
+    .from('recommendations')
+    .update({
+      status: 'rejected',
+      metadata: {
+        ...metadata,
+        superseded_at: supersededAt,
+        superseded_reason: 'match_affecting_plan_change',
+        superseded_changed_fields: changedFields,
+      } as Json,
+    })
+    .eq('id', recommendation.id)
+
+  if (error) console.error('Planner recommendation supersede error:', error)
+}
+
+async function invalidatePendingOutreachApprovals(
+  db: PlannerDb,
+  planId: string,
+  supersededAt: string,
+  changedFields: string[]
+) {
+  const { data, error } = await db
+    .from('agent_actions')
+    .select('id, action_type, status, payload_json')
+    .eq('plan_id', planId)
+    .in('action_type', ['opportunity_send_venues', 'opportunity_send_vendors'])
+
+  if (error) {
+    console.error('Planner outreach approval action invalidation lookup error:', error)
+    return
+  }
+
+  const actionIds = ((data ?? []) as Array<Record<string, unknown>>)
+    .filter((action) => action.status !== 'complete')
+    .filter((action) => readRecord(action.payload_json)?.kind === 'venue_outreach')
+    .map((action) => readString(action.id))
+    .filter((id): id is string => Boolean(id))
+  if (actionIds.length === 0) return
+
+  const { error: approvalError } = await db
+    .from('approvals')
+    .update({ status: 're_approval_required' })
+    .in('agent_action_id', actionIds)
+    .in('status', ['pending', 'approved', 'authorized'])
+
+  if (approvalError) console.error('Planner outreach approval invalidation error:', approvalError)
+
+  await markOutreachApprovalMessagesReapprovalRequired(db, planId, supersededAt, changedFields)
+}
+
+async function markOutreachApprovalMessagesReapprovalRequired(
+  db: PlannerDb,
+  planId: string,
+  supersededAt: string,
+  changedFields: string[]
+) {
+  const { data, error } = await db
+    .from('plan_messages')
+    .select(PLAN_MESSAGE_SELECT_COLUMNS)
+    .eq('plan_id', planId)
+    .eq('message_type', 'approval_request')
+
+  if (error) {
+    console.error('Planner outreach approval message invalidation lookup error:', error)
+    return
+  }
+
+  await Promise.all(((data ?? []) as PlanMessage[]).map(async (message) => {
+    const metadata = readRecord(message.metadata)
+    if (metadata?.kind !== 'venue_outreach') return
+    const approval = readRecord(metadata.approval)
+    const nextMetadata = {
+      ...metadata,
+      status: 're_approval_required',
+      superseded_at: supersededAt,
+      superseded_changed_fields: changedFields,
+      approval: approval
+        ? {
+            ...approval,
+            status: 're_approval_required',
+          }
+        : approval,
+    } as Json
+
+    const { error: updateError } = await db
+      .from('plan_messages')
+      .update({ metadata: nextMetadata })
+      .eq('id', message.id)
+
+    if (updateError) console.error('Planner outreach approval message invalidation error:', updateError)
+  }))
+}
+
+async function insertRecommendationRefreshStatusMessage(
+  db: PlannerDb,
+  planId: string,
+  changedFields: string[]
+): Promise<PlanMessage | null> {
+  const { data, error } = await db
+    .from('plan_messages')
+    .insert({
+      plan_id: planId,
+      role: 'agent',
+      content: 'Updated the plan — re-checking venues against the new numbers.',
+      message_type: 'status_update',
+      metadata: {
+        reason: 'recommendations_superseded',
+        changed_fields: changedFields,
+      } as Json,
+    })
+    .select(PLAN_MESSAGE_SELECT_COLUMNS)
+    .single()
+
+  if (error || !data) {
+    console.error('Planner recommendation refresh status message insert error:', error)
+    return null
+  }
+
+  return data as PlanMessage
+}
+
+function didMatchAffectingFieldsChange(before: Plan, after: Plan): boolean {
+  const beforeSnapshot = buildMatchAffectingSnapshot(before)
+  const afterSnapshot = buildMatchAffectingSnapshot(after)
+  return Object.keys(beforeSnapshot).some((key) => beforeSnapshot[key] !== afterSnapshot[key])
+}
+
+function findMatchAffectingChangedFields(before: Plan, after: Plan): string[] {
+  const beforeSnapshot = buildMatchAffectingSnapshot(before)
+  const afterSnapshot = buildMatchAffectingSnapshot(after)
+  return Object.keys(beforeSnapshot).filter((key) => beforeSnapshot[key] !== afterSnapshot[key])
+}
+
+function buildMatchAffectingSnapshot(plan: Plan): Record<string, unknown> {
+  const metadata = readRecord(plan.metadata)
+  return {
+    neighborhood: plan.neighborhood,
+    guest_count: plan.guest_count,
+    budget_cap_cents: plan.budget_cap_cents,
+    ticketed: plan.ticketed,
+    ticket_price_target: readNumber(metadata?.ticket_price_target_cents) ?? readNumber(metadata?.ticket_price_target),
+    date_window_start: plan.date_window_start,
+    date_window_end: plan.date_window_end,
+  }
+}
+
 async function buildPlannerAgentResponse(input: {
   db: PlannerDb
   planId: string
@@ -347,6 +589,9 @@ async function buildPlannerAgentResponse(input: {
 
   try {
     const { runAgent } = await import('@/lib/ai/agents')
+    const connectedPlatforms = await getBuilderConnectedTicketingPlatforms(input.db, input.userId)
+    const resolvedArchetype = resolveArchetypeContext(`${input.userMessage} ${input.plan.event_type ?? ''}`)
+    const builderHistory = await loadBuilderHistoryForIntake(input.db, input.userId, resolvedArchetype?.key ?? null)
     const agentResult = await runAgent({
       agent_name: 'intake',
       event_id: null,
@@ -356,6 +601,9 @@ async function buildPlannerAgentResponse(input: {
         user_message: input.userMessage,
         current_plan: input.plan,
         existing_event_plan: buildEventPlanFromPlannerPlan(input.plan),
+        connected_platforms: connectedPlatforms,
+        resolved_archetype: resolvedArchetype,
+        builder_history: builderHistory ? toIntakeBuilderHistory(builderHistory) : null,
       },
     })
 
@@ -369,17 +617,41 @@ async function buildPlannerAgentResponse(input: {
       input.db,
       input.planId,
       input.plan,
-      buildPlanUpdatesFromIntakeOutput(intakeOutput)
+      buildPlanUpdatesFromIntakeOutput(intakeOutput, input.plan, input.userMessage)
     )
 
     return {
-      agentDraft: buildIntakeAgentDraft(intakeOutput),
+      agentDraft: buildIntakeAgentDraft(intakeOutput, planWithAgentUpdates),
       plan: planWithAgentUpdates,
       agentMode: 'openai',
     }
   } catch (error) {
     console.warn('[planner.intake] Falling back to deterministic response:', error)
     return deterministicDraft()
+  }
+}
+
+async function loadBuilderHistoryForIntake(
+  db: PlannerDb,
+  userId: string,
+  archetypeKey: string | null
+): Promise<BuilderAttendanceSummary | null> {
+  const builderId = await getBuilderProfileIdForUser(db, userId)
+  if (!builderId) return null
+
+  return summarizeBuilderAttendance(db, builderId, {
+    archetype_key: archetypeKey ?? undefined,
+    window_days: 365,
+  })
+}
+
+function toIntakeBuilderHistory(summary: BuilderAttendanceSummary) {
+  return {
+    sample_size: summary.sample_size,
+    avg: summary.avg_tickets_sold,
+    p75: summary.p75_tickets_sold,
+    confidence: summary.confidence,
+    last_event_at: summary.last_event_at,
   }
 }
 
@@ -411,19 +683,22 @@ async function updatePlanIfNeeded(
   return data as Plan
 }
 
-function buildIntakeAgentDraft(output: IntakeAgentOutput): AgentResponseDraft {
+function buildIntakeAgentDraft(output: IntakeAgentOutput, plan: Plan): AgentResponseDraft {
   const missingQuestions = output.missing_questions
     .map((question) => question.trim())
     .filter((question) => question.length > 0)
   const nextBestQuestion = output.next_best_question?.trim() || null
-  const content = nextBestQuestion
-    ?? (missingQuestions.length > 0
-      ? `I still need: ${missingQuestions.join(' ')}`
-      : 'I have enough to start venue matching and economics recommendations.')
+  const reflection = output.reflection.trim()
+  const isReady = isIntakeReadyForRecommendations(output, plan)
+  const content = isReady
+    ? reflection
+    : nextBestQuestion
+      ? `${reflection} ${nextBestQuestion}`
+      : `${reflection} ${missingQuestions[0] ?? 'What should I know next?'}`
 
   return {
     content,
-    message_type: missingQuestions.length > 0 ? 'text' : 'recommendation',
+    message_type: isReady ? 'recommendation' : 'text',
     metadata: toJson({
       agent_name: 'intake',
       agent_output: output,
@@ -431,30 +706,56 @@ function buildIntakeAgentDraft(output: IntakeAgentOutput): AgentResponseDraft {
   }
 }
 
-function buildPlanUpdatesFromIntakeOutput(output: IntakeAgentOutput): Record<string, unknown> {
+function buildPlanUpdatesFromIntakeOutput(
+  output: IntakeAgentOutput,
+  currentPlan: Plan,
+  userMessage: string
+): Record<string, unknown> {
   const eventPlan = output.updated_event_plan
+  const extracted = output.extracted_fields
   const updates: Record<string, unknown> = {}
 
-  if (eventPlan.event_name) updates.title = eventPlan.event_name
-  if (eventPlan.venue_type) updates.event_type = eventPlan.venue_type
-
-  const guestCount = eventPlan.expected_attendance ?? eventPlan.headcount_max ?? eventPlan.headcount_min
-  if (typeof guestCount === 'number') updates.guest_count = guestCount
-
-  if (typeof eventPlan.budget === 'number') updates.budget_cap_cents = normalizePlanningMoneyToCents(eventPlan.budget)
-  if (typeof eventPlan.profit_goal === 'number') {
-    updates.profit_goal_cents = normalizePlanningMoneyToCents(eventPlan.profit_goal)
+  if (!currentPlan.title && eventPlan.event_name) updates.title = eventPlan.event_name
+  if (!currentPlan.event_type && (extracted.event_type || eventPlan.venue_type)) {
+    updates.event_type = extracted.event_type ?? eventPlan.venue_type
   }
 
-  const neighborhood = output.neighborhood ?? eventPlan.city
-  if (neighborhood) updates.neighborhood = neighborhood
+  const guestCount = extracted.guest_count ?? eventPlan.expected_attendance ?? eventPlan.headcount_max ?? eventPlan.headcount_min
+  if (currentPlan.guest_count == null && typeof guestCount === 'number') updates.guest_count = guestCount
 
-  if (eventPlan.event_date) {
-    updates.date_window_start = eventPlan.event_date
-    updates.date_window_end = eventPlan.event_date
+  if (currentPlan.budget_cap_cents == null) {
+    if (typeof extracted.budget_cap_cents === 'number') {
+      updates.budget_cap_cents = extracted.budget_cap_cents
+    } else if (typeof eventPlan.budget === 'number') {
+      updates.budget_cap_cents = normalizePlanningMoneyToCents(eventPlan.budget)
+    }
+  }
+  if (currentPlan.profit_goal_cents == null) {
+    if (typeof extracted.profit_goal_cents === 'number') {
+      updates.profit_goal_cents = extracted.profit_goal_cents
+    } else if (typeof eventPlan.profit_goal === 'number') {
+      updates.profit_goal_cents = normalizePlanningMoneyToCents(eventPlan.profit_goal)
+    }
   }
 
-  if (eventPlan.monetization_model) {
+  const neighborhood = extracted.neighborhood ?? output.neighborhood ?? eventPlan.city
+  if (!currentPlan.neighborhood && neighborhood) updates.neighborhood = neighborhood
+
+  if (!currentPlan.date_window_start && !currentPlan.date_window_end) {
+    if (extracted.date_window_start || extracted.date_window_end) {
+      updates.date_window_start = extracted.date_window_start
+      updates.date_window_end = extracted.date_window_end ?? extracted.date_window_start
+    } else if (eventPlan.event_date) {
+      updates.date_window_start = eventPlan.event_date
+      updates.date_window_end = eventPlan.event_date
+    }
+  }
+
+  if (typeof extracted.ticketed === 'boolean' && currentPlan.ticketed !== extracted.ticketed) {
+    updates.ticketed = extracted.ticketed
+    updates.ticketing_model = extracted.ticketed ? 'ticketed' : 'rsvp'
+  }
+  if (!currentPlan.ticketing_model && eventPlan.monetization_model) {
     updates.ticketing_model = eventPlan.monetization_model
     const monetizationModel = eventPlan.monetization_model.trim().toLowerCase()
     if (monetizationModel.includes('ticket') || monetizationModel.includes('paid')) updates.ticketed = true
@@ -468,7 +769,15 @@ function buildPlanUpdatesFromIntakeOutput(output: IntakeAgentOutput): Record<str
     }
   }
 
-  if (output.food_drink_needs) updates.food_responsibility = output.food_drink_needs
+  if (extracted.food_responsibility) updates.food_responsibility = extracted.food_responsibility
+  else if (output.food_drink_needs) updates.food_responsibility = output.food_drink_needs
+
+  const metadata = buildMetadataUpdates(
+    currentPlan,
+    readTicketingPlatform(userMessage),
+    extracted.ticket_price_target
+  )
+  if (metadata) updates.metadata = metadata
 
   return updates
 }
@@ -567,6 +876,42 @@ function getIpAddress(request: NextRequest): string | null {
 
 function toJson(value: Record<string, unknown>): Json {
   return value as Json
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  return null
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function buildMetadataUpdates(
+  currentPlan: Plan,
+  intendedPlatform: TicketPlatform | null,
+  ticketPriceTargetCents: number | null
+): Record<string, unknown> | null {
+  const metadata = readRecord(currentPlan.metadata) ?? {}
+  const nextMetadata = { ...metadata }
+  if (intendedPlatform) nextMetadata.intended_platform = intendedPlatform
+  if (typeof ticketPriceTargetCents === 'number' && ticketPriceTargetCents > 0) {
+    nextMetadata.ticket_price_target_cents = normalizePlanningMoneyToCents(ticketPriceTargetCents)
+  }
+  return Object.keys(nextMetadata).some((key) => nextMetadata[key] !== metadata[key]) ? nextMetadata : null
+}
+
+function readTicketingPlatform(message: string): TicketPlatform | null {
+  const normalized = message.toLowerCase()
+  if (/\bevent\s*brite\b|\beventbrite\b/.test(normalized)) return 'eventbrite'
+  if (/\bluma\b|\blu\.ma\b/.test(normalized)) return 'luma'
+  if (/\bposh\b/.test(normalized)) return 'posh'
+  if (/\bpartiful\b/.test(normalized)) return 'partiful'
+  return null
 }
 
 async function insertPlanUpdateRows(db: PlannerDb, plan: Plan, updates: Record<string, unknown>) {

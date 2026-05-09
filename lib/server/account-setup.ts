@@ -3,6 +3,9 @@ import type { ServiceType, UserType, VenueType } from '@/lib/types'
 
 type SupabaseLikeClient = any
 
+const TICKET_PLATFORM_IDS = ['eventbrite', 'luma', 'posh', 'partiful'] as const
+const ticketPlatformSet = new Set<string>(TICKET_PLATFORM_IDS)
+
 export type BuilderSetupInput = {
   userId: string
   name: string
@@ -146,6 +149,43 @@ export async function ensureBuilderTicketingConnections(
       }
     }
   }
+}
+
+export async function getBuilderConnectedTicketingPlatforms(
+  admin: SupabaseLikeClient,
+  userId: string
+): Promise<TicketPlatform[]> {
+  const { data: builderProfile, error: builderError } = await admin
+    .from('builder_profiles')
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (builderError || !builderProfile) {
+    if (builderError) {
+      console.error('[account-setup] Failed to load builder profile for ticketing connections', builderError)
+    }
+    return []
+  }
+
+  const { data, error } = await admin
+    .from('builder_ticketing_connections')
+    .select('platform, status, last_connected_at, updated_at')
+    .eq('builder_id', (builderProfile as { id: string }).id)
+    .order('last_connected_at', { ascending: false, nullsFirst: false })
+
+  if (error) {
+    if (isMissingTicketingConnectionsTable(error)) return []
+    console.error('[account-setup] Failed to load builder ticketing connections', error)
+    return []
+  }
+
+  return Array.from(new Set(
+    ((data ?? []) as Array<{ platform?: unknown; status?: unknown }>)
+      .filter((connection) => connection.status === 'connected')
+      .map((connection) => typeof connection.platform === 'string' ? connection.platform : null)
+      .filter((platform): platform is TicketPlatform => Boolean(platform && ticketPlatformSet.has(platform)))
+  ))
 }
 
 export async function ensureBuilderProfile(admin: SupabaseLikeClient, input: BuilderSetupInput) {

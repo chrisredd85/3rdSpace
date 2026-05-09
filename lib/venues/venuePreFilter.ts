@@ -1,11 +1,28 @@
 import { z } from 'zod'
 import { eventPlanSchema, type EventPlan } from '@/lib/ai/types'
+import { eventArchetypeConfigSchema, type EventArchetypeConfig } from '@/lib/planner/archetypes/types'
+import {
+  scoreVenueAgainstArchetype,
+  type CapacityCalibrationSignal,
+  type CapacityScoreCalibrationSignal,
+} from '@/lib/venues/venueRanker'
 
 const MAX_VENUE_CANDIDATES = 10
 const DEFAULT_EVENT_HOURS = 4
 
 const nullableStringSchema = z.string().trim().min(1).nullable()
 const nullableNonnegativeNumberSchema = z.number().nonnegative().nullable()
+const builderAttendanceSummarySchema = z.object({
+  builder_id: z.string().trim().min(1),
+  archetype_key: z.string().trim().min(1).nullable(),
+  sample_size: z.number().int().nonnegative(),
+  avg_tickets_sold: z.number().nonnegative(),
+  median_tickets_sold: z.number().nonnegative(),
+  p75_tickets_sold: z.number().nonnegative(),
+  p95_tickets_sold: z.number().nonnegative(),
+  last_event_at: z.string().trim().min(1).nullable(),
+  confidence: z.enum(['low', 'medium', 'high']),
+})
 
 export const venueAmenitySchema = z.object({
   venue_id: z.string().trim().min(1).optional(),
@@ -35,6 +52,8 @@ export const venueMatchingCandidateSchema = z.object({
 export const venuePreFilterInputSchema = z.object({
   event_plan: eventPlanSchema,
   candidate_venues: z.array(venueMatchingCandidateSchema),
+  archetype: eventArchetypeConfigSchema.nullish(),
+  builder_attendance: builderAttendanceSummarySchema.nullish(),
   max_candidates: z.number().int().min(1).max(MAX_VENUE_CANDIDATES).default(MAX_VENUE_CANDIDATES),
 })
 
@@ -42,6 +61,14 @@ export const preFilteredVenueSchema = venueMatchingCandidateSchema.extend({
   deterministic_score: z.number().int().min(0).max(100),
   estimated_minimum_cost_cents: z.number().int().nonnegative().nullable(),
   score_reasons: z.array(z.string().trim().min(1)),
+  capacity_calibration: z.object({
+    projected_attendance: z.number().int().nonnegative().nullable(),
+    calibration_signal: z.enum(['no_history', 'stated', 'historical_higher', 'historical_aligned']),
+    score_calibration_signal: z.enum(['stated', 'historical_higher', 'historical_aligned']),
+    history_p75: z.number().nonnegative().nullable(),
+    sample_size: z.number().int().nonnegative(),
+    confidence: z.enum(['low', 'medium', 'high']).nullable(),
+  }),
 })
 
 export type VenueMatchingCandidate = z.infer<typeof venueMatchingCandidateSchema>
@@ -52,12 +79,20 @@ export function preFilterVenues(input: VenuePreFilterInput): PreFilteredVenue[] 
   const parsed = venuePreFilterInputSchema.parse(input)
   const headcount = getTargetHeadcount(parsed.event_plan)
   const targetCity = normalizeCity(parsed.event_plan.city)
+  const projectedHeadcount = getProjectedHeadcount(headcount, parsed.builder_attendance ?? null)
 
   return parsed.candidate_venues
     .filter((venue) => venue.is_published === true)
     .filter((venue) => passesCityFilter(venue, targetCity))
-    .filter((venue) => passesCapacityFilter(venue, headcount))
-    .map((venue) => scoreVenue(venue, parsed.event_plan, headcount, targetCity))
+    .filter((venue) => passesCapacityFilter(venue, projectedHeadcount))
+    .map((venue) => scoreVenue(
+      venue,
+      parsed.event_plan,
+      headcount,
+      targetCity,
+      parsed.archetype ?? null,
+      parsed.builder_attendance ?? null
+    ))
     .sort(compareScoredVenues)
     .slice(0, parsed.max_candidates)
 }
@@ -66,9 +101,19 @@ function scoreVenue(
   venue: VenueMatchingCandidate,
   eventPlan: EventPlan,
   headcount: number | null,
-  targetCity: string | null
+  targetCity: string | null,
+  archetype: EventArchetypeConfig | null,
+  builderAttendance: z.infer<typeof builderAttendanceSummarySchema> | null
 ): PreFilteredVenue {
   const estimatedCost = estimateMinimumVenueCostCents(venue)
+  const archetypeScore = archetype
+    ? scoreVenueAgainstArchetype({
+        plan: { guest_count: headcount, budget_cap_cents: eventPlan.budget, event_type: eventPlan.venue_type },
+        venue,
+        archetype,
+        context: { builder_attendance: builderAttendance },
+      })
+    : null
   const scoreParts = [
     scoreCapacityFit(venue, headcount),
     scoreCityFit(venue, targetCity),
@@ -76,16 +121,45 @@ function scoreVenue(
     scoreVenueTypeFit(venue, eventPlan.venue_type),
     scoreAvailableDayFit(venue, eventPlan.event_date),
     scoreCommercialFit(venue),
+    scoreArchetypeFit(archetypeScore),
   ]
   const deterministicScore = clampScore(scoreParts.reduce((sum, part) => sum + part.score, 0))
-  const scoreReasons = scoreParts.flatMap((part) => part.reason ? [part.reason] : [])
+  const scoreReasons = [
+    ...scoreParts.flatMap((part) => part.reason ? [part.reason] : []),
+    ...(archetypeScore?.reasons ?? []),
+    ...(archetypeScore?.warnings ?? []),
+  ].slice(0, 8)
+  const capacityDetails = archetypeScore?.score_breakdown.capacity.details
+  const scoreCalibrationSignal: CapacityScoreCalibrationSignal = capacityDetails?.calibration_signal ?? 'stated'
+  const calibrationSignal: CapacityCalibrationSignal =
+    archetypeScore?.calibration_signal ?? (builderAttendance && builderAttendance.sample_size > 0 ? 'stated' : 'no_history')
 
   return preFilteredVenueSchema.parse({
     ...venue,
     deterministic_score: deterministicScore,
     estimated_minimum_cost_cents: estimatedCost,
     score_reasons: scoreReasons,
+    capacity_calibration: {
+      projected_attendance: capacityDetails?.projected_attendance ?? headcount,
+      calibration_signal: calibrationSignal,
+      score_calibration_signal: scoreCalibrationSignal,
+      history_p75: capacityDetails?.history_p75 ?? builderAttendance?.p75_tickets_sold ?? null,
+      sample_size: builderAttendance?.sample_size ?? 0,
+      confidence: builderAttendance?.confidence ?? null,
+    },
   })
+}
+
+function scoreArchetypeFit(
+  archetypeScore: ReturnType<typeof scoreVenueAgainstArchetype> | null
+): { score: number; reason: string | null } {
+  if (!archetypeScore) return { score: 0, reason: null }
+  const score = Math.round((archetypeScore.score / 100) * 15)
+  const reason = archetypeScore.commercial_model_match
+    ? `Commercial model aligns with ${archetypeScore.commercial_model_match.replace(/_/g, ' ')}.`
+    : archetypeScore.reasons[0] ?? null
+
+  return { score, reason }
 }
 
 function getTargetHeadcount(eventPlan: EventPlan): number | null {
@@ -106,6 +180,24 @@ function passesCapacityFilter(venue: VenueMatchingCandidate, headcount: number |
   const capacity = getVenueCapacity(venue)
   if (capacity === null) return false
   return capacity >= headcount
+}
+
+function getProjectedHeadcount(
+  headcount: number | null,
+  builderAttendance: z.infer<typeof builderAttendanceSummarySchema> | null
+): number | null {
+  if (headcount === null || !builderAttendance || builderAttendance.sample_size === 0) return headcount
+  const p75 = builderAttendance.p75_tickets_sold
+
+  if (builderAttendance.confidence === 'high' && p75 > headcount * 1.4) {
+    return Math.round(p75)
+  }
+
+  if (builderAttendance.confidence === 'medium' && p75 > headcount * 1.6) {
+    return Math.round((headcount + p75) / 2)
+  }
+
+  return headcount
 }
 
 function passesCityFilter(venue: VenueMatchingCandidate, targetCity: string | null): boolean {

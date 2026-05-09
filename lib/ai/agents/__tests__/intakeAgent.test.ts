@@ -8,6 +8,19 @@ jest.mock('@/lib/ai/client', () => ({
 import { intakeAgentOutputSchema, runIntakeAgent } from '@/lib/ai/agents/intakeAgent'
 
 const founderDinnerOutput = {
+  reflection: 'Got it — 60 person founder dinner in SF.',
+  extracted_fields: {
+    event_type: 'dinner',
+    guest_count: 60,
+    neighborhood: null,
+    date_window_start: null,
+    date_window_end: null,
+    budget_cap_cents: null,
+    ticketed: null,
+    ticket_price_target: null,
+    food_responsibility: 'Dinner service needed, details not confirmed.',
+    profit_goal_cents: null,
+  },
   updated_event_plan: {
     event_name: 'Founder dinner',
     expected_attendance: 60,
@@ -28,8 +41,6 @@ const founderDinnerOutput = {
   hard_constraints: [],
   missing_questions: [
     'What date or date window should I plan around?',
-    'What is your target budget?',
-    'Should guests pay, sponsors cover it, or should this be free?',
   ],
   confidence_score: 0.72,
   next_best_question: 'What date or date window should I plan around?',
@@ -60,9 +71,9 @@ describe('runIntakeAgent', () => {
     expect(result.output.updated_event_plan.expected_attendance).toBe(60)
     expect(result.output.updated_event_plan.city).toBe('SF')
     expect(result.output.updated_event_plan.event_name).toBe('Founder dinner')
-    expect(result.output.missing_questions).toHaveLength(3)
-    expect(result.output.missing_questions.join(' ')).toMatch(/budget/i)
+    expect(result.output.missing_questions).toHaveLength(1)
     expect(result.output.missing_questions.join(' ')).toMatch(/date/i)
+    expect(result.output.reflection).toMatch(/founder dinner/i)
     expect(result.output.food_drink_needs).toMatch(/Dinner/i)
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       model: 'gpt-4o',
@@ -70,10 +81,10 @@ describe('runIntakeAgent', () => {
     }))
   })
 
-  it('rejects model output with more than three missing questions', () => {
+  it('rejects model output with more than one missing question', () => {
     const invalidOutput = {
       ...founderDinnerOutput,
-      missing_questions: ['One?', 'Two?', 'Three?', 'Four?'],
+      missing_questions: ['One?', 'Two?'],
     }
 
     expect(() => intakeAgentOutputSchema.parse(invalidOutput)).toThrow()

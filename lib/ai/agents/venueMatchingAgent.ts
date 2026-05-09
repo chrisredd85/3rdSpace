@@ -3,15 +3,33 @@ import { z } from 'zod'
 import { assertOpenAIConfigured, openai } from '@/lib/ai/client'
 import { eventPlanSchema, AgentRunExecutionError, type AgentResult } from '@/lib/ai/types'
 import { buildAgentRunMetadata, emptyAgentRunMetadata, type AgentMessagePayload } from '@/lib/ai/run-metadata'
+import { eventArchetypeConfigSchema } from '@/lib/planner/archetypes/types'
 import {
   preFilterVenues,
   type PreFilteredVenue,
   venueMatchingCandidateSchema,
 } from '@/lib/venues/venuePreFilter'
 
+const builderAttendanceSummarySchema = z.object({
+  builder_id: z.string().trim().min(1),
+  archetype_key: z.string().trim().min(1).nullable(),
+  sample_size: z.number().int().nonnegative(),
+  avg_tickets_sold: z.number().nonnegative(),
+  median_tickets_sold: z.number().nonnegative(),
+  p75_tickets_sold: z.number().nonnegative(),
+  p95_tickets_sold: z.number().nonnegative(),
+  last_event_at: z.string().trim().min(1).nullable(),
+  confidence: z.enum(['low', 'medium', 'high']),
+})
+
 export const venueMatchingAgentInputSchema = z.object({
   event_plan: eventPlanSchema,
   candidate_venues: z.array(venueMatchingCandidateSchema),
+  archetype: eventArchetypeConfigSchema.nullish(),
+  builder_attendance: builderAttendanceSummarySchema.nullish(),
+  ranked_venues: z.array(z.record(z.unknown())).default([]),
+  plan: z.record(z.unknown()).nullish(),
+  conversation_history: z.array(z.record(z.unknown())).default([]),
   organizer_preferences: z.record(z.unknown()).nullish(),
 })
 
@@ -19,6 +37,17 @@ export const rankedVenueSchema = z.object({
   venue_id: z.string().trim().min(1),
   venue_name: z.string().trim().min(1),
   fit_score: z.number().int().min(0).max(100),
+  user_facing_intro: z.string().trim().min(1).optional(),
+  archetype_reasons: z.array(z.string().trim().min(1)).optional(),
+  commercial_model_match: z.string().trim().min(1).optional(),
+  capacity_calibration: z.object({
+    projected_attendance: z.number().int().nonnegative().nullable(),
+    calibration_signal: z.enum(['no_history', 'stated', 'historical_higher', 'historical_aligned']),
+    score_calibration_signal: z.enum(['stated', 'historical_higher', 'historical_aligned']),
+    history_p75: z.number().nonnegative().nullable(),
+    sample_size: z.number().int().nonnegative(),
+    confidence: z.enum(['low', 'medium', 'high']).nullable(),
+  }).optional(),
   pros: z.array(z.string().trim().min(1)),
   cons: z.array(z.string().trim().min(1)),
   questions_to_ask_venue: z.array(z.string().trim().min(1)),
@@ -64,6 +93,9 @@ const VENUE_MATCHING_OUTPUT_CONTRACT = {
       venue_id: 'string from candidate id',
       venue_name: 'string from candidate venue_name',
       fit_score: 'integer 0-100 copied from deterministic_score',
+      user_facing_intro: 'one sentence explaining why this venue fits the archetype',
+      archetype_reasons: ['one or two archetype-specific reasons'],
+      commercial_model_match: 'string if known',
       pros: ['string'],
       cons: ['string'],
       questions_to_ask_venue: ['string'],
@@ -82,6 +114,7 @@ const VENUE_MATCHING_SYSTEM_PROMPT = [
   'Never include a venue that is not in candidate_venues.',
   'Do not invent venue fields. Use only candidate id, venue_name, venue_type, standing_capacity, seated_capacity, city, state, hourly_rate, minimum_hours, per_head_kickback, offers_kickbacks, deposit_percentage, cancellation_terms, available_days, bar_revenue_share_enabled, venue_amenities. Amenity data is from venue_amenities.amenity_name.',
   'Use deterministic_score as the fit_score. The application code owns filtering and scoring; your job is to explain pros, cons, questions, and the recommendation.',
+  'When you write user_facing_intro for each venue, reference at least one archetype-specific reason from the archetype config, such as standing-capacity fit for a mixer or private dining intimacy for a founder dinner.',
   'Do not send outreach, create bookings, authorize payments, or execute any action.',
   `Output JSON must match this contract: ${JSON.stringify(VENUE_MATCHING_OUTPUT_CONTRACT)}.`,
 ].join('\n')
@@ -95,6 +128,8 @@ export async function runVenueMatchingAgent(
   const preFilteredVenues = preFilterVenues({
     event_plan: input.event_plan,
     candidate_venues: input.candidate_venues,
+    archetype: input.archetype ?? null,
+    builder_attendance: input.builder_attendance ?? null,
   })
 
   if (preFilteredVenues.length === 0) {
@@ -123,7 +158,12 @@ export async function runVenueMatchingAgent(
       role: 'user',
       content: JSON.stringify({
         event_plan: input.event_plan,
+        plan: input.plan ?? null,
+        archetype: input.archetype ?? null,
+        ranked_venues: input.ranked_venues,
+        conversation_history: input.conversation_history,
         organizer_preferences: input.organizer_preferences ?? null,
+        builder_attendance: input.builder_attendance ?? null,
         candidate_venues: preFilteredVenues.map(toModelCandidate),
       }),
     },
@@ -185,6 +225,7 @@ function toModelCandidate(venue: PreFilteredVenue) {
     deterministic_score: venue.deterministic_score,
     estimated_minimum_cost_cents: venue.estimated_minimum_cost_cents,
     score_reasons: venue.score_reasons,
+    capacity_calibration: venue.capacity_calibration,
   }
 }
 
@@ -213,6 +254,14 @@ function finalizeVenueMatchingOutput(
       ...rankedVenue,
       venue_name: candidate.venue_name,
       fit_score: candidate.deterministic_score,
+      user_facing_intro:
+        rankedVenue.user_facing_intro ??
+        candidate.score_reasons.find((reason) => /archetype|capacity|commercial|venue type|fits/i.test(reason)) ??
+        rankedVenue.pros[0],
+      archetype_reasons:
+        rankedVenue.archetype_reasons ??
+        candidate.score_reasons.filter((reason) => /capacity|commercial|venue type|fits|matches/i.test(reason)).slice(0, 2),
+      capacity_calibration: candidate.capacity_calibration,
     }
   })
 

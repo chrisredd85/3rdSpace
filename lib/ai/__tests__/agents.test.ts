@@ -36,6 +36,19 @@ const validOutput = {
 }
 
 const validIntakeOutput = {
+  reflection: 'Got it — 60 person founder dinner in SF.',
+  extracted_fields: {
+    event_type: 'dinner',
+    guest_count: 60,
+    neighborhood: null,
+    date_window_start: null,
+    date_window_end: null,
+    budget_cap_cents: null,
+    ticketed: null,
+    ticket_price_target: null,
+    food_responsibility: 'Dinner service needed, details not confirmed.',
+    profit_goal_cents: null,
+  },
   updated_event_plan: {
     event_name: 'Founder dinner',
     expected_attendance: 60,
@@ -56,12 +69,48 @@ const validIntakeOutput = {
   hard_constraints: [],
   missing_questions: [
     'What date or date window should I plan around?',
-    'What is your target budget?',
-    'Do you need vegetarian or other dietary accommodations?',
   ],
   confidence_score: 0.72,
   next_best_question: 'What date or date window should I plan around?',
   assumptions_made: ['Founder dinner implies a seated meal.'],
+}
+
+const ticketingPlatformQuestionOutput = {
+  reflection: 'Got it — ticketed founder dinner in the Mission.',
+  extracted_fields: {
+    event_type: 'dinner',
+    guest_count: 50,
+    neighborhood: 'Mission',
+    date_window_start: '2026-06-15',
+    date_window_end: '2026-06-15',
+    budget_cap_cents: 500000,
+    ticketed: true,
+    ticket_price_target: 7500,
+    food_responsibility: null,
+    profit_goal_cents: null,
+  },
+  updated_event_plan: {
+    event_name: 'Founder dinner',
+    expected_attendance: 50,
+    city: 'San Francisco',
+    venue_type: 'dinner',
+    budget: 500000,
+    event_date: '2026-06-15',
+    monetization_model: 'ticketed',
+    headcount_min: 50,
+    headcount_max: 50,
+    ticket_price_target: 7500,
+    profit_goal: null,
+  },
+  neighborhood: 'Mission',
+  food_drink_needs: null,
+  music_av_needs: null,
+  vibe_audience: 'Founder audience.',
+  hard_constraints: [],
+  missing_questions: ['Which ticketing platform are you using? Eventbrite, Luma, Posh, or Partiful?'],
+  confidence_score: 0.84,
+  next_best_question: 'Which ticketing platform are you using? Eventbrite, Luma, Posh, or Partiful?',
+  assumptions_made: [],
 }
 
 const economicsPayload = {
@@ -282,6 +331,44 @@ describe('runAgent', () => {
       model: 'gpt-4o',
       response_format: { type: 'json_object' },
     }))
+  })
+
+  it('intake agent asks for platform when builder has no connections and event is ticketed', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify(ticketingPlatformQuestionOutput) } }],
+    })
+
+    const result = await runAgent(
+      {
+        agent_name: 'intake',
+        payload: {
+          user_message: 'I want a 50 person ticketed founder dinner in the Mission on June 15 at $75 per person',
+          current_plan: {
+            event_type: 'dinner',
+            guest_count: 50,
+            neighborhood: 'Mission',
+            date_window_start: '2026-06-15',
+            budget_cap_cents: 500000,
+            ticketed: true,
+          },
+          connected_platforms: [],
+        },
+        user_id: 'user-1',
+        event_id: null,
+      },
+      { create }
+    )
+
+    expect(result.agent_name).toBe('intake')
+    expect(result.output.next_best_question).toBe(
+      'Which ticketing platform are you using? Eventbrite, Luma, Posh, or Partiful?'
+    )
+    expect(result.output.missing_questions).toEqual([
+      'Which ticketing platform are you using? Eventbrite, Luma, Posh, or Partiful?',
+    ])
+    const createInput = create.mock.calls[0]?.[0] as { messages?: Array<{ role: string; content: string }> }
+    const userPayload = JSON.parse(createInput.messages?.[1]?.content ?? '{}') as { connected_platforms?: string[] }
+    expect(userPayload.connected_platforms).toEqual([])
   })
 
   it('routes economics through the dedicated economics agent schema', async () => {
