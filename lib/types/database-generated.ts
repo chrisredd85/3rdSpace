@@ -7,30 +7,10 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.1"
   }
   public: {
     Tables: {
@@ -78,8 +58,10 @@ export type Database = {
           description: string
           due_at: string | null
           id: string
+          metadata: Json
           notes: string | null
           plan_id: string
+          priority: string
           status: string
           task_type: string
           updated_at: string
@@ -91,8 +73,10 @@ export type Database = {
           description: string
           due_at?: string | null
           id?: string
+          metadata?: Json
           notes?: string | null
           plan_id: string
+          priority?: string
           status?: string
           task_type: string
           updated_at?: string
@@ -104,8 +88,10 @@ export type Database = {
           description?: string
           due_at?: string | null
           id?: string
+          metadata?: Json
           notes?: string | null
           plan_id?: string
+          priority?: string
           status?: string
           task_type?: string
           updated_at?: string
@@ -1419,6 +1405,56 @@ export type Database = {
           stack?: string | null
           user_agent?: string | null
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      event_archetype_aliases: {
+        Row: {
+          archetype_key: string
+          phrase: string
+        }
+        Insert: {
+          archetype_key: string
+          phrase: string
+        }
+        Update: {
+          archetype_key?: string
+          phrase?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_archetype_aliases_archetype_key_fkey"
+            columns: ["archetype_key"]
+            isOneToOne: false
+            referencedRelation: "event_archetypes"
+            referencedColumns: ["key"]
+          },
+        ]
+      }
+      event_archetypes: {
+        Row: {
+          config: Json
+          created_at: string | null
+          description: string | null
+          display_name: string
+          key: string
+          updated_at: string | null
+        }
+        Insert: {
+          config: Json
+          created_at?: string | null
+          description?: string | null
+          display_name: string
+          key: string
+          updated_at?: string | null
+        }
+        Update: {
+          config?: Json
+          created_at?: string | null
+          description?: string | null
+          display_name?: string
+          key?: string
+          updated_at?: string | null
         }
         Relationships: []
       }
@@ -8110,9 +8146,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       planner_plan_status: [
@@ -8126,4 +8159,3 @@ export const Constants = {
     },
   },
 } as const
-

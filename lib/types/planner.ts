@@ -59,10 +59,13 @@ export type TemplateRunStatus = 'pending' | 'confirmed' | 'cancelled'
 export type PlannerExportType = 'pdf' | 'ics' | 'email' | 'csv'
 
 /** Internal operation task categories for unsupported or concierge execution. */
-export type AdminTaskType = 'concierge_booking' | 'receipt_upload' | 'vendor_confirm' | 'coi_collect'
+export type AdminTaskType = 'concierge_booking' | 'receipt_upload' | 'vendor_confirm' | 'coi_collect' | 'catalog_gap'
 
 /** Lifecycle states for internal operations tasks. */
-export type AdminTaskStatus = 'open' | 'in_progress' | 'complete' | 'cancelled'
+export type AdminTaskStatus = 'pending' | 'open' | 'in_progress' | 'complete' | 'cancelled'
+
+/** Internal task priority for admin triage. */
+export type AdminTaskPriority = 'low' | 'normal' | 'high' | 'urgent'
 
 /** Historical data sources used for foot traffic and profit assumptions. */
 export type HistoricalEventSignalSource = 'eventbrite' | 'luma' | 'posh' | 'manual'
@@ -447,6 +450,10 @@ export interface AdminTask {
   description: string
   /** Task lifecycle state. */
   status: AdminTaskStatus
+  /** Operator triage priority. */
+  priority?: AdminTaskPriority
+  /** Structured metadata for task-specific queue payloads. */
+  metadata?: Json
   /** Optional due date for the task. */
   due_at: string | null
   /** Timestamp when the task was completed. */
