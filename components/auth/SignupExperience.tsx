@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/components/ui/toast'
+import { InlineFormError } from '@/components/ui/inline-form-error'
 import { TicketingSetupGuide } from '@/components/auth/TicketingSetupGuide'
 import { migratePlannerDraftToServer } from '@/lib/planner/migrateDraft'
 import type { ServiceType, UserType, VenueType } from '@/lib/types'
@@ -107,7 +108,7 @@ function AlreadySignedInBanner() {
 
   return (
     <div className="mb-6 rounded-2xl border border-secondary/40 bg-secondary/10 p-4 text-sm text-muted-foreground">
-      <p className="font-medium text-foreground">You're already signed in.</p>
+      <p className="font-medium text-foreground">You&apos;re already signed in.</p>
       <p className="mt-1">Sign out to create a new account, or go back to your planner.</p>
       <div className="mt-3 flex flex-wrap gap-2">
         <button
@@ -270,13 +271,14 @@ function RoleSelector({
 
 const creatorEventTypes = ['Day party', 'Nightlife', 'Concert', 'Conference', 'Pop-up', 'Wedding', 'Corporate', 'Brunch']
 const creatorAmenities = ['Stage / DJ booth', 'Outdoor space', 'Full bar', 'Kitchen access', 'Green room', 'AV included', 'Coat check', 'Parking', 'ADA access']
-const ticketPlatforms = ['Eventbrite', 'Posh', 'Luma']
+const ticketPlatforms = ['Eventbrite', 'Posh', 'Luma', 'Partiful']
 const orgTypes = ['Promoter / Production company', 'Social group / Community', 'Brand / Agency', 'Nonprofit', 'Independent creator']
 
-const ticketPlatformIds: Record<string, 'eventbrite' | 'posh' | 'luma'> = {
+const ticketPlatformIds: Record<string, 'eventbrite' | 'posh' | 'luma' | 'partiful'> = {
   Eventbrite: 'eventbrite',
   Posh: 'posh',
   Luma: 'luma',
+  Partiful: 'partiful',
 }
 
 const stripeOnboardingConfig: Record<
@@ -317,6 +319,7 @@ function BuilderSignupFlow({
   const [step, setStep] = useState(1)
   const total = 4
   const [isLoading, setIsLoading] = useState(false)
+  const [inlineError, setInlineError] = useState<string | null>(null)
 
   const [form, setForm] = useState({
     fullName: '',
@@ -335,6 +338,10 @@ function BuilderSignupFlow({
     inviteCollaborators: '',
   })
 
+  useEffect(() => {
+    if (inlineError) setInlineError(null)
+  }, [form])
+
   const toggle = (key: 'eventTypes' | 'amenities' | 'platforms', value: string) => {
     setForm((f) => ({
       ...f,
@@ -342,35 +349,75 @@ function BuilderSignupFlow({
     }))
   }
 
-  const next = () => setStep((s) => Math.min(total, s + 1))
-  const back = () => (step > 1 ? setStep((s) => s - 1) : onBack())
+  const next = () => {
+    setInlineError(null)
+    setStep((s) => Math.min(total, s + 1))
+  }
+  const back = () => {
+    setInlineError(null)
+    return step > 1 ? setStep((s) => s - 1) : onBack()
+  }
+  const showInlineError = (message: string, targetStep?: number) => {
+    if (targetStep) setStep(targetStep)
+    setInlineError(message)
+  }
 
   const finish = async () => {
     setIsLoading(true)
+    setInlineError(null)
     try {
+      const selectedTicketPlatforms = form.platforms
+        .map((platform) => ticketPlatformIds[platform])
+        .filter((platform): platform is (typeof ticketPlatformIds)[keyof typeof ticketPlatformIds] => Boolean(platform))
+      const eventTypes = form.eventTypes.map((eventType) => eventType.trim()).filter(Boolean)
+
+      if (!form.fullName.trim()) {
+        showInlineError('Missing point of contact name', 1)
+        setIsLoading(false)
+        return
+      }
+
+      if (!form.orgName.trim()) {
+        showInlineError('Missing organization name', 2)
+        setIsLoading(false)
+        return
+      }
+
+      if (eventTypes.length === 0) {
+        showInlineError('Select at least one event type', 3)
+        setIsLoading(false)
+        return
+      }
+
+      if (selectedTicketPlatforms.length === 0) {
+        showInlineError('Connect at least one supported ticketing platform (Eventbrite, Luma, Posh, or Partiful)', 4)
+        setIsLoading(false)
+        return
+      }
+
       const response = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userType: 'community_builder',
-          email: form.email,
+          email: form.email.trim(),
           password: form.password,
-          name: form.fullName,
-          organization_name: form.orgName,
+          name: form.fullName.trim(),
+          organization_name: form.orgName.trim(),
           org_type: form.orgType,
           social_handle: form.socialHandle,
           website: form.website,
           bio: form.bio,
-          event_types: form.eventTypes,
+          event_types: eventTypes,
           avg_attendance: form.avgAttendance,
           preferred_amenities: form.amenities,
-          ticket_platforms: form.platforms.map((platform) => ticketPlatformIds[platform]).filter(Boolean),
+          ticket_platforms: selectedTicketPlatforms,
           bulk_booking_enabled: form.bulkBooking,
         }),
       })
       const result = await response.json()
       if (!response.ok || !result.success) {
-        addToast({ title: 'Sign up failed', description: result.error || 'Failed to create account', variant: 'destructive' })
+        setInlineError(result.error || 'Failed to create account')
         setIsLoading(false)
         return
       }
@@ -391,7 +438,7 @@ function BuilderSignupFlow({
         router.push('/planner?draftMigration=failed')
       }
     } catch {
-      addToast({ title: 'Error', description: 'An unexpected error occurred.', variant: 'destructive' })
+      setInlineError('An unexpected error occurred.')
       setIsLoading(false)
     }
   }
@@ -503,20 +550,23 @@ function BuilderSignupFlow({
         </div>
       )}
 
-      <div className="mt-10 flex items-center justify-between">
-        <Button variant="glass" onClick={back}>
-          <ArrowLeft className="h-4 w-4" /> Back
-        </Button>
-        {step < total ? (
-          <Button variant="hero" onClick={next}>
-            Continue <ArrowRight className="h-4 w-4" />
+      <div className="mt-10 space-y-4">
+        <InlineFormError message={inlineError} />
+        <div className="flex items-center justify-between">
+          <Button variant="glass" onClick={back}>
+            <ArrowLeft className="h-4 w-4" /> Back
           </Button>
-        ) : (
-          <Button variant="hero" onClick={finish} disabled={isLoading}>
-            <Ticket className="h-4 w-4" />
-            {isLoading ? 'Creating account...' : 'Create my Creator account'}
-          </Button>
-        )}
+          {step < total ? (
+            <Button variant="hero" onClick={next}>
+              Continue <ArrowRight className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button variant="hero" onClick={finish} disabled={isLoading}>
+              <Ticket className="h-4 w-4" />
+              {isLoading ? 'Creating account...' : 'Create my Creator account'}
+            </Button>
+          )}
+        </div>
       </div>
     </AuthShell>
   )
@@ -550,6 +600,7 @@ function VenueSignupFlow({
   const [step, setStep] = useState(1)
   const total = 5
   const [isLoading, setIsLoading] = useState(false)
+  const [inlineError, setInlineError] = useState<string | null>(null)
 
   const [form, setForm] = useState({
     contactName: '',
@@ -580,15 +631,26 @@ function VenueSignupFlow({
     openTo: '02:00',
   })
 
+  useEffect(() => {
+    if (inlineError) setInlineError(null)
+  }, [form])
+
   const toggle = (key: 'amenities' | 'openDays', v: string) => {
     setForm((f) => ({ ...f, [key]: f[key].includes(v) ? f[key].filter((x) => x !== v) : [...f[key], v] }))
   }
 
-  const next = () => setStep((s) => Math.min(total, s + 1))
-  const back = () => (step > 1 ? setStep((s) => s - 1) : onBack())
+  const next = () => {
+    setInlineError(null)
+    setStep((s) => Math.min(total, s + 1))
+  }
+  const back = () => {
+    setInlineError(null)
+    return step > 1 ? setStep((s) => s - 1) : onBack()
+  }
 
   const finish = async () => {
     setIsLoading(true)
+    setInlineError(null)
     try {
       const addressParts = form.address.split(',').map((s) => s.trim())
       const response = await fetch('/api/auth/signup', {
@@ -626,7 +688,7 @@ function VenueSignupFlow({
       })
       const result = await response.json()
       if (!response.ok || !result.success) {
-        addToast({ title: 'Sign up failed', description: result.error || 'Failed to create account', variant: 'destructive' })
+        setInlineError(result.error || 'Failed to create account')
         setIsLoading(false)
         return
       }
@@ -638,7 +700,7 @@ function VenueSignupFlow({
       addToast({ title: 'Venue account created', description: 'You can connect Stripe when a paid opportunity is ready.' })
       router.push(stripeOnboardingConfig.venue_owner.dashboardPath)
     } catch {
-      addToast({ title: 'Error', description: 'An unexpected error occurred.', variant: 'destructive' })
+      setInlineError('An unexpected error occurred.')
       setIsLoading(false)
     }
   }
@@ -818,20 +880,23 @@ function VenueSignupFlow({
         </div>
       )}
 
-      <div className="mt-10 flex items-center justify-between">
-        <Button variant="glass" onClick={back}>
-          <ArrowLeft className="h-4 w-4" /> Back
-        </Button>
-        {step < total ? (
-          <Button variant="hero" onClick={next}>
-            Continue <ArrowRight className="h-4 w-4" />
+      <div className="mt-10 space-y-4">
+        <InlineFormError message={inlineError} />
+        <div className="flex items-center justify-between">
+          <Button variant="glass" onClick={back}>
+            <ArrowLeft className="h-4 w-4" /> Back
           </Button>
-        ) : (
-          <Button variant="hero" onClick={finish} disabled={isLoading}>
-            <Building2 className="h-4 w-4" />
-            {isLoading ? 'Publishing...' : 'Publish my venue listing'}
-          </Button>
-        )}
+          {step < total ? (
+            <Button variant="hero" onClick={next}>
+              Continue <ArrowRight className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button variant="hero" onClick={finish} disabled={isLoading}>
+              <Building2 className="h-4 w-4" />
+              {isLoading ? 'Publishing...' : 'Publish my venue listing'}
+            </Button>
+          )}
+        </div>
       </div>
     </AuthShell>
   )
@@ -867,6 +932,7 @@ function VendorSignupFlow({
   const [step, setStep] = useState(1)
   const total = 4
   const [isLoading, setIsLoading] = useState(false)
+  const [inlineError, setInlineError] = useState<string | null>(null)
 
   const [form, setForm] = useState({
     fullName: '',
@@ -889,15 +955,26 @@ function VendorSignupFlow({
     emergencyRate: '',
   })
 
+  useEffect(() => {
+    if (inlineError) setInlineError(null)
+  }, [form])
+
   const toggle = (key: 'services' | 'availableDays', v: string) => {
     setForm((f) => ({ ...f, [key]: f[key].includes(v) ? f[key].filter((x) => x !== v) : [...f[key], v] }))
   }
 
-  const next = () => setStep((s) => Math.min(total, s + 1))
-  const back = () => (step > 1 ? setStep((s) => s - 1) : onBack())
+  const next = () => {
+    setInlineError(null)
+    setStep((s) => Math.min(total, s + 1))
+  }
+  const back = () => {
+    setInlineError(null)
+    return step > 1 ? setStep((s) => s - 1) : onBack()
+  }
 
   const finish = async () => {
     setIsLoading(true)
+    setInlineError(null)
     try {
       const serviceType = form.services[0] ? vendorServiceTypeIds[form.services[0]] || 'other' : 'other'
       const response = await fetch('/api/auth/signup', {
@@ -931,7 +1008,7 @@ function VendorSignupFlow({
       })
       const result = await response.json()
       if (!response.ok || !result.success) {
-        addToast({ title: 'Sign up failed', description: result.error || 'Failed to create account', variant: 'destructive' })
+        setInlineError(result.error || 'Failed to create account')
         setIsLoading(false)
         return
       }
@@ -943,7 +1020,7 @@ function VendorSignupFlow({
       addToast({ title: 'Vendor account created', description: 'You can connect Stripe when a paid opportunity is ready.' })
       router.push(stripeOnboardingConfig.vendor.dashboardPath)
     } catch {
-      addToast({ title: 'Error', description: 'An unexpected error occurred.', variant: 'destructive' })
+      setInlineError('An unexpected error occurred.')
       setIsLoading(false)
     }
   }
@@ -1079,20 +1156,23 @@ function VendorSignupFlow({
         </div>
       )}
 
-      <div className="mt-10 flex items-center justify-between">
-        <Button variant="glass" onClick={back}>
-          <ArrowLeft className="h-4 w-4" /> Back
-        </Button>
-        {step < total ? (
-          <Button variant="hero" onClick={next}>
-            Continue <ArrowRight className="h-4 w-4" />
+      <div className="mt-10 space-y-4">
+        <InlineFormError message={inlineError} />
+        <div className="flex items-center justify-between">
+          <Button variant="glass" onClick={back}>
+            <ArrowLeft className="h-4 w-4" /> Back
           </Button>
-        ) : (
-          <Button variant="hero" onClick={finish} disabled={isLoading}>
-            <Music2 className="h-4 w-4" />
-            {isLoading ? 'Publishing...' : 'Publish my vendor profile'}
-          </Button>
-        )}
+          {step < total ? (
+            <Button variant="hero" onClick={next}>
+              Continue <ArrowRight className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button variant="hero" onClick={finish} disabled={isLoading}>
+              <Music2 className="h-4 w-4" />
+              {isLoading ? 'Publishing...' : 'Publish my vendor profile'}
+            </Button>
+          )}
+        </div>
       </div>
     </AuthShell>
   )
@@ -1112,7 +1192,9 @@ export function SignupExperience({
   const handleBack = () => setRole(null)
 
   if (!role) return <RoleSelector onSelect={setRole} alreadySignedInWarning={alreadySignedInWarning} />
-  if (role === 'community_builder') return <BuilderSignupFlow onBack={handleBack} alreadySignedInWarning={alreadySignedInWarning} />
+  if (role === 'community_builder') {
+    return <BuilderSignupFlow onBack={handleBack} alreadySignedInWarning={alreadySignedInWarning} />
+  }
   if (role === 'venue_owner') return <VenueSignupFlow onBack={handleBack} alreadySignedInWarning={alreadySignedInWarning} />
   if (role === 'vendor') return <VendorSignupFlow onBack={handleBack} alreadySignedInWarning={alreadySignedInWarning} />
   return null
