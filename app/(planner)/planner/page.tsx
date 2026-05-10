@@ -1770,7 +1770,11 @@ function isPlanArtifactMessage(message: PlanMessage) {
  * Matches planner recommendation messages.
  */
 function isRecommendationMessage(message: PlanMessage) {
-  return String(message.message_type) === 'recommendation'
+  if (String(message.message_type) !== 'recommendation') return false
+  const meta = message.metadata
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return false
+  const recs = (meta as Record<string, unknown>).recommendations
+  return Array.isArray(recs) && recs.length > 0
 }
 
 /**

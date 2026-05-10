@@ -14,18 +14,41 @@ export const eventPlanFieldSchema = z.enum([
   'profit_goal',
 ])
 
+function coerceMoney(val: unknown): unknown {
+  if (val == null) return null
+  if (typeof val === 'number') return val
+  if (typeof val === 'string') {
+    const normalized = val.replace(/[$,\s]/g, '').toLowerCase()
+    const kMatch = normalized.match(/^(\d+(?:\.\d+)?)k$/)
+    if (kMatch) return Number.parseFloat(kMatch[1]) * 1000
+    const n = Number.parseFloat(normalized)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
+function coerceInt(val: unknown): unknown {
+  if (val == null) return null
+  if (typeof val === 'number') return val
+  if (typeof val === 'string') {
+    const n = Number.parseInt(val.replace(/[,\s]/g, ''), 10)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
 export const eventPlanSchema = z.object({
   event_name: z.string().trim().min(1).nullable(),
-  expected_attendance: z.number().int().nonnegative().nullable(),
+  expected_attendance: z.preprocess(coerceInt, z.number().int().nonnegative().nullable()),
   city: z.string().trim().min(1).nullable(),
   venue_type: z.string().trim().min(1).nullable(),
-  budget: z.number().nonnegative().nullable(),
+  budget: z.preprocess(coerceMoney, z.number().nonnegative().nullable()),
   event_date: z.string().trim().min(1).nullable(),
   monetization_model: z.string().trim().min(1).nullable(),
-  headcount_min: z.number().int().nonnegative().nullable(),
-  headcount_max: z.number().int().nonnegative().nullable(),
-  ticket_price_target: z.number().nonnegative().nullable(),
-  profit_goal: z.number().nonnegative().nullable(),
+  headcount_min: z.preprocess(coerceInt, z.number().int().nonnegative().nullable()),
+  headcount_max: z.preprocess(coerceInt, z.number().int().nonnegative().nullable()),
+  ticket_price_target: z.preprocess(coerceMoney, z.number().nonnegative().nullable()),
+  profit_goal: z.preprocess(coerceMoney, z.number().nonnegative().nullable()),
 })
 
 export type EventPlan = z.infer<typeof eventPlanSchema>

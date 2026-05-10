@@ -343,9 +343,13 @@ function extractDateWindow(message: string):
 
   const weekdayHint = lower.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(night|evening|morning|afternoon))?\b/i)
   if (weekdayHint) {
-    return {
-      hint: weekdayHint[0].trim(),
-      confidence: 0.45,
+    const targetDay = WEEKDAY_INDEX[weekdayHint[1].toLowerCase()]
+    if (targetDay !== undefined) {
+      const today = startOfLocalDay(new Date())
+      const daysAhead = ((targetDay - today.getDay() + 7) % 7) || 7
+      const date = addDays(today, daysAhead)
+      const dateStr = toLocalIsoDate(date)
+      return { hint: weekdayHint[0].trim(), start: dateStr, end: dateStr, confidence: 0.42 }
     }
   }
 
@@ -366,7 +370,28 @@ function extractRelativeDateWindow(lowerMessage: string): { hint: string; start:
   }
 
   if (/\bnext\s+week\b/i.test(lowerMessage)) return buildRelativeWindow('next week', 7)
-  if (/\bnext\s+month\b/i.test(lowerMessage)) return buildRelativeWindow('next month', 30)
+  if (/\bnext\s+month\b/i.test(lowerMessage)) {
+    const today = startOfLocalDay(new Date())
+    const nextMonth = today.getMonth() + 1
+    const year = nextMonth === 12 ? today.getFullYear() + 1 : today.getFullYear()
+    const month = nextMonth === 12 ? 0 : nextMonth
+    const start = toLocalIsoDate(new Date(year, month, 1))
+    const end = toLocalIsoDate(new Date(year, month + 1, 0))
+    return { hint: 'next month', start, end, confidence: 0.76 }
+  }
+
+  const nextWeekdayMatch = lowerMessage.match(/\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i)
+  if (nextWeekdayMatch) {
+    const targetDay = WEEKDAY_INDEX[nextWeekdayMatch[1].toLowerCase()]
+    if (targetDay !== undefined) {
+      const today = startOfLocalDay(new Date())
+      const todayDay = today.getDay()
+      const daysAhead = ((targetDay - todayDay + 7) % 7) || 7
+      const date = addDays(today, daysAhead)
+      const dateStr = toLocalIsoDate(date)
+      return { hint: nextWeekdayMatch[0].trim(), start: dateStr, end: dateStr, confidence: 0.82 }
+    }
+  }
 
   return null
 }
@@ -402,8 +427,12 @@ function extractFoodResponsibility(lowerMessage: string): { value: string; confi
     return { value: 'Organizer prepays food/beverage', confidence: 0.86 }
   }
 
-  if (/\b(cash\s+bar|guests?\s+pay|pay\s+their\s+own|no-host\s+bar)\b/i.test(lowerMessage)) {
+  if (/\b(cash\s+bar|guests?\s+pay|pay\s+their\s+own|no-host\s+bar|drinks?\s+at\s+the\s+bar)\b/i.test(lowerMessage)) {
     return { value: 'Guests pay venue directly', confidence: 0.84 }
+  }
+
+  if (/\b(snacks?\s+only|light\s+snacks?|just\s+snacks?|finger\s+foods?|light\s+bites?)\b/i.test(lowerMessage)) {
+    return { value: 'Light snacks only (organizer provides)', confidence: 0.78 }
   }
 
   if (/\b(no\s+food|no\s+drinks|venue\s+only|no\s+f&b)\b/i.test(lowerMessage)) {
@@ -515,6 +544,16 @@ function toLocalIsoDate(date: Date): string {
     String(date.getMonth() + 1).padStart(2, '0'),
     String(date.getDate()).padStart(2, '0'),
   ].join('-')
+}
+
+const WEEKDAY_INDEX: Record<string, number> = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
 }
 
 function relativeNumber(value: string, fallback: number): number {
