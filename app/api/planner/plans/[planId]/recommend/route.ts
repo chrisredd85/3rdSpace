@@ -2038,15 +2038,14 @@ async function loadVenueAgentCandidates(
     .select(VENUE_AGENT_SELECT_COLUMNS)
     .eq('is_published', true)
     .limit(50)
-  const headcount = readNumber(plan.guest_count ?? rankingInput.guest_count ?? rankingInput.headcount)
   const neighborhood = readString(rankingInput.neighborhood ?? rankingInput.area ?? plan.neighborhood)
   const city = inferCity(neighborhood)
   const budgetCents = readNumber(plan.budget_cap_cents ?? rankingInput.budget_cap_cents ?? rankingInput.budget_cents)
 
-  if (headcount !== null && headcount > 0) {
-    query = query.or(`standing_capacity.gte.${headcount},seated_capacity.gte.${headcount}`)
-  }
-
+  // Note: capacity is intentionally NOT filtered in SQL here. Supabase .gte() excludes NULL
+  // rows, which would silently eliminate venues that have no capacity data set (e.g. seeded
+  // catalog entries). The OpenAI agent and downstream ranker handle capacity eligibility; we
+  // just need a broad city-scoped candidate set.
   if (city) {
     query = query.ilike('city', `%${escapeSupabaseOrValue(city)}%`)
   }
