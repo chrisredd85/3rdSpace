@@ -386,17 +386,25 @@ test.describe('Agent Planner chat', () => {
 
   test('Event Plan side panel renders structured sections', async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 })
+    await page.route('**/api/planner/public-intake', async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Public draft intake unavailable in this mock smoke' }),
+      })
+    })
     await page.goto('/planner?mock=1&draft=Plan%20a%20day%20party%20for%2090%20people%20in%20the%20Mission%20with%20a%20%249000%20budget', {
       waitUntil: 'domcontentloaded',
     })
 
+    await expect(page.getByText('Active plan', { exact: true })).toBeVisible()
+
     let livePlanPanel = page.locator('aside').filter({ hasText: 'Event Plan' }).first()
     if (!(await livePlanPanel.isVisible().catch(() => false))) {
       const eventPlanTab = page.getByRole('button', { name: /event plan/i })
-      if (await eventPlanTab.isVisible().catch(() => false)) {
-        await eventPlanTab.click()
-        livePlanPanel = page.locator('aside, section').filter({ hasText: 'Structured artifact' }).first()
-      }
+      await expect(eventPlanTab).toBeVisible()
+      await eventPlanTab.click()
+      livePlanPanel = page.locator('aside, section').filter({ hasText: 'Structured artifact' }).first()
     }
 
     await expect(livePlanPanel).toBeVisible()
