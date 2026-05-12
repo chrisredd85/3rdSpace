@@ -40,7 +40,7 @@ export function isIntakeReadyForRecommendations(
 }
 
 export function isRecommendationRequest(message: string): boolean {
-  return /\b(where should i book|where can i book|where should we book|where can we book|where should i host|where can i host|book it|booking options|show me (the )?(options|venues|places|spots)|venue options|recommend(?:ed|ations?)?|find (me )?(a )?(venue|place|spot)|pull (venues|options|recommendations)|start matching)\b/i.test(message)
+  return /\b(where should i book|where can i book|where should we book|where can we book|where should i host|where can i host|book it|booking options|show me (the )?(options|venues|places|spots)|venue options|recommend(?:ed|ations?)?|find (me )?(a )?(venue|place|spot)|pull (venues|options|recommendations)|start matching|try again|retry|run (the )?search( again)?|search again|re.?run)\b/i.test(message)
 }
 
 export function isPlanReadyForRequestedRecommendations(

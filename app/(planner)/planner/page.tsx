@@ -456,16 +456,46 @@ function PlannerPageContent() {
       const response = await fetch(`/api/planner/plans/${planId}/trigger-recommendations`, {
         method: 'POST',
       })
-      if (!response.ok) return
+      if (!response.ok) {
+        console.warn('[planner] trigger-recommendations returned', response.status)
+        // Insert a visible fallback so the chat isn't silently empty
+        const fallback = buildMockMessage(
+          planId,
+          'agent',
+          'I have everything I need but hit a snag pulling venue options. Reply with any changes or just say "try again" and I\'ll re-run the search.',
+          'status_update',
+          {}
+        )
+        setMessages([...currentMessages, fallback])
+        return
+      }
       const payload = await response.json()
       const newMessages: PlanMessage[] = payload?.messages ?? []
       if (newMessages.length > 0) {
         const merged = [...currentMessages, ...newMessages]
         setMessages(merged)
         if (activePlan) publishLivePlan(activePlan, merged)
+      } else {
+        // Endpoint returned 200 but empty messages array — pipeline returned no results
+        const fallback = buildMockMessage(
+          planId,
+          'agent',
+          'I have everything I need but hit a snag pulling venue options. Reply with any changes or just say "try again" and I\'ll re-run the search.',
+          'status_update',
+          {}
+        )
+        setMessages([...currentMessages, fallback])
       }
     } catch (error) {
       console.warn('[planner] trigger-recommendations failed', error)
+      const fallback = buildMockMessage(
+        planId,
+        'agent',
+        'I have everything I need but hit a snag pulling venue options. Reply with any changes or just say "try again" and I\'ll re-run the search.',
+        'status_update',
+        {}
+      )
+      setMessages([...currentMessages, fallback])
     } finally {
       setIsAwaitingRecommendations(false)
     }
