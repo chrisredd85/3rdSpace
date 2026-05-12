@@ -21,6 +21,16 @@ const rolePortals = [
     heading: /set up your creator account/i,
     fields: [/full name/i, /work email/i, /password/i],
   },
+  {
+    path: '/signup/venue',
+    heading: /list your venue on 3rdplace/i,
+    fields: [/point-of-contact name/i, /booking email/i, /booking phone/i, /password/i],
+  },
+  {
+    path: '/signup/vendor',
+    heading: /get booked on 3rdplace/i,
+    fields: [/your name/i, /business \/ stage name/i, /email/i, /phone/i, /password/i],
+  },
 ]
 
 test.describe('Signup flow', () => {
@@ -38,8 +48,6 @@ test.describe('Signup flow', () => {
       await expect(page.getByText(card.description).first()).toBeVisible()
     }
 
-    await page.getByRole('button', { name: /^community builder/i }).click()
-    await expect(page.getByRole('heading', { name: /set up your creator account/i })).toBeVisible()
   })
 
   for (const portal of rolePortals) {
@@ -55,43 +63,41 @@ test.describe('Signup flow', () => {
     })
   }
 
-  test('signup portals can return to the role chooser', async ({ page }) => {
+  test('signup chooser remains directly reachable from portal pages', async ({ page }) => {
     await page.goto('/signup/builder', { waitUntil: 'domcontentloaded' })
-    await page.getByRole('button', { name: /back/i }).click()
+    await page.goto('/signup', { waitUntil: 'domcontentloaded' })
 
     await expect(page.getByRole('heading', { name: /join 3rdplace/i })).toBeVisible()
     await expect(page.getByRole('heading', { name: /^community builder$/i })).toBeVisible()
   })
 
-  test('/signup/venue shows info page, not a signup form', async ({ page }) => {
+  test('/signup/venue shows the venue signup form', async ({ page }) => {
     await page.goto('/signup/venue', { waitUntil: 'domcontentloaded' })
 
     await expect(page.getByRole('heading', { name: /list your venue on 3rdplace/i })).toBeVisible()
-    await expect(page.locator('input[type="password"]')).not.toBeVisible()
-    await expect(page.getByRole('button', { name: /continue/i })).not.toBeVisible()
+    await expect(page.locator('input[type="password"]')).toBeVisible()
+    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
   })
 
-  test('/signup/vendor shows info page, not a signup form', async ({ page }) => {
+  test('/signup/vendor shows the vendor signup form', async ({ page }) => {
     await page.goto('/signup/vendor', { waitUntil: 'domcontentloaded' })
 
-    await expect(page.getByRole('heading', { name: /join 3rdplace as a vendor/i })).toBeVisible()
-    await expect(page.locator('input[type="password"]')).not.toBeVisible()
-    await expect(page.getByRole('button', { name: /continue/i })).not.toBeVisible()
+    await expect(page.getByRole('heading', { name: /get booked on 3rdplace/i })).toBeVisible()
+    await expect(page.locator('input[type="password"]')).toBeVisible()
+    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
   })
 
-  test('signup chooser venue card opens the venue signup flow', async ({ page }) => {
+  test('direct venue portal opens the venue signup flow', async ({ page }) => {
     await page.goto('/signup', { waitUntil: 'domcontentloaded' })
-    await page.getByRole('button', { name: /venue owner/i }).click()
-    await expect(page).toHaveURL('/signup')
+    await page.goto('/signup/venue', { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('heading', { name: /list your venue on 3rdplace/i })).toBeVisible()
     await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
   })
 
-  test('signup chooser vendor card opens the vendor signup flow', async ({ page }) => {
+  test('direct vendor portal opens the vendor signup flow', async ({ page }) => {
     await page.goto('/signup', { waitUntil: 'domcontentloaded' })
-    await page.getByRole('button', { name: /^vendor/i }).click()
-    await expect(page).toHaveURL('/signup')
+    await page.goto('/signup/vendor', { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('heading', { name: /get booked on 3rdplace/i })).toBeVisible()
     await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()

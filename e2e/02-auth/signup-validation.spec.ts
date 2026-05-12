@@ -11,14 +11,14 @@ const portals = [
   {
     path: '/signup/venue',
     heading: /list your venue on 3rdplace/i,
-    fields: [/free curated listing/i, /leads from verified sf event organizers/i, /you set your rates/i],
-    hasSignupForm: false,
+    fields: [/point-of-contact name/i, /their role/i, /booking email/i, /booking phone/i, /password/i],
+    hasSignupForm: true,
   },
   {
     path: '/signup/vendor',
-    heading: /join 3rdplace as a vendor/i,
-    fields: [/free listing/i, /booked by verified event hosts/i, /you control your packages/i],
-    hasSignupForm: false,
+    heading: /get booked on 3rdplace/i,
+    fields: [/your name/i, /business \/ stage name/i, /email/i, /phone/i, /password/i],
+    hasSignupForm: true,
   },
 ]
 

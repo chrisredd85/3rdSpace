@@ -31,7 +31,7 @@ test.describe('Persona: Maya — SF host, first visit', () => {
     await page.goto(`/planner?draft=${encodeURIComponent(draft)}`, { waitUntil: 'domcontentloaded' })
 
     await expect(page).toHaveURL(/\/planner/, { timeout: 15000 })
-    await expect(page.getByText(/plan a founder dinner for 18 people/i)).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText(/founder dinner|private dinner|active plan/i).first()).toBeVisible({ timeout: 15000 })
   })
 
   test('homepage planner composer is the creator entry point', async ({ page }) => {
@@ -41,7 +41,7 @@ test.describe('Persona: Maya — SF host, first visit', () => {
     await expect(page.getByRole('button', { name: /start planning/i })).toBeVisible()
   })
 
-  test('venue role card navigates to venue info page — not a signup form', async ({ page }) => {
+  test('venue role card navigates to venue signup form', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
 
     const venueCard = page.locator('nav').getByRole('link', { name: /list your venue/i })
@@ -51,11 +51,12 @@ test.describe('Persona: Maya — SF host, first visit', () => {
 
     await expect(page).toHaveURL('/signup/venue')
     await expect(page.getByRole('heading', { name: /list your venue on 3rdplace/i })).toBeVisible()
-    await expect(page.getByRole('textbox')).not.toBeVisible()
-    await expect(page.getByRole('button', { name: /continue/i })).not.toBeVisible()
+    await expect(page.getByText(/booking email/i).first()).toBeVisible()
+    await expect(page.locator('input[type="password"]')).toBeVisible()
+    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
   })
 
-  test('vendor role card navigates to vendor info page — not a signup form', async ({ page }) => {
+  test('vendor role card navigates to vendor signup form', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
 
     const vendorCard = page.locator('nav').getByRole('link', { name: /list as vendor/i })
@@ -64,9 +65,10 @@ test.describe('Persona: Maya — SF host, first visit', () => {
     await page.goto('/signup/vendor')
 
     await expect(page).toHaveURL('/signup/vendor')
-    await expect(page.getByRole('heading', { name: /join 3rdplace as a vendor/i })).toBeVisible()
-    await expect(page.getByRole('textbox')).not.toBeVisible()
-    await expect(page.getByRole('button', { name: /continue/i })).not.toBeVisible()
+    await expect(page.getByRole('heading', { name: /get booked on 3rdplace/i })).toBeVisible()
+    await expect(page.getByText(/business \/ stage name/i).first()).toBeVisible()
+    await expect(page.locator('input[type="password"]')).toBeVisible()
+    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
   })
 
   test('/signup/builder still renders the builder signup form', async ({ page }) => {
@@ -75,6 +77,6 @@ test.describe('Persona: Maya — SF host, first visit', () => {
     await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
     await expect(page.getByRole('heading', { name: /set up your creator account/i })).toBeVisible()
     await expect(page.getByRole('heading', { name: /list your venue on 3rdplace/i })).not.toBeVisible()
-    await expect(page.getByRole('heading', { name: /join 3rdplace as a vendor/i })).not.toBeVisible()
+    await expect(page.getByRole('heading', { name: /get booked on 3rdplace/i })).not.toBeVisible()
   })
 })

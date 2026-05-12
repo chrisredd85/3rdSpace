@@ -36,6 +36,6 @@ test.describe('design system smoke', () => {
     await expect(page.getByRole('heading', { name: /list your venue on 3rdplace/i })).toBeVisible()
 
     await page.goto('/signup/vendor', { waitUntil: 'domcontentloaded' })
-    await expect(page.getByRole('heading', { name: /join 3rdplace as a vendor/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /get booked on 3rdplace/i })).toBeVisible()
   })
 })
