@@ -87,9 +87,9 @@ export function HomePlannerStart({ className }: HomePlannerStartProps) {
             }}
             onKeyDown={handleKeyDown}
             name="draft"
-            rows={2}
+            rows={3}
             className="max-h-48 min-w-0 flex-1 resize-none overflow-y-hidden border-0 bg-transparent px-2 py-3 text-base text-foreground outline-none placeholder:text-muted-foreground focus:ring-0"
-            placeholder="Plan a private dinner for 18 people in Hayes Valley next Friday..."
+            placeholder="Describe your next event..."
             aria-label="Describe the event you want to host"
             disabled={isSubmitting}
           />
