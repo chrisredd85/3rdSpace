@@ -2072,6 +2072,10 @@ async function loadVenueAgentCandidates(
 
 function buildRankingInput(plan: Plan, messages: PlanMessage[]): CatalogPlanRankingInput {
   const summary = readLatestSummary(messages)
+  const planMeta = readRecord(plan.metadata)
+  const rebookPrefs = readRecord(planMeta?.template_rebook_preferences)
+  const preferredVenueIds = readStringArray(rebookPrefs?.preferred_venue_ids)
+  const preferredVendorIds = readStringArray(rebookPrefs?.preferred_vendor_ids)
 
   return {
     id: plan.id,
@@ -2095,6 +2099,8 @@ function buildRankingInput(plan: Plan, messages: PlanMessage[]): CatalogPlanRank
     date_window_start: plan.date_window_start ?? readString(summary.date_window_start),
     date_window_end: plan.date_window_end ?? readString(summary.date_window_end),
     metadata: plan.metadata,
+    preferred_venue_ids: preferredVenueIds.length > 0 ? preferredVenueIds : null,
+    preferred_vendor_ids: preferredVendorIds.length > 0 ? preferredVendorIds : null,
   }
 }
 

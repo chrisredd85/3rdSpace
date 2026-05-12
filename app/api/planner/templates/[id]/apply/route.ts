@@ -159,6 +159,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       template: templateRow,
       wasCreated,
       changedFields,
+      useSameVenue: applyInput.use_same_venue,
+      useSameVendors: applyInput.use_same_vendors,
     })
     if (statusMessage) messages.push(statusMessage)
 
@@ -200,6 +202,8 @@ async function insertPlanStatusMessage(
     template: TemplateRow
     wasCreated: boolean
     changedFields: string[]
+    useSameVenue: boolean
+    useSameVendors: boolean
   }
 ): Promise<PlanMessage | null> {
   const insertPlanMessage = supabase.from('plan_messages').insert as unknown as (
@@ -212,10 +216,12 @@ async function insertPlanStatusMessage(
 
   const hist = readHistoricalPerformance(input.template)
   const historyInsight = buildHistoryInsight(hist)
+  const rebookPrefsNote = buildRebookPrefsNote(input.useSameVenue, input.useSameVendors)
   const baseMessage = input.wasCreated
     ? `Created a fresh plan from "${input.template.name}" and re-checking venues, vendors, and economics for the new numbers.`
     : `Applied "${input.template.name}" with fresh rebook inputs. I invalidated stale picks and am re-checking venues, vendors, and economics.`
-  const content = historyInsight ? `${baseMessage} ${historyInsight}` : baseMessage
+  const parts = [baseMessage, rebookPrefsNote, historyInsight].filter(Boolean)
+  const content = parts.join(' ')
 
   const { data, error } = await insertPlanMessage({
       plan_id: input.planId,
@@ -343,7 +349,7 @@ function buildPlanInsertFromTemplate(userId: string, template: TemplateRow, inpu
   const neighborhood = input.neighborhood ?? template.target_audience
   const ticketed = typeof ticketModel?.ticketed === 'boolean' ? ticketModel.ticketed : false
   const ticketingModel = readString(ticketModel?.ticketing_model) ?? (ticketed ? 'ticketed' : 'rsvp')
-  const metadata = buildTemplateMetadata(null, template)
+  const metadata = buildTemplateMetadata(null, template, input)
 
   return {
     user_id: userId,
@@ -374,7 +380,7 @@ function buildPlanInsertFromTemplate(userId: string, template: TemplateRow, inpu
 function buildPlanUpdatesFromTemplate(plan: Plan, template: TemplateRow, input: ApplyTemplateInput): Record<string, unknown> {
   const budgetModel = readRecord(template.budget_model)
   const ticketModel = readRecord(template.ticket_price_model)
-  const nextMetadata = buildTemplateMetadata(plan.metadata, template)
+  const nextMetadata = buildTemplateMetadata(plan.metadata, template, input)
   const ticketPriceTargetCents = readNumber(ticketModel?.ticket_price_target_cents)
   if (ticketPriceTargetCents !== null) {
     nextMetadata.ticket_price_target_cents = ticketPriceTargetCents
@@ -428,8 +434,8 @@ function buildPlanUpdatesFromTemplate(plan: Plan, template: TemplateRow, input: 
   return updates
 }
 
-function buildTemplateMetadata(currentMetadata: unknown, template: TemplateRow): Record<string, unknown> {
-  return {
+function buildTemplateMetadata(currentMetadata: unknown, template: TemplateRow, input?: ApplyTemplateInput): Record<string, unknown> {
+  const base: Record<string, unknown> = {
     ...(readRecord(currentMetadata) ?? {}),
     applied_template: {
       id: template.id,
@@ -448,6 +454,48 @@ function buildTemplateMetadata(currentMetadata: unknown, template: TemplateRow):
       historical_performance: template.historical_performance,
     },
   }
+
+  if (!input) return base
+
+  const shoppingList = readRecord(template.shopping_list)
+  const useSameVenue = input.use_same_venue === true
+  const useSameVendors = input.use_same_vendors === true
+
+  const preferredVenueIds: string[] = []
+  const preferredVendorIds: string[] = []
+
+  if (useSameVenue && shoppingList) {
+    const selectedVenue = readRecord(shoppingList.selected_venue)
+    const venueReferenceId = readString(selectedVenue?.reference_id)
+    const venuePartnerId = readString(selectedVenue?.id)
+    const venueId = venueReferenceId ?? venuePartnerId
+    if (venueId) preferredVenueIds.push(venueId)
+  }
+
+  if (useSameVendors && shoppingList) {
+    const selectedVendors = Array.isArray(shoppingList.selected_vendors) ? shoppingList.selected_vendors : []
+    for (const vendor of selectedVendors) {
+      const vendorRecord = readRecord(vendor)
+      if (!vendorRecord) continue
+      const vendorReferenceId = readString(vendorRecord.reference_id)
+      const vendorPartnerId = readString(vendorRecord.id)
+      const vendorId = vendorReferenceId ?? vendorPartnerId
+      if (vendorId) preferredVendorIds.push(vendorId)
+    }
+  }
+
+  if (preferredVenueIds.length > 0 || preferredVendorIds.length > 0 || useSameVenue || useSameVendors) {
+    base.template_rebook_preferences = {
+      template_id: template.id,
+      use_same_venue: useSameVenue,
+      use_same_vendors: useSameVendors,
+      preferred_venue_ids: preferredVenueIds,
+      preferred_vendor_ids: preferredVendorIds,
+      applied_at: new Date().toISOString(),
+    }
+  }
+
+  return base
 }
 
 function getInputGuestCount(input: ApplyTemplateInput, template: TemplateRow): number | null {
@@ -550,6 +598,19 @@ function readHistoricalPerformance(template: TemplateRow): ParsedHistoricalPerfo
     p95_tickets_sold: readNumber(hist.p95_tickets_sold) ?? 0,
     last_event_at: typeof hist.last_event_at === 'string' ? hist.last_event_at : null,
   }
+}
+
+function buildRebookPrefsNote(useSameVenue: boolean, useSameVendors: boolean): string | null {
+  if (useSameVenue && useSameVendors) {
+    return 'Your saved venue and vendors are preferred in matching — they will rank higher if still eligible for your new date, headcount, and budget.'
+  }
+  if (useSameVenue) {
+    return 'Your saved venue is preferred in matching — it will rank higher if still eligible for your new date, headcount, and budget.'
+  }
+  if (useSameVendors) {
+    return 'Your saved vendors are preferred in matching — they will rank higher if still eligible for your new date and budget.'
+  }
+  return null
 }
 
 function buildHistoryInsight(hist: ParsedHistoricalPerformance | null): string | null {

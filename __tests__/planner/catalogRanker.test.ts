@@ -265,6 +265,196 @@ describe('rankCatalogPartners', () => {
     ])
   })
 
+  describe('rebook preference boosting', () => {
+    it('boosts a preferred eligible venue above an otherwise higher-scored non-preferred venue', () => {
+      const result = rankCatalogPartners({
+        plan: {
+          ...plan,
+          preferred_venue_ids: ['venue-preferred'],
+        },
+        venues: [
+          {
+            ...baseVenue,
+            id: 'venue-preferred',
+            venue_name: 'Hayes Preferred Venue',
+            city: 'Hayes Valley',
+            standing_capacity: 80,
+            hourly_rate: 100_000,
+            minimum_hours: 4,
+            unique_features_tags: ['AV', 'rooftop'],
+          },
+          {
+            ...baseVenue,
+            id: 'venue-non-preferred',
+            venue_name: 'Mission Strong Venue',
+            city: 'Mission',
+            standing_capacity: 90,
+            hourly_rate: 95_000,
+            minimum_hours: 4,
+            unique_features_tags: ['AV', 'rooftop', 'bar', 'kitchen'],
+          },
+        ],
+        vendors: [],
+        venueLimit: 2,
+      })
+
+      const preferredIndex = result.recommendations.findIndex((r) => r.partner_id === 'venue-preferred')
+      const nonPreferredIndex = result.recommendations.findIndex((r) => r.partner_id === 'venue-non-preferred')
+      expect(preferredIndex).toBeGreaterThanOrEqual(0)
+      expect(nonPreferredIndex).toBeGreaterThanOrEqual(0)
+      expect(preferredIndex).toBeLessThan(nonPreferredIndex)
+    })
+
+    it('includes "Previously used in this template" in venue reasoning when preferred', () => {
+      const result = rankCatalogPartners({
+        plan: {
+          ...plan,
+          preferred_venue_ids: ['venue-rebook-reasoning'],
+        },
+        venues: [
+          {
+            ...baseVenue,
+            id: 'venue-rebook-reasoning',
+            venue_name: 'Hayes Rebook Studio',
+            city: 'Hayes Valley',
+            standing_capacity: 80,
+            hourly_rate: 100_000,
+            minimum_hours: 4,
+            unique_features_tags: ['AV', 'rooftop'],
+          },
+        ],
+        vendors: [],
+      })
+
+      const venue = result.recommendations.find((r) => r.partner_id === 'venue-rebook-reasoning')
+      expect(venue).toBeDefined()
+      expect(venue?.reasoning).toContain('Previously used in this template')
+      expect(venue?.metadata).toMatchObject({ is_rebook_preferred: true, rebook_score: 12 })
+    })
+
+    it('does not boost preferred venue when it fails a hard gate (capacity)', () => {
+      const result = rankCatalogPartners({
+        plan: {
+          ...plan,
+          preferred_venue_ids: ['venue-preferred-too-small'],
+        },
+        venues: [
+          {
+            ...baseVenue,
+            id: 'venue-preferred-too-small',
+            venue_name: 'Tiny Preferred Room',
+            city: 'Hayes Valley',
+            standing_capacity: 20,
+            hourly_rate: 100_000,
+            minimum_hours: 4,
+            unique_features_tags: ['AV', 'rooftop'],
+          },
+        ],
+        vendors: [],
+      })
+
+      expect(result.recommendations.map((r) => r.partner_id)).not.toContain('venue-preferred-too-small')
+      expect(result.rejected.find((r) => r.partner_id === 'venue-preferred-too-small')).toBeDefined()
+      const rejected = result.rejected.find((r) => r.partner_id === 'venue-preferred-too-small')
+      // Rejected preferred venues should not get the rebook reasoning or boost
+      expect(rejected?.reasoning).not.toContain('Previously used in this template')
+      expect(rejected?.metadata.is_rebook_preferred).toBe(false)
+    })
+
+    it('boosts a preferred eligible vendor above a non-preferred vendor', () => {
+      const result = rankCatalogPartners({
+        plan: {
+          ...plan,
+          must_haves: ['catering'],
+          preferred_vendor_ids: ['vendor-preferred-catering'],
+        },
+        venues: [],
+        vendors: [
+          {
+            id: 'vendor-preferred-catering',
+            name: 'Preferred Catering Co',
+            service_type: 'catering',
+            bio: 'Full-service catering with kitchen and bar',
+            base_rate: 90_000,
+            is_claimed: true,
+            response_rate: 0.85,
+          },
+          {
+            id: 'vendor-other-catering',
+            name: 'Other Catering Co',
+            service_type: 'catering',
+            bio: 'Full-service catering with kitchen and bar',
+            base_rate: 88_000,
+            is_claimed: true,
+            response_rate: 0.9,
+          },
+        ],
+        venueLimit: 0,
+        vendorLimit: 2,
+      })
+
+      const preferredIndex = result.recommendations.findIndex((r) => r.partner_id === 'vendor-preferred-catering')
+      const otherIndex = result.recommendations.findIndex((r) => r.partner_id === 'vendor-other-catering')
+      expect(preferredIndex).toBeGreaterThanOrEqual(0)
+      expect(preferredIndex).toBeLessThan(otherIndex)
+    })
+
+    it('includes "Previously used in this template" in vendor reasoning when preferred', () => {
+      const result = rankCatalogPartners({
+        plan: {
+          ...plan,
+          must_haves: ['catering'],
+          preferred_vendor_ids: ['vendor-rebook-reasoning'],
+        },
+        venues: [],
+        vendors: [
+          {
+            id: 'vendor-rebook-reasoning',
+            name: 'Rebook Catering',
+            service_type: 'catering',
+            bio: 'Full-service catering for events',
+            base_rate: 90_000,
+            is_claimed: true,
+          },
+        ],
+        venueLimit: 0,
+        vendorLimit: 1,
+      })
+
+      const vendor = result.recommendations.find((r) => r.partner_id === 'vendor-rebook-reasoning')
+      expect(vendor).toBeDefined()
+      expect(vendor?.reasoning).toContain('Previously used in this template')
+      expect(vendor?.metadata).toMatchObject({ is_rebook_preferred: true, rebook_score: 12 })
+    })
+
+    it('does not apply rebook boost when preferred_venue_ids is null', () => {
+      const result = rankCatalogPartners({
+        plan: {
+          ...plan,
+          preferred_venue_ids: null,
+        },
+        venues: [
+          {
+            ...baseVenue,
+            id: 'venue-no-boost',
+            venue_name: 'Hayes Studio',
+            city: 'Hayes Valley',
+            standing_capacity: 80,
+            hourly_rate: 100_000,
+            minimum_hours: 4,
+            unique_features_tags: ['AV', 'rooftop'],
+          },
+        ],
+        vendors: [],
+      })
+
+      const venue = result.recommendations.find((r) => r.partner_id === 'venue-no-boost')
+      expect(venue?.metadata.is_rebook_preferred).toBe(false)
+      expect(venue?.metadata.rebook_score).toBe(0)
+      expect(venue?.reasoning).not.toContain('Previously used in this template')
+    })
+  })
+
   it('prioritizes restaurant and private dining signals for dinner plans', () => {
     const result = rankCatalogPartners({
       plan: {

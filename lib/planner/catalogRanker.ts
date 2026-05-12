@@ -27,6 +27,10 @@ export interface CatalogPlanRankingInput {
   date_window_start?: string | null
   date_window_end?: string | null
   metadata?: unknown
+  /** Preferred venue IDs from a saved template rebook. Eligible preferred venues receive a score boost. */
+  preferred_venue_ids?: string[] | null
+  /** Preferred vendor IDs from a saved template rebook. Eligible preferred vendors receive a score boost. */
+  preferred_vendor_ids?: string[] | null
 }
 
 export type CatalogVenueRankingInput = Record<string, unknown> & {
@@ -185,6 +189,9 @@ export function rankCatalogPartners(input: RankCatalogPartnersInput): CatalogRan
   }
 }
 
+/** Score bonus applied to preferred (previously-used) partners that still pass all hard gates. */
+const REBOOK_PREFERENCE_SCORE_BOOST = 12
+
 function rankVenue(
   plan: CatalogPlanRankingInput,
   venue: CatalogVenueRankingInput,
@@ -254,6 +261,12 @@ function rankVenue(
   const dateScore = scoreDateAvailability(plan, venue)
   const partnerScore = scorePartnerSignals(venue)
   const dinnerScore = scoreDinnerVenueFit(plan, searchText)
+  const isPreferred = Boolean(
+    blockingIssues.length === 0 &&
+    plan.preferred_venue_ids &&
+    plan.preferred_venue_ids.includes(venue.id)
+  )
+  const rebookScore = isPreferred ? REBOOK_PREFERENCE_SCORE_BOOST : 0
   const score = Math.round(
     budgetScore +
       amenity.score +
@@ -262,7 +275,8 @@ function rankVenue(
       partnerScore +
       dinnerScore +
       archetypeScore.venue_type_score +
-      archetypeScore.commercial_model_alignment_score
+      archetypeScore.commercial_model_alignment_score +
+      rebookScore
   )
   const overBudget = budgetAllocationCents > 0 && estimateCents > budgetAllocationCents
   const fitLabel = chooseFitLabel(score, overBudget, false)
@@ -277,6 +291,7 @@ function rankVenue(
     commercialReasoning: commercialRanking.recommended.reasoning,
     archetypeReasons: archetypeScore.reasons,
     archetypeWarnings: archetypeScore.warnings,
+    isPreferred,
   })
 
   return {
@@ -307,6 +322,8 @@ function rankVenue(
       date_score: dateScore,
       partner_score: partnerScore,
       dinner_score: dinnerScore,
+      rebook_score: rebookScore,
+      is_rebook_preferred: isPreferred,
       archetype: {
         key: archetype.key,
         display_name: archetype.display_name,
@@ -361,7 +378,12 @@ function rankVendor(
   const areaScore = plan.area || plan.neighborhood
     ? matchesAreaPreference(plan.area ?? plan.neighborhood ?? '', searchText) ? 5 : 0
     : 5
-  const score = Math.round(budgetScore + amenity.score + foodScore + dateScore + partnerScore + areaScore)
+  const isPreferred = Boolean(
+    plan.preferred_vendor_ids &&
+    plan.preferred_vendor_ids.includes(vendor.id)
+  )
+  const rebookScore = isPreferred ? REBOOK_PREFERENCE_SCORE_BOOST : 0
+  const score = Math.round(budgetScore + amenity.score + foodScore + dateScore + partnerScore + areaScore + rebookScore)
   const overBudget = vendorBudgetCents > 0 && estimateCents > vendorBudgetCents
   const premium = /premium|pro|preferred|high[-\s]?touch/i.test(searchText)
   const fitLabel = chooseFitLabel(score, overBudget, premium)
@@ -380,6 +402,7 @@ function rankVendor(
       vendorBudgetCents,
       serviceMatches: amenity.matched,
       searchText,
+      isPreferred,
     }),
     blocking_issues: [],
     capacity: null,
@@ -394,6 +417,8 @@ function rankVendor(
       date_score: dateScore,
       partner_score: partnerScore,
       area_score: areaScore,
+      rebook_score: rebookScore,
+      is_rebook_preferred: isPreferred,
       budget_allocation_cents: vendorBudgetCents,
     },
   }
@@ -662,11 +687,13 @@ function buildVenueReasoning(input: {
   commercialReasoning: string[]
   archetypeReasons: string[]
   archetypeWarnings: string[]
+  isPreferred?: boolean
 }): string[] {
   const reasons: string[] = []
   const headcount = readNumber(input.plan.headcount ?? input.plan.guest_count)
   const area = input.plan.area ?? input.plan.neighborhood
 
+  if (input.isPreferred) reasons.push('Previously used in this template')
   if (input.capacity !== null && headcount !== null) {
     reasons.push(`Capacity ${input.capacity} fits ${headcount} guests`)
   }
@@ -701,10 +728,12 @@ function buildVendorReasoning(input: {
   vendorBudgetCents: number
   serviceMatches: string[]
   searchText: string
+  isPreferred?: boolean
 }): string[] {
   const reasons: string[] = []
   const serviceType = readString(input.vendor.service_type) ?? readString(input.vendor.vendor_type)
 
+  if (input.isPreferred) reasons.push('Previously used in this template')
   if (serviceType) reasons.push(`${formatServiceType(serviceType)} service fit`)
   if (input.serviceMatches.length > 0) {
     reasons.push(`Matches ${input.serviceMatches.slice(0, 3).join(', ')}`)

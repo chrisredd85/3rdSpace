@@ -384,7 +384,7 @@ function SavedTemplateCard(props: {
         </Field>
 
         <div className="grid gap-2 sm:grid-cols-2">
-          <label className="flex items-start gap-3 rounded-2xl border border-border bg-background/50 p-3 text-sm text-muted-foreground">
+          <label className={cn('flex items-start gap-3 rounded-2xl border p-3 text-sm text-muted-foreground transition-smooth', props.draft.use_same_venue ? 'border-primary/40 bg-primary/5' : 'border-border bg-background/50')}>
             <input
               type="checkbox"
               checked={props.draft.use_same_venue}
@@ -394,10 +394,10 @@ function SavedTemplateCard(props: {
             />
             <span>
               <span className="block font-semibold text-foreground">Try same venue</span>
-              Only as a preference. Availability still gets rechecked.
+              Boost ranking for the saved venue. Capacity and availability still checked — no preference if ineligible.
             </span>
           </label>
-          <label className="flex items-start gap-3 rounded-2xl border border-border bg-background/50 p-3 text-sm text-muted-foreground">
+          <label className={cn('flex items-start gap-3 rounded-2xl border p-3 text-sm text-muted-foreground transition-smooth', props.draft.use_same_vendors ? 'border-primary/40 bg-primary/5' : 'border-border bg-background/50')}>
             <input
               type="checkbox"
               checked={props.draft.use_same_vendors}
@@ -407,7 +407,7 @@ function SavedTemplateCard(props: {
             />
             <span>
               <span className="block font-semibold text-foreground">Try same vendors</span>
-              No outreach happens until you approve the fresh plan.
+              Boost ranking for saved vendors. No outreach until you approve the fresh plan.
             </span>
           </label>
         </div>
@@ -450,6 +450,23 @@ function Field(props: {
   )
 }
 
+function hasSelectedVenue(snapshot: Record<string, unknown> | null): boolean {
+  const shoppingList = readRecord(snapshot?.shopping_list)
+  if (!shoppingList) return false
+  const selectedVenue = readRecord(shoppingList.selected_venue)
+  return Boolean(selectedVenue && (readString(selectedVenue.reference_id) ?? readString(selectedVenue.id)))
+}
+
+function hasSelectedVendors(snapshot: Record<string, unknown> | null): boolean {
+  const shoppingList = readRecord(snapshot?.shopping_list)
+  if (!shoppingList) return false
+  const selectedVendors = Array.isArray(shoppingList.selected_vendors) ? shoppingList.selected_vendors : []
+  return selectedVendors.some((vendor) => {
+    const vendorRecord = readRecord(vendor)
+    return Boolean(vendorRecord && (readString(vendorRecord.reference_id) ?? readString(vendorRecord.id)))
+  })
+}
+
 function buildDefaultRebookDraft(template?: SavedTemplate): RebookDraft {
   const snapshot = readRecord(template?.snapshot)
   const guestCount = midpointGuestCount(snapshot)
@@ -461,8 +478,8 @@ function buildDefaultRebookDraft(template?: SavedTemplate): RebookDraft {
     guest_count: guestCount !== null ? String(guestCount) : '',
     budget_dollars: budgetCapCents !== null ? String(Math.round(budgetCapCents / 100)) : '',
     neighborhood: readString(snapshot?.target_audience) ?? '',
-    use_same_venue: false,
-    use_same_vendors: false,
+    use_same_venue: hasSelectedVenue(snapshot),
+    use_same_vendors: hasSelectedVendors(snapshot),
   }
 }
 
