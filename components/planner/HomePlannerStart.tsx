@@ -8,7 +8,7 @@
 
 import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, Paperclip, SendHorizontal, ShieldCheck, Sparkles } from 'lucide-react'
+import { Loader2, SendHorizontal, ShieldCheck, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -75,22 +75,20 @@ export function HomePlannerStart({ className }: HomePlannerStartProps) {
 
       <form onSubmit={handleSubmit} className="rounded-2xl border border-border bg-background/70 p-3">
         <div className="flex items-end gap-2">
-          <button
-            type="button"
-            className="mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-smooth hover:bg-muted hover:text-foreground"
-            aria-label="Attach file"
-          >
-            <Paperclip className="h-5 w-5" />
-          </button>
           <textarea
             id="hero-chat-input"
             ref={draftRef}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value)
+              const el = event.target
+              el.style.height = 'auto'
+              el.style.height = `${el.scrollHeight}px`
+            }}
             onKeyDown={handleKeyDown}
             name="draft"
-            rows={2}
-            className="min-h-16 flex-1 resize-none border-0 bg-transparent px-2 py-3 text-base text-foreground outline-none placeholder:text-muted-foreground focus:ring-0"
+            rows={1}
+            className="min-h-12 max-h-48 min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-2 py-3 text-base text-foreground outline-none placeholder:text-muted-foreground focus:ring-0"
             placeholder="Plan a private dinner for 18 people in Hayes Valley next Friday..."
             aria-label="Describe the event you want to host"
             disabled={isSubmitting}

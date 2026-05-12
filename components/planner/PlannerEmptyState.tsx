@@ -8,7 +8,7 @@
 'use client'
 
 import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { Loader2, Mic, Paperclip, SendHorizontal, ShieldCheck } from 'lucide-react'
+import { Loader2, SendHorizontal, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -87,14 +87,6 @@ export const PlannerEmptyState = memo(function PlannerEmptyState({
           className="rounded-3xl border border-border bg-card/70 p-3 shadow-card backdrop-blur-xl"
         >
           <div className="flex items-end gap-2">
-            <button
-              type="button"
-              className="mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-smooth hover:bg-muted hover:text-foreground"
-              aria-label="Attach file"
-              disabled={isSubmitting || !isHydrated}
-            >
-              <Paperclip className="h-5 w-5" />
-            </button>
             <textarea
               ref={messageRef}
               value={message}
@@ -110,14 +102,6 @@ export const PlannerEmptyState = memo(function PlannerEmptyState({
               aria-label="Describe your event"
               disabled={isSubmitting || !isHydrated}
             />
-            <button
-              type="button"
-              className="mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-smooth hover:bg-muted hover:text-foreground"
-              aria-label="Use microphone"
-              disabled={isSubmitting || !isHydrated}
-            >
-              <Mic className="h-5 w-5" />
-            </button>
             <Button
               type="submit"
               size="icon"
