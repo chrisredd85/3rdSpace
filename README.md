@@ -1,4 +1,4 @@
-# 3rdSpace - B2B Event Marketplace
+# 3rdPlace - Bay Area Event OS
 
 A Next.js 14 application connecting community builders, venue owners, and vendors.
 
