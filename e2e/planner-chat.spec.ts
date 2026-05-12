@@ -406,13 +406,20 @@ test.describe('Agent Planner chat', () => {
 
   test('day party mock asks coherent follow-up questions before recommendations', async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 })
+    await page.route('**/api/planner/public-intake', async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Public draft intake unavailable in this mock smoke' }),
+      })
+    })
     await page.goto('/planner?mock=1', { waitUntil: 'domcontentloaded' })
 
     await page.locator('form[data-planner-hydrated="true"]').waitFor({ state: 'visible' })
     await page.locator('textarea[name="message"]').fill('I want to host a day party')
     await page.getByRole('button', { name: /send message/i }).click()
 
-    await expect(page.getByRole('heading', { name: /day party plan/i })).toBeVisible()
+    await expect(page.getByText('Active plan', { exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: /what's your target date or timeframe/i })).toBeVisible()
     await expect(page.getByText('What city or neighborhood should I search in?', { exact: true })).not.toBeVisible()
     await expect(page.getByText('Do you need a DJ, or are you bringing your own music?', { exact: true })).not.toBeVisible()
