@@ -92,6 +92,13 @@ export function normalizeVendorProfile(row: VendorProfileRow): Vendor {
     deposit_percentage: row.deposit_percentage ?? null,
     deposit_refundable: row.deposit_refundable ?? true,
     deposit_terms: row.deposit_terms ?? null,
+    service_area: row.service_area ?? null,
+    regions_served: row.regions_served ?? null,
+    availability_notes: row.availability_notes ?? null,
+    lead_time_days: row.lead_time_days ?? null,
+    cancellation_terms: row.cancellation_terms ?? null,
+    emergency_available: row.emergency_available ?? false,
+    emergency_rate_uplift: row.emergency_rate_uplift ?? null,
     is_active: row.is_active ?? row.is_published ?? true,
     is_verified: row.is_verified ?? row.is_published ?? false,
     created_at: row.created_at,
@@ -127,6 +134,13 @@ export function toVendorProfileUpdate(updates: Partial<Vendor>) {
   if (updates.deposit_percentage !== undefined) payload.deposit_percentage = updates.deposit_percentage
   if (updates.deposit_refundable !== undefined) payload.deposit_refundable = updates.deposit_refundable
   if (updates.deposit_terms !== undefined) payload.deposit_terms = updates.deposit_terms
+  if (updates.service_area !== undefined) payload.service_area = updates.service_area
+  if (updates.regions_served !== undefined) payload.regions_served = updates.regions_served
+  if (updates.availability_notes !== undefined) payload.availability_notes = updates.availability_notes
+  if (updates.lead_time_days !== undefined) payload.lead_time_days = updates.lead_time_days
+  if (updates.cancellation_terms !== undefined) payload.cancellation_terms = updates.cancellation_terms
+  if (updates.emergency_available !== undefined) payload.emergency_available = updates.emergency_available
+  if (updates.emergency_rate_uplift !== undefined) payload.emergency_rate_uplift = updates.emergency_rate_uplift
   if (updates.is_active !== undefined) payload.is_published = updates.is_active
 
   return payload

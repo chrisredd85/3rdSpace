@@ -21,8 +21,8 @@ import {
 import { getAgentRunErrorMetadata, type AgentName } from '@/lib/ai/types'
 import { calculateEventPlanningEconomics } from '@/lib/finance/eventPlanningEconomics'
 import { generateMilestoneTemplate } from '@/lib/events/milestoneTemplates'
-import { archetypeFor } from '@/lib/planner/archetypes'
-import type { EventArchetypeConfig, VendorStackItem } from '@/lib/planner/archetypes'
+import { archetypeFor, buildArchetypeAnswerText, buildMutationContract, readEventArchetypeLock } from '@/lib/planner/archetypes'
+import type { EventArchetypeConfig, VendorStackItem, VendorTrigger } from '@/lib/planner/archetypes'
 import {
   rankCatalogPartners,
   type CatalogVendorRankingInput,
@@ -31,6 +31,7 @@ import {
   type RankedCatalogRecommendation,
 } from '@/lib/planner/catalogRanker'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS, RECOMMENDATION_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import { applyArchetypeDefaultFills, withPlanVendorStack } from '@/lib/planner/recommendVendorStack'
 import { logAgentRun, type AgentRunDb } from '@/lib/server/agent-runs'
 import {
   getBuilderProfileIdForUser,
@@ -47,6 +48,7 @@ import {
   venueMatchingCandidateSchema,
   type VenueMatchingCandidate,
 } from '@/lib/venues/venuePreFilter'
+import { rankVendorsForPlan, type RankedVendor } from '@/lib/vendors/vendorRanker'
 
 type PlannerDb = { from: (table: string) => any }
 type PlannerAuth =
@@ -139,6 +141,10 @@ type ProfitProjectionSummary = {
   projections: ProfitTicketProjection[]
   recommended_price_cents: number | null
   recommended_projection: ProfitTicketProjection | null
+  source: 'deterministic_estimate'
+  accuracy: 'estimate_until_partner_quotes_confirmed'
+  requires_quote_confirmation: true
+  assumption_notes: string[]
 }
 
 type VenueCandidateSearchMode = 'strict' | 'broader'
@@ -170,6 +176,23 @@ type OperationalAgentArtifacts = {
     workspace?: string
     timeline?: string
   }
+}
+
+type PlannerAgentConversationMessage = {
+  role: PlanMessage['role']
+  content: string
+  message_type: PlanMessage['message_type']
+}
+
+type ArchetypeIntakeOutcomeContext = {
+  archetype_key: string
+  archetype_display_name: string
+  answer_text: string
+  question_ids_asked: string[]
+  questions_asked: string[]
+  required_amenities: string[]
+  vendor_stack: VendorStackItem[]
+  preferred_commercial_models: EventArchetypeConfig['preferred_commercial_models']
 }
 
 const recommendRequestSchema = z.object({
@@ -291,22 +314,31 @@ export async function POST(
       )
     }
 
-    const messages = await loadConfirmationMessages(auth.db, plan.id)
-    const rankingInput = buildRankingInput(plan, messages)
-    const archetype = archetypeFor(rankingInput.event_type ?? plan.event_type ?? null)
+    const messages = await loadPlanContextMessages(auth.db, plan.id)
+    const baseRankingInput = buildRankingInput(plan, messages)
+    const lockedArchetype = readEventArchetypeLock(plan.metadata)
+    const baseArchetype = archetypeFor(lockedArchetype?.key ?? baseRankingInput.event_type ?? plan.event_type ?? null)
+    const recommendationPlan = applyArchetypeDefaultFills(plan, baseArchetype)
+    const rankingInput = buildRankingInput(recommendationPlan, messages)
+    const archetype = withPlanVendorStack(baseArchetype, recommendationPlan)
+    const conversationHistory = buildAgentConversationHistory(messages)
+    const archetypeIntake = buildArchetypeIntakeOutcomeContext(messages, archetype)
+    const mutationContract = buildMutationContract(plan.metadata, plan.event_type)
     const builderAttendance = await loadBuilderAttendanceForPlan(auth.db, auth.userId, archetype.key)
     const elasticity = await loadBuilderElasticityForPlan(auth.db, auth.userId, archetype.key)
-    const capacityCalibration = buildCapacityCalibrationSummary(plan, builderAttendance)
+    const capacityCalibration = buildCapacityCalibrationSummary(recommendationPlan, builderAttendance)
 
     if (!hasOpenAIKey()) {
       return runCatalogFallback({
         auth,
-        plan,
+        plan: recommendationPlan,
         archetype,
         builderAttendance,
         elasticity,
         capacityCalibration,
         rankingInput,
+        conversationHistory,
+        archetypeIntake,
         request,
         limit: body.data.limit,
         venueLimit: body.data.venueLimit,
@@ -314,8 +346,8 @@ export async function POST(
       })
     }
 
-    const eventPlan = buildAgentEventPlan(plan, rankingInput)
-    const candidateVenues = await loadVenueAgentCandidates(auth.db, plan, rankingInput, {
+    const eventPlan = buildAgentEventPlan(recommendationPlan, rankingInput)
+    const candidateVenues = await loadVenueAgentCandidates(auth.db, recommendationPlan, rankingInput, {
       neighborhoodMode: 'strict',
     })
     const venuePayload = {
@@ -323,23 +355,21 @@ export async function POST(
       candidate_venues: candidateVenues,
       builder_attendance: builderAttendance,
       organizer_preferences: {
-        budget_cap_cents: plan.budget_cap_cents,
-        guest_count: plan.guest_count,
-        neighborhood: plan.neighborhood,
+        budget_cap_cents: recommendationPlan.budget_cap_cents,
+        guest_count: recommendationPlan.guest_count,
+        neighborhood: recommendationPlan.neighborhood,
       },
-      plan,
+      plan: recommendationPlan,
       archetype,
+      archetype_intake: archetypeIntake,
+      mutation_contract: mutationContract,
       ranked_venues: [],
-      conversation_history: messages.map((message) => ({
-        role: message.role,
-        content: message.content,
-        message_type: message.message_type,
-      })),
+      conversation_history: conversationHistory,
     }
     const venueResult = await runLoggedVenueMatchingAgent(auth.userId, plan.id, venuePayload)
     const venueMatch = await resolveVenueMatches({
       auth,
-      plan,
+      plan: recommendationPlan,
       rankingInput,
       archetype,
       eventPlan,
@@ -352,14 +382,14 @@ export async function POST(
       venueMatch.candidateVenues,
       venueMatch.venueResult.output.ranked_venues
     )
-    const suggestedVendors = await loadSuggestedVendors(auth.db, plan, archetype, venueCostCents)
+    const suggestedVendors = await loadSuggestedVendors(auth.db, recommendationPlan, archetype, venueCostCents)
     const vendorRecommendationGroups = groupVendorRecommendations(suggestedVendors, archetype)
     const vendorMatchNotice = buildVendorMatchNotice(archetype, suggestedVendors)
-    const vendorCostCents = estimateVendorCostCents(plan, venueCostCents, suggestedVendors)
+    const vendorCostCents = estimateVendorCostCents(recommendationPlan, venueCostCents, suggestedVendors)
     const ticketPriceSweepCents = buildTicketPriceSweepCents(archetype, elasticity)
-    const profitProjection = buildProfitProjectionSummary(plan, venueCostCents, vendorCostCents, ticketPriceSweepCents)
+    const profitProjection = buildProfitProjectionSummary(recommendationPlan, venueCostCents, vendorCostCents, ticketPriceSweepCents)
     const economicsPayload = buildEconomicsPayload(
-      plan,
+      recommendationPlan,
       eventPlan,
       venueCostCents,
       vendorCostCents,
@@ -370,6 +400,9 @@ export async function POST(
         ticketPriceSweepCents,
         profitProjection,
         venue: pickTopVenueCandidate(venueMatch.candidateVenues, venueMatch.venueResult.output.ranked_venues),
+        archetypeIntake,
+        mutationContract,
+        conversationHistory,
       }
     )
     const economicsResult = await runLoggedEconomicsAgent(auth.userId, plan.id, economicsPayload)
@@ -396,22 +429,25 @@ export async function POST(
     )
     const outreachApproval = await ensureOutreachApprovalRequest({
       db: auth.db,
-      plan,
+      plan: recommendationPlan,
       userId: auth.userId,
       venueIds: venueMatch.venueResult.output.ranked_venues.slice(0, 3).map((venue) => venue.venue_id),
       vendorIds: suggestedVendors.slice(0, 3).map((vendor) => vendor.vendor_id),
       projectedCostsCents: venueCostCents + vendorCostCents,
-      summary: buildOutreachApprovalSummary(plan, venueMatch.venueResult.output.ranked_venues.length, suggestedVendors.length),
-      requirements: buildOutreachRequirements(plan, archetype),
+      summary: buildOutreachApprovalSummary(recommendationPlan, venueMatch.venueResult.output.ranked_venues.length, suggestedVendors.length),
+      requirements: buildOutreachRequirements(recommendationPlan, archetype, archetypeIntake),
     })
     const operationalArtifacts = await generateAndPersistOperationalArtifacts({
       db: auth.db,
       userId: auth.userId,
-      plan,
+      plan: recommendationPlan,
       eventPlan,
       topVenue: topVenueContext,
       vendorRecommendations: suggestedVendors,
       profitProjection,
+      archetypeIntake,
+      conversationHistory,
+      mutationContract,
     })
 
     await insertAuditLog(auth.db, {
@@ -431,6 +467,7 @@ export async function POST(
         vendor_match_notice: vendorMatchNotice,
         capacity_calibration: capacityCalibration,
         elasticity,
+        archetype_intake: archetypeIntake,
         outreach_approval_id: outreachApproval?.approvalId ?? null,
         operational_artifacts: {
           timeline_generated: Boolean(operationalArtifacts.timeline),
@@ -455,6 +492,7 @@ export async function POST(
       profit_projection: profitProjection,
       workspace_summary: operationalArtifacts.workspace_summary,
       timeline: operationalArtifacts.timeline,
+      plan_ticketed: plan.ticketed,
       persisted_recommendation_ids: persisted.map((recommendation) => recommendation.id),
       outreach_approval_message_id: outreachApproval?.approvalMessageId ?? null,
     })
@@ -472,6 +510,8 @@ async function runCatalogFallback(input: {
   elasticity: ElasticitySignal | null
   capacityCalibration: CapacityCalibrationSummary
   rankingInput: CatalogPlanRankingInput
+  conversationHistory: PlannerAgentConversationMessage[]
+  archetypeIntake: ArchetypeIntakeOutcomeContext
   request: NextRequest
   limit: number
   venueLimit: number
@@ -569,7 +609,7 @@ async function runCatalogFallback(input: {
       (recommendationsForPersistence.find((recommendation) => recommendation.kind === 'venue')?.estimate_cents ?? 0) +
       vendorRecommendations.reduce((sum, vendor) => sum + (vendor.base_rate_cents ?? 0), 0),
     summary: buildOutreachApprovalSummary(input.plan, rankedVenues.length, vendorRecommendations.length),
-    requirements: buildOutreachRequirements(input.plan, input.archetype),
+    requirements: buildOutreachRequirements(input.plan, input.archetype, input.archetypeIntake),
   })
   const operationalArtifacts = await generateAndPersistOperationalArtifacts({
     db: input.auth.db,
@@ -579,6 +619,9 @@ async function runCatalogFallback(input: {
     topVenue: topVenueContext,
     vendorRecommendations,
     profitProjection,
+    archetypeIntake: input.archetypeIntake,
+    conversationHistory: input.conversationHistory,
+    mutationContract: buildMutationContract(input.plan.metadata, input.plan.event_type),
   })
 
   await insertAuditLog(input.auth.db, {
@@ -597,6 +640,7 @@ async function runCatalogFallback(input: {
         vendor_match_notice: vendorMatchNotice,
         capacity_calibration: input.capacityCalibration,
         elasticity: input.elasticity,
+        archetype_intake: input.archetypeIntake,
         outreach_approval_id: outreachApproval?.approvalId ?? null,
         operational_artifacts: {
           timeline_generated: Boolean(operationalArtifacts.timeline),
@@ -621,6 +665,7 @@ async function runCatalogFallback(input: {
     profit_projection: profitProjection,
     workspace_summary: operationalArtifacts.workspace_summary,
     timeline: operationalArtifacts.timeline,
+    plan_ticketed: input.plan.ticketed,
     persisted_recommendation_ids: persisted.map((recommendation) => recommendation.id),
     outreach_approval_message_id: outreachApproval?.approvalMessageId ?? null,
   })
@@ -658,11 +703,11 @@ async function ensureOutreachApprovalRequest(input: {
     plan_snapshot_hash: snapshotHash,
     source: 'planner_recommendations',
   }
-  const { data: actionRows, error: actionError } = await input.db
+  let { data: actionRows, error: actionError } = await input.db
     .from('agent_actions')
     .insert({
       plan_id: input.plan.id,
-      action_type: 'opportunity_send_venues',
+      action_type: 'email',
       description: buildOutreachApprovalLabel(venueIds.length, vendorIds.length),
       provider: '3rdPlace partners',
       target_type: 'outreach',
@@ -674,9 +719,36 @@ async function ensureOutreachApprovalRequest(input: {
       result_metadata: {
         source: 'planner_recommendations',
         requires_user_action: true,
+        action_type_fallback: 'opportunity_send_venues',
       } as Json,
     })
     .select('*')
+
+  if (actionError?.code === '23514') {
+    console.warn('[planner.recommend] Falling back to email agent action type for outreach approval', actionError)
+    const fallbackInsert = await input.db
+      .from('agent_actions')
+      .insert({
+        plan_id: input.plan.id,
+        action_type: 'email',
+        description: buildOutreachApprovalLabel(venueIds.length, vendorIds.length),
+        provider: '3rdPlace partners',
+        target_type: 'outreach',
+        target_id: null,
+        payload_json: actionPayload as Json,
+        amount_cents: projectedCostsCents,
+        currency: 'usd',
+        status: 'pending',
+        result_metadata: {
+          source: 'planner_recommendations',
+          requires_user_action: true,
+          action_type_fallback: 'opportunity_send_venues',
+        } as Json,
+      })
+      .select('*')
+    actionRows = fallbackInsert.data
+    actionError = fallbackInsert.error
+  }
 
   const agentAction = firstRow(actionRows)
   if (actionError || !agentAction) {
@@ -1154,6 +1226,9 @@ async function generateAndPersistOperationalArtifacts(input: {
   topVenue: RecommendedVenueContext | null
   vendorRecommendations: SuggestedVendorRecommendation[]
   profitProjection: ProfitProjectionSummary | null
+  archetypeIntake: ArchetypeIntakeOutcomeContext
+  conversationHistory: PlannerAgentConversationMessage[]
+  mutationContract: Record<string, unknown>
 }): Promise<OperationalAgentArtifacts> {
   const artifacts: OperationalAgentArtifacts = {
     workspace_summary: null,
@@ -1179,6 +1254,9 @@ async function generateAndPersistOperationalArtifacts(input: {
       confirmed_venue_bookings: [venueBooking],
       confirmed_vendor_bookings: vendorBookings,
       venue_requirements: [],
+      archetype_intake: input.archetypeIntake,
+      mutation_contract: input.mutationContract,
+      conversation_history: input.conversationHistory,
     }
 
     try {
@@ -1205,6 +1283,9 @@ async function generateAndPersistOperationalArtifacts(input: {
     vendor_bookings: vendorBookings,
     budget_summary: buildWorkspaceBudgetSummary(input.plan, input.profitProjection),
     timeline: artifacts.timeline?.planning_milestones ?? [],
+    archetype_intake: input.archetypeIntake,
+    mutation_contract: input.mutationContract,
+    conversation_history: input.conversationHistory,
   }
 
   try {
@@ -1545,14 +1626,13 @@ async function loadOwnedPlan(db: PlannerDb, planId: string, userId: string): Pro
   return (data as Plan | null) ?? null
 }
 
-async function loadConfirmationMessages(db: PlannerDb, planId: string): Promise<PlanMessage[]> {
+async function loadPlanContextMessages(db: PlannerDb, planId: string): Promise<PlanMessage[]> {
   const { data, error } = await db
     .from('plan_messages')
     .select(PLAN_MESSAGE_SELECT_COLUMNS)
     .eq('plan_id', planId)
-    .eq('message_type', 'confirmation_card')
-    .order('created_at', { ascending: false })
-    .limit(5)
+    .order('created_at', { ascending: true })
+    .limit(40)
 
   if (error) {
     console.error('Planner catalog recommend message lookup error:', error)
@@ -1679,11 +1759,22 @@ async function loadSuggestedVendors(
   archetype: EventArchetypeConfig,
   venueCostCents: number
 ): Promise<SuggestedVendorRecommendation[]> {
-  const requiredAndRecommended = archetype.vendor_stack.filter((item) =>
+  try {
+    const ranked = await rankVendorsForPlan(plan, null, archetype, db, { perStackItem: 2 })
+    const rankedSuggestions = Object.values(ranked.by_service_type)
+      .flat()
+      .map(toSuggestedVendorFromRanked)
+    if (rankedSuggestions.length > 0) return rankedSuggestions
+  } catch (error) {
+    console.warn('[planner.recommend] Vendor ranker failed; falling back to base-rate vendor lookup', error)
+  }
+
+  const resolvedStack = resolveConditionalVendors(archetype.vendor_stack, plan)
+  const requiredAndRecommended = resolvedStack.filter((item) =>
     item.necessity === 'required' || item.necessity === 'recommended'
   )
   const optionalItems = shouldIncludeOptionalVendors(plan, venueCostCents, requiredAndRecommended)
-    ? archetype.vendor_stack.filter((item) => item.necessity === 'optional')
+    ? resolvedStack.filter((item) => item.necessity === 'optional')
     : []
   const stackItems = [...requiredAndRecommended, ...optionalItems]
   const serviceTypes = Array.from(new Set(stackItems.map((item) => item.service_type)))
@@ -1727,6 +1818,38 @@ async function loadSuggestedVendors(
     .filter(limitTwoPerServiceType)
 }
 
+function toSuggestedVendorFromRanked(vendor: RankedVendor): SuggestedVendorRecommendation {
+  return {
+    vendor_id: vendor.vendor_id,
+    name: vendor.name,
+    service_type: vendor.service_type,
+    necessity: vendor.necessity,
+    service_note: vendor.service_note,
+    base_rate_cents: vendor.base_rate_cents,
+    fit_score: vendor.total_score,
+    pros: [
+      vendor.user_facing_intro,
+      `${vendor.total_score}/100 vendor fit score.`,
+      vendor.response_p50_minutes !== null
+        ? `Median response time ${formatResponseTime(vendor.response_p50_minutes)}.`
+        : 'Response time needs confirmation.',
+      vendor.prior_events_with_builder > 0
+        ? `${vendor.prior_events_with_builder} prior events with this builder.`
+        : null,
+    ].filter((item): item is string => Boolean(item)),
+    cons: [
+      ...vendor.gate_warnings.map((warning) => warning.reason),
+      ...vendor.score_breakdown.warnings,
+    ],
+  }
+}
+
+function formatResponseTime(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h`
+  return `${Math.round(minutes / 1440)}d`
+}
+
 function toDbVendorServiceType(serviceType: string): string {
   if (serviceType === 'photographer') return 'photography'
   if (serviceType === 'videographer') return 'videography'
@@ -1738,6 +1861,7 @@ function toDbVendorServiceType(serviceType: string): string {
     serviceType === 'transport' ||
     serviceType === 'cake_pastry' ||
     serviceType === 'photo_booth' ||
+    serviceType === 'music_coordinator' ||
     serviceType === 'permits' ||
     serviceType === 'pos_systems'
   ) {
@@ -1755,6 +1879,81 @@ function shouldIncludeOptionalVendors(
   if (budget <= 0) return false
   const estimatedRequiredVendorCost = requiredAndRecommended.length * 75000
   return budget - venueCostCents - estimatedRequiredVendorCost >= Math.max(100000, Math.round(budget * 0.15))
+}
+
+/**
+ * Evaluates a VendorTrigger against the plan.
+ * Returns true if the trigger condition is met (vendor should be activated).
+ */
+function evaluateVendorTrigger(trigger: VendorTrigger, plan: Plan): boolean {
+  let planValue: string | number | boolean | null = null
+  const p = plan as unknown as Record<string, unknown>
+
+  switch (trigger.field) {
+    case 'guest_count':
+      planValue = plan.guest_count ?? null
+      break
+    case 'indoor_outdoor':
+      planValue = typeof p.indoor_outdoor === 'string' ? p.indoor_outdoor : null
+      break
+    case 'catering_style':
+      planValue = typeof p.catering_style === 'string' ? p.catering_style : null
+      break
+    case 'is_ticketed':
+      planValue = typeof p.is_ticketed === 'boolean' ? p.is_ticketed : null
+      break
+    case 'has_bar':
+      planValue = typeof p.has_bar === 'boolean' ? p.has_bar : null
+      break
+    case 'duration_hours': {
+      const mins = p.duration_minutes
+      planValue = typeof mins === 'number' ? mins / 60 : null
+      break
+    }
+    case 'venue_type':
+      planValue = typeof p.venue_type === 'string' ? p.venue_type : null
+      break
+    case 'setup_format':
+      planValue = typeof p.setup_format === 'string' ? p.setup_format : null
+      break
+    case 'music_format':
+      planValue = typeof p.music_format === 'string' ? p.music_format : null
+      break
+    default:
+      return false
+  }
+
+  if (planValue === null) return false
+
+  const { op, value } = trigger
+
+  switch (op) {
+    case 'gt':  return typeof planValue === 'number' && typeof value === 'number' && planValue > value
+    case 'gte': return typeof planValue === 'number' && typeof value === 'number' && planValue >= value
+    case 'lt':  return typeof planValue === 'number' && typeof value === 'number' && planValue < value
+    case 'lte': return typeof planValue === 'number' && typeof value === 'number' && planValue <= value
+    case 'eq':  return planValue === value
+    case 'neq': return planValue !== value
+    case 'in':  return Array.isArray(value) && value.includes(planValue as string)
+    default: return false
+  }
+}
+
+/**
+ * Resolves conditional vendor stack items against the plan.
+ * Items whose trigger evaluates to true are promoted to 'recommended'.
+ * Items whose trigger evaluates to false are dropped.
+ */
+function resolveConditionalVendors(
+  stack: VendorStackItem[],
+  plan: Plan
+): VendorStackItem[] {
+  return stack.flatMap((item) => {
+    if (item.necessity !== 'conditional') return [item]
+    if (!item.trigger) return []
+    if (!evaluateVendorTrigger(item.trigger, plan)) return []
+    return [{ ...item, necessity: 'recommended' as const }]
+  })
 }
 
 function limitTwoPerServiceType(
@@ -1895,6 +2094,7 @@ function buildRankingInput(plan: Plan, messages: PlanMessage[]): CatalogPlanRank
       formatDateWindow(plan.date_window_start, plan.date_window_end),
     date_window_start: plan.date_window_start ?? readString(summary.date_window_start),
     date_window_end: plan.date_window_end ?? readString(summary.date_window_end),
+    metadata: plan.metadata,
   }
 }
 
@@ -1936,6 +2136,9 @@ function buildEconomicsPayload(
     ticketPriceSweepCents: number[]
     profitProjection: ProfitProjectionSummary
     venue: VenueMatchingCandidate | null
+    archetypeIntake: ArchetypeIntakeOutcomeContext
+    mutationContract: Record<string, unknown>
+    conversationHistory: PlannerAgentConversationMessage[]
   }
 ): EconomicsAgentInput {
   return {
@@ -1949,6 +2152,9 @@ function buildEconomicsPayload(
     plan: plan as unknown as Record<string, unknown>,
     venue: context.venue,
     archetype: context.archetype as unknown as Record<string, unknown>,
+    archetype_intake: context.archetypeIntake,
+    mutation_contract: context.mutationContract,
+    conversation_history: context.conversationHistory,
     elasticity: context.elasticity,
     historical_attendance: context.historicalAttendance as unknown as Record<string, unknown> | null,
     ticket_price_sweep_cents: context.ticketPriceSweepCents,
@@ -2012,13 +2218,51 @@ function buildFallbackEconomicsOutput(
 }
 
 function readLatestSummary(messages: PlanMessage[]): Record<string, unknown> {
-  for (const message of messages) {
+  for (const message of [...messages].reverse()) {
     const metadata = readRecord(message.metadata)
     const summary = readRecord(metadata?.summary)
     if (summary) return summary
   }
 
   return {}
+}
+
+function buildAgentConversationHistory(messages: PlanMessage[]): PlannerAgentConversationMessage[] {
+  return messages.map((message) => ({
+    role: message.role,
+    content: message.content,
+    message_type: message.message_type,
+  }))
+}
+
+function buildArchetypeIntakeOutcomeContext(
+  messages: PlanMessage[],
+  archetype: EventArchetypeConfig
+): ArchetypeIntakeOutcomeContext {
+  const questions = messages
+    .map((message) => readRecord(readRecord(message.metadata)?.archetype_question))
+    .filter((question): question is Record<string, unknown> => question !== null)
+  const questionIds = uniqueStrings(questions.map((question) => readString(question.id)).filter((id): id is string => Boolean(id)))
+  const questionPrompts = uniqueStrings(
+    questions.map((question) => readString(question.prompt)).filter((prompt): prompt is string => Boolean(prompt))
+  )
+
+  return {
+    archetype_key: archetype.key,
+    archetype_display_name: archetype.display_name,
+    answer_text: buildArchetypeAnswerText(messages),
+    question_ids_asked: questionIds,
+    questions_asked: questionPrompts,
+    required_amenities: archetype.required_amenities,
+    vendor_stack: archetype.vendor_stack.filter((item) =>
+      item.necessity === 'required' || item.necessity === 'recommended'
+    ),
+    preferred_commercial_models: archetype.preferred_commercial_models,
+  }
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
 }
 
 async function persistRecommendations(
@@ -2110,7 +2354,7 @@ async function persistAgentRecommendations(
       elasticity,
     }),
   }))
-  const vendorInserts = vendorRecommendations.map((vendor, index) => ({
+  const vendorInserts = vendorRecommendations.slice(0, 3).map((vendor, index) => ({
     plan_id: planId,
     type: 'vendor',
     reference_id: vendor.vendor_id,
@@ -2439,7 +2683,36 @@ function buildProfitProjectionSummary(
     projections,
     recommended_price_cents: recommendedProjection?.ticket_price_cents ?? null,
     recommended_projection: recommendedProjection,
+    source: 'deterministic_estimate',
+    accuracy: 'estimate_until_partner_quotes_confirmed',
+    requires_quote_confirmation: true,
+    assumption_notes: buildProfitProjectionAssumptionNotes(plan, venueCostCents, vendorCostCents),
   }
+}
+
+function buildProfitProjectionAssumptionNotes(
+  plan: Plan,
+  venueCostCents: number,
+  vendorCostCents: number
+): string[] {
+  const notes = [
+    'Projection is an estimate until venue/vendor quotes confirm minimums, deposits, service fees, tax, gratuity, and included services.',
+  ]
+
+  if (!plan.budget_cap_cents) {
+    notes.push('No budget cap is set, so partner affordability is based on market estimates rather than a hard ceiling.')
+  }
+  if (venueCostCents === 0) {
+    notes.push('Venue cost is unknown and must be confirmed before deposit authorization.')
+  }
+  if (vendorCostCents === 0) {
+    notes.push('Vendor cost is unknown or no vendors were selected yet.')
+  }
+  if (plan.ticketed === false) {
+    notes.push('RSVP/free events show cost exposure rather than ticket-profit upside unless sponsorship or bar terms are added.')
+  }
+
+  return notes
 }
 
 function buildTicketPriceSweepCents(
@@ -2517,10 +2790,15 @@ function buildOutreachApprovalPackageDetails(venueCount: number, vendorCount: nu
   ].join(' ')
 }
 
-function buildOutreachRequirements(plan: Plan, archetype: EventArchetypeConfig): Record<string, unknown> {
+function buildOutreachRequirements(
+  plan: Plan,
+  archetype: EventArchetypeConfig,
+  archetypeIntake: ArchetypeIntakeOutcomeContext
+): Record<string, unknown> {
   return {
     archetype_key: archetype.key,
     archetype_display_name: archetype.display_name,
+    archetype_intake: archetypeIntake,
     guest_count: plan.guest_count,
     budget_cap_cents: plan.budget_cap_cents,
     neighborhood: plan.neighborhood,

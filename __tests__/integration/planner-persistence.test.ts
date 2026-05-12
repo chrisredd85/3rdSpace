@@ -2,7 +2,12 @@ import type { NextRequest } from 'next/server'
 import { GET as getPlan, PATCH as patchPlan } from '@/app/api/planner/plans/[planId]/route'
 import { GET as listPlans, POST as createPlan } from '@/app/api/planner/plans/route'
 import { POST as postMessage } from '@/app/api/planner/plans/[planId]/messages/route'
+import { runAgent } from '@/lib/ai/agents'
 import { createClient } from '@/lib/supabase/server'
+
+jest.mock('@/lib/ai/agents', () => ({
+  runAgent: jest.fn(),
+}))
 
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
@@ -24,6 +29,7 @@ jest.mock('next/server', () => ({
 }))
 
 const mockCreateClient = createClient as jest.Mock
+const mockRunAgent = runAgent as jest.Mock
 
 type Row = Record<string, any>
 
@@ -216,6 +222,7 @@ describe('Planner persistence integration', () => {
   })
 
   beforeEach(() => {
+    jest.clearAllMocks()
     db = new MemoryDb()
     mockCreateClient.mockReturnValue({
       auth: {
@@ -231,6 +238,138 @@ describe('Planner persistence integration', () => {
       },
       from: (table: string) => db.from(table),
     })
+  })
+
+  it('promotes a no-question dinner intake response to recommendations when matching fields are complete', async () => {
+    const oldOpenAIKey = process.env.OPENAI_API_KEY
+    const oldFetch = global.fetch
+    process.env.OPENAI_API_KEY = 'test-openai-key'
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      resolved_archetype: { key: 'private_dinner_celebration', display_name: 'Private dinner / celebration' },
+      ranked_venues: [],
+      vendor_recommendations: [],
+      persisted_recommendation_ids: [],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    mockRunAgent.mockResolvedValueOnce({
+      agent_name: 'intake',
+      status: 'succeeded',
+      output: {
+        reflection: 'Perfect — private dinner celebration in the Mission for 25 guests on May 20, 2026.',
+        extracted_fields: {
+          event_type: null,
+          guest_count: null,
+          neighborhood: null,
+          date_window_start: null,
+          date_window_end: null,
+          budget_cap_cents: null,
+          ticketed: null,
+          ticket_price_target: null,
+          food_responsibility: null,
+          profit_goal_cents: null,
+        },
+        updated_event_plan: {
+          event_name: 'Private dinner celebration',
+          expected_attendance: 25,
+          city: 'Mission',
+          venue_type: 'Private dinner / celebration',
+          budget: null,
+          event_date: '2026-05-20',
+          monetization_model: null,
+          headcount_min: 25,
+          headcount_max: 25,
+          ticket_price_target: null,
+          profit_goal: null,
+        },
+        neighborhood: 'Mission',
+        food_drink_needs: null,
+        music_av_needs: null,
+        vibe_audience: null,
+        hard_constraints: [],
+        missing_questions: [],
+        confidence_score: 0.92,
+        next_best_question: null,
+        assumptions_made: [],
+      },
+    })
+
+    db.rows.plans.push({
+      id: 'dinner-plan',
+      user_id: 'user-1',
+      title: "Women's dinner",
+      event_type: 'Private dinner / celebration',
+      status: 'drafting',
+      guest_count: 25,
+      budget_cap_cents: null,
+      neighborhood: 'Mission',
+      date_window_start: '2026-05-20',
+      date_window_end: '2026-05-20',
+      ticketed: false,
+      ticketing_model: null,
+      food_responsibility: null,
+      venue_terms: null,
+      agent_action: null,
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {},
+      created_at: '2026-05-10T10:00:00Z',
+      updated_at: '2026-05-10T10:00:00Z',
+    })
+    db.rows.plan_messages.push(
+      {
+        id: 'm1',
+        plan_id: 'dinner-plan',
+        role: 'user',
+        content: "I want to host a women's dinner",
+        message_type: 'text',
+        metadata: {},
+        created_at: '2026-05-10T10:00:00Z',
+      },
+      {
+        id: 'm2',
+        plan_id: 'dinner-plan',
+        role: 'user',
+        content: '25',
+        message_type: 'text',
+        metadata: {},
+        created_at: '2026-05-10T10:01:00Z',
+      },
+      {
+        id: 'm3',
+        plan_id: 'dinner-plan',
+        role: 'user',
+        content: 'the mission',
+        message_type: 'text',
+        metadata: {},
+        created_at: '2026-05-10T10:02:00Z',
+      },
+      {
+        id: 'm4',
+        plan_id: 'dinner-plan',
+        role: 'user',
+        content: 'May 20',
+        message_type: 'text',
+        metadata: {},
+        created_at: '2026-05-10T10:03:00Z',
+      }
+    )
+
+    try {
+      const response = await postMessage(makeRequest('/api/planner/plans/dinner-plan/messages', { message: 'private room' }), {
+        params: { planId: 'dinner-plan' },
+      })
+      const json = await readJson(response)
+      const agentMessage = json.agent_message
+
+      expect(response.status).toBe(200)
+      expect(agentMessage.message_type).toBe('recommendation')
+      expect(json.plan.status).toBe('ready')
+      expect(json.follow_up_messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ message_type: 'recommendation' }),
+      ]))
+    } finally {
+      process.env.OPENAI_API_KEY = oldOpenAIKey
+      global.fetch = oldFetch
+    }
   })
 
   it('creates a plan, appends messages, transitions status, and reloads persisted state', async () => {

@@ -3,7 +3,12 @@ import { z } from 'zod'
 import { assertOpenAIConfigured, openai } from '@/lib/ai/client'
 import { eventPlanSchema, AgentRunExecutionError, type AgentResult } from '@/lib/ai/types'
 import { buildAgentRunMetadata, type AgentMessagePayload } from '@/lib/ai/run-metadata'
-import { vendorStackItemSchema, commercialModelSchema } from '@/lib/planner/archetypes/types'
+import {
+  vendorStackItemSchema,
+  commercialModelSchema,
+  matchingFieldSchema,
+  archetypeMatchingFieldsSchema,
+} from '@/lib/planner/archetypes/types'
 
 const intakeMessageSchema = z.object({
   role: z.string().trim().min(1),
@@ -18,18 +23,173 @@ const intakeBuilderHistorySchema = z.object({
   confidence: z.enum(['low', 'medium', 'high']),
   last_event_at: z.string().trim().min(1).nullable(),
 })
+const archetypeIntakeQuestionSchema = z.object({
+  id: z.string().trim().min(1),
+  label: z.string().trim().min(1),
+  prompt: z.string().trim().min(1),
+  source: z.enum(['matching_field', 'vendor_stack', 'required_amenity', 'commercial_model', 'operational_timing']),
+  required: z.boolean(),
+  priority: z.number().int().nonnegative(),
+  field: z.string().trim().min(1).optional(),
+  answer_keywords: z.array(z.string().trim().min(1)).default([]),
+})
+
+const archetypeQuestionPrioritySchema = z.object({
+  critical_missing: z.array(matchingFieldSchema),
+  high_signal_missing: z.array(matchingFieldSchema),
+  archetype_vendor_stack: z.array(vendorStackItemSchema),
+})
+
+const archetypeAlternativeSchema = z.object({
+  key: z.string().trim().min(1),
+  display_name: z.string().trim().min(1),
+  why: z.string().trim().min(1),
+})
+
+const archetypeResolutionSchema = z.object({
+  key: z.string().trim().min(1),
+  display_name: z.string().trim().min(1),
+  match_strength: z.enum(['exact', 'fuzzy', 'inferred']),
+  matched_alias: z.string().trim().min(1).nullable().optional(),
+  alternative_archetypes: z.array(archetypeAlternativeSchema).default([]),
+})
+
+const mutationContractSchema = z.object({
+  locked_archetype: z.object({
+    key: z.string().trim().min(1),
+    display_name: z.string().trim().min(1),
+  }).nullable(),
+  current_event_type: z.string().trim().min(1).nullable(),
+  allowed_fields: z.array(z.string().trim().min(1)),
+  suggest_only_fields: z.array(z.string().trim().min(1)),
+  confirmation_required_fields: z.array(z.string().trim().min(1)),
+  rules: z.array(z.string().trim().min(1)),
+})
+
+function coerceNullableString(value: unknown): string | null {
+  if (value == null) return null
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : null
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) {
+    const text = value
+      .map(coerceNullableString)
+      .filter((item): item is string => Boolean(item))
+      .join(', ')
+    return text || null
+  }
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    const direct = coerceNullableString(record.summary ?? record.text ?? record.value ?? record.label ?? record.name)
+    if (direct) return direct
+    const text = Object.values(record)
+      .map(coerceNullableString)
+      .filter((item): item is string => Boolean(item))
+      .join(', ')
+    return text || null
+  }
+  return null
+}
+
+function coerceNullableInt(value: unknown): number | null {
+  if (value == null) return null
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.max(0, Math.round(value)) : null
+  if (typeof value === 'string') {
+    const normalized = value.replace(/[$,\s]/g, '').toLowerCase()
+    const kMatch = normalized.match(/^(\d+(?:\.\d+)?)k$/)
+    const numberValue = kMatch ? Number.parseFloat(kMatch[1]) * 1000 : Number.parseFloat(normalized)
+    return Number.isFinite(numberValue) ? Math.max(0, Math.round(numberValue)) : null
+  }
+  return null
+}
+
+function coerceNullableMoneyCents(value: unknown): number | null {
+  if (value == null) return null
+  if (typeof value === 'number') return normalizeMajorMoneyToCents(value)
+  if (typeof value === 'string') {
+    const normalized = value.replace(/[$,\s]/g, '').toLowerCase()
+    const kMatch = normalized.match(/^(\d+(?:\.\d+)?)k$/)
+    const mMatch = normalized.match(/^(\d+(?:\.\d+)?)m$/)
+    const numberValue = kMatch
+      ? Number.parseFloat(kMatch[1]) * 1000
+      : mMatch
+        ? Number.parseFloat(mMatch[1]) * 1_000_000
+        : Number.parseFloat(normalized)
+    return normalizeMajorMoneyToCents(numberValue)
+  }
+  return null
+}
+
+function coerceNullableTicketPriceCents(value: unknown): number | null {
+  if (value == null) return null
+  if (typeof value === 'number') return normalizeTicketPriceToCents(value)
+  if (typeof value === 'string') {
+    const normalized = value.replace(/[$,\s]/g, '').toLowerCase()
+    const kMatch = normalized.match(/^(\d+(?:\.\d+)?)k$/)
+    const mMatch = normalized.match(/^(\d+(?:\.\d+)?)m$/)
+    const numberValue = kMatch
+      ? Number.parseFloat(kMatch[1]) * 1000
+      : mMatch
+        ? Number.parseFloat(mMatch[1]) * 1_000_000
+        : Number.parseFloat(normalized)
+    return normalizeTicketPriceToCents(numberValue)
+  }
+  return null
+}
+
+function normalizeMajorMoneyToCents(value: number): number | null {
+  if (!Number.isFinite(value) || value <= 0) return null
+  return Math.max(0, Math.round(value < 10000 ? value * 100 : value))
+}
+
+function normalizeTicketPriceToCents(value: number): number | null {
+  if (!Number.isFinite(value) || value <= 0) return null
+  return Math.max(0, Math.round(value < 1000 ? value * 100 : value))
+}
+
+function coerceNullableBoolean(value: unknown): boolean | null {
+  if (value == null) return null
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    if (/^(true|yes|y|ticketed|paid)$/i.test(value.trim())) return true
+    if (/^(false|no|n|free|rsvp|invite|invite-only|unknown)$/i.test(value.trim())) return false
+  }
+  return null
+}
+
+function coerceStringArray(value: unknown): string[] {
+  if (value == null) return []
+  if (typeof value === 'string') return value.trim().length > 0 ? [value.trim()] : []
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item) => coerceStringArray(item))
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+  const text = coerceNullableString(value)
+  return text ? [text] : []
+}
+
+const nullableStringSchema = z.preprocess(coerceNullableString, z.string().trim().min(1).nullable())
+const nullableIntSchema = z.preprocess(coerceNullableInt, z.number().int().nonnegative().nullable())
+const nullableMoneyCentsSchema = z.preprocess(coerceNullableMoneyCents, z.number().int().nonnegative().nullable())
+const nullableTicketPriceCentsSchema = z.preprocess(coerceNullableTicketPriceCents, z.number().int().nonnegative().nullable())
+const nullableBooleanSchema = z.preprocess(coerceNullableBoolean, z.boolean().nullable())
+const stringArraySchema = z.preprocess(coerceStringArray, z.array(z.string().trim().min(1)))
 
 export const intakeExtractedFieldsSchema = z.object({
   event_type: z.string().trim().min(1).nullable(),
-  guest_count: z.number().int().nonnegative().nullable(),
-  neighborhood: z.string().trim().min(1).nullable(),
-  date_window_start: z.string().trim().min(1).nullable(),
-  date_window_end: z.string().trim().min(1).nullable(),
-  budget_cap_cents: z.number().int().nonnegative().nullable(),
-  ticketed: z.boolean().nullable(),
-  ticket_price_target: z.number().int().nonnegative().nullable(),
-  food_responsibility: z.string().trim().min(1).nullable(),
-  profit_goal_cents: z.number().int().nonnegative().nullable(),
+  guest_count: nullableIntSchema,
+  neighborhood: nullableStringSchema,
+  date_window_start: nullableStringSchema,
+  date_window_end: nullableStringSchema,
+  budget_cap_cents: nullableMoneyCentsSchema,
+  ticketed: nullableBooleanSchema,
+  ticket_price_target: nullableTicketPriceCentsSchema,
+  food_responsibility: nullableStringSchema,
+  profit_goal_cents: nullableMoneyCentsSchema,
 })
 
 export const intakeAgentInputSchema = z.object({
@@ -39,13 +199,29 @@ export const intakeAgentInputSchema = z.object({
   messages: z.array(intakeMessageSchema).default([]),
   connected_platforms: z.array(intakeTicketPlatformSchema).default([]),
   builder_history: intakeBuilderHistorySchema.nullish(),
+  can_match_now: z.boolean().optional().default(false),
   resolved_archetype: z.object({
     key: z.string().trim().min(1),
     display_name: z.string().trim().min(1),
+    match_strength: z.enum(['exact', 'fuzzy', 'inferred']).optional(),
+    matched_alias: z.string().trim().min(1).nullable().optional(),
+    alternative_archetypes: z.array(archetypeAlternativeSchema).optional().default([]),
     capacity_range: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]),
     vendor_stack: z.array(vendorStackItemSchema),
     preferred_commercial_models: z.array(commercialModelSchema),
+    preferred_venue_types: z.array(z.string().trim().min(1)).optional().default([]),
+    required_amenities: z.array(z.string().trim().min(1)).optional().default([]),
+    bonus_amenities: z.array(z.string().trim().min(1)).optional().default([]),
+    needs_whole_venue: z.boolean().optional(),
+    catering_rule: z.enum(['kitchen_required', 'outside_ok', 'either', 'na']).optional(),
+    red_flags: z.array(z.string().trim().min(1)).optional().default([]),
+    matching_fields: archetypeMatchingFieldsSchema.optional(),
+    default_fills: z.record(z.string(), z.unknown()).optional().default({}),
+    intake_questions: z.array(archetypeIntakeQuestionSchema).optional().default([]),
   }).nullable().optional(),
+  archetype_resolution: archetypeResolutionSchema.nullish(),
+  archetype_question_priority: archetypeQuestionPrioritySchema.nullish(),
+  mutation_contract: mutationContractSchema.nullish(),
   organizer_profile: z.record(z.unknown()).nullish(),
 })
 
@@ -53,15 +229,15 @@ export const intakeAgentOutputSchema = z.object({
   reflection: z.string().trim().min(1),
   extracted_fields: intakeExtractedFieldsSchema,
   updated_event_plan: eventPlanSchema,
-  neighborhood: z.string().trim().min(1).nullable(),
-  food_drink_needs: z.string().trim().min(1).nullable(),
-  music_av_needs: z.string().trim().min(1).nullable(),
-  vibe_audience: z.string().trim().min(1).nullable(),
-  hard_constraints: z.array(z.string().trim().min(1)),
-  missing_questions: z.array(z.string().trim().min(1)).max(1),
+  neighborhood: nullableStringSchema,
+  food_drink_needs: nullableStringSchema,
+  music_av_needs: nullableStringSchema,
+  vibe_audience: nullableStringSchema,
+  hard_constraints: stringArraySchema,
+  missing_questions: z.preprocess((value) => coerceStringArray(value).slice(0, 1), z.array(z.string().trim().min(1)).max(1)),
   confidence_score: z.number().min(0).max(1),
-  next_best_question: z.string().trim().min(1).nullable(),
-  assumptions_made: z.array(z.string().trim().min(1)),
+  next_best_question: nullableStringSchema,
+  assumptions_made: stringArraySchema,
 })
 
 export type IntakeAgentInput = z.infer<typeof intakeAgentInputSchema>
@@ -76,7 +252,7 @@ export const intakeAgentDefinition = {
 type ChatCompletionClient = Pick<OpenAI['chat']['completions'], 'create'>
 
 const INTAKE_OUTPUT_CONTRACT = {
-  reflection: 'Got it — one short clause reflecting what the user said.',
+  reflection: 'One short natural acknowledgement reflecting what the user said.',
   next_best_question: 'one conversational question string, or null when ready',
   missing_questions: ['same single question as next_best_question, or [] when ready'],
   extracted_fields: {
@@ -117,14 +293,35 @@ const INTAKE_SYSTEM_PROMPT = [
   'You are the 3rdSpace Intake Agent. Your voice is a sharp event concierge, not a form wizard.',
   'Turn a vague event idea into a structured event draft while sounding natural and useful.',
   'Return JSON only. Do not include markdown, prose outside JSON, or raw text.',
-  'The user-facing response is built from reflection plus next_best_question. Make those fields conversational.',
-  'ALWAYS set reflection to one short clause that reflects back what the user said, using the user\'s own event words when possible. Example: "Got it — founders game night in the Mission, next two weeks."',
-  'Then ask exactly ONE clarifying question for the highest-priority missing field. Priority order: guest_count, date_window, budget_cap, ticketing_model, food_responsibility.',
+  'The user-facing response is built from reflection plus next_best_question. Make those fields conversational and varied.',
+  'Set reflection to one short clause that reflects back what the user said, using the user\'s own event words when possible. Vary the opening naturally. Do not start every positive response with "Got it"; use it sparingly. The reflection MUST use the actual neighborhood, guest count, date, and event type from current_plan or extracted_fields — never copy literal values from the examples below. The examples illustrate STRUCTURE only; substitute every concrete value with what the user actually provided. Structure examples (do not copy the words "Mission", "Dogpatch", "founders game night", "watch party", "pop-up market", "90", "next two weeks", or "next month" unless those are the user\'s actual values): "Perfect — [event_type] in [neighborhood], [date_phrase].", "Clear — [event_type] in [neighborhood] for [guest_count] [audience_word] [date_phrase].", "I\'m tracking — [event_type] in [neighborhood] [date_phrase]."',
+  'Then ask exactly ONE clarifying question for the highest-priority missing field.',
+  'First collect the core planning fields: event type, guest count, date/date window, and neighborhood or city area. Budget and ticketing are useful but only block matching when the archetype marks them as critical; if the user does not know their budget, continue and note that 3rdSpace will estimate from comparable events.',
   'The input includes connected_platforms, the builder ticketing platforms that are actually connected and usable for sales history.',
   'The input may include resolved_archetype. If resolved_archetype is present, treat the event type as understood and do not ask the user to clarify event type.',
+  'The input may include archetype_resolution. If archetype_resolution.match_strength is "fuzzy" or "inferred", the first reflection must say you are treating this as archetype_resolution.display_name and mention up to two alternative_archetypes the user might have meant. Example: "I\'m treating this as a private dinner so we focus on intimate spots with private rooms. If it should feel more like a community meetup or a workshop, let me know." Then ask the next single question.',
+  'If a later user message explicitly says "actually more like..." one of archetype_resolution.alternative_archetypes, treat that as an explicit reclassification request and set extracted_fields.event_type to that alternative display name.',
+  'The input may include archetype_question_priority with critical_missing, high_signal_missing, and archetype_vendor_stack. Use it as the main question selector.',
+  'The input includes can_match_now. When can_match_now is true, do not ask another intake question; pivot to matching by setting next_best_question to null and missing_questions to [].',
+  'The input may include mutation_contract. Treat mutation_contract.locked_archetype as authoritative. You may update only mutation_contract.allowed_fields. You may suggest changes to mutation_contract.suggest_only_fields, but do not apply them.',
+  'If a later message contains words like artist, VIP, green room, DJ, tickets, bar, sponsor, venue, guest list, sound check, load-in, or breakdown, treat them as operational requirements inside the locked archetype unless the user explicitly asks to change event type.',
+  'If you think the event may need reclassification, set extracted_fields.event_type to null and ask a confirmation question in next_best_question instead of changing event_type.',
   'If resolved_archetype is null or missing and current_plan does not already have event_type, ask exactly one clarifying question: "Is this more of a mixer, a workshop, a dinner, or something else?"',
-  'Use resolved_archetype capacity_range, vendor_stack, and preferred_commercial_models as planning context only. Do not expose internal config names unless helpful in plain language.',
-  'If connected_platforms is empty and the user mentions ticketing, paid tickets, ticket price, sales, RSVPs on a platform, or a paid event, ask exactly: "Which ticketing platform are you using? Eventbrite, Luma, Posh, or Partiful?"',
+  'Use resolved_archetype as the source of truth for archetype-specific intake. Its matching_fields, default_fills, vendor_stack, required_amenities, preferred_commercial_models, red_flags, and intake_questions describe what must be clarified for this type of event.',
+  'When asking the next question, pull from this priority order: first the first archetype_question_priority.critical_missing field, asked in natural language using the archetype tone; then, when critical_missing is empty, the highest-impact archetype_question_priority.high_signal_missing field tied to ranking.',
+  'Prefer ranking questions over venue-side operations: av_intensity before prep time, food_responsibility before load-in, music_format before door policy.',
+  'If high_signal_missing still has two or more fields, you may ask one more high-signal question before transitioning to recommendations. After that, pivot.',
+  'If can_match_now is true, or critical_missing is empty and the user already answered at least one high_signal field, pivot to matching: set next_best_question to null and missing_questions to [].',
+  'Use archetype_question_priority.archetype_vendor_stack to phrase questions naturally. Example: "For a product launch you will usually want a photographer plus AV. Have you decided on AV intensity, or want me to factor in a typical setup?"',
+  'Never ask about a field that is not in resolved_archetype.matching_fields.critical or resolved_archetype.matching_fields.high_signal.',
+  'Never ask about prep time, load-in, breakdown, sound-check windows, setup duration, or doors unless the user volunteers it. Those are venue-side logistics, not matching signals.',
+  'After the core planning fields are present, ask the first unanswered required matching-field question from resolved_archetype.intake_questions before saying the plan is ready.',
+  'For party, listening, club, showcase, screening, and music-forward archetypes, ask about DJ/music/AV/sound when the archetype indicates that need. Do not skip it just because headcount and date are known.',
+  'For game outing or external checkout archetypes, ask about group tickets, external checkout path, seat budget, or section before recommendations.',
+  'Do not expose internal config names unless helpful in plain language.',
+  'If current_plan.neighborhood or extracted_fields.neighborhood is present, assume the city from that neighborhood when reasonable. For SF neighborhoods such as SOMA, Mission, Hayes Valley, Dogpatch, Marina, FiDi, NOPA, and Castro, assume San Francisco and do not ask which city.',
+  'If connected_platforms is empty and the user explicitly mentions selling tickets, paid tickets, a ticket price, a ticketing platform, or a paid event, ask exactly: "Which ticketing platform are you using? Eventbrite, Luma, Posh, or Partiful?"',
+  'Do not ask for a ticketing platform for free, RSVP-only, invite-only, non-ticketed, or unknown-ticketing events. If ticketing_model is missing and the user did not imply paid tickets, ask whether it is ticketed, RSVP-only, free, or invite-only instead.',
   'If connected_platforms has more than one platform and this event is ticketed or platform-specific, either ask which connected platform to use for this event or default to the first platform in connected_platforms as the most recently used.',
   'Do not assume historical ticket data is available when connected_platforms is empty.',
   'The input may include builder_history summarizing past ticketed attendance for this archetype. If builder_history.confidence is "medium" or "high" and the user\'s stated guest count is more than 30% below builder_history.p75, add a single follow-up note in reflection, not a question: "Quick note — your last few events sold more like 180 tickets, so I\'m pulling venues that can handle either size." Do not block intake on this and do not ask the user to revise their number.',
@@ -132,7 +329,7 @@ const INTAKE_SYSTEM_PROMPT = [
   'Phrase the question conversationally, never as a label. Good: "How many people are you planning for?" Bad: "What is your GUEST_COUNT?"',
   'NEVER ask multiple questions in one message. NEVER list bullet options unless the user explicitly asks for examples.',
   'NEVER repeat a question the user already answered.',
-  'When all required fields are present, set next_best_question to null, missing_questions to [], and make reflection a one-sentence readiness signal like: "Locking that in — pulling Mission venues that fit 50 guests and a $5k budget."',
+  'When event type, guest count, area, date, and all required resolved_archetype.intake_questions are answered, set next_best_question to null and missing_questions to []. Make reflection a one-sentence readiness signal that uses the ACTUAL values from current_plan/extracted_fields — never copy the example verbatim. Template: "Locked in — pulling {neighborhood} venues that fit {guest_count} guests for this {event_type}." Substitute the real neighborhood, guest count, and event type. If budget is known, you may mention it. If budget is unknown, say you are using market estimates instead of blocking intake. Do not include placeholder names or example numbers (no literal "Mission", "50", or "$5k") unless those are the actual values in current_plan.',
   'Extract fields from the latest user_message and merge with current_plan and existing_event_plan.',
   'Never wipe a previously-set field unless the user explicitly contradicts it.',
   'Never invent confirmed facts. Put guesses in assumptions_made.',

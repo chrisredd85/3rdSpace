@@ -243,6 +243,31 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       profit_goal_cents: 100000,
       notes: null,
     })
+    db.rows.plan_messages.push(
+      {
+        id: 'message-1',
+        plan_id: 'plan-1',
+        role: 'agent',
+        content: 'What setup, load-in, sound-check, and breakdown window should I plan around?',
+        message_type: 'text',
+        metadata: {
+          archetype_question: {
+            id: 'operational_timing',
+            prompt: 'What setup, load-in, sound-check, and breakdown window should I plan around?',
+          },
+        },
+        created_at: '2026-05-01T10:00:00Z',
+      },
+      {
+        id: 'message-2',
+        plan_id: 'plan-1',
+        role: 'user',
+        content: 'Plan for a two hour load-in, quick sound check, and one hour of breakdown.',
+        message_type: 'text',
+        metadata: {},
+        created_at: '2026-05-01T10:01:00Z',
+      }
+    )
     db.rows.venues.push({
       id: VENUE_ID,
       venue_name: 'Mission Hall',
@@ -415,11 +440,46 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
         guest_count: 80,
         neighborhood: 'Mission',
       }),
+      archetype_intake: expect.objectContaining({
+        answer_text: expect.stringContaining('two hour load-in'),
+        question_ids_asked: ['operational_timing'],
+      }),
+      conversation_history: expect.arrayContaining([
+        expect.objectContaining({
+          role: 'user',
+          content: expect.stringContaining('two hour load-in'),
+        }),
+      ]),
     }))
     expect(mockRunEconomicsAgent).toHaveBeenCalledWith(expect.objectContaining({
       expected_attendance: 80,
       venue_cost_cents: 200000,
       vendor_cost_cents: 200000,
+      archetype_intake: expect.objectContaining({
+        answer_text: expect.stringContaining('two hour load-in'),
+      }),
+      conversation_history: expect.arrayContaining([
+        expect.objectContaining({
+          role: 'user',
+          content: expect.stringContaining('two hour load-in'),
+        }),
+      ]),
+    }))
+    expect(mockRunAgent).toHaveBeenCalledWith(expect.objectContaining({
+      agent_name: 'timeline',
+      payload: expect.objectContaining({
+        archetype_intake: expect.objectContaining({
+          answer_text: expect.stringContaining('two hour load-in'),
+        }),
+      }),
+    }))
+    expect(mockRunAgent).toHaveBeenCalledWith(expect.objectContaining({
+      agent_name: 'workspace',
+      payload: expect.objectContaining({
+        archetype_intake: expect.objectContaining({
+          answer_text: expect.stringContaining('two hour load-in'),
+        }),
+      }),
     }))
     expect(db.rows.recommendations).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -445,12 +505,20 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
     expect(db.rows.agent_actions).toEqual(expect.arrayContaining([
       expect.objectContaining({
         plan_id: 'plan-1',
-        action_type: 'opportunity_send_venues',
+        action_type: 'email',
         status: 'pending',
         payload_json: expect.objectContaining({
           kind: 'venue_outreach',
           venue_ids: [VENUE_ID],
           requires_user_action: true,
+          requirements: expect.objectContaining({
+            archetype_intake: expect.objectContaining({
+              answer_text: expect.stringContaining('two hour load-in'),
+            }),
+          }),
+        }),
+        result_metadata: expect.objectContaining({
+          action_type_fallback: 'opportunity_send_venues',
         }),
       }),
     ]))

@@ -8,10 +8,14 @@
  *
  * Key behaviors:
  * - Drafting plans begin in intake, then clarify missing fields in a fixed order.
- * - Once date, headcount, budget, neighborhood, and ticketing intent are known, the
+ * - Once date, headcount, neighborhood, and ticketing intent are known, the
  *   response switches to recommendation mode.
  * - Approved, executing, and complete plans map directly to their execution states.
  */
+import {
+  buildArchetypeAnswerText,
+  getNextArchetypeIntakeQuestion,
+} from '@/lib/planner/archetypes'
 import { parseEventIntent } from '@/lib/planner/intentParser'
 import type {
   AgentPlannerState,
@@ -103,6 +107,24 @@ export function determineNextResponse(plan: Plan, messages: PlanMessage[]): Agen
     }
   }
 
+  const archetypeQuestion = getNextArchetypeIntakeQuestion({
+    eventType: readModel.event_type,
+    plan,
+    conversationText: buildArchetypeAnswerText(sortedMessages),
+  })
+  if (archetypeQuestion) {
+    return {
+      message_type: 'text',
+      content: archetypeQuestion.prompt,
+      metadata: toJson({
+        state: 'clarifying',
+        plan_updates: latestIntent,
+        missing_fields: [archetypeQuestion.id],
+        archetype_question: archetypeQuestion,
+      }),
+    }
+  }
+
   return {
     message_type: 'recommendation',
     content: 'I have enough to generate venue and vendor recommendations. I will start with the top three venue fits using capacity, budget fit, neighborhood, and AV signals.',
@@ -146,7 +168,6 @@ function getMissingFields(
 
   if (!plan.date_window_start || !plan.date_window_end) missing.push('date_window')
   if (!plan.guest_count) missing.push('guest_count')
-  if (!plan.budget_cap_cents) missing.push('budget_cap')
   if (!plan.neighborhood) missing.push('neighborhood')
   if (!hasTicketingSignal(messages, latestIntent)) missing.push('ticketed')
 
@@ -172,7 +193,7 @@ function getClarifyingQuestion(field: string): string {
     case 'guest_count':
       return 'How many people should I plan for?'
     case 'budget_cap':
-      return 'What is the all-in budget cap before ticket revenue or sponsor offsets?'
+      return 'Do you have an all-in budget cap, or should I estimate one from similar events?'
     case 'neighborhood':
       return 'Which Bay Area neighborhood or district should I prioritize?'
     case 'ticketed':

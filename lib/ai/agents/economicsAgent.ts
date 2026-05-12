@@ -39,11 +39,20 @@ const economicsPricePointSchema = z.object({
   reasoning: z.string().trim().min(1),
 })
 
+const modelPricePointSchema = z.object({
+  price_cents: z.preprocess(coerceFiniteNumber, z.number().int().nonnegative()),
+  recommendation: z.enum(['aggressive', 'recommended', 'conservative', 'avoid']).optional(),
+  reasoning: z.string().trim().min(1).optional(),
+})
+
 export const economicsAgentInputSchema = eventPlanningEconomicsInputSchema.extend({
   venue: z.record(z.unknown()).nullish(),
   score_breakdown: z.record(z.unknown()).nullish(),
   plan: z.record(z.unknown()).nullish(),
   archetype: z.record(z.unknown()).nullish(),
+  archetype_intake: z.record(z.unknown()).nullish(),
+  mutation_contract: z.record(z.unknown()).nullish(),
+  conversation_history: z.array(z.record(z.unknown())).optional(),
   elasticity: elasticitySignalSchema.nullish(),
   historical_attendance: z.record(z.unknown()).nullish(),
   ticket_price_sweep_cents: z.array(z.number().int().nonnegative()).min(1).optional(),
@@ -52,13 +61,12 @@ export const economicsAgentInputSchema = eventPlanningEconomicsInputSchema.exten
 const economicsRecommendationSchema = z.object({
   recommendation_summary: z.string().trim().min(1),
   narrative: z.string().trim().min(1).optional(),
-  price_points: z.array(z.object({
-    price_cents: z.number().int().nonnegative(),
-    recommendation: z.enum(['aggressive', 'recommended', 'conservative', 'avoid']).optional(),
-    reasoning: z.string().trim().min(1).optional(),
-  })).optional(),
-  recommended_price_cents: z.number().int().nonnegative().optional(),
-  historical_anchor: z.string().trim().min(1).nullable().optional(),
+  price_points: z.preprocess(
+    normalizeModelPricePoints,
+    z.array(modelPricePointSchema)
+  ).optional(),
+  recommended_price_cents: z.preprocess(coerceFiniteNumber, z.number().int().nonnegative()).optional(),
+  historical_anchor: z.unknown().nullable().optional(),
 })
 
 export const economicsAgentOutputSchema = eventPlanningEconomicsOutputSchema.extend({
@@ -92,6 +100,8 @@ const ECONOMICS_SYSTEM_PROMPT = [
   'If elasticity.tier_pattern is vip_dead, do not recommend the highest price point. Note: historically your top tier has not moved, so recommend a tighter band.',
   'If elasticity.confidence is low or elasticity is null, ignore tier elasticity and price using archetype defaults plus venue economics only. Do not fabricate historical patterns.',
   'The financial figures come from score_breakdown.financial.details and calculated_price_points and must be used verbatim. Elasticity affects price recommendations, not the math of any specific price point.',
+  'Use archetype_intake and conversation_history only for narrative risks and assumptions, such as user-stated load-in windows, outside vendors, or required support. Do not recalculate totals from conversational text.',
+  'Honor mutation_contract when present. Treat locked_archetype as authoritative and never reclassify the event inside economics output.',
   'Do not read from a database, send outreach, create bookings, authorize payments, or execute any action.',
 ].join('\n')
 
@@ -137,6 +147,9 @@ export async function runEconomicsAgent(
         historical_attendance: input.historical_attendance ?? null,
         ticket_price_sweep_cents: getTicketPriceSweep(input),
         archetype: input.archetype ?? null,
+        archetype_intake: input.archetype_intake ?? null,
+        mutation_contract: input.mutation_contract ?? null,
+        conversation_history: input.conversation_history ?? [],
         venue: input.venue ?? null,
         plan: input.plan ?? null,
       }),
@@ -205,6 +218,52 @@ function buildPricePoints(input: EconomicsAgentInput): z.infer<typeof economicsP
       reasoning: `At ${formatCurrency(priceCents)}, projected net is ${formatCurrency(projectedNetCents)}.`,
     }
   })
+}
+
+function normalizeModelPricePoints(value: unknown): unknown {
+  if (Array.isArray(value)) return value
+  if (!value || typeof value !== 'object') return value
+
+  return Object.entries(value as Record<string, unknown>).map(([key, rawPoint]) => {
+    if (typeof rawPoint === 'number' || typeof rawPoint === 'string') {
+      return {
+        price_cents: rawPoint,
+        recommendation: recommendationFromPricePointKey(key),
+      }
+    }
+    if (!rawPoint || typeof rawPoint !== 'object' || Array.isArray(rawPoint)) return rawPoint
+    const point = rawPoint as Record<string, unknown>
+    return {
+      ...point,
+      recommendation: normalizeModelRecommendation(point.recommendation) ?? recommendationFromPricePointKey(key),
+    }
+  })
+}
+
+function normalizeModelRecommendation(value: unknown): 'aggressive' | 'recommended' | 'conservative' | 'avoid' | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, '_')
+  if (normalized === 'aggressive' || normalized === 'recommended' || normalized === 'conservative' || normalized === 'avoid') {
+    return normalized
+  }
+  return null
+}
+
+function recommendationFromPricePointKey(key: string): 'aggressive' | 'recommended' | 'conservative' | 'avoid' | undefined {
+  const normalized = key.trim().toLowerCase()
+  if (/\b(avoid|risky|high_end)\b/.test(normalized)) return 'avoid'
+  if (/\b(optimistic|aggressive|premium)\b/.test(normalized)) return 'aggressive'
+  if (/\b(mid|middle|recommended|target)\b/.test(normalized)) return 'recommended'
+  if (/\b(conservative|floor|budget|low)\b/.test(normalized)) return 'conservative'
+  return undefined
+}
+
+function coerceFiniteNumber(value: unknown): unknown {
+  if (typeof value === 'number') return value
+  if (typeof value !== 'string') return value
+
+  const parsed = Number.parseFloat(value.replace(/[$,%\s,]/g, ''))
+  return Number.isFinite(parsed) ? parsed : value
 }
 
 function getTicketPriceSweep(input: EconomicsAgentInput): number[] {

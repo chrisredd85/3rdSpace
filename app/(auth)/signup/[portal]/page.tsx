@@ -1,7 +1,5 @@
 import { notFound } from 'next/navigation'
 import { SignupExperience } from '@/components/auth/SignupExperience'
-import { VenueListingInfoPage } from '@/components/auth/VenueListingInfoPage'
-import { VendorListingInfoPage } from '@/components/auth/VendorListingInfoPage'
 
 type Portal = 'builder' | 'venue' | 'vendor'
 type SearchParams = Promise<Record<string, string | string[] | undefined>>
@@ -13,7 +11,7 @@ function hasSignupOverride(searchParams: Record<string, string | string[] | unde
 }
 
 /**
- * Renders builder signup while replacing venue/vendor self-signup with catalog info pages.
+ * Renders the scoped signup flow for each portal.
  *
  * @param params - Dynamic signup portal route params.
  * @returns Builder signup experience or a static supply-side early-access page.
@@ -42,8 +40,18 @@ export default async function ScopedSignupPage({
   }
 
   if (portal === 'venue') {
-    return <VenueListingInfoPage />
+    return (
+      <SignupExperience
+        initialUserType="venue_owner"
+        alreadySignedInWarning={hasSignupOverride(resolvedSearchParams)}
+      />
+    )
   }
 
-  return <VendorListingInfoPage />
+  return (
+    <SignupExperience
+      initialUserType="vendor"
+      alreadySignedInWarning={hasSignupOverride(resolvedSearchParams)}
+    />
+  )
 }

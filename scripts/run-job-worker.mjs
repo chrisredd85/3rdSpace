@@ -6,11 +6,16 @@ const intervalMs = Math.max(Number(intervalArg?.split('=')[1] || 5000) || 5000, 
 const limit = Math.min(Math.max(Number(limitArg?.split('=')[1] || 10) || 10, 1), 25)
 
 const baseUrl = (process.env.WORKER_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000').replace(/\/$/, '')
-const workerSecret = process.env.WORKER_SECRET
+const localWorkerSecret = 'local-dev-worker-secret'
+const workerSecret = process.env.WORKER_SECRET || (process.env.NODE_ENV === 'production' ? '' : localWorkerSecret)
 
 if (!workerSecret) {
   console.error('WORKER_SECRET is required to run the job worker.')
   process.exit(1)
+}
+
+if (!process.env.WORKER_SECRET) {
+  console.warn('[job-worker] WORKER_SECRET is not set; using the local development worker token.')
 }
 
 async function runBatch() {

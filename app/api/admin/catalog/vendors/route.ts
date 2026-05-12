@@ -32,6 +32,11 @@ const vendorSeedSchema = z.object({
   notes: z.string().trim().max(2000).nullable().default(null),
 })
 
+const vendorPublishSchema = z.object({
+  id: z.string().trim().min(1),
+  is_published: z.boolean(),
+})
+
 /**
  * Seeds a new unclaimed vendor listing into the catalog.
  *
@@ -123,6 +128,49 @@ export async function GET() {
   }
 
   return NextResponse.json({ vendors: data ?? [] })
+}
+
+/**
+ * Publishes or unpublishes an admin-seeded vendor listing.
+ *
+ * @param request - Admin-authenticated request containing the vendor id and visibility state.
+ * @returns The updated vendor catalog row.
+ */
+export async function PATCH(request: NextRequest) {
+  const context = await getAdminContext()
+  if (!context.authorized) {
+    return NextResponse.json({ error: context.error }, { status: context.status })
+  }
+
+  const parsed = vendorPublishSchema.safeParse(await request.json())
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Invalid vendor publish payload', details: parsed.error.flatten() },
+      { status: 400 }
+    )
+  }
+
+  const admin = createServiceRoleClient()
+  const { data, error } = await admin
+    .from('vendor_profiles')
+    .update({
+      is_published: parsed.data.is_published,
+      updated_at: new Date().toISOString(),
+    } as never)
+    .eq('id', parsed.data.id)
+    .eq('is_admin_seeded', true)
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('[admin.catalog.vendors] Publish update failed', error)
+    return NextResponse.json(
+      { error: 'Failed to update vendor visibility', details: error.message },
+      { status: 500 }
+    )
+  }
+
+  return NextResponse.json({ success: true, vendor: data })
 }
 
 function buildSeededVendorServices(

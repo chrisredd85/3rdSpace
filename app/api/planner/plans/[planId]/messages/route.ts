@@ -23,10 +23,32 @@ import { z } from 'zod'
 import type { IntakeAgentOutput } from '@/lib/ai/agents/intakeAgent'
 import { buildEventPlanFromPlannerPlan } from '@/lib/planner/agentPlanAdapter'
 import { determineNextResponse } from '@/lib/planner/agentResponder'
-import { resolveArchetypeContext } from '@/lib/planner/archetypes'
+import {
+  ARCHETYPE_LOCK_METADATA_KEY,
+  PENDING_PLAN_CHANGE_METADATA_KEY,
+  buildMutationContract,
+  buildArchetypeAnswerText,
+  buildArchetypeQuestionPriority,
+  createEventArchetypeLock,
+  decideEventTypeMutation,
+  findAnsweredArchetypeQuestionForPrompt,
+  getArchetypeByKey,
+  getNextArchetypeIntakeQuestion,
+  hasEventRequirementSignals,
+  isExplicitReclassificationRequest,
+  mergeAnsweredArchetypeQuestionMetadata,
+  mergeEventRequirementSignals,
+  resolveArchetypeContext,
+  resolveArchetypeIntakeContext,
+} from '@/lib/planner/archetypes'
+import type { EventArchetypeConfig } from '@/lib/planner/archetypes'
 import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
-import { parseEventIntent } from '@/lib/planner/intentParser'
-import { isIntakeReadyForRecommendations } from '@/lib/planner/intakeReadiness'
+import { hasUnknownBudgetSignal, parseEventIntent } from '@/lib/planner/intentParser'
+import {
+  isIntakeReadyForRecommendations,
+  isPlanReadyForRequestedRecommendations,
+  isRecommendationRequest,
+} from '@/lib/planner/intakeReadiness'
 import { createVenueOpportunityBundle } from '@/lib/planner/opportunityBuilder'
 import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
 import {
@@ -187,8 +209,13 @@ export async function POST(
     const existingPlan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
     if (!existingPlan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const intent = parseEventIntent(body.data.message)
-    const fieldUpdates = buildPlanUpdates(intent)
+    const pendingResolution = buildPendingPlanChangeResolution(existingPlan, body.data.message)
+    const intent = pendingResolution ? { confidence: {} } : parseEventIntent(body.data.message)
+    const fieldUpdates = pendingResolution ?? guardHighImpactPlanUpdates(
+      existingPlan,
+      body.data.message,
+      buildPlanUpdates(intent, existingPlan, body.data.message)
+    )
     const planAfterFieldUpdates = await updatePlanIfNeeded(
       auth.db,
       context.params.planId,
@@ -215,15 +242,29 @@ export async function POST(
 
     const userMessage = userMessageData as PlanMessage
     const messages = await loadMessages(auth.db, context.params.planId)
-    const agentResponse = await buildPlannerAgentResponse({
-      db: auth.db,
-      planId: context.params.planId,
-      userId: auth.userId,
-      userMessage: body.data.message,
-      plan: planAfterFieldUpdates,
+    const pendingChange = readPendingPlanChange(readRecord(planAfterFieldUpdates.metadata))
+    const agentResponse = pendingChange
+      ? {
+          agentDraft: buildPendingChangeConfirmationDraft(pendingChange),
+          plan: planAfterFieldUpdates,
+          agentMode: 'deterministic' as AgentMode,
+        }
+      : await buildPlannerAgentResponse({
+          db: auth.db,
+          planId: context.params.planId,
+          userId: auth.userId,
+          userMessage: body.data.message,
+          plan: planAfterFieldUpdates,
+          messages,
+        })
+    const shouldForceRecommendation = !pendingChange && shouldForceRequestedRecommendations({
+      message: body.data.message,
+      plan: agentResponse.plan,
       messages,
     })
-    const agentDraft = agentResponse.agentDraft
+    const agentDraft = shouldForceRecommendation
+      ? buildRequestedRecommendationDraft(agentResponse.agentDraft, agentResponse.plan)
+      : agentResponse.agentDraft
     const finalPlan = await maybeMarkPlanReady(
       auth.db,
       context.params.planId,
@@ -263,7 +304,10 @@ export async function POST(
     if (recommendationRefreshMessages.length > 0) {
       followUpMessages.push(...recommendationRefreshMessages)
     } else if (agentMessage.message_type === 'recommendation') {
-      if (agentResponse.agentMode === 'openai' && didMarkPlanReady) {
+      const shouldCreateAutoRecommendations =
+        (agentResponse.agentMode === 'openai' && didMarkPlanReady) || shouldForceRecommendation
+
+      if (shouldCreateAutoRecommendations) {
         const recommendationMessages = await createAutoRecommendationMessage({
           db: auth.db,
           request,
@@ -272,7 +316,7 @@ export async function POST(
         followUpMessages.push(...recommendationMessages)
       }
 
-      if (!(agentResponse.agentMode === 'openai' && didMarkPlanReady)) {
+      if (!shouldCreateAutoRecommendations) {
         const opportunityBundle = await createVenueOpportunityBundle({
           db: auth.db,
           plan: finalPlan,
@@ -447,7 +491,7 @@ async function invalidatePendingOutreachApprovals(
     .from('agent_actions')
     .select('id, action_type, status, payload_json')
     .eq('plan_id', planId)
-    .in('action_type', ['opportunity_send_venues', 'opportunity_send_vendors'])
+    .in('action_type', ['opportunity_send_venues', 'opportunity_send_vendors', 'email'])
 
   if (error) {
     console.error('Planner outreach approval action invalidation lookup error:', error)
@@ -590,7 +634,10 @@ async function buildPlannerAgentResponse(input: {
   try {
     const { runAgent } = await import('@/lib/ai/agents')
     const connectedPlatforms = await getBuilderConnectedTicketingPlatforms(input.db, input.userId)
-    const resolvedArchetype = resolveArchetypeContext(`${input.userMessage} ${input.plan.event_type ?? ''}`)
+    const resolvedArchetype = resolveArchetypeIntakeContext(`${input.userMessage} ${input.plan.event_type ?? ''}`)
+    const resolvedArchetypeConfig = resolvedArchetype ? getArchetypeByKey(resolvedArchetype.key) : null
+    const conversationText = buildArchetypeAnswerText(input.messages, [input.userMessage])
+    const canMatchNow = computeCanMatchNow(input.plan, conversationText, resolvedArchetypeConfig)
     const builderHistory = await loadBuilderHistoryForIntake(input.db, input.userId, resolvedArchetype?.key ?? null)
     const agentResult = await runAgent({
       agent_name: 'intake',
@@ -602,8 +649,18 @@ async function buildPlannerAgentResponse(input: {
         current_plan: input.plan,
         existing_event_plan: buildEventPlanFromPlannerPlan(input.plan),
         connected_platforms: connectedPlatforms,
+        can_match_now: canMatchNow,
         resolved_archetype: resolvedArchetype,
+        archetype_resolution: resolvedArchetype,
+        archetype_question_priority: resolvedArchetypeConfig
+          ? buildArchetypeQuestionPriority({
+              archetype: resolvedArchetypeConfig,
+              plan: input.plan,
+              conversationText,
+            })
+          : null,
         builder_history: builderHistory ? toIntakeBuilderHistory(builderHistory) : null,
+        mutation_contract: buildMutationContract(input.plan.metadata, input.plan.event_type),
       },
     })
 
@@ -613,15 +670,23 @@ async function buildPlannerAgentResponse(input: {
     }
 
     const intakeOutput = agentResult.output as IntakeAgentOutput
+    const agentPlanUpdates = guardHighImpactPlanUpdates(
+      input.plan,
+      input.userMessage,
+      buildPlanUpdatesFromIntakeOutput(intakeOutput, input.plan, input.userMessage)
+    )
     const planWithAgentUpdates = await updatePlanIfNeeded(
       input.db,
       input.planId,
       input.plan,
-      buildPlanUpdatesFromIntakeOutput(intakeOutput, input.plan, input.userMessage)
+      agentPlanUpdates
     )
+    const pendingChange = readPendingPlanChange(readRecord(planWithAgentUpdates.metadata))
 
     return {
-      agentDraft: buildIntakeAgentDraft(intakeOutput, planWithAgentUpdates),
+      agentDraft: pendingChange
+        ? buildPendingChangeConfirmationDraft(pendingChange)
+        : buildIntakeAgentDraft(intakeOutput, planWithAgentUpdates, input.messages),
       plan: planWithAgentUpdates,
       agentMode: 'openai',
     }
@@ -683,27 +748,215 @@ async function updatePlanIfNeeded(
   return data as Plan
 }
 
-function buildIntakeAgentDraft(output: IntakeAgentOutput, plan: Plan): AgentResponseDraft {
+function buildIntakeAgentDraft(
+  output: IntakeAgentOutput,
+  plan: Plan,
+  messages: PlanMessage[]
+): AgentResponseDraft {
   const missingQuestions = output.missing_questions
     .map((question) => question.trim())
     .filter((question) => question.length > 0)
   const nextBestQuestion = output.next_best_question?.trim() || null
-  const reflection = output.reflection.trim()
-  const isReady = isIntakeReadyForRecommendations(output, plan)
-  const content = isReady
-    ? reflection
-    : nextBestQuestion
-      ? `${reflection} ${nextBestQuestion}`
-      : `${reflection} ${missingQuestions[0] ?? 'What should I know next?'}`
+  const reflection = normalizeAcknowledgementTone(output.reflection.trim(), plan.event_type ?? output.extracted_fields.event_type ?? output.updated_event_plan.event_name)
+  const conversationText = buildArchetypeAnswerText(messages)
+  const coreFieldsReady = hasIntakeCoreFields(output, plan)
+  const archetypeQuestion = coreFieldsReady
+    ? getNextArchetypeIntakeQuestion({
+        eventType: buildArchetypeSearchText(output, plan),
+        plan,
+        conversationText,
+        includeRecommended: true,
+      })
+    : null
+  const isReady = isIntakeReadyForRecommendations(output, plan, { conversationText }) && !archetypeQuestion
+  const agentQuestion = pickUnansweredAgentQuestion(output, plan, conversationText, [
+    nextBestQuestion,
+    ...missingQuestions,
+  ])
+  const question = archetypeQuestion?.prompt ?? agentQuestion ?? buildMissingCoreQuestion(output, plan)
+  const agentReturnedNoQuestion = !nextBestQuestion && missingQuestions.length === 0
+  const canMatchNow = isPlanReadyForRequestedRecommendations(plan, { conversationText })
+  const fallbackToGuard = !isReady && !question && agentReturnedNoQuestion && canMatchNow
+  const shouldTransitionToMatch = isReady || fallbackToGuard
+
+  if (fallbackToGuard) {
+    console.warn('[planner.intake] Forward-momentum guard promoted no-question intake response to recommendations', {
+      plan_id: plan.id,
+      event_type: plan.event_type,
+      neighborhood: plan.neighborhood,
+      guest_count: plan.guest_count,
+      date_window_start: plan.date_window_start,
+      date_window_end: plan.date_window_end,
+    })
+  }
+
+  const transitionPhrase = buildTransitionPhrase(plan)
+  const content = shouldTransitionToMatch
+    ? `${reflection} ${transitionPhrase}`
+    : question
+      ? `${reflection} ${question}`
+      : reflection
 
   return {
     content,
-    message_type: isReady ? 'recommendation' : 'text',
+    message_type: shouldTransitionToMatch ? 'recommendation' : 'text',
     metadata: toJson({
       agent_name: 'intake',
       agent_output: output,
+      archetype_question: archetypeQuestion,
+      can_match_now: canMatchNow,
+      forward_momentum_guard: fallbackToGuard,
+      transition_to_match: shouldTransitionToMatch,
     }),
   }
+}
+
+function buildTransitionPhrase(plan: Plan): string {
+  const area = plan.neighborhood?.trim() || 'your target area'
+  const eventType = plan.event_type?.trim().toLowerCase() || 'event'
+  const guestText = typeof plan.guest_count === 'number' && plan.guest_count > 0
+    ? ` for ${plan.guest_count.toLocaleString()} guests`
+    : ''
+  return `I have enough to start matching ${area} options${guestText} for this ${eventType}. Pulling venue and vendor recommendations now.`
+}
+
+function computeCanMatchNow(
+  plan: Plan,
+  conversationText: string,
+  archetype: EventArchetypeConfig | null
+): boolean {
+  if (!isPlanReadyForRequestedRecommendations(plan, { conversationText })) return false
+  if (!archetype) return true
+
+  const priority = buildArchetypeQuestionPriority({ archetype, plan, conversationText })
+  if (priority.critical_missing.length > 0) return false
+  if (archetype.matching_fields.high_signal.length === 0) return true
+
+  return priority.high_signal_missing.length < archetype.matching_fields.high_signal.length
+}
+
+function shouldForceRequestedRecommendations(input: {
+  message: string
+  plan: Plan
+  messages: PlanMessage[]
+}): boolean {
+  if (!isRecommendationRequest(input.message)) return false
+
+  return isPlanReadyForRequestedRecommendations(input.plan, {
+    conversationText: buildArchetypeAnswerText(input.messages),
+  })
+}
+
+function buildRequestedRecommendationDraft(draft: AgentResponseDraft, plan: Plan): AgentResponseDraft {
+  const eventType = plan.event_type?.toLowerCase() ?? 'event'
+  const area = plan.neighborhood ?? 'your target area'
+  const guestText = plan.guest_count ? ` for ${plan.guest_count.toLocaleString()} guests` : ''
+
+  return {
+    ...draft,
+    content: `I have enough to start matching ${area} options${guestText} for this ${eventType}. I’ll pull venue and vendor recommendations now.`,
+    message_type: 'recommendation',
+    metadata: toJson({
+      ...(readRecord(draft.metadata) ?? {}),
+      source: 'user_requested_recommendations',
+      recommendation_request: true,
+    }),
+  }
+}
+
+function hasIntakeCoreFields(output: IntakeAgentOutput, plan: Plan): boolean {
+  const eventPlan = output.updated_event_plan
+  const extracted = output.extracted_fields
+  const eventType = plan.event_type ?? extracted.event_type ?? eventPlan.venue_type ?? eventPlan.event_name
+  const headcount =
+    plan.guest_count ??
+    extracted.guest_count ??
+    eventPlan.expected_attendance ??
+    eventPlan.headcount_max ??
+    eventPlan.headcount_min
+  const area = plan.neighborhood ?? extracted.neighborhood ?? output.neighborhood ?? eventPlan.city
+  const date =
+    plan.date_window_start ??
+    plan.date_window_end ??
+    extracted.date_window_start ??
+    extracted.date_window_end ??
+    eventPlan.event_date
+
+  return Boolean(eventType && headcount && area && date)
+}
+
+function pickUnansweredAgentQuestion(
+  output: IntakeAgentOutput,
+  plan: Plan,
+  conversationText: string,
+  candidateQuestions: Array<string | null | undefined>
+): string | null {
+  const eventType = buildArchetypeSearchText(output, plan)
+  const seen = new Set<string>()
+
+  for (const candidate of candidateQuestions) {
+    const question = candidate?.trim()
+    if (!question) continue
+    const normalizedQuestion = question.toLowerCase()
+    if (seen.has(normalizedQuestion)) continue
+    seen.add(normalizedQuestion)
+
+    const answeredQuestion = findAnsweredArchetypeQuestionForPrompt({
+      eventType,
+      plan,
+      conversationText,
+      prompt: question,
+    })
+
+    if (!answeredQuestion) return question
+  }
+
+  return null
+}
+
+function buildMissingCoreQuestion(output: IntakeAgentOutput, plan: Plan): string | null {
+  const eventPlan = output.updated_event_plan
+  const extracted = output.extracted_fields
+  const eventType = plan.event_type ?? extracted.event_type ?? eventPlan.venue_type ?? eventPlan.event_name
+  const headcount =
+    plan.guest_count ??
+    extracted.guest_count ??
+    eventPlan.expected_attendance ??
+    eventPlan.headcount_max ??
+    eventPlan.headcount_min
+  const area = plan.neighborhood ?? extracted.neighborhood ?? output.neighborhood ?? eventPlan.city
+  const date =
+    plan.date_window_start ??
+    plan.date_window_end ??
+    extracted.date_window_start ??
+    extracted.date_window_end ??
+    eventPlan.event_date
+  if (!eventType) return 'What kind of event is this closest to: dinner, mixer, workshop, party, or something else?'
+  if (!headcount) return 'How many people are you planning for?'
+  if (!area) return 'What neighborhood or city should I search in?'
+  if (!date) return 'What date or date window are you aiming for?'
+
+  return null
+}
+
+function buildArchetypeSearchText(output: IntakeAgentOutput, plan: Plan): string | null {
+  const value = [
+    plan.event_type,
+    output.extracted_fields.event_type,
+    output.updated_event_plan.venue_type,
+    output.updated_event_plan.event_name,
+  ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0).join(' ')
+
+  return value || null
+}
+
+function normalizeAcknowledgementTone(value: string, seedValue: string | null | undefined): string {
+  if (!/^got it\b/i.test(value)) return value
+
+  const leads = ['Perfect', 'Clear', "I'm tracking", 'That works', 'Locked in']
+  const seed = Array.from(seedValue ?? value).reduce((total, char) => total + char.charCodeAt(0), 0)
+  const lead = leads[seed % leads.length]
+  return value.replace(/^got it[,.]?\s*(?:[—-]\s*)?/i, `${lead} — `)
 }
 
 function buildPlanUpdatesFromIntakeOutput(
@@ -714,51 +967,65 @@ function buildPlanUpdatesFromIntakeOutput(
   const eventPlan = output.updated_event_plan
   const extracted = output.extracted_fields
   const updates: Record<string, unknown> = {}
+  const shouldIgnoreBudget = hasUnknownBudgetSignal(userMessage)
 
   if (!currentPlan.title && eventPlan.event_name) updates.title = eventPlan.event_name
-  if (!currentPlan.event_type && (extracted.event_type || eventPlan.venue_type)) {
-    updates.event_type = extracted.event_type ?? eventPlan.venue_type
+  const eventTypeDecision = decideEventTypeMutation({
+    currentEventType: currentPlan.event_type,
+    currentMetadata: currentPlan.metadata,
+    proposedEventType: resolveEventTypeLabel(extracted.event_type ?? eventPlan.venue_type ?? null, userMessage),
+    userMessage,
+    source: 'explicit_user_reclassification',
+  })
+  if (eventTypeDecision.shouldApply && eventTypeDecision.eventType && currentPlan.event_type !== eventTypeDecision.eventType) {
+    updates.event_type = eventTypeDecision.eventType
+    updates.title = eventPlan.event_name ?? `${toTitleCase(eventTypeDecision.eventType)} plan`
   }
 
   const guestCount = extracted.guest_count ?? eventPlan.expected_attendance ?? eventPlan.headcount_max ?? eventPlan.headcount_min
-  if (currentPlan.guest_count == null && typeof guestCount === 'number') updates.guest_count = guestCount
-
-  if (currentPlan.budget_cap_cents == null) {
-    if (typeof extracted.budget_cap_cents === 'number') {
-      updates.budget_cap_cents = extracted.budget_cap_cents
-    } else if (typeof eventPlan.budget === 'number') {
-      updates.budget_cap_cents = normalizePlanningMoneyToCents(eventPlan.budget)
-    }
+  if (typeof guestCount === 'number' && guestCount > 0 && currentPlan.guest_count !== guestCount) {
+    updates.guest_count = guestCount
   }
-  if (currentPlan.profit_goal_cents == null) {
-    if (typeof extracted.profit_goal_cents === 'number') {
-      updates.profit_goal_cents = extracted.profit_goal_cents
-    } else if (typeof eventPlan.profit_goal === 'number') {
-      updates.profit_goal_cents = normalizePlanningMoneyToCents(eventPlan.profit_goal)
-    }
+
+  if (!shouldIgnoreBudget && typeof extracted.budget_cap_cents === 'number' && currentPlan.budget_cap_cents !== extracted.budget_cap_cents) {
+    updates.budget_cap_cents = extracted.budget_cap_cents
+  } else if (!shouldIgnoreBudget && typeof eventPlan.budget === 'number') {
+    const budgetCents = normalizePlanningMoneyToCents(eventPlan.budget)
+    if (budgetCents > 0 && currentPlan.budget_cap_cents !== budgetCents) updates.budget_cap_cents = budgetCents
+  }
+  if (typeof extracted.profit_goal_cents === 'number' && currentPlan.profit_goal_cents !== extracted.profit_goal_cents) {
+    updates.profit_goal_cents = extracted.profit_goal_cents
+  } else if (typeof eventPlan.profit_goal === 'number') {
+    const profitGoalCents = normalizePlanningMoneyToCents(eventPlan.profit_goal)
+    if (profitGoalCents > 0 && currentPlan.profit_goal_cents !== profitGoalCents) updates.profit_goal_cents = profitGoalCents
   }
 
   const neighborhood = extracted.neighborhood ?? output.neighborhood ?? eventPlan.city
-  if (!currentPlan.neighborhood && neighborhood) updates.neighborhood = neighborhood
+  if (neighborhood && currentPlan.neighborhood !== neighborhood) updates.neighborhood = neighborhood
 
-  if (!currentPlan.date_window_start && !currentPlan.date_window_end) {
-    if (extracted.date_window_start || extracted.date_window_end) {
-      updates.date_window_start = extracted.date_window_start
-      updates.date_window_end = extracted.date_window_end ?? extracted.date_window_start
-    } else if (eventPlan.event_date) {
-      updates.date_window_start = eventPlan.event_date
-      updates.date_window_end = eventPlan.event_date
-    }
+  if (extracted.date_window_start || extracted.date_window_end) {
+    const start = extracted.date_window_start ?? extracted.date_window_end
+    const end = extracted.date_window_end ?? extracted.date_window_start
+    if (currentPlan.date_window_start !== start) updates.date_window_start = start
+    if (currentPlan.date_window_end !== end) updates.date_window_end = end
+  } else if (eventPlan.event_date) {
+    if (currentPlan.date_window_start !== eventPlan.event_date) updates.date_window_start = eventPlan.event_date
+    if (currentPlan.date_window_end !== eventPlan.event_date) updates.date_window_end = eventPlan.event_date
   }
 
+  let nextTicketed = currentPlan.ticketed
   if (typeof extracted.ticketed === 'boolean' && currentPlan.ticketed !== extracted.ticketed) {
     updates.ticketed = extracted.ticketed
     updates.ticketing_model = extracted.ticketed ? 'ticketed' : 'rsvp'
+    nextTicketed = extracted.ticketed
   }
-  if (!currentPlan.ticketing_model && eventPlan.monetization_model) {
+  if (eventPlan.monetization_model) {
     updates.ticketing_model = eventPlan.monetization_model
     const monetizationModel = eventPlan.monetization_model.trim().toLowerCase()
-    if (monetizationModel.includes('ticket') || monetizationModel.includes('paid')) updates.ticketed = true
+    if (monetizationModel.includes('ticket') || monetizationModel.includes('paid')) {
+      updates.ticketed = true
+      nextTicketed = true
+    }
     if (
       monetizationModel.includes('free') ||
       monetizationModel.includes('rsvp') ||
@@ -766,6 +1033,8 @@ function buildPlanUpdatesFromIntakeOutput(
       monetizationModel.includes('sponsor')
     ) {
       updates.ticketed = false
+      updates.ticketing_model = 'rsvp'
+      nextTicketed = false
     }
   }
 
@@ -775,9 +1044,22 @@ function buildPlanUpdatesFromIntakeOutput(
   const metadata = buildMetadataUpdates(
     currentPlan,
     readTicketingPlatform(userMessage),
-    extracted.ticket_price_target
+    readTicketPriceTargetCents(output),
+    nextTicketed,
+    userMessage,
+    eventTypeDecision.lock,
+    eventTypeDecision.requiresConfirmation
+      ? {
+          field: 'event_type',
+          from: currentPlan.event_type,
+          to: eventTypeDecision.blockedCandidate,
+          prompt: eventTypeDecision.confirmationPrompt,
+        }
+      : null
   )
   if (metadata) updates.metadata = metadata
+
+  mergeAnsweredArchetypeQuestionsIntoUpdates(currentPlan, updates, userMessage)
 
   return updates
 }
@@ -810,19 +1092,232 @@ async function maybeMarkPlanReady(
   return data as Plan
 }
 
-function buildPlanUpdates(intent: Partial<PlanIntent>): Record<string, unknown> {
+function buildPlanUpdates(intent: Partial<PlanIntent>, currentPlan: Plan, userMessage: string): Record<string, unknown> {
   const updates: Record<string, unknown> = {}
 
-  if (intent.event_type || intent.raw_event_type) updates.event_type = intent.event_type ?? intent.raw_event_type
+  if (intent.event_type || intent.raw_event_type) {
+    const eventTypeDecision = decideEventTypeMutation({
+      currentEventType: currentPlan.event_type,
+      currentMetadata: currentPlan.metadata,
+      proposedEventType: resolveEventTypeLabel(intent.event_type ?? intent.raw_event_type ?? null, userMessage),
+      userMessage,
+      source: 'explicit_user_reclassification',
+    })
+
+    if (eventTypeDecision.shouldApply && eventTypeDecision.eventType) {
+      updates.event_type = eventTypeDecision.eventType
+      if (currentPlan.event_type && currentPlan.event_type !== eventTypeDecision.eventType) {
+        updates.title = `${toTitleCase(eventTypeDecision.eventType)} plan`
+      }
+      updates.metadata = mergeArchetypeDefaultFillMetadata({
+        ...mergeEventRequirementSignals(currentPlan.metadata, userMessage),
+        ...(eventTypeDecision.lock ? { [ARCHETYPE_LOCK_METADATA_KEY]: eventTypeDecision.lock } : {}),
+      }, eventTypeDecision.lock)
+    } else if (eventTypeDecision.requiresConfirmation) {
+      updates.metadata = {
+        ...mergeEventRequirementSignals(currentPlan.metadata, userMessage),
+        [PENDING_PLAN_CHANGE_METADATA_KEY]: {
+          field: 'event_type',
+          from: currentPlan.event_type,
+          to: eventTypeDecision.blockedCandidate,
+          raw_value: eventTypeDecision.blockedCandidate,
+          prompt: eventTypeDecision.confirmationPrompt,
+          created_at: new Date().toISOString(),
+          requires_confirmation: true,
+        },
+      }
+    }
+  }
   if (typeof intent.guest_count === 'number') updates.guest_count = intent.guest_count
-  if (typeof intent.budget_cap === 'number') updates.budget_cap_cents = intent.budget_cap
+  if (!hasUnknownBudgetSignal(userMessage) && typeof intent.budget_cap === 'number') updates.budget_cap_cents = intent.budget_cap
   if (intent.neighborhood) updates.neighborhood = intent.neighborhood
   if (intent.date_window_start) updates.date_window_start = intent.date_window_start
   if (intent.date_window_end) updates.date_window_end = intent.date_window_end
-  if (typeof intent.ticketed === 'boolean') updates.ticketed = intent.ticketed
+  if (typeof intent.ticketed === 'boolean') {
+    updates.ticketed = intent.ticketed
+    updates.ticketing_model = intent.ticketed ? 'ticketed' : 'rsvp'
+    if (!intent.ticketed && currentPlan) {
+      updates.metadata = clearTicketPriceMetadata(currentPlan.metadata)
+    }
+  }
   if (typeof intent.profit_goal === 'number') updates.profit_goal_cents = intent.profit_goal
+  if (intent.food_responsibility) updates.food_responsibility = intent.food_responsibility
+  if (!updates.metadata && hasEventRequirementSignals(userMessage)) {
+    updates.metadata = mergeEventRequirementSignals(currentPlan.metadata, userMessage)
+  }
+
+  mergeAnsweredArchetypeQuestionsIntoUpdates(currentPlan, updates, userMessage)
 
   return updates
+}
+
+function mergeAnsweredArchetypeQuestionsIntoUpdates(
+  currentPlan: Plan,
+  updates: Record<string, unknown>,
+  userMessage: string
+) {
+  const nextMetadataBase = {
+    ...(readRecord(currentPlan.metadata) ?? {}),
+    ...(readRecord(updates.metadata) ?? {}),
+  }
+  const nextPlan = { ...currentPlan, ...updates, metadata: nextMetadataBase } as Plan
+  const nextMetadata = mergeAnsweredArchetypeQuestionMetadata(nextMetadataBase, {
+    eventType: readString(updates.event_type) ?? currentPlan.event_type,
+    plan: nextPlan,
+    conversationText: userMessage,
+    userMessage,
+  })
+
+  if (JSON.stringify(nextMetadata) !== JSON.stringify(nextMetadataBase)) {
+    updates.metadata = nextMetadata
+  }
+}
+
+function guardHighImpactPlanUpdates(currentPlan: Plan, userMessage: string, updates: Record<string, unknown>): Record<string, unknown> {
+  if (isExplicitReclassificationRequest(userMessage)) return updates
+  if (readRecord(readRecord(updates.metadata)?.[PENDING_PLAN_CHANGE_METADATA_KEY])) return updates
+
+  const guardedUpdates = { ...updates }
+  const pending = findHighImpactPendingChange(currentPlan, guardedUpdates)
+  if (!pending) return guardedUpdates
+
+  delete guardedUpdates[pending.field]
+  if (pending.field === 'date_window_start') delete guardedUpdates.date_window_end
+  if (pending.field === 'ticketed') delete guardedUpdates.ticketing_model
+
+  guardedUpdates.metadata = {
+    ...mergeEventRequirementSignals({
+      ...(readRecord(currentPlan.metadata) ?? {}),
+      ...(readRecord(guardedUpdates.metadata) ?? {}),
+    }, userMessage),
+    [PENDING_PLAN_CHANGE_METADATA_KEY]: {
+      ...pending,
+      created_at: new Date().toISOString(),
+      requires_confirmation: true,
+    },
+  }
+
+  return guardedUpdates
+}
+
+function findHighImpactPendingChange(currentPlan: Plan, updates: Record<string, unknown>) {
+  const checks = [
+    {
+      field: 'guest_count',
+      label: 'guest count',
+      current: currentPlan.guest_count,
+      next: readNumber(updates.guest_count),
+      format: (value: unknown) => typeof value === 'number' ? `${value.toLocaleString()} guests` : String(value),
+    },
+    {
+      field: 'budget_cap_cents',
+      label: 'budget',
+      current: currentPlan.budget_cap_cents,
+      next: readNumber(updates.budget_cap_cents),
+      format: (value: unknown) => typeof value === 'number' ? `$${Math.round(value / 100).toLocaleString()}` : String(value),
+    },
+    {
+      field: 'date_window_start',
+      label: 'date',
+      current: currentPlan.date_window_start,
+      next: readString(updates.date_window_start),
+      format: (value: unknown) => String(value),
+    },
+    {
+      field: 'ticketed',
+      label: 'ticketing model',
+      current: currentPlan.ticketing_model ? currentPlan.ticketed : null,
+      next: typeof updates.ticketed === 'boolean' ? updates.ticketed : null,
+      format: (value: unknown) => value === true ? 'ticketed' : value === false ? 'RSVP/free' : String(value),
+    },
+  ]
+
+  for (const check of checks) {
+    if (check.current === null || check.current === undefined || check.next === null || check.next === undefined) continue
+    if (check.current === check.next) continue
+    return {
+      field: check.field,
+      from: check.format(check.current),
+      to: check.format(check.next),
+      raw_value: check.next,
+      prompt: `I noticed the ${check.label} changed from ${check.format(check.current)} to ${check.format(check.next)}. Should I update the plan to use ${check.format(check.next)}?`,
+    }
+  }
+
+  return null
+}
+
+function readPendingPlanChange(metadata: Record<string, unknown> | null) {
+  const pending = readRecord(metadata?.[PENDING_PLAN_CHANGE_METADATA_KEY])
+  const prompt = readString(pending?.prompt)
+  if (!prompt) return null
+
+  return {
+    field: readString(pending?.field),
+    from: pending?.from,
+    to: pending?.to,
+    raw_value: pending?.raw_value,
+    prompt,
+  }
+}
+
+function buildPendingPlanChangeResolution(currentPlan: Plan, userMessage: string): Record<string, unknown> | null {
+  const pending = readPendingPlanChange(readRecord(currentPlan.metadata))
+  if (!pending) return null
+
+  const metadata = { ...(readRecord(currentPlan.metadata) ?? {}) }
+  delete metadata[PENDING_PLAN_CHANGE_METADATA_KEY]
+
+  if (isNegativeConfirmation(userMessage)) {
+    return { metadata }
+  }
+
+  if (!isAffirmativeConfirmation(userMessage)) return null
+
+  const updates: Record<string, unknown> = { metadata }
+  if (pending.field === 'event_type') {
+    const eventTypeDecision = decideEventTypeMutation({
+      currentEventType: currentPlan.event_type,
+      currentMetadata: metadata,
+      proposedEventType: readString(pending.raw_value) ?? readString(pending.to),
+      userMessage: `Actually make this ${readString(pending.raw_value) ?? readString(pending.to) ?? ''}`,
+      source: 'agent_suggestion_confirmed',
+    })
+    if (eventTypeDecision.eventType) {
+      updates.event_type = eventTypeDecision.eventType
+      updates.title = `${toTitleCase(eventTypeDecision.eventType)} plan`
+      if (eventTypeDecision.lock) {
+        updates.metadata = {
+          ...metadata,
+          [ARCHETYPE_LOCK_METADATA_KEY]: eventTypeDecision.lock,
+        }
+      }
+    }
+  } else if (pending.field) {
+    updates[pending.field] = pending.raw_value
+  }
+
+  return updates
+}
+
+function isAffirmativeConfirmation(message: string): boolean {
+  return /\b(yes|yeah|yep|correct|confirm|approved?|do it|update it|change it|that is right)\b/i.test(message)
+}
+
+function isNegativeConfirmation(message: string): boolean {
+  return /\b(no|nope|keep|do not|don't|cancel|leave it|stay with)\b/i.test(message)
+}
+
+function buildPendingChangeConfirmationDraft(pendingChange: NonNullable<ReturnType<typeof readPendingPlanChange>>): AgentResponseDraft {
+  return {
+    content: pendingChange.prompt,
+    message_type: 'text',
+    metadata: toJson({
+      kind: 'high_impact_change_confirmation',
+      pending_change: pendingChange,
+      requires_user_confirmation: true,
+    }),
+  }
 }
 
 async function recordEventTypeCandidate(
@@ -894,15 +1389,95 @@ function readNumber(value: unknown): number | null {
 function buildMetadataUpdates(
   currentPlan: Plan,
   intendedPlatform: TicketPlatform | null,
-  ticketPriceTargetCents: number | null
+  ticketPriceTargetCents: number | null,
+  ticketed: boolean,
+  userMessage: string,
+  eventArchetypeLock: unknown,
+  pendingPlanChange: Record<string, unknown> | null
 ): Record<string, unknown> | null {
   const metadata = readRecord(currentPlan.metadata) ?? {}
-  const nextMetadata = { ...metadata }
+  let nextMetadata = mergeEventRequirementSignals(metadata, userMessage)
+  if (eventArchetypeLock) {
+    nextMetadata[ARCHETYPE_LOCK_METADATA_KEY] = eventArchetypeLock
+    nextMetadata = mergeArchetypeDefaultFillMetadata(nextMetadata, eventArchetypeLock)
+  }
+  if (pendingPlanChange?.prompt) {
+    nextMetadata[PENDING_PLAN_CHANGE_METADATA_KEY] = {
+      ...pendingPlanChange,
+      created_at: new Date().toISOString(),
+      requires_confirmation: true,
+    }
+  }
   if (intendedPlatform) nextMetadata.intended_platform = intendedPlatform
-  if (typeof ticketPriceTargetCents === 'number' && ticketPriceTargetCents > 0) {
-    nextMetadata.ticket_price_target_cents = normalizePlanningMoneyToCents(ticketPriceTargetCents)
+  if (ticketed === false) {
+    delete nextMetadata.ticket_price_target_cents
+    delete nextMetadata.ticket_price_target
+  } else if (typeof ticketPriceTargetCents === 'number' && ticketPriceTargetCents > 0) {
+    nextMetadata.ticket_price_target_cents = ticketPriceTargetCents
   }
   return Object.keys(nextMetadata).some((key) => nextMetadata[key] !== metadata[key]) ? nextMetadata : null
+}
+
+function mergeArchetypeDefaultFillMetadata(
+  metadata: Record<string, unknown>,
+  eventArchetypeLock: unknown
+): Record<string, unknown> {
+  const lock = readRecord(eventArchetypeLock)
+  const archetype = getArchetypeByKey(readString(lock?.key))
+  if (!archetype) return metadata
+
+  const currentSignals = readRecord(metadata.matching_signals) ?? {}
+  const nextSignals = { ...currentSignals }
+  let changed = false
+
+  for (const [field, value] of Object.entries(archetype.default_fills)) {
+    if (value === undefined || value === null) continue
+    if (nextSignals[field] !== undefined && nextSignals[field] !== null) continue
+    nextSignals[field] = value
+    changed = true
+  }
+
+  return changed
+    ? { ...metadata, matching_signals: nextSignals }
+    : metadata
+}
+
+function readTicketPriceTargetCents(output: IntakeAgentOutput): number | null {
+  const extracted = output.extracted_fields.ticket_price_target
+  if (typeof extracted === 'number' && extracted > 0) return normalizeTicketPriceTargetCents(extracted)
+
+  const eventPlanValue = output.updated_event_plan.ticket_price_target
+  if (typeof eventPlanValue === 'number' && eventPlanValue > 0) return normalizeTicketPriceTargetCents(eventPlanValue)
+
+  return null
+}
+
+function normalizeTicketPriceTargetCents(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0
+  return Math.round(value < 1000 ? value * 100 : value)
+}
+
+function clearTicketPriceMetadata(value: unknown): Record<string, unknown> {
+  const nextMetadata = { ...(readRecord(value) ?? {}) }
+  delete nextMetadata.ticket_price_target_cents
+  delete nextMetadata.ticket_price_target
+  return nextMetadata
+}
+
+function toTitleCase(value: string): string {
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function resolveEventTypeLabel(candidate: string | null, message: string): string | null {
+  const resolvedArchetype = resolveArchetypeContext(message)
+  if (resolvedArchetype) return resolvedArchetype.display_name
+  return candidate
+}
+
+function isGenericEventType(value: string) {
+  return /^(event|party|gathering|meetup|social|experience)$/i.test(value.trim())
 }
 
 function readTicketingPlatform(message: string): TicketPlatform | null {

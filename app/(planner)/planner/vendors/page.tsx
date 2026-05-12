@@ -24,6 +24,12 @@ interface CatalogVendor {
   per_person_rate?: number | null
   requires_deposit?: boolean | null
   deposit_amount?: number | null
+  deposit_percentage?: number | null
+  lead_time_days?: number | null
+  emergency_available?: boolean | null
+  emergency_rate_uplift?: number | null
+  service_area?: string | null
+  regions_served?: string | null
   is_claimed?: boolean | null
   is_admin_seeded?: boolean | null
 }
@@ -34,21 +40,26 @@ interface VendorsApiResponse {
 }
 
 async function fetchPlannerVendorCatalog(): Promise<CatalogVendor[]> {
-  const response = await fetch('/api/vendors')
+  const response = await fetch(`/api/vendors?planner_catalog=1&ts=${Date.now()}`, {
+    cache: 'no-store',
+    headers: {
+      'Cache-Control': 'no-cache',
+    },
+  })
   const payload = (await response.json()) as VendorsApiResponse
 
   if (!response.ok) {
     throw new Error(payload.error || 'Catalog temporarily unavailable')
   }
 
-  return (payload.vendors || []).filter((vendor) => vendor.is_admin_seeded === true)
+  return (payload.vendors || []).sort((first, second) => Number(second.is_admin_seeded === true) - Number(first.is_admin_seeded === true))
 }
 
 /**
- * Planner catalog page for browsing admin-seeded vendors.
+ * Planner catalog page for browsing planner-visible vendors.
  *
- * Fetches the public vendor catalog once, filters admin-seeded listings client-side,
- * and exposes lightweight search without relying on saved vendors.
+ * Fetches the public vendor catalog and exposes lightweight search without
+ * relying on saved vendors.
  */
 export default function PlannerVendorsPage() {
   const [searchQuery, setSearchQuery] = useState('')
@@ -63,7 +74,9 @@ export default function PlannerVendorsPage() {
     queryKey: ['planner-vendor-catalog'],
     queryFn: fetchPlannerVendorCatalog,
     retry: false,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   })
 
   const filteredVendors = useMemo(() => {
@@ -240,7 +253,10 @@ function VendorCard({ vendor }: VendorCardProps) {
   const summary = truncateText(getVendorSummary(vendor), 124)
   const startingRate = formatVendorRate(vendor)
   const depositLabel = formatVendorDeposit(vendor)
-  const city = vendor.city || 'Bay Area'
+  const city = vendor.city || formatServiceArea(vendor.regions_served || vendor.service_area)
+  const emergencyLabel = vendor.emergency_available
+    ? `Emergency +${Math.round(vendor.emergency_rate_uplift ?? 0)}%`
+    : 'Standard lead'
 
   return (
     <article className={cn('flex min-h-full flex-col rounded-2xl border border-border bg-card p-5 shadow-card')}>
@@ -280,12 +296,22 @@ function VendorCard({ vendor }: VendorCardProps) {
           <p className="mt-1 truncate font-semibold text-foreground" title={depositLabel}>{depositLabel}</p>
         </div>
         <div className="rounded-lg border border-border bg-background/40 p-3">
-          <p className="text-xs text-muted-foreground">Workflow</p>
-          <p className="mt-1 truncate font-semibold text-foreground">Approval gated</p>
+          <p className="text-xs text-muted-foreground">Lead time</p>
+          <p className="mt-1 truncate font-semibold text-foreground">
+            {typeof vendor.lead_time_days === 'number' && vendor.lead_time_days > 0
+              ? `${vendor.lead_time_days} days`
+              : 'Confirm'}
+          </p>
         </div>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
+        {vendor.emergency_available ? (
+          <span className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent">
+            <CheckCircle2 className="h-3 w-3" />
+            {emergencyLabel}
+          </span>
+        ) : null}
         <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-semibold text-muted-foreground">
           <CheckCircle2 className="h-3 w-3 text-primary" />
           Availability request
@@ -361,8 +387,26 @@ function formatVendorDeposit(vendor: CatalogVendor) {
     }).format(amount)
   }
 
+  if (typeof vendor.deposit_percentage === 'number' && vendor.deposit_percentage > 0) {
+    return `${Math.round(vendor.deposit_percentage)}%`
+  }
+
   if (vendor.requires_deposit) return 'Required'
   return 'On request'
+}
+
+function formatServiceArea(value: string | null | undefined) {
+  if (!value) return 'Bay Area'
+  return value
+    .split(/[_\s,]+/)
+    .filter(Boolean)
+    .map((part) => {
+      const lower = part.toLowerCase()
+      if (lower === 'sf') return 'SF'
+      if (lower === 'bay') return 'Bay'
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+    })
+    .join(' ')
 }
 
 /**

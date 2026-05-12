@@ -18,7 +18,7 @@ export default async function AdminVenueCatalogPage() {
   const admin = createServiceRoleClient()
   const { data } = await admin
     .from('venues')
-    .select('id, venue_name, name, venue_type, contact_email, is_claimed, claimed_user_id, is_admin_seeded, created_at')
+    .select('id, venue_name, name, venue_type, contact_email, is_claimed, claimed_user_id, is_admin_seeded, is_published, created_at')
     .eq('is_admin_seeded', true)
     .order('created_at', { ascending: false })
 

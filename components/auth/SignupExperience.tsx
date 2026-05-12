@@ -93,15 +93,14 @@ function AuthShell({
 }
 
 function AlreadySignedInBanner() {
-  const router = useRouter()
   const [isSigningOut, setIsSigningOut] = useState(false)
 
   async function handleSignOut() {
     setIsSigningOut(true)
     try {
       await fetch('/api/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+      window.location.replace(window.location.pathname)
     } finally {
-      router.refresh()
       setIsSigningOut(false)
     }
   }
@@ -612,6 +611,7 @@ function VenueSignupFlow({
     venueType: '',
     address: '',
     city: '',
+    neighborhood: '',
     state: '',
     zipCode: '',
     loadingAddress: '',
@@ -667,6 +667,7 @@ function VenueSignupFlow({
           venue_type: venueTypeIds[form.venueType] || 'other',
           address: form.address,
           city: form.city || addressParts[1] || '',
+          neighborhood: form.neighborhood,
           state: form.state || addressParts[2] || '',
           zip_code: form.zipCode || '',
           loading_address: form.loadingAddress,
@@ -763,22 +764,27 @@ function VenueSignupFlow({
             <Field label="City">
               <Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Brooklyn" />
             </Field>
+            <Field label="Neighborhood">
+              <Input value={form.neighborhood} onChange={(e) => setForm({ ...form, neighborhood: e.target.value })} placeholder="SOMA" />
+            </Field>
             <Field label="State">
               <Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} placeholder="NY" maxLength={2} />
             </Field>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field label="ZIP">
               <Input value={form.zipCode} onChange={(e) => setForm({ ...form, zipCode: e.target.value })} placeholder="11201" />
+            </Field>
+            <Field label="Prep / load-in time allowed (hours)">
+              <Input type="number" value={form.prepTime} onChange={(e) => setForm({ ...form, prepTime: e.target.value })} placeholder="2" />
             </Field>
           </div>
           <Field label="Loading dock address (if different)">
             <Input value={form.loadingAddress} onChange={(e) => setForm({ ...form, loadingAddress: e.target.value })} placeholder="Rear entrance — 124 Industry Rd" />
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-1">
             <Field label="Maximum capacity">
               <Input type="number" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} placeholder="250" />
-            </Field>
-            <Field label="Prep / load-in time allowed (hours)">
-              <Input type="number" value={form.prepTime} onChange={(e) => setForm({ ...form, prepTime: e.target.value })} placeholder="2" />
             </Field>
           </div>
         </div>
@@ -1002,8 +1008,6 @@ function VendorSignupFlow({
           emergency_available: form.emergencyAvailable,
           emergency_rate_uplift: form.emergencyAvailable ? parseFloat(form.emergencyRate) : null,
           availability_notes: `Available: ${form.availableDays.join(', ')}. Lead time: ${form.leadTimeDays} days.`,
-          bank_account_holder_name: form.fullName,
-          bank_name: 'Pending Stripe onboarding',
         }),
       })
       const result = await response.json()
@@ -1121,6 +1125,9 @@ function VendorSignupFlow({
               placeholder="Deposit non-refundable inside 14 days. Full refund 30+ days out."
             />
           </Field>
+          <p className="text-xs text-muted-foreground">
+            Payout setup happens through Stripe Connect when a paid booking is ready. We do not collect bank details here.
+          </p>
         </div>
       )}
 

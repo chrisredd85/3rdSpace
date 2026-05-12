@@ -1,4 +1,5 @@
 import type { EventArchetypeConfig, VendorStackItem } from '@/lib/planner/archetypes/types'
+import { normalizeSignal, readPlanMatchingSignal } from '@/lib/planner/recommendVendorStack'
 import type { Plan } from '@/lib/types'
 import {
   normalizeServiceType,
@@ -56,7 +57,7 @@ export function scoreVendor(
     priceBandMedianCents?: number | null
   }
 ): VendorScoreBreakdown {
-  const archetypeFit = scoreArchetypeFit(vendor, archetype, stackItem)
+  const archetypeFit = scoreArchetypeFit(vendor, plan, archetype, stackItem)
   const reliability = scoreReliability(vendor, context.vendorMetrics)
   const responseTime = scoreResponseTime(context.vendorMetrics)
   const priceBand = scorePriceBand(vendor, plan, archetype, context.priceBandMedianCents ?? null)
@@ -123,6 +124,7 @@ export function scoreVendor(
 
 function scoreArchetypeFit(
   vendor: Vendor,
+  plan: Plan,
   archetype: EventArchetypeConfig,
   stackItem: VendorStackItem
 ): { points: number; details: Record<string, unknown>; warnings: string[] } {
@@ -142,7 +144,8 @@ function scoreArchetypeFit(
   const preferredStyles = readStringArray((archetype as EventArchetypeConfig & { preferred_vendor_styles?: string[] }).preferred_vendor_styles)
   const styleMatch = countStyleMatches(styleTags, preferredStyles)
   const styleMatchPts = preferredStyles.length === 0 ? 2 : styleMatch === preferredStyles.length ? 5 : styleMatch > 0 ? 3 : 2
-  const points = clamp(necessityPts + specializationPts + styleMatchPts, 0, 25)
+  const signalFit = scorePlanSignalFit(plan, stackItem)
+  const points = clamp(necessityPts + specializationPts + styleMatchPts + signalFit.points, 0, 25)
 
   return {
     points,
@@ -151,12 +154,88 @@ function scoreArchetypeFit(
       necessity_pts: necessityPts,
       specialization_pts: specializationPts,
       style_match_pts: styleMatchPts,
+      signal_fit_pts: signalFit.points,
+      signal_reasons: signalFit.reasons,
       matched_specialization: hasSpecializationMatch,
       preferred_styles: preferredStyles,
       vendor_style_tags: styleTags,
     },
-    warnings: hasSpecializationMatch ? [] : [`No explicit ${archetype.display_name} specialization found.`],
+    warnings: [
+      ...(hasSpecializationMatch ? [] : [`No explicit ${archetype.display_name} specialization found.`]),
+      ...signalFit.warnings,
+    ],
   }
+}
+
+function scorePlanSignalFit(
+  plan: Plan,
+  stackItem: VendorStackItem
+): { points: number; reasons: string[]; warnings: string[] } {
+  const serviceType = stackItem.service_type
+  const photoVideoPriority = normalizeSignal(readPlanMatchingSignal(plan, 'photo_video_priority'))
+  const avIntensity = normalizeSignal(readPlanMatchingSignal(plan, 'av_intensity'))
+  const musicFormat = normalizeSignal(readPlanMatchingSignal(plan, 'music_format'))
+  const decorIntensity = normalizeSignal(readPlanMatchingSignal(plan, 'decor_intensity'))
+  const cateringStyle = normalizeSignal(readPlanMatchingSignal(plan, 'catering_style'))
+  const securityNeeds = normalizeSignal(readPlanMatchingSignal(plan, 'security_needs'))
+  const checkInNeeds = normalizeSignal(readPlanMatchingSignal(plan, 'check_in_needs'))
+  const reasons: string[] = []
+  const warnings: string[] = []
+  let points = 0
+
+  if (serviceType === 'photographer' && (photoVideoPriority === 'photographer' || photoVideoPriority === 'both')) {
+    points += 3
+    reasons.push('Plan prioritizes photography.')
+  }
+  if (serviceType === 'videographer' && (photoVideoPriority === 'video' || photoVideoPriority === 'both')) {
+    points += 3
+    reasons.push('Plan prioritizes video coverage.')
+  }
+  if (serviceType === 'av_production' && avIntensity === 'heavy') {
+    points += 4
+    reasons.push('Heavy AV signal requires stronger production support.')
+  } else if (serviceType === 'av_production' && avIntensity === 'standard') {
+    points += 2
+    reasons.push('Standard AV signal supports production vendor matching.')
+  }
+  if (serviceType === 'dj' && (musicFormat === 'dj' || musicFormat === 'both')) {
+    points += 3
+    reasons.push('Plan calls for DJ or playback support.')
+  }
+  if (serviceType === 'music_coordinator' && (musicFormat === 'live' || musicFormat === 'both')) {
+    points += 3
+    reasons.push('Plan calls for live music coordination.')
+  }
+  if (serviceType === 'decor' && decorIntensity === 'full_production') {
+    points += 4
+    reasons.push('Full-production decor signal makes decor a core vendor.')
+  } else if (serviceType === 'decor' && decorIntensity === 'themed') {
+    points += 2
+    reasons.push('Themed decor signal improves fit.')
+  }
+  if (serviceType === 'catering' && cateringStyle === 'outside') {
+    points += 4
+    reasons.push('Outside catering is needed for this plan.')
+  }
+  if (serviceType === 'catering' && cateringStyle === 'venue_handles') {
+    warnings.push('Venue-handled catering signal suggests this catering vendor may not be needed.')
+  }
+  if (serviceType === 'security' && securityNeeds === 'full_staff') {
+    points += 4
+    reasons.push('Full-staff security signal makes this a core vendor.')
+  } else if (serviceType === 'security' && securityNeeds === 'door') {
+    points += 2
+    reasons.push('Door-staff signal improves security fit.')
+  }
+  if (serviceType === 'check_in' && checkInNeeds === 'ticket_scan') {
+    points += 3
+    reasons.push('Ticket-scan check-in signal improves fit.')
+  } else if (serviceType === 'check_in' && checkInNeeds === 'walk_in_list') {
+    points += 1
+    reasons.push('Walk-in list signal supports light check-in help.')
+  }
+
+  return { points: clamp(points, 0, 5), reasons, warnings }
 }
 
 function scoreReliability(

@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { normalizeVendorProfile } from '@/lib/vendors/profile-adapter'
 
 const PUBLIC_VENDOR_SELECT_COLUMNS = `
@@ -24,6 +24,10 @@ const PUBLIC_VENDOR_SELECT_COLUMNS = `
   deposit_percentage,
   deposit_refundable,
   deposit_terms,
+  lead_time_days,
+  cancellation_terms,
+  emergency_available,
+  emergency_rate_uplift,
   is_published,
   is_claimed,
   claimed_user_id,
@@ -55,7 +59,7 @@ const PUBLIC_VENDOR_SELECT_COLUMNS = `
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createClient()
+    const supabase = createVendorCatalogClient()
     const { searchParams } = new URL(request.url)
 
     // Parse query parameters
@@ -65,6 +69,7 @@ export async function GET(request: NextRequest) {
     const isVerified = searchParams.get('is_verified')
     const minPrice = searchParams.get('min_price')
     const maxPrice = searchParams.get('max_price')
+    const plannerCatalog = searchParams.get('planner_catalog') === '1'
 
     // Build query - fetch ALL published vendors (marketplace)
     let query = supabase
@@ -109,7 +114,9 @@ export async function GET(request: NextRequest) {
       },
       {
         headers: {
-          'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=600',
+          'Cache-Control': plannerCatalog
+            ? 'no-store'
+            : 'public, s-maxage=120, stale-while-revalidate=600',
         },
       }
     )
@@ -119,6 +126,14 @@ export async function GET(request: NextRequest) {
       { error: 'An unexpected error occurred' },
       { status: 500 }
     )
+  }
+}
+
+function createVendorCatalogClient() {
+  try {
+    return createServiceRoleClient()
+  } catch {
+    return createClient()
   }
 }
 

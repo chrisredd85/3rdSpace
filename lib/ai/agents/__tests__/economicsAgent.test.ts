@@ -68,6 +68,60 @@ describe('runEconomicsAgent', () => {
     }))
   })
 
+  it('normalizes object price points and non-string historical anchors from the model', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            recommendation_summary: 'Use a tighter event-pricing band.',
+            narrative: 'Use a tighter event-pricing band.',
+            price_points: {
+              conservative: {
+                price_cents: '5000',
+                projected_net_cents: 10000,
+                break_even_tickets: 40,
+                reasoning: 'Good balance for the expected crowd.',
+              },
+            },
+            recommended_price_cents: '5000',
+            historical_anchor: [{ note: 'model returned an array here' }],
+          }),
+        },
+      }],
+    })
+
+    const result = await runEconomicsAgent(economicsInput, { create })
+
+    expect(result.output.recommended_price_cents).toBe(5000)
+    expect(result.output.price_points.find((point) => point.price_cents === 5000)?.reasoning)
+      .toMatch(/Good balance/i)
+  })
+
+  it('normalizes primitive object price point maps from the model', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            recommendation_summary: 'Use the target price point.',
+            narrative: 'Use the target price point.',
+            price_points: {
+              low: 2500,
+              target: '5000',
+              high: 7500,
+            },
+            recommended_price_cents: '5000',
+            historical_anchor: null,
+          }),
+        },
+      }],
+    })
+
+    const result = await runEconomicsAgent(economicsInput, { create })
+
+    expect(result.output.recommended_price_cents).toBe(5000)
+    expect(result.output.price_points.find((point) => point.price_cents === 5000)?.recommendation).toBe('recommended')
+  })
+
   it('rejects invalid final economics output shape', () => {
     expect(() => economicsAgentOutputSchema.parse({
       break_even_attendance: 40,

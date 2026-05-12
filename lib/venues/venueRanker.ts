@@ -1,6 +1,7 @@
 import type {
   CommercialModel,
   EventArchetypeConfig,
+  MatchingField,
   VendorStackItem,
 } from '@/lib/planner/archetypes/types'
 import type { BuilderAttendanceSummary } from '@/lib/server/builderAttendanceHistory'
@@ -11,6 +12,14 @@ export interface VenueRankerPlanInput {
   budget_cap_cents?: number | null
   budget_cents?: number | null
   event_type?: string | null
+  neighborhood?: string | null
+  area?: string | null
+  date_window?: string | null
+  date_window_start?: string | null
+  date_window_end?: string | null
+  ticketed?: boolean | null
+  food_responsibility?: string | null
+  metadata?: unknown
 }
 
 export type VenueRankerVenueInput = Record<string, unknown> & {
@@ -24,6 +33,8 @@ export interface VenueArchetypeScore {
   venue_type_score: number
   commercial_model_alignment_score: number
   capacity_score: number
+  signal_score: number
+  hard_gate_failures: string[]
   warnings: string[]
   reasons: string[]
   primary_commercial_model: CommercialModel
@@ -72,6 +83,7 @@ export function rankVenuesForArchetype(input: {
         context: input.context,
       }),
     }))
+    .filter((ranked) => ranked.score.hard_gate_failures.length === 0)
     .filter((ranked) => passesProjectedCapacityGate(ranked.venue, ranked.score.projected_attendance))
     .sort((first, second) =>
       second.score.score - first.score.score ||
@@ -106,6 +118,9 @@ export function scoreVenueAgainstArchetype(input: {
   })
   const cateringScore = scoreCateringFit(input.venue, input.archetype, warnings, reasons)
   const commercialAlignment = scoreCommercialModelAlignment(input.venue, input.archetype)
+  const signalFit = scoreMatchingSignalFit(input.plan, input.venue, input.archetype)
+  warnings.push(...signalFit.warnings)
+  reasons.push(...signalFit.reasons)
 
   if (venueTypePreferred) {
     reasons.push(`${formatVenueType(venueType)} matches ${input.archetype.display_name}.`)
@@ -124,6 +139,7 @@ export function scoreVenueAgainstArchetype(input: {
     venueTypeScore +
       Math.round(requiredAmenityMatches.ratio * 7) +
       Math.round(bonusAmenityMatches.ratio * 3) +
+      signalFit.amenityAdjustment +
       cateringScore,
     -15,
     15
@@ -145,6 +161,8 @@ export function scoreVenueAgainstArchetype(input: {
     venue_type_score: venueTypeScore,
     commercial_model_alignment_score: commercialAlignment.score,
     capacity_score: capacityScore,
+    signal_score: signalFit.amenityAdjustment,
+    hard_gate_failures: signalFit.hardGateFailures,
     warnings,
     reasons,
     primary_commercial_model: commercialAlignment.primary,
@@ -303,6 +321,137 @@ function scoreCommercialModelAlignment(
   }
 }
 
+function scoreMatchingSignalFit(
+  plan: VenueRankerPlanInput,
+  venue: VenueRankerVenueInput,
+  archetype: EventArchetypeConfig
+): {
+  amenityAdjustment: number
+  hardGateFailures: string[]
+  warnings: string[]
+  reasons: string[]
+} {
+  const criticalFields = new Set(archetype.matching_fields.critical)
+  const highSignalFields = new Set(archetype.matching_fields.high_signal)
+  const fields = Array.from(new Set<MatchingField>([
+    ...archetype.matching_fields.critical,
+    ...archetype.matching_fields.high_signal,
+  ]))
+  const hardGateFailures: string[] = []
+  const warnings: string[] = []
+  const reasons: string[] = []
+  let amenityAdjustment = 0
+
+  for (const field of fields) {
+    const value = readPlanSignal(plan, field) ?? archetype.default_fills[field]
+    const mismatch = evaluateVenueSignalMismatch(venue, field, value)
+    if (!mismatch) continue
+
+    if (criticalFields.has(field)) {
+      hardGateFailures.push(mismatch)
+      warnings.push(mismatch)
+      continue
+    }
+
+    if (highSignalFields.has(field)) {
+      amenityAdjustment -= 10
+      warnings.push(mismatch)
+    }
+  }
+
+  if (amenityAdjustment === 0 && hardGateFailures.length === 0) {
+    reasons.push('Operational matching signals fit the venue profile.')
+  }
+
+  return {
+    amenityAdjustment,
+    hardGateFailures,
+    warnings,
+    reasons,
+  }
+}
+
+function evaluateVenueSignalMismatch(
+  venue: VenueRankerVenueInput,
+  field: MatchingField,
+  value: unknown
+): string | null {
+  const text = buildVenueText(venue)
+  const signal = normalizeText(String(value ?? ''))
+  if (!signal) return null
+
+  if (field === 'setup_format') {
+    if (signal === 'theater') {
+      return hasAny(text, ['rows of chairs', 'theater seating', 'auditorium seating', 'flat floor', 'chairs'])
+        ? null
+        : 'Theater setup needs rows of chairs or flexible flat-floor seating.'
+    }
+    if (signal === 'classroom' || signal === 'u shape' || signal === 'u_shape') {
+      return hasAny(text, ['banquet table', 'tables', 'classroom', 'u shape', 'u-shape'])
+        ? null
+        : 'Classroom or U-shape setup needs banquet-style tables.'
+    }
+    if (signal === 'hands on' || signal === 'hands_on') {
+      return hasAny(text, ['work surface', 'workstation', 'tables', 'studio tables']) &&
+        hasAny(text, ['power', 'outlets', 'plug'])
+        ? null
+        : 'Hands-on setup needs work surfaces and power outlets.'
+    }
+  }
+
+  if (field === 'av_intensity' && signal === 'heavy') {
+    return hasAny(text, ['in house av', 'in-house av', 'outside av', 'rigging', 'production', 'av tech'])
+      ? null
+      : 'Heavy AV needs in-house production support or outside AV allowance.'
+  }
+
+  if (field === 'stage_required' && readBooleanLike(value) === true) {
+    return hasAny(text, ['stage', 'platform', 'flat floor', 'portable stage', 'raised'])
+      ? null
+      : 'Stage-required plans need a stage area or portable-stage-ready floor.'
+  }
+
+  if (field === 'demo_stations_needed' && readBooleanLike(value) !== false && signal !== '0') {
+    return hasAny(text, ['power', 'outlets']) &&
+      hasAny(text, ['tables', 'demo station', 'booth']) &&
+      hasAny(text, ['wifi', 'wi fi', 'internet'])
+      ? null
+      : 'Demo stations need power, tables, and reliable internet.'
+  }
+
+  if (field === 'screens_count' && readNumber(value) !== null && (readNumber(value) ?? 0) > 0) {
+    return hasAny(text, ['screen', 'projector', 'tv', 'display'])
+      ? null
+      : 'Screen-heavy plans need screens, projectors, or displays.'
+  }
+
+  if (field === 'mics_count' && readNumber(value) !== null && (readNumber(value) ?? 0) > 0) {
+    return hasAny(text, ['mic', 'microphone', 'pa system', 'audio'])
+      ? null
+      : 'Microphone needs require in-room audio or PA support.'
+  }
+
+  if (field === 'music_format' && signal === 'live') {
+    return hasAny(text, ['live band', 'performance stage', 'stage', 'green room', 'backline'])
+      ? null
+      : 'Live music needs a stage or live-performance-ready setup.'
+  }
+
+  if (field === 'bar_required' && readBooleanLike(value) === true) {
+    return hasAny(text, ['liquor license', 'full bar', 'bar setup', 'cocktail', 'beverage'])
+      ? null
+      : 'Bar-required plans need a liquor license, bar setup, or full bar.'
+  }
+
+  if (field === 'security_needs' && signal === 'full_staff') {
+    return hasAny(text, ['single entry', 'security', 'door staff', 'coat check', 'controlled entry'])
+      ? null
+      : 'Full security works best with controlled entry and door-staff-capable layout.'
+  }
+
+  return null
+}
+
 function buildVenueText(venue: Record<string, unknown>): string {
   return normalizeText([
     venue.venue_name,
@@ -313,6 +462,8 @@ function buildVenueText(venue: Record<string, unknown>): string {
     venue.unique_features_tags,
     venue.amenities,
     venue.venue_amenities,
+    venue.layout_options,
+    venue.production_capabilities,
     venue.pricing_model,
   ].map(serializeSearchValue).join(' '))
 }
@@ -486,6 +637,43 @@ function readBoolean(value: unknown): boolean | null {
     if (normalized === 'false') return false
   }
   return null
+}
+
+function readBooleanLike(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value > 0
+  if (typeof value === 'string') {
+    const normalized = normalizeText(value)
+    if (['true', 'yes', 'required', 'needed', 'full', '1'].includes(normalized)) return true
+    if (['false', 'no', 'none', 'not needed', '0'].includes(normalized)) return false
+  }
+  return null
+}
+
+function readPlanSignal(plan: VenueRankerPlanInput, field: MatchingField): unknown {
+  if (field === 'event_type') return plan.event_type
+  if (field === 'neighborhood') return plan.neighborhood ?? plan.area
+  if (field === 'guest_count') return plan.guest_count ?? plan.headcount
+  if (field === 'date_window') return plan.date_window ?? plan.date_window_start ?? plan.date_window_end
+  if (field === 'budget_cap_cents') return plan.budget_cap_cents ?? plan.budget_cents
+  if (field === 'ticketed') return plan.ticketed
+  if (field === 'food_responsibility') return plan.food_responsibility
+  const direct = (plan as Record<string, unknown>)[field]
+  if (direct !== undefined && direct !== null) return direct
+  const metadata = readRecord(plan.metadata)
+  const metadataValue = metadata?.[field]
+  if (metadataValue !== undefined && metadataValue !== null) return metadataValue
+  const matchingSignals = readRecord(metadata?.matching_signals)
+  const matchingValue = matchingSignals?.[field]
+  if (matchingValue !== undefined && matchingValue !== null) return matchingValue
+  const eventRequirements = readRecord(metadata?.event_requirements)
+  const requirementValue = eventRequirements?.[field]
+  if (requirementValue !== undefined && requirementValue !== null) return requirementValue
+  return null
+}
+
+function hasAny(text: string, needles: string[]): boolean {
+  return needles.some((needle) => text.includes(normalizeText(needle)))
 }
 
 function normalizeText(value: string): string {

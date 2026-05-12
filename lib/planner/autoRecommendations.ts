@@ -29,7 +29,10 @@ export async function createAutoRecommendationMessage(input: {
   planId: string
 }): Promise<PlanMessage[]> {
   const recommendationData = await requestRecommendationRun(input.request, input.planId)
-  if (!recommendationData) return []
+  if (!recommendationData) {
+    const fallbackMessage = await insertRecommendationFallbackMessage(input.db, input.planId)
+    return fallbackMessage ? [fallbackMessage] : []
+  }
 
   const { data, error } = await input.db
     .from('plan_messages')
@@ -75,6 +78,34 @@ export async function createAutoRecommendationMessage(input: {
   return messages
 }
 
+async function insertRecommendationFallbackMessage(
+  db: PlanMessageInsertDb,
+  planId: string
+): Promise<PlanMessage | null> {
+  const { data, error } = await db
+    .from('plan_messages')
+    .insert({
+      plan_id: planId,
+      role: 'agent',
+      content: 'I have enough detail to start matching venues, but the recommendation engine hit a temporary issue. I saved the plan details; try again in a moment or adjust the plan and I will re-check options.',
+      message_type: 'status_update',
+      metadata: toJson({
+        source: 'planner_recommendations',
+        recommendation_error: true,
+        requires_retry: true,
+      }),
+    })
+    .select(PLAN_MESSAGE_SELECT_COLUMNS)
+    .single()
+
+  if (error || !data) {
+    console.error('[planner.recommend] Auto recommendation fallback insert error', error)
+    return null
+  }
+
+  return data as PlanMessage
+}
+
 async function requestRecommendationRun(
   request: NextRequest,
   planId: string
@@ -109,6 +140,7 @@ function buildRecommendationContent(data: Record<string, unknown>): string {
   const venueNoticeMessage = readString(readRecord(data.venue_match_notice)?.message)
   const vendorNoticeMessage = readString(readRecord(data.vendor_match_notice)?.message)
   const recommendedProjection = readRecord(readRecord(data.profit_projection)?.recommended_projection)
+  const planTicketed = readBoolean(data.plan_ticketed)
   const ticketPriceCents = readNumber(recommendedProjection?.ticket_price_cents)
   const profitCents = readNumber(recommendedProjection?.net_profit_cents)
   const breakEvenTickets = readNumber(recommendedProjection?.break_even_tickets)
@@ -125,7 +157,7 @@ function buildRecommendationContent(data: Record<string, unknown>): string {
   ].filter((part): part is string => part !== null)
 
   const projection =
-    ticketPriceCents !== null && profitCents !== null && breakEvenTickets !== null
+    planTicketed !== false && ticketPriceCents !== null && profitCents !== null && breakEvenTickets !== null
       ? ` At ${formatCurrency(ticketPriceCents)} per ticket, projected profit is ${formatCurrency(profitCents)} with break-even at ${breakEvenTickets} tickets.`
       : ''
 
@@ -201,6 +233,10 @@ function readArray(value: unknown): unknown[] {
 
 function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function readBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null
 }
 
 async function loadPlanMessage(db: PlanMessageInsertDb, messageId: string): Promise<PlanMessage | null> {

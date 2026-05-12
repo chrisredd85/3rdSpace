@@ -40,6 +40,9 @@ export const workspaceAgentInputSchema = z.object({
   vendor_bookings: z.array(workspaceVendorBookingRowSchema),
   budget_summary: workspaceBudgetSummarySchema.nullish(),
   timeline: z.array(z.record(z.unknown())).nullish(),
+  archetype_intake: z.record(z.unknown()).nullish(),
+  mutation_contract: z.record(z.unknown()).nullish(),
+  conversation_history: z.array(z.record(z.unknown())).optional(),
 })
 
 export const workspaceAgentOutputSchema = z.object({
@@ -86,6 +89,8 @@ const WORKSPACE_SYSTEM_PROMPT = [
   'Do not generate fake activity, fake partner responses, fake approvals, or fake bookings.',
   'Keep output short and operational.',
   'Prioritize unsigned contracts, unpaid deposits, missing venue confirmation, missing vendor quotes, and budget risk when present in deterministic_signals or the provided rows.',
+  'Use archetype_intake and conversation_history to preserve user-stated operating constraints, such as setup windows, outside vendors, required AV, guest-list control, or external checkout.',
+  'Honor mutation_contract when present. Treat locked_archetype as authoritative and never reclassify the event inside workspace output.',
   'Preserve deterministic_signals.overdue_items, blockers, recommended_next_actions, and approvals_needed in the output unless the same item is already represented with equivalent wording.',
   'Do not send outreach, create bookings, authorize payments, or execute any action.',
   `Output JSON must match this contract: ${JSON.stringify(WORKSPACE_OUTPUT_CONTRACT)}.`,

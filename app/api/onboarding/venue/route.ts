@@ -9,6 +9,7 @@ interface VenueOnboardingRequest {
   venue_name: string
   address: string
   city: string
+  neighborhood?: string | null
   state: string
   zip_code: string
   venue_type: VenueType
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: VenueOnboardingRequest = await request.json()
-    const { contact_name, venue_name, address, city, state, zip_code, venue_type, capacity, house_rules, amenities } = body
+    const { contact_name, venue_name, address, city, neighborhood, state, zip_code, venue_type, capacity, house_rules, amenities } = body
 
     if (!contact_name || !venue_name || !address || !city || !state || !zip_code || !venue_type || !capacity || !house_rules || !amenities?.length) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -57,6 +58,7 @@ export async function POST(request: NextRequest) {
       venueName: venue_name,
       address,
       city,
+      neighborhood: neighborhood?.trim() || null,
       state,
       zipCode: zip_code,
       venueType: venue_type,
@@ -71,6 +73,7 @@ export async function POST(request: NextRequest) {
       venueName: venue_name,
       address,
       city,
+      neighborhood: neighborhood?.trim() || null,
       state,
       zipCode: zip_code,
       venueType: venue_type,

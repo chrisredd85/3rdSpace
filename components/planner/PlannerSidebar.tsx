@@ -172,7 +172,10 @@ export const PlannerSidebar = memo(function PlannerSidebar({
         </button>
       </div>
 
-      <nav className={cn('flex-1 space-y-1 overflow-y-auto py-5', isCollapsed ? 'px-2' : 'px-3')}>
+      <nav
+        className={cn('flex-1 space-y-1 overflow-y-auto py-5', isCollapsed ? 'px-2' : 'px-3')}
+        data-planner-side-scroll="true"
+      >
         {navItems.map((item) => {
           const Icon = item.icon
           const isActive = isActiveHref(pathname, item.href)

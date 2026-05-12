@@ -85,9 +85,9 @@ const APPROVAL_SELECT_COLUMNS = `
   updated_at
 `
 
-const AGENT_ACTION_STATUS_SELECT_COLUMNS = 'id, status, action_type'
+const AGENT_ACTION_STATUS_SELECT_COLUMNS = 'id, status, action_type, payload_json, result_metadata'
 
-const AGENT_ACTION_OPPORTUNITY_SELECT_COLUMNS = 'id, action_type, payload_json'
+const AGENT_ACTION_OPPORTUNITY_SELECT_COLUMNS = 'id, action_type, payload_json, result_metadata'
 
 const PLAN_MESSAGE_METADATA_SELECT_COLUMNS = 'id, metadata'
 
@@ -398,8 +398,7 @@ async function markAgentActionExecuted(
   }
 
   const fromStatus = typeof currentAction?.status === 'string' ? currentAction.status : null
-  const actionType = typeof currentAction?.action_type === 'string' ? currentAction.action_type : null
-  if (actionType !== 'opportunity_send_venues' && actionType !== 'opportunity_send_vendors') return
+  if (!isExecutableOutreachAction(currentAction)) return
   if (fromStatus === 'complete') return
 
   const { error } = await db
@@ -438,16 +437,17 @@ async function syncOpportunityInviteStatuses(db: PlannerDb, plan: Plan, userId: 
   const payload = data.payload_json
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return
 
-  const action = data as { id: string; action_type?: string | null; payload_json?: unknown }
-  const opportunityBriefId = readString((payload as Record<string, unknown>).opportunity_brief_id)
+  const action = data as { id: string; action_type?: string | null; payload_json?: unknown; result_metadata?: unknown }
+  const payloadRecord = payload as Record<string, unknown>
+  const opportunityBriefId = readString(payloadRecord.opportunity_brief_id)
 
-  if (action.action_type === 'opportunity_send_venues') {
-    await syncVenueOpportunitySendApproval(db, plan, userId, approval, payload as Record<string, unknown>, opportunityBriefId)
+  if (isVenueOutreachAction(action)) {
+    await syncVenueOpportunitySendApproval(db, plan, userId, approval, payloadRecord, opportunityBriefId)
     return
   }
 
-  if (action.action_type === 'opportunity_send_vendors') {
-    await syncVendorOpportunitySendApproval(db, plan, userId, approval, payload as Record<string, unknown>)
+  if (isVendorOutreachAction(action)) {
+    await syncVendorOpportunitySendApproval(db, plan, userId, approval, payloadRecord)
     return
   }
 
@@ -667,6 +667,34 @@ function hasVendorOutreachPayload(payload: Record<string, unknown>): boolean {
     readStringArray(payload.vendor_ids).length > 0
 }
 
+function isExecutableOutreachAction(action: unknown): boolean {
+  return isVenueOutreachAction(action) || isVendorOutreachAction(action)
+}
+
+function isVenueOutreachAction(action: unknown): boolean {
+  const record = readRecord(action)
+  const actionType = readString(record?.action_type)
+  if (actionType === 'opportunity_send_venues') return true
+
+  const payload = readRecord(record?.payload_json)
+  const metadata = readRecord(record?.result_metadata)
+  return actionType === 'email' &&
+    readString(payload?.kind) === 'venue_outreach' &&
+    readString(metadata?.action_type_fallback) === 'opportunity_send_venues'
+}
+
+function isVendorOutreachAction(action: unknown): boolean {
+  const record = readRecord(action)
+  const actionType = readString(record?.action_type)
+  if (actionType === 'opportunity_send_vendors') return true
+
+  const payload = readRecord(record?.payload_json)
+  const metadata = readRecord(record?.result_metadata)
+  return actionType === 'email' &&
+    readString(payload?.kind) === 'vendor_outreach' &&
+    readString(metadata?.action_type_fallback) === 'opportunity_send_vendors'
+}
+
 async function enqueueVenueInviteSendJobs(invites: Array<Record<string, unknown>>) {
   if (invites.length === 0) return
   const admin = createServiceRoleClient()
@@ -710,6 +738,8 @@ async function insertOpportunityStatusMessage(
 }
 
 async function syncApprovalMessageMetadata(db: PlannerDb, planId: string, approval: Approval) {
+  const actionPayload = await loadAgentActionPayload(db, approval.agent_action_id)
+  const executionMetadata = actionPayload ? buildApprovalExecutionMetadata(actionPayload) : {}
   const { data, error } = await db
     .from('plan_messages')
     .select(PLAN_MESSAGE_METADATA_SELECT_COLUMNS)
@@ -734,6 +764,7 @@ async function syncApprovalMessageMetadata(db: PlannerDb, planId: string, approv
 
       const nextMetadata = {
         ...row.metadata,
+        ...executionMetadata,
         status: approval.status,
         approval: {
           ...embeddedApproval,
@@ -751,6 +782,36 @@ async function syncApprovalMessageMetadata(db: PlannerDb, planId: string, approv
       }
     })
   )
+}
+
+async function loadAgentActionPayload(db: PlannerDb, actionId: string): Promise<Record<string, unknown> | null> {
+  const { data, error } = await db
+    .from('agent_actions')
+    .select('payload_json')
+    .eq('id', actionId)
+    .maybeSingle()
+
+  if (error) {
+    console.error('Planner approval action payload lookup error:', error)
+    return null
+  }
+
+  return readRecord(data?.payload_json)
+}
+
+function buildApprovalExecutionMetadata(payload: Record<string, unknown>): Record<string, unknown> {
+  const queuedVenueCount = readNumber(payload.queued_invite_count)
+  const queuedVendorCount = readNumber(payload.queued_vendor_invite_count)
+  const totalQueued = (queuedVenueCount ?? 0) + (queuedVendorCount ?? 0)
+
+  return {
+    opportunity_brief_id: readString(payload.opportunity_brief_id),
+    vendor_opportunity_brief_id: readString(payload.vendor_opportunity_brief_id),
+    invite_ids: readStringArray(payload.invite_ids),
+    vendor_invite_ids: readStringArray(payload.vendor_invite_ids),
+    queued_invite_count: totalQueued > 0 ? totalQueued : queuedVenueCount,
+    queued_vendor_invite_count: queuedVendorCount,
+  }
 }
 
 async function insertAgentActionAuditLog(
@@ -786,6 +847,10 @@ function readString(value: unknown): string | null {
 function readStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return value.filter((item): item is string => typeof item === 'string' && item.length > 0)
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {

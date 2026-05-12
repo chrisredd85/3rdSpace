@@ -34,6 +34,11 @@ export const PlannerEmptyState = memo(function PlannerEmptyState({
     setIsHydrated(true)
   }, [])
 
+  function autoResize(el: HTMLTextAreaElement) {
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }
+
   /**
    * Submits the current message when it contains non-empty text.
    */
@@ -93,11 +98,14 @@ export const PlannerEmptyState = memo(function PlannerEmptyState({
             <textarea
               ref={messageRef}
               value={message}
-              onChange={(event) => setMessage(event.target.value)}
+              onChange={(event) => {
+                setMessage(event.target.value)
+                autoResize(event.target)
+              }}
               onKeyDown={handleKeyDown}
               name="message"
               rows={1}
-              className="min-h-12 min-w-0 flex-1 resize-none border-0 bg-transparent px-2 py-3 text-base text-foreground outline-none placeholder:text-muted-foreground focus:ring-0"
+              className="min-h-12 max-h-48 min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-2 py-3 text-base text-foreground outline-none placeholder:text-muted-foreground focus:ring-0"
               placeholder="Host an SF Tech Week mixer for 120 founders and investors..."
               aria-label="Describe your event"
               disabled={isSubmitting || !isHydrated}

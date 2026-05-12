@@ -8,7 +8,7 @@ jest.mock('@/lib/ai/client', () => ({
 import { intakeAgentOutputSchema, runIntakeAgent } from '@/lib/ai/agents/intakeAgent'
 
 const founderDinnerOutput = {
-  reflection: 'Got it — 60 person founder dinner in SF.',
+  reflection: 'Perfect — 60 person founder dinner in SF.',
   extracted_fields: {
     event_type: 'dinner',
     guest_count: 60,
@@ -81,13 +81,95 @@ describe('runIntakeAgent', () => {
     }))
   })
 
-  it('rejects model output with more than one missing question', () => {
-    const invalidOutput = {
+  it('normalizes multiple missing questions down to one active prompt', () => {
+    const modelOutput = {
       ...founderDinnerOutput,
       missing_questions: ['One?', 'Two?'],
     }
 
-    expect(() => intakeAgentOutputSchema.parse(invalidOutput)).toThrow()
+    expect(intakeAgentOutputSchema.parse(modelOutput).missing_questions).toEqual(['One?'])
+  })
+
+  it('coerces flexible model field shapes instead of failing public intake', () => {
+    const modelOutput = {
+      ...founderDinnerOutput,
+      extracted_fields: {
+        ...founderDinnerOutput.extracted_fields,
+        guest_count: '60',
+        budget_cap_cents: '$5k',
+        ticketed: 'rsvp',
+        ticket_price_target: '40',
+      },
+      food_drink_needs: ['light bites', 'cash bar'],
+      music_av_needs: { summary: 'Mics and house speakers' },
+      hard_constraints: { summary: 'Needs load-in access' },
+      assumptions_made: null,
+    }
+
+    const parsed = intakeAgentOutputSchema.parse(modelOutput)
+
+    expect(parsed.extracted_fields.guest_count).toBe(60)
+    expect(parsed.extracted_fields.budget_cap_cents).toBe(500000)
+    expect(parsed.extracted_fields.ticketed).toBe(false)
+    expect(parsed.extracted_fields.ticket_price_target).toBe(4000)
+    expect(parsed.food_drink_needs).toBe('light bites, cash bar')
+    expect(parsed.music_av_needs).toBe('Mics and house speakers')
+    expect(parsed.hard_constraints).toEqual(['Needs load-in access'])
+    expect(parsed.assumptions_made).toEqual([])
+  })
+
+  it('does not multiply already-cent-normalized ticket prices', () => {
+    const modelOutput = {
+      ...founderDinnerOutput,
+      extracted_fields: {
+        ...founderDinnerOutput.extracted_fields,
+        ticketed: true,
+        ticket_price_target: 4000,
+      },
+    }
+
+    const parsed = intakeAgentOutputSchema.parse(modelOutput)
+
+    expect(parsed.extracted_fields.ticket_price_target).toBe(4000)
+  })
+
+  it('passes inferred archetype resolution context to the model', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify(founderDinnerOutput) } }],
+    })
+
+    await runIntakeAgent(
+      {
+        user_message: "I want to host a women's dinner",
+        archetype_resolution: {
+          key: 'private_dinner_celebration',
+          display_name: 'Private dinner / celebration',
+          match_strength: 'inferred',
+          matched_alias: 'inferred dinner gathering',
+          alternative_archetypes: [
+            {
+              key: 'community_meetup',
+              display_name: 'Community meetup',
+              why: 'Use this if the event should feel more like community meetup.',
+            },
+          ],
+        },
+      },
+      { create }
+    )
+
+    const createInput = create.mock.calls[0]?.[0] as { messages?: Array<{ role: string; content: string }> }
+    const userPayload = JSON.parse(createInput.messages?.[1]?.content ?? '{}') as {
+      archetype_resolution?: {
+        match_strength?: string
+        alternative_archetypes?: Array<{ key: string }>
+      }
+    }
+
+    expect(userPayload.archetype_resolution?.match_strength).toBe('inferred')
+    expect(userPayload.archetype_resolution?.alternative_archetypes).toEqual([
+      expect.objectContaining({ key: 'community_meetup' }),
+    ])
   })
 
   it('rejects missing required input fields before calling the model', async () => {

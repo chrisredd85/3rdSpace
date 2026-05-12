@@ -21,10 +21,20 @@ import { z } from 'zod'
 import type { IntakeAgentOutput } from '@/lib/ai/agents/intakeAgent'
 import { determineNextResponse } from '@/lib/planner/agentResponder'
 import { buildEventPlanFromPlannerPlan } from '@/lib/planner/agentPlanAdapter'
-import { resolveArchetypeContext } from '@/lib/planner/archetypes'
+import {
+  ARCHETYPE_LOCK_METADATA_KEY,
+  buildMutationContract,
+  buildArchetypeAnswerText,
+  createEventArchetypeLock,
+  decideEventTypeMutation,
+  getNextArchetypeIntakeQuestion,
+  mergeEventRequirementSignals,
+  resolveArchetypeContext,
+  resolveArchetypeIntakeContext,
+} from '@/lib/planner/archetypes'
 import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
-import { parseEventIntent } from '@/lib/planner/intentParser'
+import { hasUnknownBudgetSignal, parseEventIntent } from '@/lib/planner/intentParser'
 import { isIntakeReadyForRecommendations } from '@/lib/planner/intakeReadiness'
 import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
 import {
@@ -253,22 +263,40 @@ function buildPlanInsert(
   intent: Partial<PlanIntent>,
   draftPlan: Record<string, unknown> | null = null
 ) {
+  const shouldIgnoreBudget = hasUnknownBudgetSignal(message)
   const draftStatus = planStatusSchema.safeParse(readString(draftPlan?.status))
   const status = draftStatus.success && !isTerminalStatus(draftStatus.data) ? draftStatus.data : 'drafting'
+  const resolvedEventType = resolveEventTypeLabel(
+    readString(draftPlan?.event_type) ?? intent.event_type ?? intent.raw_event_type ?? null,
+    message
+  )
+  const baseMetadata = readRecord(draftPlan?.metadata) ?? {}
+  const lockedArchetype = readRecord(baseMetadata[ARCHETYPE_LOCK_METADATA_KEY])
+    ? null
+    : createEventArchetypeLock(`${resolvedEventType ?? ''} ${message}`, 'initial_intake')
+  const metadata = mergeEventRequirementSignals(
+    lockedArchetype
+      ? { ...baseMetadata, [ARCHETYPE_LOCK_METADATA_KEY]: lockedArchetype }
+      : baseMetadata,
+    message
+  )
 
   return {
     user_id: userId,
-    title: readString(draftPlan?.title) ?? buildPlanTitle(message, intent),
-    event_type: readString(draftPlan?.event_type) ?? intent.event_type ?? intent.raw_event_type ?? null,
+    title: readString(draftPlan?.title) ?? (resolvedEventType ? `${toTitleCase(resolvedEventType)} plan` : buildPlanTitle(message, intent)),
+    event_type: resolvedEventType,
     status,
     guest_count: readNumber(draftPlan?.guest_count) ?? intent.guest_count ?? null,
-    budget_cap_cents: readNumber(draftPlan?.budget_cap_cents) ?? intent.budget_cap ?? null,
+    budget_cap_cents: shouldIgnoreBudget ? null : readNumber(draftPlan?.budget_cap_cents) ?? intent.budget_cap ?? null,
     neighborhood: readString(draftPlan?.neighborhood) ?? intent.neighborhood ?? null,
     date_window_start: readString(draftPlan?.date_window_start) ?? intent.date_window_start ?? null,
     date_window_end: readString(draftPlan?.date_window_end) ?? intent.date_window_end ?? null,
     ticketed: readBoolean(draftPlan?.ticketed) ?? intent.ticketed ?? false,
+    ticketing_model: readString(draftPlan?.ticketing_model) ?? (intent.ticketed === true ? 'ticketed' : intent.ticketed === false ? 'rsvp' : null),
+    food_responsibility: readString(draftPlan?.food_responsibility) ?? intent.food_responsibility ?? null,
     profit_goal_cents: intent.profit_goal ?? null,
     notes: readString(draftPlan?.notes) ?? (intent.date_hint ? `Initial date hint: ${intent.date_hint}` : null),
+    metadata: Object.keys(metadata).length > 0 ? metadata : null,
   }
 }
 
@@ -350,7 +378,7 @@ async function buildInitialAgentResponse(input: {
   try {
     const { runAgent } = await import('@/lib/ai/agents')
     const connectedPlatforms = await getBuilderConnectedTicketingPlatforms(input.db, input.userId)
-    const resolvedArchetype = resolveArchetypeContext(`${input.userMessage} ${input.plan.event_type ?? ''}`)
+    const resolvedArchetype = resolveArchetypeIntakeContext(`${input.userMessage} ${input.plan.event_type ?? ''}`)
     const builderHistory = await loadBuilderHistoryForIntake(input.db, input.userId, resolvedArchetype?.key ?? null)
     const agentResult = await runAgent({
       agent_name: 'intake',
@@ -363,7 +391,9 @@ async function buildInitialAgentResponse(input: {
         existing_event_plan: buildEventPlanFromPlannerPlan(input.plan),
         connected_platforms: connectedPlatforms,
         resolved_archetype: resolvedArchetype,
+        archetype_resolution: resolvedArchetype,
         builder_history: builderHistory ? toIntakeBuilderHistory(builderHistory) : null,
+        mutation_contract: buildMutationContract(input.plan.metadata, input.plan.event_type),
       },
     })
 
@@ -380,7 +410,7 @@ async function buildInitialAgentResponse(input: {
     )
 
     return {
-      agentDraft: buildIntakeAgentDraft(intakeOutput, planWithAgentUpdates),
+      agentDraft: buildIntakeAgentDraft(intakeOutput, planWithAgentUpdates, input.messages),
       plan: planWithAgentUpdates,
       agentMode: 'openai',
     }
@@ -463,18 +493,30 @@ async function maybeMarkPlanReady(
   return data as Plan
 }
 
-function buildIntakeAgentDraft(output: IntakeAgentOutput, plan: Plan): AgentResponseDraft {
+function buildIntakeAgentDraft(
+  output: IntakeAgentOutput,
+  plan: Plan,
+  messages: PlanMessage[]
+): AgentResponseDraft {
   const missingQuestions = output.missing_questions
     .map((question) => question.trim())
     .filter((question) => question.length > 0)
   const nextBestQuestion = output.next_best_question?.trim() || null
-  const reflection = output.reflection.trim()
-  const isReady = isIntakeReadyForRecommendations(output, plan)
+  const reflection = normalizeAcknowledgementTone(output.reflection.trim(), plan.event_type ?? output.extracted_fields.event_type ?? output.updated_event_plan.event_name)
+  const conversationText = buildArchetypeAnswerText(messages)
+  const coreFieldsReady = hasIntakeCoreFields(output, plan)
+  const archetypeQuestion = coreFieldsReady
+    ? getNextArchetypeIntakeQuestion({
+        eventType: buildArchetypeSearchText(output, plan),
+        plan,
+        conversationText,
+      })
+    : null
+  const isReady = isIntakeReadyForRecommendations(output, plan, { conversationText }) && !archetypeQuestion
+  const question = archetypeQuestion?.prompt ?? nextBestQuestion ?? missingQuestions[0] ?? 'What should I know next?'
   const content = isReady
     ? reflection
-    : nextBestQuestion
-      ? `${reflection} ${nextBestQuestion}`
-      : `${reflection} ${missingQuestions[0] ?? 'What should I know next?'}`
+    : `${reflection} ${question}`
 
   return {
     content,
@@ -482,8 +524,50 @@ function buildIntakeAgentDraft(output: IntakeAgentOutput, plan: Plan): AgentResp
     metadata: toJson({
       agent_name: 'intake',
       agent_output: output,
+      archetype_question: archetypeQuestion,
     }),
   }
+}
+
+function hasIntakeCoreFields(output: IntakeAgentOutput, plan: Plan): boolean {
+  const eventPlan = output.updated_event_plan
+  const extracted = output.extracted_fields
+  const eventType = plan.event_type ?? extracted.event_type ?? eventPlan.venue_type ?? eventPlan.event_name
+  const headcount =
+    plan.guest_count ??
+    extracted.guest_count ??
+    eventPlan.expected_attendance ??
+    eventPlan.headcount_max ??
+    eventPlan.headcount_min
+  const area = plan.neighborhood ?? extracted.neighborhood ?? output.neighborhood ?? eventPlan.city
+  const date =
+    plan.date_window_start ??
+    plan.date_window_end ??
+    extracted.date_window_start ??
+    extracted.date_window_end ??
+    eventPlan.event_date
+
+  return Boolean(eventType && headcount && area && date)
+}
+
+function buildArchetypeSearchText(output: IntakeAgentOutput, plan: Plan): string | null {
+  const value = [
+    plan.event_type,
+    output.extracted_fields.event_type,
+    output.updated_event_plan.venue_type,
+    output.updated_event_plan.event_name,
+  ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0).join(' ')
+
+  return value || null
+}
+
+function normalizeAcknowledgementTone(value: string, seedValue: string | null | undefined): string {
+  if (!/^got it\b/i.test(value)) return value
+
+  const leads = ['Perfect', 'Clear', "I'm tracking", 'That works', 'Locked in']
+  const seed = Array.from(seedValue ?? value).reduce((total, char) => total + char.charCodeAt(0), 0)
+  const lead = leads[seed % leads.length]
+  return value.replace(/^got it[,.]?\s*(?:[—-]\s*)?/i, `${lead} — `)
 }
 
 function buildPlanUpdatesFromIntakeOutput(
@@ -494,51 +578,65 @@ function buildPlanUpdatesFromIntakeOutput(
   const eventPlan = output.updated_event_plan
   const extracted = output.extracted_fields
   const updates: Record<string, unknown> = {}
+  const shouldIgnoreBudget = hasUnknownBudgetSignal(userMessage)
 
   if (!currentPlan.title && eventPlan.event_name) updates.title = eventPlan.event_name
-  if (!currentPlan.event_type && (extracted.event_type || eventPlan.venue_type)) {
-    updates.event_type = extracted.event_type ?? eventPlan.venue_type
+  const eventTypeDecision = decideEventTypeMutation({
+    currentEventType: currentPlan.event_type,
+    currentMetadata: currentPlan.metadata,
+    proposedEventType: resolveEventTypeLabel(extracted.event_type ?? eventPlan.venue_type ?? null, userMessage),
+    userMessage,
+    source: 'explicit_user_reclassification',
+  })
+  if (eventTypeDecision.shouldApply && eventTypeDecision.eventType && currentPlan.event_type !== eventTypeDecision.eventType) {
+    updates.event_type = eventTypeDecision.eventType
+    updates.title = eventPlan.event_name ?? `${toTitleCase(eventTypeDecision.eventType)} plan`
   }
 
   const guestCount = extracted.guest_count ?? eventPlan.expected_attendance ?? eventPlan.headcount_max ?? eventPlan.headcount_min
-  if (currentPlan.guest_count == null && typeof guestCount === 'number') updates.guest_count = guestCount
-
-  if (currentPlan.budget_cap_cents == null) {
-    if (typeof extracted.budget_cap_cents === 'number') {
-      updates.budget_cap_cents = extracted.budget_cap_cents
-    } else if (typeof eventPlan.budget === 'number') {
-      updates.budget_cap_cents = normalizePlanningMoneyToCents(eventPlan.budget)
-    }
+  if (typeof guestCount === 'number' && guestCount > 0 && currentPlan.guest_count !== guestCount) {
+    updates.guest_count = guestCount
   }
-  if (currentPlan.profit_goal_cents == null) {
-    if (typeof extracted.profit_goal_cents === 'number') {
-      updates.profit_goal_cents = extracted.profit_goal_cents
-    } else if (typeof eventPlan.profit_goal === 'number') {
-      updates.profit_goal_cents = normalizePlanningMoneyToCents(eventPlan.profit_goal)
-    }
+
+  if (!shouldIgnoreBudget && typeof extracted.budget_cap_cents === 'number' && currentPlan.budget_cap_cents !== extracted.budget_cap_cents) {
+    updates.budget_cap_cents = extracted.budget_cap_cents
+  } else if (!shouldIgnoreBudget && typeof eventPlan.budget === 'number') {
+    const budgetCents = normalizePlanningMoneyToCents(eventPlan.budget)
+    if (budgetCents > 0 && currentPlan.budget_cap_cents !== budgetCents) updates.budget_cap_cents = budgetCents
+  }
+  if (typeof extracted.profit_goal_cents === 'number' && currentPlan.profit_goal_cents !== extracted.profit_goal_cents) {
+    updates.profit_goal_cents = extracted.profit_goal_cents
+  } else if (typeof eventPlan.profit_goal === 'number') {
+    const profitGoalCents = normalizePlanningMoneyToCents(eventPlan.profit_goal)
+    if (profitGoalCents > 0 && currentPlan.profit_goal_cents !== profitGoalCents) updates.profit_goal_cents = profitGoalCents
   }
 
   const neighborhood = extracted.neighborhood ?? output.neighborhood ?? eventPlan.city
-  if (!currentPlan.neighborhood && neighborhood) updates.neighborhood = neighborhood
+  if (neighborhood && currentPlan.neighborhood !== neighborhood) updates.neighborhood = neighborhood
 
-  if (!currentPlan.date_window_start && !currentPlan.date_window_end) {
-    if (extracted.date_window_start || extracted.date_window_end) {
-      updates.date_window_start = extracted.date_window_start
-      updates.date_window_end = extracted.date_window_end ?? extracted.date_window_start
-    } else if (eventPlan.event_date) {
-      updates.date_window_start = eventPlan.event_date
-      updates.date_window_end = eventPlan.event_date
-    }
+  if (extracted.date_window_start || extracted.date_window_end) {
+    const start = extracted.date_window_start ?? extracted.date_window_end
+    const end = extracted.date_window_end ?? extracted.date_window_start
+    if (currentPlan.date_window_start !== start) updates.date_window_start = start
+    if (currentPlan.date_window_end !== end) updates.date_window_end = end
+  } else if (eventPlan.event_date) {
+    if (currentPlan.date_window_start !== eventPlan.event_date) updates.date_window_start = eventPlan.event_date
+    if (currentPlan.date_window_end !== eventPlan.event_date) updates.date_window_end = eventPlan.event_date
   }
 
+  let nextTicketed = currentPlan.ticketed
   if (typeof extracted.ticketed === 'boolean' && currentPlan.ticketed !== extracted.ticketed) {
     updates.ticketed = extracted.ticketed
     updates.ticketing_model = extracted.ticketed ? 'ticketed' : 'rsvp'
+    nextTicketed = extracted.ticketed
   }
-  if (!currentPlan.ticketing_model && eventPlan.monetization_model) {
+  if (eventPlan.monetization_model) {
     updates.ticketing_model = eventPlan.monetization_model
     const monetizationModel = eventPlan.monetization_model.trim().toLowerCase()
-    if (monetizationModel.includes('ticket') || monetizationModel.includes('paid')) updates.ticketed = true
+    if (monetizationModel.includes('ticket') || monetizationModel.includes('paid')) {
+      updates.ticketed = true
+      nextTicketed = true
+    }
     if (
       monetizationModel.includes('free') ||
       monetizationModel.includes('rsvp') ||
@@ -546,6 +644,8 @@ function buildPlanUpdatesFromIntakeOutput(
       monetizationModel.includes('sponsor')
     ) {
       updates.ticketed = false
+      updates.ticketing_model = 'rsvp'
+      nextTicketed = false
     }
   }
 
@@ -555,7 +655,10 @@ function buildPlanUpdatesFromIntakeOutput(
   const metadata = buildMetadataUpdates(
     currentPlan,
     readTicketingPlatform(userMessage),
-    extracted.ticket_price_target
+    readTicketPriceTargetCents(output),
+    nextTicketed,
+    userMessage,
+    eventTypeDecision.lock
   )
   if (metadata) updates.metadata = metadata
 
@@ -603,6 +706,16 @@ function buildPlanTitle(message: string, intent: Partial<PlanIntent>): string {
 
   const compact = message.replace(/\s+/g, ' ').trim()
   return compact.length > 64 ? `${compact.slice(0, 61)}...` : compact
+}
+
+function resolveEventTypeLabel(candidate: string | null, message: string): string | null {
+  const resolvedArchetype = resolveArchetypeContext(message)
+  if (resolvedArchetype) return resolvedArchetype.display_name
+  return candidate
+}
+
+function isGenericEventType(value: string) {
+  return /^(event|party|gathering|meetup|social|experience)$/i.test(value.trim())
 }
 
 async function insertPlanUpdateRows(db: PlannerDb, plan: Plan, updates: Record<string, unknown>) {
@@ -680,15 +793,37 @@ function readRecord(value: unknown): Record<string, unknown> | null {
 function buildMetadataUpdates(
   currentPlan: Plan,
   intendedPlatform: TicketPlatform | null,
-  ticketPriceTargetCents: number | null
+  ticketPriceTargetCents: number | null,
+  ticketed: boolean,
+  userMessage: string,
+  eventArchetypeLock: unknown
 ): Record<string, unknown> | null {
   const metadata = readRecord(currentPlan.metadata) ?? {}
-  const nextMetadata = { ...metadata }
+  const nextMetadata = mergeEventRequirementSignals(metadata, userMessage)
+  if (eventArchetypeLock) nextMetadata[ARCHETYPE_LOCK_METADATA_KEY] = eventArchetypeLock
   if (intendedPlatform) nextMetadata.intended_platform = intendedPlatform
-  if (typeof ticketPriceTargetCents === 'number' && ticketPriceTargetCents > 0) {
-    nextMetadata.ticket_price_target_cents = normalizePlanningMoneyToCents(ticketPriceTargetCents)
+  if (ticketed === false) {
+    delete nextMetadata.ticket_price_target_cents
+    delete nextMetadata.ticket_price_target
+  } else if (typeof ticketPriceTargetCents === 'number' && ticketPriceTargetCents > 0) {
+    nextMetadata.ticket_price_target_cents = ticketPriceTargetCents
   }
   return Object.keys(nextMetadata).some((key) => nextMetadata[key] !== metadata[key]) ? nextMetadata : null
+}
+
+function readTicketPriceTargetCents(output: IntakeAgentOutput): number | null {
+  const extracted = output.extracted_fields.ticket_price_target
+  if (typeof extracted === 'number' && extracted > 0) return normalizeTicketPriceTargetCents(extracted)
+
+  const eventPlanValue = output.updated_event_plan.ticket_price_target
+  if (typeof eventPlanValue === 'number' && eventPlanValue > 0) return normalizeTicketPriceTargetCents(eventPlanValue)
+
+  return null
+}
+
+function normalizeTicketPriceTargetCents(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0
+  return Math.round(value < 1000 ? value * 100 : value)
 }
 
 function readTicketingPlatform(message: string): TicketPlatform | null {

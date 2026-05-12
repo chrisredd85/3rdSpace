@@ -32,6 +32,11 @@ import {
   type TimelineAgentResult,
 } from '@/lib/ai/agents/timelineAgent'
 import {
+  dataConnectionAgentDefinition,
+  runDataConnectionAgent,
+  type DataConnectionAgentResult,
+} from '@/lib/ai/agents/dataConnectionAgent'
+import {
   agentNameSchema,
   agentOutputSchema,
   agentResultSchema,
@@ -83,6 +88,7 @@ type AgentDefinition = {
   | { outputSchema: 'response_analysis' }
   | { outputSchema: 'workspace' }
   | { outputSchema: 'timeline' }
+  | { outputSchema: 'data_connection' }
 )
 
 type ChatCompletionClient = Pick<OpenAI['chat']['completions'], 'create'>
@@ -134,6 +140,11 @@ export const AGENT_REGISTRY: Record<AgentName, AgentDefinition> = {
     agentName: timelineAgentDefinition.agentName,
     model: timelineAgentDefinition.model,
     outputSchema: 'timeline',
+  },
+  data_connection: {
+    agentName: dataConnectionAgentDefinition.agentName,
+    model: dataConnectionAgentDefinition.model,
+    outputSchema: 'data_connection',
   },
   event_plan_extractor: {
     agentName: 'event_plan_extractor',
@@ -194,6 +205,7 @@ export async function runAgent(
   | ResponseAnalysisAgentResult
   | WorkspaceAgentResult
   | TimelineAgentResult
+  | DataConnectionAgentResult
 > {
   const startedAt = Date.now()
   const agentName = agentNameSchema.parse(input.agent_name)
@@ -225,6 +237,10 @@ export async function runAgent(
 
   if (agent.outputSchema === 'timeline') {
     return runTimelineAgent(input.payload, client)
+  }
+
+  if (agent.outputSchema === 'data_connection') {
+    return runDataConnectionAgent(input.payload, client)
   }
 
   assertOpenAIConfigured()

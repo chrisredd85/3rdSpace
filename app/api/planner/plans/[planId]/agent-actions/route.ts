@@ -187,6 +187,7 @@ export async function POST(
     if (
       parsed.data.actionType !== 'hold_request' &&
       parsed.data.actionType !== 'vendor_contact' &&
+      parsed.data.actionType !== 'external_checkout' &&
       parsed.data.actionType !== 'opportunity_send_venues' &&
       parsed.data.actionType !== 'opportunity_send_vendors'
     ) {

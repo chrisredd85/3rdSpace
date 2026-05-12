@@ -7,7 +7,7 @@
  */
 'use client'
 
-import { Suspense, useEffect, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
+import { Suspense, useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type UIEvent } from 'react'
 import dynamic from 'next/dynamic'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
@@ -51,6 +51,7 @@ export function PlannerShell({ children }: PlannerShellProps) {
   const [leftWidth, setLeftWidth] = useState(sidePanelOpenWidth)
   const [rightWidth, setRightWidth] = useState(sidePanelOpenWidth)
   const [hasLoadedPanelWidths, setHasLoadedPanelWidths] = useState(false)
+  const sideScrollRafRef = useRef<number | null>(null)
   const isLeftOpen = leftWidth >= leftMinimumOpenWidth
   const isLeftCollapsed = !isLeftOpen
   const isRightOpen = rightWidth > 0
@@ -84,6 +85,36 @@ export function PlannerShell({ children }: PlannerShellProps) {
     if (!hasLoadedPanelWidths || window.innerWidth >= 900 || pathname === '/planner') return
     setRightWidth(0)
   }, [hasLoadedPanelWidths, pathname])
+
+  useEffect(() => {
+    return () => {
+      if (sideScrollRafRef.current !== null) {
+        window.cancelAnimationFrame(sideScrollRafRef.current)
+      }
+    }
+  }, [])
+
+  function syncSidePanelsToMainScroll(event: UIEvent<HTMLElement>) {
+    const main = event.currentTarget
+    const mainScrollableHeight = main.scrollHeight - main.clientHeight
+    if (mainScrollableHeight <= 0) return
+
+    const scrollRatio = main.scrollTop / mainScrollableHeight
+
+    if (sideScrollRafRef.current !== null) {
+      window.cancelAnimationFrame(sideScrollRafRef.current)
+    }
+
+    sideScrollRafRef.current = window.requestAnimationFrame(() => {
+      document.querySelectorAll<HTMLElement>('[data-planner-side-scroll="true"]').forEach((panel) => {
+        const panelScrollableHeight = panel.scrollHeight - panel.clientHeight
+        if (panelScrollableHeight <= 0) return
+        panel.scrollTop = Math.round(panelScrollableHeight * scrollRatio)
+      })
+
+      sideScrollRafRef.current = null
+    })
+  }
 
   function beginLeftDrag(event: PointerEvent<HTMLDivElement>) {
     const startX = event.clientX
@@ -145,7 +176,7 @@ export function PlannerShell({ children }: PlannerShellProps) {
         onPointerDown={beginLeftDrag}
       />
 
-      <main className="min-w-0 flex-1 overflow-y-auto">
+      <main className="min-w-0 flex-1 overflow-y-auto" onScroll={syncSidePanelsToMainScroll}>
         <ActivePlanContextHeader />
         {children}
       </main>

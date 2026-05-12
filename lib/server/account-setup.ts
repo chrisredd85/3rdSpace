@@ -21,6 +21,7 @@ export type VenueSetupInput = {
   venueName: string
   address: string
   city: string
+  neighborhood?: string | null
   state: string
   zipCode: string
   venueType: VenueType
@@ -45,9 +46,10 @@ export type VenueSetupInput = {
 export type VendorSetupInput = {
   userId: string
   name: string
+  businessName?: string | null
   serviceType: ServiceType
-  bankAccountHolderName: string
-  bankName: string
+  bankAccountHolderName?: string | null
+  bankName?: string | null
   availabilityNotes: string
   phone?: string | null
   serviceArea?: string | null
@@ -94,6 +96,23 @@ function toPositivePercentageOrNull(value: number | null | undefined) {
   const positiveValue = toPositiveNumberOrNull(value)
   if (positiveValue === null || positiveValue > 100) return null
   return Math.round(positiveValue)
+}
+
+function normalizeVendorServiceArea(value: string | null | undefined) {
+  const rawValue = value?.trim()
+  if (!rawValue) return null
+
+  const normalized = rawValue.toLowerCase()
+  if (/\ball\b|\bbay area\b|all_bay_area/.test(normalized)) return 'all_bay_area'
+  if (/\beast bay\b|\boakland\b|\bberkeley\b|\bemeryville\b/.test(normalized)) {
+    if (/\bsan francisco\b|\bsf\b|\bsoma\b|\bdowntown\b/.test(normalized)) return 'all_bay_area'
+    return 'east_bay'
+  }
+  if (/\bsouth bay\b|\bsan jose\b|\bsunnyvale\b|\bpalo alto\b/.test(normalized)) return 'south_bay'
+  if (/\bnorth bay\b|\bmarin\b|\bnapa\b|\bsonoma\b/.test(normalized)) return 'north_bay'
+  if (/\bsan francisco\b|\bsf\b|\bsoma\b|\bdowntown\b|\bmission\b/.test(normalized)) return 'sf_only'
+
+  return 'all_bay_area'
 }
 
 export async function ensureBuilderTicketingConnections(
@@ -239,6 +258,10 @@ export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSe
   let venueId: string
   const depositAmount = toPositiveNumberOrNull(input.deposit)
   const minimumSpendCents = toIntegerCentsOrNull(input.minBarSpend)
+  const autoApproveConditions = {
+    ...(minimumSpendCents !== null && { minimum_spend_cents: minimumSpendCents }),
+    ...(input.neighborhood?.trim() && { neighborhood: input.neighborhood.trim() }),
+  }
 
   const { data: existingVenue, error: existingVenueError } = await admin
     .from('venues')
@@ -275,10 +298,12 @@ export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSe
     open_to: input.openTo ?? null,
     loading_address: input.loadingAddress ?? null,
     prep_time_hours: input.prepTimeHours ?? null,
-    ...(minimumSpendCents !== null && {
-      auto_approve_conditions: {
-        minimum_spend_cents: minimumSpendCents,
-      },
+    is_published: true,
+    is_claimed: true,
+    claimed_user_id: input.userId,
+    is_admin_seeded: false,
+    ...(Object.keys(autoApproveConditions).length > 0 && {
+      auto_approve_conditions: autoApproveConditions,
     }),
     updated_at: new Date().toISOString(),
   }
@@ -374,36 +399,63 @@ export async function ensureVendorProfile(admin: SupabaseLikeClient, input: Vend
   const now = new Date().toISOString()
   const vendorType = SERVICE_TYPE_LABELS[input.serviceType]
   const depositPercentage = toPositivePercentageOrNull(input.depositPct)
+  const displayName = input.businessName?.trim() || input.name
+
+  const vendorPayload = {
+    user_id: input.userId,
+    name: displayName,
+    phone: input.phone ?? null,
+    vendor_type: vendorType,
+    service_type: input.serviceType,
+    bank_account_holder_name: input.bankAccountHolderName?.trim() || null,
+    bank_name: input.bankName?.trim() || null,
+    availability_notes: input.availabilityNotes,
+    service_area: normalizeVendorServiceArea(input.serviceArea),
+    regions_served: input.serviceArea ?? null,
+    portfolio_url: input.portfolioUrl ?? null,
+    base_rate: input.basePrice != null ? Math.round(input.basePrice * 100) : null,
+    deposit_percentage: depositPercentage,
+    requires_deposit: depositPercentage !== null,
+    lead_time_days: input.leadTimeDays ?? null,
+    cancellation_terms: input.cancellationTerms ?? null,
+    emergency_available: input.emergencyAvailable ?? null,
+    emergency_rate_uplift: input.emergencyRateUplift ?? null,
+    bio: input.bio ?? input.availabilityNotes,
+    is_published: true,
+    is_claimed: true,
+    claimed_user_id: input.userId,
+    is_admin_seeded: false,
+    updated_at: now,
+  }
+
+  const { data: existingVendor, error: existingVendorError } = await admin
+    .from('vendor_profiles')
+    .select('id')
+    .eq('user_id', input.userId)
+    .maybeSingle()
+
+  if (existingVendorError) {
+    throw new Error(`Failed to verify vendor profile: ${existingVendorError.message}`)
+  }
+
+  if ((existingVendor as { id: string } | null)?.id) {
+    const { error } = await admin
+      .from('vendor_profiles')
+      .update(vendorPayload as never)
+      .eq('id', (existingVendor as { id: string }).id)
+
+    if (error) {
+      throw new Error(`Failed to update vendor profile: ${error.message}`)
+    }
+    return
+  }
 
   const { error } = await admin
     .from('vendor_profiles')
-    .upsert(
-      {
-        user_id: input.userId,
-        name: input.name,
-        phone: input.phone ?? null,
-        vendor_type: vendorType,
-        service_type: input.serviceType,
-        bank_account_holder_name: input.bankAccountHolderName,
-        bank_name: input.bankName,
-        availability_notes: input.availabilityNotes,
-        service_area: input.serviceArea ?? null,
-        portfolio_url: input.portfolioUrl ?? null,
-        base_rate: input.basePrice ?? null,
-        deposit_percentage: depositPercentage,
-        requires_deposit: depositPercentage !== null,
-        lead_time_days: input.leadTimeDays ?? null,
-        cancellation_terms: input.cancellationTerms ?? null,
-        emergency_available: input.emergencyAvailable ?? null,
-        emergency_rate_uplift: input.emergencyRateUplift ?? null,
-        bio: input.bio ?? input.availabilityNotes,
-        updated_at: now,
-      } as never,
-      { onConflict: 'user_id' }
-    )
+    .insert(vendorPayload as never)
 
   if (error) {
-    throw new Error(`Failed to save vendor profile: ${error.message}`)
+    throw new Error(`Failed to create vendor profile: ${error.message}`)
   }
 }
 
@@ -498,8 +550,6 @@ export async function getOnboardingStatus(
   const isOnboarded =
     !!vendorData?.id &&
     !!vendorData.service_type &&
-    !!vendorData.bank_account_holder_name &&
-    !!vendorData.bank_name &&
     !!vendorData.availability_notes
 
   return { isOnboarded, redirectPath: isOnboarded ? '/vendor' : '/onboarding' }

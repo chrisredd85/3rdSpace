@@ -18,6 +18,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { useVenue, useUpdateVenue } from '@/lib/hooks/useVenues'
 import {
   useVenuePhotos,
@@ -50,6 +51,7 @@ const venueSchema = z.object({
   max_capacity: z.number().optional(),
   address: z.string().min(5, 'Address is required'),
   city: z.string().min(2, 'City is required'),
+  neighborhood: z.string().optional(),
   state: z.string().min(2, 'State is required'),
   zip_code: z.string().min(5, 'ZIP code is required'),
   country: z.string().default('United States'),
@@ -108,6 +110,7 @@ export default function VenueListingPage() {
         max_capacity: venue.max_capacity || undefined,
         address: venue.address,
         city: venue.city,
+        neighborhood: venue.neighborhood || '',
         state: venue.state,
         zip_code: venue.zip_code,
         country: venue.country,
@@ -132,7 +135,8 @@ export default function VenueListingPage() {
   }
 
   const handleSave = async (data: VenueFormData) => {
-    if (!venueId) return
+    const currentVenue = venue
+    if (!venueId || !currentVenue) return
 
     try {
       await updateVenue.mutateAsync({
@@ -142,6 +146,16 @@ export default function VenueListingPage() {
           square_footage: data.square_footage || null,
           min_capacity: data.min_capacity || null,
           max_capacity: data.max_capacity || null,
+          auto_approve_conditions: {
+            ...(
+              currentVenue.auto_approve_conditions &&
+              typeof currentVenue.auto_approve_conditions === 'object' &&
+              !Array.isArray(currentVenue.auto_approve_conditions)
+                ? currentVenue.auto_approve_conditions
+                : {}
+            ),
+            neighborhood: data.neighborhood || null,
+          },
         },
       })
 
@@ -155,6 +169,30 @@ export default function VenueListingPage() {
       addToast({
         title: 'Error',
         description: 'Failed to update venue',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleVisibilityChange = async (isActive: boolean) => {
+    if (!venueId) return
+
+    try {
+      await updateVenue.mutateAsync({
+        id: venueId,
+        updates: { is_active: isActive },
+      })
+
+      addToast({
+        title: isActive ? 'Listing visible' : 'Listing hidden',
+        description: isActive
+          ? 'Your venue can now appear in the 3rdPlace event planner.'
+          : 'Your venue is hidden from event planner results.',
+      })
+    } catch (error) {
+      addToast({
+        title: 'Error',
+        description: 'Failed to update listing visibility',
         variant: 'destructive',
       })
     }
@@ -261,6 +299,28 @@ export default function VenueListingPage() {
       </div>
 
       <form onSubmit={handleSubmit(handleSave)} className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Planner Visibility</CardTitle>
+            <CardDescription>
+              Control whether event planners can discover this venue.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">Make listing visible to event planners</p>
+                <p className="text-sm text-muted-foreground">Visible listings appear in the 3rdPlace event planner</p>
+              </div>
+              <Switch
+                checked={Boolean(venue.is_active)}
+                disabled={updateVenue.isPending}
+                onCheckedChange={handleVisibilityChange}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Basic Info Card */}
         <Card>
           <CardHeader>
@@ -385,6 +445,13 @@ export default function VenueListingPage() {
                 {errors.city && (
                   <p className="text-sm text-destructive mt-1">{errors.city.message}</p>
                 )}
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-foreground mb-2 block">
+                  Neighborhood
+                </label>
+                <Input {...register('neighborhood')} placeholder="SOMA" />
               </div>
 
               <div>

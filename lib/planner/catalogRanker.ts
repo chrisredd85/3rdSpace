@@ -26,6 +26,7 @@ export interface CatalogPlanRankingInput {
   date_window?: string | null
   date_window_start?: string | null
   date_window_end?: string | null
+  metadata?: unknown
 }
 
 export type CatalogVenueRankingInput = Record<string, unknown> & {
@@ -245,6 +246,7 @@ function rankVenue(
 
   const cateringBlock = getCateringBlockingIssue(archetypeScore.warnings)
   if (cateringBlock) blockingIssues.push(cateringBlock)
+  blockingIssues.push(...archetypeScore.hard_gate_failures)
 
   const amenity = scoreAmenityCoverage(mustHaves, searchText)
   const budgetScore = scoreBudgetFit(estimateCents, budgetAllocationCents)

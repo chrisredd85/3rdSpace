@@ -27,6 +27,11 @@ const venueSeedSchema = z.object({
   notes: z.string().trim().max(2000).nullable().default(null),
 })
 
+const venuePublishSchema = z.object({
+  id: z.string().trim().min(1),
+  is_published: z.boolean(),
+})
+
 /**
  * Seeds a new unclaimed venue listing into the catalog.
  *
@@ -136,4 +141,47 @@ export async function GET() {
   }
 
   return NextResponse.json({ venues: data ?? [] })
+}
+
+/**
+ * Publishes or unpublishes an admin-seeded venue listing.
+ *
+ * @param request - Admin-authenticated request containing the venue id and visibility state.
+ * @returns The updated venue catalog row.
+ */
+export async function PATCH(request: NextRequest) {
+  const context = await getAdminContext()
+  if (!context.authorized) {
+    return NextResponse.json({ error: context.error }, { status: context.status })
+  }
+
+  const parsed = venuePublishSchema.safeParse(await request.json())
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Invalid venue publish payload', details: parsed.error.flatten() },
+      { status: 400 }
+    )
+  }
+
+  const admin = createServiceRoleClient()
+  const { data, error } = await admin
+    .from('venues')
+    .update({
+      is_published: parsed.data.is_published,
+      updated_at: new Date().toISOString(),
+    } as never)
+    .eq('id', parsed.data.id)
+    .eq('is_admin_seeded', true)
+    .select('*')
+    .single()
+
+  if (error) {
+    console.error('[admin.catalog.venues] Publish update failed', error)
+    return NextResponse.json(
+      { error: 'Failed to update venue visibility', details: error.message },
+      { status: 500 }
+    )
+  }
+
+  return NextResponse.json({ success: true, venue: data })
 }

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { humanizeEventType } from '@/lib/planner/archetypes/driftControl'
 import type { OpportunityResponseContext, OpportunityResponseAction } from '@/lib/opportunities/tokenValidate'
 import { cn } from '@/lib/utils'
 
@@ -690,6 +691,9 @@ function formatCurrency(cents: number) {
 }
 
 function formatLabel(value: string) {
+  const archetypeLabel = humanizeEventType(value)
+  if (archetypeLabel) return archetypeLabel
+
   return value
     .replace(/_/g, ' ')
     .replace(/\w\S*/g, (word) => (word.toUpperCase() === 'AV' ? 'AV' : word.charAt(0).toUpperCase() + word.slice(1)))

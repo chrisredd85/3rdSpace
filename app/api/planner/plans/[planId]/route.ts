@@ -286,6 +286,14 @@ function normalizePlanPatch(input: z.infer<typeof patchPlanSchema>, currentPlan:
       ticket_price_target_cents: input.ticket_price_target,
     }
   }
+  if (input.ticketed === false) {
+    const metadata = readRecord(currentPlan.metadata) ?? {}
+    const nextMetadata = { ...metadata }
+    delete nextMetadata.ticket_price_target_cents
+    delete nextMetadata.ticket_price_target
+    updates.metadata = nextMetadata
+    updates.ticketing_model = input.ticketing_model ?? 'rsvp'
+  }
 
   if (input.date_window !== undefined && input.date_window !== null) {
     updates.notes = [typeof updates.notes === 'string' ? updates.notes : null, `Date window: ${input.date_window}`]
@@ -367,7 +375,7 @@ async function invalidatePendingOutreachApprovals(
     .from('agent_actions')
     .select('id, action_type, status, payload_json')
     .eq('plan_id', planId)
-    .in('action_type', ['opportunity_send_venues', 'opportunity_send_vendors'])
+    .in('action_type', ['opportunity_send_venues', 'opportunity_send_vendors', 'email'])
 
   if (error) {
     console.error('Planner outreach approval action invalidation lookup error:', error)

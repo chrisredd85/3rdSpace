@@ -2,6 +2,8 @@ import 'server-only'
 
 import { createClient } from '@/lib/supabase/server'
 
+const LOCAL_DEV_WORKER_SECRET = 'local-dev-worker-secret'
+
 export type AdminContext =
   | {
       authorized: true
@@ -74,6 +76,16 @@ export async function getWorkerOrAdminContext(request: Request): Promise<AdminCo
       user: {
         id: 'worker',
         email: 'worker@internal',
+      },
+    }
+  }
+
+  if (!workerSecret && process.env.NODE_ENV !== 'production' && token === LOCAL_DEV_WORKER_SECRET) {
+    return {
+      authorized: true,
+      user: {
+        id: 'local-dev-worker',
+        email: 'worker@local-dev',
       },
     }
   }

@@ -21,6 +21,7 @@ import {
   WalletCards,
 } from 'lucide-react'
 import Link from 'next/link'
+import { humanizeEventType } from '@/lib/planner/archetypes/driftControl'
 import { plannerDraftStorageKey } from '@/lib/planner/migrateDraft'
 import type { PlanMessage } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -319,7 +320,7 @@ function formatCents(value: number | null) {
  */
 function formatEventType(value: string | null) {
   if (!value) return 'Event'
-  return value.charAt(0).toUpperCase() + value.slice(1)
+  return humanizeEventType(value) ?? 'Event'
 }
 
 /**
@@ -452,7 +453,10 @@ function deriveApprovals(messages: PlanMessage[]): PendingApproval[] {
 }
 
 function isRecommendationPlanMessage(message: PlanMessage) {
-  return String(message.message_type) === 'recommendation'
+  if (String(message.message_type) !== 'recommendation') return false
+  const metadata = asRecord(message.metadata)
+  const recommendations = Array.isArray(metadata?.recommendations) ? metadata.recommendations : []
+  return recommendations.length > 0
 }
 
 /**
@@ -636,7 +640,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
     () => activeMessages.filter(isRecommendationPlanMessage).length,
     [activeMessages]
   )
-  const primaryVenue = renderedRecommendations.find((recommendation) => /venue/i.test(recommendation.type)) ?? renderedRecommendations[0] ?? null
+  const primaryVenue = renderedRecommendations.find((recommendation) => /venue/i.test(recommendation.type)) ?? null
   const openQuestions = buildOpenQuestions(eventSummary, renderedRecommendations)
   const authorizationCards = buildAuthorizationCards(renderedApprovals, primaryVenue, renderedBudgetLineItems)
   const profitModel = useMemo(
@@ -795,7 +799,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-24">
+      <div className="min-h-0 flex-1 overflow-y-auto pb-24" data-planner-side-scroll="true">
         <ArtifactSection icon={<Sparkles className="h-5 w-5" />} title="Event Plan" subtitle="Structured artifact">
           <div className="grid gap-x-5 gap-y-5 [grid-template-columns:repeat(auto-fit,minmax(120px,1fr))]">
             <ArtifactField label="Event Type" value={formatEventType(eventSummary.event_type)} />
@@ -1293,6 +1297,7 @@ function applyTicketPriceIntent(summary: EventSummary, ticketPriceTargetCents: n
 }
 
 function getTicketedState(summary: EventSummary, ticketPriceTargetCents: number | null) {
+  if (summary.ticketed === false) return false
   if (ticketPriceTargetCents && ticketPriceTargetCents > 0) return true
   return summary.ticketed
 }
@@ -1328,6 +1333,7 @@ function deriveTicketPriceTargetCents(
   plan: LivePlanSnapshot | null,
   messages: PlanMessage[]
 ) {
+  if (plan?.ticketed === false || summary.ticketed === false) return null
   if (plan?.ticketPriceTargetCents && plan.ticketPriceTargetCents > 0) return plan.ticketPriceTargetCents
 
   const metadataPrice = findTicketPriceInMessageMetadata(messages)

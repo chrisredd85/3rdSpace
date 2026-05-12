@@ -297,6 +297,38 @@ describe('MVP launch API contracts', () => {
     expect(db.rows.approvals).toHaveLength(1)
   })
 
+  it('POST planner agent-actions creates an approval before exposing external checkout', async () => {
+    const response = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'external_checkout',
+        targetType: 'external',
+        requestedAmountCents: 9_500,
+        payloadJson: {
+          action_label: 'External checkout',
+          provider: 'Ticketing partner',
+          url: 'https://tickets.example/event/123',
+          package_details: 'External ticketing checkout requires approval before the link is used.',
+        },
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+    const json = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(json.agentAction).toEqual(expect.objectContaining({
+      plan_id: PLAN_ID,
+      action_type: 'external_checkout',
+      approval_id: expect.any(String),
+    }))
+    expect(json.approval).toEqual(expect.objectContaining({
+      plan_id: PLAN_ID,
+      status: 'pending',
+      price_cents: 9_500,
+    }))
+    expect(db.rows.agent_actions).toHaveLength(1)
+    expect(db.rows.approvals).toHaveLength(1)
+  })
+
   it('PATCH planner approvals authorizes send-to-venues and enqueues invite jobs', async () => {
     db.rows.venues.push(
       { id: VENUE_ID_1, venue_name: 'Foundry Rooftop', city: 'San Francisco', state: 'CA', standing_capacity: 160, is_claimed: true },
@@ -305,12 +337,16 @@ describe('MVP launch API contracts', () => {
     db.rows.agent_actions.push({
       id: ACTION_ID,
       plan_id: PLAN_ID,
-      action_type: 'opportunity_send_venues',
+      action_type: 'email',
       payload_json: {
+        kind: 'venue_outreach',
         venue_ids: [VENUE_ID_1, VENUE_ID_2],
         summary: 'MVP launch mixer with clear capacity and budget requirements.',
         requirements: { must_haves: ['AV', 'bar'] },
         response_deadline: '2026-08-10T00:00:00.000Z',
+      },
+      result_metadata: {
+        action_type_fallback: 'opportunity_send_venues',
       },
       status: 'pending',
     })

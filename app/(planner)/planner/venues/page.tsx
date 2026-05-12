@@ -39,21 +39,26 @@ interface VenuesApiResponse {
 }
 
 async function fetchPlannerVenueCatalog(): Promise<CatalogVenue[]> {
-  const response = await fetch('/api/venues')
+  const response = await fetch(`/api/venues?planner_catalog=1&ts=${Date.now()}`, {
+    cache: 'no-store',
+    headers: {
+      'Cache-Control': 'no-cache',
+    },
+  })
   const payload = (await response.json()) as VenuesApiResponse
 
   if (!response.ok) {
     throw new Error(payload.error || 'Catalog temporarily unavailable')
   }
 
-  return (payload.venues || []).filter((venue) => venue.is_admin_seeded === true)
+  return (payload.venues || []).sort((first, second) => Number(second.is_admin_seeded === true) - Number(first.is_admin_seeded === true))
 }
 
 /**
- * Planner catalog page for browsing admin-seeded venues.
+ * Planner catalog page for browsing planner-visible venues.
  *
- * Fetches the public venue catalog once, filters admin-seeded listings client-side,
- * and exposes lightweight search for planner users without relying on saved venues.
+ * Fetches the same public venue catalog used by recommendations and exposes
+ * lightweight search for planner users without relying on saved venues.
  */
 export default function PlannerVenuesPage() {
   const [searchQuery, setSearchQuery] = useState('')
@@ -68,7 +73,9 @@ export default function PlannerVenuesPage() {
     queryKey: ['planner-venue-catalog'],
     queryFn: fetchPlannerVenueCatalog,
     retry: false,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   })
 
   const filteredVenues = useMemo(() => {

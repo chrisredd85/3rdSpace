@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { normalizeVenues, VENUE_LEGACY_SELECT_COLUMNS, VENUE_SELECT_COLUMNS } from '@/lib/venues/venue-adapter'
 
 /**
@@ -26,7 +26,7 @@ import { normalizeVenues, VENUE_LEGACY_SELECT_COLUMNS, VENUE_SELECT_COLUMNS } fr
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createClient()
+    const supabase = createVenueCatalogClient()
     const { searchParams } = new URL(request.url)
 
     // Parse query parameters
@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
     const maxPrice = searchParams.get('max_price')
     const isVerified = searchParams.get('is_verified')
     const tagsParam = searchParams.get('tags')
+    const plannerCatalog = searchParams.get('planner_catalog') === '1'
     const page = parseInt(searchParams.get('page') || '0', 10)
     const pageSize = parseInt(searchParams.get('pageSize') || '20', 10)
 
@@ -124,7 +125,26 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const publicVenues = normalizeVenues(venues as any[]).map(stripContactEmail)
+    const normalizedVenues = normalizeVenues(venues as any[])
+    const amenitiesByVenueId = await loadVenueAmenities(
+      supabase,
+      normalizedVenues.map((venue) => venue.id)
+    )
+    const publicVenues = normalizedVenues
+      .map((venue) => {
+        const amenities = amenitiesByVenueId.get(venue.id) ?? []
+        const uniqueFeaturesTags = Array.from(new Set([
+          ...(venue.unique_features_tags ?? []),
+          ...amenities,
+        ]))
+
+        return {
+          ...venue,
+          amenities,
+          unique_features_tags: uniqueFeaturesTags,
+        }
+      })
+      .map(stripContactEmail)
 
     return NextResponse.json(
       {
@@ -135,7 +155,9 @@ export async function GET(request: NextRequest) {
       },
       {
         headers: {
-          'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=600',
+          'Cache-Control': plannerCatalog
+            ? 'no-store'
+            : 'public, s-maxage=120, stale-while-revalidate=600',
         },
       }
     )
@@ -151,6 +173,48 @@ export async function GET(request: NextRequest) {
       { status: 503 }
     )
   }
+}
+
+function createVenueCatalogClient() {
+  try {
+    return createServiceRoleClient()
+  } catch {
+    return createClient()
+  }
+}
+
+async function loadVenueAmenities(
+  supabase: ReturnType<typeof createServiceRoleClient> | ReturnType<typeof createClient>,
+  venueIds: string[]
+) {
+  const amenitiesByVenueId = new Map<string, string[]>()
+  if (venueIds.length === 0) return amenitiesByVenueId
+
+  let query = supabase
+    .from('venue_amenities')
+    .select('venue_id, amenity_name, custom_amenity_name')
+
+  query = query.in('venue_id', venueIds)
+
+  const { data, error } = await query.limit(1000)
+  if (error) {
+    console.error('[/api/venues] Venue amenities lookup failed', error)
+    return amenitiesByVenueId
+  }
+
+  for (const row of (data || []) as Array<Record<string, unknown>>) {
+    const venueId = typeof row.venue_id === 'string' ? row.venue_id : null
+    const amenity =
+      typeof row.amenity_name === 'string'
+        ? row.amenity_name
+        : typeof row.custom_amenity_name === 'string'
+          ? row.custom_amenity_name
+          : null
+    if (!venueId || !amenity) continue
+    amenitiesByVenueId.set(venueId, [...(amenitiesByVenueId.get(venueId) ?? []), amenity])
+  }
+
+  return amenitiesByVenueId
 }
 
 const VENUE_CATALOG_OPTIONAL_COLUMNS = [

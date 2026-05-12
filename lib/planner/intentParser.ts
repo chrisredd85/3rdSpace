@@ -26,7 +26,7 @@ const EVENT_TYPE_PATTERNS: Array<{
   confidence: number
 }> = [
   { event_type: 'hackathon', pattern: /\bhackathon(s)?\b/i, confidence: 0.98 },
-  { event_type: 'concert', pattern: /\b(concert|show|performance|artist|book\s+[a-z0-9'-]+\s+for)\b/i, confidence: 0.9 },
+  { event_type: 'concert', pattern: /\b(concert|show|performance|book\s+[a-z0-9'-]+\s+for)\b/i, confidence: 0.9 },
   { event_type: 'retreat', pattern: /\b(corporate\s+retreat|retreat|offsite|off-site|team\s+offsite|team\s+off-site)\b/i, confidence: 0.96 },
   { event_type: 'dinner', pattern: /\b(dinner|supper|private\s+dining|group\s+dinner)\b/i, confidence: 0.96 },
   { event_type: 'mixer', pattern: /\b(mixer|networking|founder\s+meetup|happy\s+hour)\b/i, confidence: 0.94 },
@@ -146,7 +146,7 @@ export function parseEventIntent(message: string): Partial<PlanIntent> {
     intent.confidence = { ...intent.confidence, guest_count: guestCount.confidence }
   }
 
-  const budgetCap = extractBudgetCap(trimmed)
+  const budgetCap = hasUnknownBudgetSignal(trimmed) ? null : extractBudgetCap(trimmed)
   if (budgetCap) {
     intent.budget_cap = budgetCap.value
     intent.confidence = { ...intent.confidence, budget_cap: budgetCap.confidence }
@@ -192,13 +192,17 @@ export function parseEventIntent(message: string): Partial<PlanIntent> {
   return intent
 }
 
+export function hasUnknownBudgetSignal(message: string): boolean {
+  return /\b(?:no|not sure|unsure|unknown|tbd|to be determined|do not know|don't know|dont know|haven't set|have not set|need help|help me|estimate|you tell me)\b.{0,40}\bbudget\b|\bbudget\b.{0,40}\b(?:unknown|tbd|to be determined|not sure|unsure|do not know|don't know|dont know|haven't set|have not set|need help|help me|estimate|you tell me)\b/i.test(message)
+}
+
 function extractEventType(message: string) {
   return EVENT_TYPE_PATTERNS.find(({ pattern }) => pattern.test(message))
 }
 
 function extractGuestCount(message: string): { value: number; confidence: number } | null {
   const attendanceWords =
-    '(?:builders?|people|guests?|attendees?|founders?|investors?|folks|members?|participants?|engineers?|executives?|creatives?|artists?|developers?|designers?|hackers?|students?|volunteers?|employees?|staff|speakers?|athletes?|runners?|players?|cap|capacity|pax|persons?)'
+    '(?:builders?|people|guests?|attendees?|founders?|operators?|investors?|donors?|supporters?|fans?|viewers?|folks|members?|participants?|engineers?|executives?|creatives?|artists?|developers?|designers?|hackers?|students?|volunteers?|employees?|staff|speakers?|athletes?|runners?|players?|cap|capacity|pax|persons?)'
   const numberToken = '~?\\s*(\\d[\\d,]*(?:\\.\\d+)?\\s*(?:k)?)'
   const hyphenatedPerson = message.match(/\b(\d[\d,]*)-person\b/i)
   if (hyphenatedPerson) {
@@ -230,7 +234,7 @@ function extractBudgetCap(message: string): { value: number; confidence: number 
   const budgetNearMoney =
     /(?:budget|cap|spend|under|max|maximum|up to|total)\s*(?:of|is|at|around|about|:)?\s*\$?\s*(\d[\d,]*(?:\.\d+)?\s*(?:k|m)?)/i
   const moneyNearBudget =
-    /\$\s*(\d[\d,]*(?:\.\d+)?\s*(?:k|m)?)\s*(?:budget|cap|spend|total|max|maximum|all[-\s]?in)?/i
+    /\$\s*(\d[\d,]*(?:\.\d+)?\s*(?:k|m)?)\s*(?:budget|cap|spend|total|max|maximum|all[-\s]?in)\b/i
 
   const match = message.match(budgetNearMoney) ?? message.match(moneyNearBudget)
   if (!match) return null
@@ -326,6 +330,20 @@ function extractDateWindow(message: string):
     }
   }
 
+  const dayOfMonth = lower.match(
+    /\b(\d{1,2})(?:st|nd|rd|th)?\s+of\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i
+  )
+  if (dayOfMonth) {
+    const day = Number(dayOfMonth[1])
+    const month = MONTHS[dayOfMonth[2].toLowerCase()]
+    return {
+      hint: dayOfMonth[0].trim(),
+      start: toIsoDate(DEFAULT_PLANNING_YEAR, month, day),
+      end: toIsoDate(DEFAULT_PLANNING_YEAR, month, day),
+      confidence: 0.88,
+    }
+  }
+
   const vagueMonth = lower.match(
     /\b(early|mid|late)[-\s]+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i
   )
@@ -338,6 +356,19 @@ function extractDateWindow(message: string):
       start: toIsoDate(DEFAULT_PLANNING_YEAR, month, startDay),
       end: toIsoDate(DEFAULT_PLANNING_YEAR, month, endDay),
       confidence: 0.78,
+    }
+  }
+
+  const bareMonth = lower.match(
+    /\b(?:in|during|around|for)\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i
+  )
+  if (bareMonth) {
+    const month = MONTHS[bareMonth[1].toLowerCase()]
+    return {
+      hint: bareMonth[0].trim(),
+      start: toIsoDate(DEFAULT_PLANNING_YEAR, month, 1),
+      end: toIsoDate(DEFAULT_PLANNING_YEAR, month, daysInMonth(DEFAULT_PLANNING_YEAR, month)),
+      confidence: 0.68,
     }
   }
 
@@ -396,11 +427,6 @@ function extractRelativeDateWindow(lowerMessage: string): { hint: string; start:
   }
 
   return null
-}
-
-const WEEKDAY_INDEX: Record<string, number> = {
-  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
-  thursday: 4, friday: 5, saturday: 6,
 }
 
 function buildRelativeWindow(hint: string, days: number): { hint: string; start: string; end: string; confidence: number } {

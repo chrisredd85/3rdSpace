@@ -1,16 +1,32 @@
-import { parseEventIntent } from '@/lib/planner/intentParser'
+import { hasUnknownBudgetSignal, parseEventIntent } from '@/lib/planner/intentParser'
 
 describe('planner parser MVP regressions', () => {
   it.each([
     ['next month', /next month/i],
     ['first weekend of August', /first weekend of august/i],
     ['mid-July', /mid-july/i],
+    ['4th of July', /4th of july/i],
   ])('parses vague date phrase "%s"', (phrase, expectedHint) => {
     const intent = parseEventIntent(`Plan a mixer for 40 people ${phrase}`)
 
     expect(intent.date_hint).toMatch(expectedHint)
     expect(intent.date_window_start).toBeDefined()
     expect(intent.date_window_end).toBeDefined()
+  })
+
+  it('parses holiday dates written as ordinal-of-month phrases', () => {
+    const intent = parseEventIntent('I want to host a 4th of July day party')
+
+    expect(intent.date_window_start).toBe('2026-07-04')
+    expect(intent.date_window_end).toBe('2026-07-04')
+  })
+
+  it('parses bare month references as full-month planning windows', () => {
+    const intent = parseEventIntent('Plan a retreat offsite in Napa for 45 people in August')
+
+    expect(intent.date_hint).toBe('in august')
+    expect(intent.date_window_start).toBe('2026-08-01')
+    expect(intent.date_window_end).toBe('2026-08-31')
   })
 
   it('falls through unsupported event types to a generic taxonomy prompt', () => {
@@ -47,6 +63,15 @@ describe('planner parser MVP regressions', () => {
   })
 
   it.each([
+    'I do not know my budget yet',
+    "I don't know the budget yet",
+    'No budget right now, help me estimate',
+  ])('keeps unknown budget phrase "%s" unset', (phrase) => {
+    expect(hasUnknownBudgetSignal(phrase)).toBe(true)
+    expect(parseEventIntent(`Plan a workshop for 35 people. ${phrase}`).budget_cap).toBeUndefined()
+  })
+
+  it.each([
     ['25-person team offsite', 25],
     ['Corporate retreat for 40 executives', 40],
     ['Mixer for ~80 people', 80],
@@ -55,6 +80,14 @@ describe('planner parser MVP regressions', () => {
     const intent = parseEventIntent(phrase)
 
     expect(intent.guest_count).toBe(expectedHeadcount)
+  })
+
+  it('does not confuse a date day number with founder/operator headcount', () => {
+    const intent = parseEventIntent('Host a founder dinner in Hayes Valley for 20 operators on July 9. Guests pay venue directly.')
+
+    expect(intent.guest_count).toBe(20)
+    expect(intent.date_window_start).toBe('2026-07-09')
+    expect(intent.date_window_end).toBe('2026-07-09')
   })
 
   it('treats open bar as organizer-prepaid food and beverage', () => {

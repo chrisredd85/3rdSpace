@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { ExternalLink, FileText, Loader2, Save, Trash2, Upload } from 'lucide-react'
+import { ExternalLink, FileText, Loader2, Save, Trash2, Upload, Zap } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { FileUpload } from '@/components/forms/FileUpload'
 import { useUser } from '@/lib/hooks/useUser'
 import { supabase } from '@/lib/supabase/client'
@@ -23,6 +24,12 @@ const serviceAreaOptions = [
   { value: 'south_bay', label: 'South Bay' },
   { value: 'north_bay', label: 'North Bay' },
 ] as const
+
+const optionalNumber = z.preprocess((value) => {
+  if (value === '' || value === null || value === undefined) return null
+  const parsed = typeof value === 'number' ? value : Number.parseFloat(String(value))
+  return Number.isFinite(parsed) ? parsed : null
+}, z.number().min(0).nullable())
 
 const vendorSchema = z.object({
   business_name: z.string().min(2, 'Business name must be at least 2 characters'),
@@ -40,6 +47,14 @@ const vendorSchema = z.object({
   ]),
   service_area: z.enum(['all_bay_area', 'sf_only', 'east_bay', 'south_bay', 'north_bay']),
   setup_time: z.enum(['30', '60', '90', '120', '180']),
+  is_published: z.boolean(),
+  base_rate: optionalNumber,
+  deposit_percentage: optionalNumber,
+  lead_time_days: optionalNumber,
+  availability_notes: z.string().optional(),
+  cancellation_terms: z.string().optional(),
+  emergency_available: z.boolean(),
+  emergency_rate_uplift: optionalNumber,
 })
 
 type VendorFormData = z.infer<typeof vendorSchema>
@@ -52,6 +67,15 @@ type VendorProfile = {
   service_area: VendorFormData['service_area'] | null
   setup_time_minutes: number | null
   photo_url: string | null
+  is_published: boolean | null
+  base_rate: number | null
+  deposit_percentage: number | null
+  requires_deposit: boolean | null
+  lead_time_days: number | null
+  availability_notes: string | null
+  cancellation_terms: string | null
+  emergency_available: boolean | null
+  emergency_rate_uplift: number | null
 }
 
 type VendorDocumentRow = {
@@ -107,6 +131,8 @@ export default function VendorServicesPage() {
     handleSubmit,
     formState: { errors, isDirty },
     reset,
+    watch,
+    setValue,
   } = useForm<VendorFormData>({
     resolver: zodResolver(vendorSchema),
     defaultValues: {
@@ -115,8 +141,18 @@ export default function VendorServicesPage() {
       service_type: 'dj',
       service_area: 'all_bay_area',
       setup_time: '60',
+      is_published: true,
+      base_rate: null,
+      deposit_percentage: 30,
+      lead_time_days: 7,
+      availability_notes: '',
+      cancellation_terms: '',
+      emergency_available: false,
+      emergency_rate_uplift: null,
     },
   })
+  const isPublished = watch('is_published')
+  const emergencyAvailable = watch('emergency_available')
 
   useEffect(() => {
     let isMounted = true
@@ -131,7 +167,7 @@ export default function VendorServicesPage() {
 
       const { data: vendor, error: vendorError } = await supabase
         .from('vendor_profiles')
-        .select('id, name, bio, service_type, service_area, setup_time_minutes, photo_url')
+        .select('id, name, bio, service_type, service_area, setup_time_minutes, photo_url, is_published, base_rate, deposit_percentage, requires_deposit, lead_time_days, availability_notes, cancellation_terms, emergency_available, emergency_rate_uplift')
         .eq('user_id', user.id)
         .maybeSingle()
 
@@ -167,6 +203,14 @@ export default function VendorServicesPage() {
           service_type: (profile.service_type || 'dj') as VendorFormData['service_type'],
           service_area: (profile.service_area || 'all_bay_area') as VendorFormData['service_area'],
           setup_time: String(profile.setup_time_minutes || 60) as VendorFormData['setup_time'],
+          is_published: profile.is_published !== false,
+          base_rate: profile.base_rate ?? null,
+          deposit_percentage: profile.deposit_percentage ?? null,
+          lead_time_days: profile.lead_time_days ?? null,
+          availability_notes: profile.availability_notes || '',
+          cancellation_terms: profile.cancellation_terms || '',
+          emergency_available: profile.emergency_available === true,
+          emergency_rate_uplift: profile.emergency_rate_uplift ?? null,
         })
       }
 
@@ -251,8 +295,17 @@ export default function VendorServicesPage() {
           regions_served: data.service_area,
           vendor_type: getVendorType(data.service_type),
           setup_time_minutes: Number(data.setup_time),
+          is_published: data.is_published,
+          base_rate: data.base_rate,
+          deposit_percentage: data.deposit_percentage,
+          requires_deposit: typeof data.deposit_percentage === 'number' && data.deposit_percentage > 0,
+          lead_time_days: data.lead_time_days,
+          availability_notes: data.availability_notes || null,
+          cancellation_terms: data.cancellation_terms || null,
+          emergency_available: data.emergency_available,
+          emergency_rate_uplift: data.emergency_available ? data.emergency_rate_uplift : null,
           updated_at: new Date().toISOString(),
-        })
+        } as never)
         .eq('id', vendorId)
 
       if (updateError) throw updateError
@@ -471,6 +524,28 @@ export default function VendorServicesPage() {
       <form onSubmit={handleSubmit(handleSave)} className="space-y-6">
         <Card>
           <CardHeader>
+            <CardTitle>Planner Visibility</CardTitle>
+            <CardDescription>
+              Control whether builders can discover this vendor while planning.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">Make service visible to event planners</p>
+                <p className="text-sm text-muted-foreground">Visible services appear in the 3rdPlace event planner and recommendation flow.</p>
+              </div>
+              <Switch
+                checked={Boolean(isPublished)}
+                disabled={isSaving}
+                onCheckedChange={(checked) => setValue('is_published', checked, { shouldDirty: true })}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Basic Information</CardTitle>
             <CardDescription>
               Essential details about your service business
@@ -557,6 +632,76 @@ export default function VendorServicesPage() {
                 <option value="120">2 hours</option>
                 <option value="180">3 hours</option>
               </select>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Booking Terms</CardTitle>
+            <CardDescription>
+              Set the pricing, deposit, lead time, and availability signals builders need before outreach.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-foreground">Base / starting price ($)</label>
+                <Input type="number" step="1" {...register('base_rate')} placeholder="950" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-foreground">Deposit required (%)</label>
+                <Input type="number" step="1" {...register('deposit_percentage')} placeholder="30" />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-foreground">Minimum lead time (days)</label>
+                <Input type="number" step="1" {...register('lead_time_days')} placeholder="7" />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">Availability notes</label>
+              <textarea
+                {...register('availability_notes')}
+                rows={3}
+                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="Available Tuesday-Saturday. Can handle same-week panel AV when gear is in town."
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">Cancellation terms</label>
+              <textarea
+                {...register('cancellation_terms')}
+                rows={2}
+                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="Refundable until seven days out, then 50% deposit retained."
+              />
+            </div>
+
+            <div className="rounded-2xl border border-accent/40 bg-accent/5 p-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex gap-3">
+                  <Zap className="mt-0.5 h-4 w-4 text-accent" />
+                  <div>
+                    <p className="font-medium text-foreground">Available as an emergency vendor</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Let planners flag you for last-minute replacement requests at a higher rate.
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={Boolean(emergencyAvailable)}
+                  disabled={isSaving}
+                  onCheckedChange={(checked) => setValue('emergency_available', checked, { shouldDirty: true })}
+                />
+              </div>
+              {emergencyAvailable ? (
+                <div className="mt-4 max-w-xs">
+                  <label className="mb-2 block text-sm font-medium text-foreground">Emergency-rate uplift (%)</label>
+                  <Input type="number" step="1" {...register('emergency_rate_uplift')} placeholder="25" />
+                </div>
+              ) : null}
             </div>
           </CardContent>
         </Card>

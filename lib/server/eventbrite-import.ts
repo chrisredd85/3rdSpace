@@ -58,28 +58,40 @@ type ImportedSalePayload = {
   raw_data: Record<string, any>
 }
 
-function mapEventbriteAttendee(
+type EventbriteAttendeeInput = {
+  id: string
+  checked_in?: boolean | null
+  checked_in_at?: string | null
+  ticket_class_id?: string | null
+  ticket_class_name?: string | null
+  order_id?: string | null
+  status?: string | null
+  cancelled?: boolean | null
+  canceled?: boolean | null
+  refunded?: boolean | null
+  voided?: boolean | null
+  cancelled_at?: string | null
+  canceled_at?: string | null
+  refunded_at?: string | null
+  created?: string | null
+  changed?: string | null
+  costs?: {
+    gross?: Record<string, unknown> | null
+    eventbrite_fee?: Record<string, unknown> | null
+    payment_fee?: Record<string, unknown> | null
+    tax?: Record<string, unknown> | null
+  } | null
+  profile?: {
+    first_name?: string | null
+    last_name?: string | null
+    email?: string | null
+  } | null
+}
+
+export function mapEventbriteAttendee(
   integrationId: string,
   eventId: string,
-  attendee: {
-    id: string
-    checked_in?: boolean | null
-    checked_in_at?: string | null
-    ticket_class_id?: string | null
-    ticket_class_name?: string | null
-    order_id?: string | null
-    costs?: {
-      gross?: Record<string, unknown> | null
-      eventbrite_fee?: Record<string, unknown> | null
-      payment_fee?: Record<string, unknown> | null
-      tax?: Record<string, unknown> | null
-    } | null
-    profile?: {
-      first_name?: string | null
-      last_name?: string | null
-      email?: string | null
-    } | null
-  }
+  attendee: EventbriteAttendeeInput
 ): ImportedAttendeePayload {
   const ticketPriceCents = centsFromEventbriteCost(attendee.costs?.gross)
   const tierName = attendee.ticket_class_name ?? 'Unknown'
@@ -103,16 +115,18 @@ function mapEventbriteAttendee(
   }
 }
 
-function mapEventbriteSale(
+export function mapEventbriteSale(
   integrationId: string,
   eventId: string,
-  attendee: Parameters<typeof mapEventbriteAttendee>[2]
+  attendee: EventbriteAttendeeInput
 ): ImportedSalePayload {
   const ticketPriceCents = centsFromEventbriteCost(attendee.costs?.gross) ?? 0
   const eventbriteFeeCents = centsFromEventbriteCost(attendee.costs?.eventbrite_fee) ?? 0
   const paymentFeeCents = centsFromEventbriteCost(attendee.costs?.payment_fee) ?? 0
   const feesCents = eventbriteFeeCents + paymentFeeCents
   const tierName = attendee.ticket_class_name ?? 'Unknown'
+  const isRefund = isEventbriteRefundOrCancellation(attendee)
+  const direction = isRefund ? -1 : 1
   const orderId = attendee.order_id
     ? `${attendee.order_id}:${attendee.id}`
     : `${eventId}:${attendee.id}`
@@ -124,24 +138,38 @@ function mapEventbriteSale(
     platform: 'eventbrite',
     ticket_buyer_name: [attendee.profile?.first_name, attendee.profile?.last_name].filter(Boolean).join(' ') || null,
     ticket_buyer_email: attendee.profile?.email ?? null,
-    ticket_quantity: 1,
+    ticket_quantity: direction,
     ticket_type: attendee.ticket_class_name ?? null,
     ticket_tier_name: tierName,
     ticket_tier_category: classifyTicketTier(tierName, ticketPriceCents),
     ticket_price: majorAmountFromCents(ticketPriceCents),
     ticket_price_cents: ticketPriceCents,
-    total_amount: majorAmountFromCents(ticketPriceCents) ?? 0,
-    total_amount_cents: ticketPriceCents,
-    fees: majorAmountFromCents(feesCents) ?? 0,
-    fees_cents: feesCents,
+    total_amount: majorAmountFromCents(ticketPriceCents * direction) ?? 0,
+    total_amount_cents: ticketPriceCents * direction,
+    fees: majorAmountFromCents(feesCents * direction) ?? 0,
+    fees_cents: feesCents * direction,
     currency: normalizeCurrency((attendee.costs?.gross as Record<string, unknown> | null | undefined)?.currency),
     discount_code: null,
-    is_refund: false,
-    purchase_timestamp: null,
+    is_refund: isRefund,
+    purchase_timestamp: attendee.refunded_at ?? attendee.cancelled_at ?? attendee.canceled_at ?? attendee.created ?? attendee.changed ?? attendee.checked_in_at ?? null,
     raw_ticket_class_id: attendee.ticket_class_id ?? null,
     sales_channel: 'eventbrite_import',
     raw_data: attendee as Record<string, any>,
   }
+}
+
+function isEventbriteRefundOrCancellation(attendee: EventbriteAttendeeInput): boolean {
+  const status = attendee.status?.toLowerCase() ?? ''
+  return Boolean(
+    attendee.refunded ||
+      attendee.cancelled ||
+      attendee.canceled ||
+      attendee.voided ||
+      attendee.refunded_at ||
+      attendee.cancelled_at ||
+      attendee.canceled_at ||
+      /\b(refund|refunded|cancel|cancelled|canceled|void|voided|deleted)\b/i.test(status)
+  )
 }
 
 function chunk<T>(items: T[], size: number) {

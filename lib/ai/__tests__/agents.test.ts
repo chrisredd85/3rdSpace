@@ -36,7 +36,7 @@ const validOutput = {
 }
 
 const validIntakeOutput = {
-  reflection: 'Got it — 60 person founder dinner in SF.',
+  reflection: 'Perfect — 60 person founder dinner in SF.',
   extracted_fields: {
     event_type: 'dinner',
     guest_count: 60,
@@ -76,7 +76,7 @@ const validIntakeOutput = {
 }
 
 const ticketingPlatformQuestionOutput = {
-  reflection: 'Got it — ticketed founder dinner in the Mission.',
+  reflection: 'Clear — ticketed founder dinner in the Mission.',
   extracted_fields: {
     event_type: 'dinner',
     guest_count: 50,

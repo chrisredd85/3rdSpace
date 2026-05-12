@@ -1,4 +1,5 @@
 import type { Plan, PlanMessage } from '@/lib/types'
+import { humanizeEventType } from '@/lib/planner/archetypes/driftControl'
 import { classifyUnsupportedEventType } from '@/lib/planner/eventTaxonomy'
 
 type MockAgentDraft = Pick<PlanMessage, 'role' | 'content' | 'message_type'> & {
@@ -850,8 +851,15 @@ function buildInitialAcknowledgement(context: MockIntakeContext, prompt: string)
     : context.operation_window.posture === 'full_support'
       ? ` This fits the ${context.operation_window.label.toLowerCase()} workflow.`
       : ''
+  const lead = selectAcknowledgementLead(`${eventLabel}:${headcountLabel}:${dateLabel}:${prompt}`)
 
-  return `Got it — ${eventLabel}${headcountLabel}${dateLabel}.${scopeNote}${urgencyNote} ${prompt}`
+  return `${lead} — ${eventLabel}${headcountLabel}${dateLabel}.${scopeNote}${urgencyNote} ${prompt}`
+}
+
+function selectAcknowledgementLead(seedText: string) {
+  const leads = ['Perfect', 'Clear', "I'm tracking", 'That works', 'Makes sense', 'Locked in']
+  const seed = Array.from(seedText).reduce((total, char) => total + char.charCodeAt(0), 0)
+  return leads[seed % leads.length]
 }
 
 function detectEventType(text: string): string | null {
@@ -1195,6 +1203,8 @@ function buildRollingWindow(days: number): DetectedDateContext {
 }
 
 function detectBudget(text: string): number | null {
+  if (!/\b(budget|cap|spend|under|max|maximum|up to|total|all[-\s]?in|around)\b/i.test(text)) return null
+
   const thousands = text.match(/\$?([\d,]+\.?\d*)\s*k\b/i)
   if (thousands) return parseBudgetAmount(thousands[1], 1_000)
 
@@ -2386,7 +2396,7 @@ function formatRequirementSummary(context: MockIntakeContext) {
 }
 
 function formatEventTypeForSentence(eventType: string) {
-  return eventType.charAt(0).toUpperCase() + eventType.slice(1).toLowerCase()
+  return humanizeEventType(eventType) ?? eventType.charAt(0).toUpperCase() + eventType.slice(1).toLowerCase()
 }
 
 function isDinnerLike(eventType: string | null | undefined) {

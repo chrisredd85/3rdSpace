@@ -98,6 +98,16 @@ export const VENUE_DETAIL_SELECT_COLUMNS = VENUE_SELECT_COLUMNS
  */
 export function normalizeVenue(row: VenueRow): Venue {
   const standingCapacity = row.capacity ?? row.standing_capacity ?? row.seated_capacity ?? 0
+  const autoApproveConditions =
+    row.auto_approve_conditions && typeof row.auto_approve_conditions === 'object' && !Array.isArray(row.auto_approve_conditions)
+      ? row.auto_approve_conditions as Record<string, unknown>
+      : null
+  const neighborhood =
+    typeof row.neighborhood === 'string'
+      ? row.neighborhood
+      : typeof autoApproveConditions?.neighborhood === 'string'
+        ? autoApproveConditions.neighborhood
+        : null
 
   return {
     id: row.id,
@@ -105,6 +115,7 @@ export function normalizeVenue(row: VenueRow): Venue {
     name: row.name ?? row.venue_name ?? 'Untitled venue',
     description: row.description ?? null,
     venue_type: row.venue_type ?? 'other',
+    neighborhood,
     address: row.address ?? '',
     city: row.city ?? '',
     state: row.state ?? '',
@@ -165,6 +176,16 @@ export function toVenueRowUpdate(updates: Partial<Omit<Venue, 'id' | 'created_at
   if (updates.name !== undefined) row.venue_name = updates.name
   if (updates.description !== undefined) row.description = updates.description
   if (updates.venue_type !== undefined) row.venue_type = updates.venue_type
+  if (updates.neighborhood !== undefined) {
+    const conditions =
+      updates.auto_approve_conditions && typeof updates.auto_approve_conditions === 'object' && !Array.isArray(updates.auto_approve_conditions)
+        ? updates.auto_approve_conditions as Record<string, unknown>
+        : {}
+    row.auto_approve_conditions = {
+      ...conditions,
+      neighborhood: updates.neighborhood,
+    }
+  }
   if (updates.address !== undefined) row.address = updates.address
   if (updates.city !== undefined) row.city = updates.city
   if (updates.state !== undefined) row.state = updates.state

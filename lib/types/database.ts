@@ -53,6 +53,7 @@ export interface Venue {
   name: string
   description: string | null
   venue_type: VenueType
+  neighborhood?: string | null
   address: string
   city: string
   state: string
@@ -197,6 +198,13 @@ export interface Vendor {
   deposit_percentage?: number | null
   deposit_refundable?: boolean | null
   deposit_terms?: string | null
+  service_area?: string | null
+  regions_served?: string | null
+  availability_notes?: string | null
+  lead_time_days?: number | null
+  cancellation_terms?: string | null
+  emergency_available?: boolean | null
+  emergency_rate_uplift?: number | null
   is_active: boolean
   is_verified: boolean
   created_at: string

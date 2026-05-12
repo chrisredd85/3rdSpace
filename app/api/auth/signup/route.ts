@@ -18,6 +18,7 @@ interface SignupRequest {
   venue_name?: string
   address?: string
   city?: string
+  neighborhood?: string | null
   state?: string
   zip_code?: string
   venue_type?: VenueType
@@ -36,6 +37,7 @@ interface SignupRequest {
   open_to?: string | null
   loading_address?: string | null
   prep_time?: number | null
+  business_name?: string | null
   service_type?: ServiceType
   service_area?: string | null
   portfolio_url?: string | null
@@ -44,6 +46,7 @@ interface SignupRequest {
   package_name?: string | null
   package_details?: string | null
   deposit_pct?: number | null
+  deposit_percentage?: number | null
   lead_time_days?: number | null
   emergency_available?: boolean | null
   emergency_rate_uplift?: number | null
@@ -63,6 +66,7 @@ interface VenueSignupDetails {
   venue_name: string
   address: string
   city: string
+  neighborhood?: string | null
   state: string
   zip_code: string
   venue_type: VenueType
@@ -86,9 +90,10 @@ interface VenueSignupDetails {
 
 interface VendorSignupDetails {
   name: string
+  business_name?: string | null
   service_type: ServiceType
-  bank_account_holder_name: string
-  bank_name: string
+  bank_account_holder_name?: string | null
+  bank_name?: string | null
   availability_notes: string
   phone?: string | null
   service_area?: string | null
@@ -115,7 +120,7 @@ function getRole(userType: UserType): string {
 
 function getCompanyName(body: SignupRequest): string {
   if (body.userType === 'venue_owner') return body.venue_name || body.name
-  if (body.userType === 'vendor') return body.name
+  if (body.userType === 'vendor') return body.business_name || body.name
   return body.organization_name || body.name
 }
 
@@ -201,9 +206,20 @@ function getVendorSignupValidationError(body: SignupRequest): string | null {
   if (body.userType !== 'vendor') return null
   if (!body.name?.trim()) return 'Missing vendor contact name'
   if (!body.service_type) return 'Select at least one vendor service'
-  if (!body.bank_account_holder_name?.trim()) return 'Missing bank account holder name'
-  if (!body.availability_notes?.trim()) return 'Add vendor availability details'
+  if (!body.availability_notes?.trim() && !body.available_days?.length) {
+    return 'Add vendor availability details'
+  }
 
+  return null
+}
+
+function parseOptionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value.replace(/[$,%\s,]/g, ''))
+    return Number.isFinite(parsed) ? parsed : null
+  }
   return null
 }
 
@@ -223,6 +239,7 @@ function getVenueDetails(body: SignupRequest): VenueSignupDetails | null {
     venue_name,
     address,
     city,
+    neighborhood,
     state,
     zip_code,
     venue_type,
@@ -239,6 +256,7 @@ function getVenueDetails(body: SignupRequest): VenueSignupDetails | null {
     venue_name,
     address,
     city,
+    neighborhood: neighborhood?.trim() || null,
     state: state.toUpperCase(),
     zip_code,
     venue_type,
@@ -264,30 +282,35 @@ function getVenueDetails(body: SignupRequest): VenueSignupDetails | null {
 function getVendorDetails(body: SignupRequest): VendorSignupDetails | null {
   if (body.userType !== 'vendor') return null
 
-  const { name, service_type, bank_account_holder_name, bank_name, availability_notes } = body
-  if (!name || !service_type || !bank_account_holder_name || !availability_notes) {
+  const { name, business_name, service_type, bank_account_holder_name, bank_name } = body
+  const availabilityNotes =
+    body.availability_notes?.trim() ||
+    (body.available_days?.length ? `Available ${body.available_days.join(', ')}` : '')
+
+  if (!name || !service_type || !availabilityNotes) {
     return null
   }
 
   return {
     name,
+    business_name: business_name?.trim() || null,
     service_type,
-    bank_account_holder_name,
-    bank_name: bank_name?.trim() || 'Pending Stripe onboarding',
-    availability_notes,
+    bank_account_holder_name: bank_account_holder_name?.trim() || null,
+    bank_name: bank_name?.trim() || null,
+    availability_notes: availabilityNotes,
     phone: body.phone ?? null,
     service_area: body.service_area ?? null,
     portfolio_url: body.portfolio_url ?? null,
     bio: body.bio ?? null,
-    base_price: body.base_price ?? null,
+    base_price: parseOptionalNumber(body.base_price),
     package_name: body.package_name ?? null,
     package_details: body.package_details ?? null,
-    deposit_pct: body.deposit_pct ?? null,
-    lead_time_days: body.lead_time_days ?? null,
+    deposit_pct: parseOptionalNumber(body.deposit_pct ?? body.deposit_percentage),
+    lead_time_days: parseOptionalNumber(body.lead_time_days),
     cancellation_terms: body.cancellation_terms ?? null,
     available_days: body.available_days ?? null,
     emergency_available: body.emergency_available ?? null,
-    emergency_rate_uplift: body.emergency_rate_uplift ?? null,
+    emergency_rate_uplift: parseOptionalNumber(body.emergency_rate_uplift),
   }
 }
 
@@ -319,6 +342,7 @@ async function ensureRoleSetup(
       venueName: venueDetails.venue_name,
       address: venueDetails.address,
       city: venueDetails.city,
+      neighborhood: venueDetails.neighborhood ?? null,
       state: venueDetails.state,
       zipCode: venueDetails.zip_code,
       venueType: venueDetails.venue_type,
@@ -333,6 +357,7 @@ async function ensureRoleSetup(
       venueName: venueDetails.venue_name,
       address: venueDetails.address,
       city: venueDetails.city,
+      neighborhood: venueDetails.neighborhood ?? null,
       state: venueDetails.state,
       zipCode: venueDetails.zip_code,
       venueType: venueDetails.venue_type,
@@ -360,6 +385,7 @@ async function ensureRoleSetup(
     await ensureVendorProfile(admin, {
       userId,
       name: vendorDetails.name,
+      businessName: vendorDetails.business_name ?? null,
       serviceType: vendorDetails.service_type,
       bankAccountHolderName: vendorDetails.bank_account_holder_name,
       bankName: vendorDetails.bank_name,

@@ -59,7 +59,7 @@ const seedMessages = [
   {
     role: 'agent',
     content:
-      'Got it. The demo plan is ready to compare venue options. I would start with SOMA rooftops and event floors that can handle 120 guests, DJ setup, and hosted bar service.',
+      'Locked in. The demo plan is ready to compare venue options. I would start with SOMA rooftops and event floors that can handle 120 guests, DJ setup, and hosted bar service.',
     message_type: 'recommendation',
     metadata: {
       recommendations: [

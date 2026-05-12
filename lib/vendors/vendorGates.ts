@@ -110,11 +110,13 @@ export function normalizeServiceType(value: string | null | undefined): ServiceT
   if (!normalized) return null
   if (normalized === 'photography') return 'photographer'
   if (normalized === 'videography') return 'videographer'
-  if (normalized === 'av' || normalized === 'av tech' || normalized === 'av_tech' || normalized === 'production') return 'av_production'
+  if (normalized === 'music coordinator' || normalized === 'live music' || normalized === 'band coordinator') return 'music_coordinator'
+  if (normalized === 'av' || normalized === 'av tech' || normalized === 'av production' || normalized === 'production') return 'av_production'
   if (normalized === 'bar' || normalized === 'bartender') return 'bartending'
   if (normalized === 'event planning' || normalized === 'event_planning') return 'staffing'
   if (normalized === 'floral') return 'florist'
-  if (SERVICE_TYPES.has(normalized as ServiceType)) return normalized as ServiceType
+  const underscored = normalized.replace(/\s+/g, '_')
+  if (SERVICE_TYPES.has(underscored as ServiceType)) return underscored as ServiceType
   return null
 }
 
@@ -128,6 +130,7 @@ export function toDbVendorServiceTypes(serviceType: ServiceType): string[] {
   if (serviceType === 'florist' || serviceType === 'decor' || serviceType === 'lighting') {
     return [serviceType, 'florist']
   }
+  if (serviceType === 'music_coordinator') return ['music_coordinator', 'dj', 'entertainment']
   return [serviceType]
 }
 
@@ -239,4 +242,5 @@ const SERVICE_TYPES = new Set<ServiceType>([
   'lighting',
   'permits',
   'pos_systems',
+  'music_coordinator',
 ])

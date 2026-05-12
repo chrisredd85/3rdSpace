@@ -12,7 +12,11 @@ import {
   type PlanningMilestone,
 } from '@/lib/events/milestoneTemplates'
 
-export const timelineAgentInputSchema = milestoneTemplateInputSchema
+export const timelineAgentInputSchema = milestoneTemplateInputSchema.extend({
+  archetype_intake: z.record(z.unknown()).nullish(),
+  mutation_contract: z.record(z.unknown()).nullish(),
+  conversation_history: z.array(z.record(z.unknown())).optional(),
+})
 export const timelineAgentOutputSchema = milestoneTemplateOutputSchema
 
 export type TimelineAgentInput = z.infer<typeof timelineAgentInputSchema>
@@ -56,6 +60,8 @@ const TIMELINE_SYSTEM_PROMPT = [
   'The application has already generated required planning milestones deterministically. Preserve them unless only rewording the title for clarity.',
   'Always keep milestones for venue confirmation, deposit payment, vendor booking, ticket launch, promo push, final headcount, day-before check, setup, doors, programming, and teardown.',
   'Use only venue_bookings and vendor_bookings data provided in the request. Do not reference the legacy bookings table.',
+  'Use archetype_intake and conversation_history to preserve user-stated timing constraints, especially setup, load-in, sound check, doors, programming, breakdown, vendor arrival, and external checkout dependencies.',
+  'Honor mutation_contract when present. Treat locked_archetype as authoritative and never reclassify the event inside timeline output.',
   'Do not invent confirmed bookings, staffing, deposits, payments, venue rules, or vendor timing.',
   'Keep the output operational and short.',
   'Do not send outreach, create bookings, authorize payments, or execute any action.',

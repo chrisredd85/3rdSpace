@@ -29,17 +29,29 @@ export const venueMatchingAgentInputSchema = z.object({
   builder_attendance: builderAttendanceSummarySchema.nullish(),
   ranked_venues: z.array(z.record(z.unknown())).default([]),
   plan: z.record(z.unknown()).nullish(),
-  conversation_history: z.array(z.record(z.unknown())).default([]),
+  conversation_history: z.array(z.record(z.unknown())).optional(),
+  archetype_intake: z.record(z.unknown()).nullish(),
+  mutation_contract: z.record(z.unknown()).nullish(),
   organizer_preferences: z.record(z.unknown()).nullish(),
 })
+
+const rankedVenueFitScoreSchema = z.preprocess(
+  coerceFiniteNumber,
+  z.number().int().min(0).max(100)
+)
+
+const optionalNonEmptyStringSchema = z.preprocess(
+  (value) => value === null ? undefined : value,
+  z.string().trim().min(1).optional()
+)
 
 export const rankedVenueSchema = z.object({
   venue_id: z.string().trim().min(1),
   venue_name: z.string().trim().min(1),
-  fit_score: z.number().int().min(0).max(100),
+  fit_score: rankedVenueFitScoreSchema,
   user_facing_intro: z.string().trim().min(1).optional(),
   archetype_reasons: z.array(z.string().trim().min(1)).optional(),
-  commercial_model_match: z.string().trim().min(1).optional(),
+  commercial_model_match: optionalNonEmptyStringSchema,
   capacity_calibration: z.object({
     projected_attendance: z.number().int().nonnegative().nullable(),
     calibration_signal: z.enum(['no_history', 'stated', 'historical_higher', 'historical_aligned']),
@@ -57,7 +69,7 @@ export const venueMatchingAgentOutputSchema = z.object({
   ranked_venues: z.array(rankedVenueSchema).max(10),
   best_recommendation: z.string().trim().min(1).nullable(),
   reason_summary: z.string().trim().min(1),
-  no_match: z.boolean(),
+  no_match: z.boolean().default(false),
 }).superRefine((output, context) => {
   if (!output.no_match && output.ranked_venues.length === 0) {
     context.addIssue({
@@ -67,13 +79,9 @@ export const venueMatchingAgentOutputSchema = z.object({
     })
   }
 
-  if (!output.no_match && output.best_recommendation === null) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'best_recommendation is required when no_match is false',
-      path: ['best_recommendation'],
-    })
-  }
+  // The model can occasionally return ranked venues with a null best_recommendation.
+  // finalizeVenueMatchingOutput fills that from the top ranked venue, so do not
+  // reject an otherwise usable response here.
 })
 
 export type VenueMatchingAgentInput = z.infer<typeof venueMatchingAgentInputSchema>
@@ -115,6 +123,8 @@ const VENUE_MATCHING_SYSTEM_PROMPT = [
   'Do not invent venue fields. Use only candidate id, venue_name, venue_type, standing_capacity, seated_capacity, city, state, hourly_rate, minimum_hours, per_head_kickback, offers_kickbacks, deposit_percentage, cancellation_terms, available_days, bar_revenue_share_enabled, venue_amenities. Amenity data is from venue_amenities.amenity_name.',
   'Use deterministic_score as the fit_score. The application code owns filtering and scoring; your job is to explain pros, cons, questions, and the recommendation.',
   'When you write user_facing_intro for each venue, reference at least one archetype-specific reason from the archetype config, such as standing-capacity fit for a mixer or private dining intimacy for a founder dinner.',
+  'Use archetype_intake and conversation_history to honor the user\'s clarified needs, such as DJ/music, AV, load-in, VIP flow, food/bar setup, seating, screens, security, or external ticket constraints.',
+  'Honor mutation_contract when present. Treat locked_archetype as authoritative and do not reclassify the event; operational terms like artist, VIP, green room, DJ, guest list, sound check, load-in, tickets, sponsors, and bar minimum are requirements unless the user has confirmed an event-type change.',
   'Do not send outreach, create bookings, authorize payments, or execute any action.',
   `Output JSON must match this contract: ${JSON.stringify(VENUE_MATCHING_OUTPUT_CONTRACT)}.`,
 ].join('\n')
@@ -160,8 +170,10 @@ export async function runVenueMatchingAgent(
         event_plan: input.event_plan,
         plan: input.plan ?? null,
         archetype: input.archetype ?? null,
+        archetype_intake: input.archetype_intake ?? null,
+        mutation_contract: input.mutation_contract ?? null,
         ranked_venues: input.ranked_venues,
-        conversation_history: input.conversation_history,
+        conversation_history: input.conversation_history ?? [],
         organizer_preferences: input.organizer_preferences ?? null,
         builder_attendance: input.builder_attendance ?? null,
         candidate_venues: preFilteredVenues.map(toModelCandidate),
@@ -200,6 +212,14 @@ export async function runVenueMatchingAgent(
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Failed to parse venue_matching model JSON'
+}
+
+function coerceFiniteNumber(value: unknown): unknown {
+  if (typeof value === 'number') return value
+  if (typeof value !== 'string') return value
+
+  const parsed = Number.parseFloat(value.replace(/[%\s,]/g, ''))
+  return Number.isFinite(parsed) ? parsed : value
 }
 
 function toModelCandidate(venue: PreFilteredVenue) {
@@ -267,6 +287,10 @@ function finalizeVenueMatchingOutput(
 
   return venueMatchingAgentOutputSchema.parse({
     ...modelOutput,
+    best_recommendation:
+      modelOutput.best_recommendation ??
+      rankedVenues[0]?.user_facing_intro ??
+      (rankedVenues[0] ? `${rankedVenues[0].venue_name} is the strongest fit.` : null),
     no_match: false,
     ranked_venues: rankedVenues,
   })

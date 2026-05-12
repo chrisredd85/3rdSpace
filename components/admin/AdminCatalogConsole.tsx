@@ -24,6 +24,7 @@ export function AdminCatalogConsole({ kind, initialRows }: AdminCatalogConsolePr
   const [rows, setRows] = useState(initialRows)
   const [form, setForm] = useState<Record<string, string>>({})
   const [isSaving, setIsSaving] = useState(false)
+  const [publishingId, setPublishingId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
 
   const isVenue = kind === 'venues'
@@ -58,6 +59,33 @@ export function AdminCatalogConsole({ kind, initialRows }: AdminCatalogConsolePr
       await refresh()
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function updatePublishState(row: Record<string, any>, isPublished: boolean) {
+    const id = String(row.id ?? '')
+    if (!id) return
+
+    setPublishingId(id)
+    setMessage('')
+    try {
+      const response = await fetch(`/api/admin/catalog/${kind}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, is_published: isPublished }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        setMessage(data.error || 'Unable to update catalog visibility')
+        return
+      }
+
+      const updatedRow = (data[isVenue ? 'venue' : 'vendor'] ?? { ...row, is_published: isPublished }) as Record<string, any>
+      setRows((current) => current.map((item) => (String(item.id) === id ? updatedRow : item)))
+      setMessage(`${getName(updatedRow, kind)} is now ${isPublished ? 'published' : 'unpublished'}.`)
+    } finally {
+      setPublishingId(null)
     }
   }
 
@@ -142,7 +170,9 @@ export function AdminCatalogConsole({ kind, initialRows }: AdminCatalogConsolePr
                     <th className="pb-2 pr-4">Type</th>
                     <th className="pb-2 pr-4">Contact</th>
                     <th className="pb-2 pr-4">Claim</th>
+                    <th className="pb-2 pr-4">Visibility</th>
                     <th className="pb-2 pr-4">Created</th>
+                    <th className="pb-2 pr-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -156,7 +186,34 @@ export function AdminCatalogConsole({ kind, initialRows }: AdminCatalogConsolePr
                         {String(row.contact_email ?? 'No email')}
                       </td>
                       <td className="py-3 pr-4">{row.is_claimed ? 'Claimed' : 'Unclaimed'}</td>
+                      <td className="py-3 pr-4">
+                        <span
+                          className={cn(
+                            'rounded-full border px-2.5 py-1 text-xs font-medium',
+                            row.is_published === false
+                              ? 'border-border text-muted-foreground'
+                              : 'border-primary/40 bg-primary/10 text-primary'
+                          )}
+                        >
+                          {row.is_published === false ? 'Unpublished' : 'Published'}
+                        </span>
+                      </td>
                       <td className="py-3 pr-4">{formatDate(row.created_at)}</td>
+                      <td className="py-3 pr-4 text-right">
+                        <Button
+                          type="button"
+                          variant={row.is_published === false ? 'hero' : 'outline'}
+                          size="sm"
+                          disabled={publishingId === String(row.id)}
+                          onClick={() => updatePublishState(row, row.is_published === false)}
+                        >
+                          {publishingId === String(row.id)
+                            ? 'Saving...'
+                            : row.is_published === false
+                              ? 'Publish'
+                              : 'Unpublish'}
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

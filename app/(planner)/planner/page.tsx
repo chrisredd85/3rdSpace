@@ -12,12 +12,14 @@ import { Suspense, useEffect, useRef, useState, type FormEvent, type KeyboardEve
 import { useRouter, useSearchParams } from 'next/navigation'
 import { CalendarDays, CheckCircle2, ChevronDown, Copy, ExternalLink, LayoutTemplate, Loader2, MessageSquare, RefreshCw, SendHorizontal, Sparkles, X } from 'lucide-react'
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
+import { PlannerDataConnectionPanel } from '@/components/planner/PlannerDataConnectionPanel'
 import { PlannerSignupGate } from '@/components/planner/PlannerSignupGate'
 import { PlannerTopBar } from '@/components/planner/PlannerTopBar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/components/ui/toast'
+import { humanizeEventType } from '@/lib/planner/archetypes/driftControl'
 import { plannerDraftStorageKey } from '@/lib/planner/migrateDraft'
 import type {
   Plan,
@@ -34,6 +36,7 @@ const planTabs = [
   { id: 'plan', label: 'Plan' },
   { id: 'recommendations', label: 'Recommendations' },
   { id: 'approvals', label: 'Approvals' },
+  { id: 'data', label: 'Data' },
   { id: 'timeline', label: 'Timeline' },
 ] as const
 
@@ -191,6 +194,7 @@ function PlannerPageContent() {
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false)
   const [templateError, setTemplateError] = useState<string | null>(null)
   const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(null)
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false)
   const [isReplyAnalysisOpen, setIsReplyAnalysisOpen] = useState(false)
   const [replyAnalysisText, setReplyAnalysisText] = useState('')
   const [isAnalyzingReply, setIsAnalyzingReply] = useState(false)
@@ -242,6 +246,10 @@ function PlannerPageContent() {
     async function loadPersistedPlannerState() {
       if (initialDraft) {
         clearStoredPlannerConversation()
+        hasStartedInitialDraftRef.current = false
+        setActivePlan(null)
+        setMessages([])
+        setActiveTab('chat')
         setPersistenceMode('draft')
         setHasLoadedStoredConversation(true)
         return
@@ -312,11 +320,13 @@ function PlannerPageContent() {
 
   useEffect(() => {
     if (!hasLoadedStoredConversation) return
-    if (!initialDraft || activePlan || hasStartedInitialDraftRef.current || ignoredDraftRef.current === initialDraft) return
+    if (!initialDraft || hasStartedInitialDraftRef.current || ignoredDraftRef.current === initialDraft) return
 
     hasStartedInitialDraftRef.current = true
+    setActivePlan(null)
+    setMessages([])
     void startInitialDraftPlan(initialDraft)
-  }, [activePlan, hasLoadedStoredConversation, initialDraft])
+  }, [hasLoadedStoredConversation, initialDraft])
 
   useEffect(() => {
     setTimelineResult(null)
@@ -331,7 +341,7 @@ function PlannerPageContent() {
     const created = await handleCreatePlan(message)
 
     if (created && window.location.search.includes('draft=')) {
-      router.replace(forceDraftMode ? '/planner?mock=1' : '/planner')
+      router.replace('/planner?mock=1')
     }
   }
 
@@ -437,6 +447,16 @@ function PlannerPageContent() {
 
     setIsSendingReply(true)
     setErrorMessage(null)
+
+    if (persistenceMode === 'server' && shouldStartNewPlanFromReply(trimmed, activePlan)) {
+      try {
+        const created = await handleCreatePlan(trimmed)
+        if (created) setReply('')
+      } finally {
+        setIsSendingReply(false)
+      }
+      return
+    }
 
     if (shouldUseMockReplyPath(persistenceMode, activePlan.id)) {
       const userMessage = buildMockMessage(activePlan.id, 'user', trimmed, 'text', {})
@@ -687,7 +707,7 @@ function PlannerPageContent() {
       const response = await fetch(`/api/planner/templates/${templateId}/apply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan_id: activePlan.id }),
+        body: JSON.stringify({ plan_id: activePlan.id, rerun_recommendations: true }),
       })
       const payload = await response.json()
 
@@ -696,14 +716,63 @@ function PlannerPageContent() {
       }
 
       setIsTemplatesModalOpen(false)
+      if (payload?.plan && typeof payload.plan === 'object') {
+        setActivePlan(payload.plan as Plan)
+      }
+      if (Array.isArray(payload?.messages) && payload.messages.length > 0) {
+        setMessages((currentMessages) => [...currentMessages, ...(payload.messages as PlanMessage[])])
+      }
       addToast({
         title: 'Template applied',
+        description: 'Re-checking venues, vendors, and economics for this plan.',
         variant: 'success',
       })
     } catch (error) {
       setTemplateError(error instanceof Error ? error.message : 'Unable to apply template')
     } finally {
       setApplyingTemplateId(null)
+    }
+  }
+
+  async function saveActivePlanAsTemplate() {
+    if (!activePlan || persistenceMode !== 'server' || activePlan.id.startsWith('mock-plan-')) {
+      addToast({
+        title: 'Save the plan first',
+        description: 'Templates can only be created from a saved planner plan.',
+        variant: 'warning',
+      })
+      return
+    }
+
+    setIsSavingTemplate(true)
+    setTemplateError(null)
+
+    try {
+      const response = await fetch('/api/planner/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan_id: activePlan.id }),
+      })
+      const payload = await response.json()
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Unable to save template')
+      }
+
+      const template = payload?.template as PlannerTemplateSummary | undefined
+      if (template?.id) {
+        setPlannerTemplates((templates) => [template, ...templates.filter((existing) => existing.id !== template.id)])
+        setHasLoadedTemplates(true)
+      }
+      addToast({
+        title: 'Template saved',
+        description: 'This event shape is ready to reuse.',
+        variant: 'success',
+      })
+    } catch (error) {
+      setTemplateError(error instanceof Error ? error.message : 'Unable to save template')
+    } finally {
+      setIsSavingTemplate(false)
     }
   }
 
@@ -859,10 +928,6 @@ function PlannerPageContent() {
 
     const payload = action.payload ?? {}
 
-    if (payload.externalUrl && isRealExternalUrl(payload.externalUrl)) {
-      window.open(payload.externalUrl, '_blank', 'noopener,noreferrer')
-    }
-
     if (action.type === 'authorize' && payload.approvalId && isUuid(payload.approvalId)) {
       const response = await fetch(`/api/planner/plans/${planId}/approvals`, {
         method: 'PATCH',
@@ -966,6 +1031,9 @@ function PlannerPageContent() {
             <h1 className="mt-1 break-words font-display text-xl font-bold leading-tight sm:text-2xl">{activePlan.title}</h1>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
+            <Button type="button" variant="glass" size="sm" onClick={handleNewPlan}>
+              New plan
+            </Button>
             <span
               className={cn(
                 'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold',
@@ -1000,6 +1068,7 @@ function PlannerPageContent() {
         <div className="mb-5 flex gap-2 overflow-x-auto rounded-2xl border border-border bg-card/40 p-1">
           {planTabs.map((tab) => {
             if (tab.id === 'timeline' && persistenceMode !== 'server') return null
+            if (tab.id === 'data' && persistenceMode !== 'server') return null
             const count = getTabCount(tab.id, recommendationMessages.length, approvalMessages.length)
             return (
             <button
@@ -1138,6 +1207,10 @@ function PlannerPageContent() {
               />
             ) : null}
 
+            {activeTab === 'data' && persistenceMode === 'server' ? (
+              <PlannerDataConnectionPanel plan={activePlan} />
+            ) : null}
+
             {errorMessage ? (
               <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                 {errorMessage}
@@ -1151,11 +1224,16 @@ function PlannerPageContent() {
                     <Textarea
                       ref={replyRef}
                       value={reply}
-                      onChange={(event) => setReply(event.target.value)}
+                      onChange={(event) => {
+                        setReply(event.target.value)
+                        const el = event.target
+                        el.style.height = 'auto'
+                        el.style.height = `${el.scrollHeight}px`
+                      }}
                       onKeyDown={handleReplyKeyDown}
                       name="reply"
                       rows={1}
-                      className="relative z-10 min-h-12 flex-1 resize-none border-0 bg-transparent px-2 py-3 focus-visible:ring-0"
+                      className="relative z-10 max-h-48 min-h-12 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-2 py-3 focus-visible:ring-0"
                       placeholder="Reply with dates, budget, headcount, or approval rules..."
                       aria-label="Reply to planner agent"
                       disabled={isSendingReply}
@@ -1247,9 +1325,12 @@ function PlannerPageContent() {
         isLoading={isLoadingTemplates}
         error={templateError}
         applyingTemplateId={applyingTemplateId}
+        isSavingTemplate={isSavingTemplate}
+        canSaveCurrentPlan={persistenceMode === 'server' && Boolean(activePlan) && !activePlan?.id.startsWith('mock-plan-')}
         onClose={() => setIsTemplatesModalOpen(false)}
         onRefresh={() => void loadPlannerTemplates()}
         onApply={(templateId) => void applyPlannerTemplate(templateId)}
+        onSaveCurrentPlan={() => void saveActivePlanAsTemplate()}
       />
     </div>
   )
@@ -1261,9 +1342,12 @@ function PlannerTemplatesModal(props: {
   isLoading: boolean
   error: string | null
   applyingTemplateId: string | null
+  isSavingTemplate: boolean
+  canSaveCurrentPlan: boolean
   onClose: () => void
   onRefresh: () => void
   onApply: (templateId: string) => void
+  onSaveCurrentPlan: () => void
 }) {
   if (!props.isOpen) return null
 
@@ -1274,6 +1358,7 @@ function PlannerTemplatesModal(props: {
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-primary">Planner templates</p>
             <h2 className="mt-1 font-display text-xl font-bold">Use a proven event shape</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Save this plan once the event shape works, then reuse it with fresh dates and headcount.</p>
           </div>
           <button
             type="button"
@@ -1301,7 +1386,20 @@ function PlannerTemplatesModal(props: {
 
           {!props.isLoading && props.templates.length === 0 ? (
             <div className="rounded-2xl border border-border bg-background/60 px-4 py-10 text-center text-sm text-muted-foreground">
-              No saved templates yet.
+              <p>No saved templates yet.</p>
+              {props.canSaveCurrentPlan ? (
+                <Button
+                  type="button"
+                  variant="hero"
+                  size="sm"
+                  className="mt-4"
+                  onClick={props.onSaveCurrentPlan}
+                  disabled={props.isSavingTemplate}
+                >
+                  {props.isSavingTemplate ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutTemplate className="h-4 w-4" />}
+                  Save current plan
+                </Button>
+              ) : null}
             </div>
           ) : null}
 
@@ -1345,6 +1443,12 @@ function PlannerTemplatesModal(props: {
         </div>
 
         <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
+          {props.canSaveCurrentPlan ? (
+            <Button type="button" variant="hero" size="sm" onClick={props.onSaveCurrentPlan} disabled={props.isSavingTemplate}>
+              {props.isSavingTemplate ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutTemplate className="h-4 w-4" />}
+              Save current plan
+            </Button>
+          ) : null}
           <Button type="button" variant="glass" size="sm" onClick={props.onRefresh} disabled={props.isLoading}>
             <RefreshCw className={cn('h-4 w-4', props.isLoading && 'animate-spin')} />
             Refresh
@@ -1843,9 +1947,21 @@ function readPlanTicketPriceTargetCents(plan: Plan): number | null {
   if (cents !== null && cents > 0) return cents
 
   const value = readFiniteNumber(metadata?.ticket_price_target)
-  if (value !== null && value > 0) return Math.round(value < 10000 ? value * 100 : value)
+  if (value !== null && value > 0) return Math.round(value < 1000 ? value * 100 : value)
 
   return null
+}
+
+function shouldStartNewPlanFromReply(message: string, activePlan: Plan): boolean {
+  if (activePlan.status === 'complete' || activePlan.status === 'archived') return true
+  const normalized = message.toLowerCase()
+  const startsLikeNewPlan =
+    /\b(start|create|plan|host|throw|organize)\s+(?:a|an|another|new)\b/.test(normalized) ||
+    /\b(new|different)\s+(?:event|plan)\b/.test(normalized) ||
+    /\bactually\s+(?:make|create|plan|host|throw)\b/.test(normalized)
+  if (!startsLikeNewPlan) return false
+
+  return /\b(event|dinner|party|workshop|class|launch|hackathon|fundraiser|gala|watch party|screening|retreat|offsite|mixer|happy hour|listening party|showcase|pop-?up|activation|run club|wellness)\b/.test(normalized)
 }
 
 function readPlanAgentCacheOutput(plan: Plan, key: 'timeline' | 'workspace_summary'): Record<string, unknown> | null {
@@ -1934,7 +2050,7 @@ function isExecutedPlanStatus(status: Plan['status']) {
 function buildMockPlan(message: string): Plan {
   const now = new Date().toISOString()
   const eventType = detectMockEventType(message)
-  const title = eventType ? `${eventType.charAt(0).toUpperCase()}${eventType.slice(1)} plan` : 'Event plan'
+  const title = eventType ? `${humanizeEventType(eventType) ?? eventType} plan` : 'Event plan'
 
   return {
     id: `mock-plan-${Date.now()}`,
@@ -2006,7 +2122,7 @@ function applyMockPlanPatch(plan: Plan, patch: Partial<Plan>): Plan {
   const eventType = patch.event_type ?? plan.event_type
   return {
     ...plan,
-    title: eventType ? `${eventType.charAt(0).toUpperCase()}${eventType.slice(1)} plan` : plan.title,
+    title: eventType ? `${humanizeEventType(eventType) ?? eventType} plan` : plan.title,
     event_type: eventType,
     status: patch.status ?? plan.status,
     guest_count: patch.guest_count ?? plan.guest_count,
@@ -2248,7 +2364,7 @@ function buildClarifyingMetadata(
     state,
     missing_fields: gaps.missingFields.slice(0, 1),
     confirmation_items: [
-      { label: 'Experience', value: plan.event_type ?? 'Event', confirmed: Boolean(plan.event_type) },
+      { label: 'Experience', value: humanizeEventType(plan.event_type) ?? 'Event', confirmed: Boolean(plan.event_type) },
       { label: 'Date + time', value: detectLegacyDateSignal(conversationText) ?? 'Need date', confirmed: hasDateSignal(conversationText) },
       { label: 'City / area', value: plan.neighborhood ?? 'Need city', confirmed: Boolean(plan.neighborhood) },
       { label: 'Headcount', value: plan.guest_count ? `${plan.guest_count} people` : 'Need headcount', confirmed: Boolean(plan.guest_count) },
@@ -2276,11 +2392,6 @@ function buildMockPlanGaps(plan: Plan, conversationText: string): MockPlanGaps {
   if (!plan.guest_count) {
     missingFields.push('headcount')
     questions.push({ label: 'Headcount', prompt: 'Roughly how many people are you expecting?' })
-  }
-
-  if (!plan.budget_cap_cents) {
-    missingFields.push('budget')
-    questions.push({ label: 'Budget', prompt: 'What is the all-in budget cap or target spend?' })
   }
 
   if (!hasTicketOrRsvpSignal(conversationText)) {
@@ -2585,6 +2696,7 @@ function detectMockGuestCount(message: string): number | null {
 }
 
 function detectMockBudgetCap(message: string): number | null {
+  if (!/\b(budget|cap|spend|under|max|maximum|up to|total|all[-\s]?in)\b/i.test(message)) return null
   const money = message.match(/\$\s*(\d[\d,]*(?:\.\d+)?)(k|m)?/i)
   const shorthand = message.match(/\b(\d[\d,]*)\s*k\b/i)
   if (!money && !shorthand) return null
@@ -3041,6 +3153,8 @@ function buildApprovalDisplayMetadata(
     opportunity: metadata.opportunity,
     invites: metadata.invites,
     invite_stats: metadata.invite_stats,
+    queued_invite_count: metadata.queued_invite_count,
+    queued_vendor_invite_count: metadata.queued_vendor_invite_count,
     deposit_proposals: metadata.deposit_proposals,
   }
 }
@@ -3168,19 +3282,43 @@ function PlannerMessageMetadata({
             </div>
           ) : null}
           {matchedArchetype || vendorStackGroups.length > 0 ? (
-            <div className="rounded-2xl border border-border bg-background/50 p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                {matchedArchetype ? (
-                  <span className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
-                    Matched: {matchedArchetype}
-                  </span>
-                ) : null}
-                {vendorStackGroups.map((group) => (
-                  <span key={`${group.necessity}-${group.service_type}`} className="rounded-full border border-border bg-muted px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    {group.necessity}: {group.service_type.replace(/_/g, ' ')}
-                  </span>
-                ))}
-              </div>
+            <div className="space-y-3 rounded-2xl border border-border bg-background/50 p-4">
+              {matchedArchetype ? (
+                <span className="inline-block rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                  Matched: {matchedArchetype}
+                </span>
+              ) : null}
+              {(['required', 'recommended', 'optional', 'conditional'] as const).map((tier) => {
+                const tierGroups = vendorStackGroups.filter((g) => g.necessity === tier)
+                if (tierGroups.length === 0) return null
+                const tierLabel: Record<string, string> = {
+                  required: 'Required',
+                  recommended: 'Recommended',
+                  optional: 'Optional',
+                  conditional: 'Conditional',
+                }
+                const tierColor: Record<string, string> = {
+                  required: 'border-destructive/40 bg-destructive/10 text-destructive',
+                  recommended: 'border-success/40 bg-success/10 text-success',
+                  optional: 'border-border bg-muted text-muted-foreground',
+                  conditional: 'border-warning/40 bg-warning/10 text-warning',
+                }
+                return (
+                  <div key={tier}>
+                    <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tierLabel[tier]}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {tierGroups.map((group) => (
+                        <span
+                          key={`${group.necessity}-${group.service_type}`}
+                          className={`rounded-full border px-2.5 py-1 text-[10px] font-medium capitalize ${tierColor[tier]}`}
+                        >
+                          {group.service_type.replace(/_/g, ' ')}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           ) : null}
           <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
@@ -3298,6 +3436,11 @@ function PlannerMessageMetadata({
           {economicsDetails.historical_anchor ? (
             <p className="mt-3 border-l-2 border-primary/50 pl-3 text-xs italic leading-snug text-muted-foreground">
               {economicsDetails.historical_anchor}
+            </p>
+          ) : null}
+          {economicsDetails.estimate_note ? (
+            <p className="mt-3 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs font-medium leading-snug text-warning">
+              {economicsDetails.estimate_note}
             </p>
           ) : null}
           {economicsDetails.price_points.length > 0 ? (
@@ -3614,7 +3757,6 @@ function PlannerRecommendationActionButton({
     setErrorMessage(null)
 
     const externalUrl = readRecommendationString(recommendation, 'external_url')
-    const shouldOpenExternalUrl = actionKind === 'external' && isRealExternalUrl(externalUrl)
     const agentActionPayload = buildRecommendationAgentActionPayload(actionKind, recommendation)
 
     if (!isAuthenticated || planId.startsWith('mock-plan-')) {
@@ -3622,7 +3764,7 @@ function PlannerRecommendationActionButton({
         type: 'hold',
         payload: {
           agentAction: agentActionPayload,
-          externalUrl: shouldOpenExternalUrl ? externalUrl : undefined,
+          externalUrl: actionKind === 'external' && isRealExternalUrl(externalUrl) ? externalUrl : undefined,
         },
       })
       return
@@ -3631,10 +3773,6 @@ function PlannerRecommendationActionButton({
     setIsLoading(true)
 
     try {
-      if (shouldOpenExternalUrl) {
-        window.open(externalUrl, '_blank', 'noopener,noreferrer')
-      }
-
       if (!planId.startsWith('mock-plan-')) {
         const response = await fetch(`/api/planner/plans/${planId}/agent-actions`, {
           method: 'POST',
@@ -3685,7 +3823,7 @@ function PlannerRecommendationActionButton({
 function getCompactRecommendationActionLabel(actionKind: RecommendationActionKind) {
   if (actionKind === 'hold') return 'Request hold'
   if (actionKind === 'vendor') return 'Contact vendor'
-  return 'Open link'
+  return 'Approve link'
 }
 
 /**
@@ -3917,6 +4055,7 @@ function readRecommendationCapacityCalibration(metadata: unknown): {
 function readRecommendationEconomicsDetails(metadata: unknown): {
   narrative: string
   historical_anchor: string | null
+  estimate_note: string | null
   recommended_price_cents: number
   price_points: Array<{
     price_cents: number
@@ -3938,6 +4077,7 @@ function readRecommendationEconomicsDetails(metadata: unknown): {
   const root = readUnknownRecord(metadata)
   const response = readUnknownRecord(root?.recommendation_response)
   const economics = readUnknownRecord(root?.economics) ?? readUnknownRecord(response?.economics)
+  const profitProjection = readUnknownRecord(root?.profit_projection) ?? readUnknownRecord(response?.profit_projection)
   if (!economics) return null
 
   const narrative =
@@ -3972,10 +4112,25 @@ function readRecommendationEconomicsDetails(metadata: unknown): {
   return {
     narrative,
     historical_anchor: typeof economics.historical_anchor === 'string' ? economics.historical_anchor : null,
+    estimate_note: readProjectionEstimateNote(profitProjection),
     recommended_price_cents: typeof economics.recommended_price_cents === 'number' ? economics.recommended_price_cents : 0,
     price_points: pricePoints,
     elasticity: readEconomicsElasticity(root?.elasticity ?? response?.elasticity),
   }
+}
+
+function readProjectionEstimateNote(profitProjection: Record<string, unknown> | null): string | null {
+  if (!profitProjection) return null
+  const accuracy = profitProjection.accuracy
+  const notes = Array.isArray(profitProjection.assumption_notes)
+    ? profitProjection.assumption_notes.filter((note): note is string => typeof note === 'string' && note.trim().length > 0)
+    : []
+
+  if (notes.length > 0) return notes[0]
+  if (accuracy === 'estimate_until_partner_quotes_confirmed') {
+    return 'Projection is an estimate until venue and vendor quotes confirm final terms.'
+  }
+  return null
 }
 
 function readEconomicsElasticity(value: unknown): {
