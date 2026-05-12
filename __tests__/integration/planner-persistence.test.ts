@@ -363,9 +363,8 @@ describe('Planner persistence integration', () => {
       expect(response.status).toBe(200)
       expect(agentMessage.message_type).toBe('recommendation')
       expect(json.plan.status).toBe('ready')
-      expect(json.follow_up_messages).toEqual(expect.arrayContaining([
-        expect.objectContaining({ message_type: 'recommendation' }),
-      ]))
+      expect(json.needs_recommendations).toBe(true)
+      expect(json.follow_up_messages).toBeUndefined()
     } finally {
       process.env.OPENAI_API_KEY = oldOpenAIKey
       global.fetch = oldFetch
