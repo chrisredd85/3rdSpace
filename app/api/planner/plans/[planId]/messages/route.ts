@@ -305,7 +305,7 @@ export async function POST(
       followUpMessages.push(...recommendationRefreshMessages)
     } else if (agentMessage.message_type === 'recommendation') {
       const shouldCreateAutoRecommendations =
-        (agentResponse.agentMode === 'openai' && didMarkPlanReady) || shouldForceRecommendation
+        didMarkPlanReady || shouldForceRecommendation
 
       if (shouldCreateAutoRecommendations) {
         const recommendationMessages = await createAutoRecommendationMessage({
