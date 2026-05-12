@@ -9,7 +9,6 @@
 
 import { Suspense, useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type UIEvent } from 'react'
 import dynamic from 'next/dynamic'
-import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 
 interface PlannerShellProps {
@@ -17,10 +16,8 @@ interface PlannerShellProps {
 }
 
 const sidePanelOpenWidth = 264
-const rightPanelMaxWidth = 460
 const leftPanelCollapsedWidth = 72
 const leftMinimumOpenWidth = 220
-const rightMinimumOpenWidth = 220
 
 const ActivePlanContextHeader = dynamic(
   () => import('@/components/planner/ActivePlanContextHeader').then((module) => module.ActivePlanContextHeader),
@@ -35,56 +32,31 @@ const PlannerSidebar = dynamic(
   }
 )
 
-const PlannerLivePlanPanel = dynamic(
-  () => import('@/components/planner/PlannerLivePlanPanel').then((module) => module.PlannerLivePlanPanel),
-  {
-    ssr: false,
-    loading: () => <div className="h-full w-full border-l border-border bg-card" />,
-  }
-)
-
 /**
  * Light planner shell with ChatGPT-style draggable side panels.
  */
 export function PlannerShell({ children }: PlannerShellProps) {
-  const pathname = usePathname()
   const [leftWidth, setLeftWidth] = useState(sidePanelOpenWidth)
-  const [rightWidth, setRightWidth] = useState(sidePanelOpenWidth)
-  const [hasLoadedPanelWidths, setHasLoadedPanelWidths] = useState(false)
+  const [hasLoadedLeftWidth, setHasLoadedLeftWidth] = useState(false)
   const sideScrollRafRef = useRef<number | null>(null)
   const isLeftOpen = leftWidth >= leftMinimumOpenWidth
   const isLeftCollapsed = !isLeftOpen
-  const isRightOpen = rightWidth > 0
-  const shouldHideRightPanelOnCompactRoutes = pathname !== '/planner'
 
   useEffect(() => {
     const isNarrowViewport = window.innerWidth < 900
     const left = Number(window.localStorage.getItem('planner-left-panel-width'))
-    const right = Number(window.localStorage.getItem('planner-right-panel-width'))
     if (isNarrowViewport) {
       setLeftWidth(leftPanelCollapsedWidth)
-      setRightWidth(0)
-    } else {
-      if (Number.isFinite(left)) setLeftWidth(snapLeftPanelWidth(left))
-      if (Number.isFinite(right)) setRightWidth(snapRightPanelWidth(right))
+    } else if (Number.isFinite(left)) {
+      setLeftWidth(snapLeftPanelWidth(left))
     }
-    setHasLoadedPanelWidths(true)
+    setHasLoadedLeftWidth(true)
   }, [])
 
   useEffect(() => {
-    if (!hasLoadedPanelWidths) return
+    if (!hasLoadedLeftWidth) return
     window.localStorage.setItem('planner-left-panel-width', String(leftWidth))
-  }, [hasLoadedPanelWidths, leftWidth])
-
-  useEffect(() => {
-    if (!hasLoadedPanelWidths) return
-    window.localStorage.setItem('planner-right-panel-width', String(rightWidth))
-  }, [hasLoadedPanelWidths, rightWidth])
-
-  useEffect(() => {
-    if (!hasLoadedPanelWidths || window.innerWidth >= 900 || pathname === '/planner') return
-    setRightWidth(0)
-  }, [hasLoadedPanelWidths, pathname])
+  }, [hasLoadedLeftWidth, leftWidth])
 
   useEffect(() => {
     return () => {
@@ -134,24 +106,6 @@ export function PlannerShell({ children }: PlannerShellProps) {
     window.addEventListener('pointerup', handlePointerUp)
   }
 
-  function beginRightDrag(event: PointerEvent<HTMLDivElement>) {
-    const startX = event.clientX
-    const startWidth = rightWidth
-
-    function handlePointerMove(moveEvent: globalThis.PointerEvent) {
-      setRightWidth(clampPanelWidth(startWidth + startX - moveEvent.clientX, rightPanelMaxWidth, 0))
-    }
-
-    function handlePointerUp() {
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', handlePointerUp)
-      setRightWidth((current) => snapRightPanelWidth(current))
-    }
-
-    window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', handlePointerUp)
-  }
-
   return (
     <div
       className="planner-product-shell relative flex min-h-screen overflow-hidden bg-background text-foreground"
@@ -180,38 +134,6 @@ export function PlannerShell({ children }: PlannerShellProps) {
         <ActivePlanContextHeader />
         {children}
       </main>
-
-      <div
-        className={cn(
-          'fixed inset-y-0 right-0 z-40 h-screen shrink-0 overflow-hidden transition-[width,transform] duration-200 ease-out xl:relative xl:z-auto',
-          shouldHideRightPanelOnCompactRoutes && 'hidden lg:block',
-          isRightOpen
-            ? 'translate-x-0'
-            : 'w-screen max-w-[264px] translate-x-full xl:w-0 xl:max-w-none xl:translate-x-0'
-        )}
-        style={isRightOpen ? { width: `min(${rightWidth}px, 100vw)`, maxWidth: '100vw' } : undefined}
-        aria-hidden={!isRightOpen}
-      >
-        <div
-          className={cn(
-            'h-full w-full max-w-full transition-transform duration-200 ease-out',
-            isRightOpen ? 'translate-x-0' : 'translate-x-full'
-          )}
-        >
-          <Suspense fallback={<div className="h-full w-full border-l border-border bg-card" />}>
-            <PlannerLivePlanPanel />
-          </Suspense>
-        </div>
-      </div>
-
-      <PanelSlideHandle
-        ariaLabel="Drag to resize live plan panel"
-        side="right"
-        isOpen={isRightOpen}
-        style={{ right: rightWidth }}
-        onPointerDown={beginRightDrag}
-        className={shouldHideRightPanelOnCompactRoutes ? 'hidden lg:block' : undefined}
-      />
     </div>
   )
 }
@@ -264,9 +186,4 @@ function clampPanelWidth(width: number, maxWidth: number, collapsedWidth: number
 
 function snapLeftPanelWidth(width: number) {
   return width < leftMinimumOpenWidth ? leftPanelCollapsedWidth : sidePanelOpenWidth
-}
-
-function snapRightPanelWidth(width: number) {
-  if (width < rightMinimumOpenWidth) return 0
-  return Math.max(sidePanelOpenWidth, Math.min(rightPanelMaxWidth, width))
 }

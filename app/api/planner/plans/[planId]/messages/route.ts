@@ -42,7 +42,8 @@ import {
   resolveArchetypeIntakeContext,
 } from '@/lib/planner/archetypes'
 import type { EventArchetypeConfig } from '@/lib/planner/archetypes'
-import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
+// createAutoRecommendationMessage is NOT called here — it runs in the dedicated
+// /trigger-recommendations endpoint so the long AI pipeline doesn't timeout this route.
 import { hasUnknownBudgetSignal, parseEventIntent, parseStandaloneGuestCountReply } from '@/lib/planner/intentParser'
 import {
   isIntakeReadyForRecommendations,
@@ -292,41 +293,32 @@ export async function POST(
     const agentMessage = agentMessageData as PlanMessage
     const followUpMessages: PlanMessage[] = []
     const didMarkPlanReady = agentResponse.plan.status !== finalPlan.status && finalPlan.status === 'ready'
-    const recommendationRefreshMessages = didMatchAffectingFieldsChange(existingPlan, finalPlan)
-      ? await refreshRecommendationsAfterPlanChange({
-          db: auth.db,
-          request,
-          plan: finalPlan,
-          changedFields: findMatchAffectingChangedFields(existingPlan, finalPlan),
-        })
-      : []
+    const didRefreshRecommendations = didMatchAffectingFieldsChange(existingPlan, finalPlan)
+    if (didRefreshRecommendations) {
+      const refreshStatusMessages = await invalidateRecommendationsForPlanChange({
+        db: auth.db,
+        plan: finalPlan,
+        changedFields: findMatchAffectingChangedFields(existingPlan, finalPlan),
+      })
+      followUpMessages.push(...refreshStatusMessages)
+    }
 
-    if (recommendationRefreshMessages.length > 0) {
-      followUpMessages.push(...recommendationRefreshMessages)
-    } else if (agentMessage.message_type === 'recommendation') {
-      const shouldCreateAutoRecommendations =
-        didMarkPlanReady || shouldForceRecommendation
+    // Determine whether the client should call /trigger-recommendations to fetch the
+    // AI recommendation pipeline. We don't do it inline here — that pipeline can take
+    // 20-40 s and would timeout this route. The client calls the dedicated endpoint
+    // after receiving this response.
+    const shouldCreateAutoRecommendations =
+      didMarkPlanReady || shouldForceRecommendation || didRefreshRecommendations
 
-      if (shouldCreateAutoRecommendations) {
-        const recommendationMessages = await createAutoRecommendationMessage({
-          db: auth.db,
-          request,
-          planId: context.params.planId,
-        })
-        followUpMessages.push(...recommendationMessages)
-      }
-
-      if (!shouldCreateAutoRecommendations) {
-        const opportunityBundle = await createVenueOpportunityBundle({
-          db: auth.db,
-          plan: finalPlan,
-          messages: [...messages, agentMessage, ...followUpMessages],
-          userId: auth.userId,
-        })
-
-        if (opportunityBundle) {
-          followUpMessages.push(opportunityBundle.approvalMessage)
-        }
+    if (!shouldCreateAutoRecommendations && agentMessage.message_type === 'recommendation') {
+      const opportunityBundle = await createVenueOpportunityBundle({
+        db: auth.db,
+        plan: finalPlan,
+        messages: [...messages, agentMessage, ...followUpMessages],
+        userId: auth.userId,
+      })
+      if (opportunityBundle) {
+        followUpMessages.push(opportunityBundle.approvalMessage)
       }
     }
 
@@ -358,6 +350,7 @@ export async function POST(
       user_message: userMessage,
       agent_message: agentMessage,
       follow_up_messages: followUpMessages.length > 0 ? followUpMessages : undefined,
+      needs_recommendations: shouldCreateAutoRecommendations || undefined,
     })
   } catch (error) {
     console.error('Planner messages POST error:', error)
@@ -420,9 +413,13 @@ async function loadMessages(db: PlannerDb, planId: string): Promise<PlanMessage[
   return (data ?? []) as PlanMessage[]
 }
 
-async function refreshRecommendationsAfterPlanChange(input: {
+/**
+ * Supersedes stale recommendations and outreach approvals when match-affecting
+ * plan fields change, and inserts a status message. Does NOT run the AI
+ * recommendation pipeline — the client triggers that via /trigger-recommendations.
+ */
+async function invalidateRecommendationsForPlanChange(input: {
   db: PlannerDb
-  request: NextRequest
   plan: Plan
   changedFields: string[]
 }): Promise<PlanMessage[]> {
@@ -434,13 +431,7 @@ async function refreshRecommendationsAfterPlanChange(input: {
   await invalidatePendingOutreachApprovals(input.db, input.plan.id, supersededAt, input.changedFields)
 
   const statusMessage = await insertRecommendationRefreshStatusMessage(input.db, input.plan.id, input.changedFields)
-  const recommendationMessages = await createAutoRecommendationMessage({
-    db: input.db,
-    request: input.request,
-    planId: input.plan.id,
-  })
-
-  return [statusMessage, ...recommendationMessages].filter((message): message is PlanMessage => message !== null)
+  return [statusMessage].filter((message): message is PlanMessage => message !== null)
 }
 
 async function loadActiveRecommendations(db: PlannerDb, planId: string): Promise<Recommendation[]> {

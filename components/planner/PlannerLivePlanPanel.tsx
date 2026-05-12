@@ -106,6 +106,8 @@ interface PlannerLivePlanPanelProps {
   approvals?: PendingApproval[]
   spendingRules?: SpendingRule[]
   sources?: string[]
+  /** When true, renders as an inline block (no fixed height, no border-l, no shadow). */
+  inline?: boolean
 }
 
 interface LivePlanSnapshot {
@@ -596,6 +598,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   approvals,
   spendingRules = defaultRules,
   sources = defaultSources,
+  inline = false,
 }: PlannerLivePlanPanelProps) {
   const [livePayload, setLivePayload] = useState<LivePlanPanelPayload>(emptyPayload)
   const [actionFeedback, setActionFeedback] = useState<Record<string, 'loading' | 'sent' | 'error'>>({})
@@ -770,7 +773,10 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   }
 
   return (
-    <aside className="flex h-full w-full min-w-0 flex-col border-l border-border bg-card text-foreground shadow-card">
+    <aside className={cn(
+      'flex w-full min-w-0 flex-col bg-card text-foreground',
+      inline ? '' : 'h-full border-l border-border shadow-card'
+    )}>
       <div className="border-b border-border px-4 py-6">
         <div className="space-y-2">
           <p className="whitespace-nowrap text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Event Plan</p>
@@ -799,7 +805,10 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-24" data-planner-side-scroll="true">
+      <div
+        className={cn(inline ? 'pb-4' : 'min-h-0 flex-1 overflow-y-auto pb-24')}
+        data-planner-side-scroll={inline ? undefined : 'true'}
+      >
         <ArtifactSection icon={<Sparkles className="h-5 w-5" />} title="Event Plan" subtitle="Structured artifact">
           <div className="grid gap-x-5 gap-y-5 [grid-template-columns:repeat(auto-fit,minmax(120px,1fr))]">
             <ArtifactField label="Event Type" value={formatEventType(eventSummary.event_type)} />

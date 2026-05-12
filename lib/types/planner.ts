@@ -855,6 +855,8 @@ export interface PlannerCreatePlanResponse {
   messages: PlanMessage[]
   /** Fields extracted from the initial message. */
   intent: Partial<PlanIntent>
+  /** When true the client should POST to /trigger-recommendations after plan creation. */
+  needs_recommendations?: boolean
 }
 
 /** Response returned when listing planner plans for the authenticated user. */
@@ -921,6 +923,13 @@ export interface PlannerPostMessageResponse {
   agent_message: PlanMessage
   /** Optional system follow-up messages, such as generated opportunity approvals. */
   follow_up_messages?: PlanMessage[]
+  /**
+   * When true the client should POST to /trigger-recommendations to run the AI
+   * recommendation pipeline and fetch the resulting messages. This flag exists
+   * because running the pipeline inline in this route would cause serverless
+   * function timeouts.
+   */
+  needs_recommendations?: boolean
 }
 
 /** Draft opportunity brief produced before database insertion. */

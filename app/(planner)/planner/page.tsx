@@ -13,6 +13,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { CalendarDays, CheckCircle2, ChevronDown, Copy, ExternalLink, LayoutTemplate, Loader2, MessageSquare, RefreshCw, SendHorizontal, Sparkles, X } from 'lucide-react'
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
 import { PlannerDataConnectionPanel } from '@/components/planner/PlannerDataConnectionPanel'
+import { PlannerLivePlanPanel } from '@/components/planner/PlannerLivePlanPanel'
 import { PlannerSignupGate } from '@/components/planner/PlannerSignupGate'
 import { PlannerTopBar } from '@/components/planner/PlannerTopBar'
 import { Button } from '@/components/ui/button'
@@ -33,7 +34,7 @@ import { cn } from '@/lib/utils'
 
 const planTabs = [
   { id: 'chat', label: 'Chat' },
-  { id: 'plan', label: 'Plan' },
+  { id: 'event_plan', label: 'Event Plan' },
   { id: 'recommendations', label: 'Recommendations' },
   { id: 'approvals', label: 'Approvals' },
   { id: 'data', label: 'Data' },
@@ -185,6 +186,7 @@ function PlannerPageContent() {
   const [hasLoadedStoredConversation, setHasLoadedStoredConversation] = useState(false)
   const [isCreatingPlan, setIsCreatingPlan] = useState(false)
   const [isSendingReply, setIsSendingReply] = useState(false)
+  const [isAwaitingRecommendations, setIsAwaitingRecommendations] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isSignupGateOpen, setIsSignupGateOpen] = useState(false)
@@ -429,6 +431,9 @@ function PlannerPageContent() {
       setMessages(data.messages)
       setActiveTab('chat')
       publishLivePlan(data.plan, data.messages)
+      if (data.needs_recommendations) {
+        void triggerRecommendations(data.plan.id, data.messages)
+      }
       return 'server'
     } catch (error) {
       console.warn('[planner] Falling back to local draft mode after create failed', error)
@@ -437,6 +442,32 @@ function PlannerPageContent() {
       return 'draft'
     } finally {
       setIsCreatingPlan(false)
+    }
+  }
+
+  /**
+   * Calls the dedicated trigger-recommendations endpoint for a plan and appends
+   * the resulting messages to state. Called after the messages route signals
+   * needs_recommendations so the AI pipeline doesn't timeout the main route.
+   */
+  async function triggerRecommendations(planId: string, currentMessages: PlanMessage[]) {
+    setIsAwaitingRecommendations(true)
+    try {
+      const response = await fetch(`/api/planner/plans/${planId}/trigger-recommendations`, {
+        method: 'POST',
+      })
+      if (!response.ok) return
+      const payload = await response.json()
+      const newMessages: PlanMessage[] = payload?.messages ?? []
+      if (newMessages.length > 0) {
+        const merged = [...currentMessages, ...newMessages]
+        setMessages(merged)
+        if (activePlan) publishLivePlan(activePlan, merged)
+      }
+    } catch (error) {
+      console.warn('[planner] trigger-recommendations failed', error)
+    } finally {
+      setIsAwaitingRecommendations(false)
     }
   }
 
@@ -536,6 +567,9 @@ function PlannerPageContent() {
       setMessages(nextMessages)
       setReply('')
       publishLivePlan(data.plan, nextMessages)
+      if (data.needs_recommendations) {
+        void triggerRecommendations(plan.id, nextMessages)
+      }
     } catch (error) {
       const description = error instanceof Error ? error.message : 'Unable to send planner reply'
       setErrorMessage(description)
@@ -1126,7 +1160,9 @@ function PlannerPageContent() {
         <section className="overflow-hidden rounded-3xl border border-border bg-card/50 shadow-card">
           <div className="border-b border-border px-5 py-4">
             <div className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-secondary" />
+              {activeTab === 'event_plan'
+                ? <Sparkles className="h-5 w-5 text-secondary" />
+                : <MessageSquare className="h-5 w-5 text-secondary" />}
               <h2 className="font-display text-lg font-bold">{activeTabLabel}</h2>
             </div>
           </div>
@@ -1146,31 +1182,12 @@ function PlannerPageContent() {
                     onQuestionAnswerSubmit={(answer) => void submitReply(answer)}
                   />
                 ))}
-              </>
-            ) : null}
-
-            {activeTab === 'plan' ? (
-              <>
-                <PlanSummaryChips plan={activePlan} />
-                {visibleMessages.length > 0 ? (
-                  visibleMessages.map((message, index) => (
-                    <PlannerFocusedMessageCard
-                      key={message.id}
-                      message={message}
-                      isSupersededConfirmation={hasNewerConfirmationMessage(visibleMessages, index)}
-                      planId={activePlan.id}
-                      isAuthenticated={isAuthenticated}
-                      onAuthRequired={requestSignupForAction}
-                      onApprovalStatusChange={handleApprovalStatusChange}
-                      onToast={addToast}
-                      onQuestionAnswerSubmit={(answer) => void submitReply(answer)}
-                    />
-                  ))
-                ) : (
-                  <div className="py-12 text-center text-sm text-muted-foreground">
-                    Start a conversation to build your plan.
+                {isAwaitingRecommendations ? (
+                  <div className="flex items-center gap-2 rounded-2xl bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                    Matching venues and vendors…
                   </div>
-                )}
+                ) : null}
               </>
             ) : null}
 
@@ -1230,6 +1247,10 @@ function PlannerPageContent() {
                 error={timelineError}
                 onRefresh={() => void loadPlannerTimeline()}
               />
+            ) : null}
+
+            {activeTab === 'event_plan' ? (
+              <PlannerLivePlanPanel inline />
             ) : null}
 
             {activeTab === 'data' && persistenceMode === 'server' ? (
@@ -1850,7 +1871,6 @@ function parseDateOnly(value: string): Date | null {
  */
 function getVisibleMessages(messages: PlanMessage[], activeTab: PlannerTab) {
   if (activeTab === 'chat') return messages
-  if (activeTab === 'plan') return messages.filter(isPlanArtifactMessage)
   if (activeTab === 'recommendations') return messages.filter(isRecommendationMessage)
   return messages.filter(isApprovalMessage)
 }

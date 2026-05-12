@@ -32,7 +32,6 @@ import {
   resolveArchetypeContext,
   resolveArchetypeIntakeContext,
 } from '@/lib/planner/archetypes'
-import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import { hasUnknownBudgetSignal, parseEventIntent } from '@/lib/planner/intentParser'
 import { isIntakeReadyForRecommendations } from '@/lib/planner/intakeReadiness'
@@ -188,18 +187,12 @@ export async function POST(
     }
 
     const finalPlan = initialExchange.plan
-    let messages = initialExchange.messages
-    const shouldRunRecommendations =
-      initialExchange.agentMode === 'openai' &&
-      messages.some((message) => message.role === 'agent' && message.message_type === 'recommendation')
-    if (shouldRunRecommendations) {
-      const recommendationMessages = await createAutoRecommendationMessage({
-        db: auth.db,
-        request,
-        planId: finalPlan.id,
-      })
-      messages = [...messages, ...recommendationMessages]
-    }
+    const messages = initialExchange.messages
+    // Whether the initial intake already has all required fields and should fetch recommendations.
+    // The client calls /trigger-recommendations after plan creation to avoid timing out this route.
+    const needsRecommendations = messages.some(
+      (message) => message.role === 'agent' && message.message_type === 'recommendation'
+    )
 
     await recordEventTypeCandidate(auth.db, {
       userId: auth.userId,
@@ -226,6 +219,7 @@ export async function POST(
       plan: finalPlan,
       messages,
       intent,
+      needs_recommendations: needsRecommendations || undefined,
     })
   } catch (error) {
     console.error('Planner plans POST error:', error)
