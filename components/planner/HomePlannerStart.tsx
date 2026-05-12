@@ -17,9 +17,9 @@ interface HomePlannerStartProps {
 }
 
 const samplePrompts = [
-  'Founder dinner for 20 in Hayes Valley',
-  'Listening party for 80 in SoMa',
-  'Giants outing for 12 seats together',
+  'Monthly founder dinner for 24 in Hayes Valley',
+  'Tech mixer for 80 in SoMa, same vendors as last time',
+  'Rebook my rooftop series for June',
 ]
 
 /**

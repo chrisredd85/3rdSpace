@@ -17,46 +17,46 @@ import {
 } from '@/components/landing/StartPlanningActions'
 
 export const metadata: Metadata = {
-  title: '3rdPlace - Event Profitability Optimization',
+  title: '3rdPlace - The Repeat Event OS for Bay Area Creators',
   description:
-    "3rdPlace is the Bay Area's leading event profitability engine.",
+    "Stop planning the same event from scratch. 3rdPlace remembers your venues, vendors, and margins so every event runs faster than the last.",
   openGraph: {
-    title: '3rdPlace - Event Profitability Optimization',
+    title: '3rdPlace - The Repeat Event OS for Bay Area Creators',
     description:
-      "3rdPlace helps event creators book venues and vendors, coordinate partners, and understand profitability before the doors open.",
+      "3rdPlace is the operating system for Bay Area creators running 3+ events a month. The agent plans, sources, and tracks margins across your entire calendar.",
   },
 }
 
 const personas = [
   {
-    title: 'Dinner series hosts',
-    body: 'Intimate founder dinners, supper clubs, tasting events',
+    title: 'Monthly series hosts',
+    body: 'Founder dinners, supper clubs, tasting events — same vibe, different guests, every time.',
   },
   {
     title: 'Pop-up producers',
-    body: 'Markets, art shows, brand activations, seasonal events',
+    body: 'Markets, brand activations, and art shows that run on a calendar, not a whim.',
   },
   {
     title: 'Community builders',
-    body: 'Networking events, meetups, rooftop socials, mixers',
+    body: 'Weekly meetups, monthly socials, recurring mixers — your community is your calendar.',
   },
 ]
 
 const features = [
   {
     icon: Zap,
-    title: 'Agent-first planning',
-    body: 'Describe your event in plain language. The agent builds the plan, sources venues, and coordinates vendors automatically.',
+    title: 'Plan your next event in minutes',
+    body: 'Describe it in plain language. The agent pulls your best venues, matches vendors from your history, and builds a full plan — including the profit window.',
   },
   {
     icon: ShieldCheck,
-    title: 'Approval-gated spending',
-    body: 'Nothing gets booked without your say. Review holds, deposits, and contracts before any money moves.',
+    title: 'Nothing moves without your approval',
+    body: 'Review venue holds, vendor quotes, and contracts before a dollar commits. You stay in control across every event on your calendar.',
   },
   {
     icon: BarChart3,
-    title: 'Profitability tracking',
-    body: 'Real-time budget tracking, ticket revenue projections, and post-event P&L — built for operators who need to make money.',
+    title: 'Know your margins before you commit',
+    body: 'Track P&L across your full calendar, not just one event. See where you\'re making money and where you\'re leaving it on the table.',
   },
 ]
 
@@ -111,16 +111,17 @@ export default function HomePage() {
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-bold uppercase tracking-widest text-primary">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
-                Bay Area event profitability engine
+                The repeat event OS · Bay Area
               </div>
               <h1 className="mt-8 font-display text-5xl font-bold leading-[1.0] tracking-tight md:text-6xl lg:text-7xl">
-                3rdPlace is the{' '}
-                <span className="text-gradient-brand">Bay Area&apos;s leading</span>{' '}
-                event profitability engine.
+                Stop planning{' '}
+                <span className="text-gradient-brand">the same event</span>{' '}
+                from scratch.
               </h1>
               <p className="mt-8 max-w-xl text-lg text-muted-foreground">
-                Describe the event first. The agent builds the plan, recommends venues and vendors,
-                and asks you to sign in only when you save, book, pay, or export.
+                3rdPlace remembers your venues, vendors, and margins from every event you&apos;ve run.
+                Describe what&apos;s next — the agent builds the plan, pulls your best partners, and
+                shows you the profit window before you spend a dollar.
               </p>
             </div>
 
@@ -147,12 +148,12 @@ export default function HomePage() {
               Who it&apos;s for
             </p>
             <h2 className="mt-3 font-display text-4xl font-bold lg:text-5xl">
-              Small-scale professional event organizers
+              For creators who never stop hosting
             </h2>
             <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
-              If you run 5–50 events a year and care about margins, 3rdPlace is your operating
-              system. We handle the sourcing, logistics, and vendor coordination — you focus on
-              curation and community.
+              If you&apos;re running 3+ events a month and tired of rebuilding the same plan,
+              3rdPlace is your operating system. We handle sourcing, logistics, and vendor
+              coordination — so your tenth event runs faster than your first.
             </p>
           </div>
           <div className="mt-14 grid gap-6 md:grid-cols-3">
@@ -177,7 +178,7 @@ export default function HomePage() {
               Features
             </p>
             <h2 className="mt-3 font-display text-4xl font-bold lg:text-5xl">
-              Built for profitable events
+              Gets faster every time you host
             </h2>
           </div>
           <div className="mt-14 grid gap-6 md:grid-cols-3">
