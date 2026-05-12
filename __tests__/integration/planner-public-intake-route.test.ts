@@ -205,6 +205,73 @@ describe('planner public intake route', () => {
     expect(json.data.plan_patch.event_type).toBe('Private dinner / celebration')
   })
 
+  it('treats a bare numeric reply as the pending guest count instead of repeating headcount', async () => {
+    const currentPlan = {
+      title: 'Networking mixer plan',
+      event_type: 'Networking mixer',
+      guest_count: null,
+      neighborhood: 'Oakland',
+      date_window_start: '2026-05-15',
+      date_window_end: '2026-05-15',
+      ticketed: false,
+      ticketing_model: 'rsvp',
+      metadata: {},
+    }
+
+    mockRunAgent.mockResolvedValue({
+      agent_name: 'intake',
+      status: 'succeeded',
+      output: {
+        reflection: 'Handling a networking mixer in Oakland on May 15, 2026.',
+        extracted_fields: {
+          event_type: null,
+          guest_count: null,
+          neighborhood: null,
+          date_window_start: null,
+          date_window_end: null,
+          budget_cap_cents: null,
+          ticketed: null,
+          ticket_price_target: null,
+          food_responsibility: null,
+          profit_goal_cents: null,
+        },
+        updated_event_plan: {
+          event_name: 'Networking mixer plan',
+          expected_attendance: null,
+          city: null,
+          venue_type: 'Networking mixer',
+          budget: null,
+          event_date: null,
+          monetization_model: null,
+          headcount_min: null,
+          headcount_max: null,
+          ticket_price_target: null,
+          profit_goal: null,
+        },
+        neighborhood: null,
+        food_drink_needs: null,
+        music_av_needs: null,
+        vibe_audience: null,
+        hard_constraints: [],
+        missing_questions: ['How many people are you planning for?'],
+        confidence_score: 0.88,
+        next_best_question: 'How many people are you planning for?',
+        assumptions_made: [],
+      },
+    })
+
+    const response = await publicIntake(makeRequest({
+      user_message: '115',
+      current_plan: currentPlan,
+    }))
+    const json = await readJson(response)
+    const content = String(json.data.agent_draft.content)
+
+    expect(response.status).toBe(200)
+    expect(json.data.plan_patch.guest_count).toBe(115)
+    expect(content).not.toMatch(/how many people/i)
+  })
+
   it('handles 300 archetype follow-up combinations without repeating answered slots', async () => {
     const combinations = buildSimulationCombinations(300)
 

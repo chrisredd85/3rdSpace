@@ -196,6 +196,28 @@ export function hasUnknownBudgetSignal(message: string): boolean {
   return /\b(?:no|not sure|unsure|unknown|tbd|to be determined|do not know|don't know|dont know|haven't set|have not set|need help|help me|estimate|you tell me)\b.{0,40}\bbudget\b|\bbudget\b.{0,40}\b(?:unknown|tbd|to be determined|not sure|unsure|do not know|don't know|dont know|haven't set|have not set|need help|help me|estimate|you tell me)\b/i.test(message)
 }
 
+export function parseStandaloneGuestCountReply(message: string): number | null {
+  const trimmed = message.trim()
+  if (!trimmed) return null
+
+  const lower = trimmed.toLowerCase()
+  if (
+    /[$€£]/.test(trimmed) ||
+    /\b(budget|spend|cap|price|ticket|deposit|rate|fee|cost|dollars?|cents?|per|hour|hours|day|days|week|weeks|month|months|year|years|am|pm)\b/i.test(lower) ||
+    /[:/]/.test(trimmed) ||
+    /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(lower)
+  ) {
+    return null
+  }
+
+  const match = trimmed.match(/^(?:~|about|around|roughly|approx(?:imately)?\.?)?\s*(\d[\d,]*(?:\.\d+)?\s*k?)\s*(?:people|guests?|attendees?|pax|folks|persons?)?\s*[.!]?$/i)
+  if (!match) return null
+
+  const value = parseHumanNumber(match[1])
+  if (!value || value < 1 || value > 40_000) return null
+  return value
+}
+
 function extractEventType(message: string) {
   return EVENT_TYPE_PATTERNS.find(({ pattern }) => pattern.test(message))
 }

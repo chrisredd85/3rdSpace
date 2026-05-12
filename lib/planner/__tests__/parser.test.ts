@@ -1,4 +1,4 @@
-import { hasUnknownBudgetSignal, parseEventIntent } from '@/lib/planner/intentParser'
+import { hasUnknownBudgetSignal, parseEventIntent, parseStandaloneGuestCountReply } from '@/lib/planner/intentParser'
 
 describe('planner parser MVP regressions', () => {
   it.each([
@@ -80,6 +80,28 @@ describe('planner parser MVP regressions', () => {
     const intent = parseEventIntent(phrase)
 
     expect(intent.guest_count).toBe(expectedHeadcount)
+  })
+
+  it.each([
+    ['40', 40],
+    ['115', 115],
+    ['2,000', 2000],
+    ['40k', 40000],
+    ['around 115', 115],
+  ])('parses standalone contextual headcount reply "%s"', (reply, expectedHeadcount) => {
+    expect(parseStandaloneGuestCountReply(reply)).toBe(expectedHeadcount)
+  })
+
+  it.each([
+    '$5000',
+    'under 5000 budget',
+    'May 15',
+    '5/15',
+    '2 hours',
+    '75 per ticket',
+    '40001',
+  ])('does not treat non-headcount numeric reply "%s" as standalone guest count', (reply) => {
+    expect(parseStandaloneGuestCountReply(reply)).toBeNull()
   })
 
   it('does not confuse a date day number with founder/operator headcount', () => {

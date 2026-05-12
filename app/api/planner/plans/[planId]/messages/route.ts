@@ -43,7 +43,7 @@ import {
 } from '@/lib/planner/archetypes'
 import type { EventArchetypeConfig } from '@/lib/planner/archetypes'
 import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
-import { hasUnknownBudgetSignal, parseEventIntent } from '@/lib/planner/intentParser'
+import { hasUnknownBudgetSignal, parseEventIntent, parseStandaloneGuestCountReply } from '@/lib/planner/intentParser'
 import {
   isIntakeReadyForRecommendations,
   isPlanReadyForRequestedRecommendations,
@@ -1128,7 +1128,11 @@ function buildPlanUpdates(intent: Partial<PlanIntent>, currentPlan: Plan, userMe
       }
     }
   }
+  const contextualGuestCount = currentPlan.guest_count == null
+    ? parseStandaloneGuestCountReply(userMessage)
+    : null
   if (typeof intent.guest_count === 'number') updates.guest_count = intent.guest_count
+  else if (typeof contextualGuestCount === 'number') updates.guest_count = contextualGuestCount
   if (!hasUnknownBudgetSignal(userMessage) && typeof intent.budget_cap === 'number') updates.budget_cap_cents = intent.budget_cap
   if (intent.neighborhood) updates.neighborhood = intent.neighborhood
   if (intent.date_window_start) updates.date_window_start = intent.date_window_start

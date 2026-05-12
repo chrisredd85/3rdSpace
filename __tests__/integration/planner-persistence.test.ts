@@ -372,6 +372,89 @@ describe('Planner persistence integration', () => {
     }
   })
 
+  it('uses a bare numeric reply as guest count and does not repeat the headcount question', async () => {
+    const oldOpenAIKey = process.env.OPENAI_API_KEY
+    process.env.OPENAI_API_KEY = 'test-openai-key'
+    mockRunAgent.mockResolvedValueOnce({
+      agent_name: 'intake',
+      status: 'succeeded',
+      output: {
+        reflection: 'Handling a networking mixer in Oakland on May 15, 2026.',
+        extracted_fields: {
+          event_type: null,
+          guest_count: null,
+          neighborhood: null,
+          date_window_start: null,
+          date_window_end: null,
+          budget_cap_cents: null,
+          ticketed: null,
+          ticket_price_target: null,
+          food_responsibility: null,
+          profit_goal_cents: null,
+        },
+        updated_event_plan: {
+          event_name: 'Networking mixer plan',
+          expected_attendance: null,
+          city: null,
+          venue_type: 'Networking mixer',
+          budget: null,
+          event_date: null,
+          monetization_model: null,
+          headcount_min: null,
+          headcount_max: null,
+          ticket_price_target: null,
+          profit_goal: null,
+        },
+        neighborhood: null,
+        food_drink_needs: null,
+        music_av_needs: null,
+        vibe_audience: null,
+        hard_constraints: [],
+        missing_questions: ['How many people are you planning for?'],
+        confidence_score: 0.88,
+        next_best_question: 'How many people are you planning for?',
+        assumptions_made: [],
+      },
+    })
+
+    db.rows.plans.push({
+      id: 'mixer-plan',
+      user_id: 'user-1',
+      title: 'Networking mixer plan',
+      event_type: 'Networking mixer',
+      status: 'drafting',
+      guest_count: null,
+      budget_cap_cents: null,
+      neighborhood: 'Oakland',
+      date_window_start: '2026-05-15',
+      date_window_end: '2026-05-15',
+      ticketed: false,
+      ticketing_model: 'rsvp',
+      food_responsibility: null,
+      venue_terms: null,
+      agent_action: null,
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {},
+      created_at: '2026-05-10T10:00:00Z',
+      updated_at: '2026-05-10T10:00:00Z',
+    })
+
+    try {
+      const response = await postMessage(makeRequest('/api/planner/plans/mixer-plan/messages', { message: '115' }), {
+        params: { planId: 'mixer-plan' },
+      })
+      const json = await readJson(response)
+
+      expect(response.status).toBe(200)
+      expect(json.plan.guest_count).toBe(115)
+      expect(json.agent_message.content).not.toMatch(/how many people/i)
+      expect(json.agent_message.content).toMatch(/115/)
+    } finally {
+      process.env.OPENAI_API_KEY = oldOpenAIKey
+    }
+  })
+
   it('creates a plan, appends messages, transitions status, and reloads persisted state', async () => {
     const createResponse = await createPlan(makeRequest('/api/planner/plans', {
       message: 'I want to plan an event',

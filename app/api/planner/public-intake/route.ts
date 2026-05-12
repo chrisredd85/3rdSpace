@@ -22,7 +22,7 @@ import {
   resolveArchetypeIntakeContext,
 } from '@/lib/planner/archetypes'
 import type { EventArchetypeConfig } from '@/lib/planner/archetypes'
-import { hasUnknownBudgetSignal, parseEventIntent } from '@/lib/planner/intentParser'
+import { hasUnknownBudgetSignal, parseEventIntent, parseStandaloneGuestCountReply } from '@/lib/planner/intentParser'
 import {
   isPlanReadyForRequestedRecommendations,
   isRecommendationRequest,
@@ -575,7 +575,11 @@ function buildPlanPatchFromIntent(
       }, eventTypeDecision.lock))
     }
   }
+  const contextualGuestCount = readNumber(currentPlan?.guest_count) === null
+    ? parseStandaloneGuestCountReply(message)
+    : null
   if (typeof intent.guest_count === 'number') patch.guest_count = intent.guest_count
+  else if (typeof contextualGuestCount === 'number') patch.guest_count = contextualGuestCount
   if (!hasUnknownBudgetSignal(message) && typeof intent.budget_cap === 'number') patch.budget_cap_cents = intent.budget_cap
   if (intent.neighborhood) patch.neighborhood = intent.neighborhood
   if (intent.date_window_start) patch.date_window_start = intent.date_window_start
