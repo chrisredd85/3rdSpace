@@ -346,7 +346,8 @@ function extractDateWindow(message: string):
     const targetDay = WEEKDAY_INDEX[weekdayHint[1].toLowerCase()]
     if (targetDay !== undefined) {
       const today = startOfLocalDay(new Date())
-      const daysAhead = ((targetDay - today.getDay() + 7) % 7) || 7
+      const todayDay = today.getDay()
+      const daysAhead = ((targetDay - todayDay + 7) % 7) || 7
       const date = addDays(today, daysAhead)
       const dateStr = toLocalIsoDate(date)
       return { hint: weekdayHint[0].trim(), start: dateStr, end: dateStr, confidence: 0.42 }
@@ -370,6 +371,7 @@ function extractRelativeDateWindow(lowerMessage: string): { hint: string; start:
   }
 
   if (/\bnext\s+week\b/i.test(lowerMessage)) return buildRelativeWindow('next week', 7)
+
   if (/\bnext\s+month\b/i.test(lowerMessage)) {
     const today = startOfLocalDay(new Date())
     const nextMonth = today.getMonth() + 1
@@ -394,6 +396,11 @@ function extractRelativeDateWindow(lowerMessage: string): { hint: string; start:
   }
 
   return null
+}
+
+const WEEKDAY_INDEX: Record<string, number> = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+  thursday: 4, friday: 5, saturday: 6,
 }
 
 function buildRelativeWindow(hint: string, days: number): { hint: string; start: string; end: string; confidence: number } {
@@ -427,7 +434,7 @@ function extractFoodResponsibility(lowerMessage: string): { value: string; confi
     return { value: 'Organizer prepays food/beverage', confidence: 0.86 }
   }
 
-  if (/\b(cash\s+bar|guests?\s+pay|pay\s+their\s+own|no-host\s+bar|drinks?\s+at\s+the\s+bar)\b/i.test(lowerMessage)) {
+  if (/\b(cash\s+bar|guests?\s+pay|pay\s+their\s+own|no-host\s+bar|drinks?\s+at\s+the\s+bar|bar\s+tab\s+on\s+(guests?|them))\b/i.test(lowerMessage)) {
     return { value: 'Guests pay venue directly', confidence: 0.84 }
   }
 
@@ -435,8 +442,12 @@ function extractFoodResponsibility(lowerMessage: string): { value: string; confi
     return { value: 'Light snacks only (organizer provides)', confidence: 0.78 }
   }
 
-  if (/\b(no\s+food|no\s+drinks|venue\s+only|no\s+f&b)\b/i.test(lowerMessage)) {
+  if (/\b(no\s+food|no\s+drinks?|no\s+f&b|venue\s+only|byob)\b/i.test(lowerMessage)) {
     return { value: 'No food/beverage needed', confidence: 0.8 }
+  }
+
+  if (/\b(snacks?\s+only|light\s+snacks?|just\s+snacks?|chips?\s+and\s+dips?|finger\s+foods?|light\s+bites?)\b/i.test(lowerMessage)) {
+    return { value: 'Light snacks only (organizer provides)', confidence: 0.78 }
   }
 
   return null
