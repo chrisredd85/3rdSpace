@@ -371,6 +371,118 @@ describe('Planner persistence integration', () => {
     }
   })
 
+  it('triggers recommendations when the agent pivots on an already-ready plan with no recommendation artifacts', async () => {
+    const oldOpenAIKey = process.env.OPENAI_API_KEY
+    process.env.OPENAI_API_KEY = 'test-openai-key'
+    mockRunAgent.mockResolvedValueOnce({
+      agent_name: 'intake',
+      status: 'succeeded',
+      output: {
+        reflection: 'Locked in — pulling San Francisco venues that fit 35 guests for this networking mixer.',
+        extracted_fields: {
+          event_type: null,
+          guest_count: null,
+          neighborhood: null,
+          date_window_start: null,
+          date_window_end: null,
+          budget_cap_cents: null,
+          ticketed: null,
+          ticket_price_target: null,
+          food_responsibility: null,
+          profit_goal_cents: null,
+        },
+        updated_event_plan: {
+          event_name: 'Networking mixer',
+          expected_attendance: 35,
+          city: 'San Francisco',
+          venue_type: 'Networking mixer',
+          budget: null,
+          event_date: '2026-05-30',
+          monetization_model: null,
+          headcount_min: 35,
+          headcount_max: 35,
+          ticket_price_target: null,
+          profit_goal: null,
+        },
+        neighborhood: 'San Francisco',
+        food_drink_needs: null,
+        music_av_needs: null,
+        vibe_audience: null,
+        hard_constraints: [],
+        missing_questions: [],
+        confidence_score: 0.92,
+        next_best_question: null,
+        assumptions_made: [],
+      },
+    })
+
+    db.rows.plans.push({
+      id: 'ready-mixer-plan',
+      user_id: 'user-1',
+      title: "Women's mixer",
+      event_type: 'Networking mixer',
+      status: 'ready',
+      guest_count: 35,
+      budget_cap_cents: null,
+      neighborhood: 'San Francisco',
+      date_window_start: '2026-05-30',
+      date_window_end: '2026-05-30',
+      ticketed: false,
+      ticketing_model: null,
+      food_responsibility: null,
+      venue_terms: null,
+      agent_action: null,
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {},
+      created_at: '2026-05-10T10:00:00Z',
+      updated_at: '2026-05-10T10:00:00Z',
+    })
+    db.rows.plan_messages.push(
+      {
+        id: 'ready-m1',
+        plan_id: 'ready-mixer-plan',
+        role: 'user',
+        content: 'I want to host a womens mixer',
+        message_type: 'text',
+        metadata: {},
+        created_at: '2026-05-10T10:00:00Z',
+      },
+      {
+        id: 'ready-m2',
+        plan_id: 'ready-mixer-plan',
+        role: 'user',
+        content: 'San Francisco',
+        message_type: 'text',
+        metadata: {},
+        created_at: '2026-05-10T10:01:00Z',
+      },
+      {
+        id: 'ready-m3',
+        plan_id: 'ready-mixer-plan',
+        role: 'user',
+        content: '35',
+        message_type: 'text',
+        metadata: {},
+        created_at: '2026-05-10T10:02:00Z',
+      }
+    )
+
+    try {
+      const response = await postMessage(makeRequest('/api/planner/plans/ready-mixer-plan/messages', { message: 'May 30th' }), {
+        params: { planId: 'ready-mixer-plan' },
+      })
+      const json = await readJson(response)
+
+      expect(response.status).toBe(200)
+      expect(json.agent_message.message_type).toBe('recommendation')
+      expect(json.plan.status).toBe('ready')
+      expect(json.needs_recommendations).toBe(true)
+    } finally {
+      process.env.OPENAI_API_KEY = oldOpenAIKey
+    }
+  })
+
   it('uses a bare numeric reply as guest count and does not repeat the headcount question', async () => {
     const oldOpenAIKey = process.env.OPENAI_API_KEY
     process.env.OPENAI_API_KEY = 'test-openai-key'

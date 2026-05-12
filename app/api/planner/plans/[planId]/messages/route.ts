@@ -307,8 +307,16 @@ export async function POST(
     // AI recommendation pipeline. We don't do it inline here — that pipeline can take
     // 20-40 s and would timeout this route. The client calls the dedicated endpoint
     // after receiving this response.
+    const hasRecommendationPipelineArtifacts = await hasExistingRecommendationPipelineArtifacts(
+      auth.db,
+      context.params.planId,
+      messages
+    )
     const shouldCreateAutoRecommendations =
-      didMarkPlanReady || shouldForceRecommendation || didRefreshRecommendations
+      didMarkPlanReady ||
+      shouldForceRecommendation ||
+      didRefreshRecommendations ||
+      (agentMessage.message_type === 'recommendation' && !hasRecommendationPipelineArtifacts)
 
     if (!shouldCreateAutoRecommendations && agentMessage.message_type === 'recommendation') {
       const opportunityBundle = await createVenueOpportunityBundle({
@@ -1081,6 +1089,38 @@ async function maybeMarkPlanReady(
   }
 
   return data as Plan
+}
+
+async function hasExistingRecommendationPipelineArtifacts(
+  db: PlannerDb,
+  planId: string,
+  messages: PlanMessage[]
+): Promise<boolean> {
+  if (messages.some(isRecommendationPipelineMessage)) return true
+
+  const { data, error } = await db
+    .from('recommendations')
+    .select('id')
+    .eq('plan_id', planId)
+    .range(0, 0)
+
+  if (error) {
+    console.warn('[planner] Recommendation artifact lookup failed', error)
+    return false
+  }
+
+  return Array.isArray(data) && data.length > 0
+}
+
+function isRecommendationPipelineMessage(message: PlanMessage): boolean {
+  const metadata = readRecord(message.metadata)
+  if (!metadata) return false
+
+  if (metadata.source === 'planner_recommendations') return true
+  if (metadata.recommendation_error === true) return true
+
+  const recommendations = metadata.recommendations
+  return Array.isArray(recommendations) && recommendations.length > 0
 }
 
 function buildPlanUpdates(intent: Partial<PlanIntent>, currentPlan: Plan, userMessage: string): Record<string, unknown> {
