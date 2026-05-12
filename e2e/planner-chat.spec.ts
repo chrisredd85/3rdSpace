@@ -302,6 +302,84 @@ test.describe('Agent Planner chat', () => {
     await expect(page.getByRole('heading', { name: /day party plan/i })).not.toBeVisible()
   })
 
+  test('authenticated homepage drafts start server-backed plans instead of mock mode', async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 })
+
+    let createPlanCalls = 0
+    await page.route('**/api/planner/plans', async (route) => {
+      const request = route.request()
+      if (request.method() !== 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ plans: [], count: 0 }),
+        })
+        return
+      }
+
+      createPlanCalls += 1
+      const now = new Date().toISOString()
+      const plan = {
+        id: 'server-plan-homepage-draft',
+        user_id: 'user-1',
+        title: 'Networking mixer plan',
+        event_type: 'Networking mixer',
+        status: 'drafting',
+        guest_count: null,
+        budget_cap_cents: null,
+        neighborhood: 'Mission',
+        date_window_start: null,
+        date_window_end: null,
+        ticketed: false,
+        ticketing_model: 'rsvp',
+        food_responsibility: null,
+        venue_terms: null,
+        agent_action: null,
+        profit_goal_cents: null,
+        notes: null,
+        metadata: {},
+        created_at: now,
+        updated_at: now,
+      }
+      const messages = [
+        {
+          id: 'server-message-user-1',
+          plan_id: plan.id,
+          role: 'user',
+          content: 'I want to host a women happy hour in the mission in SF',
+          message_type: 'text',
+          metadata: {},
+          created_at: now,
+        },
+        {
+          id: 'server-message-agent-1',
+          plan_id: plan.id,
+          role: 'agent',
+          content: 'How many people are you planning for?',
+          message_type: 'confirmation_card',
+          metadata: {},
+          created_at: now,
+        },
+      ]
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ plan, messages, intent: {} }),
+      })
+    })
+
+    await page.goto('/planner?draft=I%20want%20to%20host%20a%20women%20happy%20hour%20in%20the%20mission%20in%20SF', {
+      waitUntil: 'domcontentloaded',
+    })
+
+    await expect(page).toHaveURL(/\/planner$/, { timeout: 15000 })
+    await expect(page.getByText('Plan syncing')).toBeVisible()
+    await expect(page.getByText('Draft saved locally')).not.toBeVisible()
+    await expect(page.getByText('How many people are you planning for?')).toBeVisible()
+    expect(createPlanCalls).toBe(1)
+  })
+
   test('Event Plan side panel renders structured sections', async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 })
     await page.goto('/planner?mock=1&draft=Plan%20a%20day%20party%20for%2090%20people%20in%20the%20Mission%20with%20a%20%249000%20budget', {

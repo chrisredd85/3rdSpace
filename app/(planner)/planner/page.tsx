@@ -20,7 +20,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/components/ui/toast'
 import { humanizeEventType } from '@/lib/planner/archetypes/driftControl'
-import { plannerDraftStorageKey } from '@/lib/planner/migrateDraft'
+import { migratePlannerDraftToServer, plannerDraftStorageKey } from '@/lib/planner/migrateDraft'
 import type {
   Plan,
   PlanMessage,
@@ -179,6 +179,7 @@ function PlannerPageContent() {
   const replyRef = useRef<HTMLTextAreaElement>(null)
   const hasStartedInitialDraftRef = useRef(false)
   const hasTriggeredDemoResetRef = useRef(false)
+  const hasTriedDraftAutoMigrationRef = useRef(false)
   const ignoredDraftRef = useRef<string | null>(null)
   const [persistenceMode, setPersistenceMode] = useState<PlannerPersistenceMode>('loading')
   const [hasLoadedStoredConversation, setHasLoadedStoredConversation] = useState(false)
@@ -247,10 +248,11 @@ function PlannerPageContent() {
       if (initialDraft) {
         clearStoredPlannerConversation()
         hasStartedInitialDraftRef.current = false
+        hasTriedDraftAutoMigrationRef.current = false
         setActivePlan(null)
         setMessages([])
         setActiveTab('chat')
-        setPersistenceMode('draft')
+        setPersistenceMode(forceDraftMode ? 'draft' : 'server')
         setHasLoadedStoredConversation(true)
         return
       }
@@ -338,10 +340,10 @@ function PlannerPageContent() {
    * refreshes do not create duplicate plans.
    */
   async function startInitialDraftPlan(message: string) {
-    const created = await handleCreatePlan(message)
+    const createdMode = await handleCreatePlan(message)
 
-    if (created && window.location.search.includes('draft=')) {
-      router.replace('/planner?mock=1')
+    if (createdMode && window.location.search.includes('draft=')) {
+      router.replace(createdMode === 'draft' ? '/planner?mock=1' : '/planner')
     }
   }
 
@@ -394,14 +396,14 @@ function PlannerPageContent() {
   /**
    * Creates the first planner record from the empty-state prompt.
    */
-  async function handleCreatePlan(message: string): Promise<boolean> {
+  async function handleCreatePlan(message: string): Promise<'server' | 'draft' | null> {
     setIsCreatingPlan(true)
     setErrorMessage(null)
 
     if (persistenceMode !== 'server') {
       await createDraftPlan(message)
       setIsCreatingPlan(false)
-      return true
+      return 'draft'
     }
 
     try {
@@ -415,7 +417,7 @@ function PlannerPageContent() {
       if (response.status === 401 || response.status === 403) {
         setPersistenceMode('draft')
         await createDraftPlan(message)
-        return true
+        return 'draft'
       }
 
       if (!response.ok) {
@@ -427,12 +429,12 @@ function PlannerPageContent() {
       setMessages(data.messages)
       setActiveTab('chat')
       publishLivePlan(data.plan, data.messages)
-      return true
+      return 'server'
     } catch (error) {
       console.warn('[planner] Falling back to local draft mode after create failed', error)
       setPersistenceMode('draft')
       await createDraftPlan(message)
-      return true
+      return 'draft'
     } finally {
       setIsCreatingPlan(false)
     }
@@ -459,6 +461,24 @@ function PlannerPageContent() {
     }
 
     if (shouldUseMockReplyPath(persistenceMode, activePlan.id)) {
+      if (!forceDraftMode && !hasTriedDraftAutoMigrationRef.current) {
+        hasTriedDraftAutoMigrationRef.current = true
+
+        try {
+          const migratedPlan = await migratePlannerDraftToServer()
+          if (migratedPlan?.plan?.id) {
+            setPersistenceMode('server')
+            setActivePlan(migratedPlan.plan)
+            setMessages(migratedPlan.messages)
+            clearStoredPlannerConversation()
+            await sendServerReply(migratedPlan.plan, migratedPlan.messages, trimmed)
+            return
+          }
+        } catch (error) {
+          console.warn('[planner] Continuing in local draft mode after draft auto-migration failed', error)
+        }
+      }
+
       const userMessage = buildMockMessage(activePlan.id, 'user', trimmed, 'text', {})
       const publicIntake = await tryRunPublicDraftIntake(trimmed, activePlan)
       const deterministicExchange = publicIntake
@@ -489,8 +509,12 @@ function PlannerPageContent() {
       return
     }
 
+    await sendServerReply(activePlan, messages, trimmed)
+  }
+
+  async function sendServerReply(plan: Plan, currentMessages: PlanMessage[], trimmed: string) {
     try {
-      const response = await fetch(`/api/planner/plans/${activePlan.id}/messages`, {
+      const response = await fetch(`/api/planner/plans/${plan.id}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: trimmed }),
@@ -503,7 +527,7 @@ function PlannerPageContent() {
 
       const data = payload as PlannerPostMessageResponse
       const nextMessages = [
-        ...messages,
+        ...currentMessages,
         data.user_message,
         data.agent_message,
         ...(data.follow_up_messages ?? []),
@@ -557,6 +581,7 @@ function PlannerPageContent() {
     setIsCreatingPlan(false)
     setIsSendingReply(false)
     hasStartedInitialDraftRef.current = false
+    hasTriedDraftAutoMigrationRef.current = false
     ignoredDraftRef.current = initialDraft
     publishLivePlan(null, [])
 
