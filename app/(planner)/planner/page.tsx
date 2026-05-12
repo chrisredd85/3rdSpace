@@ -69,6 +69,7 @@ interface PendingConversionAction {
     approvalId?: string
     authorizedAmountCents?: number
     externalUrl?: string
+    reason?: 'recommendations' | string
   }
 }
 
@@ -208,6 +209,7 @@ function PlannerPageContent() {
   const [timelineError, setTimelineError] = useState<string | null>(null)
   const [isDemoResetting, setIsDemoResetting] = useState(false)
   const [demoResetError, setDemoResetError] = useState<string | null>(null)
+  const [signupGateContext, setSignupGateContext] = useState<'default' | 'recommendations'>('default')
   useEffect(() => {
     setIsAuthenticated(persistenceMode === 'server')
   }, [persistenceMode])
@@ -386,13 +388,15 @@ function PlannerPageContent() {
         ),
       ]
       : deterministicExchange?.agentMessages ?? []
-    const nextMessages = [userMessage, ...agentMessages]
+    const draftMatchHandoff = buildDraftMatchHandoff(finalPlan, agentMessages)
+    const nextPlan = draftMatchHandoff.plan
+    const nextMessages = [userMessage, ...draftMatchHandoff.agentMessages]
 
-    setActivePlan(finalPlan)
+    setActivePlan(nextPlan)
     setMessages(nextMessages)
     setActiveTab('chat')
-    publishLivePlan(finalPlan, nextMessages)
-    persistStoredPlannerConversation(finalPlan, nextMessages, true)
+    publishLivePlan(nextPlan, nextMessages)
+    persistStoredPlannerConversation(nextPlan, nextMessages, true)
   }
 
   /**
@@ -559,13 +563,15 @@ function PlannerPageContent() {
           ),
         ]
         : deterministicExchange?.agentMessages ?? []
-      const nextMessages = [...messages, userMessage, ...agentMessages]
+      const draftMatchHandoff = buildDraftMatchHandoff(finalPlan, agentMessages, messages)
+      const nextPlan = draftMatchHandoff.plan
+      const nextMessages = [...messages, userMessage, ...draftMatchHandoff.agentMessages]
 
-      setActivePlan(finalPlan)
+      setActivePlan(nextPlan)
       setMessages(nextMessages)
       setReply('')
-      publishLivePlan(finalPlan, nextMessages)
-      persistStoredPlannerConversation(finalPlan, nextMessages, true)
+      publishLivePlan(nextPlan, nextMessages)
+      persistStoredPlannerConversation(nextPlan, nextMessages, true)
       setIsSendingReply(false)
       return
     }
@@ -958,6 +964,7 @@ function PlannerPageContent() {
    * Opens the inline signup gate and records the attempted conversion action.
    */
   function requestSignupForAction(action: PendingConversionAction) {
+    setSignupGateContext(action.payload?.reason === 'recommendations' ? 'recommendations' : 'default')
     setPendingAction(action)
     setIsSignupGateOpen(true)
   }
@@ -976,6 +983,13 @@ function PlannerPageContent() {
       setActiveTab('chat')
       clearStoredPlannerConversation()
       publishLivePlan(migratedPlan.plan, migratedPlan.messages)
+
+      const shouldRunRecommendations =
+        migratedPlan.needs_recommendations === true ||
+        (migratedPlan.plan.status === 'ready' && !migratedPlan.messages.some(isRecommendationMessage))
+      if (shouldRunRecommendations) {
+        void triggerRecommendations(migratedPlan.plan.id, migratedPlan.messages)
+      }
     }
 
     const actionToResume = pendingAction
@@ -1088,6 +1102,7 @@ function PlannerPageContent() {
           isOpen={isSignupGateOpen}
           onClose={() => setIsSignupGateOpen(false)}
           onSignedIn={(plan) => void handlePlannerGateSignedIn(plan)}
+          context={signupGateContext}
         />
       </div>
     )
@@ -1217,6 +1232,9 @@ function PlannerPageContent() {
                     <Loader2 className="h-4 w-4 animate-spin shrink-0" />
                     Matching venues and vendors…
                   </div>
+                ) : null}
+                {persistenceMode === 'draft' && hasDraftMatchGateMessage(messages) ? (
+                  <DraftMatchSignupCard onContinue={() => requestSignupForAction({ type: 'save', payload: { reason: 'recommendations' } })} />
                 ) : null}
               </>
             ) : null}
@@ -1394,6 +1412,7 @@ function PlannerPageContent() {
         isOpen={isSignupGateOpen}
         onClose={() => setIsSignupGateOpen(false)}
         onSignedIn={(plan) => void handlePlannerGateSignedIn(plan)}
+        context={signupGateContext}
       />
       <PlannerTemplatesModal
         isOpen={isTemplatesModalOpen}
@@ -2190,6 +2209,67 @@ async function buildDeterministicDraftExchange(
   return { finalPlan, agentMessages }
 }
 
+function buildDraftMatchHandoff(
+  plan: Plan,
+  agentMessages: PlanMessage[],
+  existingMessages: PlanMessage[] = []
+): { plan: Plan; agentMessages: PlanMessage[] } {
+  if (!agentMessages.some(isDraftRecommendationTransition)) {
+    return { plan, agentMessages }
+  }
+
+  const readyPlan: Plan = {
+    ...plan,
+    status: 'ready',
+    updated_at: new Date().toISOString(),
+  }
+  const nonExecutableMessages = agentMessages.filter(
+    (message) => message.message_type !== 'recommendation' && message.message_type !== 'approval_request'
+  )
+
+  if (hasDraftMatchGateMessage(existingMessages)) {
+    return { plan: readyPlan, agentMessages: nonExecutableMessages }
+  }
+
+  return {
+    plan: readyPlan,
+    agentMessages: [
+      ...nonExecutableMessages,
+      buildDraftMatchGateMessage(readyPlan),
+    ],
+  }
+}
+
+function isDraftRecommendationTransition(message: PlanMessage) {
+  if (message.message_type === 'recommendation') return true
+  const metadata = readRecord(message.metadata)
+  return metadata?.transition_to_match === true || metadata?.state === 'recommendations_shown'
+}
+
+function hasDraftMatchGateMessage(messages: PlanMessage[]) {
+  return messages.some((message) => readRecord(message.metadata)?.state === 'draft_match_signup_gate')
+}
+
+function buildDraftMatchGateMessage(plan: Plan): PlanMessage {
+  const eventType = plan.event_type ? (humanizeEventType(plan.event_type) ?? plan.event_type) : 'event'
+  const area = plan.neighborhood ?? 'your target area'
+  const guestText = typeof plan.guest_count === 'number' && plan.guest_count > 0
+    ? ` for ${plan.guest_count.toLocaleString()} guests`
+    : ''
+
+  return buildMockMessage(
+    plan.id,
+    'agent',
+    `I have enough to match venues and vendors for this ${eventType.toLowerCase()}${guestText} in ${area}. Create a planner account to save this draft and unlock real venue matches, vendor picks, financial projections, and approval cards.`,
+    'status_update',
+    {
+      state: 'draft_match_signup_gate',
+      requires_auth: true,
+      next_action: 'signup_to_match',
+    }
+  )
+}
+
 /**
  * Applies defined mock-agent plan fields without wiping existing context.
  */
@@ -2862,6 +2942,28 @@ interface PlannerMessageBubbleProps {
   onApprovalStatusChange: (approvalId: string, status: ApprovalUiStatus) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
   onQuestionAnswerSubmit?: (answer: string) => void
+}
+
+function DraftMatchSignupCard({ onContinue }: { onContinue: () => void }) {
+  return (
+    <div className="rounded-3xl border border-primary/30 bg-gradient-card p-5 shadow-card">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+            <Sparkles className="h-4 w-4" />
+            Ready to match real venues
+          </div>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            I can save this draft and run the live planner pipeline for venue matches, vendor picks,
+            financial projections, and approval cards after you create your planner account.
+          </p>
+        </div>
+        <Button type="button" variant="hero" className="shrink-0 rounded-2xl" onClick={onContinue}>
+          Save draft & show matches
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 /**

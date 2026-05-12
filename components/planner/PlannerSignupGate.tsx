@@ -12,12 +12,13 @@ interface PlannerSignupGateProps {
   isOpen: boolean
   onClose: () => void
   onSignedIn: (plan: PlannerCreatePlanResponse | null) => void
+  context?: 'default' | 'recommendations'
 }
 
 /**
  * Inline signup modal shown only when an anonymous planner user takes a conversion action.
  */
-export function PlannerSignupGate({ isOpen, onClose, onSignedIn }: PlannerSignupGateProps) {
+export function PlannerSignupGate({ isOpen, onClose, onSignedIn, context = 'default' }: PlannerSignupGateProps) {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -29,6 +30,19 @@ export function PlannerSignupGate({ isOpen, onClose, onSignedIn }: PlannerSignup
   }, [fullName, email, password])
 
   if (!isOpen) return null
+
+  const copy = context === 'recommendations'
+    ? {
+      title: 'Save your plan to see matches',
+      description:
+        'Create your event creator account so I can save this draft and pull real venues, vendors, financials, and approval cards.',
+      submitLabel: 'Create account & show matches',
+    }
+    : {
+      title: 'Save your plan to continue',
+      description: 'Create your event creator account and the agent will continue the action.',
+      submitLabel: 'Create account & continue',
+    }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -79,9 +93,9 @@ export function PlannerSignupGate({ isOpen, onClose, onSignedIn }: PlannerSignup
                 <Sparkles className="h-5 w-5 text-primary-foreground" />
               </div>
               <div className="min-w-0">
-                <h2 className="font-display text-xl font-bold leading-tight text-foreground">Save your plan to continue</h2>
+                <h2 className="font-display text-xl font-bold leading-tight text-foreground">{copy.title}</h2>
                 <p className="mt-1 text-sm leading-snug text-muted-foreground">
-                  Create your event creator account and the agent will continue the action.
+                  {copy.description}
                 </p>
               </div>
             </div>
@@ -144,7 +158,7 @@ export function PlannerSignupGate({ isOpen, onClose, onSignedIn }: PlannerSignup
 
           <Button type="submit" className="h-12 w-full rounded-2xl" disabled={isSubmitting}>
             {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Create account & continue
+            {copy.submitLabel}
           </Button>
         </form>
       </div>
