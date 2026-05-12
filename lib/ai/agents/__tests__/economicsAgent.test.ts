@@ -122,6 +122,62 @@ describe('runEconomicsAgent', () => {
     expect(result.output.price_points.find((point) => point.price_cents === 5000)?.recommendation).toBe('recommended')
   })
 
+  it('clamps economics to server-side budget and attendance constraints', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            recommendation_summary: 'Use the stated ticket price and confirm quotes.',
+            narrative: 'Use the stated ticket price and confirm quotes.',
+            price_points: [
+              {
+                price_cents: 8500,
+                projected_net_cents: 238200,
+                break_even_tickets: 1,
+                recommendation: 'recommended',
+                reasoning: 'Model attempted impossible math.',
+              },
+            ],
+            recommended_price_cents: 8500,
+            historical_anchor: null,
+          }),
+        },
+      }],
+    })
+
+    const result = await runEconomicsAgent({
+      ...economicsInput,
+      event_plan: {
+        ...eventPlan,
+        expected_attendance: 32,
+        budget: 220000,
+        headcount_min: 32,
+        headcount_max: 32,
+        ticket_price_target: 8500,
+        profit_goal: 70000,
+      },
+      expected_attendance: 32,
+      venue_cost_cents: 30000,
+      vendor_cost_cents: 40000,
+      ticket_price_cents: 8500,
+      ticket_price_sweep_cents: [8500],
+    }, { create })
+
+    expect(result.output.cost_summary_cents.total_cost_cents).toBe(220000)
+    expect(result.output.price_points[0]).toEqual(
+      expect.objectContaining({
+        price_cents: 8500,
+        projected_net_cents: 52000,
+        break_even_tickets: 26,
+      })
+    )
+    expect(result.output.risk_flags).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Profit goal $700 exceeds the maximum possible $520'),
+      ])
+    )
+  })
+
   it('rejects invalid final economics output shape', () => {
     expect(() => economicsAgentOutputSchema.parse({
       break_even_attendance: 40,

@@ -214,4 +214,45 @@ describe('POST /api/ai/agents/run', () => {
     expect(mockRunAgent).not.toHaveBeenCalled()
     expect(insertMock).not.toHaveBeenCalled()
   })
+
+  it('blocks paid agents for free trial builders but allows timeline generation', async () => {
+    const billingQuery = {
+      select: jest.fn(() => ({
+        eq: jest.fn(() => ({
+          maybeSingle: jest.fn().mockResolvedValue({
+            data: { billing_tier: 'free_trial' },
+            error: null,
+          }),
+        })),
+      })),
+    }
+    fromMock.mockImplementation((table: string) => {
+      if (table === 'builder_profiles') return billingQuery
+      return { insert: insertMock }
+    })
+
+    const blockedResponse = await runAgentRoute(makeRequest({
+      agent_name: 'event_plan_extractor',
+      payload: { message: 'Plan an event' },
+    }))
+    expect(blockedResponse.status).toBe(402)
+    expect(mockRunAgent).not.toHaveBeenCalled()
+
+    mockRunAgent.mockResolvedValue({ ...validAgentResult, agent_name: 'timeline' })
+    const timelineResponse = await runAgentRoute(makeRequest({
+      agent_name: 'timeline',
+      payload: {
+        event_plan: validAgentResult.output.event_plan,
+        event_date: '2026-06-15',
+        confirmed_venue_bookings: [],
+        confirmed_vendor_bookings: [],
+        venue_requirements: [],
+      },
+    }))
+
+    expect(timelineResponse.status).toBe(200)
+    expect(mockRunAgent).toHaveBeenCalledWith(expect.objectContaining({
+      agent_name: 'timeline',
+    }))
+  })
 })

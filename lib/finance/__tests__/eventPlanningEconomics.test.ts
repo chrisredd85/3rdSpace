@@ -84,4 +84,35 @@ describe('calculateEventPlanningEconomics', () => {
     expect(output.risk_flags).toContain('Ticket price is zero while projected costs exceed sponsorship revenue.')
     expect(output.risk_flags).toContain('Free event has no sponsorship revenue in the planning inputs.')
   })
+
+  it('uses budget as projected spend floor and warns on impossible profit goals', () => {
+    const output = calculateEventPlanningEconomics({
+      event_plan: {
+        ...eventPlan,
+        expected_attendance: 32,
+        budget: 220000,
+        headcount_min: 32,
+        headcount_max: 32,
+        ticket_price_target: 8500,
+        profit_goal: 70000,
+      },
+      budget_line_items: [],
+      expected_attendance: 32,
+      venue_cost_cents: 30000,
+      vendor_cost_cents: 40000,
+      ticket_price_cents: 8500,
+      sponsorship_revenue_cents: 0,
+    })
+
+    expect(output.cost_summary_cents.total_cost_cents).toBe(220000)
+    expect(output.revenue_scenarios.optimistic.ticket_revenue_cents).toBe(272000)
+    expect(output.revenue_scenarios.optimistic.profit_cents).toBe(52000)
+    expect(output.profit_projection_cents).toBeLessThanOrEqual(output.revenue_scenarios.expected.ticket_revenue_cents)
+    expect(output.break_even_attendance).toBe(26)
+    expect(output.risk_flags).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Profit goal $700 exceeds the maximum possible $520'),
+      ])
+    )
+  })
 })

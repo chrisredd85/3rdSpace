@@ -450,6 +450,20 @@ export async function POST(
       conversationHistory,
       mutationContract,
     })
+    await persistRecommendationShoppingList({
+      db: auth.db,
+      plan: {
+        ...recommendationPlan,
+        metadata: {
+          ...(readRecord(recommendationPlan.metadata) ?? {}),
+          agent_cache: buildOperationalAgentCacheMetadata(operationalArtifacts),
+        } as Json,
+      },
+      topVenue: topVenueContext,
+      topRankedVenue: venueMatch.venueResult.output.ranked_venues[0] ?? null,
+      vendorRecommendations: suggestedVendors,
+      profitProjection,
+    })
 
     await insertAuditLog(auth.db, {
       user_id: auth.userId,
@@ -623,6 +637,20 @@ async function runCatalogFallback(input: {
     archetypeIntake: input.archetypeIntake,
     conversationHistory: input.conversationHistory,
     mutationContract: buildMutationContract(input.plan.metadata, input.plan.event_type),
+  })
+  await persistRecommendationShoppingList({
+    db: input.auth.db,
+    plan: {
+      ...input.plan,
+      metadata: {
+        ...(readRecord(input.plan.metadata) ?? {}),
+        agent_cache: buildOperationalAgentCacheMetadata(operationalArtifacts),
+      } as Json,
+    },
+    topVenue: topVenueContext,
+    topRankedVenue: rankedVenues[0] ?? null,
+    vendorRecommendations,
+    profitProjection,
   })
 
   await insertAuditLog(input.auth.db, {
@@ -1371,11 +1399,36 @@ async function persistPlanOperationalMetadata(
   userId: string,
   artifacts: OperationalAgentArtifacts
 ) {
-  const generatedAt = new Date().toISOString()
   const metadata = readRecord(plan.metadata) ?? {}
   const agentCache = readRecord(metadata.agent_cache) ?? {}
-  const nextAgentCache = {
-    ...agentCache,
+  const nextAgentCache = buildOperationalAgentCacheMetadata(artifacts, agentCache)
+  const nextMetadata = {
+    ...metadata,
+    agent_cache: nextAgentCache,
+  }
+
+  const { error } = await db
+    .from('plans')
+    .update({ metadata: nextMetadata as Json })
+    .eq('id', plan.id)
+    .eq('user_id', userId)
+
+  if (error) {
+    console.error('[planner.recommend] Plan operational metadata update error', error)
+    return
+  }
+
+  await insertOperationalPlanVersion(db, plan, userId, nextMetadata, artifacts)
+}
+
+function buildOperationalAgentCacheMetadata(
+  artifacts: OperationalAgentArtifacts,
+  existingAgentCache: Record<string, unknown> = {}
+): Record<string, unknown> {
+  const generatedAt = new Date().toISOString()
+
+  return {
+    ...existingAgentCache,
     timeline: artifacts.timeline
       ? {
           generated_at: generatedAt,
@@ -1399,23 +1452,6 @@ async function persistPlanOperationalMetadata(
           error: artifacts.errors.workspace ?? 'Workspace summary was not generated.',
         },
   }
-  const nextMetadata = {
-    ...metadata,
-    agent_cache: nextAgentCache,
-  }
-
-  const { error } = await db
-    .from('plans')
-    .update({ metadata: nextMetadata as Json })
-    .eq('id', plan.id)
-    .eq('user_id', userId)
-
-  if (error) {
-    console.error('[planner.recommend] Plan operational metadata update error', error)
-    return
-  }
-
-  await insertOperationalPlanVersion(db, plan, userId, nextMetadata, artifacts)
 }
 
 async function insertOperationalPlanVersion(
@@ -1820,17 +1856,20 @@ async function loadSuggestedVendors(
 }
 
 function toSuggestedVendorFromRanked(vendor: RankedVendor): SuggestedVendorRecommendation {
+  const baseRateCents = sanitizeSuggestedVendorRateCents(vendor.base_rate_cents, vendor.service_type)
+
   return {
     vendor_id: vendor.vendor_id,
     name: vendor.name,
     service_type: vendor.service_type,
     necessity: vendor.necessity,
     service_note: vendor.service_note,
-    base_rate_cents: vendor.base_rate_cents,
+    base_rate_cents: baseRateCents,
     fit_score: vendor.total_score,
     pros: [
       vendor.user_facing_intro,
       `${vendor.total_score}/100 vendor fit score.`,
+      baseRateCents === null ? 'Est. TBD — confirm with vendor.' : null,
       vendor.response_p50_minutes !== null
         ? `Median response time ${formatResponseTime(vendor.response_p50_minutes)}.`
         : 'Response time needs confirmation.',
@@ -1849,6 +1888,38 @@ function formatResponseTime(minutes: number): string {
   if (minutes < 60) return `${minutes}m`
   if (minutes < 1440) return `${Math.round(minutes / 60)}h`
   return `${Math.round(minutes / 1440)}d`
+}
+
+function sanitizeSuggestedVendorRateCents(value: unknown, serviceType: string | null | undefined): number | null {
+  const rateCents = readNumber(value)
+  if (rateCents === null || rateCents <= 0) return null
+  if (isNonTrivialVendorServiceType(serviceType) && rateCents < 5_000) return null
+  return Math.round(rateCents)
+}
+
+function isNonTrivialVendorServiceType(serviceType: string | null | undefined): boolean {
+  const normalized = normalizeText(serviceType)
+  return [
+    'av tech',
+    'av_tech',
+    'av production',
+    'av_production',
+    'audio visual tech',
+    'catering',
+    'bartending',
+    'photography',
+    'photographer',
+    'videography',
+    'videographer',
+    'florist',
+    'decor',
+    'lighting',
+    'staffing',
+    'security',
+    'event planning',
+    'event_planning',
+    'dj',
+  ].includes(normalized)
 }
 
 function toDbVendorServiceType(serviceType: string): string {
@@ -2108,12 +2179,13 @@ function buildAgentEventPlan(plan: Plan, rankingInput: CatalogPlanRankingInput) 
   const expectedAttendance = readNumber(plan.guest_count ?? rankingInput.guest_count ?? rankingInput.headcount)
   const budgetCents = readNumber(plan.budget_cap_cents ?? rankingInput.budget_cap_cents ?? rankingInput.budget_cents)
   const profitGoalCents = readNumber(plan.profit_goal_cents)
-  const ticketPriceTargetCents = estimateTicketPriceTargetCents({
-    ticketed: plan.ticketed,
-    budgetCents,
-    profitGoalCents,
-    expectedAttendance,
-  })
+  const ticketPriceTargetCents = readPlanTicketPriceTargetCents(plan) ??
+    estimateTicketPriceTargetCents({
+      ticketed: plan.ticketed,
+      budgetCents,
+      profitGoalCents,
+      expectedAttendance,
+    })
 
   return {
     event_name: plan.title || 'Untitled event plan',
@@ -2163,7 +2235,10 @@ function buildEconomicsPayload(
     conversation_history: context.conversationHistory,
     elasticity: context.elasticity,
     historical_attendance: context.historicalAttendance as unknown as Record<string, unknown> | null,
-    ticket_price_sweep_cents: context.ticketPriceSweepCents,
+    ticket_price_sweep_cents: normalizeTicketPriceSweep([
+      ...context.ticketPriceSweepCents,
+      ...(eventPlan.ticket_price_target ? [eventPlan.ticket_price_target] : []),
+    ]),
     score_breakdown: {
       financial: {
         details: {
@@ -2430,6 +2505,61 @@ async function persistEconomicsRecommendation(
   return (data ?? []) as Recommendation[]
 }
 
+async function persistRecommendationShoppingList(input: {
+  db: PlannerDb
+  plan: Plan
+  topVenue: RecommendedVenueContext | null
+  topRankedVenue: VenueMatchingAgentOutput['ranked_venues'][number] | null
+  vendorRecommendations: SuggestedVendorRecommendation[]
+  profitProjection: ProfitProjectionSummary | null
+}) {
+  const currentMetadata = readRecord(input.plan.metadata) ?? {}
+  const currentShoppingList = readRecord(currentMetadata.shopping_list) ?? {}
+  const selectedVenue = input.topVenue
+    ? {
+        id: input.topVenue.venue_id,
+        reference_id: input.topVenue.venue_id,
+        type: 'venue',
+        external_name: input.topVenue.venue_name,
+        price_cents: input.topVenue.quoted_price_cents,
+        fit_score: input.topRankedVenue?.fit_score ?? null,
+        reason: input.topRankedVenue?.user_facing_intro ?? null,
+        is_best_fit: true,
+      }
+    : null
+  const selectedVendors = input.vendorRecommendations.slice(0, 3).map((vendor, index) => ({
+    id: vendor.vendor_id,
+    reference_id: vendor.vendor_id,
+    type: 'vendor',
+    external_name: vendor.name,
+    service_type: vendor.service_type,
+    price_cents: vendor.base_rate_cents,
+    fit_score: vendor.fit_score,
+    necessity: vendor.necessity,
+    rank: index + 1,
+  }))
+  const shoppingList = {
+    ...currentShoppingList,
+    selected_venue: selectedVenue,
+    selected_vendors: selectedVendors,
+    profit_projection: input.profitProjection,
+    updated_at: new Date().toISOString(),
+  }
+  const nextMetadata = {
+    ...currentMetadata,
+    shopping_list: shoppingList,
+  }
+
+  const { error } = await input.db
+    .from('plans')
+    .update({ metadata: nextMetadata as Json })
+    .eq('id', input.plan.id)
+
+  if (error) {
+    console.error('[planner.recommend] Plan shopping list update error', error)
+  }
+}
+
 function buildEconomicsRecommendationInsert(
   planId: string,
   economics: EconomicsAgentOutput,
@@ -2525,6 +2655,7 @@ function toSuggestedVendorFromCatalog(
 ): SuggestedVendorRecommendation {
   const serviceType = readString(recommendation.metadata.service_type)
   const stackItem = archetype.vendor_stack.find((item) => item.service_type === serviceType)
+  const baseRateCents = sanitizeSuggestedVendorRateCents(recommendation.estimate_cents, serviceType)
 
   return {
     vendor_id: recommendation.partner_id,
@@ -2532,7 +2663,7 @@ function toSuggestedVendorFromCatalog(
     service_type: serviceType,
     necessity: stackItem?.necessity ?? 'recommended',
     service_note: stackItem?.notes ?? null,
-    base_rate_cents: recommendation.estimate_cents,
+    base_rate_cents: baseRateCents,
     fit_score: recommendation.score,
     pros: recommendation.reasoning.length > 0
       ? recommendation.reasoning
@@ -2551,12 +2682,12 @@ function toSuggestedVendorRecommendation(
 
   const serviceType = stackItem.service_type
   const displayServiceType = readString(row.service_type ?? row.vendor_type) ?? serviceType
-  const baseRateCents = readNumber(row.base_rate ?? row.hourly_rate)
+  const baseRateCents = sanitizeSuggestedVendorRateCents(row.base_rate ?? row.hourly_rate, displayServiceType)
   const rating = readNumber(row.average_rating ?? row.rating)
   const totalBookings = readNumber(row.total_bookings ?? row.total_gigs)
   const pros = [
     displayServiceType ? `${toTitleCase(displayServiceType.replace(/_/g, ' '))} fit for this event type.` : null,
-    baseRateCents !== null ? `${formatCurrency(baseRateCents)} estimated starting rate.` : 'Pricing needs confirmation.',
+    baseRateCents !== null ? `${formatCurrency(baseRateCents)} estimated starting rate.` : 'Est. TBD — confirm with vendor.',
     rating !== null && rating > 0 ? `${rating.toFixed(1)} average rating.` : null,
     totalBookings !== null && totalBookings > 0 ? `${totalBookings} prior bookings recorded.` : null,
   ].filter((item): item is string => item !== null)
@@ -2669,17 +2800,23 @@ function buildProfitProjectionSummary(
   ticketPriceSweepCents: number[] = [25, 50, 75, 100].map((amount) => amount * 100)
 ): ProfitProjectionSummary {
   const guestCount = plan.guest_count ?? 0
-  const totalCostsCents = venueCostCents + vendorCostCents
-  const ticketPriceOptions = normalizeTicketPriceSweep(ticketPriceSweepCents)
+  const knownCostsCents = venueCostCents + vendorCostCents
+  const totalCostsCents = Math.max(knownCostsCents, plan.budget_cap_cents ?? 0)
+  const explicitTicketPriceCents = readPlanTicketPriceTargetCents(plan)
+  const ticketPriceOptions = normalizeTicketPriceSweep([
+    ...ticketPriceSweepCents,
+    ...(explicitTicketPriceCents ? [explicitTicketPriceCents] : []),
+  ])
   const projections = ticketPriceOptions.map((ticketPriceCents) => {
     const grossRevenueCents = guestCount * ticketPriceCents
+    const rawBreakEvenTickets = ticketPriceCents > 0 ? Math.ceil(totalCostsCents / ticketPriceCents) : null
 
     return {
       ticket_price_cents: ticketPriceCents,
       gross_revenue_cents: grossRevenueCents,
       total_costs_cents: totalCostsCents,
       net_profit_cents: grossRevenueCents - totalCostsCents,
-      break_even_tickets: ticketPriceCents > 0 ? Math.ceil(totalCostsCents / ticketPriceCents) : null,
+      break_even_tickets: rawBreakEvenTickets === null ? null : clampBreakEvenTickets(rawBreakEvenTickets, guestCount),
     }
   })
   const breakEvenProjection = projections.find((projection) => projection.net_profit_cents >= 0) ?? null
@@ -2692,21 +2829,32 @@ function buildProfitProjectionSummary(
     source: 'deterministic_estimate',
     accuracy: 'estimate_until_partner_quotes_confirmed',
     requires_quote_confirmation: true,
-    assumption_notes: buildProfitProjectionAssumptionNotes(plan, venueCostCents, vendorCostCents),
+    assumption_notes: buildProfitProjectionAssumptionNotes(
+      plan,
+      venueCostCents,
+      vendorCostCents,
+      totalCostsCents,
+      ticketPriceOptions
+    ),
   }
 }
 
 function buildProfitProjectionAssumptionNotes(
   plan: Plan,
   venueCostCents: number,
-  vendorCostCents: number
+  vendorCostCents: number,
+  totalCostsCents: number,
+  ticketPriceOptions: number[]
 ): string[] {
   const notes = [
     'Projection is an estimate until venue/vendor quotes confirm minimums, deposits, service fees, tax, gratuity, and included services.',
   ]
+  const knownCostsCents = venueCostCents + vendorCostCents
 
   if (!plan.budget_cap_cents) {
     notes.push('No budget cap is set, so partner affordability is based on market estimates rather than a hard ceiling.')
+  } else if (plan.budget_cap_cents > knownCostsCents) {
+    notes.push(`Using the ${formatCurrency(plan.budget_cap_cents)} budget cap as projected spend until partner quotes are confirmed.`)
   }
   if (venueCostCents === 0) {
     notes.push('Venue cost is unknown and must be confirmed before deposit authorization.')
@@ -2716,6 +2864,17 @@ function buildProfitProjectionAssumptionNotes(
   }
   if (plan.ticketed === false) {
     notes.push('RSVP/free events show cost exposure rather than ticket-profit upside unless sponsorship or bar terms are added.')
+  }
+  const profitGoalCents = plan.profit_goal_cents
+  const ticketPriceForCeiling = readPlanTicketPriceTargetCents(plan) ?? ticketPriceOptions[ticketPriceOptions.length - 1] ?? 0
+  if (profitGoalCents !== null && profitGoalCents > 0 && ticketPriceForCeiling > 0 && (plan.guest_count ?? 0) > 0) {
+    const revenueCeilingCents = (plan.guest_count ?? 0) * ticketPriceForCeiling
+    const maxPossibleProfitCents = revenueCeilingCents - totalCostsCents
+    if (profitGoalCents > maxPossibleProfitCents) {
+      notes.push(
+        `Profit goal ${formatCurrency(profitGoalCents)} exceeds the maximum possible ${formatCurrency(maxPossibleProfitCents)} at ${plan.guest_count} guests and ${formatCurrency(ticketPriceForCeiling)} tickets with current projected costs.`
+      )
+    }
   }
 
   return notes
@@ -2875,6 +3034,22 @@ function estimateTicketPriceTargetCents(input: {
   const targetRevenueCents = (input.budgetCents ?? 0) + (input.profitGoalCents ?? 0)
   if (targetRevenueCents <= 0) return null
   return Math.ceil(Math.ceil(targetRevenueCents / input.expectedAttendance) / 100) * 100
+}
+
+function readPlanTicketPriceTargetCents(plan: Plan): number | null {
+  const metadata = readRecord(plan.metadata)
+  const cents = readNumber(metadata?.ticket_price_target_cents)
+  if (cents !== null && cents > 0) return Math.round(cents)
+
+  const value = readNumber(metadata?.ticket_price_target)
+  if (value !== null && value > 0) return Math.round(value < 1000 ? value * 100 : value)
+
+  return null
+}
+
+function clampBreakEvenTickets(rawBreakEvenTickets: number, guestCount: number): number {
+  if (guestCount <= 0) return 0
+  return Math.min(Math.max(rawBreakEvenTickets, 1), guestCount)
 }
 
 function normalizeMonetizationModel(ticketingModel: string | null | undefined): string {

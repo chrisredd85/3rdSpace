@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
 
     parsedBody = body.data
     const admin = createServiceRoleClient() as unknown as AgentRunDb & AgentBillingDb
-    const billingGateResponse = await enforceAgentBillingGate(admin, user.id)
+    const billingGateResponse = await enforceAgentBillingGate(admin, user.id, parsedBody.agent_name)
     if (billingGateResponse) return billingGateResponse
 
     const result = await runAgent({
@@ -123,8 +123,11 @@ export async function POST(request: NextRequest) {
 
 async function enforceAgentBillingGate(
   admin: AgentBillingDb,
-  userId: string
+  userId: string,
+  agentName: z.infer<typeof agentNameSchema>
 ): Promise<NextResponse<{ error: string }> | null> {
+  if (agentName === 'timeline') return null
+
   const query = admin.from('builder_profiles')
   if (!isBuilderBillingQuery(query)) return null
 

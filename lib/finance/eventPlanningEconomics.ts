@@ -69,10 +69,12 @@ export function calculateEventPlanningEconomics(
     (sum, item) => sum + item.amount_cents,
     0
   )
-  const totalCostCents = input.venue_cost_cents + input.vendor_cost_cents + budgetLineItemsTotalCents
+  const knownCostCents = input.venue_cost_cents + input.vendor_cost_cents + budgetLineItemsTotalCents
+  const totalCostCents = Math.max(knownCostCents, input.event_plan.budget ?? 0)
   const netCostAfterSponsorshipCents = Math.max(totalCostCents - input.sponsorship_revenue_cents, 0)
-  const breakEvenAttendance =
+  const rawBreakEvenAttendance =
     input.ticket_price_cents > 0 ? Math.ceil(netCostAfterSponsorshipCents / input.ticket_price_cents) : null
+  const breakEvenAttendance = clampBreakEvenAttendance(rawBreakEvenAttendance, input.expected_attendance)
   const revenueScenarios = {
     conservative: buildRevenueScenario('conservative', input, totalCostCents),
     expected: buildRevenueScenario('expected', input, totalCostCents),
@@ -95,7 +97,7 @@ export function calculateEventPlanningEconomics(
       total_cost_cents: totalCostCents,
     },
     profit_projection_cents: expectedScenario.profit_cents,
-    risk_flags: buildRiskFlags(input, breakEvenAttendance, expectedScenario),
+    risk_flags: buildRiskFlags(input, rawBreakEvenAttendance, expectedScenario, revenueScenarios.optimistic),
   })
 }
 
@@ -146,8 +148,9 @@ function buildRecommendedTicketPriceRange(
 
 function buildRiskFlags(
   input: EventPlanningEconomicsInput,
-  breakEvenAttendance: number | null,
-  expectedScenario: z.infer<typeof revenueScenarioSchema>
+  rawBreakEvenAttendance: number | null,
+  expectedScenario: z.infer<typeof revenueScenarioSchema>,
+  optimisticScenario: z.infer<typeof revenueScenarioSchema>
 ) {
   const flags: string[] = []
 
@@ -155,7 +158,7 @@ function buildRiskFlags(
     flags.push('Expected scenario is below a 20% projected profit margin.')
   }
 
-  if (breakEvenAttendance !== null && breakEvenAttendance > input.expected_attendance) {
+  if (rawBreakEvenAttendance !== null && rawBreakEvenAttendance > input.expected_attendance) {
     flags.push('Break-even attendance is higher than expected attendance.')
   }
 
@@ -167,7 +170,24 @@ function buildRiskFlags(
     flags.push('Free event has no sponsorship revenue in the planning inputs.')
   }
 
+  const profitGoalCents = input.event_plan.profit_goal
+  if (profitGoalCents !== null && profitGoalCents > optimisticScenario.profit_cents) {
+    flags.push(
+      `Profit goal ${formatCurrency(profitGoalCents)} exceeds the maximum possible ${formatCurrency(optimisticScenario.profit_cents)} at ${input.expected_attendance} guests and ${formatCurrency(input.ticket_price_cents)} tickets with current projected costs.`
+    )
+  }
+
   return flags
+}
+
+function clampBreakEvenAttendance(rawBreakEvenAttendance: number | null, expectedAttendance: number): number | null {
+  if (rawBreakEvenAttendance === null) return null
+  if (expectedAttendance <= 0) return 0
+  return clamp(rawBreakEvenAttendance, 1, expectedAttendance)
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
 }
 
 function calculateProfitMargin(profitCents: number, totalRevenueCents: number) {
@@ -177,4 +197,12 @@ function calculateProfitMargin(profitCents: number, totalRevenueCents: number) {
 
 function roundUpToNearestDollarCents(valueCents: number) {
   return Math.ceil(valueCents / 100) * 100
+}
+
+function formatCurrency(cents: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(cents / 100)
 }

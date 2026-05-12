@@ -714,7 +714,7 @@ function PlannerPageContent() {
 
     const eventDate = activePlan.date_window_start ?? activePlan.date_window_end
     if (!eventDate) {
-      setTimelineError('Could not generate timeline. Try again.')
+      setTimelineError('Add an event date before generating a timeline.')
       return
     }
 
@@ -737,15 +737,22 @@ function PlannerPageContent() {
           },
         }),
       })
-      const payload = await response.json()
+      const payload = await response.json().catch(() => ({}))
 
       if (!response.ok) {
-        throw new Error(payload?.error ?? 'Could not generate timeline. Try again.')
+        const serverMessage = readUnknownRecord(payload)?.error
+        throw new Error(
+          typeof serverMessage === 'string' && serverMessage.trim()
+            ? serverMessage
+            : response.status === 402
+              ? 'Timeline generation is not available for this plan tier. Save the plan or upgrade to continue.'
+              : 'Could not generate timeline from the current plan.'
+        )
       }
 
       const output = readAgentOutput(payload)
       if (!isTimelineOutput(output)) {
-        throw new Error('Could not generate timeline. Try again.')
+        throw new Error('Timeline agent returned an unexpected response.')
       }
 
       setTimelineResult(output)
@@ -1804,7 +1811,7 @@ function PlannerTimelinePanel(props: {
 
       {!props.isLoading && props.error ? (
         <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          Could not generate timeline. Try again.
+          {props.error}
         </div>
       ) : null}
 
@@ -3620,6 +3627,13 @@ function PlannerMessageMetadata({
               {economicsDetails.estimate_note}
             </p>
           ) : null}
+          {economicsDetails.risk_flags.length > 0 ? (
+            <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-medium leading-snug text-destructive">
+              {economicsDetails.risk_flags.slice(0, 2).map((flag) => (
+                <p key={flag}>{flag}</p>
+              ))}
+            </div>
+          ) : null}
           {economicsDetails.price_points.length > 0 ? (
             <div className="mt-4 grid gap-2">
               {economicsDetails.price_points.map((point) => {
@@ -4234,6 +4248,7 @@ function readRecommendationEconomicsDetails(metadata: unknown): {
   historical_anchor: string | null
   estimate_note: string | null
   recommended_price_cents: number
+  risk_flags: string[]
   price_points: Array<{
     price_cents: number
     projected_net_cents: number
@@ -4291,6 +4306,7 @@ function readRecommendationEconomicsDetails(metadata: unknown): {
     historical_anchor: typeof economics.historical_anchor === 'string' ? economics.historical_anchor : null,
     estimate_note: readProjectionEstimateNote(profitProjection),
     recommended_price_cents: typeof economics.recommended_price_cents === 'number' ? economics.recommended_price_cents : 0,
+    risk_flags: readStringArray(economics.risk_flags),
     price_points: pricePoints,
     elasticity: readEconomicsElasticity(root?.elasticity ?? response?.elasticity),
   }
@@ -4341,6 +4357,11 @@ function readEconomicsElasticity(value: unknown): {
 function readUnknownRecord(value: unknown): Record<string, unknown> | null {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
   return null
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
 }
 
 /**

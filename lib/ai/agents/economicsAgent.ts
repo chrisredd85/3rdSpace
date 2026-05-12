@@ -93,6 +93,7 @@ const ECONOMICS_SYSTEM_PROMPT = [
   'Explain pre-event profitability projections from supplied hypothetical inputs only.',
   'Return JSON only with recommendation_summary, narrative, price_points, recommended_price_cents, and historical_anchor.',
   'Do not recalculate, overwrite, or reinterpret numeric fields. The application code owns all totals, scenarios, margins, and break-even math.',
+  'If any raw model number conflicts with the supplied calculated_price_points or calculated_output_cents, the server will clamp it and annotate with deterministic warnings. Prefer returning null/no value over inventing unsupported profit, cost, or break-even math.',
   'All money in the input is integer cents. Convert cents to dollars only inside display wording.',
   'You will receive an elasticity field with the builder historical tier-level pricing signals when available.',
   'If elasticity.confidence is high, open narrative with one sentence quoting elasticity.reasoning_for_agent verbatim. Then proceed.',
@@ -199,9 +200,7 @@ export async function runEconomicsAgent(
 }
 
 function buildPricePoints(input: EconomicsAgentInput): z.infer<typeof economicsPricePointSchema>[] {
-  const totalCostCents = input.venue_cost_cents +
-    input.vendor_cost_cents +
-    input.budget_line_items.reduce((sum, item) => sum + item.amount_cents, 0)
+  const totalCostCents = getProjectedTotalCostCents(input)
   const sweep = getTicketPriceSweep(input)
   const netCostAfterSponsorshipCents = Math.max(totalCostCents - input.sponsorship_revenue_cents, 0)
 
@@ -213,11 +212,25 @@ function buildPricePoints(input: EconomicsAgentInput): z.infer<typeof economicsP
     return {
       price_cents: priceCents,
       projected_net_cents: projectedNetCents,
-      break_even_tickets: priceCents > 0 ? Math.ceil(netCostAfterSponsorshipCents / priceCents) : 0,
+      break_even_tickets: priceCents > 0
+        ? clampBreakEvenTickets(Math.ceil(netCostAfterSponsorshipCents / priceCents), input.expected_attendance)
+        : 0,
       recommendation: 'conservative',
       reasoning: `At ${formatCurrency(priceCents)}, projected net is ${formatCurrency(projectedNetCents)}.`,
     }
   })
+}
+
+function getProjectedTotalCostCents(input: EconomicsAgentInput): number {
+  const knownCostCents = input.venue_cost_cents +
+    input.vendor_cost_cents +
+    input.budget_line_items.reduce((sum, item) => sum + item.amount_cents, 0)
+  return Math.max(knownCostCents, input.event_plan.budget ?? 0)
+}
+
+function clampBreakEvenTickets(rawBreakEvenTickets: number, expectedAttendance: number): number {
+  if (expectedAttendance <= 0) return 0
+  return Math.min(Math.max(rawBreakEvenTickets, 1), expectedAttendance)
 }
 
 function normalizeModelPricePoints(value: unknown): unknown {

@@ -368,9 +368,9 @@ function rankVendor(
     'city',
     'state',
   ])
-  const estimateCents = estimateVendorCents(plan, vendor)
   const amenity = scoreVendorServiceFit(plan, mustHaves, searchText)
   const category = inferVendorCategory(plan, vendor, searchText, amenity.matched)
+  const estimateCents = sanitizeVendorEstimateCents(estimateVendorCents(plan, vendor), category)
   const budgetScore = scoreBudgetFit(estimateCents, vendorBudgetCents)
   const foodScore = scoreFoodAlignment(plan.food_responsibility, searchText)
   const dateScore = scoreDateAvailability(plan, vendor)
@@ -411,6 +411,7 @@ function rankVendor(
       category,
       service_type: category,
       category_label: formatServiceType(category),
+      estimate_status: estimateCents > 0 ? 'estimated' : 'quote_required',
       budget_score: budgetScore,
       service_score: amenity.score,
       food_score: foodScore,
@@ -692,12 +693,19 @@ function buildVenueReasoning(input: {
   const reasons: string[] = []
   const headcount = readNumber(input.plan.headcount ?? input.plan.guest_count)
   const area = input.plan.area ?? input.plan.neighborhood
+  const venueArea = readVenueArea(input.venue)
 
   if (input.isPreferred) reasons.push('Previously used in this template')
   if (input.capacity !== null && headcount !== null) {
     reasons.push(`Capacity ${input.capacity} fits ${headcount} guests`)
   }
-  if (area) reasons.push(`${area} area match`)
+  if (area) {
+    if (venueArea && !areaLabelMatchesRequested(area, venueArea)) {
+      reasons.push(`Nearby — outside ${area}`)
+    } else if (venueArea || matchesAreaPreference(area, input.searchText)) {
+      reasons.push(`${area} area match`)
+    }
+  }
   if (input.budgetAllocationCents > 0 && input.estimateCents > input.budgetAllocationCents) {
     reasons.push(`Estimate ${formatCents(input.estimateCents)} is above the venue allocation`)
   } else if (input.budgetAllocationCents > 0) {
@@ -740,8 +748,10 @@ function buildVendorReasoning(input: {
   }
   if (input.vendorBudgetCents > 0 && input.estimateCents > input.vendorBudgetCents) {
     reasons.push(`Estimate ${formatCents(input.estimateCents)} is above the vendor allocation`)
-  } else if (input.vendorBudgetCents > 0) {
+  } else if (input.vendorBudgetCents > 0 && input.estimateCents > 0) {
     reasons.push(`Estimate ${formatCents(input.estimateCents)} fits the vendor allocation`)
+  } else if (isNonTrivialVendorCategory(serviceType)) {
+    reasons.push('Est. TBD — confirm with vendor')
   }
   if (input.plan.area || input.plan.neighborhood) reasons.push(`${input.plan.area ?? input.plan.neighborhood} service area fit`)
   if (/\b(preferred|premium|verified|claimed)\b/i.test(input.searchText) || input.vendor.is_claimed === true) {
@@ -911,6 +921,66 @@ function inferVendorCategory(
 
 function normalizeCategory(value: string): string {
   return normalizeText(value).replace(/\s+/g, '_')
+}
+
+function sanitizeVendorEstimateCents(estimateCents: number, category: string | null | undefined): number {
+  if (!isNonTrivialVendorCategory(category)) return estimateCents
+  if (estimateCents > 0 && estimateCents < 5_000) return 0
+  return estimateCents
+}
+
+function isNonTrivialVendorCategory(category: string | null | undefined): boolean {
+  const normalized = normalizeCategory(category ?? '')
+  return [
+    'av_tech',
+    'av_production',
+    'audio_visual_tech',
+    'catering',
+    'bartending',
+    'photography',
+    'photographer',
+    'videography',
+    'videographer',
+    'florist',
+    'decor',
+    'lighting',
+    'staffing',
+    'security',
+    'event_planning',
+    'dj',
+  ].includes(normalized)
+}
+
+function readVenueArea(venue: CatalogVenueRankingInput): string | null {
+  return readString(venue.neighborhood) ?? readString(venue.area) ?? readString(venue.district) ?? readString(venue.city)
+}
+
+function areaLabelMatchesRequested(requestedArea: string, candidateArea: string): boolean {
+  const requestedIds = detectExplicitAreaIds(requestedArea)
+  const candidateIds = detectExplicitAreaIds(candidateArea)
+
+  if (requestedIds.size === 0 || candidateIds.size === 0) {
+    return includesLoose(candidateArea, requestedArea) || includesLoose(requestedArea, candidateArea)
+  }
+
+  for (const requestedId of requestedIds) {
+    if (candidateIds.has(requestedId)) return true
+  }
+
+  return false
+}
+
+function detectExplicitAreaIds(value: string): Set<string> {
+  const normalized = normalizeText(value)
+  const ids = new Set<string>()
+
+  for (const group of AREA_GROUPS) {
+    if (group.aliases.some((alias) => includesLoose(normalized, alias))) {
+      ids.add(group.id)
+    }
+  }
+
+  return ids
 }
 
 function matchesConcept(searchText: string, concept: string): boolean {

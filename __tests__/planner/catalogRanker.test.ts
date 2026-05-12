@@ -265,6 +265,64 @@ describe('rankCatalogPartners', () => {
     ])
   })
 
+  it('shows outside-neighborhood labels for nearby venue fallbacks', () => {
+    const result = rankCatalogPartners({
+      plan: {
+        ...plan,
+        area: 'Hayes Valley',
+        neighborhood: 'Hayes Valley',
+      },
+      venues: [
+        {
+          ...baseVenue,
+          id: 'venue-north-beach',
+          venue_name: 'North Beach Private Dining Room',
+          neighborhood: 'North Beach',
+          city: 'San Francisco',
+          standing_capacity: 90,
+          hourly_rate: 100_000,
+          minimum_hours: 4,
+          unique_features_tags: ['AV', 'rooftop', 'bar'],
+        },
+      ],
+      vendors: [],
+    })
+
+    expect(result.recommendations[0]?.reasoning).toContain('Nearby — outside Hayes Valley')
+  })
+
+  it('treats implausibly low vendor estimates as quote-required', () => {
+    const result = rankCatalogPartners({
+      plan: {
+        ...plan,
+        must_haves: ['AV'],
+      },
+      venues: [],
+      vendors: [
+        {
+          id: 'vendor-nine-dollar-av',
+          name: 'Suspicious AV',
+          service_type: 'av_tech',
+          bio: 'AV, projector, mic, speaker, and stage support',
+          base_rate: 900,
+          is_claimed: true,
+        },
+      ],
+      venueLimit: 0,
+      vendorLimit: 1,
+    })
+
+    expect(result.recommendations[0]).toEqual(
+      expect.objectContaining({
+        partner_id: 'vendor-nine-dollar-av',
+        estimate_cents: 0,
+        reasoning: expect.arrayContaining(['Est. TBD — confirm with vendor']),
+        metadata: expect.objectContaining({ estimate_status: 'quote_required' }),
+      })
+    )
+    expect(result.recommendations[0]?.reasoning.join(' ')).not.toContain('$9')
+  })
+
   describe('rebook preference boosting', () => {
     it('boosts a preferred eligible venue above an otherwise higher-scored non-preferred venue', () => {
       const result = rankCatalogPartners({

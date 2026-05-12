@@ -349,11 +349,11 @@ venue_details AS (
       ELSE 100 + ((n * 37) % 401)
     END AS capacity,
     CASE category
-      WHEN 'bar' THEN 200 + ((n * 47) % 601)
-      WHEN 'gallery' THEN 300 + ((n * 73) % 901)
-      WHEN 'athletic' THEN 400 + ((n * 97) % 1601)
-      WHEN 'conference' THEN 150 + ((n * 57) % 851)
-      ELSE 250 + ((n * 83) % 1001)
+      WHEN 'bar' THEN (200 + ((n * 47) % 601)) * 100
+      WHEN 'gallery' THEN (300 + ((n * 73) % 901)) * 100
+      WHEN 'athletic' THEN (400 + ((n * 97) % 1601)) * 100
+      WHEN 'conference' THEN (150 + ((n * 57) % 851)) * 100
+      ELSE (250 + ((n * 83) % 1001)) * 100
     END AS hourly_rate
   FROM venue_seed
 )
@@ -921,11 +921,11 @@ SELECT
   ARRAY['English'] || CASE WHEN n % 6 = 0 THEN ARRAY['Spanish'] ELSE ARRAY[]::text[] END,
   pricing_model,
   CASE
-    WHEN pricing_model = 'hourly' THEN 125 + ((n * 37) % 376)
+    WHEN pricing_model = 'hourly' THEN (125 + ((n * 37) % 376)) * 100
     ELSE NULL
   END,
   CASE WHEN pricing_model = 'hourly' THEN 3 ELSE NULL END,
-  CASE WHEN n % 3 = 0 THEN 250 + ((n * 29) % 1250) ELSE 0 END,
+  CASE WHEN n % 3 = 0 THEN (250 + ((n * 29) % 1250)) * 100 ELSE 0 END,
   n % 5 <> 0,
   round((4.10 + ((n % 9)::numeric / 10))::numeric, 2),
   4 + (n % 42),
@@ -949,11 +949,11 @@ SELECT
     ELSE 60
   END,
   CASE
-    WHEN pricing_model = 'flat_rate' THEN 900 + ((n * 83) % 4101)
-    WHEN pricing_model = 'per_person' THEN 600 + ((n * 53) % 2401)
-    ELSE 300 + ((n * 41) % 1701)
+    WHEN pricing_model = 'flat_rate' THEN (900 + ((n * 83) % 4101)) * 100
+    WHEN pricing_model = 'per_person' THEN (600 + ((n * 53) % 2401)) * 100
+    ELSE (300 + ((n * 41) % 1701)) * 100
   END,
-  CASE WHEN pricing_model = 'per_person' THEN 18 + (n % 80) ELSE NULL END,
+  CASE WHEN pricing_model = 'per_person' THEN 2500 + ((n * 53) % 4001) ELSE NULL END,
   CASE WHEN service_type = 'bartending' AND n % 2 = 0 THEN 3 + (n % 8) ELSE NULL END,
   n % 5 <> 0,
   round((4.10 + ((n % 9)::numeric / 10))::numeric, 2),
@@ -962,7 +962,7 @@ SELECT
   CASE WHEN n % 2 = 0 THEN 'First Republic Events' ELSE 'Metro Business Bank' END,
   CASE WHEN n % 5 = 0 THEN 'Currently accepting waitlist requests only.' ELSE 'Available for most weekday and weekend event windows with advance notice.' END,
   n % 3 = 0,
-  CASE WHEN n % 3 = 0 THEN 250 + ((n * 29) % 1250) ELSE NULL END,
+  CASE WHEN n % 3 = 0 THEN (250 + ((n * 29) % 1250)) * 100 ELSE NULL END,
   CASE WHEN n % 3 = 0 THEN 'fixed' ELSE NULL END,
   NULL,
   n % 4 <> 0,
@@ -1065,12 +1065,12 @@ SELECT
   CASE WHEN service_type IN ('photography', 'videography') THEN 5 ELSE 4 END,
   ARRAY[]::text[],
   CASE service_type
-    WHEN 'dj' THEN '[{"name":"Wireless mic","price":125},{"name":"Dance lighting","price":250}]'::jsonb
-    WHEN 'catering' THEN '[{"name":"Coffee service","price":8},{"name":"Dessert bites","price":12}]'::jsonb
-    WHEN 'bartending' THEN '[{"name":"Signature cocktail","price":9},{"name":"Glassware rental","price":4}]'::jsonb
-    WHEN 'photography' THEN '[{"name":"Rush edits","price":350},{"name":"Second shooter","price":650}]'::jsonb
-    WHEN 'videography' THEN '[{"name":"Vertical social edits","price":500},{"name":"Raw footage","price":300}]'::jsonb
-    ELSE '[{"name":"Extra projector","price":250},{"name":"Streaming operator","price":500}]'::jsonb
+    WHEN 'dj' THEN '[{"name":"Wireless mic","price":12500},{"name":"Dance lighting","price":25000}]'::jsonb
+    WHEN 'catering' THEN '[{"name":"Coffee service","price":800},{"name":"Dessert bites","price":1200}]'::jsonb
+    WHEN 'bartending' THEN '[{"name":"Signature cocktail","price":900},{"name":"Glassware rental","price":400}]'::jsonb
+    WHEN 'photography' THEN '[{"name":"Rush edits","price":35000},{"name":"Second shooter","price":65000}]'::jsonb
+    WHEN 'videography' THEN '[{"name":"Vertical social edits","price":50000},{"name":"Raw footage","price":30000}]'::jsonb
+    ELSE '[{"name":"Extra projector","price":25000},{"name":"Streaming operator","price":50000}]'::jsonb
   END,
   CASE service_type WHEN 'av_tech' THEN 'av' ELSE service_type END,
   CASE WHEN service_type IN ('catering', 'bartending') THEN 500 ELSE NULL END,
@@ -1137,7 +1137,7 @@ SELECT
     ELSE 'Conference AV package'
   END,
   'Bundled seed package from ' || name || ' for quote and invoice testing.',
-  base_price + 400,
+  base_price + 40000,
   CASE WHEN service_type IN ('photography', 'videography') THEN 5 ELSE 4 END,
   jsonb_build_array(
     'planning call',

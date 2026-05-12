@@ -465,13 +465,13 @@ function isRecommendationPlanMessage(message: PlanMessage) {
  * Returns compact recommendation summaries from recommendation messages.
  */
 function deriveRecommendations(messages: PlanMessage[]): RecommendationSummary[] {
-  return messages.flatMap((message) => {
-    if (!isRecommendationPlanMessage(message)) return []
+  const latestRecommendationMessage = [...messages].reverse().find(isRecommendationPlanMessage)
+  if (!latestRecommendationMessage) return []
 
-    const metadata = asRecord(message.metadata)
-    const recommendations = Array.isArray(metadata?.recommendations) ? metadata.recommendations : []
+  const metadata = asRecord(latestRecommendationMessage.metadata)
+  const recommendations = Array.isArray(metadata?.recommendations) ? metadata.recommendations : []
 
-    return recommendations.map((item, index) => {
+  return recommendations.map((item, index) => {
       const record = asRecord(item) ?? {}
       const name = readString(record.name) ?? readString(record.provider) ?? `Recommendation ${index + 1}`
       const type = readString(record.type) ?? readString(record.recommendation_type) ?? 'Option'
@@ -479,7 +479,7 @@ function deriveRecommendations(messages: PlanMessage[]): RecommendationSummary[]
       const priceTier = readString(record.price_tier) ?? readString(record.fit)
 
       return {
-        id: readString(record.id) ?? `${message.id}-${index}`,
+        id: readString(record.id) ?? `${latestRecommendationMessage.id}-${index}`,
         name,
         type,
         priceLabel: priceCents !== null && priceCents !== undefined ? formatCents(priceCents) : priceTier ?? 'Pricing pending',
@@ -489,7 +489,6 @@ function deriveRecommendations(messages: PlanMessage[]): RecommendationSummary[]
         fit: readString(record.fit) ?? readString(record.note),
         holdDurationHours: readNumber(record.hold_duration_hours),
       }
-    })
   })
 }
 
