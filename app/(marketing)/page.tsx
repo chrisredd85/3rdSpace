@@ -1,16 +1,11 @@
 import type { Metadata } from 'next'
-import Link from 'next/link'
 import {
-  Sparkles,
-  Building2,
-  Store,
   Zap,
   ShieldCheck,
   BarChart3,
   ArrowRight,
 } from 'lucide-react'
 import { HomePlannerStart } from '@/components/planner/HomePlannerStart'
-import { Button } from '@/components/ui/button'
 import {
   FloatingStartChip,
   StartPlanningButton,
@@ -64,44 +59,6 @@ export default function HomePage() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-background">
       <FloatingStartChip />
-
-      {/* Nav */}
-      <nav className="absolute inset-x-0 top-0 z-50 flex items-center justify-between px-6 py-5 lg:px-12">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
-            <Sparkles className="h-5 w-5 text-primary-foreground" />
-          </div>
-          <span className="font-display text-xl font-bold tracking-tight">3rdPlace</span>
-        </Link>
-        <div className="hidden items-center gap-8 text-sm md:flex">
-          <a href="#who" className="text-muted-foreground transition-smooth hover:text-foreground">
-            Who it&apos;s for
-          </a>
-          <a href="#features" className="text-muted-foreground transition-smooth hover:text-foreground">
-            Features
-          </a>
-        </div>
-        <div className="hidden md:flex items-center gap-2">
-          <Button variant="glass" size="sm" asChild>
-            <Link href="/signup/venue">
-              <Building2 className="h-4 w-4" />
-              List your venue
-            </Link>
-          </Button>
-          <Button variant="glass" size="sm" asChild>
-            <Link href="/signup/vendor">
-              <Store className="h-4 w-4" />
-              List as vendor
-            </Link>
-          </Button>
-          <Link
-            href="/login"
-            className="ml-2 text-xs font-medium text-muted-foreground transition-smooth hover:text-foreground"
-          >
-            Sign in
-          </Link>
-        </div>
-      </nav>
 
       {/* Hero */}
       <section className="relative pb-20 pt-32 lg:pb-28 lg:pt-40">
