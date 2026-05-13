@@ -33,6 +33,7 @@ import {
 } from '@/lib/planner/catalogRanker'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS, RECOMMENDATION_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import { applyArchetypeDefaultFills, withPlanVendorStack } from '@/lib/planner/recommendVendorStack'
+import { loadVendorEconomicsCostSummary, type VendorEconomicsCostSummary } from '@/lib/planner/vendorEconomicsCosts'
 import { logAgentRun, type AgentRunDb } from '@/lib/server/agent-runs'
 import {
   getBuilderProfileIdForUser,
@@ -386,7 +387,13 @@ export async function POST(
     const suggestedVendors = await loadSuggestedVendors(auth.db, recommendationPlan, archetype, venueCostCents)
     const vendorRecommendationGroups = groupVendorRecommendations(suggestedVendors, archetype)
     const vendorMatchNotice = buildVendorMatchNotice(archetype, suggestedVendors)
-    const vendorCostCents = estimateVendorCostCents(recommendationPlan, venueCostCents, suggestedVendors)
+    const vendorCostSummary = await loadVendorEconomicsCostSummary(auth.db, {
+      plan: recommendationPlan,
+      organizerUserId: auth.userId,
+      expectedAttendance: recommendationPlan.guest_count ?? eventPlan.expected_attendance ?? 0,
+      vendorRecommendations: suggestedVendors,
+    })
+    const vendorCostCents = vendorCostSummary.vendor_cost_cents
     const ticketPriceSweepCents = buildTicketPriceSweepCents(archetype, elasticity)
     const profitProjection = buildProfitProjectionSummary(recommendationPlan, venueCostCents, vendorCostCents, ticketPriceSweepCents)
     const economicsPayload = buildEconomicsPayload(
@@ -404,6 +411,7 @@ export async function POST(
         archetypeIntake,
         mutationContract,
         conversationHistory,
+        vendorCostSummary,
       }
     )
     const economicsResult = await runLoggedEconomicsAgent(auth.userId, plan.id, economicsPayload)
@@ -576,12 +584,6 @@ async function runCatalogFallback(input: {
   })
   const recommendationsForPersistence = catalogVenueMatch.recommendations
   const ticketPriceSweepCents = buildTicketPriceSweepCents(input.archetype, input.elasticity)
-  const fallbackEconomics = buildFallbackEconomicsOutput(
-    input.plan,
-    eventPlan,
-    recommendationsForPersistence,
-    ticketPriceSweepCents
-  )
   const rankedVenues = recommendationsForPersistence
     .filter((recommendation) => recommendation.kind === 'venue')
     .map(toRankedVenueFromCatalog)
@@ -590,10 +592,25 @@ async function runCatalogFallback(input: {
     .map((recommendation) => toSuggestedVendorFromCatalog(recommendation, input.archetype))
   const vendorRecommendationGroups = groupVendorRecommendations(vendorRecommendations, input.archetype)
   const vendorMatchNotice = buildVendorMatchNotice(input.archetype, vendorRecommendations)
+  const venueCostCents = recommendationsForPersistence.find((recommendation) => recommendation.kind === 'venue')?.estimate_cents ?? 0
+  const vendorCostSummary = await loadVendorEconomicsCostSummary(input.auth.db, {
+    plan: input.plan,
+    organizerUserId: input.auth.userId,
+    expectedAttendance: input.plan.guest_count ?? eventPlan.expected_attendance ?? 0,
+    vendorRecommendations,
+  })
+  const vendorCostCents = vendorCostSummary.vendor_cost_cents
+  const fallbackEconomics = buildFallbackEconomicsOutput(
+    input.plan,
+    eventPlan,
+    recommendationsForPersistence,
+    ticketPriceSweepCents,
+    vendorCostSummary
+  )
   const profitProjection = buildProfitProjectionSummary(
     input.plan,
-    recommendationsForPersistence.find((recommendation) => recommendation.kind === 'venue')?.estimate_cents ?? 0,
-    vendorRecommendations.reduce((sum, vendor) => sum + (vendor.base_rate_cents ?? 0), 0),
+    venueCostCents,
+    vendorCostCents,
     ticketPriceSweepCents
   )
   const persistedCatalogRecommendations = await persistRecommendations(
@@ -620,9 +637,7 @@ async function runCatalogFallback(input: {
     userId: input.auth.userId,
     venueIds: rankedVenues.slice(0, 3).map((venue) => venue.venue_id),
     vendorIds: vendorRecommendations.slice(0, 3).map((vendor) => vendor.vendor_id),
-    projectedCostsCents:
-      (recommendationsForPersistence.find((recommendation) => recommendation.kind === 'venue')?.estimate_cents ?? 0) +
-      vendorRecommendations.reduce((sum, vendor) => sum + (vendor.base_rate_cents ?? 0), 0),
+    projectedCostsCents: venueCostCents + vendorCostCents,
     summary: buildOutreachApprovalSummary(input.plan, rankedVenues.length, vendorRecommendations.length),
     requirements: buildOutreachRequirements(input.plan, input.archetype, input.archetypeIntake),
   })
@@ -2217,6 +2232,7 @@ function buildEconomicsPayload(
     archetypeIntake: ArchetypeIntakeOutcomeContext
     mutationContract: Record<string, unknown>
     conversationHistory: PlannerAgentConversationMessage[]
+    vendorCostSummary: VendorEconomicsCostSummary
   }
 ): EconomicsAgentInput {
   return {
@@ -2227,6 +2243,8 @@ function buildEconomicsPayload(
     vendor_cost_cents: vendorCostCents,
     ticket_price_cents: plan.ticketed ? eventPlan.ticket_price_target ?? 0 : 0,
     sponsorship_revenue_cents: 0,
+    cost_confidence: context.vendorCostSummary.cost_confidence,
+    negotiated_savings_cents: context.vendorCostSummary.negotiated_savings_cents,
     plan: plan as unknown as Record<string, unknown>,
     venue: context.venue,
     archetype: context.archetype as unknown as Record<string, unknown>,
@@ -2244,6 +2262,9 @@ function buildEconomicsPayload(
         details: {
           ticket_price_sweep: context.profitProjection,
           projections: context.profitProjection.projections,
+          vendor_cost_confidence: context.vendorCostSummary.cost_confidence,
+          negotiated_savings_cents: context.vendorCostSummary.negotiated_savings_cents,
+          vendor_cost_lines: context.vendorCostSummary.lines,
         },
       },
     },
@@ -2254,16 +2275,17 @@ function buildFallbackEconomicsOutput(
   plan: Plan,
   eventPlan: ReturnType<typeof buildAgentEventPlan>,
   recommendations: RankedCatalogRecommendation[],
-  ticketPriceSweepCents: number[] = [25, 50, 75, 100].map((amount) => amount * 100)
+  ticketPriceSweepCents: number[] = [25, 50, 75, 100].map((amount) => amount * 100),
+  vendorCostSummary: VendorEconomicsCostSummary | null = null
 ): EconomicsAgentOutput {
   const topVenueEstimate = recommendations.find((recommendation) => recommendation.kind === 'venue')?.estimate_cents ?? 0
-  const budgetCents = plan.budget_cap_cents ?? 0
+  const vendorCostCents = vendorCostSummary?.vendor_cost_cents ?? 0
   const calculations = calculateEventPlanningEconomics({
     event_plan: eventPlan,
     budget_line_items: [],
     expected_attendance: plan.guest_count ?? eventPlan.expected_attendance ?? 0,
     venue_cost_cents: topVenueEstimate,
-    vendor_cost_cents: Math.max(budgetCents - topVenueEstimate, 0),
+    vendor_cost_cents: vendorCostCents,
     ticket_price_cents: plan.ticketed ? eventPlan.ticket_price_target ?? 0 : 0,
     sponsorship_revenue_cents: 0,
   })
@@ -2271,7 +2293,7 @@ function buildFallbackEconomicsOutput(
   const sweep = buildProfitProjectionSummary(
     plan,
     topVenueEstimate,
-    Math.max(budgetCents - topVenueEstimate, 0),
+    vendorCostCents,
     ticketPriceSweepCents
   )
   const pricePoints = sweep.projections.map((projection) => ({

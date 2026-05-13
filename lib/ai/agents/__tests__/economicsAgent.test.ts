@@ -68,6 +68,37 @@ describe('runEconomicsAgent', () => {
     }))
   })
 
+  it('passes vendor cost confidence and negotiated savings as deterministic model inputs', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            recommendation_summary: 'Use confirmed vendor rates where available.',
+            narrative: 'Use confirmed vendor rates where available.',
+            price_points: [],
+            recommended_price_cents: 5000,
+            historical_anchor: null,
+          }),
+        },
+      }],
+    })
+
+    await runEconomicsAgent({
+      ...economicsInput,
+      cost_confidence: 'mixed',
+      negotiated_savings_cents: 25000,
+    }, { create })
+
+    const messages = create.mock.calls[0][0].messages
+    const userPayload = JSON.parse(messages[1].content)
+    expect(userPayload.input_cents).toMatchObject({
+      cost_confidence: 'mixed',
+      negotiated_savings_cents: 25000,
+    })
+    expect(userPayload.cost_confidence).toBe('mixed')
+    expect(userPayload.negotiated_savings_cents).toBe(25000)
+  })
+
   it('normalizes object price points and non-string historical anchors from the model', async () => {
     const create = jest.fn().mockResolvedValue({
       choices: [{

@@ -56,6 +56,8 @@ export const economicsAgentInputSchema = eventPlanningEconomicsInputSchema.exten
   elasticity: elasticitySignalSchema.nullish(),
   historical_attendance: z.record(z.unknown()).nullish(),
   ticket_price_sweep_cents: z.array(z.number().int().nonnegative()).min(1).optional(),
+  cost_confidence: z.enum(['confirmed', 'estimated', 'mixed']).default('estimated'),
+  negotiated_savings_cents: z.number().int().nonnegative().default(0),
 })
 
 const economicsRecommendationSchema = z.object({
@@ -100,6 +102,8 @@ const ECONOMICS_SYSTEM_PROMPT = [
   'recommended_price_cents must fall within [recommended_price_floor_cents, recommended_price_ceiling_cents] when both are set. If you recommend outside this band, explicitly note that it is outside historical patterns.',
   'If elasticity.tier_pattern is vip_dead, do not recommend the highest price point. Note: historically your top tier has not moved, so recommend a tighter band.',
   'If elasticity.confidence is low or elasticity is null, ignore tier elasticity and price using archetype defaults plus venue economics only. Do not fabricate historical patterns.',
+  'You will receive cost_confidence for vendor costs. If cost_confidence is confirmed, you may state vendor-cost assumptions directly. If it is mixed, say some vendor rates are confirmed and some are estimates. If it is estimated, hedge the narrative and say vendor quotes still need confirmation.',
+  'You will receive negotiated_savings_cents. This is deterministic and organizer-scoped. Never recompute it, never alter it, and only quote it verbatim when useful.',
   'The financial figures come from score_breakdown.financial.details and calculated_price_points and must be used verbatim. Elasticity affects price recommendations, not the math of any specific price point.',
   'Use archetype_intake and conversation_history only for narrative risks and assumptions, such as user-stated load-in windows, outside vendors, or required support. Do not recalculate totals from conversational text.',
   'Honor mutation_contract when present. Treat locked_archetype as authoritative and never reclassify the event inside economics output.',
@@ -133,6 +137,8 @@ export async function runEconomicsAgent(
           vendor_cost_cents: input.vendor_cost_cents,
           ticket_price_cents: input.ticket_price_cents,
           sponsorship_revenue_cents: input.sponsorship_revenue_cents,
+          cost_confidence: input.cost_confidence,
+          negotiated_savings_cents: input.negotiated_savings_cents,
         },
         calculated_output_cents: calculations,
         score_breakdown: {
@@ -147,6 +153,8 @@ export async function runEconomicsAgent(
         elasticity: input.elasticity ?? null,
         historical_attendance: input.historical_attendance ?? null,
         ticket_price_sweep_cents: getTicketPriceSweep(input),
+        cost_confidence: input.cost_confidence,
+        negotiated_savings_cents: input.negotiated_savings_cents,
         archetype: input.archetype ?? null,
         archetype_intake: input.archetype_intake ?? null,
         mutation_contract: input.mutation_contract ?? null,

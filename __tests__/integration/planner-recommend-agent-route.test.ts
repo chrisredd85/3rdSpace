@@ -454,7 +454,9 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
     expect(mockRunEconomicsAgent).toHaveBeenCalledWith(expect.objectContaining({
       expected_attendance: 80,
       venue_cost_cents: 200000,
-      vendor_cost_cents: 200000,
+      vendor_cost_cents: 0,
+      cost_confidence: 'estimated',
+      negotiated_savings_cents: 0,
       archetype_intake: expect.objectContaining({
         answer_text: expect.stringContaining('two hour load-in'),
       }),
