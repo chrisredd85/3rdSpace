@@ -1,6 +1,11 @@
 BEGIN;
 
-CREATE OR REPLACE FUNCTION pg_temp.seed_uuid(n bigint)
+-- Supabase CLI batch seeding does not reliably resolve pg_temp helper
+-- functions, so keep deterministic seed helpers in a throwaway schema and
+-- drop it before commit.
+CREATE SCHEMA IF NOT EXISTS seed_helpers;
+
+CREATE OR REPLACE FUNCTION seed_helpers.seed_uuid(n bigint)
 RETURNS uuid
 LANGUAGE sql
 IMMUTABLE
@@ -8,7 +13,7 @@ AS $$
   SELECT ('00000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid;
 $$;
 
-CREATE OR REPLACE FUNCTION pg_temp.seed_slug(value text)
+CREATE OR REPLACE FUNCTION seed_helpers.seed_slug(value text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
@@ -16,7 +21,7 @@ AS $$
   SELECT trim(both '-' from regexp_replace(lower(value), '[^a-z0-9]+', '-', 'g'));
 $$;
 
-CREATE OR REPLACE FUNCTION pg_temp.seed_name(n integer)
+CREATE OR REPLACE FUNCTION seed_helpers.seed_name(n integer)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
@@ -56,13 +61,13 @@ BEGIN
         updated_at
       )
       SELECT
-        pg_temp.seed_uuid(n),
+        seed_helpers.seed_uuid(n),
         CASE
           WHEN n <= 30 THEN 'builder' || lpad(n::text, 2, '0') || '@3rdspace.test'
           WHEN n <= 80 THEN 'venue' || lpad((n - 30)::text, 2, '0') || '@3rdspace.test'
           ELSE 'vendor' || lpad((n - 80)::text, 2, '0') || '@3rdspace.test'
         END,
-        pg_temp.seed_name(n),
+        seed_helpers.seed_name(n),
         CASE
           WHEN n <= 30 THEN 'community_builder'
           WHEN n <= 80 THEN 'venue_owner'
@@ -109,7 +114,7 @@ INSERT INTO public.users (
   platform_fee_percentage
 )
 SELECT
-  pg_temp.seed_uuid(n),
+  seed_helpers.seed_uuid(n),
   CASE
     WHEN n <= 30 THEN 'builder' || lpad(n::text, 2, '0') || '@3rdspace.test'
     WHEN n <= 80 THEN 'venue' || lpad((n - 30)::text, 2, '0') || '@3rdspace.test'
@@ -130,9 +135,9 @@ SELECT
     ELSE 'vendor'
   END,
   CASE
-    WHEN n <= 30 THEN pg_temp.seed_name(n) || ' Events'
-    WHEN n <= 80 THEN pg_temp.seed_name(n) || ' Hospitality'
-    ELSE pg_temp.seed_name(n) || ' Creative Services'
+    WHEN n <= 30 THEN seed_helpers.seed_name(n) || ' Events'
+    WHEN n <= 80 THEN seed_helpers.seed_name(n) || ' Hospitality'
+    ELSE seed_helpers.seed_name(n) || ' Creative Services'
   END,
   true,
   CASE WHEN n <= 30 AND n % 4 = 0 THEN 'unlimited' ELSE 'pay_per_transaction' END,
@@ -171,9 +176,9 @@ INSERT INTO public.builder_profiles (
   updated_at
 )
 SELECT
-  pg_temp.seed_uuid(n),
-  pg_temp.seed_uuid(n),
-  pg_temp.seed_name(n),
+  seed_helpers.seed_uuid(n),
+  seed_helpers.seed_uuid(n),
+  seed_helpers.seed_name(n),
   '+1-555-' || lpad(n::text, 3, '0') || '-' || lpad((1000 + n)::text, 4, '0'),
   ARRAY[
     (ARRAY['networking', 'conference', 'workshop', 'social_mixer', 'product_launch'])[1 + ((n - 1) % 5)],
@@ -227,11 +232,11 @@ INSERT INTO public.owner_profiles (
   updated_at
 )
 SELECT
-  pg_temp.seed_uuid(30 + n),
-  pg_temp.seed_uuid(30 + n),
-  pg_temp.seed_name(30 + n),
+  seed_helpers.seed_uuid(30 + n),
+  seed_helpers.seed_uuid(30 + n),
+  seed_helpers.seed_name(30 + n),
   '+1-555-' || lpad((30 + n)::text, 3, '0') || '-' || lpad((1030 + n)::text, 4, '0'),
-  pg_temp.seed_name(30 + n) || ' Hospitality Group',
+  seed_helpers.seed_name(30 + n) || ' Hospitality Group',
   (ARRAY['bar', 'gallery', 'athletic_club', 'conference_space', 'event_space'])[1 + ((n - 1) % 5)],
   CASE WHEN n % 5 = 0 THEN 'pending' ELSE 'verified' END,
   n % 5 <> 0,
@@ -316,7 +321,7 @@ venue_details AS (
     CASE category
       WHEN 'bar' THEN 'restaurant'
       WHEN 'gallery' THEN 'gallery'
-      WHEN 'athletic' THEN 'other'
+      WHEN 'athletic' THEN 'event_space'
       WHEN 'conference' THEN 'conference_center'
       ELSE CASE WHEN n % 2 = 0 THEN 'loft_warehouse' ELSE 'rooftop' END
     END AS venue_type,
@@ -404,10 +409,10 @@ INSERT INTO public.venues (
   updated_at
 )
 SELECT
-  pg_temp.seed_uuid(200 + n),
-  pg_temp.seed_uuid(30 + n),
+  seed_helpers.seed_uuid(200 + n),
+  seed_helpers.seed_uuid(30 + n),
   venue_name,
-  pg_temp.seed_slug(venue_name),
+  seed_helpers.seed_slug(venue_name),
   CASE category
     WHEN 'bar' THEN venue_name || ' is a polished neighborhood bar with strong beverage service, flexible floor plans, and late-night staff used to private buyouts.'
     WHEN 'gallery' THEN venue_name || ' offers clean white walls, rotating exhibitions, museum-style lighting, and a calm setting for launches, talks, and receptions.'
@@ -541,8 +546,8 @@ INSERT INTO public.venue_kickback_configs (
   updated_at
 )
 SELECT
-  pg_temp.seed_uuid(12000 + n),
-  pg_temp.seed_uuid(200 + n),
+  seed_helpers.seed_uuid(12000 + n),
+  seed_helpers.seed_uuid(200 + n),
   'per_head_attendance',
   5 + (n % 11),
   50,
@@ -613,8 +618,8 @@ INSERT INTO public.venue_amenities (
   created_at
 )
 SELECT
-  pg_temp.seed_uuid(10000 + (vs.n * 10) + vs.slot),
-  pg_temp.seed_uuid(200 + vs.n),
+  seed_helpers.seed_uuid(10000 + (vs.n * 10) + vs.slot),
+  seed_helpers.seed_uuid(200 + vs.n),
   ao.amenity_type,
   ao.amenity_name,
   ao.description,
@@ -709,8 +714,8 @@ INSERT INTO public.venue_rules (
   updated_at
 )
 SELECT
-  pg_temp.seed_uuid(11000 + (n * 10) + slot),
-  pg_temp.seed_uuid(200 + n),
+  seed_helpers.seed_uuid(11000 + (n * 10) + slot),
+  seed_helpers.seed_uuid(200 + n),
   title || ': ' || description,
   title,
   description,
@@ -740,8 +745,8 @@ INSERT INTO public.venue_photos (
   created_at
 )
 SELECT
-  pg_temp.seed_uuid(13000 + n),
-  pg_temp.seed_uuid(200 + n),
+  seed_helpers.seed_uuid(13000 + n),
+  seed_helpers.seed_uuid(200 + n),
   CASE
     WHEN n <= 12 THEN 'https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=1200&q=80'
     WHEN n <= 22 THEN 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80'
@@ -894,8 +899,8 @@ INSERT INTO public.vendor_profiles (
   updated_at
 )
 SELECT
-  pg_temp.seed_uuid(80 + n),
-  pg_temp.seed_uuid(80 + n),
+  seed_helpers.seed_uuid(80 + n),
+  seed_helpers.seed_uuid(80 + n),
   business_name,
   '+1-555-' || lpad((80 + n)::text, 3, '0') || '-' || lpad((1080 + n)::text, 4, '0'),
   vendor_type,
@@ -939,7 +944,7 @@ SELECT
     WHEN 'videography' THEN ARRAY['recap', 'speaker-recording', 'launch']
     ELSE ARRAY['av-equipped', 'hybrid', 'stage']
   END,
-  pg_temp.seed_slug(business_name),
+  seed_helpers.seed_slug(business_name),
   service_type,
   NULL,
   CASE service_type
@@ -1023,7 +1028,7 @@ WITH vendor_rows AS (
     pricing_model,
     COALESCE(base_rate, hourly_rate, 500) AS base_price
   FROM public.vendor_profiles
-  WHERE id BETWEEN pg_temp.seed_uuid(81) AND pg_temp.seed_uuid(130)
+  WHERE id BETWEEN seed_helpers.seed_uuid(81) AND seed_helpers.seed_uuid(130)
 )
 INSERT INTO public.vendor_offerings (
   id,
@@ -1046,7 +1051,7 @@ INSERT INTO public.vendor_offerings (
   updated_at
 )
 SELECT
-  pg_temp.seed_uuid(8000 + n),
+  seed_helpers.seed_uuid(8000 + n),
   id,
   CASE service_type
     WHEN 'dj' THEN 'DJ set and event sound'
@@ -1111,7 +1116,7 @@ WITH vendor_rows AS (
     service_type,
     COALESCE(base_rate, hourly_rate, 500) AS base_price
   FROM public.vendor_profiles
-  WHERE id BETWEEN pg_temp.seed_uuid(81) AND pg_temp.seed_uuid(130)
+  WHERE id BETWEEN seed_helpers.seed_uuid(81) AND seed_helpers.seed_uuid(130)
 )
 INSERT INTO public.vendor_packages (
   id,
@@ -1126,7 +1131,7 @@ INSERT INTO public.vendor_packages (
   created_at
 )
 SELECT
-  pg_temp.seed_uuid(9000 + n),
+  seed_helpers.seed_uuid(9000 + n),
   id,
   CASE service_type
     WHEN 'dj' THEN 'Mixer-ready music package'
@@ -1164,8 +1169,8 @@ ON CONFLICT (id) DO UPDATE SET
 WITH event_seed AS (
   SELECT
     i,
-    pg_temp.seed_uuid(1000 + i) AS event_id,
-    pg_temp.seed_uuid(1 + ((i - 1) % 30)) AS builder_id,
+    seed_helpers.seed_uuid(1000 + i) AS event_id,
+    seed_helpers.seed_uuid(1 + ((i - 1) % 30)) AS builder_id,
     (ARRAY[
       'Q3 Tech Networking Mixer',
       'Founders Brunch Series',
@@ -1207,10 +1212,10 @@ WITH event_seed AS (
     END AS status,
     CASE
       WHEN i <= 20 THEN NULL::uuid
-      WHEN i <= 35 THEN pg_temp.seed_uuid(200 + 1 + ((i - 21) % 15))
-      WHEN i <= 50 THEN pg_temp.seed_uuid(200 + 31 + ((i - 36) % 20))
-      WHEN i <= 60 THEN pg_temp.seed_uuid(200 + 11 + ((i - 51) % 10))
-      ELSE pg_temp.seed_uuid(200 + 31 + ((i - 61) % 20))
+      WHEN i <= 35 THEN seed_helpers.seed_uuid(200 + 1 + ((i - 21) % 15))
+      WHEN i <= 50 THEN seed_helpers.seed_uuid(200 + 31 + ((i - 36) % 20))
+      WHEN i <= 60 THEN seed_helpers.seed_uuid(200 + 11 + ((i - 51) % 10))
+      ELSE seed_helpers.seed_uuid(200 + 31 + ((i - 61) % 20))
     END AS venue_id,
     500 + ((i * 337) % 24501) AS budget
   FROM generate_series(1, 75) AS i
@@ -1330,7 +1335,7 @@ booking_rows AS (
     v.hourly_rate,
     greatest(e.duration_hours, 3) AS hours
   FROM booking_seed bs
-  JOIN public.events e ON e.id = pg_temp.seed_uuid(1000 + bs.event_i)
+  JOIN public.events e ON e.id = seed_helpers.seed_uuid(1000 + bs.event_i)
   JOIN public.venues v ON v.id = e.venue_id
 )
 INSERT INTO public.venue_bookings (
@@ -1363,7 +1368,7 @@ INSERT INTO public.venue_bookings (
   updated_at
 )
 SELECT
-  pg_temp.seed_uuid(4000 + j),
+  seed_helpers.seed_uuid(4000 + j),
   venue_id,
   event_id,
   organizer_id,
@@ -1461,7 +1466,7 @@ vendor_booking_needs AS (
       ELSE 'photography'
     END AS needed_service
   FROM vendor_booking_seed vbs
-  JOIN public.events e ON e.id = pg_temp.seed_uuid(1000 + vbs.event_i)
+  JOIN public.events e ON e.id = seed_helpers.seed_uuid(1000 + vbs.event_i)
 ),
 vendor_booking_rows AS (
   SELECT
@@ -1484,7 +1489,7 @@ vendor_booking_rows AS (
       ELSE 44 + ((vbn.j * 3) % 7)
     END AS vendor_n
   FROM vendor_booking_needs vbn
-  JOIN public.events e ON e.id = pg_temp.seed_uuid(1000 + vbn.event_i)
+  JOIN public.events e ON e.id = seed_helpers.seed_uuid(1000 + vbn.event_i)
 )
 INSERT INTO public.vendor_bookings (
   id,
@@ -1524,8 +1529,8 @@ INSERT INTO public.vendor_bookings (
   updated_at
 )
 SELECT
-  pg_temp.seed_uuid(5000 + j),
-  pg_temp.seed_uuid(80 + vendor_n),
+  seed_helpers.seed_uuid(5000 + j),
+  seed_helpers.seed_uuid(80 + vendor_n),
   event_id,
   organizer_id,
   event_date,
@@ -1586,8 +1591,8 @@ SELECT
     ELSE 'pending'
   END,
   CASE WHEN booking_status = 'confirmed' THEN now() - ((j % 6) * interval '1 day') ELSE NULL END,
-  pg_temp.seed_uuid(8000 + vendor_n),
-  CASE WHEN booking_status = 'confirmed' THEN pg_temp.seed_uuid(9000 + vendor_n) ELSE NULL END,
+  seed_helpers.seed_uuid(8000 + vendor_n),
+  CASE WHEN booking_status = 'confirmed' THEN seed_helpers.seed_uuid(9000 + vendor_n) ELSE NULL END,
   event_date,
   start_time,
   end_time,
@@ -1640,7 +1645,7 @@ WITH rows AS (
     row_number() OVER (ORDER BY vb.id) AS n,
     vb.*
   FROM public.vendor_bookings vb
-  WHERE vb.id BETWEEN pg_temp.seed_uuid(5001) AND pg_temp.seed_uuid(5060)
+  WHERE vb.id BETWEEN seed_helpers.seed_uuid(5001) AND seed_helpers.seed_uuid(5060)
 )
 INSERT INTO public.event_vendors (
   id,
@@ -1655,7 +1660,7 @@ INSERT INTO public.event_vendors (
   updated_at
 )
 SELECT
-  pg_temp.seed_uuid(5500 + n),
+  seed_helpers.seed_uuid(5500 + n),
   event_id,
   vendor_id,
   status,
@@ -1684,7 +1689,7 @@ WITH venue_space_rows AS (
     n,
     v.*
   FROM generate_series(1, 15) AS n
-  JOIN public.venues v ON v.id = pg_temp.seed_uuid(200 + n)
+  JOIN public.venues v ON v.id = seed_helpers.seed_uuid(200 + n)
 )
 INSERT INTO public.spaces (
   id,
@@ -1717,7 +1722,7 @@ INSERT INTO public.spaces (
   updated_at
 )
 SELECT
-  pg_temp.seed_uuid(300 + n),
+  seed_helpers.seed_uuid(300 + n),
   owner_profiles.id,
   venue_name,
   description,
@@ -1790,9 +1795,9 @@ WITH legacy_booking_rows AS (
     s.hourly_rate,
     e.duration_hours
   FROM generate_series(1, 15) AS n
-  JOIN public.events e ON e.id = pg_temp.seed_uuid(1020 + n)
-  JOIN public.spaces s ON s.id = pg_temp.seed_uuid(300 + n)
-  JOIN public.owner_profiles op ON op.id = pg_temp.seed_uuid(30 + n)
+  JOIN public.events e ON e.id = seed_helpers.seed_uuid(1020 + n)
+  JOIN public.spaces s ON s.id = seed_helpers.seed_uuid(300 + n)
+  JOIN public.owner_profiles op ON op.id = seed_helpers.seed_uuid(30 + n)
 )
 INSERT INTO public.bookings (
   id,
@@ -1821,7 +1826,7 @@ INSERT INTO public.bookings (
   updated_at
 )
 SELECT
-  pg_temp.seed_uuid(3000 + n),
+  seed_helpers.seed_uuid(3000 + n),
   event_id,
   space_id,
   builder_id,
@@ -1873,15 +1878,15 @@ ON CONFLICT (id) DO UPDATE SET
 WITH venue_threads AS (
   SELECT
     n,
-    pg_temp.seed_uuid(6000 + n) AS thread_id,
-    pg_temp.seed_uuid(3000 + n) AS booking_id,
+    seed_helpers.seed_uuid(6000 + n) AS thread_id,
+    seed_helpers.seed_uuid(3000 + n) AS booking_id,
     e.id AS event_id,
     e.builder_id AS builder_user_id,
     v.owner_id AS owner_user_id,
     e.event_name,
     e.expected_attendance
   FROM generate_series(1, 15) AS n
-  JOIN public.events e ON e.id = pg_temp.seed_uuid(1020 + n)
+  JOIN public.events e ON e.id = seed_helpers.seed_uuid(1020 + n)
   JOIN public.venues v ON v.id = e.venue_id
 )
 INSERT INTO public.message_threads (
@@ -1924,14 +1929,14 @@ ON CONFLICT (id) DO UPDATE SET
 WITH venue_threads AS (
   SELECT
     n,
-    pg_temp.seed_uuid(6000 + n) AS thread_id,
-    pg_temp.seed_uuid(3000 + n) AS booking_id,
+    seed_helpers.seed_uuid(6000 + n) AS thread_id,
+    seed_helpers.seed_uuid(3000 + n) AS booking_id,
     e.event_name,
     e.expected_attendance,
     e.builder_id AS builder_user_id,
     v.owner_id AS owner_user_id
   FROM generate_series(1, 15) AS n
-  JOIN public.events e ON e.id = pg_temp.seed_uuid(1020 + n)
+  JOIN public.events e ON e.id = seed_helpers.seed_uuid(1020 + n)
   JOIN public.venues v ON v.id = e.venue_id
 ),
 message_slots AS (
@@ -1953,7 +1958,7 @@ INSERT INTO public.messages (
   thread_id
 )
 SELECT
-  pg_temp.seed_uuid(7000 + (n * 10) + m),
+  seed_helpers.seed_uuid(7000 + (n * 10) + m),
   booking_id,
   NULL,
   CASE WHEN m IN (1, 3) THEN builder_user_id ELSE owner_user_id END,
@@ -1985,7 +1990,7 @@ ON CONFLICT (id) DO UPDATE SET
 WITH vendor_threads AS (
   SELECT
     n,
-    pg_temp.seed_uuid(6200 + n) AS thread_id,
+    seed_helpers.seed_uuid(6200 + n) AS thread_id,
     vb.id AS vendor_booking_id,
     vb.event_id,
     vb.organizer_id AS builder_user_id,
@@ -1993,7 +1998,7 @@ WITH vendor_threads AS (
     vp.service_type,
     e.event_name
   FROM generate_series(1, 15) AS n
-  JOIN public.vendor_bookings vb ON vb.id = pg_temp.seed_uuid(5000 + n)
+  JOIN public.vendor_bookings vb ON vb.id = seed_helpers.seed_uuid(5000 + n)
   JOIN public.vendor_profiles vp ON vp.id = vb.vendor_id
   JOIN public.events e ON e.id = vb.event_id
 )
@@ -2037,14 +2042,14 @@ ON CONFLICT (id) DO UPDATE SET
 WITH vendor_threads AS (
   SELECT
     n,
-    pg_temp.seed_uuid(6200 + n) AS thread_id,
+    seed_helpers.seed_uuid(6200 + n) AS thread_id,
     vb.id AS vendor_booking_id,
     vb.organizer_id AS builder_user_id,
     vp.user_id AS vendor_user_id,
     vp.service_type,
     e.event_name
   FROM generate_series(1, 15) AS n
-  JOIN public.vendor_bookings vb ON vb.id = pg_temp.seed_uuid(5000 + n)
+  JOIN public.vendor_bookings vb ON vb.id = seed_helpers.seed_uuid(5000 + n)
   JOIN public.vendor_profiles vp ON vp.id = vb.vendor_id
   JOIN public.events e ON e.id = vb.event_id
 ),
@@ -2067,7 +2072,7 @@ INSERT INTO public.messages (
   thread_id
 )
 SELECT
-  pg_temp.seed_uuid(7600 + (n * 10) + m),
+  seed_helpers.seed_uuid(7600 + (n * 10) + m),
   NULL,
   vendor_booking_id,
   CASE WHEN m IN (1, 3) THEN builder_user_id ELSE vendor_user_id END,
@@ -2105,7 +2110,7 @@ BEGIN
       WITH vendor_threads AS (
         SELECT
           n,
-          pg_temp.seed_uuid(14000 + n) AS thread_id,
+          seed_helpers.seed_uuid(14000 + n) AS thread_id,
           vb.id AS booking_id,
           vb.vendor_id,
           vb.organizer_id AS builder_user_id,
@@ -2113,7 +2118,7 @@ BEGIN
           e.event_name,
           vp.user_id AS vendor_user_id
         FROM generate_series(1, 15) AS n
-        JOIN public.vendor_bookings vb ON vb.id = pg_temp.seed_uuid(5000 + n)
+        JOIN public.vendor_bookings vb ON vb.id = seed_helpers.seed_uuid(5000 + n)
         JOIN public.events e ON e.id = vb.event_id
         JOIN public.builder_profiles bp ON bp.id = e.builder_id
         JOIN public.vendor_profiles vp ON vp.id = vb.vendor_id
@@ -2156,7 +2161,7 @@ BEGIN
           vp.user_id AS vendor_user_id,
           e.event_name
         FROM generate_series(1, 15) AS n
-        JOIN public.vendor_bookings vb ON vb.id = pg_temp.seed_uuid(5000 + n)
+        JOIN public.vendor_bookings vb ON vb.id = seed_helpers.seed_uuid(5000 + n)
         JOIN public.vendor_message_threads vmt ON vmt.booking_id = vb.id
         JOIN public.vendor_profiles vp ON vp.id = vb.vendor_id
         JOIN public.events e ON e.id = vb.event_id
@@ -2177,7 +2182,7 @@ BEGIN
         created_at
       )
       SELECT
-        pg_temp.seed_uuid(14100 + (n * 10) + m),
+        seed_helpers.seed_uuid(14100 + (n * 10) + m),
         thread_id,
         CASE WHEN m IN (1, 3) THEN builder_user_id ELSE vendor_user_id END,
         CASE WHEN m IN (1, 3) THEN 'builder' ELSE 'vendor' END,
@@ -2217,8 +2222,8 @@ INSERT INTO public.notifications (
   created_at
 )
 SELECT
-  pg_temp.seed_uuid(15000 + n),
-  CASE WHEN n <= 30 THEN pg_temp.seed_uuid(n) ELSE pg_temp.seed_uuid(80 + ((n - 31) % 50) + 1) END,
+  seed_helpers.seed_uuid(15000 + n),
+  CASE WHEN n <= 30 THEN seed_helpers.seed_uuid(n) ELSE seed_helpers.seed_uuid(80 + ((n - 31) % 50) + 1) END,
   CASE
     WHEN n % 3 = 0 THEN 'booking_confirmed'
     WHEN n % 3 = 1 THEN 'new_message'
@@ -2265,7 +2270,7 @@ FROM (
     count(*)::integer AS total_events,
     coalesce(sum(expected_attendance), 0)::integer AS total_attendance
   FROM public.events
-  WHERE id BETWEEN pg_temp.seed_uuid(1001) AND pg_temp.seed_uuid(1075)
+  WHERE id BETWEEN seed_helpers.seed_uuid(1001) AND seed_helpers.seed_uuid(1075)
   GROUP BY builder_id
 ) counts
 WHERE bp.id = counts.builder_id;
@@ -2279,7 +2284,7 @@ FROM (
     venue_id,
     count(*)::integer AS total_bookings
   FROM public.venue_bookings
-  WHERE id BETWEEN pg_temp.seed_uuid(4001) AND pg_temp.seed_uuid(4040)
+  WHERE id BETWEEN seed_helpers.seed_uuid(4001) AND seed_helpers.seed_uuid(4040)
   GROUP BY venue_id
 ) counts
 WHERE v.id = counts.venue_id;
@@ -2296,10 +2301,12 @@ FROM (
     count(*)::integer AS total_bookings,
     coalesce(sum(coalesce(final_price, quoted_price, subtotal, 0)), 0)::numeric AS total_earnings
   FROM public.vendor_bookings
-  WHERE id BETWEEN pg_temp.seed_uuid(5001) AND pg_temp.seed_uuid(5060)
+  WHERE id BETWEEN seed_helpers.seed_uuid(5001) AND seed_helpers.seed_uuid(5060)
     AND status = 'confirmed'
   GROUP BY vendor_id
 ) counts
 WHERE vp.id = counts.vendor_id;
+
+DROP SCHEMA IF EXISTS seed_helpers CASCADE;
 
 COMMIT;

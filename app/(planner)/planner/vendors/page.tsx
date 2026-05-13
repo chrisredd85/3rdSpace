@@ -1,9 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import type { FormEvent } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { CheckCircle2, MapPin, Package, Search, SlidersHorizontal } from 'lucide-react'
+import { CheckCircle2, Link2, Mail, MapPin, Package, Search, SlidersHorizontal, UserPlus } from 'lucide-react'
+import { inviteVendor } from '@/app/actions/vendorInvites'
 import { BookedPartnersWorkspace } from '@/components/planner/BookedPartnersWorkspace'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,15 +34,26 @@ interface CatalogVendor {
   regions_served?: string | null
   is_claimed?: boolean | null
   is_admin_seeded?: boolean | null
+  tier?: 'your_people' | 'warm_intro' | 'catalog' | null
+  suggested_rate?: number | null
+  suggested_rate_unit?: 'dollars' | 'cents' | null
+  suggested_rate_type?: string | null
+  trust_tier?: string | null
+  last_booked_event_name?: string | null
 }
 
 interface VendorsApiResponse {
   vendors?: CatalogVendor[]
+  vendor_tiers?: {
+    your_people?: CatalogVendor[]
+    warm_intro?: CatalogVendor[]
+    catalog?: CatalogVendor[]
+  }
   error?: string
 }
 
 async function fetchPlannerVendorCatalog(): Promise<CatalogVendor[]> {
-  const response = await fetch(`/api/vendors?planner_catalog=1&ts=${Date.now()}`, {
+  const response = await fetch(`/api/vendors?planner_catalog=1&tiers=1&ts=${Date.now()}`, {
     cache: 'no-store',
     headers: {
       'Cache-Control': 'no-cache',
@@ -130,6 +143,8 @@ export default function PlannerVendorsPage() {
           emptyMessage="Vendor bookings will appear here after a deposit or outreach approval is authorized."
           partnerKind="vendor"
         />
+
+        <InviteKnownVendorPanel />
 
         <section className="rounded-2xl border border-border bg-card/70 p-5 shadow-card">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -223,6 +238,165 @@ export default function PlannerVendorsPage() {
   )
 }
 
+function InviteKnownVendorPanel() {
+  const [isOpen, setIsOpen] = useState(false)
+  const [isPending, startTransition] = useTransition()
+  const [result, setResult] = useState<{
+    ok: boolean
+    message: string
+    claimUrl?: string
+    existing?: boolean
+    emailSent?: boolean
+  } | null>(null)
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formData = new FormData(event.currentTarget)
+
+    startTransition(async () => {
+      const response = await inviteVendor({
+        vendorName: String(formData.get('vendorName') || ''),
+        email: String(formData.get('email') || ''),
+        phone: String(formData.get('phone') || ''),
+        serviceType: String(formData.get('serviceType') || 'other') as any,
+        rateType: String(formData.get('rateType') || 'flat') as any,
+        proposedRateAmount: Number(formData.get('proposedRateAmount') || 0),
+      })
+
+      if (!response.ok) {
+        setResult({ ok: false, message: response.error || 'Could not send this invite.' })
+        return
+      }
+
+      setResult({
+        ok: true,
+        existing: response.existing,
+        emailSent: response.emailSent,
+        claimUrl: response.claimUrl,
+        message: response.existing
+          ? 'This vendor was already in your people. I reused the existing invite record.'
+          : 'Invite created. They can claim the listing, confirm the private rate, and set their public catalog rate.',
+      })
+    })
+  }
+
+  return (
+    <section className="rounded-2xl border border-primary/20 bg-gradient-card p-5 shadow-card">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+            <UserPlus className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Your people</p>
+            <h2 className="mt-1 font-display text-xl font-bold text-foreground">Bring a vendor you already trust</h2>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              Invite them with the private rate you agreed on. They claim the profile, confirm or counter that rate, then set a separate public catalog rate.
+            </p>
+          </div>
+        </div>
+        <Button variant={isOpen ? 'glass' : 'hero'} size="sm" onClick={() => setIsOpen((value) => !value)}>
+          {isOpen ? 'Close invite' : 'Invite someone I work with'}
+        </Button>
+      </div>
+
+      {isOpen ? (
+        <form onSubmit={handleSubmit} className="mt-5 grid gap-4 rounded-2xl border border-border bg-background/50 p-4 lg:grid-cols-6">
+          <label className="space-y-1 lg:col-span-2">
+            <span className="text-xs font-semibold text-muted-foreground">Vendor name</span>
+            <Input name="vendorName" required placeholder="DJ Maya" />
+          </label>
+          <label className="space-y-1 lg:col-span-2">
+            <span className="text-xs font-semibold text-muted-foreground">Email</span>
+            <Input name="email" required type="email" placeholder="maya@example.com" />
+          </label>
+          <label className="space-y-1 lg:col-span-2">
+            <span className="text-xs font-semibold text-muted-foreground">Phone optional</span>
+            <Input name="phone" type="tel" placeholder="(415) 555-0100" />
+          </label>
+
+          <label className="space-y-1 lg:col-span-2">
+            <span className="text-xs font-semibold text-muted-foreground">Service</span>
+            <select
+              name="serviceType"
+              className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground"
+              defaultValue="dj"
+            >
+              <option value="dj">DJ / music</option>
+              <option value="catering">Catering</option>
+              <option value="bartending">Bartending</option>
+              <option value="photography">Photography</option>
+              <option value="videography">Videography</option>
+              <option value="av_tech">AV tech</option>
+              <option value="event_planning">Event staff</option>
+              <option value="florist">Florals / decor</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label className="space-y-1 lg:col-span-2">
+            <span className="text-xs font-semibold text-muted-foreground">Private agreed rate</span>
+            <Input name="proposedRateAmount" required min="1" step="1" type="number" placeholder="450" />
+          </label>
+          <label className="space-y-1 lg:col-span-2">
+            <span className="text-xs font-semibold text-muted-foreground">Rate type</span>
+            <select
+              name="rateType"
+              className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground"
+              defaultValue="flat"
+            >
+              <option value="flat">Flat</option>
+              <option value="per_person">Per person</option>
+              <option value="hourly">Hourly</option>
+            </select>
+          </label>
+
+          <div className="flex flex-col gap-3 lg:col-span-6 lg:flex-row lg:items-center lg:justify-between">
+            <p className="text-xs text-muted-foreground">
+              Private rates are scoped to you and this vendor. Public catalog rates are set by the vendor after claim.
+            </p>
+            <Button type="submit" variant="hero" size="sm" disabled={isPending}>
+              {isPending ? 'Sending invite...' : 'Send invite'}
+            </Button>
+          </div>
+        </form>
+      ) : null}
+
+      {result ? (
+        <div
+          className={cn(
+            'mt-4 rounded-xl border px-4 py-3 text-sm',
+            result.ok
+              ? 'border-accent/30 bg-accent/10 text-foreground'
+              : 'border-destructive/30 bg-destructive/10 text-foreground'
+          )}
+        >
+          <p className="font-semibold">{result.message}</p>
+          {result.ok && result.claimUrl ? (
+            <div className="mt-2 flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center">
+              {result.emailSent ? (
+                <span className="inline-flex items-center gap-1">
+                  <Mail className="h-3.5 w-3.5" />
+                  Email sent
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1">
+                  <Link2 className="h-3.5 w-3.5" />
+                  Email provider is not configured; use this local claim link:
+                </span>
+              )}
+              {!result.emailSent ? (
+                <a className="break-all font-semibold text-primary underline" href={result.claimUrl}>
+                  {result.claimUrl}
+                </a>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 /**
  * Loading skeleton for the vendor catalog.
  */
@@ -270,14 +444,26 @@ function VendorCard({ vendor }: VendorCardProps) {
             <p className="mt-1 text-sm font-semibold text-muted-foreground">{serviceType}</p>
           </div>
         </div>
-        {vendor.is_claimed === false ? (
-          <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">
-            Unclaimed
-          </span>
-        ) : null}
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          {vendor.tier ? (
+            <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
+              {formatTierLabel(vendor.tier)}
+            </span>
+          ) : null}
+          {vendor.is_claimed === false ? (
+            <span className="rounded-full border border-border bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">
+              Unclaimed
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <p className="mt-4 min-h-12 text-sm leading-relaxed text-muted-foreground">{summary}</p>
+      {vendor.tier === 'your_people' && vendor.last_booked_event_name ? (
+        <p className="mt-2 text-xs font-semibold text-primary">
+          Uses your last confirmed rate from {vendor.last_booked_event_name}
+        </p>
+      ) : null}
 
       <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
         <div className="rounded-lg border border-border bg-background/40 p-3">
@@ -359,19 +545,31 @@ function getVendorSummary(vendor: CatalogVendor) {
  * Formats the best available vendor rate signal.
  */
 function formatVendorRate(vendor: CatalogVendor) {
-  const amount = vendor.base_rate ?? vendor.hourly_rate ?? vendor.per_person_rate ?? null
+  const amount = vendor.suggested_rate ?? vendor.base_rate ?? vendor.hourly_rate ?? vendor.per_person_rate ?? null
   if (typeof amount !== 'number') return vendor.pricing_model ? formatServiceType(vendor.pricing_model) : 'Quote needed'
 
-  const dollars = amount > 1000 ? amount / 100 : amount
+  const dollars = vendor.suggested_rate_unit === 'cents'
+    ? amount / 100
+    : vendor.suggested_rate_unit === 'dollars'
+      ? amount
+      : amount > 1000
+        ? amount / 100
+        : amount
   const formatted = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(dollars)
 
-  if (vendor.per_person_rate === amount) return `${formatted}/person`
-  if (vendor.hourly_rate === amount) return `${formatted}/hr`
+  if (vendor.suggested_rate_type === 'per_person' || vendor.per_person_rate === amount) return `${formatted}/person`
+  if (vendor.suggested_rate_type === 'hourly' || vendor.hourly_rate === amount) return `${formatted}/hr`
   return `From ${formatted}`
+}
+
+function formatTierLabel(tier: NonNullable<CatalogVendor['tier']>) {
+  if (tier === 'your_people') return 'Your people'
+  if (tier === 'warm_intro') return 'Warm intro'
+  return 'Catalog'
 }
 
 /**

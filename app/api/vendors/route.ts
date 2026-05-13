@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { normalizeVendorProfile } from '@/lib/vendors/profile-adapter'
+import { flattenTieredVendorRecommendations, getTieredVendorRecommendations } from '@/lib/vendors/relationshipRecommendations'
 
 const PUBLIC_VENDOR_SELECT_COLUMNS = `
   id,
@@ -70,6 +71,37 @@ export async function GET(request: NextRequest) {
     const minPrice = searchParams.get('min_price')
     const maxPrice = searchParams.get('max_price')
     const plannerCatalog = searchParams.get('planner_catalog') === '1'
+    const tieredRecommendations = searchParams.get('tiers') === '1'
+
+    if (tieredRecommendations) {
+      const authClient = createClient()
+      const {
+        data: { user },
+      } = await authClient.auth.getUser()
+
+      if (user) {
+        const tiers = await getTieredVendorRecommendations(createServiceRoleClient() as any, user.id, {
+          serviceType,
+        })
+        return NextResponse.json(
+          {
+            vendors: flattenTieredVendorRecommendations(tiers).map(stripContactEmail),
+            vendor_tiers: {
+              your_people: tiers.your_people.map(stripContactEmail),
+              warm_intro: tiers.warm_intro.map(stripContactEmail),
+              catalog: tiers.catalog.map(stripContactEmail),
+            },
+          },
+          {
+            headers: {
+              'Cache-Control': plannerCatalog
+                ? 'no-store'
+                : 'private, max-age=60',
+            },
+          }
+        )
+      }
+    }
 
     // Build query - fetch ALL published vendors (marketplace)
     let query = supabase
@@ -137,8 +169,8 @@ function createVendorCatalogClient() {
   }
 }
 
-function stripContactEmail<T extends { contact_email?: unknown }>(item: T): Omit<T, 'contact_email'> {
-  const publicItem = { ...item }
+function stripContactEmail<T>(item: T): Omit<T, 'contact_email'> {
+  const publicItem = { ...(item as Record<string, unknown>) }
   delete publicItem.contact_email
-  return publicItem
+  return publicItem as Omit<T, 'contact_email'>
 }
