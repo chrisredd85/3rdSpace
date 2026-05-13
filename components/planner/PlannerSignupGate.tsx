@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, type FormEvent } from 'react'
-import { Loader2, Sparkles, X } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Sparkles, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { InlineFormError } from '@/components/ui/inline-form-error'
@@ -22,6 +22,7 @@ export function PlannerSignupGate({ isOpen, onClose, onSignedIn, context = 'defa
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -141,17 +142,29 @@ export function PlannerSignupGate({ isOpen, onClose, onSignedIn, context = 'defa
 
           <label className="block text-sm font-semibold text-foreground">
             Password
-            <Input
-              className="mt-2"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="new-password"
-              placeholder="••••••••"
-              required
-              minLength={6}
-              disabled={isSubmitting}
-            />
+            <div className="relative mt-2">
+              <Input
+                className="pr-12"
+                type={isPasswordVisible ? 'text' : 'password'}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="new-password"
+                placeholder="••••••••"
+                required
+                minLength={6}
+                disabled={isSubmitting}
+              />
+              <button
+                type="button"
+                aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
+                aria-pressed={isPasswordVisible}
+                onClick={() => setIsPasswordVisible((current) => !current)}
+                className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={isSubmitting}
+              >
+                {isPasswordVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </label>
 
           <InlineFormError message={errorMessage} />

@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
-import { ArrowRight, Building2, Lock, Mail, Sparkles, Store, Ticket } from 'lucide-react'
+import { ArrowRight, Building2, Eye, EyeOff, Lock, Mail, Sparkles, Store, Ticket } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { loginSchema, type LoginInput } from '@/lib/validations/auth'
@@ -67,6 +67,7 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
   const queryClient = useQueryClient()
   const [isLoading, setIsLoading] = useState(false)
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
   const [portalHandoff, setPortalHandoff] = useState<{ message: string; href: string } | null>(null)
   const config = portalConfig[portal]
@@ -248,7 +249,22 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input id="password" type="password" placeholder="••••••••" className="pl-10" {...register('password')} />
+                <Input
+                  id="password"
+                  type={isPasswordVisible ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  className="pl-10 pr-12"
+                  {...register('password')}
+                />
+                <button
+                  type="button"
+                  aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
+                  aria-pressed={isPasswordVisible}
+                  onClick={() => setIsPasswordVisible((current) => !current)}
+                  className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                >
+                  {isPasswordVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
               </div>
               {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
             </div>

@@ -12,6 +12,8 @@ import {
   Music2,
   Sparkles,
   Camera,
+  Eye,
+  EyeOff,
   Zap,
   Users,
   Store,
@@ -146,6 +148,41 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <Label className="mb-1.5 block">{label}</Label>
       {children}
+    </div>
+  )
+}
+
+function PasswordInput({
+  value,
+  onChange,
+  placeholder = '••••••••',
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+}) {
+  const [isVisible, setIsVisible] = useState(false)
+  const Icon = isVisible ? EyeOff : Eye
+
+  return (
+    <div className="relative">
+      <Input
+        type={isVisible ? 'text' : 'password'}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        autoComplete="new-password"
+        className="pr-12"
+      />
+      <button
+        type="button"
+        aria-label={isVisible ? 'Hide password' : 'Show password'}
+        aria-pressed={isVisible}
+        onClick={() => setIsVisible((current) => !current)}
+        className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+      >
+        <Icon className="h-4 w-4" />
+      </button>
     </div>
   )
 }
@@ -463,7 +500,7 @@ function BuilderSignupFlow({
             </Field>
           </div>
           <Field label="Password">
-            <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="••••••••" />
+            <PasswordInput value={form.password} onChange={(password) => setForm({ ...form, password })} />
           </Field>
         </div>
       )}
@@ -735,7 +772,7 @@ function VenueSignupFlow({
             </Field>
           </div>
           <Field label="Password">
-            <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="••••••••" />
+            <PasswordInput value={form.password} onChange={(password) => setForm({ ...form, password })} />
           </Field>
         </div>
       )}
@@ -1058,7 +1095,7 @@ function VendorSignupFlow({
             </Field>
           </div>
           <Field label="Password">
-            <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="••••••••" />
+            <PasswordInput value={form.password} onChange={(password) => setForm({ ...form, password })} />
           </Field>
         </div>
       )}
