@@ -27,7 +27,8 @@ export interface RateAgreementCommitPlan {
 export async function getVendorRatePrefill(
   db: any,
   organizerUserId: string,
-  vendorId: string
+  vendorId: string,
+  opts: { expectedAttendance?: number | null } = {}
 ): Promise<VendorRatePrefill> {
   const lastConfirmed = await loadLastConfirmedRate(db, organizerUserId, vendorId)
   if (lastConfirmed) {
@@ -42,14 +43,15 @@ export async function getVendorRatePrefill(
 
   const { data: vendor } = await db
     .from('vendor_profiles')
-    .select('base_rate, pricing_model')
+    .select('base_rate, per_person_rate, pricing_model')
     .eq('id', vendorId)
     .maybeSingle()
 
-  const publicBaseRate = typeof vendor?.base_rate === 'number' ? vendor.base_rate / 100 : null
+  const normalizedRateType = normalizeRateType(vendor?.pricing_model)
+  const publicBaseRate = getPublicRateFallbackDollars(vendor, normalizedRateType, opts.expectedAttendance ?? null)
   return {
     amount: publicBaseRate,
-    rate_type: normalizeRateType(vendor?.pricing_model),
+    rate_type: publicBaseRate && normalizedRateType === 'per_person' ? 'flat' : normalizedRateType,
     source: publicBaseRate ? 'public_base_rate' : 'none',
     provenance_label: null,
     last_confirmed: null,
@@ -190,6 +192,20 @@ function normalizeRateType(value: unknown): VendorAgreementRateType | null {
   if (value === 'per_person') return 'per_person'
   if (value === 'hourly') return 'hourly'
   return null
+}
+
+function getPublicRateFallbackDollars(
+  vendor: { base_rate?: unknown; per_person_rate?: unknown } | null | undefined,
+  rateType: VendorAgreementRateType | null,
+  expectedAttendance: number | null
+) {
+  if (rateType === 'per_person') {
+    const perPersonRateCents = typeof vendor?.per_person_rate === 'number' ? vendor.per_person_rate : null
+    const attendance = typeof expectedAttendance === 'number' && expectedAttendance > 0 ? expectedAttendance : null
+    if (perPersonRateCents !== null && attendance !== null) return (perPersonRateCents * attendance) / 100
+  }
+
+  return typeof vendor?.base_rate === 'number' ? vendor.base_rate / 100 : null
 }
 
 function roundMoney(value: number) {

@@ -17,6 +17,7 @@ import {
 } from '@/lib/planner/dbSelects'
 import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
 import { loadPlanAgentFields } from '@/lib/planner/planAgentSummaries'
+import { enrichPlanSelectedVendors } from '@/lib/planner/planVendorSelections'
 import { createClient } from '@/lib/supabase/server'
 import type {
   Approval,
@@ -89,9 +90,10 @@ export async function GET(
       plan,
       userId: auth.userId,
     })
+    const enrichedPlan = await enrichPlanSelectedVendors(auth.db, agentFields.plan, auth.userId)
 
     return NextResponse.json({
-      plan: agentFields.plan,
+      plan: enrichedPlan,
       messages,
       recommendations,
       approvals,

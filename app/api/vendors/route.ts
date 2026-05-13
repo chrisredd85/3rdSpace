@@ -30,6 +30,7 @@ const PUBLIC_VENDOR_SELECT_COLUMNS = `
   emergency_available,
   emergency_rate_uplift,
   is_published,
+  claim_status,
   is_claimed,
   claimed_user_id,
   is_admin_seeded,

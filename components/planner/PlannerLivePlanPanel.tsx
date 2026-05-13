@@ -128,7 +128,22 @@ interface LivePlanSnapshot {
   notes: string | null
   runOfShow: RunOfShowSnapshot | null
   workspaceSummary: WorkspaceSummarySnapshot | null
+  selectedVendors: SelectedPlanVendor[]
   updatedAt: string | null
+}
+
+interface SelectedPlanVendor {
+  id: string | null
+  vendorId: string | null
+  name: string
+  serviceType: string | null
+  priceCents: number | null
+  rateAmount: number | null
+  rateType: string | null
+  claimStatus: string | null
+  isClaimed: boolean | null
+  rateSource: string | null
+  provenanceLabel: string | null
 }
 
 interface LivePlanPanelPayload {
@@ -162,6 +177,7 @@ interface ShoppingListItem {
   label: string
   amountLabel: string
   note?: string
+  badge?: string
 }
 
 interface AuthorizationCardModel {
@@ -300,8 +316,38 @@ function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
       normalizeWorkspaceSummary(record.workspaceSummary) ??
       normalizeWorkspaceSummary(record.workspace_summary) ??
       normalizeWorkspaceSummary(cachedWorkspace?.output),
+    selectedVendors: normalizeSelectedVendors(
+      record.selectedVendors ??
+      record.selected_vendors ??
+      asRecord(metadata?.shopping_list)?.selected_vendors
+    ),
     updatedAt: readString(record.updatedAt) ?? readString(record.updated_at),
   }
+}
+
+function normalizeSelectedVendors(value: unknown): SelectedPlanVendor[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((item) => {
+    const record = asRecord(item)
+    if (!record) return []
+    const vendorId = readString(record.vendor_id) ?? readString(record.reference_id) ?? readString(record.id)
+    const name = readString(record.external_name) ?? readString(record.business_name) ?? readString(record.name)
+    if (!vendorId && !name) return []
+    return [{
+      id: readString(record.id),
+      vendorId,
+      name: name ?? 'Vendor',
+      serviceType: readString(record.service_type),
+      priceCents: readNumber(record.price_cents),
+      rateAmount: readNumber(record.rate_amount),
+      rateType: readString(record.rate_type),
+      claimStatus: readString(record.claim_status),
+      isClaimed: readBoolean(record.is_claimed),
+      rateSource: readString(record.rate_source),
+      provenanceLabel: readString(record.rate_provenance_label),
+    }]
+  })
 }
 
 /**
@@ -661,7 +707,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   })
   const isComparingCommercialModels = isRecommendBestModel(eventSummary.revenue_share)
   const primaryAuthorization = authorizationCards[0] ?? null
-  const shoppingListItems = buildShoppingList(primaryVenue, renderedBudgetLineItems, eventSummary)
+  const shoppingListItems = buildShoppingList(primaryVenue, renderedBudgetLineItems, eventSummary, livePlan?.selectedVendors ?? [])
 
   async function handleGenerateTimeline() {
     if (!activePlanId || activePlanId.startsWith('mock-plan-') || isGeneratingTimeline) return
@@ -963,7 +1009,14 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
               <div key={`${item.category}-${item.label}`} className="flex min-w-0 items-start justify-between gap-5">
                 <div className="min-w-0">
                   <p className="text-[12px] font-medium uppercase tracking-[0.16em] text-muted-foreground">{item.category}</p>
-                  <p className="mt-1 break-words text-lg leading-tight text-foreground" title={item.label}>{item.label}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <p className="break-words text-lg leading-tight text-foreground" title={item.label}>{item.label}</p>
+                    {item.badge ? (
+                      <span className="rounded-full bg-secondary/15 px-2 py-0.5 text-xs font-medium text-secondary">
+                        {item.badge}
+                      </span>
+                    ) : null}
+                  </div>
                   {item.note ? (
                     <p className="mt-1 break-words text-sm leading-snug text-muted-foreground" title={item.note}>{item.note}</p>
                   ) : null}
@@ -1716,7 +1769,8 @@ function venueMetaLabel(recommendation: RecommendationSummary | null, summary: E
 function buildShoppingList(
   primaryVenue: RecommendationSummary | null,
   budgetItems: BudgetLineItem[],
-  summary: EventSummary
+  summary: EventSummary,
+  selectedVendors: SelectedPlanVendor[] = []
 ): ShoppingListItem[] {
   const venueCost = primaryVenue?.priceCents ?? budgetItems[0]?.amountCents ?? null
   const vendorCost = budgetItems.find((item) => /vendor|dinner|food/i.test(item.label))?.amountCents ?? null
@@ -1739,6 +1793,16 @@ function buildShoppingList(
       note: noOrganizerFoodCost
         ? 'Organizer does not carry the per-person food cost.'
         : 'Adjusts once menu, minimum, or package terms are selected.',
+    })
+  }
+
+  for (const vendor of selectedVendors) {
+    addShoppingItem(items, {
+      category: formatVendorServiceCategory(vendor.serviceType),
+      label: vendor.name,
+      amountLabel: typeof vendor.priceCents === 'number' ? formatCents(vendor.priceCents) : formatVendorRateAmount(vendor),
+      note: vendor.provenanceLabel ?? deriveSelectedVendorNote(vendor),
+      badge: vendor.claimStatus === 'invited_unclaimed' ? 'Invited — pending signup' : undefined,
     })
   }
 
@@ -1792,6 +1856,34 @@ function buildShoppingList(
   })
 
   return items
+}
+
+function formatVendorServiceCategory(serviceType: string | null) {
+  if (!serviceType) return 'Vendor'
+  return serviceType
+    .split('_')
+    .filter(Boolean)
+    .map((part) => (part.toLowerCase() === 'av' ? 'AV' : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()))
+    .join(' ')
+}
+
+function formatVendorRateAmount(vendor: SelectedPlanVendor) {
+  if (typeof vendor.rateAmount !== 'number') return 'TBD'
+  const amount = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(vendor.rateAmount)
+  if (vendor.rateType === 'per_person') return `${amount}/person`
+  if (vendor.rateType === 'hourly') return `${amount}/hr`
+  return amount
+}
+
+function deriveSelectedVendorNote(vendor: SelectedPlanVendor) {
+  if (vendor.claimStatus === 'invited_unclaimed') return 'Waiting for the vendor to claim the invite and confirm or counter the private rate.'
+  if (vendor.rateSource === 'confirmed_private_rate') return 'Using your last confirmed private rate with this vendor.'
+  if (vendor.rateSource === 'organizer_entered') return 'Organizer-entered rate; vendor confirmation may create a new agreement.'
+  return 'Confirm availability and final quote before approval.'
 }
 
 function addShoppingItem(items: ShoppingListItem[], item: ShoppingListItem) {

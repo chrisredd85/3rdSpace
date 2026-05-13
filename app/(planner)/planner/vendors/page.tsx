@@ -1,7 +1,7 @@
 'use client'
 
 import type { FormEvent } from 'react'
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { CheckCircle2, Link2, Mail, MapPin, Package, Search, SlidersHorizontal, UserPlus } from 'lucide-react'
@@ -32,6 +32,7 @@ interface CatalogVendor {
   emergency_rate_uplift?: number | null
   service_area?: string | null
   regions_served?: string | null
+  claim_status?: string | null
   is_claimed?: boolean | null
   is_admin_seeded?: boolean | null
   tier?: 'your_people' | 'warm_intro' | 'catalog' | null
@@ -40,6 +41,13 @@ interface CatalogVendor {
   suggested_rate_type?: string | null
   trust_tier?: string | null
   last_booked_event_name?: string | null
+}
+
+interface VendorRatePrefillPayload {
+  amount: number | null
+  rate_type: 'flat' | 'per_person' | 'hourly' | null
+  source: 'confirmed_agreement' | 'public_base_rate' | 'none'
+  provenance_label: string | null
 }
 
 interface VendorsApiResponse {
@@ -77,6 +85,7 @@ async function fetchPlannerVendorCatalog(): Promise<CatalogVendor[]> {
 export default function PlannerVendorsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedService, setSelectedService] = useState('All')
+  const activePlanId = useActivePlannerPlanId()
   const {
     data: vendors = [],
     isLoading,
@@ -142,9 +151,10 @@ export default function PlannerVendorsPage() {
           description="Coordinate with vendors after deposits are approved. Message each partner, track deliverables, and keep day-of milestones visible."
           emptyMessage="Vendor bookings will appear here after a deposit or outreach approval is authorized."
           partnerKind="vendor"
+          planId={activePlanId}
         />
 
-        <InviteKnownVendorPanel />
+        <InviteKnownVendorPanel activePlanId={activePlanId} onCatalogChanged={() => void refetch()} />
 
         <section className="rounded-2xl border border-border bg-card/70 p-5 shadow-card">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -229,7 +239,7 @@ export default function PlannerVendorsPage() {
         {!isLoading && !isError && filteredVendors.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {filteredVendors.map((vendor) => (
-              <VendorCard key={vendor.id} vendor={vendor} />
+              <VendorCard key={vendor.id} vendor={vendor} activePlanId={activePlanId} />
             ))}
           </div>
         ) : null}
@@ -238,7 +248,43 @@ export default function PlannerVendorsPage() {
   )
 }
 
-function InviteKnownVendorPanel() {
+function useActivePlannerPlanId() {
+  const [planId, setPlanId] = useState<string | null>(null)
+
+  useEffect(() => {
+    function readPlanIdFromStorage() {
+      try {
+        const raw = window.localStorage.getItem('planner-live-plan')
+        if (!raw) return null
+        const parsed = JSON.parse(raw) as { planId?: unknown }
+        return typeof parsed.planId === 'string' && parsed.planId.trim() ? parsed.planId : null
+      } catch {
+        return null
+      }
+    }
+
+    function refreshPlanId(event?: Event) {
+      const detail = event && 'detail' in event ? (event as CustomEvent<{ planId?: unknown }>).detail : null
+      const nextPlanId = typeof detail?.planId === 'string' && detail.planId.trim()
+        ? detail.planId
+        : readPlanIdFromStorage()
+      setPlanId(nextPlanId)
+    }
+
+    refreshPlanId()
+    window.addEventListener('planner-live-plan:update', refreshPlanId)
+    return () => window.removeEventListener('planner-live-plan:update', refreshPlanId)
+  }, [])
+
+  return planId
+}
+
+interface InviteKnownVendorPanelProps {
+  activePlanId: string | null
+  onCatalogChanged: () => void
+}
+
+function InviteKnownVendorPanel({ activePlanId, onCatalogChanged }: InviteKnownVendorPanelProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [result, setResult] = useState<{
@@ -261,6 +307,7 @@ function InviteKnownVendorPanel() {
         serviceType: String(formData.get('serviceType') || 'other') as any,
         rateType: String(formData.get('rateType') || 'flat') as any,
         proposedRateAmount: Number(formData.get('proposedRateAmount') || 0),
+        planId: activePlanId,
       })
 
       if (!response.ok) {
@@ -268,6 +315,17 @@ function InviteKnownVendorPanel() {
         return
       }
 
+      if (activePlanId && response.vendorId) {
+        await attachVendorToActivePlan({
+          planId: activePlanId,
+          vendorId: response.vendorId,
+          amount: Number(formData.get('proposedRateAmount') || 0),
+          rateType: String(formData.get('rateType') || 'flat') as 'flat' | 'per_person' | 'hourly',
+          commitAgreement: false,
+        })
+      }
+
+      onCatalogChanged()
       setResult({
         ok: true,
         existing: response.existing,
@@ -416,12 +474,13 @@ function VendorSkeletonGrid() {
 
 interface VendorCardProps {
   vendor: CatalogVendor
+  activePlanId: string | null
 }
 
 /**
  * Compact public vendor catalog card for planner users.
  */
-function VendorCard({ vendor }: VendorCardProps) {
+function VendorCard({ vendor, activePlanId }: VendorCardProps) {
   const vendorName = getVendorName(vendor)
   const serviceType = formatServiceType(vendor.service_type)
   const summary = truncateText(getVendorSummary(vendor), 124)
@@ -441,6 +500,11 @@ function VendorCard({ vendor }: VendorCardProps) {
           </div>
           <div className="min-w-0">
             <h2 className="font-display text-lg font-bold text-foreground">{vendorName}</h2>
+            {vendor.claim_status === 'invited_unclaimed' ? (
+              <span className="mt-2 inline-flex rounded-full bg-secondary/15 px-2 py-0.5 text-xs font-medium text-secondary">
+                Invited — pending signup
+              </span>
+            ) : null}
             <p className="mt-1 text-sm font-semibold text-muted-foreground">{serviceType}</p>
           </div>
         </div>
@@ -511,8 +575,212 @@ function VendorCard({ vendor }: VendorCardProps) {
       <Button variant="outline" size="sm" className="mt-5 w-full" asChild>
         <Link href={`/planner/vendors/${vendor.id}`}>View profile</Link>
       </Button>
+
+      {activePlanId ? (
+        <PlanVendorRateAttach
+          key={`${activePlanId}-${vendor.id}`}
+          planId={activePlanId}
+          vendor={vendor}
+        />
+      ) : null}
     </article>
   )
+}
+
+interface PlanVendorRateAttachProps {
+  planId: string
+  vendor: CatalogVendor
+}
+
+function PlanVendorRateAttach({ planId, vendor }: PlanVendorRateAttachProps) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [amount, setAmount] = useState('')
+  const [rateType, setRateType] = useState<'flat' | 'per_person' | 'hourly'>('flat')
+  const [provenanceLabel, setProvenanceLabel] = useState<string | null>(null)
+  const [hasEdited, setHasEdited] = useState(false)
+  const [warning, setWarning] = useState<string | null>(null)
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  async function openRateEditor() {
+    setIsOpen((current) => !current)
+    if (isOpen || amount) return
+
+    setIsLoading(true)
+    setErrorMessage(null)
+    try {
+      const response = await fetch(`/api/planner/plans/${planId}/vendors/${vendor.id}/rate`, {
+        cache: 'no-store',
+      })
+      const payload = (await response.json().catch(() => ({}))) as {
+        prefill?: VendorRatePrefillPayload
+        error?: string
+      }
+      if (!response.ok) throw new Error(payload.error || 'Could not load rate history.')
+      const prefill = payload.prefill
+      setAmount(typeof prefill?.amount === 'number' ? String(prefill.amount) : '')
+      setRateType(prefill?.rate_type ?? normalizeRateType(vendor.pricing_model) ?? 'flat')
+      setProvenanceLabel(prefill?.provenance_label ?? null)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not load rate history.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function saveRate() {
+    const parsedAmount = Number(amount)
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setErrorMessage('Enter a rate before adding this vendor.')
+      return
+    }
+
+    setIsSaving(true)
+    setErrorMessage(null)
+    setWarning(null)
+    setStatusMessage(null)
+    try {
+      const result = await attachVendorToActivePlan({
+        planId,
+        vendorId: vendor.id,
+        amount: parsedAmount,
+        rateType,
+        commitAgreement: true,
+      })
+      setWarning(result.rate_commit?.warning ?? null)
+      setStatusMessage('Added to the active plan.')
+      setProvenanceLabel(hasEdited ? null : provenanceLabel)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not add this vendor to the plan.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-2xl border border-border bg-background/40 p-3">
+      <Button type="button" variant="glass" size="sm" className="w-full" onClick={openRateEditor}>
+        {isOpen ? 'Hide plan rate' : 'Add to active plan'}
+      </Button>
+
+      {isOpen ? (
+        <div className="mt-3 space-y-3">
+          {isLoading ? (
+            <p className="text-xs text-muted-foreground">Loading your rate history...</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-[1fr_120px] gap-2">
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold text-muted-foreground">Rate</span>
+                  <Input
+                    value={amount}
+                    min="1"
+                    step="1"
+                    type="number"
+                    onChange={(event) => {
+                      setAmount(event.target.value)
+                      setHasEdited(true)
+                    }}
+                    placeholder="450"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold text-muted-foreground">Type</span>
+                  <select
+                    value={rateType}
+                    onChange={(event) => {
+                      setRateType(event.target.value as 'flat' | 'per_person' | 'hourly')
+                      setHasEdited(true)
+                    }}
+                    className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground"
+                  >
+                    <option value="flat">Flat</option>
+                    <option value="per_person">Per person</option>
+                    <option value="hourly">Hourly</option>
+                  </select>
+                </label>
+              </div>
+
+              {provenanceLabel && !hasEdited ? (
+                <p className="text-xs font-semibold text-primary">{provenanceLabel}</p>
+              ) : hasEdited ? (
+                <p className="text-xs font-semibold text-muted-foreground">edited</p>
+              ) : null}
+
+              {warning ? (
+                <p className="rounded-xl border border-secondary/30 bg-secondary/10 px-3 py-2 text-xs text-secondary">
+                  {warning}
+                </p>
+              ) : null}
+              {statusMessage ? (
+                <p className="rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
+                  {statusMessage}
+                </p>
+              ) : null}
+              {errorMessage ? (
+                <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {errorMessage}
+                </p>
+              ) : null}
+
+              <Button type="button" variant="hero" size="sm" className="w-full" onClick={saveRate} disabled={isSaving}>
+                {isSaving ? 'Adding vendor...' : 'Save to active plan'}
+              </Button>
+            </>
+          )}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+async function attachVendorToActivePlan(input: {
+  planId: string
+  vendorId: string
+  amount: number
+  rateType: 'flat' | 'per_person' | 'hourly'
+  commitAgreement: boolean
+}): Promise<{ plan?: unknown; rate_commit?: { warning?: string | null } | null }> {
+  const response = await fetch(`/api/planner/plans/${input.planId}/vendors/${input.vendorId}/rate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      amount: input.amount,
+      rate_type: input.rateType,
+      commit_agreement: input.commitAgreement,
+    }),
+  })
+  const payload = (await response.json().catch(() => ({}))) as {
+    plan?: unknown
+    rate_commit?: { warning?: string | null } | null
+    error?: string
+  }
+  if (!response.ok) throw new Error(payload.error || 'Could not attach vendor to plan.')
+
+  updatePlannerLivePlanPayload(payload.plan)
+  return payload
+}
+
+function updatePlannerLivePlanPayload(plan: unknown) {
+  if (typeof window === 'undefined' || !plan || typeof plan !== 'object') return
+
+  try {
+    const raw = window.localStorage.getItem('planner-live-plan')
+    const current = raw ? JSON.parse(raw) as Record<string, unknown> : {}
+    const next = {
+      ...current,
+      plan: {
+        ...(typeof current.plan === 'object' && current.plan !== null ? current.plan as Record<string, unknown> : {}),
+        ...(plan as Record<string, unknown>),
+      },
+    }
+    window.localStorage.setItem('planner-live-plan', JSON.stringify(next))
+    window.dispatchEvent(new CustomEvent('planner-live-plan:update', { detail: next }))
+  } catch {
+    window.dispatchEvent(new CustomEvent('planner-live-plan:update'))
+  }
 }
 
 /**
@@ -570,6 +838,12 @@ function formatTierLabel(tier: NonNullable<CatalogVendor['tier']>) {
   if (tier === 'your_people') return 'Your people'
   if (tier === 'warm_intro') return 'Warm intro'
   return 'Catalog'
+}
+
+function normalizeRateType(value: unknown): 'flat' | 'per_person' | 'hourly' | null {
+  if (value === 'flat_rate') return 'flat'
+  if (value === 'flat' || value === 'per_person' || value === 'hourly') return value
+  return null
 }
 
 /**

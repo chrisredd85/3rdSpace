@@ -2029,6 +2029,7 @@ function publishLivePlan(plan: Plan | null, messages: PlanMessage[]) {
     notes: plan.notes ?? null,
     runOfShow: readPlanAgentCacheOutput(plan, 'timeline'),
     workspaceSummary: readPlanAgentCacheOutput(plan, 'workspace_summary'),
+    selectedVendors: readPlanSelectedVendors(plan),
     updatedAt: plan.updated_at,
   }
 
@@ -2070,6 +2071,17 @@ function readPlanAgentCacheOutput(plan: Plan, key: 'timeline' | 'workspace_summa
   const agentCache = readRecord(metadata?.agent_cache)
   const cacheEntry = readRecord(agentCache?.[key])
   return readRecord(cacheEntry?.output)
+}
+
+function readPlanSelectedVendors(plan: Plan): Record<string, unknown>[] {
+  const metadata = readRecord(plan.metadata)
+  const shoppingList = readRecord(metadata?.shopping_list)
+  return Array.isArray(shoppingList?.selected_vendors)
+    ? shoppingList.selected_vendors.flatMap((item) => {
+        const record = readRecord(item)
+        return record ? [record] : []
+      })
+    : []
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {
