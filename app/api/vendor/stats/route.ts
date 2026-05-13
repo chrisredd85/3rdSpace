@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     // Get user's vendor
     const { data: vendor, error: vendorError } = await supabase
       .from('vendor_profiles')
-      .select('id')
+      .select('id, is_published')
       .eq('user_id', user.id)
       .single()
 
@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const vendorData = vendor as { id: string }
+    const vendorData = vendor as { id: string; is_published: boolean | null }
 
     // Calculate current month range
     const now = new Date()
@@ -129,6 +129,8 @@ export async function GET(request: NextRequest) {
       : 0
 
     return NextResponse.json({
+      vendorId: vendorData.id,
+      isPublished: vendorData.is_published !== false,
       newRequests: newRequestsCount || 0,
       confirmedGigs: confirmedGigsCount || 0,
       revenueMtd,

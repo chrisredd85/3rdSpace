@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { AlertCircle, TrendingUp, Calendar, PiggyBank, FileText, Send, ArrowRight, Music2, DollarSign } from 'lucide-react'
+import { AlertCircle, TrendingUp, Calendar, PiggyBank, FileText, Send, ArrowRight, Music2, DollarSign, Copy, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PayoutOverviewPanel } from '@/components/dashboard/PayoutOverviewPanel'
 import { useUser } from '@/lib/hooks/useUser'
 import { useToast } from '@/components/ui/toast'
 
 interface VendorStats {
+  vendorId?: string
+  isPublished?: boolean
   newRequests: number
   confirmedGigs: number
   revenueMtd: number
@@ -83,6 +85,27 @@ export default function VendorDashboard() {
     addToast({ title: 'Quote sent!', description: 'The event creator will respond shortly.' })
   }
 
+  const bookingPath = stats?.vendorId ? `/planner/vendors/${stats.vendorId}?source=vendor_share` : null
+  const bookingUrl = bookingPath && typeof window !== 'undefined' ? `${window.location.origin}${bookingPath}` : bookingPath
+
+  const handleCopyBookingLink = async () => {
+    if (!bookingUrl) return
+
+    try {
+      await navigator.clipboard.writeText(bookingUrl)
+      addToast({
+        title: 'Booking link copied',
+        description: 'Share this with hosts so they can request your services in their planner.',
+      })
+    } catch {
+      addToast({
+        title: 'Could not copy link',
+        description: bookingUrl,
+        variant: 'destructive',
+      })
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -120,6 +143,52 @@ export default function VendorDashboard() {
               <Button variant="ghost" size="sm" onClick={() => setIsStripeBannerDismissed(true)}>
                 Dismiss
               </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {bookingPath && bookingUrl ? (
+        <div className="rounded-3xl border border-border bg-gradient-card p-5 shadow-card">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Public booking link</p>
+              <h2 className="mt-1 font-display text-xl font-bold">Let hosts book you through 3rdPlace</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Share this link on your site, Instagram bio, or with event hosts. It starts a planner request with your vendor profile attached.
+              </p>
+              {stats?.isPublished === false ? (
+                <p className="mt-2 text-sm font-medium text-secondary">
+                  Your profile is unpublished. Publish your services before sharing this link broadly.
+                </p>
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Hosts still approve every booking, quote, deposit, and outreach step before anything is executed.
+                </p>
+              )}
+            </div>
+            <div className="flex min-w-0 flex-col gap-2 lg:w-[420px]">
+              <code className="truncate rounded-2xl border border-border bg-card/50 px-3 py-2 text-sm text-muted-foreground">
+                {bookingUrl}
+              </code>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="hero" size="sm" onClick={handleCopyBookingLink}>
+                  <Copy className="h-4 w-4" />
+                  Copy link
+                </Button>
+                {stats?.isPublished === false ? (
+                  <Button variant="glass" size="sm" asChild>
+                    <Link href="/vendor/services">Publish profile</Link>
+                  </Button>
+                ) : (
+                  <Button variant="glass" size="sm" asChild>
+                    <Link href={bookingPath}>
+                      <ExternalLink className="h-4 w-4" />
+                      Open
+                    </Link>
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>

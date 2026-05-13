@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Heart, Loader2, MapPin, Package, Star, Users } from 'lucide-react'
+import { ArrowLeft, Copy, ExternalLink, Heart, Loader2, MapPin, Package, Star, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { DepositDisplay } from '@/components/builder/DepositDisplay'
@@ -133,6 +133,24 @@ export function VendorProfilePage({ vendorId }: VendorProfilePageProps) {
   const rating = Number(vendor.rating || 0)
   const reviewCount = Number(vendor.review_count || 0)
   const totalBookings = Number(vendor.total_bookings || 0)
+  const bookingPath = `/planner/vendors/${vendor.id}?source=vendor_share`
+  const bookingUrl = typeof window === 'undefined' ? bookingPath : `${window.location.origin}${bookingPath}`
+
+  const handleCopyBookingLink = async () => {
+    try {
+      await navigator.clipboard.writeText(bookingUrl)
+      addToast({
+        title: 'Booking link copied',
+        description: 'Share this link with hosts so they can request this vendor in their planner.',
+      })
+    } catch {
+      addToast({
+        title: 'Could not copy link',
+        description: bookingUrl,
+        variant: 'destructive',
+      })
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -178,12 +196,43 @@ export function VendorProfilePage({ vendorId }: VendorProfilePageProps) {
                 <Heart className={isSaved ? 'mr-2 h-4 w-4 fill-current text-destructive' : 'mr-2 h-4 w-4'} />
                 {isSaved ? 'Saved' : 'Save'}
               </Button>
-              <Button type="button" onClick={() => setShowServicePicker(true)}>Select Service</Button>
+              <Button type="button" variant="glass" onClick={handleCopyBookingLink}>
+                <Copy className="h-4 w-4" />
+                Copy booking link
+              </Button>
+              <Button type="button" onClick={() => setShowServicePicker(true)}>Request booking</Button>
             </div>
           </div>
         </CardHeader>
         <CardContent>
           {vendor.description ? <p className="leading-relaxed text-foreground">{vendor.description}</p> : null}
+        </CardContent>
+      </Card>
+
+      <Card className="border-primary/25 bg-primary/5">
+        <CardHeader>
+          <CardTitle className="text-xl">Book this vendor for your 3rdPlace event</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Use this public link to start a planner request with this vendor attached. Nothing is contacted,
+            charged, or held until the event host reviews and approves the plan.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card/50 p-3 sm:flex-row sm:items-center">
+            <code className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{bookingUrl}</code>
+            <div className="flex shrink-0 gap-2">
+              <Button type="button" variant="glass" size="sm" onClick={handleCopyBookingLink}>
+                <Copy className="h-4 w-4" />
+                Copy
+              </Button>
+              <Button asChild variant="outline" size="sm">
+                <Link href={bookingPath}>
+                  <ExternalLink className="h-4 w-4" />
+                  Open
+                </Link>
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
