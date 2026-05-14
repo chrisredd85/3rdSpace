@@ -1,28 +1,37 @@
 import { expect, test } from '@playwright/test'
 
 test.describe('Persona: Maya — SF host, first visit', () => {
-  test('homepage shows "List your venue" and "List as vendor" nav buttons on desktop', async ({ page }) => {
+  test('homepage exposes venue and vendor signup links from the supply dropdown on desktop', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
     await page.setViewportSize({ width: 1280, height: 800 })
+    await page.waitForLoadState('networkidle')
 
     const nav = page.locator('nav')
-    await expect(nav.getByRole('link', { name: /list your venue/i })).toBeVisible()
-    await expect(nav.getByRole('link', { name: /list as vendor/i })).toBeVisible()
+    const supplyTrigger = nav.getByRole('button', { name: /list with us/i })
+    await supplyTrigger.click()
+    await expect(supplyTrigger).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByRole('menuitem', { name: /list your venue/i })).toHaveAttribute('href', '/signup/venue')
+    await expect(page.getByRole('menuitem', { name: /list as vendor/i })).toHaveAttribute('href', '/signup/vendor')
   })
 
-  test('nav buttons are hidden on mobile', async ({ page }) => {
+  test('supply links move into the mobile menu', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
     await page.setViewportSize({ width: 375, height: 812 })
+    await page.waitForLoadState('networkidle')
 
     const nav = page.locator('nav')
-    await expect(nav.getByRole('link', { name: /list your venue/i })).toBeHidden()
-    await expect(nav.getByRole('link', { name: /list as vendor/i })).toBeHidden()
+    await expect(nav.getByRole('button', { name: /list with us/i })).toBeHidden()
+    const menuTrigger = nav.getByRole('button', { name: /open menu/i })
+    await menuTrigger.click()
+    await expect(nav.getByRole('button', { name: /close menu/i })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: /list your venue/i })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: /list as vendor/i })).toBeVisible()
   })
 
   test('homepage opens with public event creation input', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
 
-    await expect(page.getByRole('heading', { name: /3rdplace is the bay area's leading/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /stop planning the same event from scratch/i })).toBeVisible()
     await expect(page.getByRole('textbox', { name: /describe the event you want to host/i })).toBeVisible()
   })
 
@@ -43,9 +52,12 @@ test.describe('Persona: Maya — SF host, first visit', () => {
 
   test('venue role card navigates to venue signup form', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
+    await page.waitForLoadState('networkidle')
 
-    const venueCard = page.locator('nav').getByRole('link', { name: /list your venue/i })
-    await expect(venueCard).toBeVisible()
+    const supplyTrigger = page.locator('nav').getByRole('button', { name: /list with us/i })
+    await supplyTrigger.click()
+    await expect(supplyTrigger).toHaveAttribute('aria-expanded', 'true')
+    const venueCard = page.getByRole('menuitem', { name: /list your venue/i })
     await expect(venueCard).toHaveAttribute('href', '/signup/venue')
     await page.goto('/signup/venue')
 
@@ -58,9 +70,12 @@ test.describe('Persona: Maya — SF host, first visit', () => {
 
   test('vendor role card navigates to vendor signup form', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
+    await page.waitForLoadState('networkidle')
 
-    const vendorCard = page.locator('nav').getByRole('link', { name: /list as vendor/i })
-    await expect(vendorCard).toBeVisible()
+    const supplyTrigger = page.locator('nav').getByRole('button', { name: /list with us/i })
+    await supplyTrigger.click()
+    await expect(supplyTrigger).toHaveAttribute('aria-expanded', 'true')
+    const vendorCard = page.getByRole('menuitem', { name: /list as vendor/i })
     await expect(vendorCard).toHaveAttribute('href', '/signup/vendor')
     await page.goto('/signup/vendor')
 

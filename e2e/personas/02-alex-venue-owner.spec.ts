@@ -12,12 +12,15 @@ test.describe('Persona: Alex — venue owner wants to list', () => {
     await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
   })
 
-  test('nav buttons on homepage link to /signup/venue', async ({ page }) => {
+  test('supply dropdown on homepage links to /signup/venue', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
     await page.setViewportSize({ width: 1280, height: 800 })
+    await page.waitForLoadState('networkidle')
 
-    const venueNavBtn = page.getByRole('link', { name: /list your venue/i }).first()
-    await expect(venueNavBtn).toBeVisible()
+    const supplyTrigger = page.locator('nav').getByRole('button', { name: /list with us/i })
+    await supplyTrigger.click()
+    await expect(supplyTrigger).toHaveAttribute('aria-expanded', 'true')
+    const venueNavBtn = page.getByRole('menuitem', { name: /list your venue/i })
     await expect(venueNavBtn).toHaveAttribute('href', '/signup/venue')
     await page.goto('/signup/venue', { waitUntil: 'domcontentloaded' })
 

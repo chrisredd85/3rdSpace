@@ -8,9 +8,13 @@ test.describe('design system smoke', () => {
     const issues = collectPageHealth(page)
 
     await page.goto('/', { waitUntil: 'domcontentloaded' })
+    await page.waitForLoadState('networkidle')
     await expect(page.getByRole('link', { name: /^sign in$/i }).first()).toBeVisible()
-    await expect(page.getByRole('link', { name: /list your venue/i }).first()).toBeVisible()
-    await expect(page.getByRole('link', { name: /list as vendor/i }).first()).toBeVisible()
+    const supplyTrigger = page.getByRole('button', { name: /list with us/i })
+    await supplyTrigger.click()
+    await expect(supplyTrigger).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByRole('menuitem', { name: /list your venue/i }).first()).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: /list as vendor/i }).first()).toBeVisible()
     await expect(page.getByRole('textbox', { name: /describe the event you want to host/i })).toBeVisible()
 
     const bodyStyles = await page.locator('body').evaluate((body) => {
