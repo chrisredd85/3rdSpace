@@ -16,6 +16,9 @@ interface PlannerEmptyStateProps {
   onSubmit: (message: string) => void
   className?: string
   isSubmitting?: boolean
+  title?: string
+  description?: string
+  showTrustSignals?: boolean
 }
 
 /**
@@ -25,6 +28,9 @@ export const PlannerEmptyState = memo(function PlannerEmptyState({
   onSubmit,
   className,
   isSubmitting = false,
+  title = 'What 3rdPlace do you want to create?',
+  description = 'Describe your event now. Sign in when you save, book, pay, or export.',
+  showTrustSignals = true,
 }: PlannerEmptyStateProps) {
   const [message, setMessage] = useState('')
   const [isHydrated, setIsHydrated] = useState(false)
@@ -75,9 +81,9 @@ export const PlannerEmptyState = memo(function PlannerEmptyState({
           <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-brand shadow-glow">
             <span className="font-display text-2xl font-bold text-primary-foreground">3</span>
           </div>
-          <h1 className="text-balance font-display text-3xl font-bold leading-tight sm:text-4xl">What 3rdPlace do you want to create?</h1>
+          <h1 className="text-balance font-display text-3xl font-bold leading-tight sm:text-4xl">{title}</h1>
           <p className="mx-auto mt-3 max-w-2xl text-balance text-base leading-relaxed text-muted-foreground">
-            Describe your event now. Sign in when you save, book, pay, or export.
+            {description}
           </p>
         </div>
 
@@ -114,13 +120,15 @@ export const PlannerEmptyState = memo(function PlannerEmptyState({
           </div>
         </form>
 
-        <div className="mt-4 flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-          <span className="inline-flex min-w-0 items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-success" />
-            <span className="break-words">No account required to start. Approval required before booking or payment.</span>
-          </span>
-          <span className="shrink-0 text-right">Powered by 3rdPlace Agent v2.4</span>
-        </div>
+        {showTrustSignals ? (
+          <div className="mt-4 flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <span className="inline-flex min-w-0 items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-success" />
+              <span className="break-words">No account required to start. Approval required before booking or payment.</span>
+            </span>
+            <span className="shrink-0 text-right">Powered by 3rdPlace Agent v2.4</span>
+          </div>
+        ) : null}
       </div>
     </div>
   )

@@ -81,6 +81,13 @@ interface PlannerTemplateSummary {
   created_at: string
 }
 
+interface PlannerAccountSummary {
+  email?: string | null
+  userType?: string | null
+  role?: string | null
+  companyName?: string | null
+}
+
 interface EventPlanPayload {
   event_name: string | null
   expected_attendance: number | null
@@ -210,9 +217,32 @@ function PlannerPageContent() {
   const [isDemoResetting, setIsDemoResetting] = useState(false)
   const [demoResetError, setDemoResetError] = useState<string | null>(null)
   const [signupGateContext, setSignupGateContext] = useState<'default' | 'recommendations'>('default')
+  const [plannerAccount, setPlannerAccount] = useState<PlannerAccountSummary | null>(null)
   useEffect(() => {
     setIsAuthenticated(persistenceMode === 'server')
   }, [persistenceMode])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadPlannerAccount() {
+      try {
+        const response = await fetch('/api/auth/user', { credentials: 'include' })
+        if (!response.ok) return
+
+        const payload = (await response.json()) as { user?: PlannerAccountSummary }
+        if (!isCancelled) setPlannerAccount(payload.user ?? null)
+      } catch (error) {
+        console.warn('[planner] Unable to load planner account summary', error)
+      }
+    }
+
+    void loadPlannerAccount()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     function handleExternalSignupGateRequest(event: Event) {
@@ -650,13 +680,24 @@ function PlannerPageContent() {
     setErrorMessage(null)
     setIsCreatingPlan(false)
     setIsSendingReply(false)
+    setIsAwaitingRecommendations(false)
+    setPendingAction(null)
+    setIsSignupGateOpen(false)
+    setIsTemplatesModalOpen(false)
+    setIsReplyAnalysisOpen(false)
+    setReplyAnalysisText('')
+    setReplyAnalysisError(null)
+    setReplyAnalysisResult(null)
+    setTimelineResult(null)
+    setTimelineError(null)
+    setIsTimelineLoading(false)
     hasStartedInitialDraftRef.current = false
     hasTriedDraftAutoMigrationRef.current = false
     ignoredDraftRef.current = initialDraft
     publishLivePlan(null, [])
 
     if (window.location.search) {
-      router.replace(forceDraftMode ? '/planner?mock=1' : '/planner')
+      window.history.replaceState(null, '', forceDraftMode ? '/planner?mock=1' : '/planner')
     }
   }
 
@@ -1070,6 +1111,9 @@ function PlannerPageContent() {
     }
   }
 
+  const organizationName = getPlannerOrganizationName(plannerAccount)
+  const plannerRoleLabel = getPlannerRoleLabel(plannerAccount)
+
   if (shouldHardResetDemo) {
     return (
       <div className="flex min-h-screen items-center justify-center px-4">
@@ -1098,13 +1142,30 @@ function PlannerPageContent() {
 
   if (!activePlan) {
     return (
-      <div>
-        {errorMessage ? (
-          <div className="mx-auto mt-6 max-w-3xl rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            {errorMessage}
+      <div className="min-h-screen">
+        <PlannerTopBar userName={organizationName} userRole={plannerRoleLabel} />
+        <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6">
+          <div className="mb-5 rounded-3xl border border-border bg-card/50 p-5 shadow-card">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-secondary">{organizationName}</p>
+            <h1 className="mt-1 font-display text-xl font-bold leading-tight sm:text-2xl">New planner conversation</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Start a fresh plan inside your workspace. Prior plans stay saved in your history.
+            </p>
           </div>
-        ) : null}
-        <PlannerEmptyState onSubmit={handleCreatePlan} isSubmitting={isCreatingPlan} />
+          {errorMessage ? (
+            <div className="mx-auto mb-4 max-w-3xl rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {errorMessage}
+            </div>
+          ) : null}
+          <PlannerEmptyState
+            onSubmit={handleCreatePlan}
+            isSubmitting={isCreatingPlan}
+            className="min-h-[calc(100vh-18rem)] py-8"
+            title="What should we plan next?"
+            description={`Describe the next event for ${organizationName}. I'll start a new plan without booking, paying, or sending anything until you approve it.`}
+            showTrustSignals={false}
+          />
+        </div>
         <PlannerSignupGate
           isOpen={isSignupGateOpen}
           onClose={() => setIsSignupGateOpen(false)}
@@ -1133,18 +1194,16 @@ function PlannerPageContent() {
   return (
     <div className="min-h-screen">
       {demoBanner}
-      <PlannerTopBar onNewPlan={handleNewPlan} />
+      <PlannerTopBar userName={organizationName} userRole={plannerRoleLabel} />
 
       <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6">
         <div className="mb-5 flex flex-col gap-4 rounded-3xl border border-border bg-card/50 p-5 shadow-card sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <p className="text-sm text-muted-foreground">Active plan</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-secondary">{organizationName}</p>
             <h1 className="mt-1 break-words font-display text-xl font-bold leading-tight sm:text-2xl">{activePlan.title}</h1>
+            <p className="mt-1 text-xs text-muted-foreground">Active planner workspace</p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
-            <Button type="button" variant="glass" size="sm" onClick={handleNewPlan}>
-              New plan
-            </Button>
             <span
               className={cn(
                 'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold',
@@ -1173,6 +1232,9 @@ function PlannerPageContent() {
               )}
               {activeDateChip.label}
             </span>
+            <Button type="button" variant="glass" size="sm" onClick={handleNewPlan}>
+              New plan
+            </Button>
           </div>
         </div>
 
@@ -1956,6 +2018,23 @@ function getTabCount(activeTab: PlannerTab, recommendationCount: number, approva
   if (activeTab === 'recommendations') return recommendationCount
   if (activeTab === 'approvals') return approvalCount
   return null
+}
+
+function getPlannerOrganizationName(account: PlannerAccountSummary | null) {
+  const companyName = account?.companyName?.trim()
+  if (companyName) return companyName
+
+  const emailPrefix = account?.email?.split('@')[0]?.replace(/[._-]+/g, ' ').trim()
+  if (emailPrefix) return emailPrefix
+
+  return 'Creator workspace'
+}
+
+function getPlannerRoleLabel(account: PlannerAccountSummary | null) {
+  if (account?.userType === 'community_builder') return 'Organizer'
+  if (account?.userType === 'venue_owner') return 'Venue'
+  if (account?.userType === 'vendor') return 'Vendor'
+  return 'Planner'
 }
 
 /**

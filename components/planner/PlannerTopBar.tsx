@@ -2,14 +2,13 @@
  * Purpose: Provides the fixed top command bar for the Agent Planner center panel.
  * Props: Accepts optional user and notification stubs so the shell can render without
  * backend data fetching.
- * Key behaviors: Keeps global search, agent status, new-plan command, notifications,
- * and account controls visible at the top of the main planner area.
+ * Key behaviors: Keeps global search, agent status, notifications, and account
+ * controls visible at the top of the main planner area.
  */
 'use client'
 
 import { memo } from 'react'
-import { Bell, ChevronDown, Plus, Search } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Bell, ChevronDown, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
@@ -18,18 +17,16 @@ interface PlannerTopBarProps {
   userRole?: string
   notificationCount?: number
   className?: string
-  onNewPlan?: () => void
 }
 
 /**
- * Planner top bar with global ask/search, online status, new-event CTA, notifications, and user menu.
+ * Planner top bar with global ask/search, online status, notifications, and user menu.
  */
 export const PlannerTopBar = memo(function PlannerTopBar({
   userName = 'Creator',
   userRole = 'Planner',
   notificationCount = 0,
   className,
-  onNewPlan,
 }: PlannerTopBarProps) {
   const initials = userName
     .split(' ')
@@ -63,16 +60,6 @@ export const PlannerTopBar = memo(function PlannerTopBar({
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        <Button
-          className="h-10 rounded-xl bg-card text-foreground hover:bg-card/80"
-          size="sm"
-          type="button"
-          onClick={onNewPlan}
-        >
-          <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">New Event</span>
-        </Button>
-
         <button
           type="button"
           className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-card/60 text-foreground transition-smooth hover:bg-card"
