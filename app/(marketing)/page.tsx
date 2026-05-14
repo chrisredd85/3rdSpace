@@ -61,8 +61,9 @@ export default function HomePage() {
       <FloatingStartChip />
 
       {/* Hero */}
-      <section className="relative pb-20 pt-28 lg:pb-28 lg:pt-32">
+      <section className="relative overflow-hidden pb-14 pt-28 lg:pb-20 lg:pt-32">
         <div className="absolute inset-0 bg-gradient-mesh" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent via-background/20 to-background" />
         <div className="container relative mx-auto max-w-7xl px-6 lg:px-12">
           <div className="grid gap-14 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
             <div>
@@ -98,7 +99,7 @@ export default function HomePage() {
       </section>
 
       {/* Who it's for */}
-      <section id="who" className="py-20 lg:py-28">
+      <section id="who" className="relative pt-12 pb-20 lg:pt-14 lg:pb-28">
         <div className="container mx-auto max-w-6xl px-6 lg:px-12">
           <div className="text-center">
             <p className="text-sm font-bold uppercase tracking-widest text-primary">
