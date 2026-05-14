@@ -163,7 +163,7 @@ async function loadOwnedPlan(db: PlannerVendorSelectionDb, planId: string, userI
 async function loadVendor(db: PlannerVendorSelectionDb, vendorId: string): Promise<Record<string, unknown> | null> {
   const { data, error } = await db
     .from('vendor_profiles')
-    .select('id, name, business_name, service_type, base_rate, per_person_rate, pricing_model, claim_status, is_claimed')
+    .select('id, name, service_type, base_rate, per_person_rate, pricing_model, claim_status, is_claimed')
     .eq('id', vendorId)
     .maybeSingle()
 

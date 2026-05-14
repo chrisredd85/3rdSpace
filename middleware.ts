@@ -100,6 +100,13 @@ export async function middleware(request: NextRequest) {
     return response
   }
 
+  // Vendor invite claims must be reachable from emailed claim links before the
+  // vendor has an account or authenticated session.
+  if (pathname === '/vendor/claim') {
+    const { response } = await getAuthUser(request)
+    return response
+  }
+
   // Protect dashboard routes (venue, vendor, planner). Legacy /builder paths
   // are handled by permanent redirects in next.config.js before route access.
   const dashboardRoutes = ['/venue', '/vendor', '/planner']

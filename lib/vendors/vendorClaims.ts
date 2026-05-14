@@ -173,7 +173,7 @@ export async function claimInvitedVendor(input: ClaimInvitedVendorInput): Promis
       is_claimed: true,
       is_published: true,
       base_rate: publicBaseRateCents,
-      pricing_model: input.publicRateType,
+      pricing_model: input.publicRateType === 'flat' ? 'flat_rate' : input.publicRateType,
       contact_email: email,
     })
     .eq('id', details.vendor_id)

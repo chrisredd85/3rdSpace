@@ -39,7 +39,7 @@ export async function enrichPlanSelectedVendors(
   const [{ data: vendors }, { data: agreements }] = await Promise.all([
     db
       .from('vendor_profiles')
-      .select('id, name, business_name, service_type, base_rate, per_person_rate, pricing_model, claim_status, is_claimed')
+      .select('id, name, service_type, base_rate, per_person_rate, pricing_model, claim_status, is_claimed')
       .in('id', vendorIds),
     db
       .from('vendor_rate_agreements')

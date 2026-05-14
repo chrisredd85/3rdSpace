@@ -13,13 +13,6 @@ ALTER TABLE public.vendor_profiles
 ALTER TABLE public.vendor_profiles
   ALTER COLUMN user_id DROP NOT NULL;
 
--- Existing unclaimed/admin-seeded vendor rows may already have NULL user_id.
--- They must satisfy the new null-owner check.
-UPDATE public.vendor_profiles
-SET claim_status = 'invited_unclaimed'
-WHERE user_id IS NULL
-  AND claim_status = 'self_signup';
-
 ALTER TABLE public.vendor_profiles
   DROP CONSTRAINT IF EXISTS vendor_profiles_claim_status_check,
   DROP CONSTRAINT IF EXISTS vendor_profiles_user_claim_status_check;
@@ -27,8 +20,14 @@ ALTER TABLE public.vendor_profiles
 ALTER TABLE public.vendor_profiles
   ADD CONSTRAINT vendor_profiles_claim_status_check
     CHECK (claim_status IN ('self_signup', 'invited_unclaimed', 'invited_claimed')),
+  -- admin-seeded catalog rows (user_id NULL, is_admin_seeded = true)
+  -- are valid and predate this migration.
   ADD CONSTRAINT vendor_profiles_user_claim_status_check
-    CHECK (user_id IS NOT NULL OR claim_status = 'invited_unclaimed');
+    CHECK (
+      user_id IS NOT NULL
+      OR claim_status = 'invited_unclaimed'
+      OR is_admin_seeded = true
+    );
 
 COMMENT ON COLUMN public.vendor_profiles.claim_status IS
   'self_signup = normal vendor signup, invited_unclaimed = organizer-created stub, invited_claimed = invite accepted by vendor.';
@@ -324,7 +323,10 @@ BEGIN
     'all_bay_area',
     'Bay Area',
     'Invited by organizer; pending vendor signup.',
-    p_rate_type
+    -- vendor_profiles has two overlapping check constraints on pricing_model;
+    -- map the planner-vocabulary 'flat' to the catalog-vocabulary 'flat_rate'
+    -- so the INSERT satisfies both. Other rate types already satisfy both.
+    CASE WHEN p_rate_type = 'flat' THEN 'flat_rate' ELSE p_rate_type END
   )
   RETURNING id INTO v_vendor_id;
 
