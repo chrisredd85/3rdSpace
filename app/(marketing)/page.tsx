@@ -61,7 +61,7 @@ export default function HomePage() {
       <FloatingStartChip />
 
       {/* Hero */}
-      <section className="relative overflow-hidden pb-14 pt-28 lg:pb-20 lg:pt-32">
+      <section className="relative min-h-screen overflow-hidden pb-20 pt-28 lg:pb-24 lg:pt-32">
         <div className="absolute inset-0 bg-gradient-mesh" />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent via-background/20 to-background" />
         <div className="container relative mx-auto max-w-7xl px-6 lg:px-12">
