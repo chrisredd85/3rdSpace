@@ -305,8 +305,30 @@ function RoleSelector({
 
 // ─── Builder / Creator signup ─────────────────────────────────────────────────
 
-const creatorEventTypes = ['Day party', 'Nightlife', 'Concert', 'Conference', 'Pop-up', 'Wedding', 'Corporate', 'Brunch']
-const creatorAmenities = ['Stage / DJ booth', 'Outdoor space', 'Full bar', 'Kitchen access', 'Green room', 'AV included', 'Coat check', 'Parking', 'ADA access']
+const creatorEventTypes = [
+  'Networking mixer',
+  'Founder/operator dinner',
+  'Product launch',
+  'Pop-up / activation',
+  'Workshop / class',
+  'Panel / fireside',
+  'Community meetup',
+  'Day party / brunch',
+  'Nightlife / club night',
+  'Listening party / showcase',
+]
+const creatorAmenities = [
+  'Private / semi-private room',
+  'Full bar',
+  'AV / microphones',
+  'Stage / speaker area',
+  'Screen / projector',
+  'Work tables',
+  'Outdoor / patio',
+  'Kitchen / catering allowed',
+  'Check-in area',
+  'Load-in access',
+]
 const ticketPlatforms = ['Eventbrite', 'Posh', 'Luma', 'Partiful']
 const orgTypes = ['Promoter / Production company', 'Social group / Community', 'Brand / Agency', 'Nonprofit', 'Independent creator']
 
