@@ -36,6 +36,7 @@ import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/
 import { hasUnknownBudgetSignal, parseEventIntent } from '@/lib/planner/intentParser'
 import { isIntakeReadyForRecommendations } from '@/lib/planner/intakeReadiness'
 import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
+import { buildOrganizerPreferencePayload, loadBuilderOrganizerPreferences } from '@/lib/server/builderPreferences'
 import {
   getBuilderProfileIdForUser,
   summarizeBuilderAttendance,
@@ -373,6 +374,7 @@ async function buildInitialAgentResponse(input: {
     const { runAgent } = await import('@/lib/ai/agents')
     const connectedPlatforms = await getBuilderConnectedTicketingPlatforms(input.db, input.userId)
     const resolvedArchetype = resolveArchetypeIntakeContext(`${input.userMessage} ${input.plan.event_type ?? ''}`)
+    const organizerPreferences = await loadBuilderOrganizerPreferences(input.db, input.userId)
     const builderHistory = await loadBuilderHistoryForIntake(input.db, input.userId, resolvedArchetype?.key ?? null)
     const agentResult = await runAgent({
       agent_name: 'intake',
@@ -384,6 +386,7 @@ async function buildInitialAgentResponse(input: {
         current_plan: input.plan,
         existing_event_plan: buildEventPlanFromPlannerPlan(input.plan),
         connected_platforms: connectedPlatforms,
+        organizer_profile: buildOrganizerPreferencePayload(organizerPreferences),
         resolved_archetype: resolvedArchetype,
         archetype_resolution: resolvedArchetype,
         builder_history: builderHistory ? toIntakeBuilderHistory(builderHistory) : null,

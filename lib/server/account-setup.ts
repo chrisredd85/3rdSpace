@@ -1,4 +1,5 @@
 import { SERVICE_TYPE_LABELS, VENUE_AMENITY_LABEL_BY_ID, type TicketPlatform } from '@/lib/constants/account-setup'
+import { normalizeBuilderAmenityPreferences, normalizeBuilderEventTypes } from '@/lib/server/builderPreferences'
 import type { ServiceType, UserType, VenueType } from '@/lib/types'
 
 type SupabaseLikeClient = any
@@ -11,6 +12,7 @@ export type BuilderSetupInput = {
   name: string
   organizationName: string
   eventTypes: string[]
+  preferredAmenities?: string[]
   ticketPlatforms: TicketPlatform[]
   origin?: string
 }
@@ -209,6 +211,8 @@ export async function getBuilderConnectedTicketingPlatforms(
 
 export async function ensureBuilderProfile(admin: SupabaseLikeClient, input: BuilderSetupInput) {
   const now = new Date().toISOString()
+  const eventTypes = normalizeBuilderEventTypes(input.eventTypes)
+  const preferredAmenities = normalizeBuilderAmenityPreferences(input.preferredAmenities)
 
   const { data, error } = await admin
     .from('builder_profiles')
@@ -216,7 +220,8 @@ export async function ensureBuilderProfile(admin: SupabaseLikeClient, input: Bui
       {
         user_id: input.userId,
         name: input.name,
-        event_types: input.eventTypes,
+        event_types: eventTypes,
+        priorities: preferredAmenities,
         preferred_ticket_platforms: input.ticketPlatforms,
         updated_at: now,
       } as never,

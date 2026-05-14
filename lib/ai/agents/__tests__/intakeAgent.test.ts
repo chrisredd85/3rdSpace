@@ -172,6 +172,36 @@ describe('runIntakeAgent', () => {
     ])
   })
 
+  it('passes organizer profile preferences to the model as intake context', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify(founderDinnerOutput) } }],
+    })
+
+    await runIntakeAgent(
+      {
+        user_message: 'Plan my usual mixer',
+        organizer_profile: {
+          event_archetype_keys: ['networking_mixer'],
+          event_type_labels: ['Networking mixer'],
+          preferred_amenities: ['full bar', 'outdoor patio'],
+          preferred_ticket_platforms: ['posh'],
+        },
+      },
+      { create }
+    )
+
+    const createInput = create.mock.calls[0]?.[0] as { messages?: Array<{ role: string; content: string }> }
+    const userPayload = JSON.parse(createInput.messages?.[1]?.content ?? '{}') as {
+      organizer_profile?: {
+        event_archetype_keys?: string[]
+        preferred_amenities?: string[]
+      }
+    }
+
+    expect(userPayload.organizer_profile?.event_archetype_keys).toEqual(['networking_mixer'])
+    expect(userPayload.organizer_profile?.preferred_amenities).toEqual(['full bar', 'outdoor patio'])
+  })
+
   it('rejects missing required input fields before calling the model', async () => {
     const create = jest.fn()
 

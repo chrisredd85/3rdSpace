@@ -291,6 +291,51 @@ describe('rankCatalogPartners', () => {
     expect(result.recommendations[0]?.reasoning).toContain('Nearby — outside Hayes Valley')
   })
 
+  it('uses creator signup amenities as soft venue ranking preferences', () => {
+    const result = rankCatalogPartners({
+      plan: {
+        ...plan,
+        must_haves: [],
+        organizer_preferred_amenities: ['full bar'],
+      },
+      venues: [
+        {
+          ...baseVenue,
+          id: 'venue-with-bar',
+          venue_name: 'Mission Bar Loft',
+          city: 'Mission',
+          standing_capacity: 90,
+          hourly_rate: 100_000,
+          minimum_hours: 4,
+          unique_features_tags: ['full bar'],
+        },
+        {
+          ...baseVenue,
+          id: 'venue-without-bar',
+          venue_name: 'Mission Studio',
+          city: 'Mission',
+          standing_capacity: 90,
+          hourly_rate: 100_000,
+          minimum_hours: 4,
+          unique_features_tags: ['white walls'],
+        },
+      ],
+      vendors: [],
+      venueLimit: 2,
+    })
+
+    expect(result.recommendations[0]).toEqual(
+      expect.objectContaining({
+        partner_id: 'venue-with-bar',
+        reasoning: expect.arrayContaining(['Matches your saved preferences: full bar']),
+        metadata: expect.objectContaining({
+          organizer_amenity_preference_score: 8,
+          organizer_amenity_preference_matches: ['full bar'],
+        }),
+      })
+    )
+  })
+
   it('treats implausibly low vendor estimates as quote-required', () => {
     const result = rankCatalogPartners({
       plan: {

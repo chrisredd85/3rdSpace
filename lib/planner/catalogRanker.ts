@@ -31,6 +31,8 @@ export interface CatalogPlanRankingInput {
   preferred_venue_ids?: string[] | null
   /** Preferred vendor IDs from a saved template rebook. Eligible preferred vendors receive a score boost. */
   preferred_vendor_ids?: string[] | null
+  /** Creator signup amenity preferences. These are soft tie-breakers, not hard requirements. */
+  organizer_preferred_amenities?: string[] | null
 }
 
 export type CatalogVenueRankingInput = Record<string, unknown> & {
@@ -191,6 +193,7 @@ export function rankCatalogPartners(input: RankCatalogPartnersInput): CatalogRan
 
 /** Score bonus applied to preferred (previously-used) partners that still pass all hard gates. */
 const REBOOK_PREFERENCE_SCORE_BOOST = 12
+const ORGANIZER_AMENITY_PREFERENCE_SCORE_BOOST = 8
 
 function rankVenue(
   plan: CatalogPlanRankingInput,
@@ -203,6 +206,7 @@ function rankVenue(
   const budgetAllocationCents = budgetCents > 0 ? Math.round(budgetCents * 0.55) : 0
   const area = plan.area ?? plan.neighborhood ?? null
   const mustHaves = normalizeStringArray(plan.must_haves)
+  const organizerPreferredAmenities = normalizeStringArray(plan.organizer_preferred_amenities)
   const capacity = readCapacity(venue)
   const baselineEstimateCents = estimateVenueCents(venue)
   const commercialRanking = rankVenueCommercialModels(
@@ -256,6 +260,7 @@ function rankVenue(
   blockingIssues.push(...archetypeScore.hard_gate_failures)
 
   const amenity = scoreAmenityCoverage(mustHaves, searchText)
+  const organizerAmenityPreference = scoreSoftAmenityPreference(organizerPreferredAmenities, searchText)
   const budgetScore = scoreBudgetFit(estimateCents, budgetAllocationCents)
   const foodScore = scoreFoodAlignment(plan.food_responsibility, searchText)
   const dateScore = scoreDateAvailability(plan, venue)
@@ -276,7 +281,8 @@ function rankVenue(
       dinnerScore +
       archetypeScore.venue_type_score +
       archetypeScore.commercial_model_alignment_score +
-      rebookScore
+      rebookScore +
+      organizerAmenityPreference.score
   )
   const overBudget = budgetAllocationCents > 0 && estimateCents > budgetAllocationCents
   const fitLabel = chooseFitLabel(score, overBudget, false)
@@ -291,6 +297,7 @@ function rankVenue(
     commercialReasoning: commercialRanking.recommended.reasoning,
     archetypeReasons: archetypeScore.reasons,
     archetypeWarnings: archetypeScore.warnings,
+    organizerPreferenceMatches: organizerAmenityPreference.matched,
     isPreferred,
   })
 
@@ -324,6 +331,8 @@ function rankVenue(
       dinner_score: dinnerScore,
       rebook_score: rebookScore,
       is_rebook_preferred: isPreferred,
+      organizer_amenity_preference_score: organizerAmenityPreference.score,
+      organizer_amenity_preference_matches: organizerAmenityPreference.matched,
       archetype: {
         key: archetype.key,
         display_name: archetype.display_name,
@@ -574,6 +583,19 @@ function scoreAmenityCoverage(
   }
 }
 
+function scoreSoftAmenityPreference(
+  preferredAmenities: string[],
+  searchText: string
+): { score: number; matched: string[]; missing: string[] } {
+  if (preferredAmenities.length === 0) return { score: 0, matched: [], missing: [] }
+
+  const coverage = scoreAmenityCoverage(preferredAmenities, searchText)
+  return {
+    ...coverage,
+    score: Math.round((coverage.matched.length / preferredAmenities.length) * ORGANIZER_AMENITY_PREFERENCE_SCORE_BOOST),
+  }
+}
+
 function scoreVendorServiceFit(
   plan: CatalogPlanRankingInput,
   mustHaves: string[],
@@ -688,6 +710,7 @@ function buildVenueReasoning(input: {
   commercialReasoning: string[]
   archetypeReasons: string[]
   archetypeWarnings: string[]
+  organizerPreferenceMatches: string[]
   isPreferred?: boolean
 }): string[] {
   const reasons: string[] = []
@@ -713,6 +736,9 @@ function buildVenueReasoning(input: {
   }
   if (input.amenityMatches.length > 0) {
     reasons.push(`Covers ${input.amenityMatches.slice(0, 3).join(', ')}`)
+  }
+  if (input.organizerPreferenceMatches.length > 0) {
+    reasons.push(`Matches your saved preferences: ${input.organizerPreferenceMatches.slice(0, 3).join(', ')}`)
   }
   if (/\b(av|projector|screen|sound|wifi|stage)\b/i.test(input.searchText)) {
     reasons.push('AV or production signals present')

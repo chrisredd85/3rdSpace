@@ -3,14 +3,16 @@ import type { ServiceType } from '@/lib/types'
 export type TicketPlatform = 'eventbrite' | 'luma' | 'posh' | 'partiful'
 
 export const BUILDER_EVENT_TYPE_OPTIONS = [
-  'Concerts',
-  'Networking',
-  'Pop-ups',
-  'Brand activations',
-  'Workshops',
-  'Community gatherings',
-  'Private events',
-  'Fundraisers',
+  'Networking mixer',
+  'Founder/operator dinner',
+  'Product launch',
+  'Pop-up / activation',
+  'Workshop / class',
+  'Panel / fireside',
+  'Community meetup',
+  'Day party / brunch',
+  'Nightlife / club night',
+  'Listening party / showcase',
 ] as const
 
 export const TICKET_PLATFORM_OPTIONS: Array<{ id: TicketPlatform; label: string }> = [

@@ -41,6 +41,12 @@ import {
   type BuilderAttendanceSummary,
 } from '@/lib/server/builderAttendanceHistory'
 import {
+  buildOrganizerPreferencePayload,
+  firstKnownBuilderArchetype,
+  loadBuilderOrganizerPreferences,
+  type BuilderOrganizerPreferences,
+} from '@/lib/server/builderPreferences'
+import {
   summarizeBuilderTierElasticity,
   type ElasticitySignal,
 } from '@/lib/server/builderTierElasticity'
@@ -317,11 +323,13 @@ export async function POST(
     }
 
     const messages = await loadPlanContextMessages(auth.db, plan.id)
-    const baseRankingInput = buildRankingInput(plan, messages)
+    const organizerPreferences = await loadBuilderOrganizerPreferences(auth.db, auth.userId)
+    const baseRankingInput = buildRankingInput(plan, messages, organizerPreferences)
     const lockedArchetype = readEventArchetypeLock(plan.metadata)
-    const baseArchetype = archetypeFor(lockedArchetype?.key ?? baseRankingInput.event_type ?? plan.event_type ?? null)
+    const preferredArchetypeKey = firstKnownBuilderArchetype(organizerPreferences)
+    const baseArchetype = archetypeFor(lockedArchetype?.key ?? baseRankingInput.event_type ?? plan.event_type ?? preferredArchetypeKey ?? null)
     const recommendationPlan = applyArchetypeDefaultFills(plan, baseArchetype)
-    const rankingInput = buildRankingInput(recommendationPlan, messages)
+    const rankingInput = buildRankingInput(recommendationPlan, messages, organizerPreferences)
     const archetype = withPlanVendorStack(baseArchetype, recommendationPlan)
     const conversationHistory = buildAgentConversationHistory(messages)
     const archetypeIntake = buildArchetypeIntakeOutcomeContext(messages, archetype)
@@ -357,6 +365,7 @@ export async function POST(
       candidate_venues: candidateVenues,
       builder_attendance: builderAttendance,
       organizer_preferences: {
+        ...(buildOrganizerPreferencePayload(organizerPreferences) ?? {}),
         budget_cap_cents: recommendationPlan.budget_cap_cents,
         guest_count: recommendationPlan.guest_count,
         neighborhood: recommendationPlan.neighborhood,
@@ -2156,7 +2165,11 @@ async function loadVenueAgentCandidates(
     .filter((candidate) => venueFitsBudget(candidate, budgetCents))
 }
 
-function buildRankingInput(plan: Plan, messages: PlanMessage[]): CatalogPlanRankingInput {
+function buildRankingInput(
+  plan: Plan,
+  messages: PlanMessage[],
+  organizerPreferences: BuilderOrganizerPreferences | null = null
+): CatalogPlanRankingInput {
   const summary = readLatestSummary(messages)
   const planMeta = readRecord(plan.metadata)
   const rebookPrefs = readRecord(planMeta?.template_rebook_preferences)
@@ -2187,6 +2200,9 @@ function buildRankingInput(plan: Plan, messages: PlanMessage[]): CatalogPlanRank
     metadata: plan.metadata,
     preferred_venue_ids: preferredVenueIds.length > 0 ? preferredVenueIds : null,
     preferred_vendor_ids: preferredVendorIds.length > 0 ? preferredVendorIds : null,
+    organizer_preferred_amenities: organizerPreferences?.preferred_amenities.length
+      ? organizerPreferences.preferred_amenities
+      : null,
   }
 }
 

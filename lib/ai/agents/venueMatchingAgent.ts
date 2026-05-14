@@ -124,6 +124,7 @@ const VENUE_MATCHING_SYSTEM_PROMPT = [
   'Use deterministic_score as the fit_score. The application code owns filtering and scoring; your job is to explain pros, cons, questions, and the recommendation.',
   'When you write user_facing_intro for each venue, reference at least one archetype-specific reason from the archetype config, such as standing-capacity fit for a mixer or private dining intimacy for a founder dinner.',
   'Use archetype_intake and conversation_history to honor the user\'s clarified needs, such as DJ/music, AV, load-in, VIP flow, food/bar setup, seating, screens, security, or external ticket constraints.',
+  'Use organizer_preferences as soft tie-breaker context from the builder profile. It may include event_archetype_keys and preferred_amenities from signup. Mention matching preferences when visible in the candidate data, but do not treat them as hard requirements unless they also appear in the plan or conversation.',
   'Honor mutation_contract when present. Treat locked_archetype as authoritative and do not reclassify the event; operational terms like artist, VIP, green room, DJ, guest list, sound check, load-in, tickets, sponsors, and bar minimum are requirements unless the user has confirmed an event-type change.',
   'Do not send outreach, create bookings, authorize payments, or execute any action.',
   `Output JSON must match this contract: ${JSON.stringify(VENUE_MATCHING_OUTPUT_CONTRACT)}.`,

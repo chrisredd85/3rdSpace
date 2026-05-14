@@ -52,6 +52,7 @@ import {
 } from '@/lib/planner/intakeReadiness'
 import { createVenueOpportunityBundle } from '@/lib/planner/opportunityBuilder'
 import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
+import { buildOrganizerPreferencePayload, loadBuilderOrganizerPreferences } from '@/lib/server/builderPreferences'
 import {
   getBuilderProfileIdForUser,
   summarizeBuilderAttendance,
@@ -637,6 +638,7 @@ async function buildPlannerAgentResponse(input: {
     const resolvedArchetypeConfig = resolvedArchetype ? getArchetypeByKey(resolvedArchetype.key) : null
     const conversationText = buildArchetypeAnswerText(input.messages, [input.userMessage])
     const canMatchNow = computeCanMatchNow(input.plan, conversationText, resolvedArchetypeConfig)
+    const organizerPreferences = await loadBuilderOrganizerPreferences(input.db, input.userId)
     const builderHistory = await loadBuilderHistoryForIntake(input.db, input.userId, resolvedArchetype?.key ?? null)
     const agentResult = await runAgent({
       agent_name: 'intake',
@@ -648,6 +650,7 @@ async function buildPlannerAgentResponse(input: {
         current_plan: input.plan,
         existing_event_plan: buildEventPlanFromPlannerPlan(input.plan),
         connected_platforms: connectedPlatforms,
+        organizer_profile: buildOrganizerPreferencePayload(organizerPreferences),
         can_match_now: canMatchNow,
         resolved_archetype: resolvedArchetype,
         archetype_resolution: resolvedArchetype,

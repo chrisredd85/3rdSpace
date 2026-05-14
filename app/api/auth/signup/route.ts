@@ -14,6 +14,7 @@ interface SignupRequest {
   phone?: string
   organization_name?: string
   event_types?: string[]
+  preferred_amenities?: string[]
   ticket_platforms?: TicketPlatform[]
   venue_name?: string
   address?: string
@@ -58,6 +59,7 @@ interface SignupRequest {
 interface BuilderSignupDetails {
   organization_name: string
   event_types: string[]
+  preferred_amenities: string[]
   ticket_platforms: TicketPlatform[]
 }
 
@@ -153,6 +155,9 @@ function getBuilderDetails(body: SignupRequest): BuilderSignupDetails | null {
   const eventTypes = body.event_types
     ?.map((eventType) => eventType.trim())
     .filter(Boolean)
+  const preferredAmenities = (body.preferred_amenities ?? body.amenities ?? [])
+    .map((amenity) => amenity.trim())
+    .filter(Boolean)
   const ticketPlatforms = body.ticket_platforms
     ?.map((platform) => platform.trim())
     .filter((platform): platform is TicketPlatform => VALID_TICKETING_PLATFORMS.has(platform as TicketPlatform))
@@ -164,6 +169,7 @@ function getBuilderDetails(body: SignupRequest): BuilderSignupDetails | null {
   return {
     organization_name: organizationName,
     event_types: eventTypes,
+    preferred_amenities: preferredAmenities,
     ticket_platforms: ticketPlatforms,
   }
 }
@@ -329,6 +335,7 @@ async function ensureRoleSetup(
       name: body.name,
       organizationName: builderDetails.organization_name,
       eventTypes: builderDetails.event_types,
+      preferredAmenities: builderDetails.preferred_amenities,
       ticketPlatforms: builderDetails.ticket_platforms,
       origin,
     })

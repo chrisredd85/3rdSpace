@@ -8,6 +8,7 @@ interface BuilderOnboardingRequest {
   name: string
   organization_name: string
   event_types: string[]
+  preferred_amenities?: string[]
   ticket_platforms: TicketPlatform[]
 }
 
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: BuilderOnboardingRequest = await request.json()
-    const { name, organization_name, event_types, ticket_platforms } = body
+    const { name, organization_name, event_types, preferred_amenities, ticket_platforms } = body
 
     if (!name || !organization_name || !event_types?.length || !ticket_platforms?.length) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
       name,
       organizationName: organization_name,
       eventTypes: event_types,
+      preferredAmenities: preferred_amenities,
       ticketPlatforms: ticket_platforms,
       origin: request.nextUrl.origin,
     })
