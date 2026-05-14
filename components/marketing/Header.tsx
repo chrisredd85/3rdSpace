@@ -61,32 +61,34 @@ export function Header() {
   }
 
   return (
-    <header className="absolute inset-x-0 top-0 z-50 px-4 py-4 sm:px-6 lg:px-12">
-      <nav className="mx-auto flex max-w-7xl items-center justify-between gap-3" aria-label="Primary navigation">
+    <header className="absolute inset-x-0 top-0 z-50 h-16 px-4 sm:px-6 md:h-20 lg:px-8">
+      <nav className="mx-auto grid h-full max-w-7xl grid-cols-[auto_1fr_auto] items-center gap-3" aria-label="Primary navigation">
         <Link
           href="/"
-          className="flex min-w-0 shrink-0 items-center gap-2 rounded-xl transition-smooth focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          className="flex min-w-0 shrink-0 items-center gap-3 rounded-full pr-2 transition-smooth focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
           onClick={closeMenus}
         >
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-brand shadow-glow md:h-11 md:w-11">
             <Sparkles className="h-5 w-5 text-primary-foreground" />
           </div>
-          <span className="font-display text-xl font-bold tracking-tight">3rdPlace</span>
+          <span className="font-display text-xl font-bold leading-none tracking-tight text-foreground sm:text-2xl">3rdPlace</span>
         </Link>
 
-        <div className="hidden items-center gap-8 text-sm md:flex">
-          {centerLinks.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              className="rounded-lg text-muted-foreground transition-smooth hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-            >
-              {link.label}
-            </a>
-          ))}
+        <div className="hidden justify-center md:flex">
+          <div className="flex items-center gap-2 text-[15px] font-medium">
+            {centerLinks.map((link) => (
+              <a
+                key={link.href}
+                href={link.href}
+                className="rounded-full px-4 py-2.5 text-muted-foreground transition-smooth hover:bg-card/35 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center justify-end gap-2 sm:gap-3">
           <div ref={supplyRef} className="relative hidden md:block">
             <Button
               variant="glass"
@@ -95,7 +97,7 @@ export function Header() {
               aria-expanded={isSupplyOpen}
               aria-haspopup="menu"
               onClick={() => setIsSupplyOpen((open) => !open)}
-              className="focus-visible:ring-primary/30"
+              className="h-12 rounded-full border border-border/80 bg-card/40 px-5 text-[15px] font-semibold shadow-none focus-visible:ring-primary/30"
             >
               <Building2 className="h-4 w-4" />
               List with us
@@ -105,7 +107,7 @@ export function Header() {
             {isSupplyOpen && (
               <div
                 role="menu"
-                className="absolute right-0 top-full mt-3 w-56 overflow-hidden rounded-2xl border border-border bg-gradient-card p-2 shadow-card"
+                className="absolute right-0 top-full mt-3 w-60 overflow-hidden rounded-2xl border border-border bg-gradient-card p-2 shadow-card"
               >
                 {supplyLinks.map(({ label, href, icon: Icon }) => (
                   <Link
@@ -125,7 +127,7 @@ export function Header() {
 
           <Link
             href="/login"
-            className="hidden rounded-lg px-2 py-2 text-sm font-medium text-muted-foreground transition-smooth hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 md:inline-flex"
+            className="hidden rounded-full px-3 py-2.5 text-[15px] font-semibold text-muted-foreground transition-smooth hover:bg-card/35 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 md:inline-flex"
             onClick={closeMenus}
           >
             Sign in
@@ -136,12 +138,12 @@ export function Header() {
             aria-label={isMobileOpen ? 'Close menu' : 'Open menu'}
             aria-expanded={isMobileOpen}
             onClick={() => setIsMobileOpen((open) => !open)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-card/60 text-foreground transition-smooth hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 md:hidden"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card/60 text-foreground transition-smooth hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 md:hidden"
           >
             {isMobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
 
-          <Button variant="hero" size="sm" asChild className="px-3 sm:px-4">
+          <Button variant="hero" size="sm" asChild className="h-10 rounded-full px-4 text-sm font-semibold sm:px-5 md:h-12 md:px-6 md:text-[15px]">
             <Link href="/planner" onClick={closeMenus}>
               <span className="hidden sm:inline">Start planning</span>
               <span className="sm:hidden">Start</span>
@@ -152,7 +154,7 @@ export function Header() {
       </nav>
 
       {isMobileOpen && (
-        <div role="menu" className="mt-3 rounded-2xl border border-border bg-gradient-card p-2 shadow-card md:hidden">
+        <div role="menu" className="mx-auto mt-2 max-w-7xl rounded-2xl border border-border bg-gradient-card p-2 shadow-card md:hidden">
           {mobileLinks.map((link) => {
             const Icon = link.icon
             return (
