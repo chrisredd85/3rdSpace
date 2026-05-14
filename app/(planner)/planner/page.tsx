@@ -1145,13 +1145,6 @@ function PlannerPageContent() {
       <div className="min-h-screen">
         <PlannerTopBar userName={organizationName} userRole={plannerRoleLabel} />
         <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6">
-          <div className="mb-5 rounded-3xl border border-border bg-card/50 p-5 shadow-card">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-secondary">{organizationName}</p>
-            <h1 className="mt-1 font-display text-xl font-bold leading-tight sm:text-2xl">New planner conversation</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Start a fresh plan inside your workspace. Prior plans stay saved in your history.
-            </p>
-          </div>
           {errorMessage ? (
             <div className="mx-auto mb-4 max-w-3xl rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {errorMessage}
@@ -1160,7 +1153,7 @@ function PlannerPageContent() {
           <PlannerEmptyState
             onSubmit={handleCreatePlan}
             isSubmitting={isCreatingPlan}
-            className="min-h-[calc(100vh-18rem)] py-8"
+            className="min-h-[calc(100vh-8rem)] py-8"
             title="What should we plan next?"
             description={`Describe the next event for ${organizationName}. I'll start a new plan without booking, paying, or sending anything until you approve it.`}
             showTrustSignals={false}
