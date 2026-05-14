@@ -61,7 +61,7 @@ export default function HomePage() {
       <FloatingStartChip />
 
       {/* Hero */}
-      <section className="relative pb-20 pt-32 lg:pb-28 lg:pt-40">
+      <section className="relative pb-20 pt-28 lg:pb-28 lg:pt-32">
         <div className="absolute inset-0 bg-gradient-mesh" />
         <div className="container relative mx-auto max-w-7xl px-6 lg:px-12">
           <div className="grid gap-14 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">

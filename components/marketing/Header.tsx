@@ -61,11 +61,14 @@ export function Header() {
   }
 
   return (
-    <header className="absolute inset-x-0 top-0 z-50 h-16 px-4 sm:px-6 md:h-20 lg:px-8">
-      <nav className="mx-auto grid h-full max-w-7xl grid-cols-[auto_1fr_auto] items-center gap-3" aria-label="Primary navigation">
+    <header className="absolute inset-x-0 top-0 z-50 h-16 px-4 pt-3 sm:px-6 md:h-auto md:pt-4 lg:px-8">
+      <nav
+        className="mx-auto grid h-full max-w-7xl grid-cols-[auto_1fr_auto] items-center gap-3 md:h-16 md:rounded-full md:border md:border-border/70 md:bg-card/35 md:px-3 md:shadow-card md:backdrop-blur-xl"
+        aria-label="Primary navigation"
+      >
         <Link
           href="/"
-          className="flex min-w-0 shrink-0 items-center gap-3 rounded-full pr-2 transition-smooth focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          className="flex min-w-0 shrink-0 items-center gap-3 rounded-full pr-2 transition-smooth focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 md:pl-1"
           onClick={closeMenus}
         >
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-brand shadow-glow md:h-11 md:w-11">
@@ -80,7 +83,7 @@ export function Header() {
               <a
                 key={link.href}
                 href={link.href}
-                className="rounded-full px-4 py-2.5 text-muted-foreground transition-smooth hover:bg-card/35 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                className="rounded-full px-4 py-2.5 text-muted-foreground transition-smooth hover:bg-background/45 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
               >
                 {link.label}
               </a>
@@ -97,7 +100,7 @@ export function Header() {
               aria-expanded={isSupplyOpen}
               aria-haspopup="menu"
               onClick={() => setIsSupplyOpen((open) => !open)}
-              className="h-12 rounded-full border border-border/80 bg-card/40 px-5 text-[15px] font-semibold shadow-none focus-visible:ring-primary/30"
+              className="h-11 rounded-full border border-border/80 bg-background/35 px-5 text-[15px] font-semibold shadow-none hover:bg-background/50 focus-visible:ring-primary/30"
             >
               <Building2 className="h-4 w-4" />
               List with us
@@ -127,7 +130,7 @@ export function Header() {
 
           <Link
             href="/login"
-            className="hidden rounded-full px-3 py-2.5 text-[15px] font-semibold text-muted-foreground transition-smooth hover:bg-card/35 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 md:inline-flex"
+            className="hidden rounded-full px-3 py-2.5 text-[15px] font-semibold text-muted-foreground transition-smooth hover:bg-background/45 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 md:inline-flex"
             onClick={closeMenus}
           >
             Sign in
@@ -143,7 +146,7 @@ export function Header() {
             {isMobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
 
-          <Button variant="hero" size="sm" asChild className="h-10 rounded-full px-4 text-sm font-semibold sm:px-5 md:h-12 md:px-6 md:text-[15px]">
+          <Button variant="hero" size="sm" asChild className="h-10 rounded-full px-4 text-sm font-semibold sm:px-5 md:h-11 md:px-6 md:text-[15px]">
             <Link href="/planner" onClick={closeMenus}>
               <span className="hidden sm:inline">Start planning</span>
               <span className="sm:hidden">Start</span>
