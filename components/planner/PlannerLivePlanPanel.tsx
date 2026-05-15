@@ -7,16 +7,18 @@
  */
 'use client'
 
-import { memo, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   Check,
   ChevronRight,
   ClipboardList,
   MapPin,
+  Plus,
   RefreshCw,
   ShieldCheck,
   Sparkles,
+  Trash2,
   TrendingUp,
   WalletCards,
 } from 'lucide-react'
@@ -30,6 +32,15 @@ import { formatRelativeTime } from '@/lib/utils/relativeTime'
 interface BudgetLineItem {
   label: string
   amountCents: number | null
+}
+
+/** Organizer-entered cost that isn't part of the agent's recommendation model. */
+interface CustomCostItem {
+  id: string
+  label: string
+  /** Dollar amount (not cents) — stored as a positive number, displayed as dollars. */
+  amount: number
+  created_at: string
 }
 
 interface PendingApproval {
@@ -129,6 +140,7 @@ interface LivePlanSnapshot {
   runOfShow: RunOfShowSnapshot | null
   workspaceSummary: WorkspaceSummarySnapshot | null
   selectedVendors: SelectedPlanVendor[]
+  customCosts: CustomCostItem[]
   updatedAt: string | null
 }
 
@@ -161,6 +173,8 @@ interface ProfitModel {
   venueKickbackCents: number
   revenueShareCents: number
   ticketPricing: TicketPricingModel
+  customCostsTotalCents: number
+  breakEvenTickets: number | null
 }
 
 interface TicketPricingModel {
@@ -321,6 +335,7 @@ function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
       record.selected_vendors ??
       asRecord(metadata?.shopping_list)?.selected_vendors
     ),
+    customCosts: normalizeCustomCosts(metadata?.custom_costs),
     updatedAt: readString(record.updatedAt) ?? readString(record.updated_at),
   }
 }
@@ -347,6 +362,20 @@ function normalizeSelectedVendors(value: unknown): SelectedPlanVendor[] {
       rateSource: readString(record.rate_source),
       provenanceLabel: readString(record.rate_provenance_label),
     }]
+  })
+}
+
+function normalizeCustomCosts(value: unknown): CustomCostItem[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    const record = asRecord(item)
+    if (!record) return []
+    const id = readString(record.id)
+    const label = readString(record.label)
+    const amount = readNumber(record.amount)
+    const created_at = readString(record.created_at)
+    if (!id || !label || amount === null || amount <= 0 || !created_at) return []
+    return [{ id, label, amount, created_at }]
   })
 }
 
@@ -570,15 +599,22 @@ function buildBudgetItems(summary: EventSummary, plan: LivePlanSnapshot | null):
 
 /**
  * Calculates deterministic profit assumptions from current summary and recommendations.
+ * Custom costs (organizer-entered, dollars) are folded in on top of agent-derived costs.
  */
-function buildProfitModel(summary: EventSummary, recommendations: RecommendationSummary[], budgetItems: BudgetLineItem[]): ProfitModel {
+function buildProfitModel(
+  summary: EventSummary,
+  recommendations: RecommendationSummary[],
+  budgetItems: BudgetLineItem[],
+  customCosts: CustomCostItem[] = []
+): ProfitModel {
   const guestCount = summary.guest_count ?? 0
   const paidAverage = guestCount > 0 ? Math.max(1, Math.round(guestCount * 0.87)) : 0
   const venueCostCents = recommendations.find((item) => /venue/i.test(item.type))?.priceCents ?? budgetItems[0]?.amountCents ?? 0
   const vendorCostCents =
     budgetItems.find((item) => /vendor|dinner/i.test(item.label))?.amountCents ??
     Math.max(0, Math.round((summary.budget_cents ?? 0) * 0.3))
-  const ticketPricing = buildTicketPricingModel(summary, paidAverage, venueCostCents, vendorCostCents)
+  const customCostsTotalCents = Math.round(customCosts.reduce((sum, c) => sum + c.amount * 100, 0))
+  const ticketPricing = buildTicketPricingModel(summary, paidAverage, venueCostCents + customCostsTotalCents, vendorCostCents)
   const ticketRevenueCents = summary.ticketed && paidAverage > 0 ? ticketPricing.recommendedCents * paidAverage : 0
   const hasBarRevenue = paidAverage > 0
     && summary.ticketed
@@ -587,7 +623,25 @@ function buildProfitModel(summary: EventSummary, recommendations: Recommendation
   const feesCents = Math.round(ticketRevenueCents * 0.049)
   const venueKickbackCents = guestCount > 100 ? (guestCount - 100) * 800 : 0
   const revenueShareCents = Math.round(Math.max(0, ticketRevenueCents - feesCents) * 0.12)
-  const expectedCents = ticketRevenueCents + barRevenueCents - venueCostCents - vendorCostCents - feesCents - venueKickbackCents
+  const expectedCents = ticketRevenueCents + barRevenueCents - venueCostCents - vendorCostCents - customCostsTotalCents - feesCents - venueKickbackCents
+  const totalCostCents = venueCostCents + vendorCostCents + customCostsTotalCents + feesCents + venueKickbackCents
+  const breakEvenTickets =
+    summary.ticketed && ticketPricing.recommendedCents > 0 && totalCostCents > 0
+      ? Math.ceil(totalCostCents / ticketPricing.recommendedCents)
+      : null
+
+  const lineItems: ProfitModel['lineItems'] = [
+    { label: `Ticket revenue (${paidAverage || 'TBD'} paid avg × ${formatCents(ticketPricing.recommendedCents)})`, amountCents: ticketRevenueCents },
+    { label: 'Bar / drink mark-up', amountCents: barRevenueCents },
+    { label: `Venue cost (${recommendations[0]?.name ?? 'target'})`, amountCents: venueCostCents, negative: true },
+    { label: 'Vendor cost (catering, DJ, AV, security)', amountCents: vendorCostCents, negative: true },
+    { label: 'Platform + payment fees (4.9%)', amountCents: feesCents, negative: true },
+    { label: 'Venue kickback (per-head model)', amountCents: venueKickbackCents, negative: true },
+  ]
+
+  if (customCostsTotalCents > 0) {
+    lineItems.push({ label: `Custom costs (${customCosts.length} item${customCosts.length === 1 ? '' : 's'})`, amountCents: customCostsTotalCents, negative: true })
+  }
 
   return {
     conservativeCents: Math.round(expectedCents * 0.6),
@@ -596,18 +650,13 @@ function buildProfitModel(summary: EventSummary, recommendations: Recommendation
     paidAverage,
     venueKickbackCents,
     revenueShareCents,
+    customCostsTotalCents,
+    breakEvenTickets,
     ticketPricing: {
       ...ticketPricing,
       projectedMarginCents: expectedCents,
     },
-    lineItems: [
-      { label: `Ticket revenue (${paidAverage || 'TBD'} paid avg × ${formatCents(ticketPricing.recommendedCents)})`, amountCents: ticketRevenueCents },
-      { label: 'Bar / drink mark-up', amountCents: barRevenueCents },
-      { label: `Venue cost (${recommendations[0]?.name ?? 'target'})`, amountCents: venueCostCents, negative: true },
-      { label: 'Vendor cost (catering, DJ, AV, security)', amountCents: vendorCostCents, negative: true },
-      { label: 'Platform + payment fees (4.9%)', amountCents: feesCents, negative: true },
-      { label: 'Venue kickback (per-head model)', amountCents: venueKickbackCents, negative: true },
-    ],
+    lineItems,
   }
 }
 
@@ -651,13 +700,24 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const [relativeNowMs, setRelativeNowMs] = useState(() => Date.now())
   const [isGeneratingTimeline, setIsGeneratingTimeline] = useState(false)
   const [timelineRetryError, setTimelineRetryError] = useState<string | null>(null)
+  // Custom costs — sourced from persisted plan metadata, editable locally and persisted on change
+  const [customCosts, setCustomCosts] = useState<CustomCostItem[]>([])
+  const [newCostLabel, setNewCostLabel] = useState('')
+  const [newCostAmount, setNewCostAmount] = useState('')
+  const [customCostError, setCustomCostError] = useState<string | null>(null)
+  const [isSavingCustomCosts, setIsSavingCustomCosts] = useState(false)
+  const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    setLivePayload(readLivePlanPayload())
+    const initial = readLivePlanPayload()
+    setLivePayload(initial)
+    if (initial.plan?.customCosts?.length) setCustomCosts(initial.plan.customCosts)
 
     function handleLivePlanUpdate(event: Event) {
       const customEvent = event as CustomEvent<LivePlanPanelPayload | LivePlanSnapshot | null>
-      setLivePayload(normalizeLivePlanPayload(customEvent.detail))
+      const next = normalizeLivePlanPayload(customEvent.detail)
+      setLivePayload(next)
+      if (next.plan?.customCosts?.length) setCustomCosts(next.plan.customCosts)
     }
 
     window.addEventListener('planner-live-plan:update', handleLivePlanUpdate)
@@ -692,8 +752,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const openQuestions = buildOpenQuestions(eventSummary, renderedRecommendations)
   const authorizationCards = buildAuthorizationCards(renderedApprovals, primaryVenue, renderedBudgetLineItems)
   const profitModel = useMemo(
-    () => buildProfitModel(eventSummary, renderedRecommendations, renderedBudgetLineItems),
-    [eventSummary, renderedBudgetLineItems, renderedRecommendations]
+    () => buildProfitModel(eventSummary, renderedRecommendations, renderedBudgetLineItems, customCosts),
+    [eventSummary, renderedBudgetLineItems, renderedRecommendations, customCosts]
   )
   const renderedEstimatedTotal =
     estimatedTotalCents !== undefined ? formatCents(estimatedTotalCents) : formatCents(eventSummary.budget_cents)
@@ -748,6 +808,50 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
     } finally {
       setIsGeneratingTimeline(false)
     }
+  }
+
+  // Persists the current custom costs array to Supabase (debounced via ref).
+  const persistCustomCosts = useCallback(async (costs: CustomCostItem[]) => {
+    if (!activePlanId || activePlanId.startsWith('mock-plan-')) return
+    setIsSavingCustomCosts(true)
+    try {
+      await fetch(`/api/planner/plans/${activePlanId}/custom-costs`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ custom_costs: costs }),
+      })
+    } catch {
+      // Best-effort persist — user sees the change locally regardless
+    } finally {
+      setIsSavingCustomCosts(false)
+    }
+  }, [activePlanId])
+
+  function handleAddCost() {
+    const label = newCostLabel.trim()
+    const amount = parseFloat(newCostAmount)
+    if (!label) { setCustomCostError('Label is required'); return }
+    if (!Number.isFinite(amount) || amount <= 0) { setCustomCostError('Amount must be greater than 0'); return }
+    setCustomCostError(null)
+    const newCost: CustomCostItem = {
+      id: crypto.randomUUID(),
+      label,
+      amount,
+      created_at: new Date().toISOString(),
+    }
+    const next = [...customCosts, newCost]
+    setCustomCosts(next)
+    setNewCostLabel('')
+    setNewCostAmount('')
+    if (persistTimeoutRef.current) clearTimeout(persistTimeoutRef.current)
+    persistTimeoutRef.current = setTimeout(() => void persistCustomCosts(next), 600)
+  }
+
+  function handleRemoveCost(id: string) {
+    const next = customCosts.filter((c) => c.id !== id)
+    setCustomCosts(next)
+    if (persistTimeoutRef.current) clearTimeout(persistTimeoutRef.current)
+    persistTimeoutRef.current = setTimeout(() => void persistCustomCosts(next), 600)
   }
 
   async function handleAuthorizationAction(card: AuthorizationCardModel) {
@@ -972,6 +1076,85 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                 </span>
               </div>
             ))}
+            {profitModel.breakEvenTickets !== null ? (
+              <div className="flex min-w-0 items-center justify-between gap-5 border-t border-primary/20 bg-primary/5 px-5 py-3">
+                <span className="min-w-0 truncate text-sm font-semibold text-primary">Break-even tickets</span>
+                <span className="shrink-0 font-bold tabular-nums text-primary">{profitModel.breakEvenTickets}</span>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Custom costs */}
+          <div className="mt-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                Custom Costs
+                {isSavingCustomCosts ? <span className="ml-2 text-[10px] font-normal normal-case text-muted-foreground/60">saving…</span> : null}
+              </p>
+              {profitModel.customCostsTotalCents > 0 ? (
+                <span className="shrink-0 text-sm font-semibold tabular-nums text-destructive">
+                  −{formatCents(profitModel.customCostsTotalCents)} total
+                </span>
+              ) : null}
+            </div>
+
+            {customCosts.length > 0 ? (
+              <div className="mb-3 overflow-hidden rounded-2xl border border-border bg-muted/20">
+                {customCosts.map((cost) => (
+                  <div key={cost.id} className="flex min-w-0 items-center justify-between gap-3 border-b border-border px-4 py-3 last:border-b-0">
+                    <span className="min-w-0 truncate text-sm text-foreground" title={cost.label}>{cost.label}</span>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <span className="tabular-nums text-sm font-semibold text-destructive">
+                        −{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(cost.amount)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCost(cost.id)}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
+                        aria-label={`Remove ${cost.label}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCostLabel}
+                  onChange={(e) => { setNewCostLabel(e.target.value); setCustomCostError(null) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddCost() }}
+                  placeholder="Label (e.g. Permit fees)"
+                  maxLength={200}
+                  className="min-w-0 flex-1 rounded-xl border border-border bg-muted/30 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+                <input
+                  type="number"
+                  value={newCostAmount}
+                  onChange={(e) => { setNewCostAmount(e.target.value); setCustomCostError(null) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddCost() }}
+                  placeholder="$"
+                  min="0.01"
+                  step="0.01"
+                  className="w-24 shrink-0 rounded-xl border border-border bg-muted/30 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+              </div>
+              {customCostError ? (
+                <p className="text-xs font-medium text-destructive">{customCostError}</p>
+              ) : null}
+              <button
+                type="button"
+                onClick={handleAddCost}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-muted/30 px-4 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+              >
+                <Plus className="h-4 w-4" />
+                Add cost
+              </button>
+            </div>
           </div>
         </ArtifactSection>
 

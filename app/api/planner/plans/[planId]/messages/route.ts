@@ -664,6 +664,7 @@ async function buildPlannerAgentResponse(input: {
           : null,
         builder_history: builderHistory ? toIntakeBuilderHistory(builderHistory) : null,
         mutation_contract: buildMutationContract(input.plan.metadata, input.plan.event_type),
+        custom_costs_context: buildCustomCostsContext(input.plan.metadata),
       },
     })
 
@@ -1555,4 +1556,31 @@ function toJsonValue(value: unknown): Json {
   }
 
   return null
+}
+
+/**
+ * Returns a human-readable summary of organizer-entered custom costs so the
+ * intake agent can reference them in its next reply. Returns null when there
+ * are no custom costs — the agent payload omits the field in that case.
+ */
+function buildCustomCostsContext(metadata: unknown): string | null {
+  const record = readRecord(metadata)
+  if (!record) return null
+  const raw = record.custom_costs
+  if (!Array.isArray(raw) || raw.length === 0) return null
+
+  const items: Array<{ label: string; amount: number }> = []
+  for (const item of raw) {
+    const r = readRecord(item)
+    if (!r) continue
+    const label = typeof r.label === 'string' && r.label.trim() ? r.label.trim() : null
+    const amount = typeof r.amount === 'number' && r.amount > 0 ? r.amount : null
+    if (label && amount !== null) items.push({ label, amount })
+  }
+  if (items.length === 0) return null
+
+  const total = items.reduce((sum, c) => sum + c.amount, 0)
+  const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+  const detail = items.map((c) => `${c.label} ${formatted.format(c.amount)}`).join(', ')
+  return `Organizer has added ${formatted.format(total)} in custom costs: ${detail}`
 }
