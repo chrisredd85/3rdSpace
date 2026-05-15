@@ -1,4 +1,5 @@
 import { getArchetypeByKey, resolveArchetypeKey } from '@/lib/planner/archetypes/resolveArchetype'
+import { matchingFieldSchema } from '@/lib/planner/archetypes/types'
 import type {
   CommercialModel,
   EventArchetypeConfig,
@@ -904,6 +905,21 @@ export function getNextArchetypeIntakeQuestion(input: NextQuestionInput): Archet
   }
 
   return null
+}
+
+export function sanitizeIntakeQuestionCandidate(candidate: string | null | undefined): string | null {
+  const question = candidate?.trim()
+  if (!question) return null
+
+  const normalized = normalizeText(question).replace(/\s+/g, '_')
+  if (matchingFieldSchema.safeParse(normalized).success) return null
+  if (/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(question)) return null
+
+  const looksLikeQuestion =
+    /[?？]$/.test(question) ||
+    /\b(what|which|who|how|when|where|do|does|did|is|are|will|would|should|can|could)\b/i.test(question)
+
+  return looksLikeQuestion ? question : null
 }
 
 const UNIVERSAL_MATCHING_FIELDS = new Set<MatchingField>([

@@ -18,6 +18,7 @@ export {
   hasAnsweredRequiredArchetypeQuestions,
   isMatchingFieldAnswered,
   mergeAnsweredArchetypeQuestionMetadata,
+  sanitizeIntakeQuestionCandidate,
 } from '@/lib/planner/archetypes/intakeQuestions'
 export {
   resolveArchetypeIntakeContext,

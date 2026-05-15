@@ -20,6 +20,7 @@ import {
   PENDING_ARCHETYPE_QUESTION_METADATA_KEY,
   resolveArchetypeContext,
   resolveArchetypeIntakeContext,
+  sanitizeIntakeQuestionCandidate,
 } from '@/lib/planner/archetypes'
 import type { EventArchetypeConfig } from '@/lib/planner/archetypes'
 import { hasUnknownBudgetSignal, parseEventIntent, parseStandaloneGuestCountReply } from '@/lib/planner/intentParser'
@@ -242,16 +243,22 @@ function buildPublicIntakeAgentDraft(
         includeRecommended: true,
       })
     : null
+  const missingCoreQuestion = buildPublicMissingCoreQuestion(output, planPatch)
   const agentQuestion = pickPublicUnansweredAgentQuestion(output, planPatch, conversationText, [
     nextBestQuestion,
     ...missingQuestions,
   ])
-  const question = archetypeQuestion?.prompt ?? agentQuestion ?? buildPublicMissingCoreQuestion(output, planPatch)
+  const question = archetypeQuestion?.prompt ?? agentQuestion ?? missingCoreQuestion
   const isRequestedRecommendation =
     isRecommendationRequest(userMessage) &&
     isPlanReadyForRequestedRecommendations(planPatch as Partial<Plan>, { conversationText })
-  const finalQuestion = isRequestedRecommendation ? null : question
-  const isReady = (coreFieldsReady && !finalQuestion) || isRequestedRecommendation
+  const canMatchNow = isPlanReadyForRequestedRecommendations(planPatch as Partial<Plan>, { conversationText })
+  const shouldTransitionToMatch =
+    isRequestedRecommendation ||
+    (coreFieldsReady && !question) ||
+    (!archetypeQuestion && !missingCoreQuestion && canMatchNow)
+  const finalQuestion = shouldTransitionToMatch ? null : question
+  const isReady = shouldTransitionToMatch
   const transitionPhrase = buildPublicTransitionPhrase(planPatch)
 
   return {
@@ -351,7 +358,7 @@ function pickPublicUnansweredAgentQuestion(
   const seen = new Set<string>()
 
   for (const candidate of candidateQuestions) {
-    const question = candidate?.trim()
+    const question = sanitizeIntakeQuestionCandidate(candidate)
     if (!question) continue
     const normalizedQuestion = question.toLowerCase()
     if (seen.has(normalizedQuestion)) continue

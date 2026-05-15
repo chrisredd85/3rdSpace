@@ -31,10 +31,14 @@ import {
   mergeEventRequirementSignals,
   resolveArchetypeContext,
   resolveArchetypeIntakeContext,
+  sanitizeIntakeQuestionCandidate,
 } from '@/lib/planner/archetypes'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import { hasUnknownBudgetSignal, parseEventIntent } from '@/lib/planner/intentParser'
-import { isIntakeReadyForRecommendations } from '@/lib/planner/intakeReadiness'
+import {
+  isIntakeReadyForRecommendations,
+  isPlanReadyForRequestedRecommendations,
+} from '@/lib/planner/intakeReadiness'
 import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
 import { buildOrganizerPreferencePayload, loadBuilderOrganizerPreferences } from '@/lib/server/builderPreferences'
 import {
@@ -507,23 +511,43 @@ function buildIntakeAgentDraft(
         eventType: buildArchetypeSearchText(output, plan),
         plan,
         conversationText,
+        includeRecommended: true,
       })
     : null
   const isReady = isIntakeReadyForRecommendations(output, plan, { conversationText }) && !archetypeQuestion
-  const question = archetypeQuestion?.prompt ?? nextBestQuestion ?? missingQuestions[0] ?? 'What should I know next?'
-  const content = isReady
-    ? reflection
-    : `${reflection} ${question}`
+  const missingCoreQuestion = buildMissingCoreQuestion(output, plan)
+  const agentQuestion = [nextBestQuestion, ...missingQuestions]
+    .map((candidate) => sanitizeIntakeQuestionCandidate(candidate))
+    .find((question): question is string => Boolean(question))
+  const question = archetypeQuestion?.prompt ?? agentQuestion ?? missingCoreQuestion
+  const canMatchNow = isPlanReadyForRequestedRecommendations(plan, { conversationText })
+  const shouldTransitionToMatch = isReady || (!archetypeQuestion && !missingCoreQuestion && canMatchNow)
+  const content = shouldTransitionToMatch
+    ? `${reflection} ${buildTransitionPhrase(plan)}`
+    : question
+      ? `${reflection} ${question}`
+      : reflection
 
   return {
     content,
-    message_type: isReady ? 'recommendation' : 'text',
+    message_type: shouldTransitionToMatch ? 'recommendation' : 'text',
     metadata: toJson({
       agent_name: 'intake',
       agent_output: output,
       archetype_question: archetypeQuestion,
+      can_match_now: canMatchNow,
+      transition_to_match: shouldTransitionToMatch,
     }),
   }
+}
+
+function buildTransitionPhrase(plan: Plan): string {
+  const area = plan.neighborhood?.trim() || 'your target area'
+  const eventType = plan.event_type?.trim().toLowerCase() || 'event'
+  const guestText = typeof plan.guest_count === 'number' && plan.guest_count > 0
+    ? ` for ${plan.guest_count.toLocaleString()} guests`
+    : ''
+  return `I have enough to start matching ${area} options${guestText} for this ${eventType}. Pulling venue and vendor recommendations now.`
 }
 
 function hasIntakeCoreFields(output: IntakeAgentOutput, plan: Plan): boolean {
@@ -545,6 +569,32 @@ function hasIntakeCoreFields(output: IntakeAgentOutput, plan: Plan): boolean {
     eventPlan.event_date
 
   return Boolean(eventType && headcount && area && date)
+}
+
+function buildMissingCoreQuestion(output: IntakeAgentOutput, plan: Plan): string | null {
+  const eventPlan = output.updated_event_plan
+  const extracted = output.extracted_fields
+  const eventType = plan.event_type ?? extracted.event_type ?? eventPlan.venue_type ?? eventPlan.event_name
+  const headcount =
+    plan.guest_count ??
+    extracted.guest_count ??
+    eventPlan.expected_attendance ??
+    eventPlan.headcount_max ??
+    eventPlan.headcount_min
+  const area = plan.neighborhood ?? extracted.neighborhood ?? output.neighborhood ?? eventPlan.city
+  const date =
+    plan.date_window_start ??
+    plan.date_window_end ??
+    extracted.date_window_start ??
+    extracted.date_window_end ??
+    eventPlan.event_date
+
+  if (!eventType) return 'What kind of event is this closest to: dinner, mixer, workshop, party, or something else?'
+  if (!headcount) return 'How many people are you planning for?'
+  if (!area) return 'What neighborhood or city should I search in?'
+  if (!date) return 'What date or date window are you aiming for?'
+
+  return null
 }
 
 function buildArchetypeSearchText(output: IntakeAgentOutput, plan: Plan): string | null {

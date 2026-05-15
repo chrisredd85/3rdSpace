@@ -43,6 +43,23 @@ describe('archetype-aware intake completion', () => {
     expect(priority.critical_missing).not.toContain('mics_count')
   })
 
+  it('pivots a panel to recommendations after core fields because stage and mics default', () => {
+    const question = getNextArchetypeIntakeQuestion({
+      archetype: archetypeFor('panel fireside'),
+      plan: {
+        event_type: 'Panel / fireside',
+        neighborhood: 'Mission',
+        guest_count: 100,
+        date_window_start: '2026-05-30',
+        date_window_end: '2026-05-30',
+      },
+      conversationText: 'I want to host a start up panel in the Mission for 100 people on May 30th.',
+      includeRecommended: true,
+    })
+
+    expect(question).toBeNull()
+  })
+
   it('asks how many days for a hackathon when duration days are missing', () => {
     const question = getNextArchetypeIntakeQuestion({
       archetype: archetypeFor('hackathon'),

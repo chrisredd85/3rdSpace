@@ -40,6 +40,7 @@ import {
   mergeEventRequirementSignals,
   resolveArchetypeContext,
   resolveArchetypeIntakeContext,
+  sanitizeIntakeQuestionCandidate,
 } from '@/lib/planner/archetypes'
 import type { EventArchetypeConfig } from '@/lib/planner/archetypes'
 // createAutoRecommendationMessage is NOT called here — it runs in the dedicated
@@ -771,14 +772,14 @@ function buildIntakeAgentDraft(
       })
     : null
   const isReady = isIntakeReadyForRecommendations(output, plan, { conversationText }) && !archetypeQuestion
+  const missingCoreQuestion = buildMissingCoreQuestion(output, plan)
   const agentQuestion = pickUnansweredAgentQuestion(output, plan, conversationText, [
     nextBestQuestion,
     ...missingQuestions,
   ])
-  const question = archetypeQuestion?.prompt ?? agentQuestion ?? buildMissingCoreQuestion(output, plan)
-  const agentReturnedNoQuestion = !nextBestQuestion && missingQuestions.length === 0
+  const question = archetypeQuestion?.prompt ?? agentQuestion ?? missingCoreQuestion
   const canMatchNow = isPlanReadyForRequestedRecommendations(plan, { conversationText })
-  const fallbackToGuard = !isReady && !question && agentReturnedNoQuestion && canMatchNow
+  const fallbackToGuard = !isReady && !archetypeQuestion && !missingCoreQuestion && canMatchNow
   const shouldTransitionToMatch = isReady || fallbackToGuard
 
   if (fallbackToGuard) {
@@ -897,7 +898,7 @@ function pickUnansweredAgentQuestion(
   const seen = new Set<string>()
 
   for (const candidate of candidateQuestions) {
-    const question = candidate?.trim()
+    const question = sanitizeIntakeQuestionCandidate(candidate)
     if (!question) continue
     const normalizedQuestion = question.toLowerCase()
     if (seen.has(normalizedQuestion)) continue

@@ -5,6 +5,7 @@ import {
   buildArchetypeAnswerText,
   findAnsweredArchetypeQuestionForPrompt,
   getNextArchetypeIntakeQuestion,
+  sanitizeIntakeQuestionCandidate,
 } from '@/lib/planner/archetypes'
 
 describe('archetype intake questions', () => {
@@ -137,6 +138,12 @@ describe('archetype intake questions', () => {
     })
 
     expect(repeatedQuestion?.id).toBe('private_or_shared')
+  })
+
+  it('rejects raw internal matching-field labels as user-facing questions', () => {
+    expect(sanitizeIntakeQuestionCandidate('sponsor_status')).toBeNull()
+    expect(sanitizeIntakeQuestionCandidate('budget_cap_cents')).toBeNull()
+    expect(sanitizeIntakeQuestionCandidate('Is this sponsored or self-funded?')).toBe('Is this sponsored or self-funded?')
   })
 
   it('asks for game outing setup format instead of forcing external checkout details', () => {
