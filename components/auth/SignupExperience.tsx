@@ -63,7 +63,7 @@ function AuthShell({
         className={`absolute -right-32 bottom-0 h-[500px] w-[500px] rounded-full bg-gradient-to-br ${glowMap[accent]} opacity-20 blur-3xl`}
       />
 
-      <header className="relative flex items-center justify-between px-6 py-5 lg:px-12">
+      <header className="relative flex items-center justify-between px-5 py-5 sm:px-6 lg:px-12">
         <Link href="/" className="flex items-center gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
             <Sparkles className="h-5 w-5 text-primary-foreground" />
@@ -78,13 +78,13 @@ function AuthShell({
         </Link>
       </header>
 
-      <main className="relative mx-auto w-full max-w-2xl px-6 pb-20 pt-6 lg:pt-12">
-        <div className="rounded-3xl border border-border bg-card/70 p-8 shadow-card backdrop-blur-xl md:p-10">
+      <main className="relative mx-auto w-full max-w-2xl px-4 pb-16 pt-5 sm:px-6 sm:pb-20 sm:pt-6 lg:pt-12">
+        <div className="rounded-3xl border border-border bg-card/70 p-5 shadow-card backdrop-blur-xl sm:p-8 md:p-10">
           {alreadySignedInWarning ? <AlreadySignedInBanner /> : null}
-          <p className="text-xs font-semibold uppercase tracking-widest text-secondary">{eyebrow}</p>
-          <h1 className="mt-2 font-display text-3xl font-bold md:text-4xl">{title}</h1>
-          {subtitle && <p className="mt-3 text-muted-foreground">{subtitle}</p>}
-          <div className="mt-8">{children}</div>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-secondary sm:tracking-widest">{eyebrow}</p>
+          <h1 className="mt-2 text-balance font-display text-2xl font-bold leading-tight sm:text-3xl md:text-4xl">{title}</h1>
+          {subtitle && <p className="mt-3 text-sm leading-relaxed text-muted-foreground sm:text-base">{subtitle}</p>}
+          <div className="mt-6 sm:mt-8">{children}</div>
         </div>
         <p className="mt-6 text-center text-sm text-muted-foreground">
           Already have an account?{' '}
@@ -627,7 +627,7 @@ function BuilderSignupFlow({
       )}
 
       {step === 3 && (
-        <div className="space-y-6 animate-fade-in">
+        <div className="space-y-5 animate-fade-in sm:space-y-6">
           <div>
             <Label className="mb-2 block">What types of events do you host?</Label>
             <ChipGroup options={creatorEventTypes} selected={form.eventTypes} onToggle={(v) => toggle('eventTypes', v)} />
@@ -650,9 +650,9 @@ function BuilderSignupFlow({
             <ChipGroup options={ticketPlatforms} selected={form.platforms} onToggle={(v) => toggle('platforms', v)} />
           </div>
 
-          <TicketingSetupGuide selectedPlatforms={form.platforms} />
+          <TicketingSetupGuide selectedPlatforms={form.platforms} compact />
 
-          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-border bg-card/40 p-4 hover:border-primary/40 transition-smooth">
+          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-border bg-card/40 p-4 transition-smooth hover:border-primary/40">
             <input
               type="checkbox"
               checked={form.bulkBooking}
@@ -762,27 +762,27 @@ function BuilderSignupFlow({
         </div>
       )}
 
-      <div className="mt-10 space-y-4">
+      <div className="mt-8 space-y-4 sm:mt-10">
         <InlineFormError message={inlineError} />
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
           {step < 5 ? (
-            <Button variant="glass" onClick={back}>
+            <Button variant="glass" onClick={back} className="w-full sm:w-auto">
               <ArrowLeft className="h-4 w-4" /> Back
             </Button>
           ) : (
             <div />
           )}
           {step < 4 ? (
-            <Button variant="hero" onClick={next}>
+            <Button variant="hero" onClick={next} className="w-full sm:w-auto">
               Continue <ArrowRight className="h-4 w-4" />
             </Button>
           ) : step === 4 ? (
-            <Button variant="hero" onClick={createAccountForActivation} disabled={isLoading}>
+            <Button variant="hero" onClick={createAccountForActivation} disabled={isLoading} className="w-full sm:w-auto">
               <Ticket className="h-4 w-4" />
               {isLoading ? 'Creating account...' : 'Create account & activate'}
             </Button>
           ) : (
-            <Button variant="hero" onClick={continueFromActivation}>
+            <Button variant="hero" onClick={continueFromActivation} className="w-full sm:w-auto">
               {activationState?.requiresEmailConfirmation ? 'Go to sign in' : 'Continue to planner'}
               <ExternalLink className="h-4 w-4" />
             </Button>

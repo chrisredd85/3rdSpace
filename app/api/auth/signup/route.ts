@@ -547,11 +547,8 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (existingAppUserError) {
-      console.error('Error checking existing app user:', existingAppUserError)
-      return NextResponse.json({ error: 'Could not verify account availability.' }, { status: 500 })
-    }
-
-    if (existingAppUser) {
+      console.warn('App user availability preflight failed; continuing with Supabase Auth as source of truth:', existingAppUserError)
+    } else if (existingAppUser) {
       return NextResponse.json(
         { error: 'Account already exists. Please log in instead.' },
         { status: 400 }

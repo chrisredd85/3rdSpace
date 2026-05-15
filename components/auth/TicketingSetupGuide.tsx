@@ -81,10 +81,12 @@ export function TicketingSetupGuide({
   selectedPlatforms,
   className,
   persistConnections = false,
+  compact = false,
 }: {
   selectedPlatforms: string[]
   className?: string
   persistConnections?: boolean
+  compact?: boolean
 }) {
   const { addToast } = useToast()
   const [origin, setOrigin] = useState('')
@@ -208,14 +210,14 @@ export function TicketingSetupGuide({
   }
 
   return (
-    <div className={cn('space-y-3 rounded-2xl border border-primary/20 bg-primary/10 p-4', className)}>
+    <div className={cn('space-y-3 rounded-2xl border border-primary/20 bg-primary/10 p-3 sm:p-4', className)}>
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
-          <Ticket className="h-5 w-5 text-primary-foreground" />
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-brand shadow-glow sm:h-10 sm:w-10">
+          <Ticket className="h-4 w-4 text-primary-foreground sm:h-5 sm:w-5" />
         </div>
         <div>
           <p className="font-display text-base font-semibold text-foreground">Ticket platform setup</p>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground sm:text-sm">
             Configure the selected platforms now. Event-specific linking and imports happen later from each event.
           </p>
         </div>
@@ -230,16 +232,16 @@ export function TicketingSetupGuide({
             : ''
 
           return (
-            <div key={platform} className="rounded-xl border border-border bg-card/40 p-4">
+            <div key={platform} className="rounded-xl border border-border bg-card/40 p-3 sm:p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sidebar-accent/40 text-primary">
-                    <Icon className="h-5 w-5" />
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sidebar-accent/40 text-primary sm:h-10 sm:w-10">
+                    <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase text-muted-foreground">{setup.eyebrow}</p>
                     <p className="font-semibold text-foreground">{setup.title}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{setup.description}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground sm:text-sm">{setup.description}</p>
                   </div>
                 </div>
                 <CheckCircle2 className="hidden h-5 w-5 shrink-0 text-primary sm:block" />
@@ -250,7 +252,7 @@ export function TicketingSetupGuide({
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-xs font-semibold uppercase text-muted-foreground">Account connection</p>
-                      <p className="mt-1 text-sm text-foreground">
+                      <p className="mt-1 text-xs leading-relaxed text-foreground sm:text-sm">
                         Use OAuth to connect Eventbrite directly. No webhook URL is needed for Eventbrite.
                       </p>
                     </div>
@@ -290,7 +292,7 @@ export function TicketingSetupGuide({
                 </div>
               )}
 
-              <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
+              <ul className={cn('mt-4 space-y-2 text-sm text-muted-foreground', compact && 'hidden sm:block')}>
                 {setup.steps.map((step) => (
                   <li key={step} className="flex gap-2">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -299,7 +301,7 @@ export function TicketingSetupGuide({
                 ))}
               </ul>
 
-              <div className="mt-4 rounded-lg border border-dashed border-border bg-background/40 p-3">
+              <div className={cn('mt-4 rounded-lg border border-dashed border-border bg-background/40 p-3', compact && 'hidden sm:block')}>
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                   <Film className="h-4 w-4 text-primary" />
                   {setup.videoLabel}
