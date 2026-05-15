@@ -3042,7 +3042,7 @@ function DraftMatchSignupCard({ onContinue }: { onContinue: () => void }) {
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-primary">
             <Sparkles className="h-4 w-4" />
-            Ready to match real venues
+            Ready to make your event happen
           </div>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             I can save this draft and run the live planner pipeline for venue matches, vendor picks,
