@@ -1,11 +1,8 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
-import { Eye, EyeOff, Loader2, Sparkles, X } from 'lucide-react'
+import Link from 'next/link'
+import { Sparkles, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { InlineFormError } from '@/components/ui/inline-form-error'
-import { migratePlannerDraftToServer } from '@/lib/planner/migrateDraft'
 import type { PlannerCreatePlanResponse } from '@/lib/types'
 
 interface PlannerSignupGateProps {
@@ -16,73 +13,24 @@ interface PlannerSignupGateProps {
 }
 
 /**
- * Inline signup modal shown only when an anonymous planner user takes a conversion action.
+ * Signup handoff shown only when an anonymous planner user takes a conversion action.
+ * The full creator signup owns account creation and planner draft migration.
  */
-export function PlannerSignupGate({ isOpen, onClose, onSignedIn, context = 'default' }: PlannerSignupGateProps) {
-  const [fullName, setFullName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [isPasswordVisible, setIsPasswordVisible] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (errorMessage) setErrorMessage(null)
-  }, [fullName, email, password])
-
+export function PlannerSignupGate({ isOpen, onClose, context = 'default' }: PlannerSignupGateProps) {
   if (!isOpen) return null
 
   const copy = context === 'recommendations'
     ? {
       title: 'Save your plan to see matches',
       description:
-        'Create your event creator account so I can save this draft and pull real venues, vendors, financials, and approval cards.',
-      submitLabel: 'Create account & show matches',
+        'Finish the creator signup so I can save this draft, pull real venues and vendors, and attach financials and approval cards.',
+      submitLabel: 'Continue to creator signup',
     }
     : {
       title: 'Save your plan to continue',
-      description: 'Create your event creator account and the agent will continue the action.',
-      submitLabel: 'Create account & continue',
+      description: 'Finish the creator signup so this draft can move into your workspace.',
+      submitLabel: 'Continue to creator signup',
     }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setIsSubmitting(true)
-    setErrorMessage(null)
-
-    try {
-      const response = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          userType: 'community_builder',
-          name: fullName,
-          email,
-          password,
-          organization_name: `${fullName || 'Event creator'} events`,
-          event_types: ['Community gatherings'],
-          ticket_platforms: ['partiful'],
-        }),
-      })
-      const payload = await response.json().catch(() => null)
-
-      if (!response.ok || !payload?.success) {
-        throw new Error(payload?.error || 'Could not create your account.')
-      }
-
-      if (payload.requiresEmailConfirmation) {
-        throw new Error('Check your email to confirm your account, then return to continue.')
-      }
-
-      const migratedPlan = await migratePlannerDraftToServer()
-      onSignedIn(migratedPlan)
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Could not create your account.')
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/60 p-4 backdrop-blur-sm">
@@ -106,74 +54,22 @@ export function PlannerSignupGate({ isOpen, onClose, onSignedIn, context = 'defa
             aria-label="Close signup"
             className="rounded-xl p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             onClick={onClose}
-            disabled={isSubmitting}
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4 px-5 py-5">
-          <label className="block text-sm font-semibold text-foreground">
-            Full name
-            <Input
-              className="mt-2"
-              value={fullName}
-              onChange={(event) => setFullName(event.target.value)}
-              autoComplete="name"
-              placeholder="Alex Rivera"
-              required
-              disabled={isSubmitting}
-            />
-          </label>
+        <div className="space-y-4 px-5 py-5">
+          <div className="rounded-2xl border border-border bg-background/60 px-4 py-3">
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Your chat draft stays in this browser. After creator signup, I’ll save it to your workspace and return you to the planner.
+            </p>
+          </div>
 
-          <label className="block text-sm font-semibold text-foreground">
-            Email
-            <Input
-              className="mt-2"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
-              placeholder="alex@example.com"
-              required
-              disabled={isSubmitting}
-            />
-          </label>
-
-          <label className="block text-sm font-semibold text-foreground">
-            Password
-            <div className="relative mt-2">
-              <Input
-                className="pr-12"
-                type={isPasswordVisible ? 'text' : 'password'}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete="new-password"
-                placeholder="••••••••"
-                required
-                minLength={6}
-                disabled={isSubmitting}
-              />
-              <button
-                type="button"
-                aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
-                aria-pressed={isPasswordVisible}
-                onClick={() => setIsPasswordVisible((current) => !current)}
-                className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={isSubmitting}
-              >
-                {isPasswordVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </label>
-
-          <InlineFormError message={errorMessage} />
-
-          <Button type="submit" className="h-12 w-full rounded-2xl" disabled={isSubmitting}>
-            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {copy.submitLabel}
+          <Button asChild className="h-12 w-full rounded-2xl">
+            <Link href="/signup/builder">{copy.submitLabel}</Link>
           </Button>
-        </form>
+        </div>
       </div>
     </div>
   )
