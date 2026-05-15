@@ -112,6 +112,12 @@ interface VendorSignupDetails {
   emergency_rate_uplift?: number | null
 }
 
+type SignupTicketingConnection = {
+  platform: TicketPlatform
+  status: string
+  webhook_url: string | null
+}
+
 const VALID_TICKETING_PLATFORMS = new Set<TicketPlatform>(['eventbrite', 'luma', 'posh', 'partiful'])
 
 function getRole(userType: UserType): string {
@@ -414,6 +420,45 @@ async function ensureRoleSetup(
   }
 }
 
+async function loadBuilderSignupTicketingConnections(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  userId: string
+): Promise<SignupTicketingConnection[]> {
+  const { data: builderProfile, error: builderError } = await admin
+    .from('builder_profiles')
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (builderError || !builderProfile) {
+    if (builderError) {
+      console.error('Failed to load builder profile for signup ticketing connections:', builderError)
+    }
+    return []
+  }
+
+  const { data, error } = await admin
+    .from('builder_ticketing_connections')
+    .select('platform, status, webhook_url')
+    .eq('builder_id', (builderProfile as { id: string }).id)
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    console.error('Failed to load signup ticketing connections:', error)
+    return []
+  }
+
+  return ((data ?? []) as Array<{ platform?: unknown; status?: unknown; webhook_url?: unknown }>)
+    .map((connection) => ({
+      platform: typeof connection.platform === 'string' && VALID_TICKETING_PLATFORMS.has(connection.platform as TicketPlatform)
+        ? connection.platform as TicketPlatform
+        : null,
+      status: typeof connection.status === 'string' ? connection.status : 'setup_required',
+      webhook_url: typeof connection.webhook_url === 'string' ? connection.webhook_url : null,
+    }))
+    .filter((connection): connection is SignupTicketingConnection => Boolean(connection.platform))
+}
+
 async function cleanupFailedSignup(
   admin: ReturnType<typeof createServiceRoleClient>,
   userId: string
@@ -575,8 +620,14 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: setupMessage }, { status: 500 })
           }
 
+          const ticketingConnections =
+            userType === 'community_builder'
+              ? await loadBuilderSignupTicketingConnections(admin, signInData.user.id)
+              : []
+
           return NextResponse.json({
             success: true,
+            ticketingConnections,
             user: {
               id: signInData.user.id,
               email: signInData.user.email,
@@ -645,9 +696,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const ticketingConnections =
+      userType === 'community_builder'
+        ? await loadBuilderSignupTicketingConnections(admin, authData.user.id)
+        : []
+
     return NextResponse.json({
       success: true,
       requiresEmailConfirmation: !authData.session,
+      ticketingConnections,
       user: {
         id: authData.user.id,
         email: authData.user.email,

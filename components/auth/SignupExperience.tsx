@@ -17,6 +17,9 @@ import {
   Zap,
   Users,
   Store,
+  Copy,
+  ExternalLink,
+  Mail,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -339,6 +342,20 @@ const ticketPlatformIds: Record<string, 'eventbrite' | 'posh' | 'luma' | 'partif
   Partiful: 'partiful',
 }
 
+type SignupTicketingConnection = {
+  platform: 'eventbrite' | 'posh' | 'luma' | 'partiful'
+  status: string
+  webhook_url: string | null
+}
+
+type CreatorActivationState = {
+  email: string
+  requiresEmailConfirmation: boolean
+  ticketingConnections: SignupTicketingConnection[]
+  migratedPlanId: string | null
+  migrationFailed: boolean
+}
+
 const stripeOnboardingConfig: Record<
   UserType,
   {
@@ -375,9 +392,10 @@ function BuilderSignupFlow({
   const router = useRouter()
   const { addToast } = useToast()
   const [step, setStep] = useState(1)
-  const total = 4
+  const total = 5
   const [isLoading, setIsLoading] = useState(false)
   const [inlineError, setInlineError] = useState<string | null>(null)
+  const [activationState, setActivationState] = useState<CreatorActivationState | null>(null)
 
   const [form, setForm] = useState({
     fullName: '',
@@ -419,14 +437,28 @@ function BuilderSignupFlow({
     if (targetStep) setStep(targetStep)
     setInlineError(message)
   }
+  const selectedTicketPlatforms = form.platforms
+    .map((platform) => ticketPlatformIds[platform])
+    .filter((platform): platform is (typeof ticketPlatformIds)[keyof typeof ticketPlatformIds] => Boolean(platform))
 
-  const finish = async () => {
+  async function copyToClipboard(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      addToast({ title: `${label} copied`, description: 'Paste it into your ticketing platform webhook settings.' })
+    } catch {
+      addToast({ title: 'Could not copy URL', description: 'Select the URL and copy it manually.', variant: 'destructive' })
+    }
+  }
+
+  const createAccountForActivation = async () => {
+    if (activationState) {
+      setStep(5)
+      return
+    }
+
     setIsLoading(true)
     setInlineError(null)
     try {
-      const selectedTicketPlatforms = form.platforms
-        .map((platform) => ticketPlatformIds[platform])
-        .filter((platform): platform is (typeof ticketPlatformIds)[keyof typeof ticketPlatformIds] => Boolean(platform))
       const eventTypes = form.eventTypes.map((eventType) => eventType.trim()).filter(Boolean)
 
       if (!form.fullName.trim()) {
@@ -479,27 +511,63 @@ function BuilderSignupFlow({
         setIsLoading(false)
         return
       }
-      if (result.requiresEmailConfirmation) {
-        addToast({ title: 'Check your email', description: 'Confirm your email address, then log in to continue planning.' })
-        router.push(getStripeLoginRedirect('community_builder'))
-        return
-      }
+
+      const ticketingConnections = Array.isArray(result.ticketingConnections)
+        ? result.ticketingConnections.filter((connection: SignupTicketingConnection) => Boolean(connection?.platform))
+        : []
+      let migratedPlanId: string | null = null
+      let migrationFailed = false
 
       try {
-        const migratedPlan = await migratePlannerDraftToServer()
-        const newPlanId = migratedPlan?.plan.id ?? null
-        addToast({ title: 'Account created', description: newPlanId ? 'Your planner draft is saved.' : 'Continue planning your event.' })
-        router.push(newPlanId ? `/planner?plan=${encodeURIComponent(newPlanId)}` : '/planner')
+        if (!result.requiresEmailConfirmation) {
+          const migratedPlan = await migratePlannerDraftToServer()
+          migratedPlanId = migratedPlan?.plan.id ?? null
+        }
       } catch (migrationError) {
         console.error('Planner draft migration failed after signup:', migrationError)
-        addToast({ title: 'Account created', description: 'Saved your account — re-enter your event details', variant: 'destructive' })
-        router.push('/planner?draftMigration=failed')
+        migrationFailed = true
       }
+
+      setActivationState({
+        email: result.user?.email ?? form.email.trim(),
+        requiresEmailConfirmation: Boolean(result.requiresEmailConfirmation),
+        ticketingConnections,
+        migratedPlanId,
+        migrationFailed,
+      })
+      setStep(5)
+      addToast({
+        title: result.requiresEmailConfirmation ? 'Check your email' : 'Account created',
+        description: result.requiresEmailConfirmation
+          ? 'Confirm your email address before signing in to continue planning.'
+          : migratedPlanId ? 'Your planner draft is saved.' : 'Your creator workspace is ready.',
+      })
     } catch {
       setInlineError('An unexpected error occurred.')
+    } finally {
       setIsLoading(false)
     }
   }
+
+  const continueFromActivation = () => {
+    if (!activationState) return
+
+    if (activationState.requiresEmailConfirmation) {
+      router.push(getStripeLoginRedirect('community_builder'))
+      return
+    }
+
+    if (activationState.migrationFailed) {
+      router.push('/planner?draftMigration=failed')
+      return
+    }
+
+    router.push(activationState.migratedPlanId ? `/planner?plan=${encodeURIComponent(activationState.migratedPlanId)}` : '/planner')
+  }
+
+  const ticketingConnectionByPlatform = new Map(
+    (activationState?.ticketingConnections ?? []).map((connection) => [connection.platform, connection])
+  )
 
   return (
     <AuthShell
@@ -608,20 +676,115 @@ function BuilderSignupFlow({
         </div>
       )}
 
+      {step === 5 && (
+        <div className="space-y-5 animate-fade-in">
+          <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
+                <Sparkles className="h-5 w-5 text-primary-foreground" />
+              </div>
+              <div>
+                <h2 className="font-display text-lg font-bold text-foreground">Activate your event workspace</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Your creator profile is ready. Finish these setup steps now, or continue and manage them later from Tickets.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-card/40 p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-background text-primary">
+                <Mail className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="font-semibold text-foreground">Email confirmation</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {activationState?.requiresEmailConfirmation
+                    ? `Check ${activationState.email} and confirm your email before signing in.`
+                    : `${activationState?.email ?? form.email} is ready for this workspace session.`}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <p className="font-semibold text-foreground">Ticketing setup</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Posh and Luma webhooks are private to your creator account. Copy these into the matching platform when you are ready to sync activity.
+              </p>
+            </div>
+
+            {selectedTicketPlatforms.map((platform) => {
+              const connection = ticketingConnectionByPlatform.get(platform)
+              const label = ticketPlatforms.find((ticketPlatform) => ticketPlatformIds[ticketPlatform] === platform) ?? platform
+              const isWebhookPlatform = platform === 'posh' || platform === 'luma'
+
+              return (
+                <div key={platform} className="rounded-2xl border border-border bg-background/60 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="font-semibold text-foreground">{label}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {isWebhookPlatform
+                          ? 'Paste this endpoint into the platform webhook settings.'
+                          : platform === 'eventbrite'
+                            ? 'Connect with OAuth from Tickets after entering the planner.'
+                            : 'Paste event links from Tickets when each event is ready.'}
+                      </p>
+                    </div>
+                    <span className="w-fit rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                      {connection?.status ?? 'setup required'}
+                    </span>
+                  </div>
+
+                  {isWebhookPlatform && connection?.webhook_url ? (
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                      <p className="min-w-0 flex-1 break-all rounded-xl border border-border bg-card/50 px-3 py-2 text-xs text-foreground">
+                        {connection.webhook_url}
+                      </p>
+                      <Button
+                        type="button"
+                        variant="glass"
+                        size="sm"
+                        onClick={() => copyToClipboard(connection.webhook_url!, label)}
+                      >
+                        <Copy className="h-4 w-4" />
+                        Copy
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="mt-10 space-y-4">
         <InlineFormError message={inlineError} />
         <div className="flex items-center justify-between">
-          <Button variant="glass" onClick={back}>
-            <ArrowLeft className="h-4 w-4" /> Back
-          </Button>
-          {step < total ? (
+          {step < 5 ? (
+            <Button variant="glass" onClick={back}>
+              <ArrowLeft className="h-4 w-4" /> Back
+            </Button>
+          ) : (
+            <div />
+          )}
+          {step < 4 ? (
             <Button variant="hero" onClick={next}>
               Continue <ArrowRight className="h-4 w-4" />
             </Button>
-          ) : (
-            <Button variant="hero" onClick={finish} disabled={isLoading}>
+          ) : step === 4 ? (
+            <Button variant="hero" onClick={createAccountForActivation} disabled={isLoading}>
               <Ticket className="h-4 w-4" />
-              {isLoading ? 'Creating account...' : 'Create my Creator account'}
+              {isLoading ? 'Creating account...' : 'Create account & activate'}
+            </Button>
+          ) : (
+            <Button variant="hero" onClick={continueFromActivation}>
+              {activationState?.requiresEmailConfirmation ? 'Go to sign in' : 'Continue to planner'}
+              <ExternalLink className="h-4 w-4" />
             </Button>
           )}
         </div>

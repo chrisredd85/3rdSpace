@@ -225,7 +225,9 @@ export function TicketingSetupGuide({
         {platforms.map((platform) => {
           const setup = setupCards[platform]
           const Icon = setup.icon
-          const setupUrl = connectionUrls[platform] || (origin && setup.getUrl ? setup.getUrl(origin) : '')
+          const setupUrl = persistConnections
+            ? connectionUrls[platform] || (origin && setup.getUrl ? setup.getUrl(origin) : '')
+            : ''
 
           return (
             <div key={platform} className="rounded-xl border border-border bg-card/40 p-4">
@@ -267,15 +269,24 @@ export function TicketingSetupGuide({
               ) : (
                 <div className="mt-4 space-y-2">
                   <p className="text-xs font-semibold uppercase text-muted-foreground">{setup.urlLabel}</p>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <p className="min-w-0 flex-1 break-all rounded-lg border border-border bg-background/70 px-3 py-2 text-xs text-foreground">
-                      {setupUrl || 'Loading setup URL...'}
-                    </p>
-                    <Button type="button" variant="outline" size="sm" onClick={() => copySetupUrl(platform)} disabled={!origin || !setupUrl}>
-                      <Copy className="mr-2 h-4 w-4" />
-                      Copy
-                    </Button>
-                  </div>
+                  {!persistConnections ? (
+                    <div className="rounded-lg border border-border bg-background/70 px-3 py-3">
+                      <p className="text-sm font-semibold text-foreground">Generated after account creation</p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        We create a private {setup.title} endpoint after signup so incoming data is tied to your creator account.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <p className="min-w-0 flex-1 break-all rounded-lg border border-border bg-background/70 px-3 py-2 text-xs text-foreground">
+                        {setupUrl || 'Loading setup URL...'}
+                      </p>
+                      <Button type="button" variant="outline" size="sm" onClick={() => copySetupUrl(platform)} disabled={!origin || !setupUrl}>
+                        <Copy className="mr-2 h-4 w-4" />
+                        Copy
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
 
