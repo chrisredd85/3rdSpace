@@ -22,11 +22,11 @@ export type EmailNotificationParams = {
 }
 
 /**
- * Sends a templated notification email through SendGrid when configured.
+ * Sends a templated notification email through Resend when configured.
  */
 export async function sendEmailNotification(params: EmailNotificationParams) {
-  const apiKey = process.env.SENDGRID_API_KEY
-  const from = process.env.NOTIFICATIONS_FROM_EMAIL || process.env.SENDGRID_FROM_EMAIL || process.env.INVOICE_FROM_EMAIL
+  const apiKey = process.env.RESEND_API_KEY
+  const from = process.env.NOTIFICATIONS_FROM_EMAIL || process.env.RESEND_FROM_EMAIL
 
   if (!apiKey || !from) {
     console.log('[notifications.email] Email provider is not configured', {
@@ -37,21 +37,21 @@ export async function sendEmailNotification(params: EmailNotificationParams) {
     })
     return {
       sent: false,
-      reason: 'Email provider is not configured. Set SENDGRID_API_KEY and NOTIFICATIONS_FROM_EMAIL.',
+      reason: 'Email provider is not configured. Set RESEND_API_KEY and NOTIFICATIONS_FROM_EMAIL.',
     }
   }
 
-  const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+  const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      personalizations: [{ to: [{ email: params.to }] }],
-      from: { email: from },
+      from,
+      to: [params.to],
       subject: params.subject,
-      content: [{ type: 'text/html', value: buildNotificationEmailHtml(params) }],
+      html: buildNotificationEmailHtml(params),
     }),
   })
 
