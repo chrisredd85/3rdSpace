@@ -21,6 +21,66 @@ export type EmailNotificationParams = {
   templateType?: EmailTemplateType
 }
 
+export type ResendEmailAttachment = {
+  filename: string
+  content: Buffer | string
+}
+
+export type ResendEmailParams = {
+  to: string | string[]
+  from: string
+  subject: string
+  html: string
+  text?: string
+  attachments?: ResendEmailAttachment[]
+}
+
+export async function sendResendEmail(params: ResendEmailParams) {
+  const apiKey = process.env.RESEND_API_KEY
+
+  if (!apiKey || !params.from) {
+    return {
+      sent: false,
+      reason: 'Email provider is not configured. Set RESEND_API_KEY and a verified from email.',
+      responsePayload: null,
+    }
+  }
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: params.from,
+      to: Array.isArray(params.to) ? params.to : [params.to],
+      subject: params.subject,
+      html: params.html,
+      ...(params.text ? { text: params.text } : {}),
+      ...(params.attachments?.length
+        ? {
+            attachments: params.attachments.map((attachment) => ({
+              filename: attachment.filename,
+              content: Buffer.isBuffer(attachment.content)
+                ? attachment.content.toString('base64')
+                : attachment.content,
+            })),
+          }
+        : {}),
+    }),
+  })
+
+  const responseText = await response.text()
+  const responsePayload = parseJson(responseText) ?? { body: responseText }
+
+  if (!response.ok) {
+    throw new Error(responseText || 'Email provider rejected the email')
+  }
+
+  return { sent: true, reason: null, responsePayload }
+}
+
 /**
  * Sends a templated notification email through Resend when configured.
  */
@@ -41,26 +101,12 @@ export async function sendEmailNotification(params: EmailNotificationParams) {
     }
   }
 
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from,
-      to: [params.to],
-      subject: params.subject,
-      html: buildNotificationEmailHtml(params),
-    }),
+  return sendResendEmail({
+    from,
+    to: params.to,
+    subject: params.subject,
+    html: buildNotificationEmailHtml(params),
   })
-
-  if (!response.ok) {
-    const message = await response.text()
-    throw new Error(message || 'Email provider rejected the notification email')
-  }
-
-  return { sent: true, reason: null }
 }
 
 /**
@@ -124,4 +170,12 @@ function escapeHtml(value: unknown) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
+}
+
+function parseJson(value: string) {
+  try {
+    return value ? JSON.parse(value) : null
+  } catch {
+    return null
+  }
 }

@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { BUILDER_BILLING_PRICES } from '@/lib/billing/builder-billing'
+import { sendResendEmail } from '@/lib/email'
 import { getAppBaseUrl } from '@/lib/stripe/connect'
 
 export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'
@@ -765,47 +766,30 @@ export async function sendInvoiceEmail(params: {
     type: string
   }
 }) {
-  const apiKey = process.env.SENDGRID_API_KEY
-  const from = process.env.INVOICE_FROM_EMAIL || process.env.SENDGRID_FROM_EMAIL
+  const apiKey = process.env.RESEND_API_KEY
+  const from = process.env.INVOICE_FROM_EMAIL || process.env.RESEND_FROM_EMAIL
 
   if (!apiKey || !from) {
     return {
       sent: false,
-      reason: 'Email provider is not configured. Set SENDGRID_API_KEY and INVOICE_FROM_EMAIL.',
+      reason: 'Email provider is not configured. Set RESEND_API_KEY and INVOICE_FROM_EMAIL.',
     }
   }
 
-  const payload: Record<string, unknown> = {
-    personalizations: [{ to: [{ email: params.to }] }],
-    from: { email: from },
+  const result = await sendResendEmail({
+    from,
+    to: params.to,
     subject: params.subject,
-    content: [{ type: 'text/html', value: params.html }],
-  }
-
-  if (params.attachment) {
-    payload.attachments = [
-      {
-        content: params.attachment.content.toString('base64'),
-        filename: params.attachment.filename,
-        type: params.attachment.type,
-        disposition: 'attachment',
-      },
-    ]
-  }
-
-  const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
+    html: params.html,
+    attachments: params.attachment
+      ? [
+          {
+            filename: params.attachment.filename,
+            content: params.attachment.content,
+          },
+        ]
+      : undefined,
   })
 
-  if (!response.ok) {
-    const message = await response.text()
-    throw new Error(message || 'Email provider rejected the invoice email')
-  }
-
-  return { sent: true, reason: null }
+  return { sent: result.sent, reason: result.reason }
 }

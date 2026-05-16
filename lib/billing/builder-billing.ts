@@ -1,6 +1,7 @@
 import 'server-only'
 
 import Stripe from 'stripe'
+import { sendResendEmail } from '@/lib/email'
 import { getAppBaseUrl, getStripeClient } from '@/lib/stripe/connect'
 
 export type BuilderBillingTier = 'free_trial' | 'pay_per_event' | 'pro_monthly' | 'pro_annual'
@@ -694,17 +695,15 @@ export async function applyInvoicePaymentFailed(admin: any, invoice: Stripe.Invo
 }
 
 /**
- * Sends a billing failure email when SendGrid is configured.
- *
- * @param params - Builder row and invoice amount context.
+ * Sends a billing failure email when Resend is configured.
  */
 async function sendSubscriptionPaymentFailedEmail(params: {
   admin: any
   builder: { id: string; user_id?: string | null; name?: string | null }
   amountDue: number
 }) {
-  const apiKey = process.env.SENDGRID_API_KEY
-  const from = process.env.BILLING_FROM_EMAIL || process.env.INVOICE_FROM_EMAIL || process.env.SENDGRID_FROM_EMAIL
+  const apiKey = process.env.RESEND_API_KEY
+  const from = process.env.BILLING_FROM_EMAIL || process.env.INVOICE_FROM_EMAIL || process.env.RESEND_FROM_EMAIL
 
   if (!apiKey || !from || !params.builder.user_id) return
 
@@ -716,30 +715,22 @@ async function sendSubscriptionPaymentFailedEmail(params: {
 
   if (!userRow?.email) return
 
-  const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      personalizations: [{ to: [{ email: userRow.email }] }],
-      from: { email: from },
+  try {
+    const result = await sendResendEmail({
+      from,
+      to: userRow.email,
       subject: '3rdSpace subscription payment needs attention',
-      content: [
-        {
-          type: 'text/html',
-          value: `
+      html: `
             <p>Hello${params.builder.name ? ` ${params.builder.name}` : ''},</p>
             <p>Your 3rdSpace Pro subscription payment of $${params.amountDue.toFixed(2)} did not go through.</p>
             <p>Please update your billing details to keep Pro booking-fee access active.</p>
           `,
-        },
-      ],
-    }),
-  })
+    })
 
-  if (!response.ok) {
-    console.warn('[builder.billing] Failed to send payment failure email', await response.text())
+    if (!result.sent) {
+      console.warn('[builder.billing] Payment failure email skipped', result.reason)
+    }
+  } catch (error) {
+    console.warn('[builder.billing] Failed to send payment failure email', error)
   }
 }

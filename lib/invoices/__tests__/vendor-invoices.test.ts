@@ -14,10 +14,18 @@ import {
   getInvoiceStatus,
   normalizeLineItems,
   renderInvoiceHtml,
+  sendInvoiceEmail,
   type VendorInvoice,
 } from '@/lib/invoices/vendor-invoices'
 
 describe('vendor invoice helpers', () => {
+  const originalEnv = { ...process.env }
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    process.env = { ...originalEnv }
+  })
+
   it('builds default vendor service line items from booking price', () => {
     const [lineItem] = buildDefaultLineItems(
       { final_price: '500' },
@@ -123,5 +131,48 @@ describe('vendor invoice helpers', () => {
     expect(html).toContain('&lt;Vendor&gt;')
     expect(html).toContain(formatCurrency(100))
     expect(html).not.toContain('<script>alert(1)</script>')
+  })
+
+  it('sends invoice email attachments through Resend', async () => {
+    process.env.RESEND_API_KEY = 're_test'
+    process.env.INVOICE_FROM_EMAIL = '3rdPlace Billing <billing@auth.example.com>'
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      text: async () => '{"id":"email_123"}',
+    } as Response)
+
+    const result = await sendInvoiceEmail({
+      to: 'builder@example.com',
+      subject: 'INV-001 from vendor',
+      html: '<p>Invoice ready</p>',
+      attachment: {
+        filename: 'INV-001.pdf',
+        content: Buffer.from('pdf-bytes'),
+        type: 'application/pdf',
+      },
+    })
+
+    expect(result).toEqual({ sent: true, reason: null })
+    expect(fetchMock).toHaveBeenCalledWith('https://api.resend.com/emails', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        Authorization: 'Bearer re_test',
+        'Content-Type': 'application/json',
+      }),
+    }))
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(body).toMatchObject({
+      from: '3rdPlace Billing <billing@auth.example.com>',
+      to: ['builder@example.com'],
+      subject: 'INV-001 from vendor',
+      html: '<p>Invoice ready</p>',
+      attachments: [
+        {
+          filename: 'INV-001.pdf',
+          content: Buffer.from('pdf-bytes').toString('base64'),
+        },
+      ],
+    })
   })
 })

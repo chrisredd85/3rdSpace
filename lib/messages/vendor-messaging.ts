@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { randomUUID } from 'crypto'
+import { sendResendEmail } from '@/lib/email'
 import type { SupabaseClient, User } from '@supabase/supabase-js'
 
 export type SenderType = 'builder' | 'vendor'
@@ -294,39 +295,27 @@ export async function sendOfflineMessageEmail(
 }
 
 /**
- * Sends a message notification email through SendGrid when configured.
+ * Sends a message notification email through Resend when configured.
  */
 export async function sendMessageEmail(params: { to: string; subject: string; html: string }) {
-  const apiKey = process.env.SENDGRID_API_KEY
-  const from = process.env.MESSAGE_FROM_EMAIL || process.env.SENDGRID_FROM_EMAIL || process.env.INVOICE_FROM_EMAIL
+  const apiKey = process.env.RESEND_API_KEY
+  const from = process.env.MESSAGE_FROM_EMAIL || process.env.RESEND_FROM_EMAIL || process.env.INVOICE_FROM_EMAIL
 
   if (!apiKey || !from) {
     return {
       sent: false,
-      reason: 'Email provider is not configured. Set SENDGRID_API_KEY and MESSAGE_FROM_EMAIL.',
+      reason: 'Email provider is not configured. Set RESEND_API_KEY and MESSAGE_FROM_EMAIL.',
     }
   }
 
-  const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      personalizations: [{ to: [{ email: params.to }] }],
-      from: { email: from },
-      subject: params.subject,
-      content: [{ type: 'text/html', value: params.html }],
-    }),
+  const result = await sendResendEmail({
+    from,
+    to: params.to,
+    subject: params.subject,
+    html: params.html,
   })
 
-  if (!response.ok) {
-    const message = await response.text()
-    throw new Error(message || 'Email provider rejected the message email')
-  }
-
-  return { sent: true, reason: null }
+  return { sent: result.sent, reason: result.reason }
 }
 
 /**

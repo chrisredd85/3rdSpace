@@ -7,12 +7,20 @@ import {
   isOffline,
   normalizeAttachments,
   sanitizeFileName,
+  sendMessageEmail,
   truncateMessage,
   type MessagingProfile,
   type VendorMessageThread,
 } from '@/lib/messages/vendor-messaging'
 
 describe('vendor messaging helpers', () => {
+  const originalEnv = { ...process.env }
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    process.env = { ...originalEnv }
+  })
+
   const thread = {
     id: 'thread-1',
     booking_id: 'booking-1',
@@ -80,5 +88,29 @@ describe('vendor messaging helpers', () => {
     expect(html).toContain('&lt;Vendor&gt;')
     expect(html).toContain('Use &lt;strong&gt;unsafe&lt;/strong&gt; text')
     expect(html).not.toContain('<strong>unsafe</strong>')
+  })
+
+  it('sends offline message email through Resend', async () => {
+    process.env.RESEND_API_KEY = 're_test'
+    process.env.MESSAGE_FROM_EMAIL = '3rdPlace Messages <messages@auth.example.com>'
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      text: async () => '{"id":"email_456"}',
+    } as Response)
+
+    const result = await sendMessageEmail({
+      to: 'recipient@example.com',
+      subject: 'New message from Maya',
+      html: '<p>Preview</p>',
+    })
+
+    expect(result).toEqual({ sent: true, reason: null })
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(body).toMatchObject({
+      from: '3rdPlace Messages <messages@auth.example.com>',
+      to: ['recipient@example.com'],
+      subject: 'New message from Maya',
+      html: '<p>Preview</p>',
+    })
   })
 })
