@@ -635,6 +635,165 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
     ]))
   })
 
+  it('runs recommendations for the named planner chat flow completions without fallback messages', async () => {
+    const flowPlans: Array<{ label: string; row: Row }> = [
+      {
+        label: 'founder dinner location/date/bar flow',
+        row: {
+          id: 'flow-founder-dinner',
+          title: 'Monthly founder dinner',
+          event_type: 'Founder/operator dinner',
+          guest_count: 24,
+          neighborhood: 'Hayes Valley',
+          date_window_start: '2026-05-30',
+          date_window_end: '2026-05-30',
+          ticketed: false,
+          ticketing_model: 'rsvp',
+          food_responsibility: 'Venue handles food. Hosted bar setup.',
+          metadata: {
+            matching_signals: {
+              catering_style: 'venue_handles',
+              bar_required: true,
+              photo_video_priority: 'none',
+            },
+          },
+        },
+      },
+      {
+        label: 'tech mixer location/date/headcount/ticket/AV flow',
+        row: {
+          id: 'flow-tech-mixer',
+          title: 'Tech mixer',
+          event_type: 'Networking mixer',
+          guest_count: 80,
+          neighborhood: 'SoMa',
+          date_window_start: '2026-05-30',
+          date_window_end: '2026-05-30',
+          ticketed: true,
+          ticketing_model: 'ticketed',
+          food_responsibility: 'Venue handles bar and light bites.',
+          metadata: {
+            ticket_price_target_cents: 4000,
+            matching_signals: {
+              bar_required: true,
+              catering_style: 'venue_handles',
+              photo_video_priority: 'none',
+              av_intensity: 'standard',
+            },
+          },
+        },
+      },
+      {
+        label: 'panel/fireside location/date/headcount/AV/ticket flow',
+        row: {
+          id: 'flow-panel',
+          title: 'Startup panel',
+          event_type: 'Panel / fireside',
+          guest_count: 110,
+          neighborhood: 'Downtown SF',
+          date_window_start: '2026-05-29',
+          date_window_end: '2026-05-29',
+          ticketed: true,
+          ticketing_model: 'ticketed',
+          food_responsibility: 'Venue handles light bites.',
+          metadata: {
+            ticket_price_target_cents: 2500,
+            matching_signals: {
+              av_intensity: 'standard',
+              mics_count: 4,
+              stage_required: true,
+              screens_count: 1,
+              catering_style: 'venue_handles',
+              photo_video_priority: 'none',
+            },
+          },
+        },
+      },
+      {
+        label: 'nightlife/club location/date/headcount/ticket flow',
+        row: {
+          id: 'flow-nightlife',
+          title: 'Club night',
+          event_type: 'Nightlife / club night',
+          guest_count: 180,
+          neighborhood: 'Mission',
+          date_window_start: '2026-05-30',
+          date_window_end: '2026-05-30',
+          ticketed: true,
+          ticketing_model: 'ticketed',
+          food_responsibility: 'Full bar.',
+          metadata: {
+            ticket_price_target_cents: 3000,
+            matching_signals: {
+              music_format: 'dj',
+              bar_required: true,
+              security_needs: 'full_staff',
+              lighting_intensity: 'production',
+              check_in_needs: 'ticket_scan',
+            },
+          },
+        },
+      },
+      {
+        label: 'workshop location/date/headcount/free flow',
+        row: {
+          id: 'flow-workshop',
+          title: 'Coding workshop',
+          event_type: 'Workshop / class',
+          guest_count: 30,
+          neighborhood: 'SoMa',
+          date_window_start: '2026-06-14',
+          date_window_end: '2026-06-14',
+          ticketed: false,
+          ticketing_model: 'rsvp',
+          food_responsibility: 'Light snacks.',
+          metadata: {
+            matching_signals: {
+              setup_format: 'hands_on',
+              duration_minutes: 120,
+              av_intensity: 'light',
+              catering_style: 'self',
+            },
+          },
+        },
+      },
+    ]
+
+    for (const flow of flowPlans) {
+      const planId = String(flow.row.id)
+      db.rows.plans.push({
+        user_id: 'user-1',
+        status: 'ready',
+        budget_cap_cents: 400000,
+        venue_terms: null,
+        agent_action: null,
+        profit_goal_cents: null,
+        notes: null,
+        ...flow.row,
+      })
+
+      const response = await recommendPlan(
+        makeRequest({ venueLimit: 3, vendorLimit: 3 }, `/api/planner/plans/${planId}/recommend`),
+        { params: { planId } }
+      )
+      const json = await readJson(response)
+
+      expect(response.status).toBe(200)
+      expect(json.ranked_venues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ venue_id: VENUE_ID }),
+      ]))
+      expect(json.persisted_recommendation_ids).toEqual(expect.arrayContaining([expect.any(String)]))
+      expect(db.rows.plan_messages.filter((message) => (
+        String(message.plan_id) === planId &&
+        /recommendation engine hit a temporary issue/i.test(String(message.content ?? ''))
+      ))).toHaveLength(0)
+      expect(db.rows.audit_logs.filter((log) => (
+        String(log.plan_id) === planId &&
+        log.action === 'planner.catalog_recommendations.generated'
+      ))).toHaveLength(0)
+    }
+  })
+
   it('supersedes stale recommendations and refreshes the thread when match-affecting fields change', async () => {
     const initialResponse = await recommendPlan(makeRequest({ venueLimit: 3 }), {
       params: { planId: 'plan-1' },

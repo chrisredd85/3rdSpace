@@ -1,6 +1,10 @@
 jest.mock('server-only', () => ({}))
 
-import { ARCHETYPES, type EventArchetypeConfig } from '@/lib/planner/archetypes'
+import {
+  ARCHETYPES,
+  getNextArchetypeIntakeQuestion,
+  type EventArchetypeConfig,
+} from '@/lib/planner/archetypes'
 import type { MatchingField } from '@/lib/planner/archetypes/types'
 import { rankCatalogPartners } from '@/lib/planner/catalogRanker'
 import {
@@ -159,15 +163,180 @@ describe('planner archetype pipeline coverage', () => {
       sponsorship_revenue_cents: 0,
     })).not.toThrow()
   })
+
+  it.each([
+    {
+      label: 'founder dinner location/date/bar flow',
+      archetypeKey: 'founder_operator_dinner',
+      conversationText: [
+        'Monthly founder dinner for 24 in Hayes Valley.',
+        'May 30th.',
+        'Venue handles food. We need a hosted bar setup.',
+        'Invite-only RSVP. No photographer needed.',
+      ].join('\n'),
+      plan: {
+        event_type: 'Founder/operator dinner',
+        guest_count: 24,
+        neighborhood: 'Hayes Valley',
+        date_window_start: '2026-05-30',
+        date_window_end: '2026-05-30',
+        ticketed: false,
+        ticketing_model: 'rsvp',
+        food_responsibility: 'Venue handles food. Hosted bar setup.',
+        metadata: {
+          matching_signals: {
+            catering_style: 'venue_handles',
+            bar_required: true,
+            photo_video_priority: 'none',
+          },
+        },
+      },
+    },
+    {
+      label: 'tech mixer location/date/headcount/ticket/AV flow',
+      archetypeKey: 'networking_mixer',
+      conversationText: [
+        'Tech mixer in SoMa.',
+        'May 30th.',
+        '80 guests.',
+        '$40 tickets.',
+        'Standard AV for a short speaker segment. Venue handles bar and light bites. No photographer.',
+      ].join('\n'),
+      plan: {
+        event_type: 'Networking mixer',
+        guest_count: 80,
+        neighborhood: 'SoMa',
+        date_window_start: '2026-05-30',
+        date_window_end: '2026-05-30',
+        ticketed: true,
+        ticketing_model: 'ticketed',
+        food_responsibility: 'Venue handles bar and light bites.',
+        metadata: {
+          ticket_price_target_cents: 4000,
+          matching_signals: {
+            bar_required: true,
+            catering_style: 'venue_handles',
+            photo_video_priority: 'none',
+            av_intensity: 'standard',
+          },
+        },
+      },
+    },
+    {
+      label: 'panel/fireside location/date/headcount/AV/ticket flow',
+      archetypeKey: 'panel_fireside',
+      conversationText: [
+        'Startup panel in Downtown SF.',
+        'May 29th.',
+        '110 guests.',
+        'Mics, stage, recording, and livestream.',
+        '$25 tickets. Venue handles light bites.',
+      ].join('\n'),
+      plan: {
+        event_type: 'Panel / fireside',
+        guest_count: 110,
+        neighborhood: 'Downtown SF',
+        date_window_start: '2026-05-29',
+        date_window_end: '2026-05-29',
+        ticketed: true,
+        ticketing_model: 'ticketed',
+        food_responsibility: 'Venue handles light bites.',
+        metadata: {
+          ticket_price_target_cents: 2500,
+          matching_signals: {
+            av_intensity: 'standard',
+            mics_count: 4,
+            stage_required: true,
+            screens_count: 1,
+            catering_style: 'venue_handles',
+            photo_video_priority: 'none',
+          },
+        },
+      },
+    },
+    {
+      label: 'nightlife location/date/headcount/ticket flow',
+      archetypeKey: 'nightlife_club_night',
+      conversationText: [
+        'Club night in the Mission.',
+        'May 30th.',
+        '180 guests.',
+        '$30 tickets. DJ format, full bar, and full door staff.',
+      ].join('\n'),
+      plan: {
+        event_type: 'Nightlife / club night',
+        guest_count: 180,
+        neighborhood: 'Mission',
+        date_window_start: '2026-05-30',
+        date_window_end: '2026-05-30',
+        ticketed: true,
+        ticketing_model: 'ticketed',
+        food_responsibility: 'Full bar.',
+        metadata: {
+          ticket_price_target_cents: 3000,
+          matching_signals: {
+            music_format: 'dj',
+            bar_required: true,
+            security_needs: 'full_staff',
+            lighting_intensity: 'production',
+            check_in_needs: 'ticket_scan',
+          },
+        },
+      },
+    },
+    {
+      label: 'workshop location/date/headcount/free flow',
+      archetypeKey: 'workshop_class',
+      conversationText: [
+        'Coding workshop in SoMa.',
+        'June 14th.',
+        '30 guests.',
+        'Free RSVP.',
+        'Hands-on with work tables for two hours.',
+      ].join('\n'),
+      plan: {
+        event_type: 'Workshop / class',
+        guest_count: 30,
+        neighborhood: 'SoMa',
+        date_window_start: '2026-06-14',
+        date_window_end: '2026-06-14',
+        ticketed: false,
+        ticketing_model: 'rsvp',
+        food_responsibility: 'Light snacks.',
+        metadata: {
+          matching_signals: {
+            setup_format: 'hands_on',
+            duration_minutes: 120,
+            av_intensity: 'light',
+            catering_style: 'self',
+          },
+        },
+      },
+    },
+  ])('$label is ready to fire recommendations after the final answer', ({ archetypeKey, conversationText, plan }) => {
+    const archetype = ARCHETYPES.find((candidate) => candidate.key === archetypeKey)
+    if (!archetype) throw new Error(`Missing archetype ${archetypeKey}`)
+    const completePlan = makePlan(archetype, { overrides: plan })
+    const output = makeIntakeOutput(archetype, { plan: completePlan })
+
+    expect(getNextArchetypeIntakeQuestion({
+      archetype,
+      plan: completePlan,
+      conversationText,
+      includeRecommended: true,
+    })).toBeNull()
+    expect(isPlanReadyForRequestedRecommendations(completePlan, { conversationText })).toBe(true)
+    expect(isIntakeReadyForRecommendations(output, completePlan, { conversationText })).toBe(true)
+  })
 })
 
 function makePlan(
   archetype: EventArchetypeConfig,
-  options: { omitDate?: boolean; minimalSignals?: boolean } = {}
+  options: { omitDate?: boolean; minimalSignals?: boolean; overrides?: Partial<Plan> } = {}
 ): Plan {
   const matchingSignals = options.minimalSignals ? {} : buildMatchingSignals(archetype)
 
-  return {
+  const basePlan: Plan = {
     id: `plan-${archetype.key}`,
     user_id: 'user-1',
     title: `${archetype.display_name} plan`,
@@ -191,41 +360,51 @@ function makePlan(
     created_at: '2026-05-16T10:00:00Z',
     updated_at: '2026-05-16T10:00:00Z',
   }
+
+  return {
+    ...basePlan,
+    ...options.overrides,
+    metadata: {
+      ...(readRecord(basePlan.metadata) ?? {}),
+      ...(readRecord(options.overrides?.metadata) ?? {}),
+    },
+  }
 }
 
 function makeIntakeOutput(
   archetype: EventArchetypeConfig,
-  options: { omitDate?: boolean } = {}
+  options: { omitDate?: boolean; plan?: Plan } = {}
 ): IntakeAgentOutput {
+  const plan = options.plan
   return {
     reflection: 'Locked in.',
     extracted_fields: {
-      event_type: archetype.display_name,
-      guest_count: 80,
-      neighborhood: 'Mission',
-      date_window_start: options.omitDate ? null : '2026-05-30',
-      date_window_end: options.omitDate ? null : '2026-05-30',
-      budget_cap_cents: null,
-      ticketed: false,
-      ticket_price_target: null,
-      food_responsibility: 'Venue handles food and drinks',
-      profit_goal_cents: null,
+      event_type: plan?.event_type ?? archetype.display_name,
+      guest_count: plan?.guest_count ?? 80,
+      neighborhood: plan?.neighborhood ?? 'Mission',
+      date_window_start: options.omitDate ? null : plan?.date_window_start ?? '2026-05-30',
+      date_window_end: options.omitDate ? null : plan?.date_window_end ?? '2026-05-30',
+      budget_cap_cents: plan?.budget_cap_cents ?? null,
+      ticketed: plan?.ticketed ?? false,
+      ticket_price_target: readNumber(readRecord(plan?.metadata)?.ticket_price_target_cents),
+      food_responsibility: plan?.food_responsibility ?? 'Venue handles food and drinks',
+      profit_goal_cents: plan?.profit_goal_cents ?? null,
     },
     updated_event_plan: {
       event_name: `${archetype.display_name} plan`,
-      expected_attendance: 80,
-      city: 'Mission',
+      expected_attendance: plan?.guest_count ?? 80,
+      city: plan?.neighborhood ?? 'Mission',
       venue_type: archetype.display_name,
-      budget: 500000,
-      event_date: options.omitDate ? null : '2026-05-30',
-      monetization_model: 'rsvp',
-      headcount_min: 80,
-      headcount_max: 80,
-      ticket_price_target: null,
-      profit_goal: null,
+      budget: plan?.budget_cap_cents ?? 500000,
+      event_date: options.omitDate ? null : plan?.date_window_start ?? '2026-05-30',
+      monetization_model: plan?.ticketed ? 'ticketed' : 'rsvp',
+      headcount_min: plan?.guest_count ?? 80,
+      headcount_max: plan?.guest_count ?? 80,
+      ticket_price_target: readNumber(readRecord(plan?.metadata)?.ticket_price_target_cents),
+      profit_goal: plan?.profit_goal_cents ?? null,
     },
-    neighborhood: 'Mission',
-    food_drink_needs: 'Venue handles food and drinks',
+    neighborhood: plan?.neighborhood ?? 'Mission',
+    food_drink_needs: plan?.food_responsibility ?? 'Venue handles food and drinks',
     music_av_needs: null,
     vibe_audience: null,
     hard_constraints: [],
@@ -242,6 +421,16 @@ function buildMatchingSignals(archetype: EventArchetypeConfig): Record<string, u
     if (SIGNAL_VALUE_BY_FIELD[field] !== undefined) signals[field] = SIGNAL_VALUE_BY_FIELD[field]
   }
   return signals
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 function makeVenue(archetype: EventArchetypeConfig): VenueRankerVenueInput {
