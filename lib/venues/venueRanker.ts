@@ -343,17 +343,22 @@ function scoreMatchingSignalFit(
   let amenityAdjustment = 0
 
   for (const field of fields) {
-    const value = readPlanSignal(plan, field) ?? archetype.default_fills[field]
+    const planValue = readPlanSignal(plan, field)
+    const value = planValue ?? archetype.default_fills[field]
     const mismatch = evaluateVenueSignalMismatch(venue, field, value)
     if (!mismatch) continue
 
-    if (criticalFields.has(field)) {
+    // Only apply a hard gate when the value was explicitly provided by the plan.
+    // Archetype default fills are reasonable assumptions — a mismatch is a warning,
+    // not a veto, to avoid over-filtering venues before the organizer has confirmed.
+    const fromPlan = planValue !== null && planValue !== undefined
+    if (criticalFields.has(field) && fromPlan) {
       hardGateFailures.push(mismatch)
       warnings.push(mismatch)
       continue
     }
 
-    if (highSignalFields.has(field)) {
+    if (criticalFields.has(field) || highSignalFields.has(field)) {
       amenityAdjustment -= 10
       warnings.push(mismatch)
     }

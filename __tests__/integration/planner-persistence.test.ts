@@ -350,11 +350,20 @@ describe('Planner persistence integration', () => {
         message_type: 'text',
         metadata: {},
         created_at: '2026-05-10T10:03:00Z',
+      },
+      {
+        id: 'm5',
+        plan_id: 'dinner-plan',
+        role: 'user',
+        content: 'venue handles catering and bar. no photographer needed.',
+        message_type: 'text',
+        metadata: {},
+        created_at: '2026-05-10T10:04:00Z',
       }
     )
 
     try {
-      const response = await postMessage(makeRequest('/api/planner/plans/dinner-plan/messages', { message: 'private room' }), {
+      const response = await postMessage(makeRequest('/api/planner/plans/dinner-plan/messages', { message: 'private room, venue handles food and drinks' }), {
         params: { planId: 'dinner-plan' },
       })
       const json = await readJson(response)

@@ -81,6 +81,7 @@ describe('isIntakeReadyForRecommendations', () => {
       conversationText: [
         'Listening party for 80 people in the Mission on May 15. It is ticketed.',
         'We have a DJ, need premium sound, want an artist VIP green room, and need two hours of load-in with a sound check.',
+        'Full bar. No photographer needed.',
       ].join('\n'),
     })).toBe(true)
   })

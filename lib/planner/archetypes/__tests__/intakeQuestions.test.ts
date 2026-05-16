@@ -9,7 +9,7 @@ import {
 } from '@/lib/planner/archetypes'
 
 describe('archetype intake questions', () => {
-  it('asks for the first day-party high-signal matching field before recommendations', () => {
+  it('asks for music format for a day party after core fields are answered', () => {
     const question = getNextArchetypeIntakeQuestion({
       archetype: archetypeFor('day party'),
       plan: { event_type: 'Day party / brunch party' },
@@ -17,8 +17,8 @@ describe('archetype intake questions', () => {
       includeRecommended: true,
     })
 
-    expect(question?.id).toBe('indoor_outdoor')
-    expect(question?.prompt).toMatch(/indoor|outdoor|hybrid/i)
+    expect(question?.id).toBe('music_format')
+    expect(question?.prompt).toMatch(/DJ|live|playlist/i)
   })
 
   it('moves a listening party from music format to sound, then stops before timing logistics', () => {
@@ -49,6 +49,7 @@ describe('archetype intake questions', () => {
       conversationText: [
         'Listening party for 80 people in SF on May 15. Ticketed.',
         'We have a DJ bringing playback, need premium sound, and want an artist VIP green room.',
+        'Full bar, no photographer needed.',
         'Plan for two hours of load-in, a sound check, and one hour of breakdown.',
       ].join('\n'),
       includeRecommended: true,
@@ -114,10 +115,10 @@ describe('archetype intake questions', () => {
       conversationText: 'Founder dinner for 20 in Hayes Valley on May 20th.',
     })
 
-    // Must still have an unanswered critical question (catering_style, bar_required,
+    // Must still have an unanswered critical question (ticketed, catering_style, bar_required,
     // photo_video_priority, or budget_cap_cents) — not yet ready.
     expect(coreOnlyQuestion).not.toBeNull()
-    expect(['catering_style', 'bar_required', 'photo_video_priority', 'budget_cap_cents']).toContain(
+    expect(['ticketed', 'catering_style', 'bar_required', 'photo_video_priority', 'budget_cap_cents']).toContain(
       coreOnlyQuestion?.id
     )
   })
@@ -131,6 +132,7 @@ describe('archetype intake questions', () => {
         neighborhood: 'Hayes Valley',
         date_window_start: '2026-05-20',
         date_window_end: '2026-05-20',
+        ticketed: false,
         ticketing_model: 'rsvp',
         food_responsibility: 'Seated dining',
         venue_terms: 'Semi-private space',
@@ -139,6 +141,7 @@ describe('archetype intake questions', () => {
         'Founder dinner for 20 in Hayes Valley.',
         'semi private',
         'May 20th',
+        'invite only',
         'venue handles food and bar',
         'no bar needed separately',
         'no photographer',
@@ -171,7 +174,7 @@ describe('archetype intake questions', () => {
     expect(sanitizeIntakeQuestionCandidate('Is this sponsored or self-funded?')).toBe('Is this sponsored or self-funded?')
   })
 
-  it('asks for game outing setup format instead of forcing external checkout details', () => {
+  it('asks for bar requirement for a game outing after core fields are answered', () => {
     const question = getNextArchetypeIntakeQuestion({
       archetype: archetypeFor('game outing'),
       plan: { event_type: 'Game / sports outing' },
@@ -179,8 +182,8 @@ describe('archetype intake questions', () => {
       includeRecommended: true,
     })
 
-    expect(question?.id).toBe('setup_format')
-    expect(question?.prompt).toMatch(/seated|standing|reception/i)
+    expect(question?.id).toBe('bar_required')
+    expect(question?.id).not.toBe('external_tickets')
   })
 
   it('treats a short answer after an archetype question as an answer to that question', () => {

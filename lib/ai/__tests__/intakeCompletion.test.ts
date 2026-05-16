@@ -43,7 +43,7 @@ describe('archetype-aware intake completion', () => {
     expect(priority.critical_missing).not.toContain('mics_count')
   })
 
-  it('pivots a panel to recommendations after core fields because stage and mics default', () => {
+  it('pivots a panel to recommendations once AV and catering are confirmed', () => {
     const question = getNextArchetypeIntakeQuestion({
       archetype: archetypeFor('panel fireside'),
       plan: {
@@ -52,8 +52,9 @@ describe('archetype-aware intake completion', () => {
         guest_count: 100,
         date_window_start: '2026-05-30',
         date_window_end: '2026-05-30',
+        ticketed: false,
       },
-      conversationText: 'I want to host a start up panel in the Mission for 100 people on May 30th.',
+      conversationText: 'I want to host a start up panel in the Mission for 100 people on May 30th. RSVP only. Standard AV setup. Self-catered light bites.',
       includeRecommended: true,
     })
 
@@ -69,8 +70,9 @@ describe('archetype-aware intake completion', () => {
         guest_count: 120,
         date_window_start: '2026-06-10',
         date_window_end: '2026-06-10',
+        ticketed: false,
       },
-      conversationText: 'Hackathon in SOMA for 120 on June 10.',
+      conversationText: 'Hackathon in SOMA for 120 on June 10. Free to attend.',
       includeRecommended: true,
     })
 
@@ -87,8 +89,9 @@ describe('archetype-aware intake completion', () => {
         guest_count: 180,
         date_window_start: '2026-06-12',
         date_window_end: '2026-06-12',
+        ticketed: true,
       },
-      conversationText: 'Club night in the Mission for 180 next Friday.',
+      conversationText: 'Club night in the Mission for 180 next Friday. Tickets at the door.',
       includeRecommended: true,
     })
 
@@ -105,8 +108,9 @@ describe('archetype-aware intake completion', () => {
         guest_count: 200,
         date_window_start: '2026-05-19',
         date_window_end: '2026-05-19',
+        ticketed: false,
       },
-      conversationText: 'I want a launch event for 200 in SoMa next Tuesday with heavy AV and a photographer.',
+      conversationText: 'I want a launch event for 200 in SoMa next Tuesday. Free invite. Standard AV and a photographer. Outside catering. Full bar.',
       includeRecommended: true,
     })
 
@@ -132,7 +136,7 @@ describe('archetype-aware intake completion', () => {
 
     // Must be one of the required archetype-specific questions — not yet ready.
     expect(firstQuestion).not.toBeNull()
-    expect(['catering_style', 'bar_required', 'photo_video_priority', 'budget_cap_cents']).toContain(firstQuestion?.id)
+    expect(['ticketed', 'catering_style', 'bar_required', 'photo_video_priority', 'budget_cap_cents']).toContain(firstQuestion?.id)
 
     // After answering all archetype-specific questions — should pivot to recommendations.
     const nextQuestion = getNextArchetypeIntakeQuestion({
@@ -143,9 +147,11 @@ describe('archetype-aware intake completion', () => {
         guest_count: 20,
         date_window_start: '2026-05-20',
         date_window_end: '2026-05-20',
+        ticketed: false,
       },
       conversationText: [
         'Founder dinner for 20 in Hayes Valley on May 20th.',
+        'invite only',
         'venue handles food and bar',
         'no photographer needed',
         'budget around $3k',

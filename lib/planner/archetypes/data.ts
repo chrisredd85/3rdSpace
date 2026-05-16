@@ -27,18 +27,20 @@ export const ARCHETYPES = [
       { service_type: 'check_in', necessity: 'recommended', notes: 'Helpful for RSVPs and name tags.' },
       { service_type: 'photographer', necessity: 'recommended', notes: 'Capture sponsor and community proof.' },
       { service_type: 'catering', necessity: 'recommended', notes: 'Light bites keep guests onsite.' },
+      { service_type: 'av_production', necessity: 'conditional', notes: 'Include only when there is a speaker, panel segment, or formal program. Skip for pure networking format.', trigger: { field: 'setup_format', op: 'in', value: ['theater', 'classroom'] } },
       { service_type: 'dj', necessity: 'optional', notes: 'Use when the event should feel social after programming.' },
       { service_type: 'security', necessity: 'conditional', notes: 'Needed at the door when headcount exceeds 100.', trigger: { field: 'guest_count', op: 'gte', value: 100 } },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window'],
-      high_signal: ['bar_required', 'music_format', 'photo_video_priority', 'check_in_needs', 'indoor_outdoor'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'ticketed', 'bar_required', 'catering_style', 'photo_video_priority'],
+      high_signal: ['music_format', 'check_in_needs', 'indoor_outdoor', 'av_intensity'],
     },
     default_fills: {
       bar_required: true,
       check_in_needs: 'walk_in_list',
       music_format: 'curated_playlist',
       photo_video_priority: 'photographer',
+      catering_style: 'either',
     },
     preferred_commercial_models: ['minimum_spend', 'bar_rev_share', 'per_head'],
     typical_ticket_price_range_cents: [0, 3500],
@@ -80,7 +82,7 @@ export const ARCHETYPES = [
       { service_type: 'photographer', necessity: 'optional', notes: 'Add when the dinner has sponsor, investor, or PR content value and the host has confirmed they want photography.' },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'catering_style', 'bar_required', 'photo_video_priority', 'budget_cap_cents'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'ticketed', 'catering_style', 'bar_required', 'photo_video_priority', 'budget_cap_cents'],
       high_signal: ['private_or_shared', 'setup_format'],
     },
     default_fills: {
@@ -123,8 +125,8 @@ export const ARCHETYPES = [
       { service_type: 'bartending', necessity: 'recommended', notes: 'Bar support for reception pacing.' },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'av_intensity', 'photo_video_priority'],
-      high_signal: ['demo_stations_needed', 'stage_required', 'decor_intensity', 'catering_style', 'bar_required', 'sponsor_status'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'ticketed', 'av_intensity', 'photo_video_priority', 'catering_style', 'bar_required'],
+      high_signal: ['demo_stations_needed', 'stage_required', 'decor_intensity', 'sponsor_status'],
     },
     default_fills: {
       av_intensity: 'standard',
@@ -163,11 +165,12 @@ export const ARCHETYPES = [
       { service_type: 'pos_systems', necessity: 'required', notes: 'Sales and lead capture.' },
       { service_type: 'decor', necessity: 'recommended', notes: 'Retail display and brand buildout.' },
       { service_type: 'permits', necessity: 'conditional', notes: 'Needed for outdoor activations, sampling, or sidewalk usage.', trigger: { field: 'indoor_outdoor', op: 'eq', value: 'outdoor' } },
+      { service_type: 'catering', necessity: 'optional', notes: 'Sampling or food service — confirm permit before booking.' },
       { service_type: 'photographer', necessity: 'optional', notes: 'Proof of activation for recap.' },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'date_window'],
-      high_signal: ['guest_count', 'indoor_outdoor', 'demo_stations_needed', 'decor_intensity', 'sponsor_status', 'check_in_needs'],
+      critical: ['event_type', 'neighborhood', 'date_window', 'indoor_outdoor', 'guest_count'],
+      high_signal: ['demo_stations_needed', 'decor_intensity', 'sponsor_status', 'check_in_needs', 'catering_style'],
     },
     default_fills: {
       guest_count: 100,
@@ -208,8 +211,8 @@ export const ARCHETYPES = [
       { service_type: 'check_in', necessity: 'conditional', notes: 'Add when ticketed or paid registration is used.', trigger: { field: 'is_ticketed', op: 'eq', value: true } },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'setup_format'],
-      high_signal: ['av_intensity', 'screens_count', 'mics_count', 'duration_minutes', 'catering_style', 'budget_cap_cents'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'setup_format', 'av_intensity', 'duration_minutes'],
+      high_signal: ['screens_count', 'mics_count', 'catering_style', 'budget_cap_cents'],
     },
     default_fills: {
       setup_format: 'theater',
@@ -248,12 +251,12 @@ export const ARCHETYPES = [
       { service_type: 'av_production', necessity: 'required', notes: 'Microphones and program audio.' },
       { service_type: 'check_in', necessity: 'recommended', notes: 'Registration and badge flow.' },
       { service_type: 'photographer', necessity: 'recommended', notes: 'Speaker and audience capture.' },
-      { service_type: 'videographer', necessity: 'recommended', notes: 'Useful for content reuse.' },
+      { service_type: 'videographer', necessity: 'recommended', notes: 'Useful for content reuse and livestream.' },
       { service_type: 'catering', necessity: 'recommended', notes: 'Networking food or drinks.' },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'stage_required', 'mics_count'],
-      high_signal: ['screens_count', 'av_intensity', 'photo_video_priority', 'catering_style', 'ticketed', 'sponsor_status'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'ticketed', 'av_intensity', 'mics_count', 'catering_style'],
+      high_signal: ['stage_required', 'screens_count', 'photo_video_priority', 'sponsor_status'],
     },
     default_fills: {
       stage_required: true,
@@ -294,8 +297,8 @@ export const ARCHETYPES = [
       { service_type: 'catering', necessity: 'recommended', notes: 'Networking food and drinks.' },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'stage_required', 'demo_stations_needed'],
-      high_signal: ['screens_count', 'av_intensity', 'photo_video_priority', 'sponsor_status', 'ticketed'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'ticketed', 'av_intensity', 'stage_required', 'demo_stations_needed', 'catering_style'],
+      high_signal: ['screens_count', 'photo_video_priority', 'sponsor_status'],
     },
     default_fills: {
       stage_required: true,
@@ -336,8 +339,8 @@ export const ARCHETYPES = [
       { service_type: 'security', necessity: 'recommended', notes: 'Needed for long hours or overnight access.' },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'duration_days'],
-      high_signal: ['av_intensity', 'screens_count', 'catering_style', 'sponsor_status', 'budget_cap_cents'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'ticketed', 'duration_days', 'catering_style', 'av_intensity'],
+      high_signal: ['screens_count', 'sponsor_status', 'budget_cap_cents'],
     },
     default_fills: {
       duration_days: 1,
@@ -375,8 +378,8 @@ export const ARCHETYPES = [
       { service_type: 'catering', necessity: 'recommended', notes: 'Light food or coffee can improve retention.' },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window'],
-      high_signal: ['setup_format', 'mics_count', 'catering_style', 'ticketed', 'check_in_needs'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'catering_style'],
+      high_signal: ['setup_format', 'mics_count', 'ticketed', 'check_in_needs'],
     },
     default_fills: {
       setup_format: 'mixed',
@@ -420,8 +423,8 @@ export const ARCHETYPES = [
       { service_type: 'lighting', necessity: 'conditional', notes: 'Production uplighting when the venue is a raw or ballroom space.', trigger: { field: 'venue_type', op: 'in', value: ['ballroom', 'warehouse', 'event_hall', 'event_space'] } },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'stage_required', 'setup_format'],
-      high_signal: ['av_intensity', 'decor_intensity', 'catering_style', 'bar_required', 'photo_video_priority', 'sponsor_status', 'ticketed'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'ticketed', 'catering_style', 'bar_required', 'av_intensity', 'photo_video_priority'],
+      high_signal: ['stage_required', 'setup_format', 'decor_intensity', 'sponsor_status'],
     },
     default_fills: {
       stage_required: true,
@@ -466,13 +469,14 @@ export const ARCHETYPES = [
       { service_type: 'dj', necessity: 'conditional', notes: 'Only for party-oriented dinners.', trigger: { field: 'music_format', op: 'in', value: ['dj', 'high_energy'] } },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window'],
-      high_signal: ['private_or_shared', 'setup_format', 'catering_style', 'photo_video_priority', 'music_format', 'budget_cap_cents'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'catering_style', 'bar_required', 'photo_video_priority'],
+      high_signal: ['private_or_shared', 'setup_format', 'music_format', 'budget_cap_cents'],
     },
     default_fills: {
       private_or_shared: 'private',
       setup_format: 'seated',
       catering_style: 'venue_handles',
+      bar_required: false,
       photo_video_priority: 'none',
       music_format: 'none',
     },
@@ -505,11 +509,12 @@ export const ARCHETYPES = [
       { service_type: 'bartending', necessity: 'recommended', notes: 'Bar throughput and menu.' },
       { service_type: 'security', necessity: 'recommended', notes: 'Useful for large daytime parties.' },
       { service_type: 'photographer', necessity: 'optional', notes: 'Capture social proof.' },
+      { service_type: 'catering', necessity: 'optional', notes: 'Brunch food or light bites. Include when the venue does not provide food.' },
       { service_type: 'decor', necessity: 'optional', notes: 'Theme or brunch styling.' },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window'],
-      high_signal: ['indoor_outdoor', 'music_format', 'bar_required', 'security_needs', 'photo_video_priority', 'ticketed'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'ticketed', 'music_format', 'bar_required', 'catering_style', 'photo_video_priority'],
+      high_signal: ['indoor_outdoor', 'security_needs'],
     },
     default_fills: {
       indoor_outdoor: 'outdoor',
@@ -517,6 +522,7 @@ export const ARCHETYPES = [
       bar_required: true,
       security_needs: 'door',
       photo_video_priority: 'photographer',
+      catering_style: 'venue_handles',
     },
     preferred_commercial_models: ['bar_rev_share', 'minimum_spend', 'ticket_split'],
     typical_ticket_price_range_cents: [1000, 6000],
@@ -548,8 +554,8 @@ export const ARCHETYPES = [
       { service_type: 'lighting', necessity: 'recommended', notes: 'Production value for the room.' },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'music_format'],
-      high_signal: ['lighting_intensity', 'security_needs', 'bar_required', 'check_in_needs', 'ticketed'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'ticketed', 'music_format', 'bar_required', 'security_needs'],
+      high_signal: ['lighting_intensity', 'check_in_needs'],
     },
     default_fills: {
       music_format: 'dj',
@@ -591,8 +597,8 @@ export const ARCHETYPES = [
       { service_type: 'security', necessity: 'optional', notes: 'Useful for VIP or ticketed showcases.' },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'av_intensity', 'music_format'],
-      high_signal: ['setup_format', 'photo_video_priority', 'security_needs', 'ticketed', 'bar_required'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'ticketed', 'av_intensity', 'music_format', 'bar_required', 'photo_video_priority'],
+      high_signal: ['setup_format', 'security_needs'],
     },
     default_fills: {
       av_intensity: 'heavy',
@@ -627,14 +633,14 @@ export const ARCHETYPES = [
     needs_whole_venue: false,
     catering_rule: 'either',
     vendor_stack: [
-      { service_type: 'av_production', necessity: 'required', notes: 'Screen and sound confirmation.' },
+      { service_type: 'av_production', necessity: 'required', notes: 'Screen and sound confirmation — verify projection quality and rights before booking.' },
       { service_type: 'bartending', necessity: 'recommended', notes: 'Bar package or rev-share coordination.' },
       { service_type: 'catering', necessity: 'recommended', notes: 'Food package for longer screenings.' },
       { service_type: 'check_in', necessity: 'optional', notes: 'Ticket or RSVP check.' },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'screens_count'],
-      high_signal: ['av_intensity', 'setup_format', 'catering_style', 'bar_required', 'ticketed'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'ticketed', 'av_intensity', 'screens_count', 'catering_style', 'bar_required'],
+      high_signal: ['setup_format'],
     },
     default_fills: {
       screens_count: 1,
@@ -672,6 +678,7 @@ export const ARCHETYPES = [
       { service_type: 'check_in', necessity: 'required', notes: 'Waivers and attendance tracking.' },
       { service_type: 'staffing', necessity: 'recommended', notes: 'Route or room support.' },
       { service_type: 'permits', necessity: 'recommended', notes: 'Needed for public outdoor routes or parks.' },
+      { service_type: 'catering', necessity: 'optional', notes: 'Post-event food or drinks at a nearby cafe or bar. Florals are not appropriate for this format.' },
     ],
     matching_fields: {
       critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'indoor_outdoor', 'duration_minutes'],
@@ -710,11 +717,12 @@ export const ARCHETYPES = [
     catering_rule: 'either',
     vendor_stack: [
       { service_type: 'check_in', necessity: 'recommended', notes: 'Group arrival and tickets.' },
+      { service_type: 'catering', necessity: 'optional', notes: 'Pre/post food at the venue — confirm whether venue handles or outside catering is allowed.' },
       { service_type: 'transport', necessity: 'optional', notes: 'Helpful for stadium or multi-stop outings.' },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window'],
-      high_signal: ['setup_format', 'ticketed', 'bar_required', 'security_needs'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'bar_required'],
+      high_signal: ['setup_format', 'ticketed', 'security_needs', 'catering_style'],
     },
     default_fills: {
       setup_format: 'both',
@@ -758,8 +766,8 @@ export const ARCHETYPES = [
       { service_type: 'photographer', necessity: 'optional', notes: 'Team and sponsor photos.' },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window'],
-      high_signal: ['setup_format', 'decor_intensity', 'catering_style', 'bar_required', 'music_format', 'photo_video_priority'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'catering_style', 'bar_required', 'music_format', 'photo_video_priority'],
+      high_signal: ['setup_format', 'decor_intensity'],
     },
     default_fills: {
       setup_format: 'reception',
@@ -796,12 +804,13 @@ export const ARCHETYPES = [
     vendor_stack: [
       { service_type: 'staffing', necessity: 'required', notes: 'Facilitation or onsite production support.' },
       { service_type: 'catering', necessity: 'required', notes: 'Meals are part of the operating plan.' },
+      { service_type: 'av_production', necessity: 'recommended', notes: 'Presentation and workshop AV for full-day or multi-day formats.' },
       { service_type: 'transport', necessity: 'recommended', notes: 'Useful for wine country or remote venues.' },
       { service_type: 'decor', necessity: 'optional', notes: 'Light team branding or room setup.' },
     ],
     matching_fields: {
-      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'duration_days'],
-      high_signal: ['setup_format', 'private_or_shared', 'catering_style', 'sponsor_status', 'budget_cap_cents'],
+      critical: ['event_type', 'neighborhood', 'guest_count', 'date_window', 'duration_days', 'catering_style', 'private_or_shared'],
+      high_signal: ['setup_format', 'av_intensity', 'sponsor_status', 'budget_cap_cents'],
     },
     default_fills: {
       duration_days: 1,

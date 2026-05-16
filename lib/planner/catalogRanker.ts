@@ -289,6 +289,7 @@ function rankVenue(
   const reasoning = buildVenueReasoning({
     plan,
     venue,
+    archetype,
     capacity,
     estimateCents,
     budgetAllocationCents,
@@ -702,6 +703,7 @@ function chooseFitLabel(score: number, overBudget: boolean, premium: boolean): C
 function buildVenueReasoning(input: {
   plan: CatalogPlanRankingInput
   venue: CatalogVenueRankingInput
+  archetype: EventArchetypeConfig
   capacity: number | null
   estimateCents: number
   budgetAllocationCents: number
@@ -722,11 +724,15 @@ function buildVenueReasoning(input: {
   if (input.capacity !== null && headcount !== null) {
     reasons.push(`Capacity ${input.capacity} fits ${headcount} guests`)
   }
-  if (isDinnerLike(input.plan.event_type)) {
+  // Show a fallback label for any archetype when the venue type does not match the
+  // primary preferred type. This covers dinners, nightlife, fitness, and all others.
+  const preferredVenueTypes = input.archetype.preferred_venue_types
+  if (preferredVenueTypes.length > 0) {
     const venueType = normalizeText(String(input.venue.venue_type ?? ''))
-    const isRestaurantType = /\b(restaurant|private.?dining|dining.?room)\b/.test(venueType)
-    if (!isRestaurantType && venueType) {
-      reasons.push('Nearby alternative — not a restaurant')
+    const isPreferredType = preferredVenueTypes.some((preferred) => normalizeText(preferred) === venueType)
+    if (!isPreferredType && venueType) {
+      const primaryPreferredLabel = formatVenueTypeLabel(preferredVenueTypes[0])
+      reasons.push(`Nearby alternative — not a ${primaryPreferredLabel}`)
     }
   }
   if (area) {
@@ -1123,6 +1129,50 @@ function formatServiceType(value: string): string {
   return value
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+/**
+ * Returns a human-readable label for a venue type key so the fallback
+ * "Nearby alternative — not a X" label reads naturally.
+ *
+ * Examples: 'restaurant' → 'restaurant', 'coworking_event_space' → 'coworking / event space'
+ */
+function formatVenueTypeLabel(venueType: string): string {
+  const VENUE_TYPE_LABELS: Record<string, string> = {
+    restaurant: 'restaurant',
+    private_dining_room: 'private dining room',
+    restaurant_buyout: 'restaurant buyout',
+    bar: 'bar',
+    lounge: 'lounge',
+    rooftop: 'rooftop',
+    coworking_event_space: 'coworking / event space',
+    gallery: 'gallery',
+    showroom: 'showroom',
+    event_space: 'event space',
+    retail: 'retail space',
+    cafe: 'cafe',
+    market_hall: 'market hall',
+    studio: 'studio',
+    classroom: 'classroom',
+    theater: 'theater',
+    auditorium: 'auditorium',
+    startup_venue: 'startup venue',
+    expo_space: 'expo space',
+    campus: 'campus',
+    event_hall: 'event hall',
+    community_space: 'community space',
+    ballroom: 'ballroom',
+    club: 'club',
+    warehouse: 'warehouse',
+    sports_bar: 'sports bar',
+    hotel: 'hotel',
+    conference_center: 'conference center',
+    winery: 'winery',
+    private_estate: 'private estate',
+    loft_warehouse: 'loft / warehouse',
+    outdoor_park: 'outdoor park',
+  }
+  return VENUE_TYPE_LABELS[venueType] ?? venueType.replace(/_/g, ' ')
 }
 
 function formatCents(value: number): string {

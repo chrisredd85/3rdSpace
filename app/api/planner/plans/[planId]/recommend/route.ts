@@ -50,6 +50,7 @@ import {
   summarizeBuilderTierElasticity,
   type ElasticitySignal,
 } from '@/lib/server/builderTierElasticity'
+import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlanMessage, PlannerApiErrorResponse, Recommendation } from '@/lib/types'
 import {
@@ -80,11 +81,13 @@ interface PlannerRecommendResponse {
   capacity_calibration: CapacityCalibrationSummary
   elasticity: ElasticitySignal | null
   economics: EconomicsAgentOutput | null
+  economics_placeholder: string | null
   profit_projection: ProfitProjectionSummary | null
   workspace_summary: WorkspaceAgentOutput | null
   timeline: TimelineAgentOutput | null
   persisted_recommendation_ids: string[]
   outreach_approval_message_id?: string | null
+  ticketing_platform_prompt: string | null
 }
 
 type VenueMatchNotice =
@@ -335,6 +338,7 @@ export async function POST(
     const archetypeIntake = buildArchetypeIntakeOutcomeContext(messages, archetype)
     const mutationContract = buildMutationContract(plan.metadata, plan.event_type)
     const builderAttendance = await loadBuilderAttendanceForPlan(auth.db, auth.userId, archetype.key)
+    const connectedTicketingPlatforms = await getBuilderConnectedTicketingPlatforms(auth.db, auth.userId)
     const elasticity = await loadBuilderElasticityForPlan(auth.db, auth.userId, archetype.key)
     const capacityCalibration = buildCapacityCalibrationSummary(recommendationPlan, builderAttendance)
 
@@ -349,6 +353,8 @@ export async function POST(
         rankingInput,
         conversationHistory,
         archetypeIntake,
+        connectedTicketingPlatforms,
+        messages,
         request,
         limit: body.data.limit,
         venueLimit: body.data.venueLimit,
@@ -405,25 +411,33 @@ export async function POST(
     const vendorCostCents = vendorCostSummary.vendor_cost_cents
     const ticketPriceSweepCents = buildTicketPriceSweepCents(archetype, elasticity)
     const profitProjection = buildProfitProjectionSummary(recommendationPlan, venueCostCents, vendorCostCents, ticketPriceSweepCents)
-    const economicsPayload = buildEconomicsPayload(
-      recommendationPlan,
-      eventPlan,
-      venueCostCents,
-      vendorCostCents,
-      {
-        archetype,
-        elasticity,
-        historicalAttendance: builderAttendance,
-        ticketPriceSweepCents,
-        profitProjection,
-        venue: pickTopVenueCandidate(venueMatch.candidateVenues, venueMatch.venueResult.output.ranked_venues),
-        archetypeIntake,
-        mutationContract,
-        conversationHistory,
-        vendorCostSummary,
-      }
-    )
-    const economicsResult = await runLoggedEconomicsAgent(auth.userId, plan.id, economicsPayload)
+    const knownTicketPriceCents = readPlanTicketPriceTargetCents(recommendationPlan)
+    const economicsPlaceholder = buildEconomicsPlaceholder(recommendationPlan, archetype, knownTicketPriceCents)
+    const economicsResult: EconomicsAgentResult | null = economicsPlaceholder
+      ? null
+      : await runLoggedEconomicsAgent(
+          auth.userId,
+          plan.id,
+          buildEconomicsPayload(
+            recommendationPlan,
+            eventPlan,
+            venueCostCents,
+            vendorCostCents,
+            {
+              archetype,
+              elasticity,
+              historicalAttendance: builderAttendance,
+              ticketPriceSweepCents,
+              profitProjection,
+              venue: pickTopVenueCandidate(venueMatch.candidateVenues, venueMatch.venueResult.output.ranked_venues),
+              archetypeIntake,
+              mutationContract,
+              conversationHistory,
+              vendorCostSummary,
+            }
+          )
+        )
+    const ticketingPlatformPrompt = buildTicketingPlatformPrompt(recommendationPlan, plan.id, connectedTicketingPlatforms, messages)
     const topVenueContext = toRecommendedVenueContext(
       pickTopVenueCandidate(venueMatch.candidateVenues, venueMatch.venueResult.output.ranked_venues),
       venueMatch.venueResult.output.ranked_venues[0] ?? null,
@@ -494,7 +508,7 @@ export async function POST(
         venue_ids: venueMatch.venueResult.output.ranked_venues.map((venue) => venue.venue_id),
         vendor_ids: suggestedVendors.map((vendor) => vendor.vendor_id),
         archetype: toResolvedArchetypeSummary(archetype),
-        economics_agent: economicsResult.agent_name,
+        economics_agent: economicsResult?.agent_name ?? null,
         venue_match_notice: venueMatch.notice,
         vendor_match_notice: vendorMatchNotice,
         capacity_calibration: capacityCalibration,
@@ -520,13 +534,15 @@ export async function POST(
       vendor_match_notice: vendorMatchNotice,
       capacity_calibration: capacityCalibration,
       elasticity,
-      economics: economicsResult.output,
-      profit_projection: profitProjection,
+      economics: economicsPlaceholder ? null : (economicsResult?.output ?? null),
+      economics_placeholder: economicsPlaceholder,
+      profit_projection: economicsPlaceholder ? null : profitProjection,
       workspace_summary: operationalArtifacts.workspace_summary,
       timeline: operationalArtifacts.timeline,
       plan_ticketed: plan.ticketed,
       persisted_recommendation_ids: persisted.map((recommendation) => recommendation.id),
       outreach_approval_message_id: outreachApproval?.approvalMessageId ?? null,
+      ticketing_platform_prompt: ticketingPlatformPrompt,
     })
   } catch (error) {
     console.error('[agent.run] Planner recommend POST error', error)
@@ -544,6 +560,8 @@ async function runCatalogFallback(input: {
   rankingInput: CatalogPlanRankingInput
   conversationHistory: PlannerAgentConversationMessage[]
   archetypeIntake: ArchetypeIntakeOutcomeContext
+  connectedTicketingPlatforms: string[]
+  messages: PlanMessage[]
   request: NextRequest
   limit: number
   venueLimit: number
@@ -609,13 +627,17 @@ async function runCatalogFallback(input: {
     vendorRecommendations,
   })
   const vendorCostCents = vendorCostSummary.vendor_cost_cents
-  const fallbackEconomics = buildFallbackEconomicsOutput(
-    input.plan,
-    eventPlan,
-    recommendationsForPersistence,
-    ticketPriceSweepCents,
-    vendorCostSummary
-  )
+  const knownTicketPriceCents = readPlanTicketPriceTargetCents(input.plan)
+  const fallbackEconomicsPlaceholder = buildEconomicsPlaceholder(input.plan, input.archetype, knownTicketPriceCents)
+  const fallbackEconomics = fallbackEconomicsPlaceholder
+    ? null
+    : buildFallbackEconomicsOutput(
+        input.plan,
+        eventPlan,
+        recommendationsForPersistence,
+        ticketPriceSweepCents,
+        vendorCostSummary
+      )
   const profitProjection = buildProfitProjectionSummary(
     input.plan,
     venueCostCents,
@@ -627,14 +649,16 @@ async function runCatalogFallback(input: {
     input.plan.id,
     recommendationsForPersistence
   )
-  const persistedEconomicsRecommendation = await persistEconomicsRecommendation(
-    input.auth.db,
-    input.plan.id,
-    fallbackEconomics,
-    'catalog_fallback',
-    profitProjection,
-    input.elasticity
-  )
+  const persistedEconomicsRecommendation = fallbackEconomics
+    ? await persistEconomicsRecommendation(
+        input.auth.db,
+        input.plan.id,
+        fallbackEconomics,
+        'catalog_fallback',
+        profitProjection,
+        input.elasticity
+      )
+    : []
   const persisted = [...persistedCatalogRecommendations, ...persistedEconomicsRecommendation]
   const topVenueContext = toRecommendedVenueContextFromCatalog(
     recommendationsForPersistence.find((recommendation) => recommendation.kind === 'venue') ?? null,
@@ -704,6 +728,8 @@ async function runCatalogFallback(input: {
     ip_address: getIpAddress(input.request),
   })
 
+  const catalogTicketingPlatformPrompt = buildTicketingPlatformPrompt(input.plan, input.plan.id, input.connectedTicketingPlatforms, input.messages)
+
   return NextResponse.json({
     resolved_archetype: toResolvedArchetypeSummary(input.archetype),
     ranked_venues: rankedVenues,
@@ -715,12 +741,14 @@ async function runCatalogFallback(input: {
     capacity_calibration: input.capacityCalibration,
     elasticity: input.elasticity,
     economics: fallbackEconomics,
-    profit_projection: profitProjection,
+    economics_placeholder: fallbackEconomicsPlaceholder,
+    profit_projection: fallbackEconomicsPlaceholder ? null : profitProjection,
     workspace_summary: operationalArtifacts.workspace_summary,
     timeline: operationalArtifacts.timeline,
     plan_ticketed: input.plan.ticketed,
     persisted_recommendation_ids: persisted.map((recommendation) => recommendation.id),
     outreach_approval_message_id: outreachApproval?.approvalMessageId ?? null,
+    ticketing_platform_prompt: catalogTicketingPlatformPrompt,
   })
 }
 
@@ -2434,7 +2462,7 @@ async function persistAgentRecommendations(
   db: PlannerDb,
   planId: string,
   venueResult: VenueMatchingAgentResult,
-  economicsResult: EconomicsAgentResult,
+  economicsResult: EconomicsAgentResult | null,
   venueCostById: Map<string, number | null>,
   vendorRecommendations: SuggestedVendorRecommendation[],
   vendorRecommendationGroups: VendorRecommendationGroup[],
@@ -2497,15 +2525,17 @@ async function persistAgentRecommendations(
       vendor_match_notice: vendorMatchNotice,
     }),
   }))
-  const economicsInsert = buildEconomicsRecommendationInsert(
-    planId,
-    economicsResult.output,
-    'economics_agent',
-    economicsResult.model,
-    profitProjection,
-    elasticity
-  )
-  const inserts = [...venueInserts, ...vendorInserts, economicsInsert]
+  const economicsInsert = economicsResult
+    ? buildEconomicsRecommendationInsert(
+        planId,
+        economicsResult.output,
+        'economics_agent',
+        economicsResult.model,
+        profitProjection,
+        elasticity
+      )
+    : null
+  const inserts = [...venueInserts, ...vendorInserts, ...(economicsInsert ? [economicsInsert] : [])]
 
   if (inserts.length === 0) return []
 
@@ -3083,6 +3113,77 @@ function readPlanTicketPriceTargetCents(plan: Plan): number | null {
   if (value !== null && value > 0) return Math.round(value < 1000 ? value * 100 : value)
 
   return null
+}
+
+/**
+ * Archetypes that typically charge admission and therefore need a ticket price
+ * before economics can run meaningfully.
+ */
+const ADMISSION_CHARGING_ARCHETYPES = new Set<string>([
+  'networking_mixer',
+  'founder_operator_dinner',
+  'brand_product_launch',
+  'panel_fireside',
+  'demo_day_pitch_night',
+  'day_party_brunch_party',
+  'nightlife_club_night',
+  'listening_party_showcase',
+  'fundraiser_gala',
+  'watch_party_screening',
+  'hackathon',
+])
+
+/**
+ * Returns a placeholder message when economics should be skipped because
+ * ticket price is unknown for an admission-charging archetype.
+ * Returns null when economics should run normally.
+ */
+function buildEconomicsPlaceholder(
+  plan: Plan,
+  archetype: EventArchetypeConfig,
+  knownTicketPriceCents: number | null
+): string | null {
+  // If the event is explicitly free/sponsored, economics can run without ticket price.
+  if (plan.ticketed === false) return null
+  // If ticket price is already known, economics can run.
+  if (knownTicketPriceCents !== null && knownTicketPriceCents > 0) return null
+  // Only gate on admission-charging archetypes.
+  if (!ADMISSION_CHARGING_ARCHETYPES.has(archetype.key)) return null
+  return 'Add a ticket or cover price to model your profit window.'
+}
+
+/**
+ * Returns a one-time prompt to connect a ticketing platform if the builder
+ * has no platform connected and ticket price was just collected.
+ *
+ * Only surfaces once per plan — detected by checking existing messages for
+ * a prior `ticketing_platform_prompt` message.
+ */
+function buildTicketingPlatformPrompt(
+  plan: Plan,
+  planId: string,
+  connectedPlatforms: string[],
+  messages: PlanMessage[]
+): string | null {
+  // No prompt needed if already connected.
+  if (connectedPlatforms.length > 0) return null
+  // No prompt for free/sponsored events.
+  if (plan.ticketed === false) return null
+  // Only prompt for admission-charging archetypes — need event_type set.
+  if (!plan.event_type) return null
+  const archetypeKey = plan.event_type.toLowerCase().replace(/\s+/g, '_')
+  if (!ADMISSION_CHARGING_ARCHETYPES.has(archetypeKey)) return null
+  // Only surface once — check if the prompt has already been shown.
+  const alreadyShown = messages.some((message) => {
+    const metadata = readRecord(message.metadata)
+    return metadata?.kind === 'ticketing_platform_prompt'
+  })
+  if (alreadyShown) return null
+
+  return (
+    'To model your economics accurately, connect your ticketing platform (Luma, Partiful, Posh, or Eventbrite) in Settings → Ticketing. ' +
+    'This lets me factor in platform fees, your historical sell-through rate, and real revenue data.'
+  )
 }
 
 function clampBreakEvenTickets(rawBreakEvenTickets: number, guestCount: number): number {

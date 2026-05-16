@@ -211,7 +211,7 @@ const MATCHING_FIELD_QUESTION_COPY: Record<MatchingField, Omit<ArchetypeIntakeQu
     id: 'ticketed',
     label: 'Ticketing',
     prompt: 'Is this ticketed, RSVP-only, invite-only, or should guests pay the venue directly?',
-    field: 'ticketing_model',
+    field: 'ticketed',
     answer_keywords: ['ticketed', 'tickets', 'rsvp', 'invite', 'free', 'guests pay', 'external checkout'],
   },
   food_responsibility: {
