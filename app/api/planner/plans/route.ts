@@ -195,9 +195,15 @@ export async function POST(
     const messages = initialExchange.messages
     // Whether the initial intake already has all required fields and should fetch recommendations.
     // The client calls /trigger-recommendations after plan creation to avoid timing out this route.
-    const needsRecommendations = messages.some(
+    const hasRecommendationTransition = messages.some(
       (message) => message.role === 'agent' && message.message_type === 'recommendation'
     )
+    const hasDraftSignupGate = messages.some((message) =>
+      readRecord(message.metadata)?.state === 'draft_match_signup_gate'
+    )
+    const needsRecommendations =
+      hasRecommendationTransition ||
+      (finalPlan.status === 'ready' && hasDraftSignupGate && !messages.some(isRecommendationMessage))
 
     await recordEventTypeCandidate(auth.db, {
       userId: auth.userId,
@@ -230,6 +236,13 @@ export async function POST(
     console.error('Planner plans POST error:', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
   }
+}
+
+function isRecommendationMessage(message: PlanMessage) {
+  if (message.message_type !== 'recommendation') return false
+  const metadata = readRecord(message.metadata)
+  const recommendations = metadata?.recommendations
+  return Array.isArray(recommendations) && recommendations.length > 0
 }
 
 async function getAuthenticatedPlannerDb(): Promise<AuthResult> {

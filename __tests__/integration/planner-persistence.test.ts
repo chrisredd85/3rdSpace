@@ -625,4 +625,56 @@ describe('Planner persistence integration', () => {
     expect(reloaded.messages).toHaveLength(8)
     expect(db.rows.planner_plan_updates.filter((row) => row.field === 'status')).toHaveLength(2)
   })
+
+  it('marks migrated ready public drafts as needing recommendations', async () => {
+    const createResponse = await createPlan(makeRequest('/api/planner/plans', {
+      message: 'Game night in downtown Oakland',
+      draft: {
+        plan: {
+          title: 'Game / sports outing plan',
+          event_type: 'Game / sports outing',
+          status: 'ready',
+          guest_count: 50,
+          neighborhood: 'Downtown Oakland',
+          date_window_start: '2026-05-30',
+          date_window_end: '2026-05-30',
+          ticketed: false,
+          ticketing_model: null,
+        },
+        messages: [
+          {
+            role: 'user',
+            content: 'I want to host a game night in downtown Oakland for 50 people',
+            message_type: 'text',
+            metadata: {},
+            created_at: '2026-05-16T19:20:00.000Z',
+          },
+          {
+            role: 'agent',
+            content: 'I have enough to match venues and vendors for this game / sports outing for 50 guests in Downtown Oakland. Create a planner account to save this draft and unlock real venue matches, vendor picks, financial projections, and approval cards.',
+            message_type: 'status_update',
+            metadata: {
+              state: 'draft_match_signup_gate',
+              requires_auth: true,
+              next_action: 'signup_to_match',
+            },
+            created_at: '2026-05-16T19:25:00.000Z',
+          },
+        ],
+      },
+    }))
+    const created = await readJson(createResponse)
+
+    expect(createResponse.status).toBe(200)
+    expect(created.plan.status).toBe('ready')
+    expect(created.needs_recommendations).toBe(true)
+    expect(created.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        message_type: 'status_update',
+        metadata: expect.objectContaining({
+          state: 'draft_match_signup_gate',
+        }),
+      }),
+    ]))
+  })
 })

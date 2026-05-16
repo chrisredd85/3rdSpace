@@ -190,6 +190,7 @@ function PlannerPageContent() {
   const hasStartedInitialDraftRef = useRef(false)
   const hasTriggeredDemoResetRef = useRef(false)
   const hasTriedDraftAutoMigrationRef = useRef(false)
+  const autoTriggeredDraftRecommendationPlanRef = useRef<string | null>(null)
   const ignoredDraftRef = useRef<string | null>(null)
   const [persistenceMode, setPersistenceMode] = useState<PlannerPersistenceMode>('loading')
   const [hasLoadedStoredConversation, setHasLoadedStoredConversation] = useState(false)
@@ -300,6 +301,26 @@ function PlannerPageContent() {
       }
 
       try {
+        if (!requestedPlanId && !hasTriedDraftAutoMigrationRef.current) {
+          hasTriedDraftAutoMigrationRef.current = true
+          try {
+            const migratedPlan = await migratePlannerDraftToServer()
+            if (migratedPlan?.plan?.id) {
+              if (!isCancelled) {
+                setActivePlan(migratedPlan.plan)
+                setMessages(migratedPlan.messages)
+                setActiveTab('chat')
+                setPersistenceMode('server')
+                clearStoredPlannerConversation()
+                publishLivePlan(migratedPlan.plan, migratedPlan.messages)
+              }
+              return
+            }
+          } catch (error) {
+            console.warn('[planner] Continuing after stored draft auto-migration failed', error)
+          }
+        }
+
         const plannerState = await loadPlannerStateFromApiCached(requestedPlanId)
 
         if (plannerState.status === 'unauthorized') {
@@ -369,6 +390,18 @@ function PlannerPageContent() {
     setTimelineResult(null)
     setTimelineError(null)
   }, [activePlan?.id])
+
+  useEffect(() => {
+    if (!hasLoadedStoredConversation) return
+    if (persistenceMode !== 'server') return
+    if (!activePlan || activePlan.status !== 'ready') return
+    if (isAwaitingRecommendations) return
+    if (!hasDraftMatchGateMessage(messages) || messages.some(isRecommendationMessage)) return
+    if (autoTriggeredDraftRecommendationPlanRef.current === activePlan.id) return
+
+    autoTriggeredDraftRecommendationPlanRef.current = activePlan.id
+    void triggerRecommendations(activePlan.id, messages)
+  }, [activePlan, hasLoadedStoredConversation, isAwaitingRecommendations, messages, persistenceMode])
 
   /**
    * Starts a homepage/public-intake draft and then removes the draft query so
