@@ -366,6 +366,10 @@ const MATCHING_FIELD_QUESTION_COPY: Record<MatchingField, Omit<ArchetypeIntakeQu
 const FIELD_PROMPT_OVERRIDES: Partial<Record<string, string>> = {
   'workshop_class.setup_format': 'Will this be theater-style with a speaker, or hands-on with workstations?',
   'founder_operator_dinner.private_or_shared': 'Private room, semi-private, or okay with a shared space?',
+  'founder_operator_dinner.catering_style': 'Will the venue handle food and bar service, or do you need catering and a bartender separately?',
+  'founder_operator_dinner.bar_required': 'Do you need a dedicated bartender or bar setup, or will the venue handle drinks?',
+  'founder_operator_dinner.photo_video_priority': 'Do you want a photographer for the evening?',
+  'founder_operator_dinner.budget_cap_cents': "What's your budget range — or would you like to model ticket or cover pricing?",
   'hackathon.duration_days': 'How many days are you planning?',
   'nightlife_club_night.music_format': 'Should I plan for DJ, live, or both?',
   'panel_fireside.mics_count': 'How many microphones do you need for the panel?',

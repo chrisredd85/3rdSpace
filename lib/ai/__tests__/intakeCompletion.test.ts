@@ -113,8 +113,10 @@ describe('archetype-aware intake completion', () => {
     expect(question).toBeNull()
   })
 
-  it('asks one founder dinner high-signal question, then pivots', () => {
+  it('asks founder dinner archetype-specific intake questions before pivoting to recommendations', () => {
     const archetype = archetypeFor('founder dinner')
+
+    // After core fields only — should ask catering/bar/photo/budget questions first.
     const firstQuestion = getNextArchetypeIntakeQuestion({
       archetype,
       plan: {
@@ -128,8 +130,11 @@ describe('archetype-aware intake completion', () => {
       includeRecommended: true,
     })
 
-    expect(['private_or_shared', 'setup_format', 'catering_style', 'photo_video_priority', 'budget_cap_cents']).toContain(firstQuestion?.id)
+    // Must be one of the required archetype-specific questions — not yet ready.
+    expect(firstQuestion).not.toBeNull()
+    expect(['catering_style', 'bar_required', 'photo_video_priority', 'budget_cap_cents']).toContain(firstQuestion?.id)
 
+    // After answering all archetype-specific questions — should pivot to recommendations.
     const nextQuestion = getNextArchetypeIntakeQuestion({
       archetype,
       plan: {
@@ -139,7 +144,12 @@ describe('archetype-aware intake completion', () => {
         date_window_start: '2026-05-20',
         date_window_end: '2026-05-20',
       },
-      conversationText: 'Founder dinner for 20 in Hayes Valley on May 20th. Semi-private is best.',
+      conversationText: [
+        'Founder dinner for 20 in Hayes Valley on May 20th.',
+        'venue handles food and bar',
+        'no photographer needed',
+        'budget around $3k',
+      ].join('\n'),
       includeRecommended: true,
     })
 

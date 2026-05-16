@@ -115,8 +115,9 @@ describe('requested recommendations readiness', () => {
         'Founder dinner for 20 in Hayes Valley.',
         'semi private',
         'May 20th',
-        'seated dining',
-        'just 30 minutes of prep time',
+        'venue handles food and bar',
+        'no photographer',
+        'budget around $3k',
         'where should I book it?',
       ].join('\n'),
     })).toBe(true)

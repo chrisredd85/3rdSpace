@@ -99,6 +99,29 @@ describe('archetype intake questions', () => {
     expect(question?.id).not.toBe('privacy')
   })
 
+  it('asks founder dinner archetype-specific questions before recommendations fire', () => {
+    // After core fields are present, the agent must ask catering/bar/photography/budget
+    // before isIntakeReadyForRecommendations returns true.
+    const coreOnlyQuestion = getNextArchetypeIntakeQuestion({
+      archetype: archetypeFor('founder dinner'),
+      plan: {
+        event_type: 'Founder/operator dinner',
+        guest_count: 20,
+        neighborhood: 'Hayes Valley',
+        date_window_start: '2026-05-20',
+        date_window_end: '2026-05-20',
+      },
+      conversationText: 'Founder dinner for 20 in Hayes Valley on May 20th.',
+    })
+
+    // Must still have an unanswered critical question (catering_style, bar_required,
+    // photo_video_priority, or budget_cap_cents) — not yet ready.
+    expect(coreOnlyQuestion).not.toBeNull()
+    expect(['catering_style', 'bar_required', 'photo_video_priority', 'budget_cap_cents']).toContain(
+      coreOnlyQuestion?.id
+    )
+  })
+
   it('treats the founder dinner booking-options sequence as complete enough for matching', () => {
     const question = getNextArchetypeIntakeQuestion({
       archetype: archetypeFor('founder dinner'),
@@ -116,8 +139,10 @@ describe('archetype intake questions', () => {
         'Founder dinner for 20 in Hayes Valley.',
         'semi private',
         'May 20th',
-        'seated dining',
-        'just 30 minutes of prep time',
+        'venue handles food and bar',
+        'no bar needed separately',
+        'no photographer',
+        'budget around $3k',
         'where should I book it?',
       ].join('\n'),
     })

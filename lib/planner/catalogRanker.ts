@@ -722,6 +722,13 @@ function buildVenueReasoning(input: {
   if (input.capacity !== null && headcount !== null) {
     reasons.push(`Capacity ${input.capacity} fits ${headcount} guests`)
   }
+  if (isDinnerLike(input.plan.event_type)) {
+    const venueType = normalizeText(String(input.venue.venue_type ?? ''))
+    const isRestaurantType = /\b(restaurant|private.?dining|dining.?room)\b/.test(venueType)
+    if (!isRestaurantType && venueType) {
+      reasons.push('Nearby alternative — not a restaurant')
+    }
+  }
   if (area) {
     if (venueArea && !areaLabelMatchesRequested(area, venueArea)) {
       reasons.push(`Nearby — outside ${area}`)

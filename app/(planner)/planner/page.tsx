@@ -10,6 +10,7 @@
 
 import { Suspense, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { CalendarDays, CheckCircle2, ChevronDown, Copy, ExternalLink, LayoutTemplate, Loader2, MessageSquare, RefreshCw, SendHorizontal, Sparkles, X } from 'lucide-react'
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
 import { PlannerDataConnectionPanel } from '@/components/planner/PlannerDataConnectionPanel'
@@ -4816,6 +4817,18 @@ function PlannerApprovalCard({
                 </Button>
                 <Button type="button" variant="glass" size="sm" onClick={() => setMode('view')} disabled={isSubmitting}>
                   Keep it
+                </Button>
+              </div>
+            </div>
+          ) : !isAuthenticated ? (
+            <div className="mt-4 rounded-xl border border-border bg-background/60 px-4 py-3">
+              <p className="text-sm font-semibold text-foreground">Create an account to approve this action</p>
+              <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                Approval requires a planner account. Sign up to save this plan and authorize outreach or payments.
+              </p>
+              <div className="mt-3">
+                <Button asChild size="sm" className="rounded-xl">
+                  <Link href="/signup/builder">Continue to creator signup</Link>
                 </Button>
               </div>
             </div>
