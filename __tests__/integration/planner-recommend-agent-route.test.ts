@@ -6,6 +6,7 @@ import { POST as recommendPlan } from '@/app/api/planner/plans/[planId]/recommen
 import { runAgent } from '@/lib/ai/agents'
 import { runEconomicsAgent } from '@/lib/ai/agents/economicsAgent'
 import { runVenueMatchingAgent } from '@/lib/ai/agents/venueMatchingAgent'
+import { ARCHETYPES } from '@/lib/planner/archetypes'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 jest.mock('@/lib/ai/agents', () => ({
@@ -548,6 +549,90 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       expect.objectContaining({ agent_name: 'workspace', status: 'succeeded' }),
     ]))
     expect(db.rows.agent_runs).toHaveLength(4)
+  })
+
+  it('completes recommendation generation for every supported archetype with unknown ticket price', async () => {
+    for (const archetype of ARCHETYPES) {
+      const planId = `plan-${archetype.key}`
+      db.rows.plans.push({
+        id: planId,
+        user_id: 'user-1',
+        title: `${archetype.display_name} plan`,
+        event_type: archetype.display_name,
+        status: 'ready',
+        guest_count: 80,
+        budget_cap_cents: 400000,
+        neighborhood: 'Mission',
+        date_window_start: '2026-06-19',
+        date_window_end: '2026-06-19',
+        ticketed: false,
+        ticketing_model: 'rsvp',
+        food_responsibility: 'venue handles food and drinks',
+        venue_terms: null,
+        agent_action: null,
+        profit_goal_cents: null,
+        notes: null,
+        metadata: {
+          matching_signals: {
+            setup_format: 'seated',
+            private_or_shared: 'private',
+            indoor_outdoor: 'indoor',
+            duration_days: 1,
+            duration_minutes: 120,
+            av_intensity: 'standard',
+            stage_required: true,
+            demo_stations_needed: true,
+            screens_count: 1,
+            mics_count: 2,
+            music_format: 'dj',
+            photo_video_priority: 'none',
+            catering_style: 'venue_handles',
+            bar_required: false,
+            security_needs: 'none',
+          },
+        },
+      })
+
+      const response = await recommendPlan(
+        makeRequest({ venueLimit: 3, vendorLimit: 3 }, `/api/planner/plans/${planId}/recommend`),
+        { params: { planId } }
+      )
+      const json = await readJson(response)
+
+      expect(response.status).toBe(200)
+      expect(json.resolved_archetype).toEqual(expect.objectContaining({
+        key: archetype.key,
+        display_name: archetype.display_name,
+      }))
+      expect(json.ranked_venues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ venue_id: VENUE_ID }),
+      ]))
+    }
+  })
+
+  it('falls back to catalog recommendations when the OpenAI venue pipeline fails', async () => {
+    mockRunVenueMatchingAgent.mockRejectedValueOnce(new Error('invalid api key'))
+
+    const response = await recommendPlan(makeRequest({ venueLimit: 3 }), {
+      params: { planId: 'plan-1' },
+    })
+    const json = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(json.ranked_venues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        venue_id: VENUE_ID,
+        venue_name: 'Mission Hall',
+      }),
+    ]))
+    expect(db.rows.audit_logs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: 'planner.catalog_recommendations.generated',
+        after_state: expect.objectContaining({
+          fallback_reason: 'invalid api key',
+        }),
+      }),
+    ]))
   })
 
   it('supersedes stale recommendations and refreshes the thread when match-affecting fields change', async () => {

@@ -32,7 +32,12 @@ import {
   type RankedCatalogRecommendation,
 } from '@/lib/planner/catalogRanker'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS, RECOMMENDATION_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
-import { applyArchetypeDefaultFills, withPlanVendorStack } from '@/lib/planner/recommendVendorStack'
+import {
+  applyArchetypeDefaultFills,
+  readPlanMatchingBoolean,
+  readPlanMatchingSignal,
+  withPlanVendorStack,
+} from '@/lib/planner/recommendVendorStack'
 import { loadVendorEconomicsCostSummary, type VendorEconomicsCostSummary } from '@/lib/planner/vendorEconomicsCosts'
 import { logAgentRun, type AgentRunDb } from '@/lib/server/agent-runs'
 import {
@@ -359,9 +364,11 @@ export async function POST(
         limit: body.data.limit,
         venueLimit: body.data.venueLimit,
         vendorLimit: body.data.vendorLimit,
+        fallbackReason: 'OPENAI_API_KEY is not configured',
       })
     }
 
+    try {
     const eventPlan = buildAgentEventPlan(recommendationPlan, rankingInput)
     const candidateVenues = await loadVenueAgentCandidates(auth.db, recommendationPlan, rankingInput, {
       neighborhoodMode: 'strict',
@@ -544,6 +551,27 @@ export async function POST(
       outreach_approval_message_id: outreachApproval?.approvalMessageId ?? null,
       ticketing_platform_prompt: ticketingPlatformPrompt,
     })
+    } catch (error) {
+      console.warn('[planner.recommend] Agent-backed recommendation pipeline failed; falling back to catalog ranker', error)
+      return runCatalogFallback({
+        auth,
+        plan: recommendationPlan,
+        archetype,
+        builderAttendance,
+        elasticity,
+        capacityCalibration,
+        rankingInput,
+        conversationHistory,
+        archetypeIntake,
+        connectedTicketingPlatforms,
+        messages,
+        request,
+        limit: body.data.limit,
+        venueLimit: body.data.venueLimit,
+        vendorLimit: body.data.vendorLimit,
+        fallbackReason: error instanceof Error ? error.message : 'Agent-backed recommendation pipeline failed',
+      })
+    }
   } catch (error) {
     console.error('[agent.run] Planner recommend POST error', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
@@ -566,6 +594,7 @@ async function runCatalogFallback(input: {
   limit: number
   venueLimit: number
   vendorLimit: number
+  fallbackReason: string
 }): Promise<NextResponse<PlannerRecommendResponse>> {
   const [venues, vendors] = await Promise.all([
     loadCatalogVenues(input.auth.db),
@@ -712,7 +741,7 @@ async function runCatalogFallback(input: {
         recommendation_ids: persisted.map((recommendation) => recommendation.id),
         partner_ids: recommendationsForPersistence.map((recommendation) => recommendation.partner_id),
         archetype: toResolvedArchetypeSummary(input.archetype),
-        fallback_reason: 'OPENAI_API_KEY is not configured',
+        fallback_reason: input.fallbackReason,
         venue_match_notice: catalogVenueMatch.notice,
         vendor_match_notice: vendorMatchNotice,
         capacity_calibration: input.capacityCalibration,
@@ -2018,30 +2047,30 @@ function evaluateVendorTrigger(trigger: VendorTrigger, plan: Plan): boolean {
       planValue = plan.guest_count ?? null
       break
     case 'indoor_outdoor':
-      planValue = typeof p.indoor_outdoor === 'string' ? p.indoor_outdoor : null
+      planValue = readString(readPlanMatchingSignal(plan, 'indoor_outdoor'))
       break
     case 'catering_style':
-      planValue = typeof p.catering_style === 'string' ? p.catering_style : null
+      planValue = readString(readPlanMatchingSignal(plan, 'catering_style'))
       break
     case 'is_ticketed':
-      planValue = typeof p.is_ticketed === 'boolean' ? p.is_ticketed : null
+      planValue = plan.ticketed ?? null
       break
     case 'has_bar':
-      planValue = typeof p.has_bar === 'boolean' ? p.has_bar : null
+      planValue = readPlanMatchingBoolean(plan, 'bar_required')
       break
     case 'duration_hours': {
-      const mins = p.duration_minutes
-      planValue = typeof mins === 'number' ? mins / 60 : null
+      const mins = readNumber(readPlanMatchingSignal(plan, 'duration_minutes') ?? p.duration_minutes)
+      planValue = mins !== null ? mins / 60 : null
       break
     }
     case 'venue_type':
       planValue = typeof p.venue_type === 'string' ? p.venue_type : null
       break
     case 'setup_format':
-      planValue = typeof p.setup_format === 'string' ? p.setup_format : null
+      planValue = readString(readPlanMatchingSignal(plan, 'setup_format'))
       break
     case 'music_format':
-      planValue = typeof p.music_format === 'string' ? p.music_format : null
+      planValue = readString(readPlanMatchingSignal(plan, 'music_format'))
       break
     default:
       return false

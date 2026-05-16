@@ -1091,7 +1091,10 @@ function isPlanFieldAnswered(field: string, plan: PlanLike | null): boolean {
 
   const metadata = readRecord(plan.metadata)
   const value = readMatchingFieldFromMetadata(metadata, field)
-  return typeof value === 'string' ? value.trim().length > 0 : Boolean(value)
+  if (typeof value === 'string') return value.trim().length > 0
+  if (typeof value === 'boolean') return true
+  if (typeof value === 'number') return Number.isFinite(value)
+  return value !== null && value !== undefined
 }
 
 function canDefaultSatisfyCritical(archetype: EventArchetypeConfig, field: MatchingField): boolean {
