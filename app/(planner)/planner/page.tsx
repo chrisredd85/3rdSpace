@@ -4725,7 +4725,8 @@ function PlannerApprovalCard({
 
   const label = readApprovalString(approval, 'label') || readApprovalString(approval, 'action_label') || 'Approval required'
   const provider = readApprovalString(approval, 'provider') || '3rdPlace'
-  const deliveryEmail = readApprovalString(approval, 'delivery_email') || 'Needed'
+  const deliveryEmailRaw = readApprovalString(approval, 'delivery_email')
+  const deliveryEmail = deliveryEmailRaw ? 'Contact info on file' : 'Needed'
   const terms = readApprovalString(approval, 'terms') || readApprovalString(approval, 'refund_terms') || 'Approval required before payment.'
   const amountCents = readApprovalAmount(approval)
   const venueNames = readApprovalVenueNames(approval)

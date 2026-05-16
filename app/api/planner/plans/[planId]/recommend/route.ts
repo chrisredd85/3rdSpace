@@ -866,6 +866,9 @@ async function ensureOutreachApprovalRequest(input: {
     return null
   }
 
+  // Look up contact emails from catalog so the approval card can show "Contact info on file"
+  const contactEmail = await resolveOutreachContactEmail(input.db, venueIds, vendorIds)
+
   const { data: approvalRows, error: approvalError } = await input.db
     .from('approvals')
     .insert({
@@ -879,7 +882,7 @@ async function ensureOutreachApprovalRequest(input: {
       package_details: buildOutreachApprovalPackageDetails(venueIds.length, vendorIds.length),
       refund_terms: 'No charge is made now. This only approves outreach and quote requests.',
       cancellation_terms: 'You can cancel before outreach executes; changed plan details require fresh approval.',
-      delivery_email: null,
+      delivery_email: contactEmail,
       payment_method_id: null,
       requested_amount_cents: projectedCostsCents,
       status: 'pending',
@@ -963,6 +966,43 @@ async function loadExistingOutreachApprovalMessage(
     }
   }
 
+  return null
+}
+
+/**
+ * Resolves a single contact email for the outreach approval card.
+ * Prefers venue contact emails, then falls back to vendor contact emails.
+ * Returns the email string when found, or null if no catalog record has one.
+ */
+async function resolveOutreachContactEmail(
+  db: PlannerDb,
+  venueIds: string[],
+  vendorIds: string[]
+): Promise<string | null> {
+  try {
+    if (venueIds.length > 0) {
+      const { data } = await db
+        .from('catalog_venues')
+        .select('contact_email')
+        .in('id', venueIds)
+        .limit(venueIds.length)
+      const rows = Array.isArray(data) ? data as Array<Record<string, unknown>> : []
+      const email = rows.map((row) => readString(row.contact_email)).find((value): value is string => Boolean(value))
+      if (email) return email
+    }
+    if (vendorIds.length > 0) {
+      const { data } = await db
+        .from('catalog_vendors')
+        .select('contact_email')
+        .in('id', vendorIds)
+        .limit(vendorIds.length)
+      const rows = Array.isArray(data) ? data as Array<Record<string, unknown>> : []
+      const email = rows.map((row) => readString(row.contact_email)).find((value): value is string => Boolean(value))
+      if (email) return email
+    }
+  } catch (err) {
+    console.warn('[planner.recommend] resolveOutreachContactEmail lookup failed', err)
+  }
   return null
 }
 
@@ -3174,15 +3214,26 @@ function buildEconomicsPlaceholder(
 ): string | null {
   // If ticket price is already known, economics can run.
   if (knownTicketPriceCents !== null && knownTicketPriceCents > 0) return null
+  // Explicit free/sponsored/invite-only model: economics can run (no ticket revenue to model).
   if (hasExplicitNoTicketRevenueModel(plan)) return null
 
   const ticketingModel = normalizeText(plan.ticketing_model)
+
+  // ticketed === false with no ticketing model: need to confirm the monetisation model first.
   if (!ticketingModel && plan.ticketed === false) {
     return 'Confirm whether this event is free, ticketed, sponsored, invite-only, or tied to a ticketing platform before I model unit economics.'
   }
 
-  if (plan.ticketed === true || hasPaidTicketingModel(plan) || ADMISSION_CHARGING_ARCHETYPES.has(archetype.key)) {
-    return 'Add a ticket or cover price before I model the profit window.'
+  // Ticket price is unknown (null/zero). Gate economics until a price is provided.
+  // This covers: ticketed = true, paid ticketing models, admission-charging archetypes,
+  // AND the ambiguous case where ticketing_model is blank and ticketed is not explicitly false.
+  if (
+    plan.ticketed === true ||
+    hasPaidTicketingModel(plan) ||
+    ADMISSION_CHARGING_ARCHETYPES.has(archetype.key) ||
+    (!ticketingModel && plan.ticketed !== false)
+  ) {
+    return 'Unit economics pending — add a ticket price to model your profit window.'
   }
 
   return null

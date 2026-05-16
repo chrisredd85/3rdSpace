@@ -7,5 +7,5 @@ npm run lint
 # Type check
 npm run type-check
 
-# Run tests
-npm run test
+# Run tests (pass when no tests match — worktrees exclude .claude/ paths in jest config)
+npm run test -- --passWithNoTests

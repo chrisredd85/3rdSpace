@@ -779,20 +779,46 @@ function buildVendorReasoning(input: {
 }): string[] {
   const reasons: string[] = []
   const serviceType = readString(input.vendor.service_type) ?? readString(input.vendor.vendor_type)
+  const eventType = readString(input.plan.event_type)
+  const area = readString(input.plan.area) ?? readString(input.plan.neighborhood)
 
   if (input.isPreferred) reasons.push('Previously used in this template')
-  if (serviceType) reasons.push(`${formatServiceType(serviceType)} service fit`)
+
+  // Service match — human-readable, never a bare "X service fit" template
+  if (serviceType) {
+    const label = formatServiceType(serviceType)
+    if (eventType) {
+      reasons.push(`${label} matches your ${eventType} format`)
+    } else {
+      reasons.push(`${label} service`)
+    }
+  }
+
+  // Location — only show if the vendor actually serves the area
+  if (area && matchesAreaPreference(area, input.searchText)) {
+    const parentGroup = AREA_GROUPS.find((group) => group.id === 'sf')
+    const isSfArea = parentGroup?.aliases.some((alias) => normalizeText(area).includes(alias)) ||
+      AREA_GROUPS.some((group) => group.parent === 'sf' && group.aliases.some((alias) => normalizeText(area).includes(alias)))
+    if (isSfArea) {
+      reasons.push('Serves SF Bay Area')
+    } else {
+      reasons.push(`Serves ${area}`)
+    }
+  }
+
+  // Estimate — only show if estimate is a real positive number
+  if (input.estimateCents > 0) {
+    if (input.vendorBudgetCents > 0 && input.estimateCents > input.vendorBudgetCents) {
+      reasons.push(`Estimated ${formatCents(input.estimateCents)} — above vendor allocation`)
+    } else {
+      reasons.push(`Estimated ${formatCents(input.estimateCents)} for your headcount`)
+    }
+  }
+
   if (input.serviceMatches.length > 0) {
-    reasons.push(`Matches ${input.serviceMatches.slice(0, 3).join(', ')}`)
+    reasons.push(`Covers ${input.serviceMatches.slice(0, 3).join(', ')}`)
   }
-  if (input.vendorBudgetCents > 0 && input.estimateCents > input.vendorBudgetCents) {
-    reasons.push(`Estimate ${formatCents(input.estimateCents)} is above the vendor allocation`)
-  } else if (input.vendorBudgetCents > 0 && input.estimateCents > 0) {
-    reasons.push(`Estimate ${formatCents(input.estimateCents)} fits the vendor allocation`)
-  } else if (isNonTrivialVendorCategory(serviceType)) {
-    reasons.push('Est. TBD — confirm with vendor')
-  }
-  if (input.plan.area || input.plan.neighborhood) reasons.push(`${input.plan.area ?? input.plan.neighborhood} service area fit`)
+
   if (/\b(preferred|premium|verified|claimed)\b/i.test(input.searchText) || input.vendor.is_claimed === true) {
     reasons.push('Strong partner signal')
   }

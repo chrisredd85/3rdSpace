@@ -34,44 +34,80 @@ export async function createAutoRecommendationMessage(input: {
     return fallbackMessage ? [fallbackMessage] : []
   }
 
-  const { data, error } = await input.db
+  const rankedVenues = readArray(recommendationData.ranked_venues)
+  const vendorRecommendations = readArray(recommendationData.vendor_recommendations)
+  const venueDisplayItems = buildDisplayRecommendations(recommendationData).filter((rec) => rec.type === 'Venue')
+  const vendorDisplayItems = buildDisplayRecommendations(recommendationData).filter((rec) => rec.type !== 'Venue')
+
+  // Message 1 — venues only
+  const venueContent = buildVenueOnlyContent(recommendationData)
+  const { data: venueMessageData, error: venueMessageError } = await input.db
     .from('plan_messages')
     .insert({
       plan_id: input.planId,
       role: 'agent',
-      content: buildRecommendationContent(recommendationData),
+      content: venueContent,
       message_type: 'recommendation',
       metadata: toJson({
         source: 'planner_recommendations',
-        recommendations: buildDisplayRecommendations(recommendationData),
+        recommendations: venueDisplayItems,
         recommendation_response: recommendationData,
         venue_match_notice: readRecord(recommendationData.venue_match_notice),
-        vendor_match_notice: readRecord(recommendationData.vendor_match_notice),
         resolved_archetype: readRecord(recommendationData.resolved_archetype),
-        ranked_venues: readArray(recommendationData.ranked_venues),
-        vendor_recommendations: readArray(recommendationData.vendor_recommendations),
-        vendor_recommendation_groups: readArray(recommendationData.vendor_recommendation_groups),
+        ranked_venues: rankedVenues,
         capacity_calibration: readRecord(recommendationData.capacity_calibration),
         elasticity: readRecord(recommendationData.elasticity),
-        economics: readRecord(recommendationData.economics),
-        economics_placeholder: readString(recommendationData.economics_placeholder),
-        profit_projection: readRecord(recommendationData.profit_projection),
-        ticketing_platform_prompt: readString(recommendationData.ticketing_platform_prompt),
-        workspace_summary: readRecord(recommendationData.workspace_summary),
-        timeline: readRecord(recommendationData.timeline),
         persisted_recommendation_ids: readArray(recommendationData.persisted_recommendation_ids),
       }),
     })
     .select(PLAN_MESSAGE_SELECT_COLUMNS)
     .single()
 
-  if (error || !data) {
-    console.error('[planner.recommend] Auto recommendation message insert error', error)
+  if (venueMessageError || !venueMessageData) {
+    console.error('[planner.recommend] Auto recommendation venue message insert error', venueMessageError)
     return []
   }
 
-  const messages = [data as PlanMessage]
+  const messages: PlanMessage[] = [venueMessageData as PlanMessage]
+
+  // Message 2 — vendors + approval card (only insert if there are vendors or an approval)
   const approvalMessageId = readString(recommendationData.outreach_approval_message_id)
+  const hasVendors = vendorRecommendations.length > 0
+  if (hasVendors || approvalMessageId) {
+    const vendorContent = buildVendorFollowUpContent(recommendationData)
+    const { data: vendorMessageData, error: vendorMessageError } = await input.db
+      .from('plan_messages')
+      .insert({
+        plan_id: input.planId,
+        role: 'agent',
+        content: vendorContent,
+        message_type: 'recommendation',
+        metadata: toJson({
+          source: 'planner_recommendations',
+          recommendations: vendorDisplayItems,
+          vendor_match_notice: readRecord(recommendationData.vendor_match_notice),
+          resolved_archetype: readRecord(recommendationData.resolved_archetype),
+          vendor_recommendations: vendorRecommendations,
+          vendor_recommendation_groups: readArray(recommendationData.vendor_recommendation_groups),
+          economics: readRecord(recommendationData.economics),
+          economics_placeholder: readString(recommendationData.economics_placeholder),
+          profit_projection: readRecord(recommendationData.profit_projection),
+          ticketing_platform_prompt: readString(recommendationData.ticketing_platform_prompt),
+          workspace_summary: readRecord(recommendationData.workspace_summary),
+          timeline: readRecord(recommendationData.timeline),
+        }),
+      })
+      .select(PLAN_MESSAGE_SELECT_COLUMNS)
+      .single()
+
+    if (!vendorMessageError && vendorMessageData) {
+      messages.push(vendorMessageData as PlanMessage)
+    } else if (vendorMessageError) {
+      console.error('[planner.recommend] Auto recommendation vendor message insert error', vendorMessageError)
+    }
+  }
+
+  // Append the approval card message (already persisted by the recommend route)
   if (approvalMessageId) {
     const approvalMessage = await loadPlanMessage(input.db, approvalMessageId)
     if (approvalMessage) messages.push(approvalMessage)
@@ -173,6 +209,62 @@ function buildRecommendationContent(data: Record<string, unknown>): string {
     .join(' ')
 
   return `${parts.join(' ')}.${projection}${followUp ? ` ${followUp}` : ''}`
+}
+
+/**
+ * Builds the content for the first phased message: venues only.
+ * If no venues found, notes that and segues to vendor options.
+ */
+function buildVenueOnlyContent(data: Record<string, unknown>): string {
+  const venueCount = readArray(data.ranked_venues).length
+  const venueNoticeMessage = readString(readRecord(data.venue_match_notice)?.message)
+
+  if (venueCount > 0) {
+    const venueLabel = venueCount === 1 ? 'venue match' : 'venue matches'
+    const intro = venueNoticeMessage ?? `Here are the best venue ${venueLabel}.`
+    return `${intro} Review these or I can reach out to all of them.`
+  }
+
+  return 'No venue matches yet — flagging for manual sourcing. Here are vendor options.'
+}
+
+/**
+ * Builds the content for the second phased message: vendors + lead-in to approval card.
+ * If no vendors, just confirms with a segue to the approval card.
+ */
+function buildVendorFollowUpContent(data: Record<string, unknown>): string {
+  const vendorCount = readArray(data.vendor_recommendations).length
+  const vendorNoticeMessage = readString(readRecord(data.vendor_match_notice)?.message)
+  const economicsPlaceholder = readString(data.economics_placeholder)
+  const ticketingPlatformPrompt = readString(data.ticketing_platform_prompt)
+  const recommendedProjection = readRecord(readRecord(data.profit_projection)?.recommended_projection)
+  const planTicketed = readBoolean(data.plan_ticketed)
+  const ticketPriceCents = readNumber(recommendedProjection?.ticket_price_cents)
+  const profitCents = readNumber(recommendedProjection?.net_profit_cents)
+  const breakEvenTickets = readNumber(recommendedProjection?.break_even_tickets)
+
+  const vendorPart =
+    vendorNoticeMessage ??
+    (vendorCount > 0
+      ? `I also lined up ${vendorCount} vendor ${vendorCount === 1 ? 'option' : 'options'}.`
+      : null)
+
+  const projection =
+    !economicsPlaceholder &&
+    planTicketed !== false &&
+    ticketPriceCents !== null &&
+    profitCents !== null &&
+    breakEvenTickets !== null
+      ? ` At ${formatCurrency(ticketPriceCents)} per ticket, projected profit is ${formatCurrency(profitCents)} with break-even at ${breakEvenTickets} tickets.`
+      : ''
+
+  const followUp = [economicsPlaceholder, ticketingPlatformPrompt]
+    .filter((value): value is string => Boolean(value))
+    .join(' ')
+
+  const parts = [vendorPart].filter((part): part is string => part !== null)
+  const base = parts.length > 0 ? `${parts.join(' ')}` : 'Here is the approval request for outreach.'
+  return `${base}${projection}${followUp ? ` ${followUp}` : ''}`
 }
 
 function buildDisplayRecommendations(data: Record<string, unknown>): Array<Record<string, unknown>> {

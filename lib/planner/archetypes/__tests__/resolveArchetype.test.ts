@@ -47,6 +47,18 @@ describe('resolveArchetypeKey', () => {
     }
   })
 
+  it('resolves debate, discussion, town hall, and forum as panel_fireside', () => {
+    expect(resolveArchetypeKey('Debate Night for 100 guests')).toBe('panel_fireside')
+    expect(resolveArchetypeKey('debate series in SF')).toBe('panel_fireside')
+    expect(resolveArchetypeKey('town hall for the community')).toBe('panel_fireside')
+    expect(resolveArchetypeKey('community forum for 80 people')).toBe('panel_fireside')
+    expect(resolveArchetypeKey('public discussion on AI policy')).toBe('panel_fireside')
+  })
+
+  it('does not resolve debate/discussion as private_dinner_celebration', () => {
+    expect(resolveArchetypeKey('Debate Night for 100 guests')).not.toBe('private_dinner_celebration')
+  })
+
   it('does not classify negated archetype phrases', () => {
     expect(resolveArchetypeKey('Plan a panel fireside. This is not a listening party.')).toBe('panel_fireside')
     expect(resolveArchetypeKey('This is not a concert, it is a listening party with artist VIP.')).toBe('listening_party_showcase')
