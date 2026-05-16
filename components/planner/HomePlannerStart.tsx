@@ -18,8 +18,8 @@ interface HomePlannerStartProps {
 
 const samplePrompts = [
   'Monthly founder dinner for 24 in Hayes Valley',
-  'Tech mixer for 80 in SoMa, same vendors as last time',
-  'Rebook my rooftop series for June',
+  'Supper club for 18 in the Mission, cocktails and a photographer',
+  'Rebook my June rooftop mixer — same venue, new date',
 ]
 
 /**
