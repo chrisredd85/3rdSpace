@@ -631,19 +631,19 @@ function mergeArchetypeDefaultFillMetadata(
   const archetype = getArchetypeByKey(readString(lock?.key))
   if (!archetype) return metadata
 
-  const currentSignals = readRecord(metadata.matching_signals) ?? {}
-  const nextSignals = { ...currentSignals }
+  const currentDefaultFills = readRecord(metadata.archetype_default_fills) ?? {}
+  const nextDefaultFills = { ...currentDefaultFills }
   let changed = false
 
   for (const [field, value] of Object.entries(archetype.default_fills)) {
     if (value === undefined || value === null) continue
-    if (nextSignals[field] !== undefined && nextSignals[field] !== null) continue
-    nextSignals[field] = value
+    if (nextDefaultFills[field] !== undefined && nextDefaultFills[field] !== null) continue
+    nextDefaultFills[field] = value
     changed = true
   }
 
   return changed
-    ? { ...metadata, matching_signals: nextSignals }
+    ? { ...metadata, archetype_default_fills: nextDefaultFills }
     : metadata
 }
 

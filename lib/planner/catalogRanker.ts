@@ -806,13 +806,16 @@ function buildVendorReasoning(input: {
     }
   }
 
-  // Estimate — only show if estimate is a real positive number
+  // Estimate — only show a dollar amount when it is credible. Low/demo values
+  // are normalized to quote-required upstream and should stay visible as TBD.
   if (input.estimateCents > 0) {
     if (input.vendorBudgetCents > 0 && input.estimateCents > input.vendorBudgetCents) {
       reasons.push(`Estimated ${formatCents(input.estimateCents)} — above vendor allocation`)
     } else {
       reasons.push(`Estimated ${formatCents(input.estimateCents)} for your headcount`)
     }
+  } else {
+    reasons.push('Est. TBD — confirm with vendor')
   }
 
   if (input.serviceMatches.length > 0) {

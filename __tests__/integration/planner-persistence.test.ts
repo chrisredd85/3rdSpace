@@ -304,13 +304,20 @@ describe('Planner persistence integration', () => {
       date_window_start: '2026-05-20',
       date_window_end: '2026-05-20',
       ticketed: false,
-      ticketing_model: null,
+      ticketing_model: 'rsvp',
       food_responsibility: null,
       venue_terms: null,
       agent_action: null,
       profit_goal_cents: null,
       notes: null,
-      metadata: {},
+      metadata: {
+        matching_signals: {
+          bar_required: false,
+          catering_style: 'venue_handles',
+          photo_video_priority: 'none',
+          private_or_shared: 'private',
+        },
+      },
       created_at: '2026-05-10T10:00:00Z',
       updated_at: '2026-05-10T10:00:00Z',
     })
@@ -437,13 +444,19 @@ describe('Planner persistence integration', () => {
       date_window_start: '2026-05-30',
       date_window_end: '2026-05-30',
       ticketed: false,
-      ticketing_model: null,
+      ticketing_model: 'rsvp',
       food_responsibility: null,
       venue_terms: null,
       agent_action: null,
       profit_goal_cents: null,
       notes: null,
-      metadata: {},
+      metadata: {
+        matching_signals: {
+          bar_required: true,
+          catering_style: 'venue_handles',
+          photo_video_priority: 'none',
+        },
+      },
       created_at: '2026-05-10T10:00:00Z',
       updated_at: '2026-05-10T10:00:00Z',
     })
@@ -569,7 +582,7 @@ describe('Planner persistence integration', () => {
       expect(response.status).toBe(200)
       expect(json.plan.guest_count).toBe(115)
       expect(json.agent_message.content).not.toMatch(/how many people/i)
-      expect(json.agent_message.content).toMatch(/115/)
+      expect(json.agent_message.content).toMatch(/full bar|beverage program/i)
     } finally {
       process.env.OPENAI_API_KEY = oldOpenAIKey
     }

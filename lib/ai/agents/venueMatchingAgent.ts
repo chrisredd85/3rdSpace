@@ -60,9 +60,9 @@ export const rankedVenueSchema = z.object({
     sample_size: z.number().int().nonnegative(),
     confidence: z.enum(['low', 'medium', 'high']).nullable(),
   }).optional(),
-  pros: z.array(z.string().trim().min(1)),
-  cons: z.array(z.string().trim().min(1)),
-  questions_to_ask_venue: z.array(z.string().trim().min(1)),
+  pros: z.array(z.string().trim().min(1)).default([]),
+  cons: z.array(z.string().trim().min(1)).default([]),
+  questions_to_ask_venue: z.array(z.string().trim().min(1)).default([]),
 })
 
 export const venueMatchingAgentOutputSchema = z.object({

@@ -85,6 +85,45 @@ describe('isIntakeReadyForRecommendations', () => {
       ].join('\n'),
     })).toBe(true)
   })
+
+  it('blocks founder dinner matching when only core fields plus default fills are present', () => {
+    expect(isIntakeReadyForRecommendations({
+      ...baseOutput,
+      extracted_fields: {
+        ...baseOutput.extracted_fields,
+        event_type: 'Founder/operator dinner',
+        guest_count: 24,
+        neighborhood: 'Hayes Valley',
+        ticketed: null,
+      },
+      updated_event_plan: {
+        ...baseOutput.updated_event_plan,
+        event_name: 'Founder dinner',
+        venue_type: 'Founder/operator dinner',
+        expected_attendance: 24,
+        city: 'Hayes Valley',
+        monetization_model: null,
+      },
+    }, {
+      ...basePlan,
+      event_type: 'Founder/operator dinner',
+      guest_count: 24,
+      neighborhood: 'Hayes Valley',
+      date_window_start: '2026-05-30',
+      date_window_end: '2026-05-30',
+      ticketed: false,
+      ticketing_model: null,
+      metadata: {
+        archetype_default_fills: {
+          catering_style: 'venue_handles',
+          bar_required: false,
+          photo_video_priority: 'none',
+        },
+      },
+    }, {
+      conversationText: 'Monthly founder dinner for 24 in Hayes Valley on May 30th.',
+    })).toBe(false)
+  })
 })
 
 describe('requested recommendations readiness', () => {

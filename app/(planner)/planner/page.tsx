@@ -467,6 +467,11 @@ function PlannerPageContent() {
    * Creates the first planner record from the empty-state prompt.
    */
   async function handleCreatePlan(message: string): Promise<'server' | 'draft' | null> {
+    if (persistenceMode === 'loading' || !hasLoadedStoredConversation) {
+      setErrorMessage('Planner is still loading your workspace. Try again in a moment.')
+      return null
+    }
+
     setIsCreatingPlan(true)
     setErrorMessage(null)
 
@@ -1186,7 +1191,7 @@ function PlannerPageContent() {
           ) : null}
           <PlannerEmptyState
             onSubmit={handleCreatePlan}
-            isSubmitting={isCreatingPlan}
+            isSubmitting={isCreatingPlan || persistenceMode === 'loading' || !hasLoadedStoredConversation}
             className="min-h-[calc(100vh-8rem)] py-8"
             title="What should we plan next?"
             description={`Describe the next event for ${organizationName}. I'll start a new plan without booking, paying, or sending anything until you approve it.`}

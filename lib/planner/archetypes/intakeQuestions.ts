@@ -1083,7 +1083,15 @@ function isPlanFieldAnswered(field: string, plan: PlanLike | null): boolean {
   if (field === 'budget_cap_cents') {
     return typeof (plan as PlanLike & { budget_cap_cents?: unknown }).budget_cap_cents === 'number'
   }
-  if (field === 'ticketed') return typeof (plan as PlanLike & { ticketed?: unknown }).ticketed === 'boolean'
+  if (field === 'ticketed') {
+    // `plans.ticketed` defaults false for persistence, so the boolean alone
+    // does not prove the organizer answered the ticketing question. Treat it
+    // as answered only once a ticketing model or explicit metadata signal exists.
+    if (typeof plan.ticketing_model === 'string' && plan.ticketing_model.trim().length > 0) return true
+    const metadata = readRecord(plan.metadata)
+    const value = readMatchingFieldFromMetadata(metadata, field)
+    return typeof value === 'boolean'
+  }
   if (field === 'food_responsibility') return Boolean(plan.food_responsibility)
   if (field === 'ticketing_model') return typeof plan.ticketing_model === 'string' && plan.ticketing_model.trim().length > 0
   if (field === 'venue_terms') return typeof plan.venue_terms === 'string' && plan.venue_terms.trim().length > 0

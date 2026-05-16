@@ -150,6 +150,40 @@ describe('runVenueMatchingAgent', () => {
     expect(result.output.best_recommendation).toMatch(/Mission Hall|Capacity/i)
   })
 
+  it('tolerates missing optional venue question arrays from the model', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            ranked_venues: [{
+              venue_id: 'venue-1',
+              venue_name: 'Mission Hall',
+              fit_score: 88,
+            }],
+            best_recommendation: 'Mission Hall is the strongest first call.',
+            reason_summary: 'The venue passes capacity and city filters.',
+            no_match: false,
+          }),
+        },
+      }],
+    })
+
+    const result = await runVenueMatchingAgent(
+      {
+        event_plan: eventPlan,
+        candidate_venues: [makeVenue()],
+      },
+      { create }
+    )
+
+    expect(result.output.ranked_venues[0]).toMatchObject({
+      venue_id: 'venue-1',
+      pros: [],
+      cons: [],
+      questions_to_ask_venue: [],
+    })
+  })
+
   it('sends no more than 10 pre-filtered candidates to the model', async () => {
     const create = jest.fn().mockResolvedValue({
       choices: [{

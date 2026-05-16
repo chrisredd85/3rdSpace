@@ -123,6 +123,53 @@ describe('archetype intake questions', () => {
     )
   })
 
+  it('does not treat archetype default fills as answered intake signals', () => {
+    const question = getNextArchetypeIntakeQuestion({
+      archetype: archetypeFor('founder dinner'),
+      plan: {
+        event_type: 'Founder/operator dinner',
+        guest_count: 24,
+        neighborhood: 'Hayes Valley',
+        date_window_start: '2026-05-30',
+        date_window_end: '2026-05-30',
+        ticketed: false,
+        ticketing_model: null,
+        metadata: {
+          archetype_default_fills: {
+            catering_style: 'venue_handles',
+            bar_required: false,
+            photo_video_priority: 'none',
+            private_or_shared: 'semi_private',
+          },
+        },
+      },
+      conversationText: 'Monthly founder dinner for 24 in Hayes Valley on May 30th.',
+      includeRecommended: true,
+    })
+
+    expect(question).not.toBeNull()
+    expect(['ticketed', 'catering_style', 'bar_required', 'photo_video_priority']).toContain(question?.id)
+  })
+
+  it('does not treat the persisted default ticketed=false as an answered ticketing model', () => {
+    const question = getNextArchetypeIntakeQuestion({
+      archetype: archetypeFor('panel'),
+      plan: {
+        event_type: 'Panel / fireside',
+        guest_count: 100,
+        neighborhood: 'Mission',
+        date_window_start: '2026-05-30',
+        date_window_end: '2026-05-30',
+        ticketed: false,
+        ticketing_model: null,
+      },
+      conversationText: 'Startup panel for 100 in the Mission on May 30th.',
+      includeRecommended: true,
+    })
+
+    expect(question?.id).toBe('ticketed')
+  })
+
   it('treats the founder dinner booking-options sequence as complete enough for matching', () => {
     const question = getNextArchetypeIntakeQuestion({
       archetype: archetypeFor('founder dinner'),
