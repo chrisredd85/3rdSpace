@@ -54,7 +54,9 @@ export async function createAutoRecommendationMessage(input: {
         capacity_calibration: readRecord(recommendationData.capacity_calibration),
         elasticity: readRecord(recommendationData.elasticity),
         economics: readRecord(recommendationData.economics),
+        economics_placeholder: readString(recommendationData.economics_placeholder),
         profit_projection: readRecord(recommendationData.profit_projection),
+        ticketing_platform_prompt: readString(recommendationData.ticketing_platform_prompt),
         workspace_summary: readRecord(recommendationData.workspace_summary),
         timeline: readRecord(recommendationData.timeline),
         persisted_recommendation_ids: readArray(recommendationData.persisted_recommendation_ids),
@@ -144,6 +146,8 @@ function buildRecommendationContent(data: Record<string, unknown>): string {
   const ticketPriceCents = readNumber(recommendedProjection?.ticket_price_cents)
   const profitCents = readNumber(recommendedProjection?.net_profit_cents)
   const breakEvenTickets = readNumber(recommendedProjection?.break_even_tickets)
+  const economicsPlaceholder = readString(data.economics_placeholder)
+  const ticketingPlatformPrompt = readString(data.ticketing_platform_prompt)
 
   const parts = [
     venueNoticeMessage ??
@@ -157,11 +161,18 @@ function buildRecommendationContent(data: Record<string, unknown>): string {
   ].filter((part): part is string => part !== null)
 
   const projection =
-    planTicketed !== false && ticketPriceCents !== null && profitCents !== null && breakEvenTickets !== null
+    !economicsPlaceholder &&
+    planTicketed !== false &&
+    ticketPriceCents !== null &&
+    profitCents !== null &&
+    breakEvenTickets !== null
       ? ` At ${formatCurrency(ticketPriceCents)} per ticket, projected profit is ${formatCurrency(profitCents)} with break-even at ${breakEvenTickets} tickets.`
       : ''
+  const followUp = [economicsPlaceholder, ticketingPlatformPrompt]
+    .filter((value): value is string => Boolean(value))
+    .join(' ')
 
-  return `${parts.join(' ')}.${projection}`
+  return `${parts.join(' ')}.${projection}${followUp ? ` ${followUp}` : ''}`
 }
 
 function buildDisplayRecommendations(data: Record<string, unknown>): Array<Record<string, unknown>> {

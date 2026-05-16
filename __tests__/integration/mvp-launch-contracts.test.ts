@@ -63,6 +63,8 @@ class MemoryDb {
     venue_opportunity_invites: [],
     venues: [],
     vendor_profiles: [],
+    builder_profiles: [],
+    builder_event_usage: [],
   }
 
   selects: Array<{ table: string; columns: string }> = []
@@ -104,6 +106,12 @@ class MemoryQuery {
 
   update(payload: unknown) {
     this.operation = 'update'
+    this.payload = payload
+    return this
+  }
+
+  upsert(payload: unknown) {
+    this.operation = 'insert'
     this.payload = payload
     return this
   }
@@ -261,6 +269,17 @@ describe('MVP launch API contracts', () => {
       date_window_start: '2026-08-01',
       date_window_end: '2026-08-02',
       ticketed: true,
+      metadata: {},
+    })
+    db.rows.builder_profiles.push({
+      id: 'builder-profile-1',
+      user_id: USER_ID,
+      name: 'MVP Builder',
+      billing_tier: 'free_trial',
+      subscription_status: 'trial',
+      free_events_granted: 1,
+      free_events_used: 0,
+      paid_event_credits: 0,
     })
     mockPlannerClient(db)
   })
@@ -370,6 +389,8 @@ describe('MVP launch API contracts', () => {
     expect(response.status).toBe(200)
     expect(db.rows.approvals[0].status).toBe('authorized')
     expect(db.rows.agent_actions[0].status).toBe('complete')
+    expect(db.rows.builder_profiles[0].free_events_used).toBe(1)
+    expect(db.rows.plans[0].metadata.product_gate.event_access_source).toBe('free_trial')
     expect(db.rows.venue_opportunity_briefs).toHaveLength(1)
     expect(db.rows.venue_opportunity_invites).toHaveLength(2)
     expect(db.rows.venue_opportunity_invites.map((invite) => invite.status)).toEqual(['queued', 'queued'])
@@ -385,6 +406,52 @@ describe('MVP launch API contracts', () => {
         expect.objectContaining({ venue_id: VENUE_ID_2 }),
       ])
     )
+  })
+
+  it('PATCH planner approvals blocks execution when builder has no product access', async () => {
+    db.rows.builder_profiles[0] = {
+      ...db.rows.builder_profiles[0],
+      free_events_granted: 1,
+      free_events_used: 1,
+      paid_event_credits: 0,
+      billing_tier: 'free_trial',
+      subscription_status: 'trial',
+    }
+    db.rows.agent_actions.push({
+      id: ACTION_ID,
+      plan_id: PLAN_ID,
+      action_type: 'email',
+      payload_json: {
+        kind: 'venue_outreach',
+        venue_ids: [VENUE_ID_1],
+      },
+      status: 'pending',
+    })
+    db.rows.approvals.push({
+      id: APPROVAL_ID,
+      plan_id: PLAN_ID,
+      agent_action_id: ACTION_ID,
+      action_label: 'Send to venues',
+      status: 'pending',
+      price_cents: 0,
+    })
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        action: 'authorize',
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } }
+    )
+    const json = await readJson(response)
+
+    expect(response.status).toBe(402)
+    expect(json).toEqual(expect.objectContaining({
+      billingRequired: true,
+      error: 'Choose pay-per-event or Pro to approve outreach.',
+    }))
+    expect(db.rows.approvals[0].status).toBe('pending')
+    expect(db.rows.agent_actions[0].status).toBe('pending')
   })
 
   it('POST venue opportunities blocks outreach draft generation before approval', async () => {

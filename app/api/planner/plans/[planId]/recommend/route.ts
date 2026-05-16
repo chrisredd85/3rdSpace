@@ -444,7 +444,7 @@ export async function POST(
             }
           )
         )
-    const ticketingPlatformPrompt = buildTicketingPlatformPrompt(recommendationPlan, plan.id, connectedTicketingPlatforms, messages)
+    const ticketingPlatformPrompt = buildTicketingPlatformPrompt(recommendationPlan, archetype, connectedTicketingPlatforms, messages)
     const topVenueContext = toRecommendedVenueContext(
       pickTopVenueCandidate(venueMatch.candidateVenues, venueMatch.venueResult.output.ranked_venues),
       venueMatch.venueResult.output.ranked_venues[0] ?? null,
@@ -757,7 +757,7 @@ async function runCatalogFallback(input: {
     ip_address: getIpAddress(input.request),
   })
 
-  const catalogTicketingPlatformPrompt = buildTicketingPlatformPrompt(input.plan, input.plan.id, input.connectedTicketingPlatforms, input.messages)
+  const catalogTicketingPlatformPrompt = buildTicketingPlatformPrompt(input.plan, input.archetype, input.connectedTicketingPlatforms, input.messages)
 
   return NextResponse.json({
     resolved_archetype: toResolvedArchetypeSummary(input.archetype),
@@ -3164,7 +3164,7 @@ const ADMISSION_CHARGING_ARCHETYPES = new Set<string>([
 
 /**
  * Returns a placeholder message when economics should be skipped because
- * ticket price is unknown for an admission-charging archetype.
+ * ticketing intent or ticket price is not confirmed.
  * Returns null when economics should run normally.
  */
 function buildEconomicsPlaceholder(
@@ -3172,47 +3172,86 @@ function buildEconomicsPlaceholder(
   archetype: EventArchetypeConfig,
   knownTicketPriceCents: number | null
 ): string | null {
-  // If the event is explicitly free/sponsored, economics can run without ticket price.
-  if (plan.ticketed === false) return null
   // If ticket price is already known, economics can run.
   if (knownTicketPriceCents !== null && knownTicketPriceCents > 0) return null
-  // Only gate on admission-charging archetypes.
-  if (!ADMISSION_CHARGING_ARCHETYPES.has(archetype.key)) return null
-  return 'Add a ticket or cover price to model your profit window.'
+  if (hasExplicitNoTicketRevenueModel(plan)) return null
+
+  const ticketingModel = normalizeText(plan.ticketing_model)
+  if (!ticketingModel && plan.ticketed === false) {
+    return 'Confirm whether this event is free, ticketed, sponsored, invite-only, or tied to a ticketing platform before I model unit economics.'
+  }
+
+  if (plan.ticketed === true || hasPaidTicketingModel(plan) || ADMISSION_CHARGING_ARCHETYPES.has(archetype.key)) {
+    return 'Add a ticket or cover price before I model the profit window.'
+  }
+
+  return null
 }
 
 /**
  * Returns a one-time prompt to connect a ticketing platform if the builder
- * has no platform connected and ticket price was just collected.
+ * has no platform connected and ticketing data would improve the projection.
  *
  * Only surfaces once per plan — detected by checking existing messages for
  * a prior `ticketing_platform_prompt` message.
  */
 function buildTicketingPlatformPrompt(
   plan: Plan,
-  planId: string,
+  archetype: EventArchetypeConfig,
   connectedPlatforms: string[],
   messages: PlanMessage[]
 ): string | null {
   // No prompt needed if already connected.
   if (connectedPlatforms.length > 0) return null
-  // No prompt for free/sponsored events.
-  if (plan.ticketed === false) return null
-  // Only prompt for admission-charging archetypes — need event_type set.
-  if (!plan.event_type) return null
-  const archetypeKey = plan.event_type.toLowerCase().replace(/\s+/g, '_')
-  if (!ADMISSION_CHARGING_ARCHETYPES.has(archetypeKey)) return null
   // Only surface once — check if the prompt has already been shown.
   const alreadyShown = messages.some((message) => {
     const metadata = readRecord(message.metadata)
-    return metadata?.kind === 'ticketing_platform_prompt'
+    const response = readRecord(metadata?.recommendation_response)
+    return metadata?.kind === 'ticketing_platform_prompt' ||
+      Boolean(readString(metadata?.ticketing_platform_prompt)) ||
+      Boolean(readString(response?.ticketing_platform_prompt))
   })
   if (alreadyShown) return null
 
+  const shouldPrompt =
+    plan.ticketed === true ||
+    hasPaidTicketingModel(plan) ||
+    hasRsvpTicketingModel(plan) ||
+    (!normalizeText(plan.ticketing_model) && plan.ticketed === false) ||
+    ADMISSION_CHARGING_ARCHETYPES.has(archetype.key)
+  if (!shouldPrompt || hasExplicitNoTicketRevenueModel(plan)) return null
+
   return (
-    'To model your economics accurately, connect your ticketing platform (Luma, Partiful, Posh, or Eventbrite) in Settings → Ticketing. ' +
-    'This lets me factor in platform fees, your historical sell-through rate, and real revenue data.'
+    'If you use Luma, Partiful, Posh, or Eventbrite, connect it in Settings → Ticketing so I can use real RSVP, sales, fee, and check-in history. ' +
+    'If this one is free, sponsored, or invite-only, tell me that and I will model costs without ticket revenue.'
   )
+}
+
+function hasPaidTicketingModel(plan: Plan): boolean {
+  const normalized = normalizeText(plan.ticketing_model)
+  return normalized.includes('ticket') ||
+    normalized.includes('paid') ||
+    normalized.includes('cover') ||
+    normalized.includes('admission') ||
+    normalized.includes('posh') ||
+    normalized.includes('eventbrite')
+}
+
+function hasRsvpTicketingModel(plan: Plan): boolean {
+  const normalized = normalizeText(plan.ticketing_model)
+  return normalized.includes('rsvp') ||
+    normalized.includes('luma') ||
+    normalized.includes('partiful')
+}
+
+function hasExplicitNoTicketRevenueModel(plan: Plan): boolean {
+  const normalized = normalizeText(plan.ticketing_model)
+  return normalized.includes('sponsor') ||
+    normalized.includes('invite') ||
+    normalized.includes('comp') ||
+    normalized.includes('free') ||
+    normalized.includes('no ticket') ||
+    normalized.includes('not ticket')
 }
 
 function clampBreakEvenTickets(rawBreakEvenTickets: number, guestCount: number): number {

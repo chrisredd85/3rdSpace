@@ -22,6 +22,12 @@ import {
   enqueueOpportunityInviteSendJobs,
   enqueueVendorOpportunityInviteSendJobs,
 } from '@/lib/server/opportunity-email-worker'
+import {
+  BuilderBillingRequiredError,
+  consumeBuilderEventAccess,
+  getBuilderBillingSummary,
+  loadBuilderBillingProfileByUserId,
+} from '@/lib/billing/builder-billing'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Approval, Json, PlannerApiErrorResponse, PlannerApprovalsResponse, Plan } from '@/lib/types'
 
@@ -54,6 +60,7 @@ const PLAN_SELECT_COLUMNS = `
   agent_action,
   profit_goal_cents,
   notes,
+  metadata,
   created_at,
   updated_at
 `
@@ -157,7 +164,7 @@ export async function PATCH(
       )
     }
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    let plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const existingApproval = await loadApproval(auth.db, context.params.planId, parsed.data.approvalId)
@@ -175,6 +182,12 @@ export async function PATCH(
         { error: 'Plan details changed after this approval was created. Review the latest recommendations and approve again.' },
         { status: 409 }
       )
+    }
+
+    if (parsed.data.action === 'authorize' || parsed.data.action === 'approve') {
+      const access = await ensurePlannerProductAccess(plan, auth.userId)
+      if ('response' in access) return access.response
+      plan = access.plan
     }
 
     const updates = buildApprovalUpdates(parsed.data.action, auth.userId, parsed.data.authorizedAmountCents)
@@ -248,6 +261,97 @@ async function loadOwnedPlan(db: PlannerDb, planId: string, userId: string): Pro
   }
 
   return (data as Plan | null) ?? null
+}
+
+async function ensurePlannerProductAccess(
+  plan: Plan,
+  userId: string
+): Promise<{ plan: Plan } | { response: NextResponse<PlannerApiErrorResponse> }> {
+  const existingMetadata = readRecord(plan.metadata) ?? {}
+  const productGate = readRecord(existingMetadata.product_gate)
+  if (productGate?.event_access_consumed_at) return { plan }
+
+  const admin = createServiceRoleClient()
+  const adminDb = admin as unknown as PlannerDb
+  const { data: builder, error } = await loadBuilderBillingProfileByUserId(admin, userId)
+
+  if (error) {
+    console.error('[planner.approvals] Failed to verify builder billing access', error)
+    return {
+      response: NextResponse.json({ error: 'Failed to verify product access' }, { status: 500 }),
+    }
+  }
+
+  if (!builder) {
+    return {
+      response: NextResponse.json({ error: 'Builder profile not found' }, { status: 404 }),
+    }
+  }
+
+  const billing = getBuilderBillingSummary(builder)
+  if (!billing.canCreateEvent) {
+    return {
+      response: NextResponse.json(
+        {
+          error: 'Choose pay-per-event or Pro to approve outreach.',
+          billingRequired: true,
+          billing,
+        },
+        { status: 402 }
+      ),
+    }
+  }
+
+  try {
+    const consumed = await consumeBuilderEventAccess({
+      admin,
+      builder,
+      eventId: plan.id,
+    })
+    const metadata = {
+      ...existingMetadata,
+      product_gate: {
+        event_access_consumed_at: new Date().toISOString(),
+        event_access_source: consumed.source,
+        event_access_amount: consumed.amount,
+      },
+    }
+
+    const { data: updatedPlan, error: updateError } = await adminDb
+      .from('plans')
+      .update({ metadata })
+      .eq('id', plan.id)
+      .eq('user_id', userId)
+      .select(PLAN_SELECT_COLUMNS)
+      .maybeSingle()
+
+    if (updateError) {
+      console.error('[planner.approvals] Failed to mark product access consumed', updateError)
+      return {
+        response: NextResponse.json({ error: 'Failed to activate planner access' }, { status: 500 }),
+      }
+    }
+
+    return { plan: (updatedPlan as Plan | null) ?? { ...plan, metadata } }
+  } catch (error) {
+    if (error instanceof BuilderBillingRequiredError) {
+      return {
+        response: NextResponse.json(
+          {
+            error: 'Choose pay-per-event or Pro to approve outreach.',
+            billingRequired: true,
+            billing,
+          },
+          { status: 402 }
+        ),
+      }
+    }
+
+    console.error('[planner.approvals] Failed to consume planner product access', error)
+    return {
+      response: NextResponse.json({ error: 'Failed to activate planner access' }, { status: 500 }),
+    }
+  }
 }
 
 async function loadApproval(db: PlannerDb, planId: string, approvalId: string): Promise<Approval | null> {

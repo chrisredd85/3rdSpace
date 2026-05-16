@@ -1079,6 +1079,10 @@ export interface PlannerApiErrorResponse {
   error: string
   /** Optional structured validation or service details. */
   details?: Json
+  /** True when the request requires plan/event billing activation before continuing. */
+  billingRequired?: boolean
+  /** Optional billing summary used by clients to render product-access gates. */
+  billing?: Json
 }
 
 /** Coarse vendor price band for admin-seeded catalog listings. */

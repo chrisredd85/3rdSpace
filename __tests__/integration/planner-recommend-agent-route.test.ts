@@ -243,6 +243,9 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       agent_action: null,
       profit_goal_cents: 100000,
       notes: null,
+      metadata: {
+        ticket_price_target_cents: 7000,
+      },
     })
     db.rows.plan_messages.push(
       {
@@ -608,6 +611,53 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
         expect.objectContaining({ venue_id: VENUE_ID }),
       ]))
     }
+  })
+
+  it('prompts for ticketing intent before rendering unit economics when ticketing is unknown', async () => {
+    db.rows.plans.push({
+      id: 'plan-ticketing-unknown',
+      user_id: 'user-1',
+      title: 'Game night',
+      event_type: 'Game / sports outing',
+      status: 'ready',
+      guest_count: 55,
+      budget_cap_cents: 220000,
+      neighborhood: 'Downtown SF',
+      date_window_start: '2026-05-17',
+      date_window_end: '2026-05-17',
+      ticketed: false,
+      ticketing_model: null,
+      food_responsibility: 'venue handles drinks',
+      venue_terms: null,
+      agent_action: null,
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {
+        matching_signals: {
+          setup_format: 'group_seats',
+          bar_required: true,
+          check_in_needs: 'walk_in_list',
+        },
+      },
+    })
+
+    const response = await recommendPlan(
+      makeRequest({ venueLimit: 3, vendorLimit: 3 }, '/api/planner/plans/plan-ticketing-unknown/recommend'),
+      { params: { planId: 'plan-ticketing-unknown' } }
+    )
+    const json = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(json.economics).toBeNull()
+    expect(json.profit_projection).toBeNull()
+    expect(json.economics_placeholder).toMatch(/Confirm whether this event is free, ticketed, sponsored, invite-only/i)
+    expect(json.ticketing_platform_prompt).toMatch(/Luma, Partiful, Posh, or Eventbrite/i)
+    expect(mockRunEconomicsAgent).not.toHaveBeenCalled()
+    expect(db.rows.recommendations.filter((row) => row.plan_id === 'plan-ticketing-unknown')).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'external' }),
+      ])
+    )
   })
 
   it('falls back to catalog recommendations when the OpenAI venue pipeline fails', async () => {

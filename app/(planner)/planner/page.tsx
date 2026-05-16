@@ -3482,6 +3482,7 @@ function PlannerMessageMetadata({
   const matchedArchetype = readRecommendationMetadataArchetype(message.metadata)
   const vendorStackGroups = readVendorRecommendationGroups(message.metadata)
   const capacityCalibration = readRecommendationCapacityCalibration(message.metadata)
+  const economicsPrompt = readRecommendationEconomicsPrompt(message.metadata)
   const economicsDetails = readRecommendationEconomicsDetails(message.metadata)
 
   return (
@@ -3590,7 +3591,7 @@ function PlannerMessageMetadata({
               })}
             </div>
           ) : null}
-          <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+          <div className="grid gap-3 lg:grid-cols-2">
           {recommendations.map((recommendation, index) => {
             if (!recommendation || typeof recommendation !== 'object' || Array.isArray(recommendation)) return null
             const name = typeof recommendation.name === 'string' ? recommendation.name : `Option ${index + 1}`
@@ -3609,6 +3610,11 @@ function PlannerMessageMetadata({
             const note = sanitizeRecommendationDisplayText(
               typeof recommendation.note === 'string' ? recommendation.note : '',
               recommendation as Record<string, unknown>
+            )
+            const reasonBullets = buildRecommendationReasonBullets(
+              recommendation as Record<string, unknown>,
+              archetypeReasons,
+              note
             )
             const priceCents = typeof recommendation.price_cents === 'number' ? recommendation.price_cents : 0
             const capacity = typeof recommendation.capacity === 'number' ? recommendation.capacity : null
@@ -3635,7 +3641,7 @@ function PlannerMessageMetadata({
                   ) : null}
                 </div>
                 <h3 className="break-words font-display text-base font-bold leading-tight text-foreground">{name}</h3>
-                <p className="mt-1 break-words text-xs leading-snug text-muted-foreground">{fit}</p>
+                <p className="mt-1 break-words text-sm leading-relaxed text-muted-foreground">{fit}</p>
                 <div className="mt-4 grid gap-2 text-xs">
                   <div className="flex min-w-0 items-center justify-between gap-3">
                     <span className="text-muted-foreground">Estimate</span>
@@ -3654,15 +3660,20 @@ function PlannerMessageMetadata({
                     </div>
                   ) : null}
                 </div>
-                {archetypeReasons.length > 0 ? (
-                  <ul className="mt-3 space-y-1.5 text-xs leading-snug text-muted-foreground">
-                    {archetypeReasons.slice(0, 2).map((reason) => (
-                      <li key={reason} className="flex gap-2">
-                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                        <span className="min-w-0 break-words">{reason}</span>
-                      </li>
-                    ))}
-                  </ul>
+                {reasonBullets.length > 0 ? (
+                  <div className="mt-3 rounded-xl border border-border bg-card/40 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      Why this fits
+                    </p>
+                    <ul className="mt-2 space-y-1.5 text-sm leading-relaxed text-muted-foreground">
+                      {reasonBullets.slice(0, 3).map((reason) => (
+                        <li key={reason} className="flex gap-2">
+                          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                          <span className="min-w-0 break-words">{reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 ) : null}
                 {tags.length > 0 ? (
                   <div className="mt-3 flex flex-wrap gap-1.5">
@@ -3673,7 +3684,6 @@ function PlannerMessageMetadata({
                     ))}
                   </div>
                 ) : null}
-                {note ? <p className="mt-3 break-words text-xs leading-snug text-muted-foreground">{note}</p> : null}
                 <PlannerRecommendationActionButton
                   planId={planId}
                   isAuthenticated={isAuthenticated}
@@ -3689,7 +3699,19 @@ function PlannerMessageMetadata({
         </div>
       ) : null}
 
-      {economicsDetails ? (
+      {economicsPrompt ? (
+        <div className="rounded-2xl border border-warning/30 bg-warning/10 p-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-warning">
+            {economicsPrompt.economics_placeholder ? 'Unit economics pending' : 'Improve this projection'}
+          </p>
+          <div className="mt-2 space-y-2 text-sm leading-relaxed text-foreground">
+            {economicsPrompt.economics_placeholder ? <p>{economicsPrompt.economics_placeholder}</p> : null}
+            {economicsPrompt.ticketing_platform_prompt ? <p>{economicsPrompt.ticketing_platform_prompt}</p> : null}
+          </div>
+        </div>
+      ) : null}
+
+      {!economicsPrompt?.economics_placeholder && economicsDetails ? (
         <div className="rounded-2xl border border-border bg-background/50 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -4271,6 +4293,83 @@ function sanitizeRecommendationDisplayText(value: string, recommendation: Record
   return `${name} is matched on the stated event requirements and budget.`
 }
 
+function buildRecommendationReasonBullets(
+  recommendation: Record<string, unknown>,
+  archetypeReasons: string[],
+  note: string
+): string[] {
+  const sourceSentences = [
+    ...archetypeReasons,
+    ...splitRecommendationSentences(note),
+  ]
+  const seen = new Set<string>()
+  const bullets: string[] = []
+
+  for (const sentence of sourceSentences) {
+    const cleaned = cleanRecommendationReason(sentence, recommendation)
+    if (!cleaned) continue
+
+    const normalized = cleaned.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim()
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    bullets.push(cleaned)
+    if (bullets.length >= 3) break
+  }
+
+  return bullets
+}
+
+function splitRecommendationSentences(value: string): string[] {
+  return value.match(/[^.!?]+[.!?]?/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? []
+}
+
+function cleanRecommendationReason(value: string, recommendation: Record<string, unknown>): string | null {
+  const trimmed = value.trim().replace(/\s+/g, ' ')
+  if (!trimmed) return null
+  if (/Filter by capacity|Ticketing model:|Food \+ beverage:|Food responsibility:|Vendor needs?:|Agent action:/i.test(trimmed)) {
+    return sanitizeRecommendationDisplayText(trimmed, recommendation)
+  }
+  if (/^\d+\/100\s+(vendor|venue)?\s*fit score\.?$/i.test(trimmed)) return null
+
+  const scoreFitMatch = trimmed.match(/^(.+?) is a \d+-score ([\w\s/-]+?) fit with (.+)$/i)
+  if (scoreFitMatch) {
+    const service = scoreFitMatch[2]?.trim().replace(/\s+/g, ' ')
+    const reason = sentenceCase(scoreFitMatch[3]?.replace(/\.$/, '') ?? '')
+    return service ? `${reason} for ${service}.` : `${reason}.`
+  }
+
+  if (/^Response time needs confirmation\.?$/i.test(trimmed)) {
+    return 'Confirm response time before outreach.'
+  }
+
+  return trimmed
+}
+
+function sentenceCase(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  return `${trimmed[0].toUpperCase()}${trimmed.slice(1)}`
+}
+
+function readRecommendationEconomicsPrompt(metadata: unknown): {
+  economics_placeholder: string | null
+  ticketing_platform_prompt: string | null
+} | null {
+  const root = readUnknownRecord(metadata)
+  const response = readUnknownRecord(root?.recommendation_response)
+  const economicsPlaceholder =
+    readOptionalString(root?.economics_placeholder) ?? readOptionalString(response?.economics_placeholder)
+  const ticketingPlatformPrompt =
+    readOptionalString(root?.ticketing_platform_prompt) ?? readOptionalString(response?.ticketing_platform_prompt)
+
+  if (!economicsPlaceholder && !ticketingPlatformPrompt) return null
+
+  return {
+    economics_placeholder: economicsPlaceholder,
+    ticketing_platform_prompt: ticketingPlatformPrompt,
+  }
+}
+
 function readRecommendationMetadataArchetype(metadata: unknown): string | null {
   const root = readUnknownRecord(metadata)
   const response = readUnknownRecord(root?.recommendation_response)
@@ -4351,6 +4450,8 @@ function readRecommendationEconomicsDetails(metadata: unknown): {
     }>
   } | null
 } | null {
+  if (readRecommendationEconomicsPrompt(metadata)?.economics_placeholder) return null
+
   const root = readUnknownRecord(metadata)
   const response = readUnknownRecord(root?.recommendation_response)
   const economics = readUnknownRecord(root?.economics) ?? readUnknownRecord(response?.economics)
@@ -4444,6 +4545,12 @@ function readUnknownRecord(value: unknown): Record<string, unknown> | null {
   return null
 }
 
+function readOptionalString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed || null
+}
+
 function readStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
@@ -4506,6 +4613,16 @@ interface PlannerApprovalCardProps {
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
 }
 
+interface PlannerBillingSummary {
+  tierLabel?: string
+  canCreateEvent?: boolean
+  freeEventsRemaining?: number
+  paidEventCredits?: number
+  prices?: {
+    payPerEventAmount?: number
+  }
+}
+
 /**
  * Interactive approval card for booking, hold, and payment confirmation steps.
  */
@@ -4527,11 +4644,51 @@ function PlannerApprovalCard({
   const [authorizedAmountCents, setAuthorizedAmountCents] = useState(readAuthorizedApprovalAmount(approval))
   const [eventDate, setEventDate] = useState(readApprovalString(approval, 'event_date'))
   const [notes, setNotes] = useState('')
+  const [billingAccess, setBillingAccess] = useState<'loading' | 'allowed' | 'required' | 'unknown'>(
+    isAuthenticated ? 'loading' : 'unknown'
+  )
+  const [billingSummary, setBillingSummary] = useState<PlannerBillingSummary | null>(null)
 
   useEffect(() => {
     setStatus(readApprovalStatus(approval))
     setAuthorizedAmountCents(readAuthorizedApprovalAmount(approval))
   }, [approval])
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setBillingAccess('unknown')
+      setBillingSummary(null)
+      return
+    }
+
+    let isCancelled = false
+    setBillingAccess('loading')
+
+    async function loadBillingAccess() {
+      try {
+        const response = await fetch('/api/builder/billing/status', { credentials: 'include' })
+        if (!response.ok) {
+          if (!isCancelled) setBillingAccess('unknown')
+          return
+        }
+
+        const payload = (await response.json()) as { billing?: PlannerBillingSummary }
+        if (isCancelled) return
+
+        const billing = payload.billing ?? null
+        setBillingSummary(billing)
+        setBillingAccess(billing?.canCreateEvent === false ? 'required' : 'allowed')
+      } catch {
+        if (!isCancelled) setBillingAccess('unknown')
+      }
+    }
+
+    void loadBillingAccess()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [isAuthenticated])
 
   const label = readApprovalString(approval, 'label') || readApprovalString(approval, 'action_label') || 'Approval required'
   const provider = readApprovalString(approval, 'provider') || '3rdPlace'
@@ -4548,6 +4705,8 @@ function PlannerApprovalCard({
   const queuedInviteCount = readApprovalQueuedInviteCount(approval) ?? venueNames.length
   const sentAt = inviteStats?.last_sent_at ? formatApprovalTimestamp(inviteStats.last_sent_at) : null
   const conciergeFollowupCount = inviteStats?.concierge_followup_count ?? 0
+  const isProductGateLoading = isAuthenticated && billingAccess === 'loading'
+  const isProductGateRequired = isAuthenticated && billingAccess === 'required'
 
   function requestSignupForAuthorization(nextAuthorizedAmountCents: number) {
     onAuthRequired({
@@ -4593,6 +4752,7 @@ function PlannerApprovalCard({
       requestSignupForAuthorization(amountCents)
       return
     }
+    if (isProductGateRequired || isProductGateLoading) return
 
     setIsSubmitting(true)
     setInlineError(null)
@@ -4638,6 +4798,7 @@ function PlannerApprovalCard({
       requestSignupForAuthorization(nextAuthorizedAmountCents)
       return
     }
+    if (isProductGateRequired || isProductGateLoading) return
 
     setIsSubmitting(true)
     setInlineError(null)
@@ -4832,16 +4993,28 @@ function PlannerApprovalCard({
                 </Button>
               </div>
             </div>
+          ) : isProductGateRequired ? (
+            <div className="mt-4 rounded-xl border border-secondary/30 bg-secondary/10 px-4 py-3">
+              <p className="text-sm font-semibold text-foreground">Activate planner access to approve outreach</p>
+              <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                {formatPlannerBillingGateMessage(billingSummary)}
+              </p>
+              <div className="mt-3">
+                <Button asChild size="sm" className="rounded-xl">
+                  <Link href="/planner/billing">Choose pay-per-event or Pro</Link>
+                </Button>
+              </div>
+            </div>
           ) : (
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button type="button" size="sm" onClick={handleAuthorize} disabled={isSubmitting}>
+              <Button type="button" size="sm" onClick={handleAuthorize} disabled={isSubmitting || isProductGateLoading}>
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {isVenueOutreachApproval ? 'Approve and send' : 'Authorize'}
+                {isProductGateLoading ? 'Checking access…' : isVenueOutreachApproval ? 'Approve and send' : 'Authorize'}
               </Button>
-              <Button type="button" variant="glass" size="sm" onClick={() => setMode('edit')} disabled={isSubmitting}>
+              <Button type="button" variant="glass" size="sm" onClick={() => setMode('edit')} disabled={isSubmitting || isProductGateLoading}>
                 {isVenueOutreachApproval ? 'Edit picks' : 'Edit'}
               </Button>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setMode('confirm_cancel')} disabled={isSubmitting}>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setMode('confirm_cancel')} disabled={isSubmitting || isProductGateLoading}>
                 Cancel
               </Button>
             </div>
@@ -4852,6 +5025,14 @@ function PlannerApprovalCard({
       )}
     </div>
   )
+}
+
+function formatPlannerBillingGateMessage(billing: PlannerBillingSummary | null) {
+  const tier = billing?.tierLabel ?? 'Free Trial'
+  const payPerEventAmount = billing?.prices?.payPerEventAmount
+  const payPerEvent = typeof payPerEventAmount === 'number' ? formatMockCents(payPerEventAmount * 100) : '$30'
+
+  return `${tier} has no remaining event access. Add a ${payPerEvent} event credit or choose Pro before outreach, deposits, or payments can execute.`
 }
 
 /**
