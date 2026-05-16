@@ -108,7 +108,7 @@ export function PlannerShell({ children }: PlannerShellProps) {
 
   return (
     <div
-      className="planner-product-shell relative flex min-h-screen overflow-hidden bg-background text-foreground"
+      className="planner-product-shell relative flex h-screen overflow-hidden bg-background text-foreground"
     >
       <div
         className="h-screen shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
