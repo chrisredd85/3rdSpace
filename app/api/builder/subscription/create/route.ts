@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getStripeClient } from '@/lib/stripe/connect'
 import {
+  ensureStripeCustomerForBuilder,
   getAuthenticatedBuilderBillingProfile,
   getBuilderStripePriceId,
   upsertBuilderSubscription,
@@ -82,35 +83,25 @@ export async function POST(request: NextRequest) {
       .eq('builder_id', auth.builder.id)
       .maybeSingle()
 
-    let customerId = existingSub?.stripe_customer_id || auth.builder.stripe_customer_id || null
+    const existingCustomerId = existingSub?.stripe_customer_id || auth.builder.stripe_customer_id || null
+    const customerId = await ensureStripeCustomerForBuilder({
+      admin,
+      builder: auth.builder,
+      email: auth.user.email,
+      stripeCustomerId: existingCustomerId,
+    })
 
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: auth.user.email || undefined,
-        name: auth.builder.name || undefined,
-        payment_method: parsedBody.data.paymentMethodId,
-        invoice_settings: {
-          default_payment_method: parsedBody.data.paymentMethodId,
-        },
-        metadata: {
-          builder_id: auth.builder.id,
-          user_id: auth.user.id,
-        },
-      })
-      customerId = customer.id
-    } else {
-      try {
-        await stripe.paymentMethods.attach(parsedBody.data.paymentMethodId, { customer: customerId })
-      } catch (error) {
-        console.warn('[builder.subscription.create] Payment method attach skipped', error)
-      }
-
-      await stripe.customers.update(customerId, {
-        invoice_settings: {
-          default_payment_method: parsedBody.data.paymentMethodId,
-        },
-      })
+    try {
+      await stripe.paymentMethods.attach(parsedBody.data.paymentMethodId, { customer: customerId })
+    } catch (error) {
+      console.warn('[builder.subscription.create] Payment method attach skipped', error)
     }
+
+    await stripe.customers.update(customerId, {
+      invoice_settings: {
+        default_payment_method: parsedBody.data.paymentMethodId,
+      },
+    })
 
     const subscription = await stripe.subscriptions.create({
       customer: customerId,

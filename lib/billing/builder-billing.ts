@@ -186,6 +186,62 @@ export function getBuilderBillingSummary(profile: BuilderBillingProfile) {
   }
 }
 
+function isMissingStripeCustomerError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+
+  const stripeError = error as {
+    code?: string
+    raw?: { code?: string }
+    message?: string
+    statusCode?: number
+  }
+
+  const code = stripeError.code ?? stripeError.raw?.code
+  return (
+    code === 'resource_missing' &&
+    /no such customer/i.test(stripeError.message ?? '')
+  )
+}
+
+async function createStripeCustomerForBuilder(params: {
+  admin: any
+  builder: BuilderBillingProfile
+  email?: string | null
+  staleCustomerId?: string | null
+}) {
+  const stripe = getStripeClient()
+  const now = new Date().toISOString()
+  const customer = await stripe.customers.create({
+    email: params.email || undefined,
+    name: params.builder.name || undefined,
+    metadata: {
+      builder_id: params.builder.id,
+      user_id: params.builder.user_id,
+    },
+  })
+
+  await params.admin
+    .from('builder_profiles')
+    .update({
+      stripe_customer_id: customer.id,
+      updated_at: now,
+    })
+    .eq('id', params.builder.id)
+
+  if (params.staleCustomerId) {
+    await params.admin
+      .from('builder_subscriptions')
+      .update({
+        stripe_customer_id: customer.id,
+        updated_at: now,
+      })
+      .eq('builder_id', params.builder.id)
+      .eq('stripe_customer_id', params.staleCustomerId)
+  }
+
+  return customer.id
+}
+
 export async function getAuthenticatedBuilderBillingProfile(supabase: any) {
   const {
     data: { user },
@@ -213,28 +269,31 @@ export async function ensureStripeCustomerForBuilder(params: {
   admin: any
   builder: BuilderBillingProfile
   email?: string | null
+  stripeCustomerId?: string | null
 }) {
-  if (params.builder.stripe_customer_id) return params.builder.stripe_customer_id
+  const existingCustomerId = params.stripeCustomerId || params.builder.stripe_customer_id || null
 
   const stripe = getStripeClient()
-  const customer = await stripe.customers.create({
-    email: params.email || undefined,
-    name: params.builder.name || undefined,
-    metadata: {
-      builder_id: params.builder.id,
-      user_id: params.builder.user_id,
-    },
+  if (existingCustomerId) {
+    try {
+      const customer = await stripe.customers.retrieve(existingCustomerId)
+      if (!customer.deleted) return customer.id
+    } catch (error) {
+      if (!isMissingStripeCustomerError(error)) throw error
+
+      console.warn('[builder.billing] Replacing stale Stripe customer id for active Stripe mode', {
+        builderId: params.builder.id,
+        staleCustomerId: existingCustomerId,
+      })
+    }
+  }
+
+  return createStripeCustomerForBuilder({
+    admin: params.admin,
+    builder: params.builder,
+    email: params.email,
+    staleCustomerId: existingCustomerId,
   })
-
-  await params.admin
-    .from('builder_profiles')
-    .update({
-      stripe_customer_id: customer.id,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', params.builder.id)
-
-  return customer.id
 }
 
 export async function createBuilderCheckoutSession(params: {
