@@ -7,6 +7,7 @@ import {
   getStripeCompletionPercent,
   saveVenueStripeAccount,
 } from '@/lib/stripe/connect'
+import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
 
 export const runtime = 'nodejs'
 
@@ -43,7 +44,35 @@ export async function GET() {
     }
 
     const stripe = getStripeClient()
-    const account = await stripe.accounts.retrieve(record.stripe_account_id)
+    const validation = await validateStripeConnectAccount({
+      stripe,
+      db: admin as any,
+      table: 'venue_stripe_accounts',
+      rowId: auth.owner.id,
+      currentAccountId: record.stripe_account_id,
+    })
+
+    if (validation.mismatchCleared) {
+      return NextResponse.json({
+        connected: false,
+        status: 'not_connected',
+        account: null,
+        completionPercent: 0,
+        onboarding_required: true,
+        reason: 'stripe_mode_mismatch',
+      })
+    }
+
+    const account = validation.account
+    if (!account) {
+      return NextResponse.json({
+        connected: false,
+        status: 'not_connected',
+        account: null,
+        completionPercent: 0,
+      })
+    }
+
     const saved = await saveVenueStripeAccount(admin as any, auth.owner.id, account)
 
     return NextResponse.json({

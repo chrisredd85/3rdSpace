@@ -21,6 +21,8 @@ type StripeAccount = {
 type StripeStatusResponse = {
   account: StripeAccount | null
   completionPercent: number
+  onboarding_required?: boolean
+  reason?: string
   error?: string
 }
 
@@ -241,6 +243,9 @@ export default function VenuePayoutsPage() {
 
   const isConnected = Boolean(status.account)
   const isDashboardReady = Boolean(status.account?.payouts_enabled || status.account?.charges_enabled)
+  const connectDescription = status.reason === 'stripe_mode_mismatch'
+    ? 'Reconnect your Stripe account to receive venue payouts. Your previous connection is no longer valid for this environment.'
+    : 'Create a Stripe Express account to receive venue payouts.'
   const kickbackPayments = kickbacks?.payments ?? []
 
   return (
@@ -295,7 +300,7 @@ export default function VenuePayoutsPage() {
               account={status.account}
               completionPercent={status.completionPercent}
               isRefreshing={isRefreshing}
-              notConnectedDescription="Create a Stripe Express account to receive venue payouts."
+              notConnectedDescription={connectDescription}
               onRefresh={refreshStatus}
             />
           )}

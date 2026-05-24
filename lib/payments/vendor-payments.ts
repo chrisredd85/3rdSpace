@@ -1,6 +1,7 @@
 import 'server-only'
 
 import Stripe from 'stripe'
+import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 import { getStripeClient } from '@/lib/stripe/connect'
 
@@ -23,6 +24,17 @@ export type VendorTransaction = {
   status: VendorTransactionStatus
   paid_at: string | null
   created_at: string
+}
+
+export class VendorRequiresReconnectError extends Error {
+  code = 'vendor_requires_reconnect'
+  status = 409
+  reason = 'stripe_mode_mismatch'
+
+  constructor(message = 'Reconnect Stripe to receive vendor payouts.') {
+    super(message)
+    this.name = 'VendorRequiresReconnectError'
+  }
 }
 
 type VendorBookingPaymentRow = {
@@ -180,14 +192,27 @@ export async function ensureVendorCanReceivePayments(admin: any, vendorId: strin
   const account = await getVendorStripeAccount(admin, vendorId)
 
   if (!account?.stripe_account_id) {
-    throw new Error('This vendor has not connected Stripe yet. Please choose another vendor or contact support.')
+    throw new VendorRequiresReconnectError('This vendor needs to reconnect Stripe before receiving payouts.')
+  }
+
+  const stripe = getStripeClient()
+  const validation = await validateStripeConnectAccount({
+    stripe,
+    db: admin,
+    table: 'vendor_stripe_accounts',
+    rowId: vendorId,
+    currentAccountId: account.stripe_account_id,
+  })
+
+  if (validation.mismatchCleared || !validation.accountId) {
+    throw new VendorRequiresReconnectError('This vendor needs to reconnect Stripe before receiving payouts.')
   }
 
   if (!account.payouts_enabled || account.account_status === 'restricted') {
     throw new Error('This vendor cannot receive payouts right now. We have notified the team to review the account.')
   }
 
-  return account.stripe_account_id
+  return validation.accountId
 }
 
 export async function createVendorTransfer(params: {

@@ -7,6 +7,7 @@ import {
   getStripeClient,
   saveBuilderStripeAccount,
 } from '@/lib/stripe/connect'
+import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
 
 export const runtime = 'nodejs'
 
@@ -60,7 +61,23 @@ export async function GET(request: NextRequest) {
       return redirectToPayouts(request, 'missing_account')
     }
 
-    const account = await stripe.accounts.retrieve(existing.stripe_account_id)
+    const validation = await validateStripeConnectAccount({
+      stripe,
+      db: admin as any,
+      table: 'builder_stripe_accounts',
+      rowId: auth.user.id,
+      currentAccountId: existing.stripe_account_id,
+    })
+
+    if (validation.mismatchCleared || !validation.account) {
+      return redirectToPayouts(
+        request,
+        'reconnect_required',
+        'Reconnect Stripe to receive payouts.'
+      )
+    }
+
+    const account = validation.account
     await saveBuilderStripeAccount(admin as any, auth.user.id, auth.builder.id, account)
 
     if (searchParams.get('refresh') === '1') {

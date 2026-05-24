@@ -220,6 +220,15 @@ export async function saveVenueStripeAccount(
     throw new Error(`Failed to save Stripe account: ${error.message}`)
   }
 
+  await supabase
+    .from('owner_profiles')
+    .update({
+      stripe_account_id: account.id,
+      payout_enabled: Boolean(account.payouts_enabled),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('user_id', ownerId)
+
   return data as VenueStripeAccountRecord
 }
 

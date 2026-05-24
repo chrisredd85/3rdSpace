@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getStripeClient } from '@/lib/stripe/connect'
+import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
 import { dollarsToCents, getFriendlyStripeError, type VendorTransactionStatus } from '@/lib/payments/vendor-payments'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 
@@ -133,15 +134,46 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to verify vendor Stripe setup' }, { status: 500 })
     }
 
-    if (!vendorStripe?.stripe_account_id || !vendorStripe.charges_enabled) {
+    if (!vendorStripe?.stripe_account_id) {
+      return NextResponse.json(
+        {
+          error: 'Vendor needs to reconnect Stripe before receiving payouts.',
+          code: 'vendor_requires_reconnect',
+          onboarding_required: true,
+        },
+        { status: 409 }
+      )
+    }
+
+    const stripeFee = estimateStripeFee(amount)
+    const stripe = getStripeClient()
+    const validation = await validateStripeConnectAccount({
+      stripe,
+      db: admin as any,
+      table: 'vendor_stripe_accounts',
+      rowId: booking.vendor_id,
+      currentAccountId: vendorStripe.stripe_account_id,
+    })
+
+    if (validation.mismatchCleared || !validation.accountId) {
+      return NextResponse.json(
+        {
+          error: 'Vendor needs to reconnect Stripe before receiving payouts.',
+          code: 'vendor_requires_reconnect',
+          onboarding_required: true,
+          reason: 'stripe_mode_mismatch',
+        },
+        { status: 409 }
+      )
+    }
+
+    if (!vendorStripe.charges_enabled) {
       return NextResponse.json(
         { error: 'Vendor has not completed Stripe setup' },
         { status: 400 }
       )
     }
 
-    const stripeFee = estimateStripeFee(amount)
-    const stripe = getStripeClient()
     const paymentIntent = await stripe.paymentIntents.create({
       amount: dollarsToCents(amount),
       currency: 'usd',
@@ -149,7 +181,7 @@ export async function POST(request: NextRequest) {
       confirm: true,
       application_fee_amount: 0,
       transfer_data: {
-        destination: vendorStripe.stripe_account_id,
+        destination: validation.accountId,
       },
       metadata: {
         booking_id: booking.id,

@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedVenueOwner, getStripeClient } from '@/lib/stripe/connect'
+import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
 
 export const runtime = 'nodejs'
 
@@ -29,7 +30,27 @@ export async function GET() {
     }
 
     const stripe = getStripeClient()
-    const loginLink = await stripe.accounts.createLoginLink(record.stripe_account_id)
+    const validation = await validateStripeConnectAccount({
+      stripe,
+      db: admin as any,
+      table: 'venue_stripe_accounts',
+      rowId: auth.owner.id,
+      currentAccountId: record.stripe_account_id,
+    })
+
+    if (validation.mismatchCleared || !validation.accountId) {
+      return NextResponse.json(
+        {
+          error: 'Reconnect Stripe to receive payouts.',
+          code: 'venue_requires_reconnect',
+          onboarding_required: true,
+          reason: 'stripe_mode_mismatch',
+        },
+        { status: 409 }
+      )
+    }
+
+    const loginLink = await stripe.accounts.createLoginLink(validation.accountId)
 
     return NextResponse.json({ url: loginLink.url })
   } catch (error) {

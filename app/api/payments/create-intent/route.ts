@@ -11,6 +11,7 @@ import {
   getPaymentAmount,
   getPlatformFeePercentage,
   getVendorBookingForPayment,
+  VendorRequiresReconnectError,
   type VendorPaymentType,
 } from '@/lib/payments/vendor-payments'
 
@@ -181,6 +182,18 @@ export async function POST(request: NextRequest) {
       },
     })
   } catch (error) {
+    if (error instanceof VendorRequiresReconnectError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          onboarding_required: true,
+          reason: error.reason,
+        },
+        { status: error.status }
+      )
+    }
+
     console.error('[payments.create-intent] Failed to create PaymentIntent', error)
     return NextResponse.json({ error: getFriendlyStripeError(error) }, { status: 500 })
   }

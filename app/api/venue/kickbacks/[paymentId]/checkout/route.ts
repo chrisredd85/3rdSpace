@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { dollarsToCents } from '@/lib/payments/vendor-payments'
+import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getAppBaseUrl, getAuthenticatedVenueOwner, getStripeClient } from '@/lib/stripe/connect'
 
@@ -74,14 +75,45 @@ export async function POST(
 
     if (builderAccountError) throw new Error(builderAccountError.message)
 
-    if (!builderAccount?.stripe_account_id || !builderAccount.payouts_enabled || builderAccount.account_status === 'restricted') {
+    if (!builderAccount?.stripe_account_id) {
+      return NextResponse.json(
+        {
+          error: 'The event builder needs to reconnect Stripe before receiving payouts.',
+          code: 'builder_requires_reconnect',
+          onboarding_required: true,
+        },
+        { status: 409 }
+      )
+    }
+
+    const stripe = getStripeClient()
+    const validation = await validateStripeConnectAccount({
+      stripe,
+      db: admin as any,
+      table: 'builder_stripe_accounts',
+      rowId: payment.recipient_id,
+      currentAccountId: builderAccount.stripe_account_id,
+    })
+
+    if (validation.mismatchCleared || !validation.accountId) {
+      return NextResponse.json(
+        {
+          error: 'The event builder needs to reconnect Stripe before receiving payouts.',
+          code: 'builder_requires_reconnect',
+          onboarding_required: true,
+          reason: 'stripe_mode_mismatch',
+        },
+        { status: 409 }
+      )
+    }
+
+    if (!builderAccount.payouts_enabled || builderAccount.account_status === 'restricted') {
       return NextResponse.json(
         { error: 'The event builder has not finished payout setup yet.' },
         { status: 400 }
       )
     }
 
-    const stripe = getStripeClient()
     const baseUrl = getAppBaseUrl(request)
     const event = Array.isArray(payment.events) ? payment.events[0] : payment.events
     const eventName = event?.event_name || 'event'
@@ -112,7 +144,7 @@ export async function POST(
         ],
         payment_intent_data: {
           transfer_data: {
-            destination: builderAccount.stripe_account_id,
+            destination: validation.accountId,
           },
           metadata,
         },

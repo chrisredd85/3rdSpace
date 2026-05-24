@@ -8,6 +8,7 @@ import {
   getStripeCompletionPercent,
   saveBuilderStripeAccount,
 } from '@/lib/stripe/connect'
+import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
 
 export const runtime = 'nodejs'
 
@@ -36,8 +37,17 @@ export async function POST(request: NextRequest) {
     let account
 
     if (existing?.stripe_account_id) {
-      account = await stripe.accounts.retrieve(existing.stripe_account_id)
-    } else {
+      const validation = await validateStripeConnectAccount({
+        stripe,
+        db: admin as any,
+        table: 'builder_stripe_accounts',
+        rowId: auth.user.id,
+        currentAccountId: existing.stripe_account_id,
+      })
+      account = validation.account
+    }
+
+    if (!account) {
       account = await stripe.accounts.create({
         type: 'express',
         country: 'US',
