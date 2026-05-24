@@ -11,6 +11,7 @@ import {
   getFriendlyStripeError,
   getStripeFeeFromPaymentIntent,
   getVendorBookingForPayment,
+  VendorRequiresReconnectError,
   type VendorTransaction,
 } from '@/lib/payments/vendor-payments'
 
@@ -126,6 +127,18 @@ export async function POST(request: NextRequest) {
       transaction: updatedTransaction,
     })
   } catch (error) {
+    if (error instanceof VendorRequiresReconnectError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          onboarding_required: true,
+          reason: error.reason,
+        },
+        { status: error.status }
+      )
+    }
+
     console.error('[payments.confirm] Failed to confirm payment', error)
     return NextResponse.json({ error: getFriendlyStripeError(error) }, { status: 500 })
   }

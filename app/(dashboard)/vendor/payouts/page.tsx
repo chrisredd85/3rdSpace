@@ -21,6 +21,8 @@ type StripeAccount = {
 type StripeStatusResponse = {
   account: StripeAccount | null
   completionPercent: number
+  onboarding_required?: boolean
+  reason?: string
   error?: string
 }
 
@@ -220,6 +222,9 @@ export default function VendorPayoutsPage() {
 
   const isConnected = Boolean(status.account)
   const isDashboardReady = Boolean(status.account?.payouts_enabled || status.account?.charges_enabled)
+  const connectDescription = status.reason === 'stripe_mode_mismatch'
+    ? 'Reconnect your Stripe account to receive payouts. Your previous connection is no longer valid for this environment.'
+    : undefined
   const transactions = summary?.transactions ?? []
 
   return (
@@ -274,6 +279,7 @@ export default function VendorPayoutsPage() {
               account={status.account}
               completionPercent={status.completionPercent}
               isRefreshing={isRefreshing}
+              notConnectedDescription={connectDescription}
               onRefresh={refreshStatus}
             />
           )}
