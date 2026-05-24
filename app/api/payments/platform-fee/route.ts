@@ -5,6 +5,7 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getStripeClient } from '@/lib/stripe/connect'
 import {
   BUILDER_BILLING_PRICES,
+  ensureStripeCustomerForBuilder,
   getAuthenticatedBuilderBillingProfile,
   upsertBuilderSubscription,
 } from '@/lib/billing/builder-billing'
@@ -128,22 +129,15 @@ export async function POST(request: NextRequest) {
 
     const amount = BUILDER_BILLING_PRICES.payPerEventAmount
     const stripe = getStripeClient()
-    let customerId = subscription?.stripe_customer_id || auth.builder.stripe_customer_id || null
+    const existingCustomerId = subscription?.stripe_customer_id || auth.builder.stripe_customer_id || null
+    const customerId = await ensureStripeCustomerForBuilder({
+      admin,
+      builder: auth.builder,
+      email: auth.user.email,
+      stripeCustomerId: existingCustomerId,
+    })
 
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: auth.user.email || undefined,
-        payment_method: parsedBody.data.paymentMethodId,
-        invoice_settings: {
-          default_payment_method: parsedBody.data.paymentMethodId,
-        },
-        metadata: {
-          builder_id: auth.builder.id,
-          user_id: auth.user.id,
-        },
-      })
-      customerId = customer.id
-
+    if (!existingCustomerId) {
       await upsertBuilderSubscription({
         admin,
         builderId: auth.builder.id,
@@ -162,6 +156,12 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', auth.builder.id)
     }
+
+    await stripe.customers.update(customerId, {
+      invoice_settings: {
+        default_payment_method: parsedBody.data.paymentMethodId,
+      },
+    })
 
     const paymentIntent = await stripe.paymentIntents.create({
       amount: dollarsToCents(amount),
