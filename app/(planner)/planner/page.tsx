@@ -542,6 +542,16 @@ function PlannerPageContent() {
         return 'draft'
       }
 
+      if (response.status === 402) {
+        // Billing gate — do not fall back to draft. Show the upgrade prompt so
+        // the user can choose a plan, then retry.
+        setErrorMessage(
+          payload?.error ?? "You've used your free events. Upgrade to keep planning."
+        )
+        setIsCreatingPlan(false)
+        return null
+      }
+
       if (!response.ok) {
         throw new Error(payload?.error ?? 'Unable to create planner draft')
       }
