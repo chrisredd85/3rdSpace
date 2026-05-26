@@ -39,6 +39,8 @@ import {
   withPlanVendorStack,
 } from '@/lib/planner/recommendVendorStack'
 import { loadVendorEconomicsCostSummary, type VendorEconomicsCostSummary } from '@/lib/planner/vendorEconomicsCosts'
+import { hasActiveVenueHold } from '@/lib/planner/venueHold'
+import { byoVendorServiceTypes, readByoVendors, sumByoVendorCostsCents } from '@/lib/planner/byoVendors'
 import { logAgentRun, type AgentRunDb } from '@/lib/server/agent-runs'
 import {
   getBuilderProfileIdForUser,
@@ -157,6 +159,11 @@ type ProfitProjectionSummary = {
   projections: ProfitTicketProjection[]
   recommended_price_cents: number | null
   recommended_projection: ProfitTicketProjection | null
+  // When the user stated a ticket price target, `recommended_projection` IS that price
+  // (even if it's loss-making). `break_even_projection` is surfaced separately so the
+  // narrative can say "you said $35, break-even is $117" without silently swapping prices.
+  break_even_projection: ProfitTicketProjection | null
+  user_stated_price_cents: number | null
   source: 'deterministic_estimate'
   accuracy: 'estimate_until_partner_quotes_confirmed'
   requires_quote_confirmation: true
@@ -215,6 +222,9 @@ const recommendRequestSchema = z.object({
   limit: z.number().int().min(1).max(6).default(6),
   venueLimit: z.number().int().min(0).max(3).default(3),
   vendorLimit: z.number().int().min(0).max(3).default(3),
+  // 'auto' (default) inspects active venue holds: no hold → 'venues', hold → 'vendors'.
+  // 'venues' = Phase 1 (skip vendor + economics). 'vendors' = Phase 2 (full pipeline).
+  phase: z.enum(['auto', 'venues', 'vendors']).default('auto'),
 }).strict()
 
 const VENUE_RANKER_SELECT_COLUMNS = `
@@ -406,23 +416,54 @@ export async function POST(
       venueMatch.candidateVenues,
       venueMatch.venueResult.output.ranked_venues
     )
-    const suggestedVendors = await loadSuggestedVendors(auth.db, recommendationPlan, archetype, venueCostCents)
-    const vendorRecommendationGroups = groupVendorRecommendations(suggestedVendors, archetype)
-    const vendorMatchNotice = buildVendorMatchNotice(archetype, suggestedVendors)
-    const vendorCostSummary = await loadVendorEconomicsCostSummary(auth.db, {
-      plan: recommendationPlan,
-      organizerUserId: auth.userId,
-      expectedAttendance: recommendationPlan.guest_count ?? eventPlan.expected_attendance ?? 0,
-      vendorRecommendations: suggestedVendors,
-    })
-    const vendorCostCents = vendorCostSummary.vendor_cost_cents
+
+    // Phase resolution. 'auto' (default) inspects active venue holds: no hold →
+    // Phase 1 (venues only), hold present → Phase 2 (vendors + economics).
+    // 'venues' / 'vendors' override the inspection.
+    const effectivePhase: 'venues' | 'vendors' = body.data.phase === 'auto'
+      ? (await hasActiveVenueHold(auth.db, plan.id) ? 'vendors' : 'venues')
+      : body.data.phase
+    const shouldRunVendors = effectivePhase === 'vendors'
+
+    // BYO vendors the organizer is providing themselves. Their costs are
+    // folded into the economics total and their service types are excluded
+    // from the catalog recommendation set so the system doesn't suggest a
+    // photographer when the organizer is bringing their own.
+    const byoVendors = readByoVendors(recommendationPlan.metadata)
+    const byoServiceTypes = byoVendorServiceTypes(byoVendors)
+    const byoVendorCostCents = sumByoVendorCostsCents(byoVendors)
+
+    const rawSuggestedVendors = shouldRunVendors
+      ? await loadSuggestedVendors(auth.db, recommendationPlan, archetype, venueCostCents)
+      : []
+    const suggestedVendors = rawSuggestedVendors.filter((vendor) => !byoServiceTypes.has(String(vendor.service_type)))
+    const vendorRecommendationGroups = shouldRunVendors
+      ? groupVendorRecommendations(suggestedVendors, archetype)
+      : []
+    const vendorMatchNotice = shouldRunVendors
+      ? buildVendorMatchNotice(archetype, suggestedVendors)
+      : null
+    const vendorCostSummary: VendorEconomicsCostSummary | null = shouldRunVendors
+      ? await loadVendorEconomicsCostSummary(auth.db, {
+          plan: recommendationPlan,
+          organizerUserId: auth.userId,
+          expectedAttendance: recommendationPlan.guest_count ?? eventPlan.expected_attendance ?? 0,
+          vendorRecommendations: suggestedVendors,
+        })
+      : null
+    // Add the BYO vendor total to the catalog/quoted vendor cost so the
+    // profit projection reflects what the organizer is actually spending.
+    const vendorCostCents = (vendorCostSummary?.vendor_cost_cents ?? 0) + byoVendorCostCents
     const ticketPriceSweepCents = buildTicketPriceSweepCents(archetype, elasticity)
-    const profitProjection = buildProfitProjectionSummary(recommendationPlan, venueCostCents, vendorCostCents, ticketPriceSweepCents)
+    const profitProjection = shouldRunVendors
+      ? buildProfitProjectionSummary(recommendationPlan, venueCostCents, vendorCostCents, ticketPriceSweepCents)
+      : null
     const knownTicketPriceCents = readPlanTicketPriceTargetCents(recommendationPlan)
-    const economicsPlaceholder = buildEconomicsPlaceholder(recommendationPlan, archetype, knownTicketPriceCents)
-    const economicsResult: EconomicsAgentResult | null = economicsPlaceholder
-      ? null
-      : await runLoggedEconomicsAgent(
+    const economicsPlaceholder = shouldRunVendors
+      ? buildEconomicsPlaceholder(recommendationPlan, archetype, knownTicketPriceCents)
+      : null
+    const economicsResult: EconomicsAgentResult | null = shouldRunVendors && !economicsPlaceholder && vendorCostSummary && profitProjection
+      ? await runLoggedEconomicsAgent(
           auth.userId,
           plan.id,
           buildEconomicsPayload(
@@ -444,6 +485,7 @@ export async function POST(
             }
           )
         )
+      : null
     const ticketingPlatformPrompt = buildTicketingPlatformPrompt(recommendationPlan, archetype, connectedTicketingPlatforms, messages)
     const topVenueContext = toRecommendedVenueContext(
       pickTopVenueCandidate(venueMatch.candidateVenues, venueMatch.venueResult.output.ranked_venues),
@@ -466,42 +508,52 @@ export async function POST(
       vendorMatchNotice,
       capacityCalibration
     )
-    const outreachApproval = await ensureOutreachApprovalRequest({
-      db: auth.db,
-      plan: recommendationPlan,
-      userId: auth.userId,
-      venueIds: venueMatch.venueResult.output.ranked_venues.slice(0, 3).map((venue) => venue.venue_id),
-      vendorIds: suggestedVendors.slice(0, 3).map((vendor) => vendor.vendor_id),
-      projectedCostsCents: venueCostCents + vendorCostCents,
-      summary: buildOutreachApprovalSummary(recommendationPlan, venueMatch.venueResult.output.ranked_venues.length, suggestedVendors.length),
-      requirements: buildOutreachRequirements(recommendationPlan, archetype, archetypeIntake),
-    })
-    const operationalArtifacts = await generateAndPersistOperationalArtifacts({
-      db: auth.db,
-      userId: auth.userId,
-      plan: recommendationPlan,
-      eventPlan,
-      topVenue: topVenueContext,
-      vendorRecommendations: suggestedVendors,
-      profitProjection,
-      archetypeIntake,
-      conversationHistory,
-      mutationContract,
-    })
-    await persistRecommendationShoppingList({
-      db: auth.db,
-      plan: {
-        ...recommendationPlan,
-        metadata: {
-          ...(readRecord(recommendationPlan.metadata) ?? {}),
-          agent_cache: buildOperationalAgentCacheMetadata(operationalArtifacts),
-        } as Json,
-      },
-      topVenue: topVenueContext,
-      topRankedVenue: venueMatch.venueResult.output.ranked_venues[0] ?? null,
-      vendorRecommendations: suggestedVendors,
-      profitProjection,
-    })
+    // Outreach approval + operational artifacts (timeline + workspace summary)
+    // are Phase 2 work. In Phase 1 we only have venues to surface; outreach
+    // and operational planning happen once a venue is held.
+    const outreachApproval = shouldRunVendors
+      ? await ensureOutreachApprovalRequest({
+          db: auth.db,
+          plan: recommendationPlan,
+          userId: auth.userId,
+          venueIds: venueMatch.venueResult.output.ranked_venues.slice(0, 3).map((venue) => venue.venue_id),
+          vendorIds: suggestedVendors.slice(0, 3).map((vendor) => vendor.vendor_id),
+          projectedCostsCents: venueCostCents + vendorCostCents,
+          summary: buildOutreachApprovalSummary(recommendationPlan, venueMatch.venueResult.output.ranked_venues.length, suggestedVendors.length),
+          requirements: buildOutreachRequirements(recommendationPlan, archetype, archetypeIntake),
+        })
+      : null
+    const operationalArtifacts = shouldRunVendors
+      ? await generateAndPersistOperationalArtifacts({
+          db: auth.db,
+          userId: auth.userId,
+          plan: recommendationPlan,
+          eventPlan,
+          topVenue: topVenueContext,
+          vendorRecommendations: suggestedVendors,
+          profitProjection,
+          archetypeIntake,
+          conversationHistory,
+          mutationContract,
+        })
+      : { timeline: null, workspace_summary: null, errors: {} as OperationalAgentArtifacts['errors'] }
+    // Shopping list persistence depends on Phase 2 outputs (vendor list + projection).
+    if (shouldRunVendors && profitProjection) {
+      await persistRecommendationShoppingList({
+        db: auth.db,
+        plan: {
+          ...recommendationPlan,
+          metadata: {
+            ...(readRecord(recommendationPlan.metadata) ?? {}),
+            agent_cache: buildOperationalAgentCacheMetadata(operationalArtifacts),
+          } as Json,
+        },
+        topVenue: topVenueContext,
+        topRankedVenue: venueMatch.venueResult.output.ranked_venues[0] ?? null,
+        vendorRecommendations: suggestedVendors,
+        profitProjection,
+      })
+    }
 
     await insertAuditLog(auth.db, {
       user_id: auth.userId,
@@ -550,6 +602,8 @@ export async function POST(
       persisted_recommendation_ids: persisted.map((recommendation) => recommendation.id),
       outreach_approval_message_id: outreachApproval?.approvalMessageId ?? null,
       ticketing_platform_prompt: ticketingPlatformPrompt,
+      phase: effectivePhase,
+      byo_vendors: byoVendors,
     })
     } catch (error) {
       console.warn('[planner.recommend] Agent-backed recommendation pipeline failed; falling back to catalog ranker', error)
@@ -638,6 +692,14 @@ async function runCatalogFallback(input: {
     vendorLimit: input.vendorLimit,
     eventPlan,
   })
+  // BYO filtering — same as main path. The catalog fallback runs whenever the
+  // agent pipeline throws, so it MUST apply the same BYO suppression or the
+  // organizer will see catalog recommendations for vendor types they already
+  // own.
+  const byoVendorsFallback = readByoVendors(input.plan.metadata)
+  const byoServiceTypesFallback = byoVendorServiceTypes(byoVendorsFallback)
+  const byoVendorCostCentsFallback = sumByoVendorCostsCents(byoVendorsFallback)
+
   const recommendationsForPersistence = catalogVenueMatch.recommendations
   const ticketPriceSweepCents = buildTicketPriceSweepCents(input.archetype, input.elasticity)
   const rankedVenues = recommendationsForPersistence
@@ -646,6 +708,7 @@ async function runCatalogFallback(input: {
   const vendorRecommendations = recommendationsForPersistence
     .filter((recommendation) => recommendation.kind === 'vendor')
     .map((recommendation) => toSuggestedVendorFromCatalog(recommendation, input.archetype))
+    .filter((vendor) => !byoServiceTypesFallback.has(String(vendor.service_type)))
   const vendorRecommendationGroups = groupVendorRecommendations(vendorRecommendations, input.archetype)
   const vendorMatchNotice = buildVendorMatchNotice(input.archetype, vendorRecommendations)
   const venueCostCents = recommendationsForPersistence.find((recommendation) => recommendation.kind === 'venue')?.estimate_cents ?? 0
@@ -655,7 +718,9 @@ async function runCatalogFallback(input: {
     expectedAttendance: input.plan.guest_count ?? eventPlan.expected_attendance ?? 0,
     vendorRecommendations,
   })
-  const vendorCostCents = vendorCostSummary.vendor_cost_cents
+  // Add BYO total to the fallback path's vendor cost so the projection reflects
+  // what the organizer is actually spending. Mirrors the main path.
+  const vendorCostCents = vendorCostSummary.vendor_cost_cents + byoVendorCostCentsFallback
   const knownTicketPriceCents = readPlanTicketPriceTargetCents(input.plan)
   const fallbackEconomicsPlaceholder = buildEconomicsPlaceholder(input.plan, input.archetype, knownTicketPriceCents)
   const fallbackEconomics = fallbackEconomicsPlaceholder
@@ -778,6 +843,7 @@ async function runCatalogFallback(input: {
     persisted_recommendation_ids: persisted.map((recommendation) => recommendation.id),
     outreach_approval_message_id: outreachApproval?.approvalMessageId ?? null,
     ticketing_platform_prompt: catalogTicketingPlatformPrompt,
+    byo_vendors: byoVendorsFallback,
   })
 }
 
@@ -2536,7 +2602,7 @@ async function persistAgentRecommendations(
   vendorRecommendations: SuggestedVendorRecommendation[],
   vendorRecommendationGroups: VendorRecommendationGroup[],
   archetype: EventArchetypeConfig,
-  profitProjection: ProfitProjectionSummary,
+  profitProjection: ProfitProjectionSummary | null,
   elasticity: ElasticitySignal | null = null,
   venueMatchNotice: VenueMatchNotice | null = null,
   vendorMatchNotice: VendorMatchNotice = null,
@@ -2957,12 +3023,22 @@ function buildProfitProjectionSummary(
     }
   })
   const breakEvenProjection = projections.find((projection) => projection.net_profit_cents >= 0) ?? null
-  const recommendedProjection = breakEvenProjection ?? projections[projections.length - 1] ?? null
+  // Honor the user's stated ticket price. If they said $35, that's the recommended
+  // projection — even if it loses money. The break-even price is surfaced separately
+  // in narrative so the user sees the gap explicitly instead of having their price
+  // silently swapped for a higher one.
+  const userStatedProjection = explicitTicketPriceCents !== null
+    ? projections.find((projection) => projection.ticket_price_cents === explicitTicketPriceCents) ?? null
+    : null
+  const recommendedProjection =
+    userStatedProjection ?? breakEvenProjection ?? projections[projections.length - 1] ?? null
 
   return {
     projections,
     recommended_price_cents: recommendedProjection?.ticket_price_cents ?? null,
     recommended_projection: recommendedProjection,
+    break_even_projection: breakEvenProjection,
+    user_stated_price_cents: explicitTicketPriceCents,
     source: 'deterministic_estimate',
     accuracy: 'estimate_until_partner_quotes_confirmed',
     requires_quote_confirmation: true,
