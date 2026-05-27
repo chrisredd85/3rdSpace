@@ -8,7 +8,7 @@ Scope: repeat-organizer revenue share settlement QA for the 3rdPlace planner and
 
 Status: ❌ fail / implementation incomplete.
 
-The current branch builds and the existing test suite passes, but the requested real repeat-organizer settlement system cannot complete end-to-end. The branch currently contains the settlement schema migration and legacy checkout-compatible kickback paths. The key runtime pieces required by the QA prompt are missing: document extraction agent, event-report upload route, venue spend-report route, invoice settlement branch, refund request/decision routes, venue overdue cron, compliance gate helper, Eventbrite/Luma post-event polling helpers, extraction fixtures, and the multi-event planner payments ledger UI.
+The current branch builds and the existing test suite passes, but the requested real repeat-organizer settlement system cannot complete end-to-end. The branch currently contains the settlement schema migration, legacy checkout-compatible kickback paths, and a deterministic extraction fixture pack. The key runtime pieces required by the QA prompt are missing: document extraction agent, event-report upload route, venue spend-report route, invoice settlement branch, refund request/decision routes, venue overdue cron, compliance gate helper, Eventbrite/Luma post-event polling helpers, and the multi-event planner payments ledger UI.
 
 This report is intentionally the first QA deliverable so the PR records the gap before fixtures or follow-up test work are added.
 
@@ -80,7 +80,7 @@ Important current behavior:
 
 ## Requested Jest/Test Fixture Coverage
 
-Status: ❌ not present.
+Status: ⚠ partial. Fixture files are now present, but the requested unit and integration tests are not present yet.
 
 Missing requested unit tests:
 
@@ -99,7 +99,7 @@ Missing requested integration tests:
 - `app/api/planner/plans/[planId]/refund-decision/route.test.ts`
 - `app/api/webhooks/stripe/route.test.ts`
 
-Missing requested fixtures:
+Committed requested fixtures:
 
 - `eventbrite-checked-in-58.png`
 - `eventbrite-only-rsvps.png`
@@ -117,7 +117,15 @@ Missing requested fixtures:
 - `empty.csv`
 - `__tests__/fixtures/extraction/README.md`
 
-I am not adding failing route tests in this first report commit because they would intentionally break the currently passing suite. They should be added with the implementation slices they guard, or as skipped/pending specs if the next PR is intended to be a red-test scaffold.
+Fixture verification performed:
+
+- `eventbrite-attendees.csv` has 58 `checked_in = true` rows.
+- `toast-revenue.xlsx` has `Daily Summary!B7 = 3140`.
+- `encrypted.pdf` is encrypted.
+- `pos-report.pdf` has one text-extractable page.
+- `square-net-4280.png` renders at 1200x760 with the expected net sales value.
+
+I am not adding failing route tests in this fixture commit because they would intentionally break the currently passing suite. They should be added with the implementation slices they guard, or as skipped/pending specs if the next PR is intended to be a red-test scaffold.
 
 ## Repeat Organizer UX Notes
 
@@ -168,9 +176,8 @@ Extraction performance could not be measured because no document extraction agen
 | 9. Scenario F dashboard | ❌ not implemented |
 | 10. Scenario G economics kickback projection | ❌ not implemented |
 | 11. Scenario H cron secured + functional | ❌ not implemented |
-| 12. Fixture screenshots expected extractions | ❌ fixtures missing |
+| 12. Fixture screenshots expected extractions | ⚠ fixture files present; extraction code missing |
 | 13. Stripe test receipts/invoices/transfers/refunds | ❌ not generated |
 | 14. Resend logs | ❌ blocked by missing `RESEND_API_KEY` and missing email paths |
 | 15. No orphaned `kickback_payments` rows | ⚠ not checked against staging |
 | 16. No billing regression | ⚠ local tests pass, but required webhook regression tests are missing |
-
