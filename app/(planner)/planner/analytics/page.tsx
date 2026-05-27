@@ -1,743 +1,950 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import dynamic from 'next/dynamic'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
-  Calendar,
-  DollarSign,
-  TrendingUp,
-  Star,
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  CheckCircle2,
+  Clock,
   Download,
-  ChevronUp,
-  ChevronDown,
+  RefreshCw,
+  Repeat2,
+  Ticket,
+  TrendingUp,
+  Users,
+  WalletCards,
 } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useEvents } from '@/lib/hooks/useEvents'
-import { useSavedVendors } from '@/lib/hooks/useVendors'
-import { useSavedVenues } from '@/lib/hooks/useVenues'
 import { useUser } from '@/lib/hooks/useUser'
-import { supabase } from '@/lib/supabase/client'
-import { useToast } from '@/components/ui/toast'
-import {
-  normalizeVenueBookings,
-  VENUE_BOOKING_WITH_DETAILS_SELECT,
-  type VenueBookingJoinRow,
-} from '@/lib/bookings/venue-booking-adapter'
-import {
-  normalizeVendorBookings,
-  VENDOR_BOOKING_WITH_DETAILS_SELECT,
-  type VendorBookingJoinRow,
-} from '@/lib/bookings/vendor-booking-adapter'
-import type { VenueBooking } from '@/lib/types'
-import type { VendorBookingDashboardItem } from '@/lib/vendors/booking-dashboard'
+import { cn } from '@/lib/utils'
 
-const BuilderMonthlySpendingChart = dynamic(
-  () => import('@/components/analytics/BuilderMonthlySpendingChart').then((mod) => mod.BuilderMonthlySpendingChart),
-  { ssr: false, loading: () => <ChartSkeleton /> }
-)
-
-type SortField = 'name' | 'category' | 'timesUsed' | 'totalSpent' | 'avgRating'
-type SortDirection = 'asc' | 'desc'
-
-interface VendorPerformance {
-  id: string
-  name: string
-  category: string
-  timesUsed: number
-  totalSpent: number
-  avgRating: number
+type FinancialSummary = {
+  event_id?: string
+  tickets_sold?: number | null
+  gross_revenue?: number | null
+  total_fees?: number | null
+  total_refunds?: number | null
+  net_revenue?: number | null
+  average_ticket_price?: number | null
+  current_attendance?: number | null
+  projected_attendance?: number | null
+  projected_revenue?: number | null
+  venue_cost?: number | null
+  vendor_cost?: number | null
+  total_costs?: number | null
+  expected_profit?: number | null
+  profit_margin?: number | null
+  break_even_tickets?: number | null
+  venue_kickback_projection?: number | null
+  venue_sales_share_projection?: number | null
+  per_attendee_value?: number | null
+  message?: string
 }
 
-type VenueBookingAnalyticsItem = VenueBooking & {
-  venues?: Record<string, unknown> | null
+type TicketingSummary = {
+  tickets_sold: number
+  tickets_refunded: number
+  gross_revenue_cents: number
+  fees_cents: number
+  net_revenue_cents: number
+  average_ticket_price_cents: number
 }
 
-const COLORS = ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6']
+type TicketTierRollup = {
+  platform: string
+  ticket_tier_category: string
+  ticket_tier_name: string
+  tickets_sold: number
+  tickets_refunded: number
+  gross_revenue_cents: number
+  fees_cents: number
+  net_revenue_cents: number
+  average_ticket_price_cents: number
+}
 
-export default function BuilderAnalyticsPage() {
+type TicketingAnalytics = {
+  summary: TicketingSummary
+  rollups: TicketTierRollup[]
+  events: Array<{ id: string; event_name?: string | null }>
+}
+
+type PostEventSummary = {
+  events_count: number
+  rsvps_or_imported_attendees: number
+  checked_in: number
+  no_show_rate: number | null
+  tickets_sold: number
+  tickets_refunded: number
+  gross_revenue_cents: number
+  refund_amount_cents: number
+  net_revenue_cents: number
+  average_ticket_price_cents: number
+  peak_arrival_hour: string | null
+  venue_foot_traffic_proxy: number
+  source_confidence: 'imported_checkins_and_sales' | 'partial' | 'no_data'
+  attendance_coverage?: number | null
+}
+
+type TierVelocity = {
+  tier_name: string
+  ticket_price_cents: number | null
+  tickets_sold: number
+  tickets_refunded: number
+  gross_revenue_cents: number
+  first_purchase_at: string | null
+  last_purchase_at: string | null
+}
+
+type PostEventReport = {
+  summary: PostEventSummary
+  arrival_buckets: Array<{ label: string; count: number }>
+  tier_velocity: TierVelocity[]
+  events: Array<{ id: string; event_name?: string | null; event_date?: string | null }>
+  post_event_questions: string[]
+}
+
+type AnalyticsState = {
+  financial: FinancialSummary | null
+  postEvent: PostEventReport | null
+  ticketing: TicketingAnalytics | null
+}
+
+type LoadState = {
+  data: AnalyticsState | null
+  isLoading: boolean
+  error: string | null
+}
+
+const emptyTicketingSummary: TicketingSummary = {
+  tickets_sold: 0,
+  tickets_refunded: 0,
+  gross_revenue_cents: 0,
+  fees_cents: 0,
+  net_revenue_cents: 0,
+  average_ticket_price_cents: 0,
+}
+
+export default function PlannerAnalyticsPage() {
   const { user, isLoading: isUserLoading, error: userError } = useUser()
-  const [dateRange, setDateRange] = useState({
-    start: new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0],
-    end: new Date().toISOString().split('T')[0],
-  })
-  const [sortField, setSortField] = useState<SortField>('totalSpent')
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
-  const [venueBookingsData, setVenueBookingsData] = useState<VenueBookingAnalyticsItem[]>([])
-  const [vendorBookingsData, setVendorBookingsData] = useState<VendorBookingDashboardItem[]>([])
-  const { addToast } = useToast()
-
   const userId = user?.id || null
-  const { data: events = [] } = useEvents(userId)
-  const { data: savedVendors = [] } = useSavedVendors(userId)
-  const { data: savedVenues = [] } = useSavedVenues(userId)
+  const { data: events = [], isLoading: isEventsLoading } = useEvents(userId)
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+  const [loadState, setLoadState] = useState<LoadState>({
+    data: null,
+    isLoading: false,
+    error: null,
+  })
 
-  // Filter events by date range (all hooks must run before any return)
-  const filteredEvents = useMemo(() => {
-    return events.filter((event) => {
-      if (!event.event_date) return false
-      const eventDate = new Date(event.event_date)
-      const startDate = new Date(dateRange.start)
-      const endDate = new Date(dateRange.end)
-      return eventDate >= startDate && eventDate <= endDate
+  const sortedEvents = useMemo(() => {
+    return [...events].sort((first, second) => {
+      const firstDate = Date.parse(first.event_date ?? '')
+      const secondDate = Date.parse(second.event_date ?? '')
+      return (Number.isNaN(secondDate) ? 0 : secondDate) - (Number.isNaN(firstDate) ? 0 : firstDate)
     })
-  }, [events, dateRange])
-
-  // Calculate stats
-  const stats = useMemo(() => {
-    const eventsThisYear = filteredEvents.length
-    const totalSpend = filteredEvents.reduce((sum, event) => sum + (event.budget || 0), 0)
-    const avgCostPerEvent = eventsThisYear > 0 ? totalSpend / eventsThisYear : 0
-
-    // Calculate average vendor rating (would come from reviews)
-    const avgVendorRating = 4.5 // Mock - would calculate from reviews
-
-    return {
-      eventsThisYear,
-      totalSpend,
-      avgCostPerEvent,
-      avgVendorRating,
-    }
-  }, [filteredEvents])
-
-  // Monthly spending trend
-  const monthlySpending = useMemo(() => {
-    const monthly: Record<string, number> = {}
-
-    filteredEvents.forEach((event) => {
-      if (!event.event_date) return
-      const date = new Date(event.event_date)
-      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-      monthly[monthKey] = (monthly[monthKey] || 0) + (event.budget || 0)
-    })
-
-    return Object.entries(monthly)
-      .map(([month, amount]) => ({
-        month: new Date(month).toLocaleDateString('en-US', { month: 'short' }),
-        amount,
-      }))
-      .sort((a, b) => a.month.localeCompare(b.month))
-  }, [filteredEvents])
-
-  // Most used venues
-  const venueUsage = useMemo(() => {
-    const usage: Record<string, { name: string; count: number }> = {}
-    const venueNamesById = new Map<string, string>()
-
-    venueBookingsData.forEach((booking) => {
-      const venue = booking.venues as { name?: string | null } | null | undefined
-      if (booking.venue_id && venue?.name) {
-        venueNamesById.set(booking.venue_id, venue.name)
-      }
-    })
-
-    filteredEvents.forEach((event) => {
-      if (event.venue_id) {
-        const key = event.venue_id
-        const savedVenue = savedVenues.find((v: any) => v.venue_id === event.venue_id)
-        
-        if (!usage[key]) {
-          usage[key] = {
-            name: venueNamesById.get(key) || savedVenue?.venues?.name || 'Unknown Venue',
-            count: 0,
-          }
-        }
-        usage[key].count++
-      }
-    })
-
-    const total = Object.values(usage).reduce((sum, v) => sum + v.count, 0)
-
-    return Object.values(usage)
-      .map((v) => ({
-        ...v,
-        percentage: total > 0 ? (v.count / total) * 100 : 0,
-      }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5)
-  }, [filteredEvents, savedVenues, venueBookingsData])
+  }, [events])
 
   useEffect(() => {
-    if (filteredEvents.length > 0 && userId) {
-      const eventIds = filteredEvents.map((e) => e.id)
-      supabase
-        .from('venue_bookings')
-        .select(VENUE_BOOKING_WITH_DETAILS_SELECT)
-        .in('event_id', eventIds)
-        .then((result: { data: VenueBookingJoinRow[] | null }) => {
-          setVenueBookingsData(normalizeVenueBookings(result.data))
-        })
-    } else {
-      setVenueBookingsData([])
-    }
-  }, [filteredEvents, userId])
-
-  const spendingByCategory = useMemo(() => {
-    const categories = {
-      Venues: 0,
-      Catering: 0,
-      Entertainment: 0,
-      Other: 0,
-    }
-
-    // Calculate venue spending from actual bookings
-    venueBookingsData.forEach((booking) => {
-      categories.Venues += booking.final_price || booking.quoted_price || 0
-    })
-
-    // Calculate vendor spending by category
-    vendorBookingsData.forEach((booking) => {
-      const vendor = booking.vendor_profiles
-      if (vendor) {
-        const serviceType = vendor.service_type
-        const amount = booking.final_price || booking.quoted_price || 0
-
-        if (serviceType === 'catering' || serviceType === 'bartending') {
-          categories.Catering += amount
-        } else if (serviceType === 'dj' || serviceType === 'av_tech' || serviceType === 'photography' || serviceType === 'videography') {
-          categories.Entertainment += amount
-        } else {
-          categories.Other += amount
-        }
-      }
-    })
-
-    const total = Object.values(categories).reduce((sum, v) => sum + v, 0)
-
-    return Object.entries(categories)
-      .filter(([_, amount]) => amount > 0)
-      .map(([category, amount]) => ({
-        category,
-        amount,
-        percentage: total > 0 ? (amount / total) * 100 : 0,
-      }))
-  }, [venueBookingsData, vendorBookingsData])
+    if (selectedEventId && sortedEvents.some((event) => event.id === selectedEventId)) return
+    setSelectedEventId(sortedEvents[0]?.id ?? null)
+  }, [selectedEventId, sortedEvents])
 
   useEffect(() => {
-    if (filteredEvents.length > 0 && userId) {
-      const eventIds = filteredEvents.map((e) => e.id)
-      supabase
-        .from('vendor_bookings')
-        .select(VENDOR_BOOKING_WITH_DETAILS_SELECT)
-        .in('event_id', eventIds)
-        .then((result: { data: VendorBookingJoinRow[] | null }) => {
-          setVendorBookingsData(normalizeVendorBookings(result.data))
+    if (!selectedEventId) {
+      setLoadState({ data: null, isLoading: false, error: null })
+      return
+    }
+
+    const controller = new AbortController()
+    void loadAnalytics(selectedEventId, false, controller.signal)
+      .then((data) => setLoadState({ data, isLoading: false, error: null }))
+      .catch((error) => {
+        if (controller.signal.aborted) return
+        setLoadState({
+          data: null,
+          isLoading: false,
+          error: error instanceof Error ? error.message : 'Unable to load analytics',
         })
-    } else {
-      setVendorBookingsData([])
-    }
-  }, [filteredEvents, userId])
+      })
+    setLoadState((current) => ({ ...current, isLoading: true, error: null }))
 
-  const vendorPerformance = useMemo(() => {
-    const performance: Record<string, VendorPerformance> = {}
+    return () => controller.abort()
+  }, [selectedEventId])
 
-    type VendorRow = { id: string; name: string; service_type: string }
-    // Build performance data from actual vendor bookings
-    vendorBookingsData.forEach((booking) => {
-      const vendor = booking.vendor_profiles as VendorRow | undefined
-      if (vendor) {
-        const key = vendor.id
-        if (!performance[key]) {
-          performance[key] = {
-            id: vendor.id,
-            name: vendor.name,
-            category: vendor.service_type,
-            timesUsed: 0,
-            totalSpent: 0,
-            avgRating: 4.5, // Mock - would come from reviews
-          }
-        }
-        performance[key].timesUsed++
-        performance[key].totalSpent += booking.final_price || booking.quoted_price || 0
-      }
-    })
+  const selectedEvent = useMemo(
+    () => sortedEvents.find((event) => event.id === selectedEventId) ?? null,
+    [selectedEventId, sortedEvents]
+  )
 
-    // Also include saved vendors that haven't been used yet (for completeness)
-    savedVendors.forEach((saved: { vendor_profiles?: VendorRow }) => {
-      const vendor = saved.vendor_profiles
-      if (vendor && !performance[vendor.id]) {
-        performance[vendor.id] = {
-          id: vendor.id,
-          name: vendor.name,
-          category: vendor.service_type,
-          timesUsed: 0,
-          totalSpent: 0,
-          avgRating: 4.5,
-        }
-      }
-    })
+  const scorecard = useMemo(
+    () => buildScorecard(loadState.data),
+    [loadState.data]
+  )
 
-    return Object.values(performance).filter((v) => v.timesUsed > 0)
-  }, [vendorBookingsData, savedVendors])
-
-  // Sort vendor performance
-  const sortedVendorPerformance = useMemo(() => {
-    return [...vendorPerformance].sort((a, b) => {
-      let aValue = a[sortField]
-      let bValue = b[sortField]
-
-      if (typeof aValue === 'string') {
-        aValue = aValue.toLowerCase()
-        bValue = (bValue as string).toLowerCase()
-      }
-
-      if (sortDirection === 'asc') {
-        return aValue > bValue ? 1 : -1
-      } else {
-        return aValue < bValue ? 1 : -1
-      }
-    })
-  }, [vendorPerformance, sortField, sortDirection])
-
-  // Loading and error handling (after all hooks)
-  if (isUserLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-muted-foreground">Loading...</div>
-      </div>
-    )
-  }
-
-  if (userError || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-destructive">Please log in to continue</div>
-      </div>
-    )
-  }
-
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortField(field)
-      setSortDirection('desc')
+  async function refreshFinancials() {
+    if (!selectedEventId) return
+    setLoadState((current) => ({ ...current, isLoading: true, error: null }))
+    try {
+      const data = await loadAnalytics(selectedEventId, true)
+      setLoadState({ data, isLoading: false, error: null })
+    } catch (error) {
+      setLoadState((current) => ({
+        ...current,
+        isLoading: false,
+        error: error instanceof Error ? error.message : 'Unable to refresh financials',
+      }))
     }
   }
 
-  const handleExportCSV = () => {
-    // Create CSV content
-    const headers = ['Metric', 'Value']
-    const rows = [
-      ['Events This Year', stats.eventsThisYear],
-      ['Total Spend', `$${stats.totalSpend.toLocaleString()}`],
-      ['Avg Cost/Event', `$${stats.avgCostPerEvent.toLocaleString()}`],
-      ['Avg Vendor Rating', stats.avgVendorRating.toFixed(1)],
+  function exportCsv() {
+    if (!scorecard || !selectedEvent) return
+
+    const rows: Array<Array<string | number>> = [
+      ['Event', selectedEvent.title],
+      ['Date', formatDate(selectedEvent.event_date)],
+      ['Source confidence', scorecard.sourceConfidenceLabel],
+      ['Net revenue', formatMoney(scorecard.netRevenueDollars)],
+      ['Total costs', formatMoney(scorecard.totalCostsDollars)],
+      ['Expected profit', formatMoney(scorecard.expectedProfitDollars)],
+      ['Profit per paid ticket', scorecard.profitPerPaidTicketDollars === null ? 'Needs ticket data' : formatMoney(scorecard.profitPerPaidTicketDollars)],
+      ['Profit per checked-in guest', scorecard.profitPerCheckedInGuestDollars === null ? 'Needs check-in data' : formatMoney(scorecard.profitPerCheckedInGuestDollars)],
+      ['Break-even tickets', scorecard.breakEvenTickets ?? 'Needs cost/ticket data'],
+      ['Checked in', scorecard.checkedIn],
+      [],
+      ['Tier', 'Category', 'Sold', 'Refunded', 'Net revenue', 'Allocated profit'],
+      ...scorecard.tiers.map((tier) => [
+        tier.ticket_tier_name,
+        tier.ticket_tier_category,
+        tier.tickets_sold,
+        tier.tickets_refunded,
+        formatCents(tier.net_revenue_cents),
+        tier.allocatedProfitCents === null ? 'Needs cost allocation' : formatCents(tier.allocatedProfitCents),
+      ]),
     ]
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map((row) => row.join(',')),
-    ].join('\n')
-
-    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `analytics-${dateRange.start}-${dateRange.end}.csv`
+    link.download = `3rdplace-analytics-${selectedEvent.id}.csv`
     link.click()
     URL.revokeObjectURL(url)
-
-    addToast({
-      title: 'Report exported',
-      description: 'Analytics report downloaded as CSV.',
-    })
   }
 
-  const handleExportPDF = () => {
-    // PDF export would require a library like jsPDF or html2pdf
-    // For now, we'll show a toast
-    addToast({
-      title: 'PDF Export',
-      description: 'PDF export feature coming soon. Use CSV export for now.',
-    })
+  if (isUserLoading) {
+    return <PageShell><EmptyState title="Loading analytics" body="Preparing your planner scorecard." /></PageShell>
+  }
+
+  if (userError || !user) {
+    return <PageShell><EmptyState title="Please log in" body="Planner analytics are available after signing in." tone="warning" /></PageShell>
+  }
+
+  if (!isEventsLoading && sortedEvents.length === 0) {
+    return (
+      <PageShell>
+        <EmptyState
+          title="No events yet"
+          body="Create or import an event before analytics can calculate revenue, attendance, costs, and tier performance."
+        />
+      </PageShell>
+    )
   }
 
   return (
-    <div className="min-h-screen">
-      <div className="border-b border-border px-6 py-5">
-        <h1 className="font-display text-2xl font-bold">Analytics</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Event performance, vendor spend, and venue bookings.
-        </p>
-      </div>
-      <div className="px-6 py-6">
-        <div className="space-y-4 sm:space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Analytics</h1>
-          <p className="text-sm sm:text-base text-muted-foreground mt-1">Track your event performance and spending</p>
-        </div>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
-          <div className="flex items-center gap-2 flex-1 sm:flex-initial">
-            <Input
-              type="date"
-              value={dateRange.start}
-              onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-              className="flex-1 sm:w-40 min-h-[44px]"
-            />
-            <span className="text-muted-foreground text-sm">to</span>
-            <Input
-              type="date"
-              value={dateRange.end}
-              onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-              className="flex-1 sm:w-40 min-h-[44px]"
-            />
+    <PageShell>
+      <header className="rounded-3xl border border-border bg-gradient-card p-5 shadow-card sm:p-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-3xl">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+              <BarChart3 className="h-3.5 w-3.5" />
+              Post-event operating scorecard
+            </div>
+            <h1 className="font-display text-3xl font-bold text-foreground sm:text-4xl">
+              Analytics that feeds the <span className="text-gradient-brand">next plan</span>
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+              Money, ticket tier performance, attendance, and data coverage are separated by source so the page does not invent metrics the schema cannot support yet.
+            </p>
           </div>
-          <Button variant="outline" onClick={handleExportCSV}>
-            <Download className="h-4 w-4 mr-2" />
-            Export CSV
-          </Button>
-          <Button variant="outline" onClick={handleExportPDF}>
-            <Download className="h-4 w-4 mr-2" />
-            Export PDF
-          </Button>
+
+          <div className="flex flex-col gap-3 sm:flex-row lg:items-center">
+            <label className="sr-only" htmlFor="event-select">Select event</label>
+            <select
+              id="event-select"
+              value={selectedEventId ?? ''}
+              onChange={(event) => setSelectedEventId(event.target.value || null)}
+              className="min-h-11 rounded-xl border border-border bg-card/60 px-4 py-2 text-sm font-semibold text-foreground outline-none transition-smooth hover:bg-card focus:border-primary focus:ring-2 focus:ring-primary/20"
+            >
+              {sortedEvents.map((event) => (
+                <option key={event.id} value={event.id}>
+                  {event.title} · {formatDate(event.event_date)}
+                </option>
+              ))}
+            </select>
+            <Button type="button" variant="glass" onClick={() => void refreshFinancials()} disabled={!selectedEventId || loadState.isLoading}>
+              <RefreshCw className={cn('mr-2 h-4 w-4', loadState.isLoading && 'animate-spin')} />
+              Refresh
+            </Button>
+            <Button type="button" variant="hero" onClick={exportCsv} disabled={!scorecard || !selectedEvent}>
+              <Download className="mr-2 h-4 w-4" />
+              Export CSV
+            </Button>
+          </div>
         </div>
-      </div>
+      </header>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Events This Year</p>
-                <p className="text-3xl font-bold text-foreground mt-2">
-                  {stats.eventsThisYear}
-                </p>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-primary/15 flex items-center justify-center">
-                <Calendar className="h-6 w-6 text-primary" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {loadState.error && (
+        <div className="rounded-3xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+          {loadState.error}
+        </div>
+      )}
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Spend</p>
-                <p className="text-3xl font-bold text-foreground mt-2">
-                  ${stats.totalSpend.toLocaleString()}
-                </p>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-primary/15 flex items-center justify-center">
-                <DollarSign className="h-6 w-6 text-primary" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {loadState.isLoading && !scorecard ? (
+        <ScorecardSkeleton />
+      ) : scorecard ? (
+        <>
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard
+              icon={<WalletCards className="h-5 w-5" />}
+              label="Expected profit"
+              value={formatMoney(scorecard.expectedProfitDollars)}
+              detail="Net revenue minus venue/vendor costs"
+              source="event_financial_summary"
+              tone={scorecard.expectedProfitDollars >= 0 ? 'positive' : 'warning'}
+            />
+            <MetricCard
+              icon={<Ticket className="h-5 w-5" />}
+              label="Profit per paid ticket"
+              value={scorecard.profitPerPaidTicketDollars === null ? 'Needs tickets' : formatMoney(scorecard.profitPerPaidTicketDollars)}
+              detail="Derived from profit and paid ticket count"
+              source="derived"
+              tone={scorecard.profitPerPaidTicketDollars !== null && scorecard.profitPerPaidTicketDollars >= 0 ? 'positive' : 'neutral'}
+            />
+            <MetricCard
+              icon={<Users className="h-5 w-5" />}
+              label="Profit per checked-in guest"
+              value={scorecard.profitPerCheckedInGuestDollars === null ? 'Needs check-ins' : formatMoney(scorecard.profitPerCheckedInGuestDollars)}
+              detail="Only shown when check-in rows exist"
+              source="imported_attendees"
+              tone={scorecard.profitPerCheckedInGuestDollars !== null && scorecard.profitPerCheckedInGuestDollars >= 0 ? 'positive' : 'neutral'}
+            />
+            <MetricCard
+              icon={<TrendingUp className="h-5 w-5" />}
+              label="Break-even window"
+              value={scorecard.breakEvenTickets === null ? 'Needs costs' : `${scorecard.breakEvenTickets} tickets`}
+              detail={scorecard.breakEvenDelta === null ? 'Calculated after summary refresh' : `${scorecard.breakEvenDelta >= 0 ? '+' : ''}${scorecard.breakEvenDelta} tickets vs sold`}
+              source="event_financial_summary"
+              tone={scorecard.breakEvenDelta !== null && scorecard.breakEvenDelta >= 0 ? 'positive' : 'warning'}
+            />
+          </section>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Avg Cost/Event</p>
-                <p className="text-3xl font-bold text-foreground mt-2">
-                  ${Math.round(stats.avgCostPerEvent).toLocaleString()}
-                </p>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-purple-100 flex items-center justify-center">
-                <TrendingUp className="h-6 w-6 text-purple-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Vendor Rating</p>
-                <p className="text-3xl font-bold text-foreground mt-2">
-                  {stats.avgVendorRating.toFixed(1)}
-                </p>
-              </div>
-              <div className="h-12 w-12 rounded-full bg-yellow-500/15 flex items-center justify-center">
-                <Star className="h-6 w-6 text-yellow-200" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Monthly Spending Trend */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Monthly Spending Trend</CardTitle>
-          <CardDescription>
-            Track your spending over time
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {monthlySpending.length > 0 ? (
-            <BuilderMonthlySpendingChart data={monthlySpending} />
-          ) : (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground">No spending data for selected date range</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Most Used Venues */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Most Used Venues</CardTitle>
-            <CardDescription>
-              Your top venues by usage
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {venueUsage.length > 0 ? (
-              <div className="space-y-4">
-                {venueUsage.map((venue, index) => (
-                  <div key={index}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-foreground">
-                        {venue.name}
-                      </span>
-                      <span className="text-sm text-muted-foreground">
-                        {venue.count} event{venue.count !== 1 ? 's' : ''}
-                      </span>
-                    </div>
-                    <div className="w-full bg-sidebar-accent rounded-full h-2">
-                      <div
-                        className="bg-primary h-2 rounded-full transition-all"
-                        style={{ width: `${venue.percentage}%` }}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {venue.percentage.toFixed(1)}% of events
-                    </p>
+          <section className="grid gap-6 2xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+            <Card className="min-w-0 rounded-3xl">
+              <CardHeader>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle>Ticket Tier Profit Window</CardTitle>
+                    <CardDescription>
+                      Tier-level revenue is real; allocated profit uses a documented cost allocation assumption.
+                    </CardDescription>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-muted-foreground">No venue usage data</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                  <SourcePill label="event_sales_data" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                {scorecard.tiers.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[760px] text-sm">
+                      <thead>
+                        <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
+                          <th className="pb-3 pr-4 font-semibold">Tier</th>
+                          <th className="pb-3 pr-4 font-semibold">Sold</th>
+                          <th className="pb-3 pr-4 font-semibold">Avg price</th>
+                          <th className="pb-3 pr-4 font-semibold">Net revenue</th>
+                          <th className="pb-3 pr-4 font-semibold">Allocated profit</th>
+                          <th className="pb-3 font-semibold">Read</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {scorecard.tiers.map((tier) => (
+                          <tr key={`${tier.platform}-${tier.ticket_tier_category}-${tier.ticket_tier_name}`} className="border-b border-border/70">
+                            <td className="py-4 pr-4">
+                              <div className="font-semibold text-foreground">{tier.ticket_tier_name}</div>
+                              <div className="mt-1 flex flex-wrap gap-2">
+                                <SourcePill label={formatTierCategory(tier.ticket_tier_category)} compact />
+                                <SourcePill label={tier.platform} compact muted />
+                              </div>
+                            </td>
+                            <td className="py-4 pr-4 text-foreground">
+                              {tier.tickets_sold}
+                              {tier.tickets_refunded > 0 && (
+                                <span className="ml-2 text-xs text-muted-foreground">({tier.tickets_refunded} refunded)</span>
+                              )}
+                            </td>
+                            <td className="py-4 pr-4 text-foreground">{formatCents(tier.average_ticket_price_cents)}</td>
+                            <td className="py-4 pr-4 font-semibold text-foreground">{formatCents(tier.net_revenue_cents)}</td>
+                            <td className="py-4 pr-4">
+                              {tier.allocatedProfitCents === null ? (
+                                <span className="text-muted-foreground">Needs costs</span>
+                              ) : (
+                                <span className={cn('font-semibold', tier.allocatedProfitCents >= 0 ? 'text-lime-200' : 'text-coral')}>
+                                  {formatCents(tier.allocatedProfitCents)}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-4 text-muted-foreground">{tier.read}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <EmptyBlock
+                    icon={<Ticket className="h-5 w-5" />}
+                    title="No ticket tiers imported"
+                    body="Connect or import ticket sales before showing Early Bird, GA, VIP, promo, comp, or donation tier performance."
+                  />
+                )}
+              </CardContent>
+            </Card>
 
-        {/* Spending by Category */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Spending by Category</CardTitle>
-            <CardDescription>
-              Breakdown of your spending
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {spendingByCategory.length > 0 ? (
-              <div className="space-y-4">
-                {spendingByCategory.map((item, index) => (
-                  <div key={item.category}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-foreground">
-                        {item.category}
-                      </span>
-                      <div className="text-right">
-                        <span className="text-sm font-semibold text-foreground">
-                          ${Math.round(item.amount).toLocaleString()}
-                        </span>
-                        <span className="text-xs text-muted-foreground ml-2">
-                          ({item.percentage.toFixed(1)}%)
-                        </span>
-                      </div>
+            <Card className="min-w-0 rounded-3xl 2xl:min-w-[360px]">
+              <CardHeader className="min-w-0">
+                <CardTitle>Run Again</CardTitle>
+                <CardDescription className="[overflow-wrap:normal]">
+                  Deterministic recommendation from current analytics, not an invented agent claim.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="min-w-0 space-y-4">
+                <div className="rounded-2xl border border-border bg-background/40 p-4">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="shrink-0 rounded-xl border border-primary/30 bg-primary/10 p-2 text-primary">
+                      <Repeat2 className="h-5 w-5" />
                     </div>
-                    <div className="w-full bg-sidebar-accent rounded-full h-2">
-                      <div
-                        className="h-2 rounded-full transition-all"
-                        style={{
-                          width: `${item.percentage}%`,
-                          backgroundColor: COLORS[index % COLORS.length],
-                        }}
-                      />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-display text-lg font-bold leading-tight text-foreground [overflow-wrap:normal] sm:text-xl">
+                        {scorecard.recommendation.title}
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground [overflow-wrap:normal]">
+                        {scorecard.recommendation.body}
+                      </p>
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-muted-foreground">No spending data</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Top Performing Vendors */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Top Performing Vendors</CardTitle>
-          <CardDescription>
-            Your most used and highest-rated vendors
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {sortedVendorPerformance.length > 0 ? (
-            <>
-              {/* Mobile Card View */}
-              <div className="md:hidden space-y-4">
-                {sortedVendorPerformance.map((vendor) => (
-                  <Card key={vendor.id} className="p-4">
-                    <div className="space-y-3">
-                      <div>
-                        <h3 className="font-semibold text-foreground">{vendor.name}</h3>
-                        <p className="text-sm text-muted-foreground">{vendor.category}</p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3 text-sm">
-                        <div>
-                          <p className="text-muted-foreground">Times Used</p>
-                          <p className="font-semibold text-foreground">{vendor.timesUsed}</p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Total Spent</p>
-                          <p className="font-semibold text-foreground">
-                            ${Math.round(vendor.totalSpent).toLocaleString()}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-muted-foreground">Avg Rating</p>
-                          <p className="font-semibold text-foreground">
-                            {vendor.avgRating.toFixed(1)} ⭐
-                          </p>
-                        </div>
-                      </div>
+                </div>
+                <div className="space-y-3">
+                  {scorecard.recommendation.nextSteps.map((step) => (
+                    <div key={step} className="flex min-w-0 gap-3 rounded-2xl border border-border bg-card/40 p-3 text-sm text-muted-foreground">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-lime-200" />
+                      <span className="min-w-0 flex-1 leading-6 [overflow-wrap:normal]">{step}</span>
                     </div>
-                  </Card>
-                ))}
-              </div>
-
-              {/* Desktop Table View */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-3 px-4">
-                      <button
-                        onClick={() => handleSort('name')}
-                        className="flex items-center gap-1 text-sm font-medium text-foreground hover:text-foreground"
-                      >
-                        Vendor Name
-                        {sortField === 'name' && (
-                          sortDirection === 'asc' ? (
-                            <ChevronUp className="h-4 w-4" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4" />
-                          )
-                        )}
-                      </button>
-                    </th>
-                    <th className="text-left py-3 px-4">
-                      <button
-                        onClick={() => handleSort('category')}
-                        className="flex items-center gap-1 text-sm font-medium text-foreground hover:text-foreground"
-                      >
-                        Category
-                        {sortField === 'category' && (
-                          sortDirection === 'asc' ? (
-                            <ChevronUp className="h-4 w-4" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4" />
-                          )
-                        )}
-                      </button>
-                    </th>
-                    <th className="text-right py-3 px-4">
-                      <button
-                        onClick={() => handleSort('timesUsed')}
-                        className="flex items-center gap-1 text-sm font-medium text-foreground hover:text-foreground ml-auto"
-                      >
-                        Times Used
-                        {sortField === 'timesUsed' && (
-                          sortDirection === 'asc' ? (
-                            <ChevronUp className="h-4 w-4" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4" />
-                          )
-                        )}
-                      </button>
-                    </th>
-                    <th className="text-right py-3 px-4">
-                      <button
-                        onClick={() => handleSort('totalSpent')}
-                        className="flex items-center gap-1 text-sm font-medium text-foreground hover:text-foreground ml-auto"
-                      >
-                        Total Spent
-                        {sortField === 'totalSpent' && (
-                          sortDirection === 'asc' ? (
-                            <ChevronUp className="h-4 w-4" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4" />
-                          )
-                        )}
-                      </button>
-                    </th>
-                    <th className="text-right py-3 px-4">
-                      <button
-                        onClick={() => handleSort('avgRating')}
-                        className="flex items-center gap-1 text-sm font-medium text-foreground hover:text-foreground ml-auto"
-                      >
-                        Avg Rating
-                        {sortField === 'avgRating' && (
-                          sortDirection === 'asc' ? (
-                            <ChevronUp className="h-4 w-4" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4" />
-                          )
-                        )}
-                      </button>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedVendorPerformance.map((vendor) => (
-                    <tr key={vendor.id} className="border-b border-border hover:bg-background">
-                      <td className="py-3 px-4 font-medium text-foreground">
-                        {vendor.name}
-                      </td>
-                      <td className="py-3 px-4 text-sm text-muted-foreground capitalize">
-                        {vendor.category}
-                      </td>
-                      <td className="py-3 px-4 text-sm text-foreground text-right">
-                        {vendor.timesUsed}
-                      </td>
-                      <td className="py-3 px-4 text-sm font-medium text-foreground text-right">
-                        ${vendor.totalSpent.toLocaleString()}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-                          <span className="text-sm font-medium text-foreground">
-                            {vendor.avgRating.toFixed(1)}
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
                   ))}
-                </tbody>
-              </table>
-            </div>
-            </>
-          ) : (
-            <div className="text-center py-8">
-              <p className="text-muted-foreground">No vendor performance data</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+
+          <section className="grid gap-6 xl:grid-cols-3">
+            <Card className="rounded-3xl xl:col-span-2">
+              <CardHeader>
+                <CardTitle>Attendance</CardTitle>
+                <CardDescription>Check-ins, no-show risk, and arrival shape from imported attendee rows.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-3">
+                <CompactMetric label="Imported / RSVP rows" value={String(scorecard.importedAttendees)} source="imported_attendees" />
+                <CompactMetric label="Checked in" value={String(scorecard.checkedIn)} source="checked_in" />
+                <CompactMetric label="No-show rate" value={scorecard.noShowRate === null ? 'Needs check-ins' : formatPercent(scorecard.noShowRate)} source={scorecard.sourceConfidenceLabel} />
+                <CompactMetric label="Peak arrival" value={scorecard.peakArrivalHour ?? 'Needs check-ins'} source="check_in_time" />
+                <CompactMetric label="Attendance coverage" value={scorecard.attendanceCoverage === null ? 'Needs data' : formatPercent(scorecard.attendanceCoverage)} source="derived" />
+                <CompactMetric label="Foot-traffic proxy" value={String(scorecard.venueFootTrafficProxy)} source="proxy, not POS" />
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-3xl">
+              <CardHeader>
+                <CardTitle>Venue Impact</CardTitle>
+                <CardDescription>Useful for a venue recap, with proxy labels where exact POS data is missing.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <ImpactRow label="Foot traffic proxy" value={String(scorecard.venueFootTrafficProxy)} source="tickets/check-ins" />
+                <ImpactRow label="Venue kickback projection" value={formatMoney(scorecard.venueKickbackProjectionDollars)} source="financial summary" />
+                <ImpactRow label="Ticket sales share projection" value={formatMoney(scorecard.venueSalesShareProjectionDollars)} source="venue terms" />
+                <ImpactRow label="Bar/POS spend" value="Needs venue data" source="future/manual" muted />
+              </CardContent>
+            </Card>
+          </section>
+
+          <section className="grid gap-6 lg:grid-cols-2">
+            <Card className="rounded-3xl">
+              <CardHeader>
+                <CardTitle>Sales Velocity</CardTitle>
+                <CardDescription>Tier movement from purchase timestamps when providers include them.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {scorecard.velocity.length > 0 ? (
+                  <div className="space-y-3">
+                    {scorecard.velocity.map((tier) => (
+                      <div key={`${tier.tier_name}-${tier.ticket_price_cents ?? 'unknown'}`} className="rounded-2xl border border-border bg-card/40 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-foreground">{tier.tier_name}</p>
+                            <p className="text-xs text-muted-foreground">{tier.ticket_price_cents === null ? 'Unknown price' : formatCents(tier.ticket_price_cents)}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-bold text-foreground">{tier.tickets_sold} sold</p>
+                            <p className="text-xs text-muted-foreground">{tier.tickets_refunded} refunded</p>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                          <span>First: {formatDateTime(tier.first_purchase_at)}</span>
+                          <span>Last: {formatDateTime(tier.last_purchase_at)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyBlock
+                    icon={<Clock className="h-5 w-5" />}
+                    title="No velocity data"
+                    body="Ticket purchase timestamps are needed before tier velocity can be trusted."
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-3xl">
+              <CardHeader>
+                <CardTitle>Data Coverage</CardTitle>
+                <CardDescription>What is factual today versus what still needs instrumentation.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {scorecard.coverage.map((item) => (
+                  <CoverageRow key={item.label} {...item} />
+                ))}
+              </CardContent>
+            </Card>
+          </section>
+
+          <Card className="rounded-3xl">
+            <CardHeader>
+              <CardTitle>Not Factual Yet</CardTitle>
+              <CardDescription>These should stay hidden, empty, or explicitly marked as assumptions until the app captures the source data.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {[
+                ['True contribution margin per tier', 'Needs per-tier variable cost or a cost allocation rule.'],
+                ['Venue bar/POS spend', 'Needs manual venue report or POS integration.'],
+                ['Walk-ins', 'Needs a dedicated walk-in count, not just ticket/check-in proxy.'],
+                ['Satisfaction/NPS', 'Needs event-linked survey or review rows.'],
+              ].map(([title, body]) => (
+                <div key={title} className="rounded-2xl border border-border bg-background/40 p-4">
+                  <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl border border-coral/30 bg-coral/10 text-coral">
+                    <AlertTriangle className="h-4 w-4" />
+                  </div>
+                  <p className="font-semibold text-foreground">{title}</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{body}</p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </>
+      ) : (
+        <ScorecardSkeleton />
+      )}
+    </PageShell>
+  )
+}
+
+async function loadAnalytics(eventId: string, recalculate: boolean, signal?: AbortSignal): Promise<AnalyticsState> {
+  const searchParams = recalculate ? '?recalculate=true' : ''
+  const [financial, postEvent, ticketing] = await Promise.all([
+    fetchJson<FinancialSummary>(`/api/events/${eventId}/financials${searchParams}`, signal),
+    fetchJson<PostEventReport>(`/api/planner/post-event/report?eventId=${eventId}`, signal),
+    fetchJson<TicketingAnalytics>(`/api/planner/ticketing/analytics?eventId=${eventId}`, signal),
+  ])
+
+  return { financial, postEvent, ticketing }
+}
+
+async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(url, { credentials: 'include', signal })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(typeof payload.error === 'string' ? payload.error : `Request failed: ${response.status}`)
+  }
+
+  return response.json() as Promise<T>
+}
+
+function buildScorecard(data: AnalyticsState | null) {
+  if (!data) return null
+
+  const financial = data.financial
+  const postSummary = data.postEvent?.summary
+  const ticketSummary = data.ticketing?.summary ?? emptyTicketingSummary
+  const paidTickets = ticketSummary.tickets_sold || financial?.tickets_sold || postSummary?.tickets_sold || 0
+  const checkedIn = postSummary?.checked_in ?? 0
+  const importedAttendees = postSummary?.rsvps_or_imported_attendees ?? 0
+  const netRevenueDollars = readNumber(financial?.net_revenue) ?? centsToDollars(ticketSummary.net_revenue_cents)
+  const totalCostsDollars = readNumber(financial?.total_costs) ?? 0
+  const expectedProfitDollars = readNumber(financial?.expected_profit) ?? netRevenueDollars - totalCostsDollars
+  const breakEvenTickets = readNumber(financial?.break_even_tickets)
+  const breakEvenDelta = breakEvenTickets === null ? null : paidTickets - breakEvenTickets
+  const totalCostsCents = dollarsToCents(totalCostsDollars)
+  const costPerPaidTicketCents = paidTickets > 0 && totalCostsCents > 0 ? Math.round(totalCostsCents / paidTickets) : null
+  const tiers = (data.ticketing?.rollups ?? []).map((tier) => {
+    const allocatedProfitCents =
+      costPerPaidTicketCents === null ? null : tier.net_revenue_cents - tier.tickets_sold * costPerPaidTicketCents
+    return {
+      ...tier,
+      allocatedProfitCents,
+      read: buildTierRead(tier, allocatedProfitCents),
+    }
+  })
+  const bestTier = tiers.length > 0
+    ? [...tiers].sort((first, second) => second.net_revenue_cents - first.net_revenue_cents)[0]
+    : null
+  const weakTier = tiers.filter((tier) => tier.tickets_sold > 0).length > 0
+    ? [...tiers].filter((tier) => tier.tickets_sold > 0).sort((first, second) => first.average_ticket_price_cents - second.average_ticket_price_cents)[0]
+    : null
+
+  const scorecard = {
+    financial,
+    ticketSummary,
+    paidTickets,
+    checkedIn,
+    importedAttendees,
+    netRevenueDollars,
+    totalCostsDollars,
+    expectedProfitDollars,
+    profitPerPaidTicketDollars: paidTickets > 0 ? expectedProfitDollars / paidTickets : null,
+    profitPerCheckedInGuestDollars: checkedIn > 0 ? expectedProfitDollars / checkedIn : null,
+    breakEvenTickets,
+    breakEvenDelta,
+    tiers,
+    bestTier,
+    weakTier,
+    velocity: data.postEvent?.tier_velocity ?? [],
+    noShowRate: postSummary?.no_show_rate ?? null,
+    peakArrivalHour: postSummary?.peak_arrival_hour ?? null,
+    attendanceCoverage: postSummary?.attendance_coverage ?? null,
+    venueFootTrafficProxy: postSummary?.venue_foot_traffic_proxy ?? 0,
+    sourceConfidenceLabel: sourceConfidenceLabel(postSummary?.source_confidence),
+    venueKickbackProjectionDollars: readNumber(financial?.venue_kickback_projection) ?? 0,
+    venueSalesShareProjectionDollars: readNumber(financial?.venue_sales_share_projection) ?? 0,
+  }
+
+  return {
+    ...scorecard,
+    recommendation: buildRecommendation(scorecard),
+    coverage: buildCoverage(scorecard),
+  }
+}
+
+function buildTierRead(tier: TicketTierRollup, allocatedProfitCents: number | null) {
+  if (tier.tickets_sold === 0) return 'No paid movement yet'
+  if (allocatedProfitCents === null) return 'Revenue after fees only'
+  if (allocatedProfitCents >= 0) return 'Clears allocated cost'
+  return 'Needs price or cost adjustment'
+}
+
+function buildRecommendation(scorecard: {
+  paidTickets: number
+  checkedIn: number
+  expectedProfitDollars: number
+  breakEvenTickets: number | null
+  breakEvenDelta: number | null
+  bestTier: (TicketTierRollup & { allocatedProfitCents: number | null }) | null
+  weakTier: (TicketTierRollup & { allocatedProfitCents: number | null }) | null
+  totalCostsDollars: number
+}) {
+  if (scorecard.paidTickets === 0 && scorecard.checkedIn === 0) {
+    return {
+      title: 'Needs imported event data',
+      body: 'This scorecard cannot make a reliable rebook call until ticket sales or attendee/check-in rows exist.',
+      nextSteps: [
+        'Connect or import ticketing data for the event.',
+        'Add check-in data after the event so attendance metrics are real.',
+        'Refresh financials after venue and vendor costs are confirmed.',
+      ],
+    }
+  }
+
+  const bestTier = scorecard.bestTier?.ticket_tier_name ?? 'the strongest ticket tier'
+  const weakTier = scorecard.weakTier?.ticket_tier_name ?? 'the weakest discount tier'
+
+  if (scorecard.expectedProfitDollars >= 0 && (scorecard.breakEvenDelta ?? 0) >= 0) {
+    return {
+      title: 'Rebook with pricing discipline',
+      body: `This event clears the current profit model. Use ${bestTier} as the next pricing anchor and keep discounted inventory constrained.`,
+      nextSteps: [
+        `Anchor the next ticket window around ${bestTier}.`,
+        `Review whether ${weakTier} should be raised, capped, or removed.`,
+        'Reuse the same event template after updating final costs and check-in data.',
+      ],
+    }
+  }
+
+  if (scorecard.totalCostsDollars <= 0) {
+    return {
+      title: 'Costs need confirmation',
+      body: 'Ticket and attendance data exist, but venue/vendor costs are missing or zero, so margin and profit recommendations should stay provisional.',
+      nextSteps: [
+        'Confirm final venue cost from venue_bookings.',
+        'Confirm final vendor cost from vendor_bookings.',
+        'Refresh the financial summary before making a rebook decision.',
+      ],
+    }
+  }
+
+  return {
+    title: 'Do not rebook unchanged',
+    body: 'The current model does not clear the profit window. Rebook only if ticket price, tier mix, or venue/vendor cost changes.',
+    nextSteps: [
+      `Raise or cap ${weakTier} before the next run.`,
+      'Renegotiate venue/vendor cost or reduce the package scope.',
+      'Use the break-even ticket count as the minimum viable attendance target.',
+    ],
+  }
+}
+
+function buildCoverage(scorecard: {
+  paidTickets: number
+  checkedIn: number
+  totalCostsDollars: number
+  tiers: Array<TicketTierRollup & { allocatedProfitCents: number | null }>
+  sourceConfidenceLabel: string
+}) {
+  return [
+    {
+      label: 'Ticket sales',
+      value: scorecard.paidTickets > 0 ? `${scorecard.paidTickets} sold` : 'Needs ticketing data',
+      status: scorecard.paidTickets > 0 ? 'ready' : 'missing',
+      source: 'event_sales_data',
+    },
+    {
+      label: 'Check-ins',
+      value: scorecard.checkedIn > 0 ? `${scorecard.checkedIn} checked in` : 'Needs check-in data',
+      status: scorecard.checkedIn > 0 ? 'ready' : 'missing',
+      source: 'imported_attendees',
+    },
+    {
+      label: 'Costs',
+      value: scorecard.totalCostsDollars > 0 ? formatMoney(scorecard.totalCostsDollars) : 'Needs final costs',
+      status: scorecard.totalCostsDollars > 0 ? 'ready' : 'missing',
+      source: 'venue_bookings + vendor_bookings',
+    },
+    {
+      label: 'Tier margin',
+      value: scorecard.tiers.length > 0 && scorecard.totalCostsDollars > 0 ? 'Allocated estimate' : 'Needs tiers and costs',
+      status: scorecard.tiers.length > 0 && scorecard.totalCostsDollars > 0 ? 'assumption' : 'missing',
+      source: 'cost allocation assumption',
+    },
+    {
+      label: 'Attendance confidence',
+      value: scorecard.sourceConfidenceLabel,
+      status: scorecard.sourceConfidenceLabel.includes('Ticketing and check-ins') ? 'ready' : 'assumption',
+      source: 'post-event report',
+    },
+  ] as const
+}
+
+function PageShell({ children }: { children: ReactNode }) {
+  return <main className="min-h-screen space-y-6 px-4 py-5 sm:px-6 lg:px-8">{children}</main>
+}
+
+function MetricCard({
+  icon,
+  label,
+  value,
+  detail,
+  source,
+  tone = 'neutral',
+}: {
+  icon: ReactNode
+  label: string
+  value: string
+  detail: string
+  source: string
+  tone?: 'neutral' | 'positive' | 'warning'
+}) {
+  return (
+    <Card className="rounded-3xl">
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-muted-foreground">{label}</p>
+            <p className="mt-3 font-display text-3xl font-bold text-foreground">{value}</p>
+          </div>
+          <div className={cn(
+            'rounded-2xl border p-3',
+            tone === 'positive' && 'border-lime/30 bg-lime/10 text-lime-200',
+            tone === 'warning' && 'border-coral/30 bg-coral/10 text-coral',
+            tone === 'neutral' && 'border-primary/30 bg-primary/10 text-primary'
+          )}>
+            {icon}
+          </div>
+        </div>
+        <p className="mt-4 text-sm leading-6 text-muted-foreground">{detail}</p>
+        <div className="mt-4">
+          <SourcePill label={source} compact />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function CompactMetric({ label, value, source }: { label: string; value: string; source: string }) {
+  return (
+    <div className="rounded-2xl border border-border bg-card/40 p-4">
+      <p className="text-xs font-semibold uppercase text-muted-foreground">{label}</p>
+      <p className="mt-2 font-display text-2xl font-bold text-foreground">{value}</p>
+      <div className="mt-3">
+        <SourcePill label={source} compact muted />
+      </div>
+    </div>
+  )
+}
+
+function ImpactRow({ label, value, source, muted = false }: { label: string; value: string; source: string; muted?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card/40 p-3">
+      <div>
+        <p className={cn('text-sm font-semibold', muted ? 'text-muted-foreground' : 'text-foreground')}>{label}</p>
+        <SourcePill label={source} compact muted />
+      </div>
+      <p className={cn('text-right font-display text-lg font-bold', muted ? 'text-muted-foreground' : 'text-foreground')}>{value}</p>
+    </div>
+  )
+}
+
+function CoverageRow({ label, value, status, source }: { label: string; value: string; status: 'ready' | 'missing' | 'assumption'; source: string }) {
+  const Icon = status === 'ready' ? CheckCircle2 : status === 'assumption' ? Activity : AlertTriangle
+  return (
+    <div className="flex items-start gap-3 rounded-2xl border border-border bg-card/40 p-4">
+      <div className={cn(
+        'rounded-xl border p-2',
+        status === 'ready' && 'border-lime/30 bg-lime/10 text-lime-200',
+        status === 'assumption' && 'border-primary/30 bg-primary/10 text-primary',
+        status === 'missing' && 'border-coral/30 bg-coral/10 text-coral'
+      )}>
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="font-semibold text-foreground">{label}</p>
+          <span className="text-sm text-muted-foreground">{value}</span>
+        </div>
+        <div className="mt-2">
+          <SourcePill label={source} compact muted />
         </div>
       </div>
     </div>
   )
 }
 
-function ChartSkeleton() {
-  return <div className="h-[300px] animate-pulse rounded-lg bg-muted" />
+function SourcePill({ label, compact = false, muted = false }: { label: string; compact?: boolean; muted?: boolean }) {
+  return (
+    <span className={cn(
+      'inline-flex items-center rounded-full border font-semibold',
+      compact ? 'px-2 py-0.5 text-[11px]' : 'px-3 py-1 text-xs',
+      muted ? 'border-border bg-background/50 text-muted-foreground' : 'border-primary/30 bg-primary/10 text-primary'
+    )}>
+      {label}
+    </span>
+  )
+}
+
+function EmptyBlock({ icon, title, body }: { icon: ReactNode; title: string; body: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-border bg-background/40 p-8 text-center">
+      <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-border bg-card/60 text-muted-foreground">
+        {icon}
+      </div>
+      <p className="font-semibold text-foreground">{title}</p>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">{body}</p>
+    </div>
+  )
+}
+
+function EmptyState({ title, body, tone = 'neutral' }: { title: string; body: string; tone?: 'neutral' | 'warning' }) {
+  return (
+    <div className="flex min-h-[70vh] items-center justify-center">
+      <div className="w-full max-w-xl rounded-3xl border border-border bg-gradient-card p-8 text-center shadow-card">
+        <div className={cn(
+          'mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border',
+          tone === 'warning' ? 'border-coral/30 bg-coral/10 text-coral' : 'border-primary/30 bg-primary/10 text-primary'
+        )}>
+          {tone === 'warning' ? <AlertTriangle className="h-6 w-6" /> : <BarChart3 className="h-6 w-6" />}
+        </div>
+        <h1 className="font-display text-3xl font-bold text-foreground">{title}</h1>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">{body}</p>
+      </div>
+    </div>
+  )
+}
+
+function ScorecardSkeleton() {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      {[0, 1, 2, 3].map((item) => (
+        <div key={item} className="h-48 animate-pulse rounded-3xl border border-border bg-card/40" />
+      ))}
+    </div>
+  )
+}
+
+function readNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function dollarsToCents(value: number) {
+  return Math.round(value * 100)
+}
+
+function centsToDollars(value: number) {
+  return value / 100
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: Math.abs(value) >= 1000 ? 0 : 2,
+  }).format(value)
+}
+
+function formatCents(value: number | null) {
+  if (value === null) return 'Unknown'
+  return formatMoney(centsToDollars(value))
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return 'No date'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return 'Unknown'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Unknown'
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function formatTierCategory(value: string) {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function sourceConfidenceLabel(value?: PostEventSummary['source_confidence']) {
+  if (value === 'imported_checkins_and_sales') return 'Ticketing and check-ins'
+  if (value === 'partial') return 'Partial data'
+  return 'No source data'
 }

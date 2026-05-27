@@ -24,7 +24,9 @@ export interface FinancialMetrics {
 type SalesRow = {
   ticket_quantity: number | string | null
   total_amount: number | string | null
+  total_amount_cents?: number | string | null
   fees: number | string | null
+  fees_cents?: number | string | null
   is_refund: boolean | null
 }
 
@@ -45,6 +47,15 @@ function toNumber(value: unknown) {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value)
   return 0
+}
+
+function centsToMoney(value: unknown) {
+  return roundMoney(toNumber(value) / 100)
+}
+
+function readMoney(rowValue: unknown, rowValueCents: unknown) {
+  if (rowValueCents !== null && rowValueCents !== undefined) return centsToMoney(rowValueCents)
+  return toNumber(rowValue)
 }
 
 /**
@@ -255,11 +266,11 @@ export async function recalculateEventFinancials(
   ] = await Promise.all([
     supabase
       .from('event_sales_data')
-      .select('ticket_quantity, total_amount, fees, is_refund')
+      .select('ticket_quantity, total_amount, total_amount_cents, fees, fees_cents, is_refund')
       .eq('event_id', eventId),
     supabase
       .from('events')
-      .select('expected_attendance, expected_attendees, venue_id')
+      .select('expected_attendance, venue_id')
       .eq('id', eventId)
       .maybeSingle(),
     loadEventCosts(supabase, eventId),
@@ -284,20 +295,19 @@ export async function recalculateEventFinancials(
     .reduce((sum, sale) => sum + Math.max(toNumber(sale.ticket_quantity), 0), 0)
   const grossRevenue = rows
     .filter((sale) => !sale.is_refund)
-    .reduce((sum, sale) => sum + toNumber(sale.total_amount), 0)
+    .reduce((sum, sale) => sum + readMoney(sale.total_amount, sale.total_amount_cents), 0)
   const totalFees = rows
     .filter((sale) => !sale.is_refund)
-    .reduce((sum, sale) => sum + toNumber(sale.fees), 0)
+    .reduce((sum, sale) => sum + readMoney(sale.fees, sale.fees_cents), 0)
   const totalRefunds = rows
     .filter((sale) => sale.is_refund)
-    .reduce((sum, sale) => sum + Math.abs(toNumber(sale.total_amount)), 0)
+    .reduce((sum, sale) => sum + Math.abs(readMoney(sale.total_amount, sale.total_amount_cents)), 0)
   const netRevenue = grossRevenue - totalRefunds - totalFees
   const averageTicketPrice = paidTicketsSold > 0 ? grossRevenue / paidTicketsSold : 0
   const currentAttendance = Math.max(ticketsSold, 0)
   const expectedAttendees = toNumber(
-    (event as { expected_attendance?: number | null; expected_attendees?: number | null; venue_id?: string | null } | null)
-      ?.expected_attendance ??
-      (event as { expected_attendees?: number | null } | null)?.expected_attendees
+    (event as { expected_attendance?: number | null; venue_id?: string | null } | null)
+      ?.expected_attendance
   )
   const venueId = (event as { venue_id?: string | null } | null)?.venue_id ?? null
   const venueTicketSalesShare = await loadVenueTicketSalesShare(supabase, venueId)
