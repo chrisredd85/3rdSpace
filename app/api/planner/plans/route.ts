@@ -19,6 +19,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { IntakeAgentOutput } from '@/lib/ai/agents/intakeAgent'
+import { checkPlanCreationAccess } from '@/lib/billing/builder-billing'
 import { determineNextResponse } from '@/lib/planner/agentResponder'
 import { buildEventPlanFromPlannerPlan } from '@/lib/planner/agentPlanAdapter'
 import {
@@ -168,6 +169,22 @@ export async function POST(
       return NextResponse.json(
         { error: 'Invalid request body', details: body.error.flatten() as Json },
         { status: 400 }
+      )
+    }
+
+    const planCreationAccess = await checkPlanCreationAccess({
+      db: auth.db,
+      userId: auth.userId,
+    })
+
+    if (!planCreationAccess.allowed) {
+      return NextResponse.json(
+        {
+          error: planCreationAccess.error,
+          billingRequired: true,
+          billing: planCreationAccess.billing,
+        },
+        { status: 402 }
       )
     }
 
