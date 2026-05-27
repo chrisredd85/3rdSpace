@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { dollarsToCents } from '@/lib/money'
 import { getUniqueFeatureTagOptions } from '@/lib/venues/unique-features'
 import { normalizeVenues, VENUE_SELECT_COLUMNS } from '@/lib/venues/venue-adapter'
 
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
     if (maxPrice) {
       const parsedPrice = z.coerce.number().min(0).safeParse(maxPrice)
       if (parsedPrice.success) {
-        query = query.lte('hourly_rate', parsedPrice.data)
+        query = query.lte('hourly_rate_cents', dollarsToCents(parsedPrice.data))
       }
     }
 

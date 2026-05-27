@@ -9,8 +9,9 @@ import {
   getAuthenticatedBuilderForBooking,
   getChargeIdFromPaymentIntent,
   getFriendlyStripeError,
-  getStripeFeeFromPaymentIntent,
+  getStripeFeeCentsFromPaymentIntent,
   getVendorBookingForPayment,
+  readCents,
   VendorRequiresReconnectError,
   type VendorTransaction,
 } from '@/lib/payments/vendor-payments'
@@ -78,8 +79,9 @@ export async function POST(request: NextRequest) {
 
     const connectedAccountId = await ensureVendorCanReceivePayments(admin as any, tx.vendor_id)
     let transferId = tx.stripe_transfer_id
+    const vendorPayoutCents = readCents(tx.vendor_payout_cents, tx.vendor_payout) ?? 0
 
-    if (!transferId && tx.vendor_payout > 0) {
+    if (!transferId && vendorPayoutCents > 0) {
       transferId = await createVendorTransfer({
         transaction: tx,
         connectedAccountId,
@@ -88,13 +90,13 @@ export async function POST(request: NextRequest) {
     }
 
     const paidAt = new Date().toISOString()
-    const stripeFee = getStripeFeeFromPaymentIntent(paymentIntent)
+    const stripeFeeCents = getStripeFeeCentsFromPaymentIntent(paymentIntent)
     const { data: updatedTransaction, error: updateError } = await (admin as any)
       .from('vendor_transactions')
       .update({
         stripe_charge_id: chargeId,
         stripe_transfer_id: transferId,
-        stripe_fee: stripeFee,
+        stripe_fee_cents: stripeFeeCents,
         status: 'succeeded',
         paid_at: paidAt,
       })

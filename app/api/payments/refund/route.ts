@@ -9,6 +9,7 @@ import {
   getAuthenticatedBuilderForBooking,
   getFriendlyStripeError,
   getVendorBookingForPayment,
+  readCents,
   type VendorTransaction,
 } from '@/lib/payments/vendor-payments'
 
@@ -63,8 +64,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: auth.error || 'Not authorized for this refund' }, { status: auth.status })
     }
 
-    const refundAmount = Math.min(parsedBody.data.amount ?? tx.amount, tx.amount)
-    const refundCents = dollarsToCents(refundAmount)
+    const transactionCents = readCents(tx.amount_cents, tx.amount) ?? 0
+    const requestedRefundCents = parsedBody.data.amount === undefined
+      ? transactionCents
+      : dollarsToCents(parsedBody.data.amount)
+    const refundCents = Math.min(requestedRefundCents, transactionCents)
+    const refundAmount = centsToDollars(refundCents)
     const stripe = getStripeClient()
     const refund = await stripe.refunds.create({
       payment_intent: tx.stripe_payment_intent_id || undefined,
@@ -79,9 +84,10 @@ export async function POST(request: NextRequest) {
 
     let reversedPayout = 0
 
-    if (tx.stripe_transfer_id && tx.vendor_payout > 0) {
-      const payoutRatio = tx.amount > 0 ? refundAmount / tx.amount : 0
-      const reversalAmount = Math.min(dollarsToCents(tx.vendor_payout), Math.round(dollarsToCents(tx.vendor_payout) * payoutRatio))
+    const vendorPayoutCents = readCents(tx.vendor_payout_cents, tx.vendor_payout) ?? 0
+    if (tx.stripe_transfer_id && vendorPayoutCents > 0) {
+      const payoutRatio = transactionCents > 0 ? refundCents / transactionCents : 0
+      const reversalAmount = Math.min(vendorPayoutCents, Math.round(vendorPayoutCents * payoutRatio))
 
       if (reversalAmount > 0) {
         await stripe.transfers.createReversal(tx.stripe_transfer_id, {
@@ -105,10 +111,10 @@ export async function POST(request: NextRequest) {
         stripe_payment_intent_id: tx.stripe_payment_intent_id,
         stripe_charge_id: refund.id,
         stripe_transfer_id: tx.stripe_transfer_id,
-        amount: refundAmount,
-        platform_fee: 0,
-        stripe_fee: 0,
-        vendor_payout: reversedPayout,
+        amount_cents: refundCents,
+        platform_fee_cents: 0,
+        stripe_fee_cents: 0,
+        vendor_payout_cents: dollarsToCents(reversedPayout),
         payment_type: 'refund',
         status: 'refunded',
         paid_at: now,
@@ -120,10 +126,10 @@ export async function POST(request: NextRequest) {
 
     await (admin as any)
       .from('vendor_transactions')
-      .update({ status: refundAmount >= tx.amount ? 'refunded' : 'succeeded' })
+      .update({ status: refundCents >= transactionCents ? 'refunded' : 'succeeded' })
       .eq('id', tx.id)
 
-    if (refundAmount >= tx.amount) {
+    if (refundCents >= transactionCents) {
       await (admin as any)
         .from('vendor_bookings')
         .update({

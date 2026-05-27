@@ -1,5 +1,6 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase/client'
+import { dollarsToCents } from '@/lib/money'
 import type { Venue, VenueType } from '@/lib/types'
 import { normalizeVenues, VENUE_SELECT_COLUMNS } from '@/lib/venues/venue-adapter'
 
@@ -75,10 +76,10 @@ export function useInfiniteVenues(
         query = query.lte('standing_capacity', filters.max_capacity)
       }
       if (filters?.min_price) {
-        query = query.gte('hourly_rate', filters.min_price)
+        query = query.gte('hourly_rate_cents', dollarsToCents(filters.min_price))
       }
       if (filters?.max_price) {
-        query = query.lte('hourly_rate', filters.max_price)
+        query = query.lte('hourly_rate_cents', dollarsToCents(filters.max_price))
       }
       if (filters?.is_verified !== undefined) {
         query = query.eq('is_published', filters.is_verified)

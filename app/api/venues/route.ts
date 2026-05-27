@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { dollarsToCents } from '@/lib/money'
 import { normalizeVenues, VENUE_LEGACY_SELECT_COLUMNS, VENUE_SELECT_COLUMNS } from '@/lib/venues/venue-adapter'
 
 /**
@@ -46,7 +47,12 @@ export async function GET(request: NextRequest) {
     const from = page * pageSize
     const to = from + pageSize - 1
 
-    const buildQuery = (selectColumns: string) => {
+    const minPriceDollars = parsePriceDollars(minPrice)
+    const maxPriceDollars = parsePriceDollars(maxPrice)
+    const minPriceCents = minPriceDollars === null ? null : dollarsToCents(minPriceDollars)
+    const maxPriceCents = maxPriceDollars === null ? null : dollarsToCents(maxPriceDollars)
+
+    const buildQuery = (selectColumns: string, priceColumn: 'hourly_rate_cents' | 'hourly_rate') => {
       // Build query - fetch ALL published venues (marketplace)
       let query = supabase
         .from('venues')
@@ -70,11 +76,11 @@ export async function GET(request: NextRequest) {
       if (maxCapacity) {
         query = query.lte('standing_capacity', parseInt(maxCapacity, 10))
       }
-      if (minPrice) {
-        query = query.gte('hourly_rate', parseFloat(minPrice))
+      if (minPriceCents !== null && minPriceDollars !== null) {
+        query = query.gte(priceColumn, priceColumn === 'hourly_rate_cents' ? minPriceCents : minPriceDollars)
       }
-      if (maxPrice) {
-        query = query.lte('hourly_rate', parseFloat(maxPrice))
+      if (maxPriceCents !== null && maxPriceDollars !== null) {
+        query = query.lte(priceColumn, priceColumn === 'hourly_rate_cents' ? maxPriceCents : maxPriceDollars)
       }
       if (isVerified !== null) {
         query = query.eq('is_published', isVerified === 'true')
@@ -93,19 +99,19 @@ export async function GET(request: NextRequest) {
       return query.range(from, to)
     }
 
-    let primaryResult = await buildQuery(VENUE_SELECT_COLUMNS)
+    let primaryResult = await buildQuery(VENUE_SELECT_COLUMNS, 'hourly_rate_cents')
     if (primaryResult.error && shouldRetryVenueQuery(primaryResult.error)) {
       await wait(200)
-      primaryResult = await buildQuery(VENUE_SELECT_COLUMNS)
+      primaryResult = await buildQuery(VENUE_SELECT_COLUMNS, 'hourly_rate_cents')
     }
 
     let { data: venues, error } = primaryResult
 
     if (error && isVenueCatalogSchemaCacheError(error)) {
-      let fallback = await buildQuery(VENUE_LEGACY_SELECT_COLUMNS)
+      let fallback = await buildQuery(VENUE_LEGACY_SELECT_COLUMNS, 'hourly_rate')
       if (fallback.error && shouldRetryVenueQuery(fallback.error)) {
         await wait(200)
-        fallback = await buildQuery(VENUE_LEGACY_SELECT_COLUMNS)
+        fallback = await buildQuery(VENUE_LEGACY_SELECT_COLUMNS, 'hourly_rate')
       }
       venues = fallback.data
       error = fallback.error
@@ -225,10 +231,14 @@ const VENUE_CATALOG_OPTIONAL_COLUMNS = [
   'sponsor_rev_share_enabled',
   'sponsor_rev_share_pct',
   'per_head_kickback_cents',
+  'hourly_rate_cents',
+  'daily_rate_cents',
+  'price_per_night_cents',
   'is_claimed',
   'is_admin_seeded',
   'requires_deposit',
   'deposit_amount',
+  'deposit_amount_cents',
   'deposit_type',
   'deposit_refundable',
   'deposit_terms',
@@ -255,6 +265,12 @@ function isVenueCatalogSchemaCacheError(error: VenueCatalogQueryError) {
       message.includes(`'${column}'`)
     )
   })
+}
+
+function parsePriceDollars(value: string | null) {
+  if (!value) return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
 
 function shouldRetryVenueQuery(error: VenueCatalogQueryError) {

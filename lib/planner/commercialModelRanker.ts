@@ -1,3 +1,5 @@
+import { readCents } from '@/lib/money'
+
 export type CommercialModel =
   | 'flat_rental'
   | 'minimum_spend'
@@ -110,19 +112,20 @@ function inferSupportedCommercialModels(venue: Record<string, unknown>, fallback
     fallbackEstimateCents > 0 ||
     pricingModel.includes('flat') ||
     pricingModel.includes('hourly') ||
-    readNumber(venue.hourly_rate) !== null ||
-    readNumber(venue.daily_rate) !== null
+    readCents(venue.hourly_rate_cents as number | string | null | undefined, venue.hourly_rate as number | string | null | undefined) !== null ||
+    readCents(venue.daily_rate_cents as number | string | null | undefined, venue.daily_rate as number | string | null | undefined) !== null
   ) {
     models.add('flat_rental')
   }
   if (
     pricingModel.includes('minimum') ||
-    readNumber(venue.minimum_spend_cents ?? venue.minimum_spend ?? autoApprove?.minimum_spend_cents) !== null
+    readNumber(venue.minimum_spend_cents ?? autoApprove?.minimum_spend_cents) !== null ||
+    readCents(null, venue.minimum_spend as number | string | null | undefined) !== null
   ) {
     models.add('minimum_spend')
   }
   if (
-    (readNumber(venue.per_head_kickback_cents ?? venue.per_head_kickback_amount ?? venue.per_head_kickback) ?? 0) > 0
+    (readVenuePerHeadKickbackCents(venue) ?? 0) > 0
   ) {
     models.add('per_head_kickback')
   }
@@ -171,7 +174,7 @@ function estimateOrganizerOutlayCents(
   if (model === 'minimum_spend') return readMinimumSpendCents(venue) ?? fallbackEstimateCents
   if (model === 'per_head_kickback') {
     const threshold = readNumber(venue.per_head_kickback_threshold ?? venue.kickback_threshold) ?? 100
-    const amount = readNumber(venue.per_head_kickback_cents ?? venue.per_head_kickback_amount ?? venue.per_head_kickback) ?? DEFAULT_PER_HEAD_KICKBACK_CENTS
+    const amount = readVenuePerHeadKickbackCents(venue) ?? DEFAULT_PER_HEAD_KICKBACK_CENTS
     return Math.max(0, headcount - threshold) * amount
   }
   if (model === 'bar_revenue_share') {
@@ -200,7 +203,17 @@ function estimateVenueUpsideCents(
 
 function readMinimumSpendCents(venue: Record<string, unknown>): number | null {
   const autoApprove = readRecord(venue.auto_approve_conditions)
-  return readNumber(venue.minimum_spend_cents ?? venue.minimum_spend ?? autoApprove?.minimum_spend_cents)
+  return (
+    readNumber(venue.minimum_spend_cents ?? autoApprove?.minimum_spend_cents) ??
+    readCents(null, venue.minimum_spend as number | string | null | undefined)
+  )
+}
+
+function readVenuePerHeadKickbackCents(venue: Record<string, unknown>): number | null {
+  return readCents(
+    venue.per_head_kickback_cents as number | string | null | undefined,
+    (venue.per_head_kickback_amount ?? venue.per_head_kickback) as number | string | null | undefined
+  )
 }
 
 function scoreOrganizerProfit(expectedProfitCents: number, outlayCents: number, venueBudgetCents: number): number {

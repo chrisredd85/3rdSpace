@@ -58,6 +58,7 @@ import {
   type ElasticitySignal,
 } from '@/lib/server/builderTierElasticity'
 import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
+import { readCents } from '@/lib/money'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlanMessage, PlannerApiErrorResponse, Recommendation } from '@/lib/types'
 import {
@@ -239,6 +240,9 @@ const VENUE_RANKER_SELECT_COLUMNS = `
   seated_capacity,
   pricing_model,
   hourly_rate,
+  hourly_rate_cents,
+  daily_rate_cents,
+  price_per_night_cents,
   minimum_hours,
   average_rating,
   total_bookings,
@@ -294,6 +298,9 @@ const VENUE_AGENT_SELECT_COLUMNS = `
   city,
   state,
   hourly_rate,
+  hourly_rate_cents,
+  daily_rate_cents,
+  price_per_night_cents,
   minimum_hours,
   is_published,
   per_head_kickback,
@@ -2924,10 +2931,16 @@ function toVenueMatchingCandidate(row: Record<string, unknown>): VenueMatchingCa
     seated_capacity: readNumber(row.seated_capacity),
     city: readString(row.city),
     state: readString(row.state),
-    hourly_rate: readNumber(row.hourly_rate),
+    hourly_rate: readCents(
+      row.hourly_rate_cents as number | string | null | undefined,
+      row.hourly_rate as number | string | null | undefined
+    ),
     minimum_hours: readNumber(row.minimum_hours),
     is_published: readBoolean(row.is_published),
-    per_head_kickback: readNumber(row.per_head_kickback),
+    per_head_kickback: readCents(
+      row.per_head_kickback_cents as number | string | null | undefined,
+      row.per_head_kickback as number | string | null | undefined
+    ),
     offers_kickbacks: readBoolean(row.offers_kickbacks),
     deposit_percentage: readNumber(row.deposit_percentage),
     cancellation_terms: readString(row.cancellation_terms),

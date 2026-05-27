@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getStripeClient } from '@/lib/stripe/connect'
+import { centsToDollars, readCents } from '@/lib/money'
 import {
   calculatePaymentAmounts,
   ensureVendorCanReceivePayments,
@@ -80,15 +81,18 @@ export async function POST(request: NextRequest) {
     if (existingTransaction?.stripe_payment_intent_id) {
       const existingIntent = await stripe.paymentIntents.retrieve(existingTransaction.stripe_payment_intent_id)
       if (existingIntent.client_secret && !['canceled', 'succeeded'].includes(existingIntent.status)) {
+        const existingAmountCents = readCents(existingTransaction.amount_cents, existingTransaction.amount) ?? 0
+        const existingPlatformFeeCents = readCents(existingTransaction.platform_fee_cents, existingTransaction.platform_fee) ?? 0
+        const existingVendorPayoutCents = readCents(existingTransaction.vendor_payout_cents, existingTransaction.vendor_payout) ?? 0
         return NextResponse.json({
           clientSecret: existingIntent.client_secret,
           paymentIntentId: existingIntent.id,
           connectedAccountId,
           transaction: existingTransaction,
           summary: {
-            amount: existingTransaction.amount,
-            platformFee: existingTransaction.platform_fee,
-            vendorPayout: existingTransaction.vendor_payout,
+            amount: centsToDollars(existingAmountCents),
+            platformFee: centsToDollars(existingPlatformFeeCents),
+            vendorPayout: centsToDollars(existingVendorPayoutCents),
             paymentType,
           },
         })
@@ -121,10 +125,10 @@ export async function POST(request: NextRequest) {
         vendor_id: booking.vendor_id,
         builder_id: auth.builderProfileId,
         stripe_payment_intent_id: paymentIntent.id,
-        amount: amounts.amount,
-        platform_fee: amounts.platformFee,
-        stripe_fee: 0,
-        vendor_payout: amounts.vendorPayout,
+        amount_cents: amounts.amountCents,
+        platform_fee_cents: amounts.platformFeeCents,
+        stripe_fee_cents: 0,
+        vendor_payout_cents: amounts.vendorPayoutCents,
         payment_type: paymentType,
         status: 'pending',
       })

@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { centsToDollars, dollarsToCents, readCents } from '@/lib/money'
 import { createClient } from '@/lib/supabase/server'
 
 const depositConfigSchema = z.object({
@@ -33,7 +34,7 @@ function buildDepositUpdate(config: DepositConfigInput) {
     return {
       ...baseUpdate,
       deposit_type: null,
-      deposit_amount: null,
+      deposit_amount_cents: null,
       deposit_percentage: null,
     }
   }
@@ -41,7 +42,7 @@ function buildDepositUpdate(config: DepositConfigInput) {
   return {
     ...baseUpdate,
     deposit_type: config.depositType,
-    deposit_amount: config.depositType === 'fixed' ? config.depositAmount : null,
+    deposit_amount_cents: config.depositType === 'fixed' ? dollarsToCents(config.depositAmount) : null,
     deposit_percentage: config.depositType === 'percentage' ? config.depositPercentage : null,
   }
 }
@@ -97,6 +98,7 @@ export async function GET(request: NextRequest) {
       .select(`
         requires_deposit,
         deposit_amount,
+        deposit_amount_cents,
         deposit_type,
         deposit_percentage,
         deposit_refundable,
@@ -114,7 +116,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Venue not found' }, { status: 404 })
     }
 
-    return NextResponse.json(venue)
+    const venueRow = venue as Record<string, unknown>
+    const depositAmountCents = readCents(
+      venueRow.deposit_amount_cents as number | null | undefined,
+      venueRow.deposit_amount as number | null | undefined
+    )
+
+    return NextResponse.json({
+      ...venueRow,
+      deposit_amount: depositAmountCents === null ? null : centsToDollars(depositAmountCents),
+    })
   } catch (error) {
     console.error('[venue.deposit] Unexpected GET error', error)
     return NextResponse.json({ error: 'Failed to load deposit requirements' }, { status: 500 })

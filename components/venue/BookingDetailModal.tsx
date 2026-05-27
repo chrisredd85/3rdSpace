@@ -26,6 +26,7 @@ import {
 import { useCreateOrGetThread } from '@/lib/hooks/useMessages'
 import { useToast } from '@/components/ui/toast'
 import { supabase } from '@/lib/supabase/client'
+import { centsToDollars, readCents } from '@/lib/money'
 import { cn } from '@/lib/utils'
 import type { VenueBooking, BookingStatus } from '@/lib/types'
 
@@ -60,6 +61,12 @@ export function BookingDetailModal({
 
   const event = booking.events as any
   const venue = booking.venues as any
+  const hourlyRateCents = readCents(venue?.hourly_rate_cents, venue?.hourly_rate)
+  const dailyRateCents = readCents(venue?.daily_rate_cents, venue?.daily_rate)
+  const perHeadKickbackCents = readCents(
+    venue?.per_head_kickback_cents,
+    venue?.per_head_kickback_amount ?? venue?.per_head_kickback
+  )
 
   const organizerId = event?.profiles?.id || event?.builder_id
   const organizerName = event?.profiles?.name || 'Event Organizer'
@@ -355,8 +362,8 @@ export function BookingDetailModal({
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Base Rate</span>
                 <span className="font-medium">
-                  ${venue?.hourly_rate || venue?.daily_rate || 0}
-                  {venue?.hourly_rate ? '/hr' : '/day'}
+                  {formatCents(hourlyRateCents ?? dailyRateCents ?? 0)}
+                  {hourlyRateCents ? '/hr' : '/day'}
                 </span>
               </div>
               {venue?.ticket_sales_share_enabled && (
@@ -371,10 +378,10 @@ export function BookingDetailModal({
                   <span className="font-medium">{venue.bar_revenue_share_percent || 0}%</span>
                 </div>
               )}
-              {venue?.per_head_kickback_amount > 0 && (
+              {(perHeadKickbackCents ?? 0) > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Per-Head Kickback</span>
-                  <span className="font-medium">${venue.per_head_kickback_amount}/guest</span>
+                  <span className="font-medium">{formatCents(perHeadKickbackCents ?? 0)}/guest</span>
                 </div>
               )}
               <div className="border-t border-border pt-2 mt-2">
@@ -482,4 +489,12 @@ export function BookingDetailModal({
       </Card>
     </div>
   )
+}
+
+function formatCents(cents: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(centsToDollars(cents))
 }

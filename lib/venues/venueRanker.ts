@@ -4,6 +4,7 @@ import type {
   MatchingField,
   VendorStackItem,
 } from '@/lib/planner/archetypes/types'
+import { readCents } from '@/lib/money'
 import type { BuilderAttendanceSummary } from '@/lib/server/builderAttendanceHistory'
 
 export interface VenueRankerPlanInput {
@@ -196,12 +197,13 @@ export function inferSupportedCommercialModels(venue: Record<string, unknown>): 
   ) {
     models.add('bar_rev_share')
   }
-  if ((readNumber(venue.per_head_kickback_cents ?? venue.per_head_kickback_amount ?? venue.per_head_kickback) ?? 0) > 0) {
+  if ((readVenuePerHeadKickbackCents(venue) ?? 0) > 0) {
     models.add('per_head')
   }
   if (
     pricingModel.includes('minimum') ||
-    readNumber(venue.minimum_spend_cents ?? venue.minimum_spend ?? autoApprove?.minimum_spend_cents) !== null
+    readNumber(venue.minimum_spend_cents ?? autoApprove?.minimum_spend_cents) !== null ||
+    readCents(null, venue.minimum_spend as number | string | null | undefined) !== null
   ) {
     models.add('minimum_spend')
   }
@@ -219,8 +221,8 @@ export function inferSupportedCommercialModels(venue: Record<string, unknown>): 
     pricingModel.includes('flat') ||
     pricingModel.includes('rental') ||
     pricingModel.includes('hourly') ||
-    readNumber(venue.hourly_rate) !== null ||
-    readNumber(venue.daily_rate) !== null
+    readCents(venue.hourly_rate_cents as number | string | null | undefined, venue.hourly_rate as number | string | null | undefined) !== null ||
+    readCents(venue.daily_rate_cents as number | string | null | undefined, venue.daily_rate as number | string | null | undefined) !== null
   ) {
     models.add('flat_rental')
   }
@@ -604,7 +606,13 @@ function computeAttendanceCalibration(
 }
 
 function estimateVenueCents(row: Record<string, unknown>): number {
-  return readNumber(row.estimate_cents ?? row.hourly_rate ?? row.daily_rate) ?? 0
+  const directEstimate = readNumber(row.estimate_cents)
+  if (directEstimate !== null) return directEstimate
+  return (
+    readCents(row.hourly_rate_cents as number | string | null | undefined, row.hourly_rate as number | string | null | undefined) ??
+    readCents(row.daily_rate_cents as number | string | null | undefined, row.daily_rate as number | string | null | undefined) ??
+    0
+  )
 }
 
 function serializeSearchValue(value: unknown): string {
@@ -617,6 +625,13 @@ function serializeSearchValue(value: unknown): string {
 function readRecord(value: unknown): Record<string, unknown> | null {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
   return null
+}
+
+function readVenuePerHeadKickbackCents(venue: Record<string, unknown>): number | null {
+  return readCents(
+    venue.per_head_kickback_cents as number | string | null | undefined,
+    (venue.per_head_kickback_amount ?? venue.per_head_kickback) as number | string | null | undefined
+  )
 }
 
 function readString(value: unknown): string | null {

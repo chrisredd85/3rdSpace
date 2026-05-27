@@ -2,6 +2,7 @@ import { rankVenueCommercialModels } from '@/lib/planner/commercialModelRanker'
 import { archetypeFor } from '@/lib/planner/archetypes'
 import type { EventArchetypeConfig } from '@/lib/planner/archetypes'
 import type { BuilderAttendanceSummary } from '@/lib/server/builderAttendanceHistory'
+import { readCents } from '@/lib/money'
 import { scoreVenueAgainstArchetype } from '@/lib/venues/venueRanker'
 
 export type CatalogPartnerKind = 'venue' | 'vendor'
@@ -518,16 +519,24 @@ function estimateVenueCents(row: Record<string, unknown>): number {
   if (directEstimate !== null) return Math.round(directEstimate)
 
   const autoApprove = readRecord(row.auto_approve_conditions)
-  const minimumSpend = readNumber(row.minimum_spend_cents ?? row.minimum_spend ?? autoApprove?.minimum_spend_cents)
+  const minimumSpend =
+    readNumber(row.minimum_spend_cents ?? autoApprove?.minimum_spend_cents) ??
+    readCents(null, row.minimum_spend as number | string | null | undefined)
   if (minimumSpend !== null && minimumSpend > 0) return Math.round(minimumSpend)
 
-  const hourlyRate = readNumber(row.hourly_rate)
+  const hourlyRate = readCents(
+    row.hourly_rate_cents as number | string | null | undefined,
+    row.hourly_rate as number | string | null | undefined
+  )
   if (hourlyRate !== null && hourlyRate > 0) {
     const minimumHours = readNumber(row.minimum_hours) ?? 4
     return Math.round(hourlyRate * minimumHours)
   }
 
-  const dailyRate = readNumber(row.daily_rate)
+  const dailyRate = readCents(
+    row.daily_rate_cents as number | string | null | undefined,
+    row.daily_rate as number | string | null | undefined
+  )
   if (dailyRate !== null && dailyRate > 0) return Math.round(dailyRate)
 
   return 0
@@ -864,16 +873,32 @@ function inferVenueTerms(row: Record<string, unknown>): string[] {
   const pricingModel = normalizeText(readString(row.pricing_model) ?? '')
   const autoApprove = readRecord(row.auto_approve_conditions)
 
-  if (pricingModel.includes('hourly') || pricingModel.includes('flat') || readNumber(row.hourly_rate) !== null) {
+  if (
+    pricingModel.includes('hourly') ||
+    pricingModel.includes('flat') ||
+    readCents(
+      row.hourly_rate_cents as number | string | null | undefined,
+      row.hourly_rate as number | string | null | undefined
+    ) !== null
+  ) {
     terms.add('flat_rental')
   }
-  if (pricingModel.includes('minimum') || readNumber(row.minimum_spend ?? autoApprove?.minimum_spend_cents) !== null) {
+  if (
+    pricingModel.includes('minimum') ||
+    readNumber(row.minimum_spend_cents ?? autoApprove?.minimum_spend_cents) !== null ||
+    readCents(null, row.minimum_spend as number | string | null | undefined) !== null
+  ) {
     terms.add('min_spend')
   }
   if (row.ticket_sales_share_enabled === true || row.bar_rev_share_enabled === true) {
     terms.add('revenue_share')
   }
-  if ((readNumber(row.per_head_kickback_cents) ?? 0) > 0 || (readNumber(row.per_head_kickback) ?? 0) > 0) {
+  if (
+    (readCents(
+      row.per_head_kickback_cents as number | string | null | undefined,
+      (row.per_head_kickback_amount ?? row.per_head_kickback) as number | string | null | undefined
+    ) ?? 0) > 0
+  ) {
     terms.add('per_head_kickback')
   }
 
