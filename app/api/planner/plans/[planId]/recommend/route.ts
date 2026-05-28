@@ -32,6 +32,7 @@ import {
   type RankedCatalogRecommendation,
 } from '@/lib/planner/catalogRanker'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS, RECOMMENDATION_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import { getVenueComplianceStatus } from '@/lib/planner/venueComplianceGate'
 import {
   applyArchetypeDefaultFills,
   readPlanMatchingBoolean,
@@ -396,9 +397,13 @@ export async function POST(
     const candidateVenues = await loadVenueAgentCandidates(auth.db, recommendationPlan, rankingInput, {
       neighborhoodMode: 'strict',
     })
+    const compliantCandidateVenues = await filterCompliantVenueCandidates(
+      createServiceRoleClient() as any,
+      candidateVenues
+    )
     const venuePayload = {
       event_plan: eventPlan,
-      candidate_venues: candidateVenues,
+      candidate_venues: compliantCandidateVenues,
       builder_attendance: builderAttendance,
       organizer_preferences: {
         ...(buildOrganizerPreferencePayload(organizerPreferences) ?? {}),
@@ -421,7 +426,7 @@ export async function POST(
       archetype,
       eventPlan,
       baseVenueResult: venueResult,
-      baseCandidateVenues: candidateVenues,
+      baseCandidateVenues: compliantCandidateVenues,
       basePayload: venuePayload,
     })
     // TODO(ticket-data): plug ticket sales/history lookup here once the surfaced data contract is defined.
@@ -2339,6 +2344,36 @@ async function loadVenueAgentCandidates(
     .map(toVenueMatchingCandidate)
     .filter((candidate): candidate is VenueMatchingCandidate => candidate !== null)
     .filter((candidate) => venueFitsBudget(candidate, budgetCents))
+}
+
+async function filterCompliantVenueCandidates(
+  admin: PlannerDb,
+  venues: VenueMatchingCandidate[]
+): Promise<VenueMatchingCandidate[]> {
+  if (venues.length === 0) return venues
+
+  const checked = await Promise.all(venues.map(async (venue) => {
+    try {
+      const status = await getVenueComplianceStatus(admin as any, venue.id)
+      return status.is_compliant ? venue : null
+    } catch (error) {
+      console.error('[planner.recommend] Venue compliance check failed', {
+        venue_id: venue.id,
+        error,
+      })
+      return venue
+    }
+  }))
+  const compliantVenues = checked.filter((venue): venue is VenueMatchingCandidate => venue !== null)
+
+  if (compliantVenues.length < venues.length && compliantVenues.length < 3) {
+    console.warn('[planner.recommend] Venue compliance filtering left fewer than 3 candidates', {
+      before: venues.length,
+      after: compliantVenues.length,
+    })
+  }
+
+  return compliantVenues
 }
 
 function buildRankingInput(

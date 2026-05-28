@@ -3,6 +3,7 @@ import 'server-only'
 import type { OutreachAgentInput, OutreachAgentOutput } from '@/lib/ai/agents/outreachAgent'
 import { getAgentRunErrorMetadata } from '@/lib/ai/types'
 import { buildEventPlanFromPlannerPlan } from '@/lib/planner/agentPlanAdapter'
+import { getVenueComplianceStatus } from '@/lib/planner/venueComplianceGate'
 import { logAgentRun, type AgentRunDb } from '@/lib/server/agent-runs'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan } from '@/lib/types'
@@ -87,15 +88,17 @@ export async function buildVenueOpportunityOutreach(input: {
     vendorIds: [],
   })
   const targets = await loadVenueTargets(input.db, input.venueIds)
+  const compliantTargets = await filterCompliantVenueOutreachTargets(targets)
   return buildOpportunityOutreach({
     plan: input.plan,
     userId: input.userId,
     partnerType: 'venue',
     outreachType: 'venue_inquiry',
-    targets,
+    targets: compliantTargets,
     summary: input.summary,
     requirements: input.requirements,
     responseDeadline: input.responseDeadline,
+    allowFallbackTarget: false,
   })
 }
 
@@ -140,11 +143,14 @@ async function buildOpportunityOutreach(input: {
   summary: string
   requirements: Record<string, unknown>
   responseDeadline: string | null
+  allowFallbackTarget?: boolean
 }): Promise<OpportunityOutreachBundle> {
   const eventPlan = buildEventPlanFromPlannerPlan(input.plan)
   const targets = input.targets.length > 0
     ? input.targets
-    : [buildFallbackTarget(input.partnerType)]
+    : input.allowFallbackTarget === false
+      ? []
+      : [buildFallbackTarget(input.partnerType)]
   const drafts = hasOpenAIKey()
     ? await Promise.all(targets.map((target) => runLoggedOutreachAgent({
       userId: input.userId,
@@ -396,6 +402,33 @@ async function loadVendorTargets(db: PlannerDb, vendorIds: string[]): Promise<Ou
       service_area: readString(row.service_area),
     },
   }))
+}
+
+async function filterCompliantVenueOutreachTargets(targets: OutreachTarget[]) {
+  if (targets.length === 0) return targets
+
+  const admin = createServiceRoleClient()
+  const checked = await Promise.all(targets.map(async (target) => {
+    try {
+      const status = await getVenueComplianceStatus(admin as any, target.id)
+      if (!status.is_compliant) {
+        console.warn('[agent.run] Skipping non-compliant venue outreach draft', {
+          venue_id: target.id,
+          reason: status.reason,
+        })
+        return null
+      }
+      return target
+    } catch (error) {
+      console.error('[agent.run] Venue compliance check failed for outreach draft', {
+        venue_id: target.id,
+        error,
+      })
+      return target
+    }
+  }))
+
+  return checked.filter((target): target is OutreachTarget => target !== null)
 }
 
 function buildDeterministicOutreachDraft(input: {

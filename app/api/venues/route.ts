@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { dollarsToCents } from '@/lib/money'
+import { getVenueComplianceStatus } from '@/lib/planner/venueComplianceGate'
 import { normalizeVenues, VENUE_LEGACY_SELECT_COLUMNS, VENUE_SELECT_COLUMNS } from '@/lib/venues/venue-adapter'
 
 /**
@@ -41,6 +42,7 @@ export async function GET(request: NextRequest) {
     const isVerified = searchParams.get('is_verified')
     const tagsParam = searchParams.get('tags')
     const plannerCatalog = searchParams.get('planner_catalog') === '1'
+    const applyComplianceFilter = searchParams.get('include_blocked') !== '1'
     const page = parseInt(searchParams.get('page') || '0', 10)
     const pageSize = parseInt(searchParams.get('pageSize') || '20', 10)
 
@@ -131,7 +133,9 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const normalizedVenues = normalizeVenues(venues as any[])
+    const normalizedVenues = applyComplianceFilter
+      ? await filterCompliantPublicVenues(supabase, normalizeVenues(venues as any[]))
+      : normalizeVenues(venues as any[])
     const amenitiesByVenueId = await loadVenueAmenities(
       supabase,
       normalizedVenues.map((venue) => venue.id)
@@ -163,7 +167,9 @@ export async function GET(request: NextRequest) {
         headers: {
           'Cache-Control': plannerCatalog
             ? 'no-store'
-            : 'public, s-maxage=120, stale-while-revalidate=600',
+            : applyComplianceFilter
+              ? 'no-store'
+              : 'public, s-maxage=60, stale-while-revalidate=300',
         },
       }
     )
@@ -179,6 +185,30 @@ export async function GET(request: NextRequest) {
       { status: 503 }
     )
   }
+}
+
+async function filterCompliantPublicVenues<T extends { id: string }>(
+  supabase: ReturnType<typeof createServiceRoleClient> | ReturnType<typeof createClient>,
+  venues: T[]
+): Promise<T[]> {
+  const compliantVenues: T[] = []
+
+  for (const venue of venues) {
+    try {
+      const status = await getVenueComplianceStatus(supabase as any, venue.id)
+      if (status.is_compliant) {
+        compliantVenues.push(venue)
+      }
+    } catch (error) {
+      console.error('[/api/venues] Venue compliance filter failed', {
+        venue_id: venue.id,
+        error,
+      })
+      compliantVenues.push(venue)
+    }
+  }
+
+  return compliantVenues
 }
 
 function createVenueCatalogClient() {
