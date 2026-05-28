@@ -8,6 +8,7 @@ import {
   type DocumentExtractionOutput,
 } from '@/lib/ai/agents/documentExtractionAgent'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { pollAttendanceForPlan } from '@/lib/ticketing/attendancePoll'
 
 export const runtime = 'nodejs'
 
@@ -85,6 +86,9 @@ export async function GET(
     const venueNames = await loadAgreementVenueNames(admin, agreements)
     const pendingAgreements = agreements.filter((agreement) => agreement.actual_attendance == null)
     const eventHasPassed = hasDatePassed(plan.date_window_start)
+    const attendancePoll = eventHasPassed && pendingAgreements.length > 0
+      ? await pollAttendanceForPlan(admin, plan.id)
+      : null
 
     return NextResponse.json({
       eligible: eventHasPassed && pendingAgreements.length > 0,
@@ -98,6 +102,7 @@ export async function GET(
         venue_id: agreement.venue_id,
         venue_name: agreement.venue_id ? venueNames.get(agreement.venue_id) ?? 'Venue' : 'Venue',
       })),
+      attendance_poll: attendancePoll,
     })
   } catch (error) {
     console.error('[planner.event-report] Failed to load event report status', error)

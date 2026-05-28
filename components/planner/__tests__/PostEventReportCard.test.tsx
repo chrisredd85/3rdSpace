@@ -69,6 +69,27 @@ describe('PostEventReportCard', () => {
     expect(container).toBeEmptyDOMElement()
     await waitFor(() => expect(fetchMock).not.toHaveBeenCalled())
   })
+
+  it('pre-fills attendance when Eventbrite checked-in count is available', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(jsonResponse({
+      eligible: true,
+      event_has_passed: true,
+      event_name: 'Tech Mixer',
+      event_date: '2026-01-01T00:00:00.000Z',
+      attendance_poll: {
+        source: 'eventbrite',
+        attendance_count: 87,
+        count_type: 'checked_in',
+        confidence: 'high',
+      },
+      pending_agreements: [{ id: 'agreement-1', venue_id: 'venue-1', venue_name: 'The Roof' }],
+    }))
+
+    render(<PostEventReportCard plan={basePlan} />)
+
+    expect(await screen.findByText(/Pulled 87 checked-in attendees from Eventbrite/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Verified attendance/i)).toHaveValue(87)
+  })
 })
 
 function jsonResponse(payload: unknown) {

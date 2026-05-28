@@ -12,6 +12,13 @@ type EventReportStatus = {
   event_has_passed: boolean
   event_name: string
   event_date: string | null
+  attendance_poll?: {
+    source: 'eventbrite' | 'luma' | 'partiful' | 'posh' | 'none'
+    attendance_count: number | null
+    count_type: 'checked_in' | 'rsvp_only' | 'unavailable'
+    confidence: 'high' | 'medium' | 'low'
+    error?: string
+  } | null
   pending_agreements: Array<{
     id: string
     venue_id: string | null
@@ -82,7 +89,13 @@ export function PostEventReportCard({ plan, className }: PostEventReportCardProp
         })
         const payload = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(payload?.error ?? 'Unable to load event report status')
-        if (!cancelled) setStatus(payload as EventReportStatus)
+        if (!cancelled) {
+          const nextStatus = payload as EventReportStatus
+          setStatus(nextStatus)
+          if (nextStatus.attendance_poll?.attendance_count !== null && nextStatus.attendance_poll?.attendance_count !== undefined) {
+            setManualAttendance(String(nextStatus.attendance_poll.attendance_count))
+          }
+        }
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : 'Unable to load event report status')
@@ -104,6 +117,7 @@ export function PostEventReportCard({ plan, className }: PostEventReportCardProp
 
   const venueNames = status?.pending_agreements.map((agreement) => agreement.venue_name).filter(Boolean) ?? []
   const venueLabel = venueNames.length > 0 ? venueNames.join(', ') : 'the venue'
+  const pollNotice = buildPollNotice(status?.attendance_poll)
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -219,6 +233,22 @@ export function PostEventReportCard({ plan, className }: PostEventReportCardProp
         </form>
       )}
 
+      {pollNotice ? (
+        <div className={cn(
+          'mt-4 rounded-2xl border px-4 py-3 text-sm',
+          pollNotice.tone === 'success'
+            ? 'border-success/30 bg-success/10 text-success'
+            : pollNotice.tone === 'warning'
+              ? 'border-secondary/30 bg-secondary/10 text-secondary'
+              : 'border-border bg-background/50 text-muted-foreground'
+        )}>
+          <div className="flex gap-2">
+            {pollNotice.tone === 'success' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
+            <p className="leading-relaxed">{pollNotice.copy}</p>
+          </div>
+        </div>
+      ) : null}
+
       {submission ? (
         <div className="mt-4 rounded-2xl border border-border bg-background/50 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -258,4 +288,46 @@ export function PostEventReportCard({ plan, className }: PostEventReportCardProp
       ) : null}
     </section>
   )
+}
+
+function buildPollNotice(poll: EventReportStatus['attendance_poll']) {
+  if (!poll) return null
+
+  if (poll.count_type === 'checked_in' && poll.attendance_count !== null) {
+    return {
+      tone: 'success' as const,
+      copy: `Pulled ${poll.attendance_count.toLocaleString()} checked-in attendees from Eventbrite. Confirm it or edit the count.`,
+    }
+  }
+
+  if (poll.count_type === 'rsvp_only' && poll.attendance_count !== null) {
+    return {
+      tone: 'warning' as const,
+      copy: `Luma does not expose verified check-in data. We pulled ${poll.attendance_count.toLocaleString()} approved RSVPs as a starting point; confirm the actual attended count or upload proof.`,
+    }
+  }
+
+  if (poll.source === 'partiful' || poll.source === 'posh') {
+    return {
+      tone: 'neutral' as const,
+      copy: `${formatPlatform(poll.source)} does not expose attendance through a public API. Upload a screenshot or enter the verified number.`,
+    }
+  }
+
+  if (poll.error) {
+    return {
+      tone: 'neutral' as const,
+      copy: poll.error,
+    }
+  }
+
+  return null
+}
+
+function formatPlatform(source: string) {
+  if (source === 'posh') return 'Posh'
+  if (source === 'partiful') return 'Partiful'
+  if (source === 'eventbrite') return 'Eventbrite'
+  if (source === 'luma') return 'Luma'
+  return 'Ticketing platform'
 }
