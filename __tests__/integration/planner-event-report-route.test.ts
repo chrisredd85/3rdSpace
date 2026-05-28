@@ -148,6 +148,14 @@ function makeUploadFile(contents: string, name: string, type: string) {
   return file
 }
 
+function makeOversizedUploadFile(name: string, type: string) {
+  const file = makeUploadFile('too-large', name, type)
+  Object.defineProperty(file, 'size', {
+    value: 10 * 1024 * 1024 + 1,
+  })
+  return file
+}
+
 describe('planner event report route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -252,6 +260,19 @@ describe('planner event report route', () => {
 
     expect(response.status).toBe(400)
     expect(json.error).toContain('Unsupported file type')
+    expect(db.storageBucket.upload).not.toHaveBeenCalled()
+    expect(runDocumentExtractionAgent).not.toHaveBeenCalled()
+  })
+
+  it('rejects files over the 10 MB extraction limit before upload', async () => {
+    const formData = new FormData()
+    formData.set('image', makeOversizedUploadFile('eventbrite.pdf', 'application/pdf'))
+
+    const response = await POST(makeRequest(formData), { params: { planId: PLAN_ID } })
+    const json = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(json.error).toContain('under 10 MB')
     expect(db.storageBucket.upload).not.toHaveBeenCalled()
     expect(runDocumentExtractionAgent).not.toHaveBeenCalled()
   })

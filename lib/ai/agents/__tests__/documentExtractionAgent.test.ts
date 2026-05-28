@@ -7,6 +7,7 @@ jest.mock('@/lib/ai/client', () => ({
 
 import { agentNameSchema } from '@/lib/ai/types'
 import { runDocumentExtractionAgent } from '@/lib/ai/agents/documentExtractionAgent'
+import * as XLSX from 'xlsx'
 
 const previousOpenAiKey = process.env.OPENAI_API_KEY
 
@@ -112,5 +113,50 @@ describe('documentExtractionAgent', () => {
       reasoning: 'File contained no data',
       raw_text_seen: '',
     })
+  })
+
+  it('flattens all XLSX sheets with sheet labels before extraction', async () => {
+    const create = jest.fn().mockResolvedValue({
+      model: 'gpt-4o',
+      usage: { prompt_tokens: 18, completion_tokens: 8 },
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            extracted_value: 428000,
+            confidence: 'high',
+            reasoning: 'Net sales was clearly labeled on the Square sheet.',
+            raw_text_seen: 'Net Sales,$4,280.00',
+          }),
+        },
+      }],
+    })
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([['Metric', 'Amount'], ['Net Sales', '$4,280.00']]),
+      'Square'
+    )
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([['Metric', 'Amount'], ['Tips', '$610.00']]),
+      'Tips'
+    )
+    const fileBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+
+    const result = await runDocumentExtractionAgent(
+      {
+        mode: 'venue_revenue',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        filename: 'square-summary.xlsx',
+        fileBuffer,
+      },
+      { create } as never
+    )
+
+    const request = create.mock.calls[0][0]
+    expect(result.output.extracted_value).toBe(428000)
+    expect(request.messages[1].content).toContain('Sheet: Square')
+    expect(request.messages[1].content).toContain('Net Sales,"$4,280.00"')
+    expect(request.messages[1].content).toContain('Sheet: Tips')
   })
 })

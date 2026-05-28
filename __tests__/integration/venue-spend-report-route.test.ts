@@ -195,6 +195,14 @@ function makeUploadFile(contents: string, name: string, type: string) {
   return file
 }
 
+function makeOversizedUploadFile(name: string, type: string) {
+  const file = makeUploadFile('too-large', name, type)
+  Object.defineProperty(file, 'size', {
+    value: 10 * 1024 * 1024 + 1,
+  })
+  return file
+}
+
 describe('venue spend report route', () => {
   let db: MemoryDb
 
@@ -291,5 +299,18 @@ describe('venue spend report route', () => {
     expect(response.status).toBe(403)
     expect(json.error).toContain('Not authorized')
     expect(db.rows.kickback_payments).toHaveLength(0)
+  })
+
+  it('rejects venue spend report files over the 10 MB extraction limit', async () => {
+    const formData = new FormData()
+    formData.set('image', makeOversizedUploadFile('toast-report.pdf', 'application/pdf'))
+
+    const response = await POST(makeRequest(formData), { params: { kickbackId: AGREEMENT_ID } })
+    const json = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(json.error).toContain('under 10 MB')
+    expect(db.storageBucket.upload).not.toHaveBeenCalled()
+    expect(runDocumentExtractionAgent).not.toHaveBeenCalled()
   })
 })
