@@ -4,11 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, CreditCard, ExternalLink, Loader2, RefreshCw, ShieldCheck, WalletCards } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { centsToDollars } from '@/lib/money'
+import { centsToDollars, dollarsToCents } from '@/lib/money'
 import { cn } from '@/lib/utils'
 
 type BuilderPayoutPayment = {
   id: string
+  plan_id?: string | null
   event_name: string
   event_date: string | null
   venue_name: string
@@ -19,6 +20,8 @@ type BuilderPayoutPayment = {
   processing_fee_cents?: number | null
   reported_revenue_cents?: number | null
   revenue_share_percent?: number | null
+  refund_amount_cents?: number | null
+  refund_reason?: string | null
   invoice_hosted_url?: string | null
   paid_at?: string | null
   completed_at?: string | null
@@ -65,6 +68,7 @@ export default function PaymentsPage() {
   const [data, setData] = useState<BuilderPayoutSummary>(emptySummary)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [refundDecisionLoading, setRefundDecisionLoading] = useState<string | null>(null)
 
   const loadPayouts = useCallback(async () => {
     setIsLoading(true)
@@ -111,6 +115,50 @@ export default function PaymentsPage() {
 
   const refundRequests = data.payments.filter((payment) => payment.status === 'refund_requested')
   const ledgerRows = data.payments
+
+  const decideRefund = async (
+    payment: BuilderPayoutPayment,
+    decision: 'approve' | 'reject',
+    counterAmountCents?: number
+  ) => {
+    if (!payment.plan_id) {
+      setError('This refund request is missing a plan link. Ask support to review it manually.')
+      return
+    }
+
+    setRefundDecisionLoading(`${payment.id}:${decision}`)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/planner/plans/${payment.plan_id}/refund-decision`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          payment_id: payment.id,
+          decision,
+          ...(counterAmountCents ? { counter_amount_cents: counterAmountCents } : {}),
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to update refund request')
+      await loadPayouts()
+    } catch (decisionError) {
+      setError(decisionError instanceof Error ? decisionError.message : 'Unable to update refund request')
+    } finally {
+      setRefundDecisionLoading(null)
+    }
+  }
+
+  const counterRefund = async (payment: BuilderPayoutPayment) => {
+    const entered = window.prompt('Counter refund amount in dollars')
+    if (!entered) return
+    const amount = dollarsToCents(entered)
+    if (amount <= 0) {
+      setError('Counter amount must be greater than $0.00.')
+      return
+    }
+    await decideRefund(payment, 'approve', amount)
+  }
 
   return (
     <div className="min-h-screen">
@@ -177,12 +225,44 @@ export default function PaymentsPage() {
                 <div key={payment.id} className="rounded-2xl border border-border bg-background/50 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="font-semibold text-foreground">{payment.event_name}</p>
-                      <p className="text-sm text-muted-foreground">{payment.venue_name} requested review for {formatCents(getPayoutCents(payment))}.</p>
+                <p className="font-semibold text-foreground">{payment.event_name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {payment.venue_name} requested {formatCents(payment.refund_amount_cents ?? getPayoutCents(payment))}.
+                      </p>
+                      {payment.refund_reason ? (
+                        <p className="mt-1 text-xs text-muted-foreground">Reason: {payment.refund_reason}</p>
+                      ) : null}
                     </div>
-                    <span className="w-fit rounded-full border border-secondary/30 bg-secondary/10 px-3 py-1 text-xs font-bold text-secondary">
-                      Refund requested
-                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="hero"
+                        size="sm"
+                        disabled={Boolean(refundDecisionLoading)}
+                        onClick={() => void decideRefund(payment, 'approve')}
+                      >
+                        {refundDecisionLoading === `${payment.id}:approve` ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                        Approve
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="glass"
+                        size="sm"
+                        disabled={Boolean(refundDecisionLoading)}
+                        onClick={() => void counterRefund(payment)}
+                      >
+                        Counter
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="glass"
+                        size="sm"
+                        disabled={Boolean(refundDecisionLoading)}
+                        onClick={() => void decideRefund(payment, 'reject')}
+                      >
+                        Reject
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ))}

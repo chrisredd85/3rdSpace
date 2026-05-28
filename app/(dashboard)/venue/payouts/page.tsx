@@ -9,6 +9,7 @@ import { StripeAccountStatus } from '@/components/vendor/StripeAccountStatus'
 import { StripeConnectButton } from '@/components/vendor/StripeConnectButton'
 import { StripeDashboardLink } from '@/components/vendor/StripeDashboardLink'
 import { StripeOnboardingModal } from '@/components/vendor/StripeOnboardingModal'
+import { centsToDollars, dollarsToCents } from '@/lib/money'
 import type { Json } from '@/lib/types/database'
 
 type StripeAccount = {
@@ -28,7 +29,15 @@ type StripeStatusResponse = {
 
 type VenueKickbackPayment = {
   id: string
-  amount: number
+  amount: number | null
+  amount_cents: number
+  principal_cents?: number | null
+  payout_cents?: number | null
+  processing_fee_cents?: number | null
+  invoice_hosted_url?: string | null
+  refund_amount_cents?: number | null
+  refund_reason?: string | null
+  refund_requested_at?: string | null
   currency: string | null
   status: string
   event_name: string
@@ -78,16 +87,25 @@ function formatMoney(amount: number, currency = 'usd') {
   }).format(amount || 0)
 }
 
+function formatCents(amountCents: number | null | undefined, currency = 'usd') {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+  }).format(centsToDollars(amountCents ?? 0))
+}
+
 function formatDate(value: string | null) {
   if (!value) return 'Date TBD'
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value))
 }
 
 function statusLabel(status: string) {
-  if (status === 'completed') return 'Paid'
-  if (status === 'processing') return 'Processing'
+  if (status === 'completed' || status === 'paid') return 'Paid'
+  if (status === 'processing' || status === 'invoice_sent') return 'Processing'
+  if (status === 'refund_requested') return 'Refund requested'
+  if (status === 'refund_approved' || status === 'refund_processing') return 'Refund processing'
   if (status === 'failed') return 'Failed'
-  if (status === 'refunded') return 'Refunded'
+  if (status === 'refunded' || status === 'refunded_partial' || status === 'refunded_full') return 'Refunded'
   return 'Pending'
 }
 
@@ -108,6 +126,10 @@ export default function VenuePayoutsPage() {
   const [kickbacks, setKickbacks] = useState<VenueKickbackSummaryResponse | null>(null)
   const [isLoadingKickbacks, setIsLoadingKickbacks] = useState(true)
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null)
+  const [refundLoading, setRefundLoading] = useState(false)
+  const [refundPayment, setRefundPayment] = useState<VenueKickbackPayment | null>(null)
+  const [refundAmount, setRefundAmount] = useState('')
+  const [refundReason, setRefundReason] = useState('')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -241,6 +263,53 @@ export default function VenuePayoutsPage() {
     }
   }
 
+  const openRefundRequest = (payment: VenueKickbackPayment) => {
+    setRefundPayment(payment)
+    setRefundAmount(centsToDollars(payment.payout_cents ?? payment.amount_cents ?? 0).toFixed(2))
+    setRefundReason('')
+    setError(null)
+  }
+
+  const submitRefundRequest = async () => {
+    if (!refundPayment) return
+
+    const refundAmountCents = dollarsToCents(refundAmount)
+    if (refundAmountCents <= 0) {
+      setError('Refund amount must be greater than $0.00.')
+      return
+    }
+    if (!refundReason.trim()) {
+      setError('Add a reason for the refund request.')
+      return
+    }
+
+    setRefundLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/venue/kickbacks/${refundPayment.id}/refund-request`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          refund_amount_cents: refundAmountCents,
+          reason: refundReason.trim(),
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Unable to request refund')
+      setRefundPayment(null)
+      setRefundAmount('')
+      setRefundReason('')
+      setIsLoadingKickbacks(true)
+      await loadKickbacks()
+    } catch (refundError) {
+      setError(refundError instanceof Error ? refundError.message : 'Unable to request refund')
+    } finally {
+      setRefundLoading(false)
+    }
+  }
+
   const isConnected = Boolean(status.account)
   const isDashboardReady = Boolean(status.account?.payouts_enabled || status.account?.charges_enabled)
   const connectDescription = status.reason === 'stripe_mode_mismatch'
@@ -339,15 +408,15 @@ export default function VenuePayoutsPage() {
           <div className="mb-4 grid gap-3 md:grid-cols-3">
             <div className="rounded-lg border border-border bg-background p-4">
               <p className="text-sm text-muted-foreground">Ready to pay</p>
-              <p className="mt-1 text-2xl font-semibold text-foreground">{formatMoney(kickbacks?.summary.pending ?? 0)}</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{formatCents(kickbacks?.summary.pending ?? 0)}</p>
             </div>
             <div className="rounded-lg border border-border bg-background p-4">
               <p className="text-sm text-muted-foreground">Processing</p>
-              <p className="mt-1 text-2xl font-semibold text-foreground">{formatMoney(kickbacks?.summary.processing ?? 0)}</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{formatCents(kickbacks?.summary.processing ?? 0)}</p>
             </div>
             <div className="rounded-lg border border-border bg-background p-4">
               <p className="text-sm text-muted-foreground">Paid</p>
-              <p className="mt-1 text-2xl font-semibold text-foreground">{formatMoney(kickbacks?.summary.completed ?? 0)}</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{formatCents(kickbacks?.summary.completed ?? 0)}</p>
             </div>
           </div>
 
@@ -360,7 +429,9 @@ export default function VenuePayoutsPage() {
           ) : (
             <div className="space-y-3">
               {kickbackPayments.map((payment) => {
-                const canPay = payment.status === 'pending' || payment.status === 'failed'
+                const canCreateInvoice = payment.status === 'pending' || payment.status === 'failed' || payment.status === 'pending_venue_approval' || payment.status === 'invoice_failed'
+                const canPayInvoice = payment.status === 'invoice_sent' && payment.invoice_hosted_url
+                const canRequestRefund = payment.status === 'paid' || payment.status === 'completed'
 
                 return (
                   <div
@@ -382,16 +453,30 @@ export default function VenuePayoutsPage() {
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
                       <div className="sm:text-right">
-                        <p className="text-lg font-semibold text-foreground">{formatMoney(payment.amount, payment.currency || 'usd')}</p>
+                        <p className="text-lg font-semibold text-foreground">{formatCents(payment.payout_cents ?? payment.amount_cents, payment.currency || 'usd')}</p>
                         <p className="text-xs font-medium uppercase text-muted-foreground">{statusLabel(payment.status)}</p>
                       </div>
-                      {canPay ? (
+                      {canPayInvoice ? (
+                        <Button type="button" asChild>
+                          <a href={payment.invoice_hosted_url ?? '#'}>Pay invoice</a>
+                        </Button>
+                      ) : null}
+                      {canCreateInvoice ? (
                         <Button
                           type="button"
                           disabled={Boolean(checkoutLoading)}
                           onClick={() => payKickback(payment.id)}
                         >
                           {checkoutLoading === payment.id ? 'Starting...' : 'Pay'}
+                        </Button>
+                      ) : null}
+                      {canRequestRefund ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => openRefundRequest(payment)}
+                        >
+                          Request refund
                         </Button>
                       ) : null}
                     </div>
@@ -409,6 +494,47 @@ export default function VenuePayoutsPage() {
         onClose={() => setIsModalOpen(false)}
         onStart={startConnect}
       />
+
+      {refundPayment ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-3xl border border-border bg-gradient-card p-6 shadow-card">
+            <div>
+              <h2 className="font-display text-xl font-bold text-foreground">Request refund</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Send a refund request to the builder for {refundPayment.event_name}.
+              </p>
+            </div>
+            <div className="mt-5 space-y-4">
+              <label className="block text-sm font-medium text-foreground">
+                Amount
+                <input
+                  value={refundAmount}
+                  onChange={(event) => setRefundAmount(event.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary"
+                  inputMode="decimal"
+                />
+              </label>
+              <label className="block text-sm font-medium text-foreground">
+                Reason
+                <textarea
+                  value={refundReason}
+                  onChange={(event) => setRefundReason(event.target.value)}
+                  className="mt-2 min-h-28 w-full rounded-2xl border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary"
+                  placeholder="What changed about the reported revenue or agreement?"
+                />
+              </label>
+            </div>
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" onClick={() => setRefundPayment(null)} disabled={refundLoading}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={() => void submitRefundRequest()} disabled={refundLoading}>
+                {refundLoading ? 'Sending...' : 'Send request'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

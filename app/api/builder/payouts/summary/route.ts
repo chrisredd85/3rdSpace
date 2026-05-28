@@ -135,6 +135,7 @@ export async function GET() {
         amount_cents: principalCents,
         principal_cents: principalCents,
         payout_cents: payoutCents,
+        plan_id: agreement?.plan_id ?? null,
         processing_fee_cents: payment.processing_fee_cents ?? 0,
         event_name: event?.event_name ?? plan?.title ?? 'Untitled event',
         event_date: event?.event_date ?? plan?.date_window_start ?? null,

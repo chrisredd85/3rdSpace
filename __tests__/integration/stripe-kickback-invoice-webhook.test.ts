@@ -16,13 +16,15 @@ jest.mock('next/server', () => ({
 
 import { POST } from '@/app/api/webhooks/stripe/route'
 import { applyInvoicePayment, applyInvoicePaymentFailed } from '@/lib/billing/builder-billing'
-import { sendBuilderPaidEmail, sendVenuePaymentFailedEmail } from '@/lib/email'
+import { applyPlannerStripeRefundWebhook } from '@/lib/planner/depositPayments'
+import { sendBuilderPaidEmail, sendRefundCompletedEmail, sendVenuePaymentFailedEmail } from '@/lib/email'
 import { allowWebhookRequest, getWebhookRateLimitKey } from '@/lib/server/webhook-rate-limit'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getStripeClient } from '@/lib/stripe/connect'
 
 jest.mock('@/lib/email', () => ({
   sendBuilderPaidEmail: jest.fn().mockResolvedValue({ sent: true, reason: null }),
+  sendRefundCompletedEmail: jest.fn().mockResolvedValue({ sent: true, reason: null }),
   sendVenuePaymentFailedEmail: jest.fn().mockResolvedValue({ sent: true, reason: null }),
 }))
 
@@ -67,6 +69,9 @@ class MemoryDb {
         agreement_id: AGREEMENT_ID,
         status: 'invoice_sent',
         stripe_transfer_id: null,
+        amount_cents: 51360,
+        builder_payout_cents: null,
+        refund_amount_cents: null,
       },
     ],
     event_kickback_agreements: [
@@ -269,6 +274,77 @@ describe('Stripe kickback invoice webhook routing', () => {
     expect(db.rows.kickback_payments[0]).toMatchObject({
       status: 'invoice_failed',
       failure_reason: 'Stripe invoice payment failed',
+    })
+  })
+
+  it('marks kickback refunds complete from charge.refunded without touching planner deposit refunds', async () => {
+    Object.assign(db.rows.kickback_payments[0], {
+      status: 'refund_processing',
+      builder_payout_cents: 51360,
+      refund_amount_cents: 18000,
+    })
+    event = {
+      type: 'charge.refunded',
+      data: {
+        object: {
+          id: 'ch_kickback',
+          metadata: {},
+          refunds: {
+            data: [
+              {
+                id: 're_kickback',
+                metadata: {
+                  kickback_payment_id: PAYMENT_ID,
+                  settlement_method: 'invoice',
+                },
+              },
+            ],
+          },
+        },
+      },
+    }
+
+    const response = await POST(makeWebhookRequest())
+
+    expect(response.status).toBe(200)
+    expect(applyPlannerStripeRefundWebhook).not.toHaveBeenCalled()
+    expect(sendRefundCompletedEmail).toHaveBeenCalledWith({
+      paymentId: PAYMENT_ID,
+      isFullRefund: false,
+    })
+    expect(db.rows.kickback_payments[0]).toMatchObject({
+      status: 'refunded_partial',
+    })
+  })
+
+  it('marks full kickback refunds complete from transfer.reversed invoice metadata', async () => {
+    Object.assign(db.rows.kickback_payments[0], {
+      status: 'refund_processing',
+      builder_payout_cents: 51360,
+      refund_amount_cents: 51360,
+    })
+    event = {
+      type: 'transfer.reversed',
+      data: {
+        object: {
+          id: 'tr_builder',
+          metadata: {
+            kickback_payment_id: PAYMENT_ID,
+            settlement_method: 'invoice',
+          },
+        },
+      },
+    }
+
+    const response = await POST(makeWebhookRequest())
+
+    expect(response.status).toBe(200)
+    expect(sendRefundCompletedEmail).toHaveBeenCalledWith({
+      paymentId: PAYMENT_ID,
+      isFullRefund: true,
+    })
+    expect(db.rows.kickback_payments[0]).toMatchObject({
+      status: 'refunded_full',
     })
   })
 })
