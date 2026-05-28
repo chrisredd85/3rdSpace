@@ -20,7 +20,7 @@ export function StripeConnectButton({
   onConnect,
 }: StripeConnectButtonProps) {
   return (
-    <Button type="button" onClick={onConnect} disabled={disabled || isLoading}>
+    <Button type="button" variant="hero" onClick={onConnect} disabled={disabled || isLoading}>
       {isLoading ? (
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
       ) : (

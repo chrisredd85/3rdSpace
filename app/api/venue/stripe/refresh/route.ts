@@ -45,6 +45,8 @@ export async function POST() {
 
     if (validation.mismatchCleared) {
       return NextResponse.json({
+        connected: false,
+        status: 'not_connected',
         account: null,
         completionPercent: 0,
         onboarding_required: true,
@@ -60,6 +62,12 @@ export async function POST() {
     const saved = await saveVenueStripeAccount(admin as any, auth.owner.id, account)
 
     return NextResponse.json({
+      connected: true,
+      status: saved.account_status,
+      charges_enabled: saved.charges_enabled,
+      payouts_enabled: saved.payouts_enabled,
+      requirements: account.requirements,
+      details_submitted: account.details_submitted,
       account: saved,
       completionPercent: getStripeCompletionPercent(account),
     })
