@@ -187,6 +187,7 @@ describe('venue kickback checkout route', () => {
     db = new MemoryDb()
     stripe = {
       customers: {
+        retrieve: jest.fn(),
         create: jest.fn().mockResolvedValue({ id: 'cus_venue' }),
       },
       invoiceItems: {
@@ -275,6 +276,34 @@ describe('venue kickback checkout route', () => {
     expect(db.rows.event_kickback_agreements[0]).toMatchObject({
       status: 'payment_pending',
     })
+  })
+
+  it('replaces a stale venue Stripe customer when switching Stripe modes', async () => {
+    db.rows.venues[0].stripe_customer_id = 'cus_test_stale'
+    stripe.customers.retrieve.mockRejectedValue({
+      code: 'resource_missing',
+      message: "No such customer: 'cus_test_stale'; a similar object exists in test mode, but a live mode key was used to make this request.",
+    })
+    stripe.customers.create.mockResolvedValue({ id: 'cus_live_replacement' })
+
+    const response = await POST(makeRequest(), { params: { id: PAYMENT_ID } })
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.checkoutUrl).toBe('https://invoice.test/in_1')
+    expect(stripe.customers.retrieve).toHaveBeenCalledWith('cus_test_stale')
+    expect(stripe.customers.create).toHaveBeenCalledWith(expect.objectContaining({
+      email: 'venue@example.com',
+      name: 'The Roof',
+    }))
+    expect(stripe.invoiceItems.create).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      customer: 'cus_live_replacement',
+      amount: 51360,
+    }))
+    expect(stripe.invoices.create).toHaveBeenCalledWith(expect.objectContaining({
+      customer: 'cus_live_replacement',
+    }))
+    expect(db.rows.venues[0]).toMatchObject({ stripe_customer_id: 'cus_live_replacement' })
   })
 
   it('keeps legacy checkout payments on the Checkout Session path', async () => {

@@ -12,13 +12,20 @@ import { StripeOnboardingModal } from '@/components/vendor/StripeOnboardingModal
 import type { Json } from '@/lib/types/database'
 
 type StripeAccount = {
+  stripe_account_id?: string | null
   account_status: 'pending' | 'active' | 'restricted'
   charges_enabled: boolean
   payouts_enabled: boolean
   requirements_due: Json
+  updated_at?: string
 }
 
 type StripeStatusResponse = {
+  connected?: boolean
+  status?: 'not_connected' | 'pending' | 'active' | 'restricted'
+  charges_enabled?: boolean
+  payouts_enabled?: boolean
+  details_submitted?: boolean
   account: StripeAccount | null
   completionPercent: number
   onboarding_required?: boolean
@@ -278,6 +285,7 @@ export default function VendorPayoutsPage() {
             <StripeAccountStatus
               account={status.account}
               completionPercent={status.completionPercent}
+              detailsSubmitted={status.details_submitted}
               isRefreshing={isRefreshing}
               notConnectedDescription={connectDescription}
               onRefresh={refreshStatus}

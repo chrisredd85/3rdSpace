@@ -458,7 +458,19 @@ async function getOrCreateVenueCustomer({
   venue: VenueForInvoice
   fallbackEmail: string | null
 }) {
-  if (venue.stripe_customer_id) return venue.stripe_customer_id
+  if (venue.stripe_customer_id) {
+    try {
+      const existingCustomer = await stripe.customers.retrieve(venue.stripe_customer_id)
+      if (!existingCustomer.deleted) return existingCustomer.id
+    } catch (error) {
+      if (!isMissingStripeCustomerError(error)) throw error
+
+      console.warn('[venue.kickbacks.checkout] Replacing stale Stripe customer id for active Stripe mode', {
+        venueId: venue.id,
+        staleCustomerId: venue.stripe_customer_id,
+      })
+    }
+  }
 
   const customer = await stripe.customers.create({
     email: venue.contact_email || fallbackEmail || undefined,
@@ -475,6 +487,19 @@ async function getOrCreateVenueCustomer({
     .eq('id', venue.id)
 
   return customer.id
+}
+
+function isMissingStripeCustomerError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+
+  const stripeError = error as {
+    code?: string
+    raw?: { code?: string }
+    message?: string
+  }
+
+  const code = stripeError.code ?? stripeError.raw?.code
+  return code === 'resource_missing' && /no such customer/i.test(stripeError.message ?? '')
 }
 
 async function loadInvoiceEventLabel(admin: any, agreement: KickbackAgreementForInvoice) {
