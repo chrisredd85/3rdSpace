@@ -14,7 +14,7 @@ jest.mock('next/server', () => ({
   },
 }))
 
-import { POST } from '@/app/api/planner/plans/[planId]/event-report/route'
+import { GET, POST } from '@/app/api/planner/plans/[planId]/event-report/route'
 import { runDocumentExtractionAgent } from '@/lib/ai/agents/documentExtractionAgent'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
@@ -45,8 +45,18 @@ const AGREEMENT_ID = '33333333-3333-4333-8333-333333333333'
 
 class MemoryDb {
   rows: Record<string, Row[]> = {
-    plans: [{ id: PLAN_ID, user_id: USER_ID }],
-    event_kickback_agreements: [{ id: AGREEMENT_ID, plan_id: PLAN_ID, created_at: '2026-05-01T00:00:00.000Z' }],
+    plans: [{ id: PLAN_ID, user_id: USER_ID, title: 'Tech Mixer', date_window_start: '2026-01-01T00:00:00.000Z' }],
+    event_kickback_agreements: [
+      {
+        id: AGREEMENT_ID,
+        plan_id: PLAN_ID,
+        venue_id: 'venue-1',
+        actual_attendance: null,
+        attendance_submitted_at: null,
+        created_at: '2026-05-01T00:00:00.000Z',
+      },
+    ],
+    venues: [{ id: 'venue-1', venue_name: 'The Roof' }],
   }
 
   storageBucket = {
@@ -157,6 +167,27 @@ describe('planner event report route', () => {
   beforeEach(() => {
     db = new MemoryDb()
     ;(createServiceRoleClient as jest.Mock).mockReturnValue(db)
+  })
+
+  it('returns post-event attendance report eligibility for linked agreements', async () => {
+    const response = await GET({} as never, { params: { planId: PLAN_ID } })
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json).toMatchObject({
+      eligible: true,
+      event_has_passed: true,
+      event_name: 'Tech Mixer',
+      agreement_count: 1,
+      submitted_agreements: 0,
+      pending_agreements: [
+        {
+          id: AGREEMENT_ID,
+          venue_id: 'venue-1',
+          venue_name: 'The Roof',
+        },
+      ],
+    })
   })
 
   it('uploads proof, extracts attendance, and updates linked agreements', async () => {

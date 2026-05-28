@@ -37,10 +37,15 @@ type PlannerAuth =
 type PlanRow = {
   id: string
   user_id: string
+  title: string | null
+  date_window_start: string | null
 }
 
 type KickbackAgreementRow = {
   id: string
+  venue_id: string | null
+  actual_attendance: number | null
+  attendance_submitted_at: string | null
 }
 
 type UploadedProof = {
@@ -56,6 +61,50 @@ type ExtractionSummary = Pick<DocumentExtractionOutput, 'extracted_value' | 'con
 class RouteError extends Error {
   constructor(message: string, readonly status: number) {
     super(message)
+  }
+}
+
+export async function GET(
+  _request: NextRequest,
+  context: { params: { planId: string } }
+) {
+  try {
+    const parsedParams = paramsSchema.safeParse(context.params)
+    if (!parsedParams.success) {
+      return NextResponse.json({ error: 'Invalid plan id' }, { status: 400 })
+    }
+
+    const auth = await getAuthenticatedPlannerDb()
+    if ('response' in auth) return auth.response
+
+    const plan = await loadOwnedPlan(auth.db, parsedParams.data.planId, auth.userId)
+    if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+
+    const admin = createServiceRoleClient() as any
+    const agreements = await loadPlanKickbackAgreements(admin, plan.id)
+    const venueNames = await loadAgreementVenueNames(admin, agreements)
+    const pendingAgreements = agreements.filter((agreement) => agreement.actual_attendance == null)
+    const eventHasPassed = hasDatePassed(plan.date_window_start)
+
+    return NextResponse.json({
+      eligible: eventHasPassed && pendingAgreements.length > 0,
+      event_has_passed: eventHasPassed,
+      event_name: plan.title ?? 'Untitled event',
+      event_date: plan.date_window_start,
+      agreement_count: agreements.length,
+      submitted_agreements: agreements.length - pendingAgreements.length,
+      pending_agreements: pendingAgreements.map((agreement) => ({
+        id: agreement.id,
+        venue_id: agreement.venue_id,
+        venue_name: agreement.venue_id ? venueNames.get(agreement.venue_id) ?? 'Venue' : 'Venue',
+      })),
+    })
+  } catch (error) {
+    console.error('[planner.event-report] Failed to load event report status', error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to load event report status' },
+      { status: error instanceof RouteError ? error.status : 500 }
+    )
   }
 }
 
@@ -168,7 +217,7 @@ async function getAuthenticatedPlannerDb(): Promise<PlannerAuth> {
 async function loadOwnedPlan(db: PlannerDb, planId: string, userId: string): Promise<PlanRow | null> {
   const { data, error } = await db
     .from('plans')
-    .select('id, user_id')
+    .select('id, user_id, title, date_window_start')
     .eq('id', planId)
     .eq('user_id', userId)
     .maybeSingle()
@@ -183,7 +232,7 @@ async function loadOwnedPlan(db: PlannerDb, planId: string, userId: string): Pro
 async function loadPlanKickbackAgreements(admin: any, planId: string): Promise<KickbackAgreementRow[]> {
   const { data, error } = await admin
     .from('event_kickback_agreements')
-    .select('id')
+    .select('id, venue_id, actual_attendance, attendance_submitted_at')
     .eq('plan_id', planId)
     .order('created_at', { ascending: true })
 
@@ -192,6 +241,35 @@ async function loadPlanKickbackAgreements(admin: any, planId: string): Promise<K
   }
 
   return (data ?? []) as KickbackAgreementRow[]
+}
+
+async function loadAgreementVenueNames(admin: any, agreements: KickbackAgreementRow[]) {
+  const venueIds = Array.from(new Set(
+    agreements
+      .map((agreement) => agreement.venue_id)
+      .filter((venueId): venueId is string => Boolean(venueId))
+  ))
+  if (venueIds.length === 0) return new Map<string, string>()
+
+  const { data, error } = await admin
+    .from('venues')
+    .select('id, venue_name, name')
+    .in('id', venueIds)
+
+  if (error) {
+    throw new Error(error.message ?? 'Failed to load agreement venues')
+  }
+
+  return new Map(
+    ((data ?? []) as Array<{ id: string; venue_name?: string | null; name?: string | null }>)
+      .map((venue) => [venue.id, venue.venue_name ?? venue.name ?? 'Venue'])
+  )
+}
+
+function hasDatePassed(value: string | null) {
+  if (!value) return false
+  const parsed = new Date(value)
+  return !Number.isNaN(parsed.getTime()) && parsed.getTime() < Date.now()
 }
 
 async function uploadProofFile(admin: any, planId: string, file: File): Promise<UploadedProof> {
