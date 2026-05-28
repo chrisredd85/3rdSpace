@@ -16,8 +16,13 @@ jest.mock('next/server', () => ({
 
 import { POST } from '@/app/api/venue/kickbacks/[paymentId]/checkout/route'
 import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
+import { sendVenueInvoiceEmail } from '@/lib/email'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getAppBaseUrl, getAuthenticatedVenueOwner, getStripeClient } from '@/lib/stripe/connect'
+
+jest.mock('@/lib/email', () => ({
+  sendVenueInvoiceEmail: jest.fn().mockResolvedValue({ sent: true, reason: null }),
+}))
 
 jest.mock('@/lib/billing/stripeConnectGuard', () => ({
   validateStripeConnectAccount: jest.fn(),
@@ -265,6 +270,7 @@ describe('venue kickback checkout route', () => {
       invoice_hosted_url: 'https://invoice.test/in_1',
       processing_fee_cents: 411,
     })
+    expect(sendVenueInvoiceEmail).toHaveBeenCalledWith({ paymentId: PAYMENT_ID })
     expect(db.rows.event_kickback_agreements[0]).toMatchObject({
       status: 'payment_pending',
     })
@@ -294,6 +300,7 @@ describe('venue kickback checkout route', () => {
     })
     expect(stripe.checkout.sessions.create).toHaveBeenCalled()
     expect(stripe.invoices.create).not.toHaveBeenCalled()
+    expect(sendVenueInvoiceEmail).not.toHaveBeenCalled()
     expect(db.rows.kickback_payments[0]).toMatchObject({
       status: 'processing',
       stripe_checkout_session_id: 'cs_1',

@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { sendVenueInvoiceEmail } from '@/lib/email'
 import { centsToDollars } from '@/lib/money'
 import { dollarsToCents } from '@/lib/payments/vendor-payments'
 import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
@@ -328,6 +329,10 @@ async function createInvoiceForKickback({
       updated_at: now,
     })
     .eq('id', payment.agreement_id)
+
+  await sendVenueInvoiceEmail({ paymentId: payment.id }).catch((error) => {
+    console.error('[venue.kickbacks.checkout] Failed to send venue invoice email', error)
+  })
 
   return NextResponse.json({
     hosted_invoice_url: hostedInvoiceUrl,

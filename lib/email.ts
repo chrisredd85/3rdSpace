@@ -1,5 +1,7 @@
 import 'server-only'
 
+import { centsToDollars, dollarsToCents } from '@/lib/money'
+
 export type EmailTemplateType =
   | 'new_booking'
   | 'booking_approved'
@@ -107,6 +109,480 @@ export async function sendEmailNotification(params: EmailNotificationParams) {
     subject: params.subject,
     html: buildNotificationEmailHtml(params),
   })
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Kickback settlement notifications (Phase 1 rev share PR)
+// ─────────────────────────────────────────────────────────────────────
+
+type KickbackNotificationPayment = {
+  id: string
+  agreement_id: string | null
+  event_id: string | null
+  payer_id: string | null
+  recipient_id: string | null
+  amount: number | string | null
+  amount_cents?: number | string | null
+  processing_fee_cents?: number | string | null
+  builder_payout_cents?: number | string | null
+  invoice_hosted_url?: string | null
+  due_date?: string | null
+  refund_amount_cents?: number | string | null
+  refund_reason?: string | null
+  status?: string | null
+}
+
+type KickbackNotificationAgreement = {
+  id: string
+  event_id: string | null
+  plan_id?: string | null
+  venue_id: string | null
+  reported_revenue_cents?: number | string | null
+  bar_revenue_share_percent?: number | string | null
+  ticket_revenue_share_percent?: number | string | null
+  lift_share_percentage?: number | string | null
+  per_head_amount?: number | string | null
+}
+
+type KickbackNotificationContext = {
+  payment: KickbackNotificationPayment
+  agreement: KickbackNotificationAgreement | null
+  eventTitle: string
+  eventDate: string | null
+  venueName: string
+  venueEmail: string | null
+  builderName: string
+  builderEmail: string | null
+  reportedRevenueCents: number
+  principalCents: number
+  processingFeeCents: number
+  builderPayoutCents: number
+  refundAmountCents: number
+  invoiceUrl: string | null
+  dueDate: string | null
+  settlementSource: string
+}
+
+export async function sendVenueInvoiceEmail({ paymentId }: { paymentId: string }) {
+  const context = await loadKickbackNotificationContext(paymentId)
+  if (!context.venueEmail) return skippedEmail('Venue email not found')
+
+  const totalDueCents = context.principalCents + context.processingFeeCents
+  return sendEmailNotification({
+    to: context.venueEmail,
+    subject: `Payment due - Revenue share for ${context.eventTitle}`,
+    templateType: 'payment_due',
+    actionUrl: context.invoiceUrl ?? buildAppUrl('/venue/payouts'),
+    body: [
+      `Hi ${context.venueName},`,
+      `${context.builderName}'s event "${context.eventTitle}"${formatOptionalDate(context.eventDate)} generated ${formatMoney(context.reportedRevenueCents)} in reported venue revenue.`,
+      `Based on your ${context.settlementSource}, the amount owed is ${formatMoney(context.principalCents)}.`,
+      `With ACH processing fee: ${formatMoney(totalDueCents)}.`,
+      `Due: ${formatOptionalDueDate(context.dueDate)}.`,
+      'You can pay from the Stripe-hosted invoice or from your venue dashboard.',
+    ].join('\n\n'),
+  })
+}
+
+export async function sendBuilderPaidEmail({ paymentId }: { paymentId: string }) {
+  const context = await loadKickbackNotificationContext(paymentId)
+  if (!context.builderEmail) return skippedEmail('Builder email not found')
+
+  return sendEmailNotification({
+    to: context.builderEmail,
+    subject: `You received ${formatMoney(context.builderPayoutCents)} from ${context.venueName}`,
+    templateType: 'payment_received',
+    actionUrl: buildAppUrl('/planner/payments'),
+    body: [
+      `Hi ${context.builderName},`,
+      `${context.venueName} just paid the revenue share for your event "${context.eventTitle}".`,
+      `Amount: ${formatMoney(context.builderPayoutCents)}.`,
+      `Source: ${context.settlementSource}${context.reportedRevenueCents > 0 ? ` on ${formatMoney(context.reportedRevenueCents)} reported by the venue` : ''}.`,
+      'Status: transferred to your connected Stripe account.',
+    ].join('\n\n'),
+  })
+}
+
+export async function sendVenuePaymentFailedEmail({ paymentId }: { paymentId: string }) {
+  const context = await loadKickbackNotificationContext(paymentId)
+  if (!context.venueEmail) return skippedEmail('Venue email not found')
+
+  const totalDueCents = context.principalCents + context.processingFeeCents
+  return sendEmailNotification({
+    to: context.venueEmail,
+    subject: `Payment did not go through - ${context.eventTitle}`,
+    templateType: 'payment_due',
+    actionUrl: context.invoiceUrl ?? buildAppUrl('/venue/payouts'),
+    body: [
+      `Hi ${context.venueName},`,
+      `The payment for ${context.eventTitle} revenue share (${formatMoney(totalDueCents)}) did not process.`,
+      'This usually happens with an expired card or insufficient ACH funds.',
+      'Please retry from the invoice link or your venue dashboard.',
+    ].join('\n\n'),
+  })
+}
+
+export async function sendBuilderRefundRequestEmail({ paymentId }: { paymentId: string }) {
+  const context = await loadKickbackNotificationContext(paymentId)
+  if (!context.builderEmail) return skippedEmail('Builder email not found')
+
+  return sendEmailNotification({
+    to: context.builderEmail,
+    subject: `Refund requested for ${context.eventTitle}: ${formatMoney(context.refundAmountCents)}`,
+    templateType: 'payment_due',
+    actionUrl: buildAppUrl('/planner/payments'),
+    body: [
+      `Hi ${context.builderName},`,
+      `${context.venueName} requested a refund for "${context.eventTitle}".`,
+      `Requested amount: ${formatMoney(context.refundAmountCents)}.`,
+      `Reason: ${context.payment.refund_reason || 'No reason provided.'}`,
+      'Review the request in your planner payments page.',
+    ].join('\n\n'),
+  })
+}
+
+export async function sendVenueRefundDeniedEmail({
+  paymentId,
+  builderNote,
+}: {
+  paymentId: string
+  builderNote?: string | null
+}) {
+  const context = await loadKickbackNotificationContext(paymentId)
+  if (!context.venueEmail) return skippedEmail('Venue email not found')
+
+  return sendEmailNotification({
+    to: context.venueEmail,
+    subject: `Refund request declined - ${context.eventTitle}`,
+    templateType: 'payment_due',
+    actionUrl: buildAppUrl('/venue/payouts'),
+    body: [
+      `Hi ${context.venueName},`,
+      `Your refund request for "${context.eventTitle}" was declined.`,
+      builderNote ? `Builder note: ${builderNote}` : 'No builder note was included.',
+    ].join('\n\n'),
+  })
+}
+
+export async function sendRefundCompletedEmail({
+  paymentId,
+  isFullRefund,
+}: {
+  paymentId: string
+  isFullRefund: boolean
+}) {
+  const context = await loadKickbackNotificationContext(paymentId)
+  const recipients = [context.venueEmail, context.builderEmail].filter(Boolean) as string[]
+  if (recipients.length === 0) return skippedEmail('No refund notification recipients found')
+
+  const body = [
+    `The ${isFullRefund ? 'full' : 'partial'} refund for "${context.eventTitle}" has completed.`,
+    `Refund amount: ${formatMoney(context.refundAmountCents)}.`,
+    'The processing fee was not refunded.',
+  ].join('\n\n')
+
+  const results = await Promise.all(
+    recipients.map((to) =>
+      sendEmailNotification({
+        to,
+        subject: `${isFullRefund ? 'Full' : 'Partial'} refund completed - ${context.eventTitle}`,
+        templateType: 'payment_received',
+        actionUrl: buildAppUrl('/planner/payments'),
+        body,
+      })
+    )
+  )
+
+  return {
+    sent: results.some((result) => result.sent),
+    reason: results.every((result) => !result.sent) ? results[0]?.reason ?? 'Refund emails were not sent' : null,
+    responsePayload: results,
+  }
+}
+
+export async function sendVenueOverdueWarningEmail({
+  venueId,
+  overdueCount,
+}: {
+  venueId: string
+  overdueCount: number
+}) {
+  const admin = await createKickbackEmailAdminClient()
+  const { data: venue, error: venueError } = await admin
+    .from('venues')
+    .select('id, venue_name, contact_email, owner_id')
+    .eq('id', venueId)
+    .maybeSingle()
+
+  if (venueError) throw new Error(venueError.message ?? 'Failed to load venue')
+  if (!venue) return skippedEmail('Venue not found')
+
+  const ownerId = (venue as any).owner_id
+  const owner = ownerId ? await loadUserEmail(admin, ownerId) : null
+  const to = (venue as any).contact_email || owner?.email || null
+  if (!to) return skippedEmail('Venue email not found')
+
+  const venueName = (venue as any).venue_name || owner?.name || 'there'
+  const subject =
+    overdueCount >= 3
+      ? 'Bookings paused - submit overdue revenue reports to re-enable'
+      : overdueCount === 2
+        ? 'Second reminder - 2 overdue revenue reports'
+        : 'Reminder - please submit your revenue report'
+
+  return sendEmailNotification({
+    to,
+    subject,
+    templateType: 'payment_due',
+    actionUrl: buildAppUrl('/venue/payouts'),
+    body: [
+      `Hi ${venueName},`,
+      `You have ${overdueCount} overdue revenue ${overdueCount === 1 ? 'report' : 'reports'}.`,
+      overdueCount >= 3
+        ? 'New bookings are paused until the overdue reports are submitted.'
+        : overdueCount === 2
+          ? 'One more overdue report will pause new bookings.'
+          : 'Please submit the report from your venue dashboard.',
+      'Submitting the revenue report re-enables booking eligibility automatically once you are below the threshold.',
+    ].join('\n\n'),
+  })
+}
+
+async function loadKickbackNotificationContext(paymentId: string): Promise<KickbackNotificationContext> {
+  const admin = await createKickbackEmailAdminClient()
+  const { data: payment, error: paymentError } = await admin
+    .from('kickback_payments')
+    .select(
+      [
+        'id',
+        'agreement_id',
+        'event_id',
+        'payer_id',
+        'recipient_id',
+        'amount',
+        'amount_cents',
+        'processing_fee_cents',
+        'builder_payout_cents',
+        'invoice_hosted_url',
+        'due_date',
+        'refund_amount_cents',
+        'refund_reason',
+        'status',
+      ].join(', ')
+    )
+    .eq('id', paymentId)
+    .maybeSingle()
+
+  if (paymentError) throw new Error(paymentError.message ?? 'Failed to load kickback payment')
+  if (!payment) throw new Error('Kickback payment not found')
+
+  const typedPayment = payment as KickbackNotificationPayment
+  const agreement = typedPayment.agreement_id
+    ? await loadKickbackAgreement(admin, typedPayment.agreement_id)
+    : null
+  const venue = agreement?.venue_id ? await loadVenue(admin, agreement.venue_id) : null
+  const venueOwnerId = (venue as any)?.owner_id || typedPayment.payer_id
+  const venueOwner = venueOwnerId ? await loadUserEmail(admin, venueOwnerId) : null
+  const builder = typedPayment.recipient_id ? await loadUserEmail(admin, typedPayment.recipient_id) : null
+  const builderProfileName = typedPayment.recipient_id
+    ? await loadBuilderProfileName(admin, typedPayment.recipient_id)
+    : null
+  const eventLabel = await loadKickbackEventLabel(admin, typedPayment.event_id || agreement?.event_id || null, agreement?.plan_id ?? null)
+  const principalCents = readNotificationCents(typedPayment.amount_cents, typedPayment.amount)
+  const processingFeeCents = readIntegerCents(typedPayment.processing_fee_cents)
+
+  return {
+    payment: typedPayment,
+    agreement,
+    eventTitle: eventLabel.title,
+    eventDate: eventLabel.date,
+    venueName: (venue as any)?.venue_name || venueOwner?.name || 'there',
+    venueEmail: (venue as any)?.contact_email || venueOwner?.email || null,
+    builderName: builderProfileName || builder?.name || 'Event builder',
+    builderEmail: builder?.email ?? null,
+    reportedRevenueCents: readIntegerCents(agreement?.reported_revenue_cents),
+    principalCents,
+    processingFeeCents,
+    builderPayoutCents: readIntegerCents(typedPayment.builder_payout_cents) || principalCents,
+    refundAmountCents: readIntegerCents(typedPayment.refund_amount_cents),
+    invoiceUrl: typedPayment.invoice_hosted_url ?? null,
+    dueDate: typedPayment.due_date ?? null,
+    settlementSource: formatSettlementSource(agreement),
+  }
+}
+
+async function loadKickbackAgreement(admin: any, agreementId: string): Promise<KickbackNotificationAgreement | null> {
+  const { data, error } = await admin
+    .from('event_kickback_agreements')
+    .select(
+      [
+        'id',
+        'event_id',
+        'plan_id',
+        'venue_id',
+        'reported_revenue_cents',
+        'bar_revenue_share_percent',
+        'ticket_revenue_share_percent',
+        'lift_share_percentage',
+        'per_head_amount',
+      ].join(', ')
+    )
+    .eq('id', agreementId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to load kickback agreement')
+  return (data as KickbackNotificationAgreement | null) ?? null
+}
+
+async function loadVenue(admin: any, venueId: string) {
+  const { data, error } = await admin
+    .from('venues')
+    .select('id, venue_name, contact_email, owner_id')
+    .eq('id', venueId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to load venue')
+  return data ?? null
+}
+
+async function loadUserEmail(admin: any, userId: string): Promise<{ email: string | null; name: string | null } | null> {
+  const { data, error } = await admin
+    .from('users')
+    .select('id, email, company_name')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to load user email')
+  if (!data) return null
+
+  return {
+    email: (data as any).email ?? null,
+    name: (data as any).company_name ?? null,
+  }
+}
+
+async function loadBuilderProfileName(admin: any, userId: string) {
+  const { data, error } = await admin
+    .from('builder_profiles')
+    .select('name')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to load builder profile')
+  return (data as { name?: string | null } | null)?.name ?? null
+}
+
+async function loadKickbackEventLabel(admin: any, eventId: string | null, planId: string | null) {
+  if (eventId) {
+    const { data, error } = await admin
+      .from('events')
+      .select('event_name, event_date')
+      .eq('id', eventId)
+      .maybeSingle()
+
+    if (error) throw new Error(error.message ?? 'Failed to load event')
+    if (data) {
+      return {
+        title: (data as any).event_name || 'event',
+        date: (data as any).event_date ?? null,
+      }
+    }
+  }
+
+  if (planId) {
+    const { data, error } = await admin
+      .from('plans')
+      .select('title, date_window_start')
+      .eq('id', planId)
+      .maybeSingle()
+
+    if (error) throw new Error(error.message ?? 'Failed to load plan')
+    if (data) {
+      return {
+        title: (data as any).title || 'event',
+        date: (data as any).date_window_start ?? null,
+      }
+    }
+  }
+
+  return { title: 'event', date: null }
+}
+
+function readIntegerCents(value: number | string | null | undefined) {
+  const numeric = typeof value === 'string' ? Number(value) : value
+  return typeof numeric === 'number' && Number.isFinite(numeric) ? Math.round(numeric) : 0
+}
+
+function readNotificationCents(centsValue: number | string | null | undefined, legacyDollarValue: number | string | null | undefined) {
+  const cents = readIntegerCents(centsValue)
+  if (cents > 0) return cents
+  return dollarsToCents(legacyDollarValue)
+}
+
+function readPositiveNumber(value: number | string | null | undefined) {
+  const numeric = typeof value === 'string' ? Number(value) : value
+  return typeof numeric === 'number' && Number.isFinite(numeric) && numeric > 0 ? numeric : 0
+}
+
+function formatSettlementSource(agreement: KickbackNotificationAgreement | null) {
+  const barShare = readPositiveNumber(agreement?.bar_revenue_share_percent)
+  if (barShare > 0) return `${barShare}% bar revenue share agreement`
+
+  const ticketShare = readPositiveNumber(agreement?.ticket_revenue_share_percent)
+  if (ticketShare > 0) return `${ticketShare}% ticket revenue share agreement`
+
+  const liftShare = readPositiveNumber(agreement?.lift_share_percentage)
+  if (liftShare > 0) return `${liftShare}% lift share agreement`
+
+  const perHeadCents = dollarsToCents(agreement?.per_head_amount)
+  if (perHeadCents > 0) return `${formatMoney(perHeadCents)} per attendee agreement`
+
+  return 'revenue share agreement'
+}
+
+function formatMoney(cents: number | string | null | undefined) {
+  return `$${centsToDollars(cents).toFixed(2)}`
+}
+
+function formatOptionalDate(date: string | null) {
+  return date ? ` on ${formatEmailDate(date)}` : ''
+}
+
+function formatOptionalDueDate(date: string | null) {
+  return date ? formatEmailDate(date) : '7 days from invoice send'
+}
+
+function formatEmailDate(date: string) {
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return date
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(parsed)
+}
+
+function buildAppUrl(path: string) {
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.APP_URL ||
+    'http://localhost:3000'
+
+  return `${baseUrl.replace(/\/$/, '')}${path}`
+}
+
+function skippedEmail(reason: string) {
+  return {
+    sent: false,
+    reason,
+    responsePayload: null,
+  }
+}
+
+async function createKickbackEmailAdminClient() {
+  const { createServiceRoleClient } = await import('@/lib/supabase/server')
+  return createServiceRoleClient() as any
 }
 
 /**

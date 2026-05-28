@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
+import { sendBuilderPaidEmail, sendVenuePaymentFailedEmail } from '@/lib/email'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import {
   getStripeClient,
@@ -229,6 +230,10 @@ async function applyKickbackInvoicePaid(admin: any, invoice: Stripe.Invoice) {
       .eq('id', payment.agreement_id)
   }
 
+  await sendBuilderPaidEmail({ paymentId }).catch((error) => {
+    console.error('[stripe.webhook] Failed to send builder paid email', error)
+  })
+
   return true
 }
 
@@ -245,6 +250,10 @@ async function applyKickbackInvoicePaymentFailed(admin: any, invoice: Stripe.Inv
       failure_reason: 'Stripe invoice payment failed',
     })
     .eq('id', paymentId)
+
+  await sendVenuePaymentFailedEmail({ paymentId }).catch((error) => {
+    console.error('[stripe.webhook] Failed to send venue payment failed email', error)
+  })
 
   return true
 }

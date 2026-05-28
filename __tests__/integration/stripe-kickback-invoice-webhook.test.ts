@@ -16,9 +16,15 @@ jest.mock('next/server', () => ({
 
 import { POST } from '@/app/api/webhooks/stripe/route'
 import { applyInvoicePayment, applyInvoicePaymentFailed } from '@/lib/billing/builder-billing'
+import { sendBuilderPaidEmail, sendVenuePaymentFailedEmail } from '@/lib/email'
 import { allowWebhookRequest, getWebhookRateLimitKey } from '@/lib/server/webhook-rate-limit'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getStripeClient } from '@/lib/stripe/connect'
+
+jest.mock('@/lib/email', () => ({
+  sendBuilderPaidEmail: jest.fn().mockResolvedValue({ sent: true, reason: null }),
+  sendVenuePaymentFailedEmail: jest.fn().mockResolvedValue({ sent: true, reason: null }),
+}))
 
 jest.mock('@/lib/billing/builder-billing', () => ({
   applyCheckoutSessionCompleted: jest.fn(),
@@ -209,6 +215,7 @@ describe('Stripe kickback invoice webhook routing', () => {
       },
     })
     expect(applyInvoicePayment).not.toHaveBeenCalled()
+    expect(sendBuilderPaidEmail).toHaveBeenCalledWith({ paymentId: PAYMENT_ID })
     expect(db.rows.kickback_payments[0]).toMatchObject({
       status: 'paid',
       stripe_transfer_id: 'tr_builder',
@@ -237,6 +244,7 @@ describe('Stripe kickback invoice webhook routing', () => {
     expect(response.status).toBe(200)
     expect(applyInvoicePayment).toHaveBeenCalledWith(db, invoice)
     expect(stripe.transfers.create).not.toHaveBeenCalled()
+    expect(sendBuilderPaidEmail).not.toHaveBeenCalled()
   })
 
   it('marks kickback invoices failed without calling builder billing failure handling', async () => {
@@ -257,6 +265,7 @@ describe('Stripe kickback invoice webhook routing', () => {
 
     expect(response.status).toBe(200)
     expect(applyInvoicePaymentFailed).not.toHaveBeenCalled()
+    expect(sendVenuePaymentFailedEmail).toHaveBeenCalledWith({ paymentId: PAYMENT_ID })
     expect(db.rows.kickback_payments[0]).toMatchObject({
       status: 'invoice_failed',
       failure_reason: 'Stripe invoice payment failed',
