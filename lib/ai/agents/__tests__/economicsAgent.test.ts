@@ -99,6 +99,40 @@ describe('runEconomicsAgent', () => {
     expect(userPayload.negotiated_savings_cents).toBe(25000)
   })
 
+  it('passes venue kickback inputs and labels expected kickback in narrative', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            recommendation_summary: 'Use the current ticket price with venue upside.',
+            narrative: 'Use the current ticket price with venue upside.',
+            price_points: [],
+            recommended_price_cents: 5000,
+            historical_anchor: null,
+          }),
+        },
+      }],
+    })
+
+    const result = await runEconomicsAgent({
+      ...economicsInput,
+      venue_commercial_model: 'bar_revenue_share',
+      venue_kickback_rate: 10,
+      estimated_spend_per_head_cents: 4000,
+    }, { create })
+
+    const messages = create.mock.calls[0][0].messages
+    const userPayload = JSON.parse(messages[1].content)
+    expect(userPayload.input_cents).toMatchObject({
+      venue_commercial_model: 'bar_revenue_share',
+      venue_kickback_rate: 10,
+      estimated_spend_per_head_cents: 4000,
+    })
+    expect(result.output.revenue_scenarios.expected.kickback_projection_cents).toBe(16800)
+    expect(result.output.narrative).toContain('Expected venue kickback: $168.')
+    expect(result.output.price_points.find((point) => point.price_cents === 5000)?.projected_net_cents).toBe(70000)
+  })
+
   it('normalizes object price points and non-string historical anchors from the model', async () => {
     const create = jest.fn().mockResolvedValue({
       choices: [{

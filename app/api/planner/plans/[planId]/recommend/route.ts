@@ -304,11 +304,17 @@ const VENUE_AGENT_SELECT_COLUMNS = `
   minimum_hours,
   is_published,
   per_head_kickback,
+  per_head_kickback_cents,
   offers_kickbacks,
   deposit_percentage,
   cancellation_terms,
   available_days,
   bar_revenue_share_enabled,
+  bar_rev_share_pct,
+  bar_revenue_share_percent,
+  ticket_sales_share_enabled,
+  ticket_sales_share_pct,
+  ticket_sales_share_percent,
   unique_features,
   unique_features_tags,
   venue_amenities (
@@ -2421,6 +2427,8 @@ function buildEconomicsPayload(
     vendorCostSummary: VendorEconomicsCostSummary
   }
 ): EconomicsAgentInput {
+  const venueKickback = deriveVenueKickbackEconomics(context.venue)
+
   return {
     event_plan: eventPlan,
     budget_line_items: [],
@@ -2429,6 +2437,9 @@ function buildEconomicsPayload(
     vendor_cost_cents: vendorCostCents,
     ticket_price_cents: plan.ticketed ? eventPlan.ticket_price_target ?? 0 : 0,
     sponsorship_revenue_cents: 0,
+    venue_commercial_model: venueKickback.venue_commercial_model,
+    venue_kickback_rate: venueKickback.venue_kickback_rate ?? 0,
+    estimated_spend_per_head_cents: 4000,
     cost_confidence: context.vendorCostSummary.cost_confidence,
     negotiated_savings_cents: context.vendorCostSummary.negotiated_savings_cents,
     plan: plan as unknown as Record<string, unknown>,
@@ -2455,6 +2466,39 @@ function buildEconomicsPayload(
       },
     },
   }
+}
+
+function deriveVenueKickbackEconomics(venue: VenueMatchingCandidate | null): Partial<Pick<
+  EconomicsAgentInput,
+  'venue_commercial_model' | 'venue_kickback_rate'
+>> {
+  if (!venue) return {}
+
+  const barRevenueSharePercent = readNumber(venue.bar_revenue_share_percent)
+  if (venue.bar_revenue_share_enabled && barRevenueSharePercent && barRevenueSharePercent > 0) {
+    return {
+      venue_commercial_model: 'bar_revenue_share',
+      venue_kickback_rate: barRevenueSharePercent,
+    }
+  }
+
+  const ticketSharePercent = readNumber(venue.ticket_sales_share_percent)
+  if (venue.ticket_sales_share_enabled && ticketSharePercent && ticketSharePercent > 0) {
+    return {
+      venue_commercial_model: 'ticket_revenue_share',
+      venue_kickback_rate: ticketSharePercent,
+    }
+  }
+
+  const perHeadKickbackCents = readCents(venue.per_head_kickback)
+  if (perHeadKickbackCents && perHeadKickbackCents > 0) {
+    return {
+      venue_commercial_model: 'per_head_kickback',
+      venue_kickback_rate: perHeadKickbackCents,
+    }
+  }
+
+  return {}
 }
 
 function buildFallbackEconomicsOutput(
@@ -2946,6 +2990,9 @@ function toVenueMatchingCandidate(row: Record<string, unknown>): VenueMatchingCa
     cancellation_terms: readString(row.cancellation_terms),
     available_days: readStringArray(row.available_days),
     bar_revenue_share_enabled: readBoolean(row.bar_revenue_share_enabled),
+    bar_revenue_share_percent: readNumber(row.bar_revenue_share_percent ?? row.bar_rev_share_pct ?? row.bar_revenue_percentage),
+    ticket_sales_share_enabled: readBoolean(row.ticket_sales_share_enabled),
+    ticket_sales_share_percent: readNumber(row.ticket_sales_share_percent ?? row.ticket_sales_share_pct),
     venue_amenities: readVenueAmenities(row.venue_amenities),
   })
 

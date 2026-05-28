@@ -69,6 +69,44 @@ describe('calculateEventPlanningEconomics', () => {
     expect(output.break_even_attendance).toBe(47)
   })
 
+  it('adds venue kickback projection as positive revenue by commercial model', () => {
+    const barShareOutput = calculateEventPlanningEconomics({
+      event_plan: eventPlan,
+      budget_line_items: [],
+      expected_attendance: 50,
+      venue_cost_cents: 150000,
+      vendor_cost_cents: 50000,
+      ticket_price_cents: 5000,
+      sponsorship_revenue_cents: 0,
+      venue_commercial_model: 'bar_revenue_share',
+      venue_kickback_rate: 10,
+      estimated_spend_per_head_cents: 4000,
+    })
+
+    expect(barShareOutput.revenue_scenarios.expected).toEqual(expect.objectContaining({
+      attendance: 42,
+      kickback_projection_cents: 16800,
+      total_revenue_cents: 226800,
+      profit_cents: 26800,
+    }))
+    expect(barShareOutput.profit_projection_cents).toBe(26800)
+
+    const perHeadOutput = calculateEventPlanningEconomics({
+      event_plan: eventPlan,
+      budget_line_items: [],
+      expected_attendance: 50,
+      venue_cost_cents: 150000,
+      vendor_cost_cents: 50000,
+      ticket_price_cents: 5000,
+      sponsorship_revenue_cents: 0,
+      venue_commercial_model: 'per_head_kickback',
+      venue_kickback_rate: 300,
+    })
+
+    expect(perHeadOutput.revenue_scenarios.expected.kickback_projection_cents).toBe(12600)
+    expect(perHeadOutput.revenue_scenarios.expected.profit_cents).toBe(22600)
+  })
+
   it('returns null break-even attendance when ticket price is zero and flags the risk', () => {
     const output = calculateEventPlanningEconomics({
       event_plan: { ...eventPlan, monetization_model: 'free' },
