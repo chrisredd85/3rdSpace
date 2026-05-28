@@ -147,6 +147,8 @@ async function applyKickbackPaymentIntent(admin: any, paymentIntent: Stripe.Paym
 }
 
 async function applyKickbackTransferEvent(admin: any, transfer: Stripe.Transfer, status: 'completed' | 'refunded') {
+  if (transfer.metadata?.settlement_method === 'invoice') return true
+
   const paymentId = transfer.metadata?.kickback_payment_id
   const query = admin
     .from('kickback_payments')
@@ -163,6 +165,87 @@ async function applyKickbackTransferEvent(admin: any, transfer: Stripe.Transfer,
   }
 
   await query.eq('stripe_transfer_id', transfer.id)
+  return true
+}
+
+async function applyKickbackInvoicePaid(admin: any, invoice: Stripe.Invoice) {
+  const paymentId = invoice.metadata?.kickback_payment_id
+  if (!paymentId) return false
+  if (invoice.metadata?.settlement_method !== 'invoice') return true
+
+  const principalCents = Number(invoice.metadata?.principal_cents ?? 0)
+  const builderStripeAccountId = invoice.metadata?.builder_stripe_account_id
+
+  if (!builderStripeAccountId || principalCents <= 0) {
+    console.error('[stripe.webhook] Missing builder account or principal for kickback invoice', invoice.id)
+    return true
+  }
+
+  const { data: payment, error: paymentError } = await admin
+    .from('kickback_payments')
+    .select('id, agreement_id, status, stripe_transfer_id')
+    .eq('id', paymentId)
+    .maybeSingle()
+
+  if (paymentError) throw new Error(paymentError.message)
+  if (!payment?.id) return true
+  if (payment.status === 'paid' || payment.stripe_transfer_id) return true
+
+  const stripe = getStripeClient()
+  const transfer = await stripe.transfers.create({
+    amount: principalCents,
+    currency: 'usd',
+    destination: builderStripeAccountId,
+    transfer_group: `kickback_${paymentId}`,
+    metadata: {
+      kickback_payment_id: paymentId,
+      settlement_method: 'invoice',
+    },
+  })
+
+  const now = new Date().toISOString()
+  await admin
+    .from('kickback_payments')
+    .update({
+      status: 'paid',
+      paid_at: now,
+      completed_at: now,
+      stripe_transfer_id: transfer.id,
+      builder_payout_cents: principalCents,
+      failed_at: null,
+      failure_reason: null,
+    })
+    .eq('id', paymentId)
+
+  if (payment.agreement_id) {
+    await admin
+      .from('event_kickback_agreements')
+      .update({
+        status: 'payment_completed',
+        stripe_transfer_id: transfer.id,
+        payment_completed_at: now,
+        updated_at: now,
+      })
+      .eq('id', payment.agreement_id)
+  }
+
+  return true
+}
+
+async function applyKickbackInvoicePaymentFailed(admin: any, invoice: Stripe.Invoice) {
+  const paymentId = invoice.metadata?.kickback_payment_id
+  if (!paymentId) return false
+  if (invoice.metadata?.settlement_method !== 'invoice') return true
+
+  await admin
+    .from('kickback_payments')
+    .update({
+      status: 'invoice_failed',
+      failed_at: new Date().toISOString(),
+      failure_reason: 'Stripe invoice payment failed',
+    })
+    .eq('id', paymentId)
+
   return true
 }
 
@@ -208,12 +291,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (event.type === 'invoice.paid') {
+      const handledKickbackInvoice = await applyKickbackInvoicePaid(admin as any, event.data.object as Stripe.Invoice)
+      if (!handledKickbackInvoice) {
+        await applyInvoicePayment(admin as any, event.data.object as Stripe.Invoice)
+      }
+    }
+
     if (event.type === 'invoice.payment_succeeded') {
-      await applyInvoicePayment(admin as any, event.data.object as Stripe.Invoice)
+      const invoice = event.data.object as Stripe.Invoice
+      if (!invoice.metadata?.kickback_payment_id) {
+        await applyInvoicePayment(admin as any, invoice)
+      }
     }
 
     if (event.type === 'invoice.payment_failed') {
-      await applyInvoicePaymentFailed(admin as any, event.data.object as Stripe.Invoice)
+      const handledKickbackInvoice = await applyKickbackInvoicePaymentFailed(admin as any, event.data.object as Stripe.Invoice)
+      if (!handledKickbackInvoice) {
+        await applyInvoicePaymentFailed(admin as any, event.data.object as Stripe.Invoice)
+      }
     }
 
     if (event.type === 'customer.subscription.created' || event.type === 'customer.subscription.updated') {
