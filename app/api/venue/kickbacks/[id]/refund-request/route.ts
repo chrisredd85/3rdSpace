@@ -9,7 +9,7 @@ import { getAuthenticatedVenueOwner } from '@/lib/stripe/connect'
 export const runtime = 'nodejs'
 
 const paramsSchema = z.object({
-  paymentId: z.string().uuid(),
+  id: z.string().uuid(),
 })
 
 const bodySchema = z.object({
@@ -25,13 +25,14 @@ class RouteError extends Error {
 
 export async function POST(
   request: NextRequest,
-  context: { params: { paymentId: string } }
+  context: { params: { id: string } }
 ) {
   try {
     const parsedParams = paramsSchema.safeParse(context.params)
     if (!parsedParams.success) {
       return NextResponse.json({ error: 'Invalid payment id' }, { status: 400 })
     }
+    const paymentId = parsedParams.data.id
 
     const supabase = createClient()
     const auth = await getAuthenticatedVenueOwner(supabase)
@@ -45,7 +46,7 @@ export async function POST(
     }
 
     const admin = createServiceRoleClient() as any
-    const payment = await loadPayment(admin, parsedParams.data.paymentId)
+    const payment = await loadPayment(admin, paymentId)
     if (!payment) return NextResponse.json({ error: 'Kickback payment not found' }, { status: 404 })
     if (payment.status !== 'paid') {
       return NextResponse.json({ error: 'Refunds can only be requested for paid kickbacks' }, { status: 409 })

@@ -15,7 +15,7 @@ jest.mock('next/server', () => ({
 }))
 
 import { POST as refundDecisionPost } from '@/app/api/planner/plans/[planId]/refund-decision/route'
-import { POST as refundRequestPost } from '@/app/api/venue/kickbacks/[paymentId]/refund-request/route'
+import { POST as refundRequestPost } from '@/app/api/venue/kickbacks/[id]/refund-request/route'
 import {
   sendBuilderRefundRequestEmail,
   sendVenueRefundDeniedEmail,
@@ -202,7 +202,7 @@ describe('kickback refund routes', () => {
         refund_amount_cents: 18000,
         reason: 'POS sales report was corrected after closeout.',
       }),
-      { params: { paymentId: PAYMENT_ID } }
+      { params: { id: PAYMENT_ID } }
     )
 
     expect(response.status).toBe(200)
@@ -221,7 +221,7 @@ describe('kickback refund routes', () => {
         refund_amount_cents: 999999,
         reason: 'Too much.',
       }),
-      { params: { paymentId: PAYMENT_ID } }
+      { params: { id: PAYMENT_ID } }
     )
     const json = await response.json()
 
@@ -299,6 +299,41 @@ describe('kickback refund routes', () => {
     })
     expect(db.rows.kickback_payments[0]).toMatchObject({
       status: 'refund_processing',
+      refund_amount_cents: 18000,
+      stripe_transfer_reversal_id: 'trr_refund',
+      stripe_refund_id: 're_refund',
+    })
+  })
+
+  it('preserves finalized refund status when the Stripe reversal webhook wins the approval race', async () => {
+    Object.assign(db.rows.kickback_payments[0], {
+      status: 'refund_requested',
+      refund_amount_cents: 18000,
+      refund_reason: 'Venue request',
+      refund_requested_at: '2026-05-20T00:00:00.000Z',
+      refund_requested_by: VENUE_OWNER_ID,
+    })
+    stripe.transfers.createReversal.mockImplementation(async () => {
+      Object.assign(db.rows.kickback_payments[0], {
+        status: 'refunded_partial',
+        completed_at: '2026-05-20T00:00:01.000Z',
+      })
+      return { id: 'trr_refund' }
+    })
+
+    const response = await refundDecisionPost(
+      makeJsonRequest(`http://localhost/api/planner/plans/${PLAN_ID}/refund-decision`, {
+        payment_id: PAYMENT_ID,
+        decision: 'approve',
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.payment).toMatchObject({ status: 'refunded_partial' })
+    expect(db.rows.kickback_payments[0]).toMatchObject({
+      status: 'refunded_partial',
       refund_amount_cents: 18000,
       stripe_transfer_reversal_id: 'trr_refund',
       stripe_refund_id: 're_refund',

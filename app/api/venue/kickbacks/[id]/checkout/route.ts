@@ -11,7 +11,7 @@ import { getAppBaseUrl, getAuthenticatedVenueOwner, getStripeClient } from '@/li
 export const runtime = 'nodejs'
 
 const paramsSchema = z.object({
-  paymentId: z.string().uuid(),
+  id: z.string().uuid(),
 })
 
 type KickbackPaymentForCheckout = {
@@ -53,13 +53,14 @@ type VenueForInvoice = {
  */
 export async function POST(
   request: NextRequest,
-  context: { params: { paymentId: string } }
+  context: { params: { id: string } }
 ) {
   try {
     const parsedParams = paramsSchema.safeParse(context.params)
     if (!parsedParams.success) {
       return NextResponse.json({ error: 'Invalid kickback payment id' }, { status: 400 })
     }
+    const paymentId = parsedParams.data.id
 
     const supabase = createClient()
     const auth = await getAuthenticatedVenueOwner(supabase)
@@ -72,7 +73,7 @@ export async function POST(
     const { data: paymentRow, error: paymentError } = await (admin as any)
       .from('kickback_payments')
       .select('id, agreement_id, event_id, payer_id, recipient_id, amount, amount_cents, currency, status, settlement_method, events(event_name)')
-      .eq('id', parsedParams.data.paymentId)
+      .eq('id', paymentId)
       .maybeSingle()
 
     if (paymentError) throw new Error(paymentError.message)
@@ -296,6 +297,7 @@ async function createInvoiceForKickback({
   const invoice = await stripe.invoices.create({
     customer: customerId,
     collection_method: 'send_invoice',
+    pending_invoice_items_behavior: 'include',
     days_until_due: 7,
     payment_settings: {
       payment_method_types: ['us_bank_account', 'card'],
@@ -308,7 +310,7 @@ async function createInvoiceForKickback({
   const hostedInvoiceUrl = sentInvoice.hosted_invoice_url ?? finalizedInvoice.hosted_invoice_url ?? null
   const now = new Date().toISOString()
 
-  await admin
+  const { error: paymentUpdateError } = await admin
     .from('kickback_payments')
     .update({
       status: 'invoice_sent',
@@ -318,17 +320,24 @@ async function createInvoiceForKickback({
       due_date: dueDate ? new Date(dueDate * 1000).toISOString() : null,
       initiated_at: now,
       failure_reason: null,
-      updated_at: now,
     })
     .eq('id', payment.id)
 
-  await admin
+  if (paymentUpdateError) {
+    throw new Error(paymentUpdateError.message ?? 'Failed to save kickback invoice state')
+  }
+
+  const { error: agreementUpdateError } = await admin
     .from('event_kickback_agreements')
     .update({
       status: 'payment_pending',
       updated_at: now,
     })
     .eq('id', payment.agreement_id)
+
+  if (agreementUpdateError) {
+    throw new Error(agreementUpdateError.message ?? 'Failed to save kickback agreement invoice state')
+  }
 
   await sendVenueInvoiceEmail({ paymentId: payment.id }).catch((error) => {
     console.error('[venue.kickbacks.checkout] Failed to send venue invoice email', error)

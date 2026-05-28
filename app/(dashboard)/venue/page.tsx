@@ -75,18 +75,34 @@ export default function VenueDashboard() {
 
   useEffect(() => {
     if (!user) return
+    let isMounted = true
+    const controller = new AbortController()
+
     Promise.all([
-      fetch('/api/venue/stats', { credentials: 'include' }).then((r) => r.ok ? r.json() : null),
-      fetch('/api/venue/requests?status=pending&limit=5', { credentials: 'include' }).then((r) => r.ok ? r.json() : null),
-      fetch('/api/venue/stripe/status', { credentials: 'include' }).then((r) => r.ok ? r.json() : null),
+      fetch('/api/venue/stats', { credentials: 'include', signal: controller.signal }).then((r) => r.ok ? r.json() : null),
+      fetch('/api/venue/requests?status=pending&limit=5', { credentials: 'include', signal: controller.signal }).then((r) => r.ok ? r.json() : null),
+      fetch('/api/venue/stripe/status', { credentials: 'include', signal: controller.signal }).then((r) => r.ok ? r.json() : null),
     ])
       .then(([statsData, requestsData, stripeData]) => {
+        if (!isMounted) return
         if (statsData) setStats(statsData)
         if (requestsData) setRecentRequests(requestsData.bookings || [])
         if (stripeData) setHasStripeAccount(Boolean(stripeData.account?.stripe_account_id))
       })
-      .catch(console.error)
-      .finally(() => setIsLoading(false))
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error)
+        if (isMounted && message !== 'Failed to fetch' && !controller.signal.aborted) {
+          console.error(error)
+        }
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false)
+      })
+
+    return () => {
+      isMounted = false
+      controller.abort()
+    }
   }, [user])
 
   const handleApprove = async (bookingId: string) => {

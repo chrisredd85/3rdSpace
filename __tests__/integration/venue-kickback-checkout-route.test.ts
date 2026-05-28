@@ -14,7 +14,7 @@ jest.mock('next/server', () => ({
   },
 }))
 
-import { POST } from '@/app/api/venue/kickbacks/[paymentId]/checkout/route'
+import { POST } from '@/app/api/venue/kickbacks/[id]/checkout/route'
 import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
 import { sendVenueInvoiceEmail } from '@/lib/email'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
@@ -228,7 +228,7 @@ describe('venue kickback checkout route', () => {
   })
 
   it('sends a Stripe invoice for invoice-settlement kickback payments', async () => {
-    const response = await POST(makeRequest(), { params: { paymentId: PAYMENT_ID } })
+    const response = await POST(makeRequest(), { params: { id: PAYMENT_ID } })
     const json = await response.json()
 
     expect(response.status).toBe(200)
@@ -255,6 +255,7 @@ describe('venue kickback checkout route', () => {
     }))
     expect(stripe.invoices.create).toHaveBeenCalledWith(expect.objectContaining({
       collection_method: 'send_invoice',
+      pending_invoice_items_behavior: 'include',
       days_until_due: 7,
       metadata: expect.objectContaining({
         kickback_payment_id: PAYMENT_ID,
@@ -290,7 +291,7 @@ describe('venue kickback checkout route', () => {
       settlement_method: 'checkout',
     }
 
-    const response = await POST(makeRequest(), { params: { paymentId: PAYMENT_ID } })
+    const response = await POST(makeRequest(), { params: { id: PAYMENT_ID } })
     const json = await response.json()
 
     expect(response.status).toBe(200)

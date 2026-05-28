@@ -73,6 +73,9 @@ const JSON_OUTPUT_INSTRUCTIONS = [
   'Return JSON only.',
   'Shape: {"extracted_value": number|null, "confidence": "high"|"medium"|"low", "reasoning": string, "raw_text_seen": string}.',
   'Confidence: high = one clearly labeled number; medium = number visible but label ambiguous; low = partially obscured, multiple competing numbers, poor quality, or no extractable data.',
+  'Confidence must reflect metric quality, not only visual legibility.',
+  'For headcount: use high for verified checked-in/scanned/attended counts or a clearly labeled ticket-sales count; use medium for RSVP/going fallback counts; use low for registered-only counts without check-in data. Registered-only means low, not medium, even when the number is clear.',
+  'For venue revenue: use high for clearly labeled POS/export net sales, subtotal, or total. Handwritten totals are always low confidence, not medium, even when the amount is readable.',
   'If nothing extractable, return extracted_value null, confidence low, and explain why.',
 ].join('\n')
 
@@ -80,6 +83,7 @@ const HEADCOUNT_PROMPT = [
   'You extract verified attendance/headcount from event platform screenshots, exports, or reports.',
   'Look for "checked in", "attended", or "scanned" first.',
   'Fall back to "registered", "RSVP\'d", "RSVP", or "going" only when verified check-in/attendance/scanned counts are absent.',
+  'For ticket sales reports with no attendance data, use a clearly labeled "tickets sold" count as the headcount value.',
   'If both checked-in and registered numbers appear, prefer the smaller checked-in number.',
   'Return an integer people count only. Do not return dollar amounts.',
   'Common sources: Eventbrite, Luma, Partiful, Posh, Excel, CSV, PDF exports, or hand-written notes.',
@@ -131,6 +135,7 @@ export async function runDocumentExtractionAgent(
 
   const completion = await client.create({
     model: documentExtractionAgentDefinition.model,
+    temperature: 0,
     response_format: { type: 'json_object' },
     messages: messages as never,
   })

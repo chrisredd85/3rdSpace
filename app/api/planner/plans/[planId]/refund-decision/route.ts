@@ -185,7 +185,7 @@ async function approveRefund(
   if (!chargeId) throw new RouteError('Missing Stripe charge for refund', 409)
 
   const now = new Date().toISOString()
-  await admin
+  const { error: approvalError } = await admin
     .from('kickback_payments')
     .update({
       status: 'refund_approved',
@@ -194,6 +194,8 @@ async function approveRefund(
       refund_approved_by: builderUserId,
     })
     .eq('id', payment.id)
+
+  if (approvalError) throw new Error(approvalError.message ?? 'Failed to save refund approval state')
 
   const reversal = await (stripe.transfers as any).createReversal(payment.stripe_transfer_id, {
     amount: refundAmountCents,
@@ -213,10 +215,21 @@ async function approveRefund(
     },
   })
 
+  const { data: latestPayment, error: latestPaymentError } = await admin
+    .from('kickback_payments')
+    .select('status')
+    .eq('id', payment.id)
+    .maybeSingle()
+
+  if (latestPaymentError) throw new Error(latestPaymentError.message ?? 'Failed to reload refund state')
+
+  const webhookAlreadyFinalized =
+    latestPayment?.status === 'refunded_full' || latestPayment?.status === 'refunded_partial'
+
   const { data, error } = await admin
     .from('kickback_payments')
     .update({
-      status: 'refund_processing',
+      ...(webhookAlreadyFinalized ? {} : { status: 'refund_processing' }),
       refund_amount_cents: refundAmountCents,
       stripe_transfer_reversal_id: reversal.id,
       stripe_refund_id: refund.id,

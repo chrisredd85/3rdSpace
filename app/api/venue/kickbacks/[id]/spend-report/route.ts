@@ -18,7 +18,7 @@ const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 const paramsSchema = z.object({
-  kickbackId: z.string().uuid(),
+  id: z.string().uuid(),
 })
 
 const revenueOverrideSchema = z.preprocess(
@@ -71,13 +71,14 @@ class RouteError extends Error {
 
 export async function POST(
   request: NextRequest,
-  context: { params: { kickbackId: string } }
+  context: { params: { id: string } }
 ) {
   try {
     const parsedParams = paramsSchema.safeParse(context.params)
     if (!parsedParams.success) {
       return NextResponse.json({ error: 'Invalid kickback agreement id' }, { status: 400 })
     }
+    const agreementId = parsedParams.data.id
 
     const supabase = createClient()
     const auth = await getAuthenticatedVenueOwner(supabase)
@@ -86,7 +87,7 @@ export async function POST(
     }
 
     const admin = createServiceRoleClient() as any
-    const agreement = await loadKickbackAgreement(admin, parsedParams.data.kickbackId)
+    const agreement = await loadKickbackAgreement(admin, agreementId)
     if (!agreement) {
       return NextResponse.json({ error: 'Kickback agreement not found' }, { status: 404 })
     }

@@ -14,7 +14,7 @@ jest.mock('next/server', () => ({
   },
 }))
 
-import { POST } from '@/app/api/venue/kickbacks/[kickbackId]/spend-report/route'
+import { POST } from '@/app/api/venue/kickbacks/[id]/spend-report/route'
 import { runDocumentExtractionAgent } from '@/lib/ai/agents/documentExtractionAgent'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedVenueOwner } from '@/lib/stripe/connect'
@@ -231,7 +231,7 @@ describe('venue spend report route', () => {
     const formData = new FormData()
     formData.set('image', makeUploadFile('Net sales,$4,280.00', 'square.csv', 'text/csv'))
 
-    const response = await POST(makeRequest(formData), { params: { kickbackId: AGREEMENT_ID } })
+    const response = await POST(makeRequest(formData), { params: { id: AGREEMENT_ID } })
     const json = await response.json()
 
     expect(response.status).toBe(200)
@@ -269,7 +269,7 @@ describe('venue spend report route', () => {
     const formData = new FormData()
     formData.set('reported_revenue_cents_override', '0')
 
-    const response = await POST(makeRequest(formData), { params: { kickbackId: AGREEMENT_ID } })
+    const response = await POST(makeRequest(formData), { params: { id: AGREEMENT_ID } })
     const json = await response.json()
 
     expect(response.status).toBe(200)
@@ -293,7 +293,7 @@ describe('venue spend report route', () => {
     const formData = new FormData()
     formData.set('reported_revenue_cents_override', '10000')
 
-    const response = await POST(makeRequest(formData), { params: { kickbackId: AGREEMENT_ID } })
+    const response = await POST(makeRequest(formData), { params: { id: AGREEMENT_ID } })
     const json = await response.json()
 
     expect(response.status).toBe(403)
@@ -305,7 +305,7 @@ describe('venue spend report route', () => {
     const formData = new FormData()
     formData.set('image', makeOversizedUploadFile('toast-report.pdf', 'application/pdf'))
 
-    const response = await POST(makeRequest(formData), { params: { kickbackId: AGREEMENT_ID } })
+    const response = await POST(makeRequest(formData), { params: { id: AGREEMENT_ID } })
     const json = await response.json()
 
     expect(response.status).toBe(400)
