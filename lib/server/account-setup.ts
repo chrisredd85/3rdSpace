@@ -261,7 +261,7 @@ export async function ensureOwnerProfile(admin: SupabaseLikeClient, input: Venue
 
 export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSetupInput) {
   let venueId: string
-  const depositAmount = toPositiveNumberOrNull(input.deposit)
+  const depositPercentage = toPositivePercentageOrNull(input.deposit)
   const minimumSpendCents = toIntegerCentsOrNull(input.minBarSpend)
   const autoApproveConditions = {
     ...(minimumSpendCents !== null && { minimum_spend_cents: minimumSpendCents }),
@@ -278,6 +278,7 @@ export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSe
     throw new Error(`Failed to verify venue profile: ${existingVenueError.message}`)
   }
 
+  const hasBar = input.hasBar ?? false
   const venuePayload = {
     owner_id: input.userId,
     venue_name: input.venueName,
@@ -290,13 +291,13 @@ export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSe
     seated_capacity: input.capacity,
     pricing_model: 'hourly',
     hourly_rate: input.pricePerNight ?? null,
-    bar_revenue_share_enabled: input.hasBar ?? null,
-    offers_kickbacks: input.hasBar ?? null,
-    bar_revenue_percentage: input.barKickbackPct ?? null,
-    bar_revenue_share_percent: input.perHeadDrinkPct ?? null,
-    deposit_amount: depositAmount,
-    deposit_type: depositAmount === null ? null : 'fixed',
-    requires_deposit: depositAmount !== null,
+    bar_revenue_share_enabled: hasBar,
+    offers_kickbacks: hasBar,
+    bar_revenue_percentage: hasBar ? input.barKickbackPct ?? null : null,
+    bar_revenue_share_percent: hasBar ? input.perHeadDrinkPct ?? null : null,
+    deposit_percentage: depositPercentage,
+    deposit_type: depositPercentage === null ? null : 'percentage',
+    requires_deposit: depositPercentage !== null,
     cancellation_terms: input.cancellationTerms ?? null,
     available_days: input.availableDays ?? null,
     open_from: input.openFrom ?? null,
@@ -425,7 +426,8 @@ export async function ensureVendorProfile(admin: SupabaseLikeClient, input: Vend
     cancellation_terms: input.cancellationTerms ?? null,
     emergency_available: input.emergencyAvailable ?? null,
     emergency_rate_uplift: input.emergencyRateUplift ?? null,
-    bio: input.bio ?? input.availabilityNotes,
+    bio: input.bio?.trim() || input.availabilityNotes,
+    deposit_type: depositPercentage !== null ? 'percentage' : null,
     is_published: true,
     is_claimed: true,
     claimed_user_id: input.userId,
