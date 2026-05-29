@@ -35,10 +35,19 @@ import {
 } from '@/lib/planner/archetypes'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import { hasUnknownBudgetSignal, parseEventIntent } from '@/lib/planner/intentParser'
+import { mergeUserPreferenceSignalsIntoMetadata } from '@/lib/planner/userPreferenceSignals'
+import { BYO_VENDORS_METADATA_KEY, mergeByoVendors, readByoVendors } from '@/lib/planner/byoVendors'
 import {
   isIntakeReadyForRecommendations,
   isPlanReadyForRequestedRecommendations,
 } from '@/lib/planner/intakeReadiness'
+import {
+  BUILDER_BILLING_PRICES,
+  BuilderBillingRequiredError,
+  getBuilderBillingSummary,
+  loadBuilderBillingProfileByUserId,
+  type BuilderBillingProfile,
+} from '@/lib/billing/builder-billing'
 import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
 import { buildOrganizerPreferencePayload, loadBuilderOrganizerPreferences } from '@/lib/server/builderPreferences'
 import {
@@ -46,7 +55,7 @@ import {
   summarizeBuilderAttendance,
   type BuilderAttendanceSummary,
 } from '@/lib/server/builderAttendanceHistory'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { TicketPlatform } from '@/lib/constants/account-setup'
 import type {
   Json,
@@ -167,6 +176,14 @@ export async function POST(
     const draftMessages = body.data.draft?.messages ?? []
     const planInsert = buildPlanInsert(auth.userId, body.data.message, intent, draftPlan)
 
+    // ── Billing gate ──────────────────────────────────────────────────────────
+    // Check whether the user is entitled to create another plan before
+    // inserting. Free-tier users are capped at BUILDER_BILLING_PRICES.freeEventsGranted
+    // active (non-archived) plans. Pro and pay-per-event users are unrestricted.
+    const billingCheck = await checkPlanCreationAccess(auth.db, auth.userId)
+    if (billingCheck) return billingCheck
+    // ─────────────────────────────────────────────────────────────────────────
+
     const { data: planData, error: planError } = await auth.db
       .from('plans')
       .insert(planInsert)
@@ -233,6 +250,12 @@ export async function POST(
       needs_recommendations: needsRecommendations || undefined,
     })
   } catch (error) {
+    if (error instanceof BuilderBillingRequiredError) {
+      return NextResponse.json(
+        { error: 'Upgrade to create more events.', billingRequired: true },
+        { status: 402 }
+      )
+    }
     console.error('Planner plans POST error:', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
   }
@@ -286,12 +309,14 @@ function buildPlanInsert(
   const lockedArchetype = readRecord(baseMetadata[ARCHETYPE_LOCK_METADATA_KEY])
     ? null
     : createEventArchetypeLock(`${resolvedEventType ?? ''} ${message}`, 'initial_intake')
-  const metadata = mergeEventRequirementSignals(
+  const metadataWithRequirements = mergeEventRequirementSignals(
     lockedArchetype
       ? { ...baseMetadata, [ARCHETYPE_LOCK_METADATA_KEY]: lockedArchetype }
       : baseMetadata,
     message
   )
+  const metadata =
+    mergeUserPreferenceSignalsIntoMetadata(metadataWithRequirements, message) ?? metadataWithRequirements
 
   return {
     user_id: userId,
@@ -722,6 +747,23 @@ function buildPlanUpdatesFromIntakeOutput(
   )
   if (metadata) updates.metadata = metadata
 
+  // Merge any BYO (bring-your-own) vendors the intake agent surfaced this
+  // turn into plan.metadata.byo_vendors so the economics pipeline can fold
+  // them into the cost total. See lib/planner/byoVendors.ts for the merge
+  // rationale (existing entries preserved when intake omits them).
+  const incomingByo = Array.isArray(output.byo_vendors) ? output.byo_vendors : []
+  if (incomingByo.length > 0) {
+    const baseMetadata = (updates.metadata && typeof updates.metadata === 'object' && !Array.isArray(updates.metadata))
+      ? updates.metadata as Record<string, unknown>
+      : (readRecord(currentPlan.metadata) ?? {})
+    const existingByo = readByoVendors(baseMetadata)
+    const mergedByo = mergeByoVendors(existingByo, incomingByo)
+    updates.metadata = {
+      ...baseMetadata,
+      [BYO_VENDORS_METADATA_KEY]: mergedByo,
+    }
+  }
+
   return updates
 }
 
@@ -859,7 +901,9 @@ function buildMetadataUpdates(
   eventArchetypeLock: unknown
 ): Record<string, unknown> | null {
   const metadata = readRecord(currentPlan.metadata) ?? {}
-  const nextMetadata = mergeEventRequirementSignals(metadata, userMessage)
+  const withRequirements = mergeEventRequirementSignals(metadata, userMessage)
+  const nextMetadata =
+    mergeUserPreferenceSignalsIntoMetadata(withRequirements, userMessage) ?? withRequirements
   if (eventArchetypeLock) nextMetadata[ARCHETYPE_LOCK_METADATA_KEY] = eventArchetypeLock
   if (intendedPlatform) nextMetadata.intended_platform = intendedPlatform
   if (ticketed === false) {
@@ -933,4 +977,65 @@ function toJson(value: Record<string, unknown>): Json {
 
 function toJsonValue(value: unknown): Json {
   return value as Json
+}
+
+/**
+ * Pre-creation billing gate for the planner plans POST route.
+ *
+ * Free-tier users are allowed up to BUILDER_BILLING_PRICES.freeEventsGranted
+ * active (non-archived) plans. Pro and pay-per-event users are unrestricted —
+ * their per-event credit is consumed later at outreach approval time (see the
+ * approvals route's `checkAndConsumeBuilderEventAccess`).
+ *
+ * Returns a 402 NextResponse if creation should be blocked, or null if the
+ * request should proceed.
+ */
+async function checkPlanCreationAccess(
+  db: PlannerDb,
+  userId: string
+): Promise<NextResponse<PlannerApiErrorResponse> | null> {
+  try {
+    const admin = createServiceRoleClient()
+    const { data: builder } = await loadBuilderBillingProfileByUserId(admin, userId)
+
+    // No profile yet (new user before profile is created) — allow creation so
+    // the first message flow can set up the profile.
+    if (!builder) return null
+
+    const billing = getBuilderBillingSummary(builder as BuilderBillingProfile)
+
+    // Pro subscribers and users with paid credits are unrestricted at creation
+    // time; access is consumed at outreach approval.
+    if (billing.hasProAccess || billing.paidEventCredits > 0) return null
+
+    // Free tier: count active (non-archived) plans for this user.
+    const { count, error } = await (db as any)
+      .from('plans')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .neq('status', 'archived')
+
+    if (error) {
+      console.error('[planner.plans] Billing plan count error', error)
+      // Fail open — don't block creation on a count query error.
+      return null
+    }
+
+    const activePlanCount = count ?? 0
+    if (activePlanCount >= BUILDER_BILLING_PRICES.freeEventsGranted) {
+      return NextResponse.json(
+        {
+          error: `Free plan includes ${BUILDER_BILLING_PRICES.freeEventsGranted} events. Upgrade to create more.`,
+          billingRequired: true,
+        },
+        { status: 402 }
+      )
+    }
+
+    return null
+  } catch (error) {
+    console.error('[planner.plans] Billing access check error', error)
+    // Fail open — a billing check failure should not prevent plan creation.
+    return null
+  }
 }

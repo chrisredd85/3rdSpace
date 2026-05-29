@@ -109,6 +109,45 @@ interface RouteContext {
 }
 
 /**
+ * Lists recent agent actions for a planner-owned plan.
+ *
+ * Timeline derivation uses these rows as the source of truth for venue hold
+ * lifecycle state, rather than inferring holds from recommendation messages.
+ */
+export async function GET(
+  request: NextRequest,
+  context: RouteContext
+): Promise<NextResponse<{ agentActions: AgentAction[] } | PlannerApiErrorResponse>> {
+  try {
+    const auth = await getPlannerAuth()
+    if ('response' in auth) return auth.response
+
+    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+
+    const requestedLimit = Number.parseInt(request.nextUrl.searchParams.get('limit') ?? '50', 10)
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50
+
+    const { data, error } = await auth.db
+      .from('agent_actions')
+      .select(AGENT_ACTION_SELECT_COLUMNS)
+      .eq('plan_id', context.params.planId)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      console.error('Planner agent actions list error:', error)
+      return NextResponse.json({ error: 'Failed to load agent actions' }, { status: 500 })
+    }
+
+    return NextResponse.json({ agentActions: (data ?? []) as AgentAction[] })
+  } catch (error) {
+    console.error('Planner agent action GET error:', error)
+    return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
+  }
+}
+
+/**
  * Creates an agent action and optional approval for a planner-owned plan.
  *
  * @param request - Authenticated builder request containing action details.

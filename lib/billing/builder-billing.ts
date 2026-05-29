@@ -8,7 +8,7 @@ export type BuilderBillingTier = 'free_trial' | 'pay_per_event' | 'pro_monthly' 
 export type BuilderCheckoutType = 'pay_per_event' | 'pro_monthly' | 'pro_annual'
 
 export const BUILDER_BILLING_PRICES = {
-  freeEventsGranted: 1,
+  freeEventsGranted: 2,
   payPerEventAmount: getConfiguredPrice('PLATFORM_FEE_PER_EVENT', 30),
   proMonthlyAmount: getConfiguredPrice('PLATFORM_FEE_PRO_MONTHLY', 69),
   proAnnualAmount: getConfiguredPrice('PLATFORM_FEE_PRO_ANNUAL', 690),

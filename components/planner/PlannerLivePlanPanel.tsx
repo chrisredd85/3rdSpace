@@ -23,6 +23,7 @@ import {
   WalletCards,
 } from 'lucide-react'
 import Link from 'next/link'
+import { usePlannerBillingGate } from '@/components/planner/usePlannerBillingGate'
 import { humanizeEventType } from '@/lib/planner/archetypes/driftControl'
 import { plannerDraftStorageKey } from '@/lib/planner/migrateDraft'
 import type { PlanMessage } from '@/lib/types'
@@ -707,6 +708,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const [customCostError, setCustomCostError] = useState<string | null>(null)
   const [isSavingCustomCosts, setIsSavingCustomCosts] = useState(false)
   const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const billingGate = usePlannerBillingGate()
 
   useEffect(() => {
     const initial = readLivePlanPayload()
@@ -782,7 +784,15 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         body: JSON.stringify({ venueLimit: 3, vendorLimit: 3 }),
       })
       const payload = await response.json().catch(() => ({})) as Record<string, unknown>
-      if (!response.ok) throw new Error(readString(payload.error) ?? 'Could not generate timeline.')
+      if (!response.ok) {
+        if (billingGate.handleBillingRequiredResponse(
+          response,
+          payload as { error?: string; message?: string; billingRequired?: boolean }
+        )) {
+          throw new Error('Choose a billing path to continue.')
+        }
+        throw new Error(readString(payload.error) ?? 'Could not generate timeline.')
+      }
 
       const nextRunOfShow = normalizeRunOfShow(payload.timeline)
       const nextWorkspaceSummary = normalizeWorkspaceSummary(payload.workspace_summary)
@@ -873,7 +883,13 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             authorizedAmountCents: card.amountCents,
           }),
         })
-        if (!response.ok) throw new Error('Unable to authorize approval')
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
+          if (billingGate.handleBillingRequiredResponse(response, payload)) {
+            throw new Error('Choose a billing path to continue.')
+          }
+          throw new Error('Unable to authorize approval')
+        }
       } else {
         const response = await fetch(`/api/planner/plans/${activePlanId}/agent-actions`, {
           method: 'POST',
@@ -889,7 +905,13 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             requestedAmountCents: card.amountCents,
           }),
         })
-        if (!response.ok) throw new Error('Unable to create hold request')
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
+          if (billingGate.handleBillingRequiredResponse(response, payload)) {
+            throw new Error('Choose a billing path to continue.')
+          }
+          throw new Error('Unable to create hold request')
+        }
       }
 
       setActionFeedback((current) => ({ ...current, [card.id]: 'sent' }))
@@ -1316,6 +1338,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           {activePlanId ? `Plan ${activePlanId.slice(-6)}` : 'Plan saves after sign-in'}
         </p>
       </div>
+      {billingGate.modal}
     </aside>
   )
 })

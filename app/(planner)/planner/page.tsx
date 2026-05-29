@@ -8,7 +8,7 @@
  */
 'use client'
 
-import { Suspense, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { CalendarDays, CheckCircle2, ChevronDown, Copy, ExternalLink, LayoutTemplate, Loader2, MessageSquare, RefreshCw, SendHorizontal, Sparkles, X } from 'lucide-react'
@@ -16,13 +16,16 @@ import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
 import { PlannerDataConnectionPanel } from '@/components/planner/PlannerDataConnectionPanel'
 import { PlannerLivePlanPanel } from '@/components/planner/PlannerLivePlanPanel'
 import { PlannerSignupGate } from '@/components/planner/PlannerSignupGate'
+import { PlannerTimelineCountdown } from '@/components/planner/PlannerTimelineCountdown'
 import { PlannerTopBar } from '@/components/planner/PlannerTopBar'
+import { usePlannerBillingGate } from '@/components/planner/usePlannerBillingGate'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/components/ui/toast'
 import { humanizeEventType } from '@/lib/planner/archetypes/driftControl'
 import { migratePlannerDraftToServer, plannerDraftStorageKey } from '@/lib/planner/migrateDraft'
+import type { DerivationAgentAction } from '@/lib/planner/timelineDerivation'
 import type {
   Plan,
   PlanMessage,
@@ -54,6 +57,7 @@ type PlannerTab = (typeof planTabs)[number]['id']
 type ApprovalUiStatus = 'approved' | 'rejected'
 type PlannerPersistenceMode = 'loading' | 'server' | 'draft'
 type PendingConversionActionType = 'save' | 'hold' | 'authorize'
+type BillingRequiredHandler = (message?: string | null) => void
 
 interface PlannerAgentActionRequest {
   actionType: string
@@ -159,8 +163,6 @@ const plannerStateRequestCache = new Map<string, {
   promise: Promise<PlannerStateLoadResult>
 }>()
 
-type TimelineMilestoneStatus = 'pending' | 'done' | 'at_risk'
-
 /**
  * Planner route with empty-state creation and API-backed active-plan chat.
  */
@@ -190,6 +192,8 @@ function PlannerPageContent() {
   const hasStartedInitialDraftRef = useRef(false)
   const hasTriggeredDemoResetRef = useRef(false)
   const hasTriedDraftAutoMigrationRef = useRef(false)
+  const hasParsedInitialTabRef = useRef(false)
+  const pendingDeepLinkScrollMsgIdRef = useRef<string | null>(null)
   const autoTriggeredDraftRecommendationPlanRef = useRef<string | null>(null)
   const ignoredDraftRef = useRef<string | null>(null)
   const [persistenceMode, setPersistenceMode] = useState<PlannerPersistenceMode>('loading')
@@ -214,15 +218,102 @@ function PlannerPageContent() {
   const [replyAnalysisError, setReplyAnalysisError] = useState<string | null>(null)
   const [replyAnalysisResult, setReplyAnalysisResult] = useState<ResponseAnalysisOutput | null>(null)
   const [timelineResult, setTimelineResult] = useState<TimelineOutput | null>(null)
+  const [agentActions, setAgentActions] = useState<DerivationAgentAction[]>([])
   const [isTimelineLoading, setIsTimelineLoading] = useState(false)
   const [timelineError, setTimelineError] = useState<string | null>(null)
   const [isDemoResetting, setIsDemoResetting] = useState(false)
   const [demoResetError, setDemoResetError] = useState<string | null>(null)
   const [signupGateContext, setSignupGateContext] = useState<'default' | 'recommendations'>('default')
   const [plannerAccount, setPlannerAccount] = useState<PlannerAccountSummary | null>(null)
+  const billingGate = usePlannerBillingGate({
+    onPlanArchived: (planId) => {
+      if (activePlan?.id === planId) {
+        setActivePlan(null)
+        setMessages([])
+        publishLivePlan(null, [])
+      }
+    },
+  })
+
+  const loadPlanAgentActions = useCallback(async (planId: string) => {
+    if (!planId || planId.startsWith('mock-plan-')) {
+      setAgentActions([])
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/planner/plans/${planId}/agent-actions?limit=50`, {
+        method: 'GET',
+        credentials: 'include',
+      })
+      const payload = await response.json().catch(() => ({} as { agentActions?: DerivationAgentAction[] }))
+
+      if (!response.ok) {
+        console.warn('[planner] Unable to load agent actions for timeline', response.status)
+        return
+      }
+
+      setAgentActions(Array.isArray(payload.agentActions) ? payload.agentActions : [])
+    } catch (error) {
+      console.warn('[planner] Unable to load agent actions for timeline', error)
+    }
+  }, [])
+
   useEffect(() => {
     setIsAuthenticated(persistenceMode === 'server')
   }, [persistenceMode])
+
+  // Deep-link support: on first render, if the URL carries ?tab=... (and
+  // optionally ?msg=...), open the planner on that tab. The scroll-to-message
+  // is deferred to a separate effect because messages load asynchronously.
+  useEffect(() => {
+    if (hasParsedInitialTabRef.current) return
+    hasParsedInitialTabRef.current = true
+    const requestedTab = searchParams.get('tab')
+    const requestedMessageId = searchParams.get('msg')
+    const valid = planTabs.some((tab) => tab.id === requestedTab)
+    if (!valid) return
+    setActiveTab(requestedTab as PlannerTab)
+    if (requestedTab === 'timeline' && !timelineResult && !isTimelineLoading) {
+      void loadPlannerTimeline()
+    }
+    if (requestedMessageId) {
+      pendingDeepLinkScrollMsgIdRef.current = requestedMessageId
+    }
+  }, [searchParams])
+
+  // Once the destination tab has rendered the deep-linked message, scroll it
+  // into view and clear the pending ref. Runs whenever messages or activeTab
+  // change, so we catch the moment the target card mounts.
+  useEffect(() => {
+    const pendingId = pendingDeepLinkScrollMsgIdRef.current
+    if (!pendingId) return
+    const el = document.querySelector(`[data-plan-message-id="${pendingId}"]`)
+    if (!(el instanceof HTMLElement)) return
+    pendingDeepLinkScrollMsgIdRef.current = null
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [messages, activeTab])
+
+  // Auto-fetch the timeline once the plan has loaded if the user landed on the
+  // Timeline tab via deep link (or any other path that beat the plan-load).
+  // Without this, the tab opens empty until the user clicks Refresh.
+  useEffect(() => {
+    if (activeTab !== 'timeline') return
+    if (!activePlan) return
+    if (timelineResult) return
+    if (isTimelineLoading) return
+    void loadPlannerTimeline()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, activePlan, timelineResult, isTimelineLoading])
+
+  useEffect(() => {
+    if (persistenceMode !== 'server' || !activePlan?.id) {
+      setAgentActions([])
+      return
+    }
+
+    void loadPlanAgentActions(activePlan.id)
+  }, [activePlan?.id, persistenceMode, loadPlanAgentActions])
 
   useEffect(() => {
     let isCancelled = false
@@ -334,7 +425,10 @@ function PlannerPageContent() {
         if (!isCancelled) {
           setActivePlan(plannerState.plan)
           setMessages(plannerState.messages)
-          setActiveTab('chat')
+          // Preserve the deep-link tab if one was supplied; otherwise default to Chat.
+          const requestedTabOnLoad = searchParams.get('tab')
+          const validDeepLinkTab = planTabs.some((tab) => tab.id === requestedTabOnLoad)
+          if (!validDeepLinkTab) setActiveTab('chat')
           clearStoredPlannerConversation()
           setPersistenceMode('server')
         }
@@ -495,6 +589,12 @@ function PlannerPageContent() {
         return 'draft'
       }
 
+      if (response.status === 402) {
+        billingGate.handleBillingRequiredResponse(response, payload)
+        setIsCreatingPlan(false)
+        return null
+      }
+
       if (!response.ok) {
         throw new Error(payload?.error ?? 'Unable to create planner draft')
       }
@@ -502,6 +602,7 @@ function PlannerPageContent() {
       const data = payload as PlannerCreatePlanResponse
       setActivePlan(data.plan)
       setMessages(data.messages)
+      setAgentActions([])
       setActiveTab('chat')
       publishLivePlan(data.plan, data.messages)
       if (data.needs_recommendations) {
@@ -714,6 +815,7 @@ function PlannerPageContent() {
     clearStoredPlannerConversation()
     setActivePlan(null)
     setMessages([])
+    setAgentActions([])
     setReply('')
     setActiveTab('chat')
     setErrorMessage(null)
@@ -787,6 +889,29 @@ function PlannerPageContent() {
     if (tabId === 'timeline' && !timelineResult && !isTimelineLoading) {
       void loadPlannerTimeline()
     }
+    if (tabId === 'timeline' && activePlan?.id && persistenceMode === 'server') {
+      void loadPlanAgentActions(activePlan.id)
+    }
+  }
+
+  function navigateToPlannerTab(tabId: PlannerTab, messageId?: string) {
+    handlePlannerTabSelect(tabId)
+    // Update the URL so the navigation is shareable/back-button-friendly. Use
+    // replace (not push) since the user is navigating within the same plan view.
+    const next = new URLSearchParams(searchParams.toString())
+    next.set('tab', tabId)
+    if (messageId) next.set('msg', messageId)
+    else next.delete('msg')
+    router.replace(`/planner?${next.toString()}`, { scroll: false })
+
+    if (!messageId) return
+    // Defer scroll to after the destination tab renders the card.
+    window.setTimeout(() => {
+      const el = document.querySelector(`[data-plan-message-id="${messageId}"]`)
+      if (el instanceof HTMLElement) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      }
+    }, 80)
   }
 
   async function loadPlannerTimeline() {
@@ -802,6 +927,10 @@ function PlannerPageContent() {
     setTimelineError(null)
 
     try {
+      if (persistenceMode === 'server') {
+        await loadPlanAgentActions(activePlan.id)
+      }
+
       const response = await fetch('/api/ai/agents/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -820,6 +949,12 @@ function PlannerPageContent() {
       const payload = await response.json().catch(() => ({}))
 
       if (!response.ok) {
+        if (billingGate.handleBillingRequiredResponse(
+          response,
+          payload as { error?: string; message?: string; billingRequired?: boolean }
+        )) {
+          throw new Error('Choose a billing path to continue.')
+        }
         const serverMessage = readUnknownRecord(payload)?.error
         throw new Error(
           typeof serverMessage === 'string' && serverMessage.trim()
@@ -1130,7 +1265,13 @@ function PlannerPageContent() {
         }),
       })
 
-      if (!response.ok) throw new Error('Authorization failed — try again')
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
+        if (billingGate.handleBillingRequiredResponse(response, payload)) {
+          throw new Error('Choose a billing path to continue.')
+        }
+        throw new Error('Authorization failed — try again')
+      }
       return
     }
 
@@ -1146,6 +1287,10 @@ function PlannerPageContent() {
     })
 
     if (!response.ok) {
+      const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
+      if (billingGate.handleBillingRequiredResponse(response, payload)) {
+        throw new Error('Choose a billing path to continue.')
+      }
       throw new Error(action.type === 'authorize' ? 'Authorization failed — try again' : 'Failed to create hold request — try again')
     }
   }
@@ -1326,6 +1471,8 @@ function PlannerPageContent() {
                     onApprovalStatusChange={handleApprovalStatusChange}
                     onToast={addToast}
                     onQuestionAnswerSubmit={(answer) => void submitReply(answer)}
+                    onNavigateToTab={navigateToPlannerTab}
+                    onBillingRequired={billingGate.openBillingGate}
                   />
                 ))}
                 {isAwaitingRecommendations ? (
@@ -1353,6 +1500,7 @@ function PlannerPageContent() {
                       onApprovalStatusChange={handleApprovalStatusChange}
                       onToast={addToast}
                       onQuestionAnswerSubmit={(answer) => void submitReply(answer)}
+                      onBillingRequired={billingGate.openBillingGate}
                     />
                   ))
                 ) : (
@@ -1378,6 +1526,7 @@ function PlannerPageContent() {
                       onAuthRequired={requestSignupForAction}
                       onApprovalStatusChange={handleApprovalStatusChange}
                       onToast={addToast}
+                      onBillingRequired={billingGate.openBillingGate}
                     />
                   ))
                 ) : (
@@ -1389,12 +1538,15 @@ function PlannerPageContent() {
             ) : null}
 
             {activeTab === 'timeline' && persistenceMode === 'server' ? (
-              <PlannerTimelinePanel
+              <PlannerTimelineCountdown
                 plan={activePlan}
+                messages={messages}
+                agentActions={agentActions}
                 timeline={timelineResult}
                 isLoading={isTimelineLoading}
                 error={timelineError}
                 onRefresh={() => void loadPlannerTimeline()}
+                onNavigateToTab={navigateToPlannerTab}
               />
             ) : null}
 
@@ -1422,14 +1574,19 @@ function PlannerPageContent() {
                       onChange={(event) => {
                         setReply(event.target.value)
                         const el = event.target
+                        // Baseline (~5rem) fits the placeholder cleanly even at
+                        // narrow viewports where it wraps to two lines, so the
+                        // textarea never changes height between empty and typed
+                        // states unless the content genuinely overflows.
+                        const baseline = 80
                         el.style.height = 'auto'
-                        el.style.height = `${el.scrollHeight}px`
+                        el.style.height = `${Math.max(baseline, el.scrollHeight)}px`
                       }}
                       onKeyDown={handleReplyKeyDown}
                       name="reply"
-                      rows={1}
-                      className="relative z-10 max-h-48 min-h-12 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-2 py-3 focus-visible:ring-0"
-                      placeholder="Reply with dates, budget, headcount, or approval rules..."
+                      rows={2}
+                      className="relative z-10 h-20 max-h-48 min-h-20 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-2 py-2 focus-visible:ring-0"
+                      placeholder="Reply with details…"
                       aria-label="Reply to planner agent"
                       disabled={isSendingReply}
                     />
@@ -1528,6 +1685,7 @@ function PlannerPageContent() {
         onApply={(templateId) => void applyPlannerTemplate(templateId)}
         onSaveCurrentPlan={() => void saveActivePlanAsTemplate()}
       />
+      {billingGate.modal}
     </div>
   )
 }
@@ -1870,106 +2028,6 @@ function inferPlanCity(value: string | null | undefined): string | null {
   return value ?? null
 }
 
-function PlannerTimelinePanel(props: {
-  plan: Plan
-  timeline: TimelineOutput | null
-  isLoading: boolean
-  error: string | null
-  onRefresh: () => void
-}) {
-  const eventDate = props.plan.date_window_start ?? props.plan.date_window_end
-  const milestones = props.timeline
-    ? [...props.timeline.planning_milestones].sort((first, second) => first.due_date.localeCompare(second.due_date))
-    : []
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 px-4 py-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-primary">Timeline</p>
-          <h3 className="mt-1 font-display text-lg font-bold">Planning milestones</h3>
-        </div>
-        <Button type="button" variant="glass" size="sm" onClick={props.onRefresh} disabled={props.isLoading}>
-          <RefreshCw className={cn('h-4 w-4', props.isLoading && 'animate-spin')} />
-          Refresh
-        </Button>
-      </div>
-
-      {props.isLoading ? (
-        <div className="space-y-3">
-          {[0, 1, 2, 3].map((index) => (
-            <div key={index} className="h-20 animate-pulse rounded-2xl border border-border bg-muted/40" />
-          ))}
-        </div>
-      ) : null}
-
-      {!props.isLoading && props.error ? (
-        <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {props.error}
-        </div>
-      ) : null}
-
-      {!props.isLoading && !props.error && props.timeline ? (
-        <>
-          {props.timeline.impossible_timeline ? (
-            <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              This timeline is compressed. Critical milestones may not be realistic before the event date.
-            </div>
-          ) : null}
-
-          {props.timeline.dependency_warnings.length > 0 ? (
-            <div className="rounded-2xl border border-secondary/30 bg-secondary/10 px-4 py-3 text-sm text-secondary">
-              {props.timeline.dependency_warnings.join(' ')}
-            </div>
-          ) : null}
-
-          <div className="relative space-y-3 pl-4">
-            <div className="absolute bottom-0 left-[1.1rem] top-0 w-px bg-border" />
-            {milestones.map((milestone) => {
-              const status = getTimelineMilestoneStatus(milestone)
-              return (
-                <div key={`${milestone.due_date}:${milestone.title}`} className="relative flex gap-4 rounded-2xl border border-border bg-background/60 p-4">
-                  <span className="absolute -left-[0.15rem] top-6 h-3 w-3 rounded-full border-2 border-background bg-primary" />
-                  <div className="w-24 shrink-0 text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                    {formatTimelineDateLabel(milestone.due_date, eventDate)}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h4 className="font-display text-base font-bold">{milestone.title}</h4>
-                      <span className="rounded-full border border-border bg-card/70 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
-                        {milestone.category}
-                      </span>
-                      <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-bold uppercase tracking-widest', getTimelineStatusClass(status))}>
-                        {status}
-                      </span>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <span className="rounded-full border border-border bg-card/70 px-2 py-1 text-xs text-muted-foreground">
-                        Owner: Event lead
-                      </span>
-                      {milestone.is_blocking ? (
-                        <span className="rounded-full border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive">
-                          Blocking
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </>
-      ) : null}
-
-      {!props.isLoading && !props.error && !props.timeline ? (
-        <div className="rounded-2xl border border-border bg-background/60 px-4 py-10 text-center text-sm text-muted-foreground">
-          Open this tab to generate a timeline from the current plan.
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
 function isTimelineOutput(value: unknown): value is TimelineOutput {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const output = value as Record<string, unknown>
@@ -1983,46 +2041,63 @@ function isTimelineOutput(value: unknown): value is TimelineOutput {
   )
 }
 
-function formatTimelineDateLabel(dueDate: string, eventDate: string | null): string {
-  if (!eventDate) return dueDate
+/**
+ * Returns the filtered message list for the active planner tab.
+ *
+ * Chat tab is now conversational only — recommendation and approval cards are
+ * replaced inline with compact narration chips that route the user to the
+ * correct tab. The Recommendations and Approvals tabs continue to render the
+ * full cards via their existing filters.
+ */
+function getVisibleMessages(messages: PlanMessage[], activeTab: PlannerTab) {
+  if (activeTab === 'recommendations') return messages.filter(isRecommendationMessage)
+  if (activeTab === 'approvals') return messages.filter(isApprovalMessage)
+  if (activeTab !== 'chat') return messages
 
-  const due = parseDateOnly(dueDate)
-  const event = parseDateOnly(eventDate)
-  if (!due || !event) return dueDate
-
-  const diffDays = Math.round((event.getTime() - due.getTime()) / (24 * 60 * 60 * 1000))
-  if (diffDays === 0) return 'Event day'
-  if (diffDays > 0) return `T-${diffDays} days`
-  return `T+${Math.abs(diffDays)} days`
-}
-
-function getTimelineMilestoneStatus(milestone: TimelineMilestone): TimelineMilestoneStatus {
-  const due = parseDateOnly(milestone.due_date)
-  if (!due) return 'pending'
-
-  const today = parseDateOnly(new Date().toISOString().slice(0, 10))
-  if (today && due.getTime() < today.getTime()) return 'at_risk'
-  return 'pending'
-}
-
-function getTimelineStatusClass(status: TimelineMilestoneStatus): string {
-  if (status === 'done') return 'border-success/30 bg-success/10 text-success'
-  if (status === 'at_risk') return 'border-destructive/30 bg-destructive/10 text-destructive'
-  return 'border-border bg-muted text-muted-foreground'
-}
-
-function parseDateOnly(value: string): Date | null {
-  const parsed = new Date(`${value.slice(0, 10)}T00:00:00Z`)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
+  return messages.map((message) => {
+    if (isRecommendationMessage(message)) return toNarrationChipMessage(message, 'recommendations')
+    if (isApprovalMessage(message)) return toNarrationChipMessage(message, 'approvals')
+    return message
+  })
 }
 
 /**
- * Returns the filtered message list for the active planner tab.
+ * Wraps a recommendation/approval message as a synthetic chat-thread chip:
+ * one-line summary + tab target. Preserves the original `id` so deep linking
+ * (?tab=...&msg=...) can scroll the destination tab to the same card.
  */
-function getVisibleMessages(messages: PlanMessage[], activeTab: PlannerTab) {
-  if (activeTab === 'chat') return messages
-  if (activeTab === 'recommendations') return messages.filter(isRecommendationMessage)
-  return messages.filter(isApprovalMessage)
+function toNarrationChipMessage(
+  message: PlanMessage,
+  targetTab: 'recommendations' | 'approvals'
+): PlanMessage {
+  const meta = (message.metadata && typeof message.metadata === 'object' && !Array.isArray(message.metadata))
+    ? message.metadata as Record<string, unknown>
+    : {}
+  const phase = typeof meta.phase === 'string' ? meta.phase : null
+  const recs = Array.isArray(meta.recommendations) ? meta.recommendations : []
+  const venueCount = recs.filter((rec) => (rec as Record<string, unknown>)?.type === 'Venue').length
+  const vendorCount = recs.length - venueCount
+  const hasGate = Boolean(meta.economics_gate)
+
+  let summary: string
+  if (targetTab === 'approvals') {
+    summary = 'Approval ready — review in Approvals.'
+  } else if (phase === 'venues') {
+    summary = `${venueCount || recs.length} venue ${(venueCount || recs.length) === 1 ? 'match' : 'matches'} ready — open Recommendations.`
+  } else if (hasGate) {
+    summary = `Vendors + pricing check — open Recommendations.`
+  } else if (vendorCount > 0) {
+    summary = `${vendorCount} vendor ${vendorCount === 1 ? 'option' : 'options'} ready — open Recommendations.`
+  } else {
+    summary = 'Recommendations updated — open Recommendations.'
+  }
+
+  return {
+    ...message,
+    message_type: 'text',
+    content: summary,
+    metadata: { ...meta, kind: 'narration_chip', target_tab: targetTab, target_msg_id: message.id },
+  }
 }
 
 /**
@@ -2083,15 +2158,21 @@ function isPlanArtifactMessage(message: PlanMessage) {
 }
 
 /**
- * Matches planner recommendation messages that contain actual venue/vendor cards.
- * Excludes "ready to recommend" acknowledgement messages which have no recommendations array.
+ * Matches planner recommendation messages that carry real cards or an
+ * economics gate. Excludes "I have enough to start matching" acknowledgement
+ * messages which have neither — those stay in Chat as conversational text.
  */
 function isRecommendationMessage(message: PlanMessage) {
   if (String(message.message_type) !== 'recommendation') return false
   const meta = message.metadata
   if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return false
-  const recs = (meta as Record<string, unknown>).recommendations
-  return Array.isArray(recs) && recs.length > 0
+  const record = meta as Record<string, unknown>
+  const recs = record.recommendations
+  if (Array.isArray(recs) && recs.length > 0) return true
+  if (record.economics_gate) return true
+  const vendorRecs = record.vendor_recommendations
+  if (Array.isArray(vendorRecs) && vendorRecs.length > 0) return true
+  return false
 }
 
 /**
@@ -2099,6 +2180,26 @@ function isRecommendationMessage(message: PlanMessage) {
  */
 function isApprovalMessage(message: PlanMessage) {
   return String(message.message_type) === 'approval_request'
+}
+
+/**
+ * Reads narration-chip metadata produced by `toNarrationChipMessage` for Chat
+ * tab rendering. Returns null on regular messages so the existing bubble path
+ * is unaffected.
+ */
+function readNarrationChipMetadata(message: PlanMessage): {
+  target_tab: 'recommendations' | 'approvals'
+  target_msg_id: string
+} | null {
+  const meta = message.metadata
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return null
+  const record = meta as Record<string, unknown>
+  if (record.kind !== 'narration_chip') return null
+  const tab = record.target_tab
+  const msgId = record.target_msg_id
+  if (tab !== 'recommendations' && tab !== 'approvals') return null
+  if (typeof msgId !== 'string') return null
+  return { target_tab: tab, target_msg_id: msgId }
 }
 
 /**
@@ -3069,9 +3170,11 @@ interface PlannerMessageBubbleProps {
   planId: string
   isAuthenticated: boolean
   onAuthRequired: (action: PendingConversionAction) => void
+  onBillingRequired?: BillingRequiredHandler
   onApprovalStatusChange: (approvalId: string, status: ApprovalUiStatus) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
   onQuestionAnswerSubmit?: (answer: string) => void
+  onNavigateToTab?: (tab: PlannerTab, messageId?: string) => void
 }
 
 function DraftMatchSignupCard({ onContinue }: { onContinue: () => void }) {
@@ -3105,13 +3208,33 @@ function PlannerMessageBubble({
   planId,
   isAuthenticated,
   onAuthRequired,
+  onBillingRequired,
   onApprovalStatusChange,
   onToast,
   onQuestionAnswerSubmit,
+  onNavigateToTab,
 }: PlannerMessageBubbleProps) {
   const isUser = message.role === 'user'
   const messageTime = formatMessageTime(message.created_at)
   const hasStructuredQuestion = messageHasStructuredQuestion(message)
+  const narrationChip = readNarrationChipMetadata(message)
+
+  if (narrationChip) {
+    return (
+      <div className="flex w-full justify-start">
+        <button
+          type="button"
+          onClick={() => onNavigateToTab?.(narrationChip.target_tab, narrationChip.target_msg_id)}
+          disabled={!onNavigateToTab}
+          className="group flex max-w-full items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-2 text-left text-xs font-semibold text-primary transition hover:border-primary hover:bg-primary/20 disabled:cursor-default disabled:opacity-70"
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          <span className="truncate">{message.content}</span>
+          <span aria-hidden className="ml-1 text-primary/70 transition group-hover:translate-x-0.5">→</span>
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className={cn('flex w-full', isUser ? 'justify-end' : 'justify-start')}>
@@ -3151,6 +3274,7 @@ function PlannerMessageBubble({
               planId={planId}
               isAuthenticated={isAuthenticated}
               onAuthRequired={onAuthRequired}
+              onBillingRequired={onBillingRequired}
               onApprovalStatusChange={onApprovalStatusChange}
               onToast={onToast}
               onQuestionAnswerSubmit={onQuestionAnswerSubmit}
@@ -3247,6 +3371,7 @@ interface PlannerFocusedMessageCardProps {
   planId: string
   isAuthenticated: boolean
   onAuthRequired: (action: PendingConversionAction) => void
+  onBillingRequired?: BillingRequiredHandler
   onApprovalStatusChange: (approvalId: string, status: ApprovalUiStatus) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
   onQuestionAnswerSubmit?: (answer: string) => void
@@ -3261,6 +3386,7 @@ function PlannerFocusedMessageCard({
   planId,
   isAuthenticated,
   onAuthRequired,
+  onBillingRequired,
   onApprovalStatusChange,
   onToast,
   onQuestionAnswerSubmit,
@@ -3277,7 +3403,10 @@ function PlannerFocusedMessageCard({
   const hasStructuredQuestion = messageHasStructuredQuestion(message)
 
   return (
-    <article className="min-w-0 rounded-2xl border border-border bg-background/60 p-4">
+    <article
+      data-plan-message-id={message.id}
+      className="min-w-0 rounded-2xl border border-border bg-background/60 p-4"
+    >
       {!hasStructuredQuestion ? (
         <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{message.content}</p>
       ) : null}
@@ -3286,6 +3415,7 @@ function PlannerFocusedMessageCard({
         planId={planId}
         isAuthenticated={isAuthenticated}
         onAuthRequired={onAuthRequired}
+        onBillingRequired={onBillingRequired}
         onApprovalStatusChange={onApprovalStatusChange}
         onToast={onToast}
         onQuestionAnswerSubmit={onQuestionAnswerSubmit}
@@ -3302,6 +3432,7 @@ function PlannerApprovalFocusedCard({
   planId,
   isAuthenticated,
   onAuthRequired,
+  onBillingRequired,
   onApprovalStatusChange,
   onToast,
 }: PlannerFocusedMessageCardProps) {
@@ -3309,22 +3440,28 @@ function PlannerApprovalFocusedCard({
 
   if (!approval) {
     return (
-      <article className="min-w-0 rounded-2xl border border-border bg-background/60 p-4">
+      <article
+        data-plan-message-id={message.id}
+        className="min-w-0 rounded-2xl border border-border bg-background/60 p-4"
+      >
         <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{message.content}</p>
       </article>
     )
   }
 
   return (
-    <PlannerApprovalCard
-      planId={planId}
-      approvalId={typeof approval.id === 'string' ? approval.id : message.id}
-      approval={buildApprovalDisplayMetadata(message.metadata, approval)}
-      isAuthenticated={isAuthenticated}
-      onAuthRequired={onAuthRequired}
-      onStatusChange={onApprovalStatusChange}
-      onToast={onToast}
-    />
+    <div data-plan-message-id={message.id}>
+      <PlannerApprovalCard
+        planId={planId}
+        approvalId={typeof approval.id === 'string' ? approval.id : message.id}
+        approval={buildApprovalDisplayMetadata(message.metadata, approval)}
+        isAuthenticated={isAuthenticated}
+        onAuthRequired={onAuthRequired}
+        onBillingRequired={onBillingRequired}
+        onStatusChange={onApprovalStatusChange}
+        onToast={onToast}
+      />
+    </div>
   )
 }
 
@@ -3489,6 +3626,7 @@ interface PlannerMessageMetadataProps {
   planId: string
   isAuthenticated: boolean
   onAuthRequired: (action: PendingConversionAction) => void
+  onBillingRequired?: BillingRequiredHandler
   onApprovalStatusChange: (approvalId: string, status: ApprovalUiStatus) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
   onQuestionAnswerSubmit?: (answer: string) => void
@@ -3502,6 +3640,7 @@ function PlannerMessageMetadata({
   planId,
   isAuthenticated,
   onAuthRequired,
+  onBillingRequired,
   onApprovalStatusChange,
   onToast,
   onQuestionAnswerSubmit,
@@ -3522,6 +3661,8 @@ function PlannerMessageMetadata({
   const capacityCalibration = readRecommendationCapacityCalibration(message.metadata)
   const economicsPrompt = readRecommendationEconomicsPrompt(message.metadata)
   const economicsDetails = readRecommendationEconomicsDetails(message.metadata)
+  const economicsGate = readRecommendationEconomicsGate(message.metadata)
+  const byoVendors = readRecommendationByoVendors(message.metadata)
 
   return (
     <div className={cn('space-y-3', hasStructuredQuestion ? 'mt-0' : 'mt-4')}>
@@ -3726,6 +3867,7 @@ function PlannerMessageMetadata({
                   planId={planId}
                   isAuthenticated={isAuthenticated}
                   onAuthRequired={onAuthRequired}
+                  onBillingRequired={onBillingRequired}
                   recommendation={recommendation as Record<string, unknown>}
                   label={action}
                   variant={index === 0 ? 'hero' : 'glass'}
@@ -3733,6 +3875,66 @@ function PlannerMessageMetadata({
               </div>
             )
           })}
+          </div>
+        </div>
+      ) : null}
+
+      {byoVendors.length > 0 ? (
+        <div className="rounded-2xl border border-border bg-background/50 p-4">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Yours (BYO)</p>
+            <p className="text-xs font-medium text-muted-foreground">
+              Folded into your projection
+            </p>
+          </div>
+          <ul className="mt-2 space-y-1.5">
+            {byoVendors.map((vendor) => (
+              <li key={`${vendor.service_type}:${vendor.name ?? ''}`} className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-card/40 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground">
+                    {vendor.name ?? formatByoServiceType(vendor.service_type)}
+                  </p>
+                  <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+                    {formatByoServiceType(vendor.service_type)}
+                  </p>
+                </div>
+                <span className="shrink-0 text-sm font-semibold text-foreground">
+                  {typeof vendor.cost_cents === 'number' ? formatMockCents(vendor.cost_cents) : 'Cost TBD'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {economicsGate ? (
+        <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-widest text-destructive">
+              Pricing check — needs your call
+            </p>
+            <p className="text-xs font-medium text-destructive/80">
+              Loss of {formatMockCents(economicsGate.projected_loss_cents)} at full sell-through
+            </p>
+          </div>
+          <p className="mt-2 text-sm leading-relaxed text-foreground">
+            At your stated {formatMockCents(economicsGate.stated_price_cents)}/ticket, costs ({formatMockCents(economicsGate.total_costs_cents)}) outrun ticket revenue. Pick a path so I can re-plan against a budget that works:
+          </p>
+          <div className="mt-3 grid gap-2">
+            {economicsGate.options.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => {
+                  if (onQuestionAnswerSubmit) onQuestionAnswerSubmit(option.action_message)
+                }}
+                disabled={!onQuestionAnswerSubmit}
+                className="group flex flex-col gap-1 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-left transition hover:border-primary/50 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span className="text-sm font-semibold text-foreground">{option.label}</span>
+                <span className="text-xs leading-snug text-muted-foreground">{option.sub}</span>
+              </button>
+            ))}
           </div>
         </div>
       ) : null}
@@ -3864,6 +4066,7 @@ function PlannerMessageMetadata({
           approval={buildApprovalDisplayMetadata(message.metadata, approval as Record<string, unknown>)}
           isAuthenticated={isAuthenticated}
           onAuthRequired={onAuthRequired}
+          onBillingRequired={onBillingRequired}
           onStatusChange={onApprovalStatusChange}
           onToast={onToast}
         />
@@ -4063,6 +4266,7 @@ interface PlannerRecommendationActionButtonProps {
   planId: string
   isAuthenticated: boolean
   onAuthRequired: (action: PendingConversionAction) => void
+  onBillingRequired?: BillingRequiredHandler
   recommendation: Record<string, unknown>
   label: string
   variant: 'hero' | 'glass'
@@ -4077,6 +4281,7 @@ function PlannerRecommendationActionButton({
   planId,
   isAuthenticated,
   onAuthRequired,
+  onBillingRequired,
   recommendation,
   label,
   variant,
@@ -4117,6 +4322,11 @@ function PlannerRecommendationActionButton({
         })
 
         if (!response.ok) {
+          const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
+          if (response.status === 402) {
+            onBillingRequired?.(payload.error ?? payload.message)
+            return
+          }
           throw new Error('Failed to create agent action')
         }
       }
@@ -4389,6 +4599,82 @@ function sentenceCase(value: string): string {
   return `${trimmed[0].toUpperCase()}${trimmed.slice(1)}`
 }
 
+function readRecommendationByoVendors(metadata: unknown): Array<{
+  service_type: string
+  name: string | null
+  cost_cents: number | null
+}> {
+  const root = readUnknownRecord(metadata)
+  const response = readUnknownRecord(root?.recommendation_response)
+  const raw = Array.isArray(root?.byo_vendors)
+    ? root?.byo_vendors
+    : Array.isArray(response?.byo_vendors)
+      ? response?.byo_vendors
+      : []
+  return raw.flatMap((item) => {
+    const record = readUnknownRecord(item)
+    const serviceType = typeof record?.service_type === 'string' ? record.service_type : null
+    if (!serviceType) return []
+    const name = typeof record?.name === 'string' && record.name.trim() ? record.name.trim() : null
+    const cost = typeof record?.cost_cents === 'number' && Number.isFinite(record.cost_cents) ? record.cost_cents : null
+    return [{ service_type: serviceType, name, cost_cents: cost }]
+  })
+}
+
+const BYO_SERVICE_LABEL_OVERRIDES: Record<string, string> = {
+  dj: 'DJ',
+  av_production: 'AV / Production',
+  music_coordinator: 'Music coordinator',
+  check_in: 'Check-in',
+}
+
+function formatByoServiceType(serviceType: string): string {
+  const override = BYO_SERVICE_LABEL_OVERRIDES[serviceType]
+  if (override) return override
+  return serviceType
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function readRecommendationEconomicsGate(metadata: unknown): {
+  stated_price_cents: number
+  projected_loss_cents: number
+  total_costs_cents: number
+  break_even_price_cents: number | null
+  options: Array<{ id: string; label: string; sub: string; action_message: string }>
+} | null {
+  const root = readUnknownRecord(metadata)
+  const response = readUnknownRecord(root?.recommendation_response)
+  const gate = readUnknownRecord(root?.economics_gate) ?? readUnknownRecord(response?.economics_gate)
+  if (!gate) return null
+
+  const stated = typeof gate.stated_price_cents === 'number' ? gate.stated_price_cents : null
+  const loss = typeof gate.projected_loss_cents === 'number' ? gate.projected_loss_cents : null
+  const totalCosts = typeof gate.total_costs_cents === 'number' ? gate.total_costs_cents : null
+  if (stated === null || loss === null || totalCosts === null) return null
+
+  const breakEven = typeof gate.break_even_price_cents === 'number' ? gate.break_even_price_cents : null
+  const rawOptions = Array.isArray(gate.options) ? gate.options : []
+  const options = rawOptions.flatMap((item) => {
+    const record = readUnknownRecord(item)
+    const id = typeof record?.id === 'string' ? record.id : null
+    const label = typeof record?.label === 'string' ? record.label : null
+    const sub = typeof record?.sub === 'string' ? record.sub : null
+    const actionMessage = typeof record?.action_message === 'string' ? record.action_message : null
+    if (!id || !label || !sub || !actionMessage) return []
+    return [{ id, label, sub, action_message: actionMessage }]
+  })
+  if (options.length === 0) return null
+
+  return {
+    stated_price_cents: stated,
+    projected_loss_cents: loss,
+    total_costs_cents: totalCosts,
+    break_even_price_cents: breakEven,
+    options,
+  }
+}
+
 function readRecommendationEconomicsPrompt(metadata: unknown): {
   economics_placeholder: string | null
   ticketing_platform_prompt: string | null
@@ -4647,6 +4933,7 @@ interface PlannerApprovalCardProps {
   approval: Record<string, unknown>
   isAuthenticated: boolean
   onAuthRequired: (action: PendingConversionAction) => void
+  onBillingRequired?: BillingRequiredHandler
   onStatusChange: (approvalId: string, status: ApprovalUiStatus, updatedApproval?: Record<string, unknown>) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
 }
@@ -4670,6 +4957,7 @@ function PlannerApprovalCard({
   approval,
   isAuthenticated,
   onAuthRequired,
+  onBillingRequired,
   onStatusChange,
   onToast,
 }: PlannerApprovalCardProps) {
@@ -4778,7 +5066,11 @@ function PlannerApprovalCard({
     })
 
     if (!response.ok) {
-      const payload = await response.json().catch(() => ({} as { error?: string }))
+      const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
+      if (response.status === 402) {
+        onBillingRequired?.(payload.error ?? payload.message)
+        throw new Error('Choose a billing path to continue.')
+      }
       throw new Error(payload?.error ?? 'Approval update failed')
     }
 
@@ -4791,7 +5083,11 @@ function PlannerApprovalCard({
       requestSignupForAuthorization(amountCents)
       return
     }
-    if (isProductGateRequired || isProductGateLoading) return
+    if (isProductGateRequired) {
+      onBillingRequired?.('Choose how to keep planning before approving outreach.')
+      return
+    }
+    if (isProductGateLoading) return
 
     setIsSubmitting(true)
     setInlineError(null)
@@ -4837,7 +5133,11 @@ function PlannerApprovalCard({
       requestSignupForAuthorization(nextAuthorizedAmountCents)
       return
     }
-    if (isProductGateRequired || isProductGateLoading) return
+    if (isProductGateRequired) {
+      onBillingRequired?.('Choose how to keep planning before approving outreach.')
+      return
+    }
+    if (isProductGateLoading) return
 
     setIsSubmitting(true)
     setInlineError(null)

@@ -85,6 +85,7 @@ export async function createAutoRecommendationMessage(input: {
         metadata: toJson({
           source: 'planner_recommendations',
           recommendations: vendorDisplayItems,
+          byo_vendors: readArray(recommendationData.byo_vendors),
           vendor_match_notice: readRecord(recommendationData.vendor_match_notice),
           resolved_archetype: readRecord(recommendationData.resolved_archetype),
           vendor_recommendations: vendorRecommendations,
