@@ -215,6 +215,7 @@ describe('Stripe kickback invoice webhook routing', () => {
       destination: 'acct_builder',
       transfer_group: `kickback_${PAYMENT_ID}`,
       metadata: {
+        payment_kind_namespace: 'venue_builder_kickback',
         kickback_payment_id: PAYMENT_ID,
         settlement_method: 'invoice',
       },
@@ -314,6 +315,93 @@ describe('Stripe kickback invoice webhook routing', () => {
     })
     expect(db.rows.kickback_payments[0]).toMatchObject({
       status: 'refunded_partial',
+    })
+  })
+
+  describe('transfer.created / transfer.updated namespace isolation', () => {
+    it('routes transfer.created with kickback_payment_id metadata to the kickback handler', async () => {
+      event = {
+        type: 'transfer.created',
+        data: {
+          object: {
+            id: 'tr_kickback',
+            metadata: {
+              kickback_payment_id: PAYMENT_ID,
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(db.rows.kickback_payments[0]).toMatchObject({
+        status: 'completed',
+        stripe_transfer_id: 'tr_kickback',
+      })
+      expect(db.rows.kickback_payments[0].completed_at).toEqual(expect.any(String))
+    })
+
+    it('routes transfer.updated with venue_builder_kickback namespace to the kickback handler', async () => {
+      Object.assign(db.rows.kickback_payments[0], {
+        status: 'processing',
+        stripe_transfer_id: 'tr_namespace',
+      })
+      event = {
+        type: 'transfer.updated',
+        data: {
+          object: {
+            id: 'tr_namespace',
+            metadata: {
+              payment_kind_namespace: 'venue_builder_kickback',
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(db.rows.kickback_payments[0]).toMatchObject({
+        status: 'completed',
+        stripe_transfer_id: 'tr_namespace',
+      })
+      expect(db.rows.kickback_payments[0].completed_at).toEqual(expect.any(String))
+    })
+
+    it('drops transfer events with no recognized namespace without mutating by stripe_transfer_id', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+      Object.assign(db.rows.kickback_payments[0], {
+        status: 'processing',
+        stripe_transfer_id: 'tr_unrecognized',
+        completed_at: null,
+      })
+      event = {
+        type: 'transfer.updated',
+        data: {
+          object: {
+            id: 'tr_unrecognized',
+            metadata: {},
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(db.rows.kickback_payments[0]).toMatchObject({
+        status: 'processing',
+        stripe_transfer_id: 'tr_unrecognized',
+        completed_at: null,
+      })
+      expect(logSpy).toHaveBeenCalledWith(
+        '[stripe.webhook] transfer event with no recognized namespace',
+        {
+          transferId: 'tr_unrecognized',
+          metadata: {},
+        }
+      )
+      logSpy.mockRestore()
     })
   })
 
