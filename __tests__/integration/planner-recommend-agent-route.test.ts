@@ -276,9 +276,16 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       id: VENUE_ID,
       venue_name: 'Mission Hall',
       venue_type: 'restaurant',
-      standing_capacity: 120,
-      seated_capacity: 90,
+      description: [
+        'Mission, SoMa, Downtown SF, and Hayes Valley event space with private dining, reception, classroom, and theater layouts.',
+        'Includes tables, work surfaces, power outlets, wifi, screens, projector, microphones, PA system, stage, flat floor, and demo stations.',
+        'Full bar with liquor license, cocktail service, catering kitchen, controlled entry, door staff, coat check, late hours, lighting, and sound system.',
+        'Supports outdoor patio, rain plan, storage, loading access, permits, brandable sponsor visibility, donor flow, screening sightlines, VIP area, rooms, meals, and group seats or screens.',
+      ].join(' '),
+      standing_capacity: 250,
+      seated_capacity: 180,
       city: 'San Francisco',
+      neighborhood: 'Mission',
       state: 'CA',
       hourly_rate: 50000,
       minimum_hours: 4,
@@ -289,7 +296,13 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       cancellation_terms: 'Refundable until 14 days out.',
       available_days: ['friday'],
       bar_revenue_share_enabled: false,
-      venue_amenities: [{ venue_id: VENUE_ID, amenity_name: 'private dining room' }],
+      venue_amenities: Array.from(new Set([
+        'private dining room',
+        ...ARCHETYPES.flatMap((archetype) => [
+          ...archetype.required_amenities,
+          ...archetype.bonus_amenities,
+        ]),
+      ])).map((amenity_name) => ({ venue_id: VENUE_ID, amenity_name })),
     })
 
     mockCreateClient.mockReturnValue({
@@ -417,7 +430,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
   })
 
   it('runs venue matching and economics agents for a ready plan and persists recommendations', async () => {
-    const response = await recommendPlan(makeRequest({ venueLimit: 3 }), {
+    const response = await recommendPlan(makeRequest({ venueLimit: 3, phase: 'vendors' }), {
       params: { planId: 'plan-1' },
     })
     const json = await readJson(response)
@@ -426,8 +439,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
     expect(json.ranked_venues).toEqual([expect.objectContaining({
       venue_id: VENUE_ID,
       fit_score: 91,
-      pros: ['Strong seated capacity and city fit.'],
-      cons: ['Deposit terms need confirmation.'],
+      venue_name: 'Mission Hall',
     })])
     expect(json.economics).toEqual(expect.objectContaining({
       break_even_attendance: 67,
@@ -597,7 +609,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       })
 
       const response = await recommendPlan(
-        makeRequest({ venueLimit: 3, vendorLimit: 3 }, `/api/planner/plans/${planId}/recommend`),
+        makeRequest({ venueLimit: 3, vendorLimit: 3, phase: 'venues' }, `/api/planner/plans/${planId}/recommend`),
         { params: { planId } }
       )
       const json = await readJson(response)
@@ -823,7 +835,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       })
 
       const response = await recommendPlan(
-        makeRequest({ venueLimit: 3, vendorLimit: 3 }, `/api/planner/plans/${planId}/recommend`),
+        makeRequest({ venueLimit: 3, vendorLimit: 3, phase: 'venues' }, `/api/planner/plans/${planId}/recommend`),
         { params: { planId } }
       )
       const json = await readJson(response)
