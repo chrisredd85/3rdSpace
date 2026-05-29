@@ -23,6 +23,8 @@ import {
 
 export const runtime = 'nodejs'
 
+const KICKBACK_TRANSFER_NAMESPACE = 'venue_builder_kickback'
+
 function getPaymentIntentId(value: Stripe.PaymentIntent | string | null) {
   if (!value) return null
   return typeof value === 'string' ? value : value.id
@@ -49,6 +51,20 @@ function getPaymentIntentIdFromCharge(charge: Stripe.Charge) {
   const paymentIntent = charge.payment_intent
   if (!paymentIntent) return null
   return typeof paymentIntent === 'string' ? paymentIntent : paymentIntent.id
+}
+
+function isKickbackTransferEvent(transfer: Stripe.Transfer) {
+  return (
+    transfer.metadata?.payment_kind_namespace === KICKBACK_TRANSFER_NAMESPACE ||
+    Boolean(transfer.metadata?.kickback_payment_id)
+  )
+}
+
+function logUnrecognizedTransferEvent(transfer: Stripe.Transfer) {
+  console.log('[stripe.webhook] transfer event with no recognized namespace', {
+    transferId: transfer.id,
+    metadata: transfer.metadata,
+  })
 }
 
 async function applyKickbackCheckoutSessionCompleted(admin: any, session: Stripe.Checkout.Session) {
@@ -199,6 +215,7 @@ async function applyKickbackInvoicePaid(admin: any, invoice: Stripe.Invoice) {
     destination: builderStripeAccountId,
     transfer_group: `kickback_${paymentId}`,
     metadata: {
+      payment_kind_namespace: KICKBACK_TRANSFER_NAMESPACE,
       kickback_payment_id: paymentId,
       settlement_method: 'invoice',
     },
@@ -433,19 +450,28 @@ export async function POST(request: NextRequest) {
     }
 
     if (event.type === 'transfer.created' || event.type === 'transfer.updated') {
-      await applyKickbackTransferEvent(admin as any, event.data.object as Stripe.Transfer, 'completed')
+      const transfer = event.data.object as Stripe.Transfer
+      if (isKickbackTransferEvent(transfer)) {
+        await applyKickbackTransferEvent(admin as any, transfer, 'completed')
+      } else {
+        logUnrecognizedTransferEvent(transfer)
+      }
     }
 
     if (event.type === 'transfer.reversed') {
       const transfer = event.data.object as Stripe.Transfer
-      const handledKickbackRefund = await applyKickbackRefundCompleted(
-        admin as any,
-        transfer.metadata?.settlement_method === 'invoice'
-          ? transfer.metadata?.kickback_payment_id ?? null
-          : null
-      )
-      if (!handledKickbackRefund) {
-        await applyKickbackTransferEvent(admin as any, transfer, 'refunded')
+      if (isKickbackTransferEvent(transfer)) {
+        const handledKickbackRefund = await applyKickbackRefundCompleted(
+          admin as any,
+          transfer.metadata?.settlement_method === 'invoice'
+            ? transfer.metadata?.kickback_payment_id ?? null
+            : null
+        )
+        if (!handledKickbackRefund) {
+          await applyKickbackTransferEvent(admin as any, transfer, 'refunded')
+        }
+      } else {
+        logUnrecognizedTransferEvent(transfer)
       }
     }
 
