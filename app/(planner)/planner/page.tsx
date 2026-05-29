@@ -1350,6 +1350,7 @@ function PlannerPageContent() {
           onSignedIn={(plan) => void handlePlannerGateSignedIn(plan)}
           context={signupGateContext}
         />
+        {billingGate.modal}
       </div>
     )
   }
