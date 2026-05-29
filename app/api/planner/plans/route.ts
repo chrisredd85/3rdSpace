@@ -19,6 +19,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { IntakeAgentOutput } from '@/lib/ai/agents/intakeAgent'
+import { checkPlanCreationAccess } from '@/lib/billing/builder-billing'
 import { determineNextResponse } from '@/lib/planner/agentResponder'
 import { buildEventPlanFromPlannerPlan } from '@/lib/planner/agentPlanAdapter'
 import {
@@ -42,11 +43,7 @@ import {
   isPlanReadyForRequestedRecommendations,
 } from '@/lib/planner/intakeReadiness'
 import {
-  BUILDER_BILLING_PRICES,
   BuilderBillingRequiredError,
-  getBuilderBillingSummary,
-  loadBuilderBillingProfileByUserId,
-  type BuilderBillingProfile,
 } from '@/lib/billing/builder-billing'
 import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
 import { buildOrganizerPreferencePayload, loadBuilderOrganizerPreferences } from '@/lib/server/builderPreferences'
@@ -55,7 +52,7 @@ import {
   summarizeBuilderAttendance,
   type BuilderAttendanceSummary,
 } from '@/lib/server/builderAttendanceHistory'
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/supabase/server'
 import type { TicketPlatform } from '@/lib/constants/account-setup'
 import type {
   Json,
@@ -171,18 +168,26 @@ export async function POST(
       )
     }
 
+    const planCreationAccess = await checkPlanCreationAccess({
+      db: auth.db,
+      userId: auth.userId,
+    })
+
+    if (!planCreationAccess.allowed) {
+      return NextResponse.json(
+        {
+          error: planCreationAccess.error,
+          billingRequired: true,
+          billing: planCreationAccess.billing,
+        },
+        { status: 402 }
+      )
+    }
+
     const intent = parseEventIntent(body.data.message)
     const draftPlan = readRecord(body.data.draft?.plan)
     const draftMessages = body.data.draft?.messages ?? []
     const planInsert = buildPlanInsert(auth.userId, body.data.message, intent, draftPlan)
-
-    // ── Billing gate ──────────────────────────────────────────────────────────
-    // Check whether the user is entitled to create another plan before
-    // inserting. Free-tier users are capped at BUILDER_BILLING_PRICES.freeEventsGranted
-    // active (non-archived) plans. Pro and pay-per-event users are unrestricted.
-    const billingCheck = await checkPlanCreationAccess(auth.db, auth.userId)
-    if (billingCheck) return billingCheck
-    // ─────────────────────────────────────────────────────────────────────────
 
     const { data: planData, error: planError } = await auth.db
       .from('plans')
@@ -977,65 +982,4 @@ function toJson(value: Record<string, unknown>): Json {
 
 function toJsonValue(value: unknown): Json {
   return value as Json
-}
-
-/**
- * Pre-creation billing gate for the planner plans POST route.
- *
- * Free-tier users are allowed up to BUILDER_BILLING_PRICES.freeEventsGranted
- * active (non-archived) plans. Pro and pay-per-event users are unrestricted —
- * their per-event credit is consumed later at outreach approval time (see the
- * approvals route's `checkAndConsumeBuilderEventAccess`).
- *
- * Returns a 402 NextResponse if creation should be blocked, or null if the
- * request should proceed.
- */
-async function checkPlanCreationAccess(
-  db: PlannerDb,
-  userId: string
-): Promise<NextResponse<PlannerApiErrorResponse> | null> {
-  try {
-    const admin = createServiceRoleClient()
-    const { data: builder } = await loadBuilderBillingProfileByUserId(admin, userId)
-
-    // No profile yet (new user before profile is created) — allow creation so
-    // the first message flow can set up the profile.
-    if (!builder) return null
-
-    const billing = getBuilderBillingSummary(builder as BuilderBillingProfile)
-
-    // Pro subscribers and users with paid credits are unrestricted at creation
-    // time; access is consumed at outreach approval.
-    if (billing.hasProAccess || billing.paidEventCredits > 0) return null
-
-    // Free tier: count active (non-archived) plans for this user.
-    const { count, error } = await (db as any)
-      .from('plans')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .neq('status', 'archived')
-
-    if (error) {
-      console.error('[planner.plans] Billing plan count error', error)
-      // Fail open — don't block creation on a count query error.
-      return null
-    }
-
-    const activePlanCount = count ?? 0
-    if (activePlanCount >= BUILDER_BILLING_PRICES.freeEventsGranted) {
-      return NextResponse.json(
-        {
-          error: `Free plan includes ${BUILDER_BILLING_PRICES.freeEventsGranted} events. Upgrade to create more.`,
-          billingRequired: true,
-        },
-        { status: 402 }
-      )
-    }
-
-    return null
-  } catch (error) {
-    console.error('[planner.plans] Billing access check error', error)
-    // Fail open — a billing check failure should not prevent plan creation.
-    return null
-  }
 }

@@ -37,6 +37,11 @@ import {
   type DataConnectionAgentResult,
 } from '@/lib/ai/agents/dataConnectionAgent'
 import {
+  documentExtractionAgentDefinition,
+  runDocumentExtractionAgent,
+  type DocumentExtractionResult,
+} from '@/lib/ai/agents/documentExtractionAgent'
+import {
   agentNameSchema,
   agentOutputSchema,
   agentResultSchema,
@@ -89,6 +94,7 @@ type AgentDefinition = {
   | { outputSchema: 'workspace' }
   | { outputSchema: 'timeline' }
   | { outputSchema: 'data_connection' }
+  | { outputSchema: 'document_extraction' }
 )
 
 type ChatCompletionClient = Pick<OpenAI['chat']['completions'], 'create'>
@@ -145,6 +151,11 @@ export const AGENT_REGISTRY: Record<AgentName, AgentDefinition> = {
     agentName: dataConnectionAgentDefinition.agentName,
     model: dataConnectionAgentDefinition.model,
     outputSchema: 'data_connection',
+  },
+  document_extraction: {
+    agentName: documentExtractionAgentDefinition.agentName,
+    model: documentExtractionAgentDefinition.model,
+    outputSchema: 'document_extraction',
   },
   event_plan_extractor: {
     agentName: 'event_plan_extractor',
@@ -206,6 +217,7 @@ export async function runAgent(
   | WorkspaceAgentResult
   | TimelineAgentResult
   | DataConnectionAgentResult
+  | DocumentExtractionResult
 > {
   const startedAt = Date.now()
   const agentName = agentNameSchema.parse(input.agent_name)
@@ -241,6 +253,10 @@ export async function runAgent(
 
   if (agent.outputSchema === 'data_connection') {
     return runDataConnectionAgent(input.payload, client)
+  }
+
+  if (agent.outputSchema === 'document_extraction') {
+    return runDocumentExtractionAgent(input.payload, client)
   }
 
   assertOpenAIConfigured()

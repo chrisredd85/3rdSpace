@@ -145,7 +145,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const amountCents = dollarsToCents(amount)
     const stripeFee = estimateStripeFee(amount)
+    const stripeFeeCents = dollarsToCents(stripeFee)
     const stripe = getStripeClient()
     const validation = await validateStripeConnectAccount({
       stripe,
@@ -175,7 +177,7 @@ export async function POST(request: NextRequest) {
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: dollarsToCents(amount),
+      amount: amountCents,
       currency: 'usd',
       payment_method: paymentMethodId,
       confirm: true,
@@ -202,10 +204,10 @@ export async function POST(request: NextRequest) {
         vendor_id: booking.vendor_id,
         builder_id: builderProfileId,
         stripe_payment_intent_id: paymentIntent.id,
-        amount,
-        platform_fee: 0,
-        stripe_fee: stripeFee,
-        vendor_payout: Math.max(amount - stripeFee, 0),
+        amount_cents: amountCents,
+        platform_fee_cents: 0,
+        stripe_fee_cents: stripeFeeCents,
+        vendor_payout_cents: Math.max(amountCents - stripeFeeCents, 0),
         payment_type: 'service_payment',
         status,
         paid_at: paidAt,

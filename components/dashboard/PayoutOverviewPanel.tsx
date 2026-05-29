@@ -45,6 +45,7 @@ const roleConfig = {
     pendingLabel: 'Pending kickbacks',
     completedLabel: 'Paid to builder',
     emptyLabel: 'No kickbacks yet',
+    summaryUnit: 'cents',
   },
   venue: {
     title: 'Payouts',
@@ -56,6 +57,7 @@ const roleConfig = {
     pendingLabel: 'Ready to pay',
     completedLabel: 'Paid',
     emptyLabel: 'No kickbacks yet',
+    summaryUnit: 'cents',
   },
   vendor: {
     title: 'Payouts',
@@ -67,6 +69,7 @@ const roleConfig = {
     pendingLabel: 'Pending payouts',
     completedLabel: 'Paid to vendor',
     emptyLabel: 'No payout activity yet',
+    summaryUnit: 'dollars',
   },
 } satisfies Record<PayoutRole, {
   title: string
@@ -78,6 +81,7 @@ const roleConfig = {
   pendingLabel: string
   completedLabel: string
   emptyLabel: string
+  summaryUnit: 'cents' | 'dollars'
 }>
 
 /**
@@ -182,13 +186,13 @@ export function PayoutOverviewPanel({ role }: { role: PayoutRole }) {
           />
           <PayoutMetric
             label={config.pendingLabel}
-            value={isLoading ? 'Loading...' : formatMoney(pending)}
+            value={isLoading ? 'Loading...' : formatMoney(pending, config.summaryUnit)}
             icon={Clock}
             emphasis="primary"
           />
           <PayoutMetric
             label={config.completedLabel}
-            value={isLoading ? 'Loading...' : formatMoney(completed)}
+            value={isLoading ? 'Loading...' : formatMoney(completed, config.summaryUnit)}
             icon={Banknote}
             emphasis="success"
           />
@@ -234,10 +238,12 @@ function PayoutMetric({
   )
 }
 
-function formatMoney(amount: number) {
+function formatMoney(amount: number, unit: 'cents' | 'dollars') {
+  const dollars = unit === 'cents' ? amount / 100 : amount
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(amount || 0)
+    minimumFractionDigits: unit === 'cents' ? 2 : 0,
+    maximumFractionDigits: unit === 'cents' ? 2 : 0,
+  }).format(dollars || 0)
 }

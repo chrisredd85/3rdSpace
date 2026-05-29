@@ -70,9 +70,9 @@ export async function POST(request: NextRequest) {
     zip_code: venue.zip_code,
     standing_capacity: venue.capacity,
     seated_capacity: venue.capacity,
-    hourly_rate: venue.hourly_rate,
+    hourly_rate_cents: venue.hourly_rate,
     minimum_hours: null,
-    per_head_kickback_amount: venue.per_head_kickback_amount,
+    per_head_kickback_cents: venue.per_head_kickback_amount,
     contact_email: venue.contact_email,
     is_claimed: false,
     claimed_user_id: null,
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await admin
     .from('venues')
-    .insert(insertPayload)
+    .insert(insertPayload as never)
     .select('id')
     .single()
 

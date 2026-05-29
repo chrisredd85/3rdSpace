@@ -1,3 +1,5 @@
+jest.mock('server-only', () => ({}))
+
 import type { NextRequest } from 'next/server'
 import { GET as getPlan, PATCH as patchPlan } from '@/app/api/planner/plans/[planId]/route'
 import { GET as listPlans, POST as createPlan } from '@/app/api/planner/plans/route'
@@ -42,6 +44,7 @@ class MemoryDb {
     planner_plan_updates: [],
     audit_logs: [],
     event_type_candidates: [],
+    builder_profiles: [],
   }
 
   private sequence = 0
@@ -224,6 +227,16 @@ describe('Planner persistence integration', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     db = new MemoryDb()
+    db.rows.builder_profiles.push({
+      id: 'builder-profile-1',
+      user_id: 'user-1',
+      name: 'Planner Builder',
+      billing_tier: 'free_trial',
+      subscription_status: 'trial',
+      free_events_granted: 2,
+      free_events_used: 0,
+      paid_event_credits: 0,
+    })
     mockCreateClient.mockReturnValue({
       auth: {
         getUser: jest.fn().mockResolvedValue({
@@ -637,6 +650,44 @@ describe('Planner persistence integration', () => {
     }))
     expect(reloaded.messages).toHaveLength(8)
     expect(db.rows.planner_plan_updates.filter((row) => row.field === 'status')).toHaveLength(2)
+  })
+
+  it('blocks free-tier creation after two active plans', async () => {
+    db.rows.plans.push(
+      {
+        id: 'first-active-plan',
+        user_id: 'user-1',
+        title: 'First active plan',
+        event_type: 'mixer',
+        status: 'drafting',
+        created_at: '2026-05-10T10:00:00Z',
+        updated_at: '2026-05-10T10:00:00Z',
+      },
+      {
+        id: 'second-active-plan',
+        user_id: 'user-1',
+        title: 'Second active plan',
+        event_type: 'dinner',
+        status: 'ready',
+        created_at: '2026-05-11T10:00:00Z',
+        updated_at: '2026-05-11T10:00:00Z',
+      }
+    )
+
+    const response = await createPlan(makeRequest('/api/planner/plans', {
+      message: 'I want to plan a third event',
+    }))
+    const json = await readJson(response)
+
+    expect(response.status).toBe(402)
+    expect(json).toEqual(expect.objectContaining({
+      billingRequired: true,
+      error: 'Choose pay-per-event or Pro to create another event.',
+      billing: expect.objectContaining({
+        freeEventsGranted: 2,
+      }),
+    }))
+    expect(db.rows.plans).toHaveLength(2)
   })
 
   it('marks migrated ready public drafts as needing recommendations', async () => {

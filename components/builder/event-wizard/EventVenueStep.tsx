@@ -10,6 +10,7 @@ import { useCreateVenueBooking } from '@/lib/hooks/useBookings'
 import { useUpdateEvent } from '@/lib/hooks/useEvents'
 import { useToast } from '@/components/ui/toast'
 import { DepositDisplay } from '@/components/builder/DepositDisplay'
+import { centsToDollars } from '@/lib/money'
 import type { Event, Venue } from '@/lib/types'
 
 interface EventVenueStepProps {
@@ -19,6 +20,16 @@ interface EventVenueStepProps {
   onSave: () => void
   currentStep: number
   totalSteps: number
+}
+
+function formatVenueRate(venue: Venue) {
+  const cents = venue.hourly_rate || venue.daily_rate || null
+  if (!cents) return '—'
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(centsToDollars(cents))
 }
 
 /**
@@ -115,7 +126,8 @@ export function EventVenueStep({
     if (!event) return
 
     try {
-      const quotedPrice = venue.hourly_rate || venue.daily_rate || null
+      const quotedPriceCents = venue.hourly_rate || venue.daily_rate || null
+      const quotedPrice = quotedPriceCents ? centsToDollars(quotedPriceCents) : null
       // Create venue booking
       await createVenueBooking.mutateAsync({
         event_id: event.id,
@@ -279,14 +291,14 @@ export function EventVenueStep({
                 </div>
                 <div className="flex items-baseline gap-1.5">
                   <span className="font-display text-2xl font-bold text-foreground">
-                    ${venue.hourly_rate || venue.daily_rate || '—'}
+                    {formatVenueRate(venue)}
                   </span>
                   <span className="text-sm text-muted-foreground">
                     {venue.hourly_rate ? '/hour' : venue.daily_rate ? '/day' : ''}
                   </span>
                 </div>
                 <div className="mt-4">
-                  <DepositDisplay venueId={venue.id} bookingCost={venue.hourly_rate || venue.daily_rate || 0} compact />
+                  <DepositDisplay venueId={venue.id} bookingCost={centsToDollars(venue.hourly_rate || venue.daily_rate || 0)} compact />
                 </div>
                 {venue.description && (
                   <p className="mt-3 line-clamp-2 text-xs text-muted-foreground">{venue.description}</p>

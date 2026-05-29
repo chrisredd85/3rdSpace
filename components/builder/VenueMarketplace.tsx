@@ -19,6 +19,7 @@ import { useVenues, useToggleSavedVenue } from '@/lib/hooks/useVenues'
 import { useUser } from '@/lib/hooks/useUser'
 import { useToast } from '@/components/ui/toast'
 import { supabase } from '@/lib/supabase/client'
+import { centsToDollars } from '@/lib/money'
 import { getUniqueFeatureTagOptions } from '@/lib/venues/unique-features'
 import type { Venue, VenueType } from '@/lib/types'
 
@@ -510,7 +511,7 @@ function VenueMarketplaceCard({ venue, amenities, onSave, onViewProfile }: Venue
           <div className="flex items-center gap-2">
             <DollarSign className="h-4 w-4 text-muted-foreground/60" />
             <span>
-              ${venue.hourly_rate || venue.daily_rate || 'N/A'}
+              {formatVenueMoney(venue.hourly_rate || venue.daily_rate)}
               {venue.hourly_rate ? '/hr' : '/day'}
             </span>
           </div>
@@ -584,4 +585,13 @@ function VenueMarketplaceCard({ venue, amenities, onSave, onViewProfile }: Venue
       </CardContent>
     </Card>
   )
+}
+
+function formatVenueMoney(cents: number | null | undefined) {
+  if (!cents) return 'N/A'
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(centsToDollars(cents))
 }

@@ -166,7 +166,10 @@ function isPro(profile: BuilderBillingProfile) {
 }
 
 export function getBuilderBillingSummary(profile: BuilderBillingProfile) {
-  const freeEventsGranted = profile.free_events_granted ?? BUILDER_BILLING_PRICES.freeEventsGranted
+  const freeEventsGranted = Math.max(
+    profile.free_events_granted ?? BUILDER_BILLING_PRICES.freeEventsGranted,
+    BUILDER_BILLING_PRICES.freeEventsGranted
+  )
   const freeEventsUsed = profile.free_events_used ?? 0
   const paidEventCredits = profile.paid_event_credits ?? 0
   const freeEventsRemaining = Math.max(freeEventsGranted - freeEventsUsed, 0)
@@ -183,6 +186,79 @@ export function getBuilderBillingSummary(profile: BuilderBillingProfile) {
     hasProAccess,
     canCreateEvent: hasProAccess || freeEventsRemaining > 0 || paidEventCredits > 0,
     prices: BUILDER_BILLING_PRICES,
+  }
+}
+
+export type BuilderPlanCreationAccessResult =
+  | {
+      allowed: true
+      builder: BuilderBillingProfile
+      billing: ReturnType<typeof getBuilderBillingSummary>
+      activePlanCount: number
+      usedPlanSlots: number
+    }
+  | {
+      allowed: false
+      builder: BuilderBillingProfile
+      billing: ReturnType<typeof getBuilderBillingSummary>
+      activePlanCount: number
+      usedPlanSlots: number
+      error: string
+    }
+
+export async function checkPlanCreationAccess(params: {
+  db: any
+  userId: string
+}): Promise<BuilderPlanCreationAccessResult> {
+  const { data: builder, error: builderError } = await loadBuilderBillingProfileByUserId(
+    params.db,
+    params.userId
+  )
+
+  if (builderError) {
+    throw new Error(builderError.message ?? 'Failed to load builder billing profile')
+  }
+
+  if (!builder) {
+    throw new Error('Builder profile not found')
+  }
+
+  const billing = getBuilderBillingSummary(builder as BuilderBillingProfile)
+  const { data: plans, error: plansError } = await params.db
+    .from('plans')
+    .select('id, status')
+    .eq('user_id', params.userId)
+
+  if (plansError) {
+    throw new Error(plansError.message ?? 'Failed to count planner plans')
+  }
+
+  const activePlanCount = ((plans ?? []) as Array<{ status?: string | null }>).filter(
+    (plan) => plan.status !== 'archived'
+  ).length
+  const usedPlanSlots = Math.max(activePlanCount, billing.freeEventsUsed)
+
+  if (
+    billing.hasProAccess ||
+    billing.paidEventCredits > 0 ||
+    usedPlanSlots < billing.freeEventsGranted
+  ) {
+    return {
+      allowed: true,
+      builder: builder as BuilderBillingProfile,
+      billing,
+      activePlanCount,
+      usedPlanSlots,
+    }
+  }
+
+  return {
+    allowed: false,
+    builder: builder as BuilderBillingProfile,
+    billing,
+    activePlanCount,
+    usedPlanSlots,
+    error: 'Choose pay-per-event or Pro to create another event.',
   }
 }
 

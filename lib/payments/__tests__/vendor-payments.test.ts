@@ -7,6 +7,7 @@ import {
   getBookingTotal,
   getPaymentAmount,
   getPlatformFeePercentage,
+  readCents,
   toMoney,
 } from '@/lib/payments/vendor-payments'
 
@@ -15,6 +16,8 @@ describe('vendor payment helpers', () => {
     expect(dollarsToCents(30)).toBe(3000)
     expect(dollarsToCents(69)).toBe(6900)
     expect(centsToDollars(3000)).toBe(30)
+    expect(readCents(125075, 999)).toBe(125075)
+    expect(readCents(null, 1250.75)).toBe(125075)
   })
 
   it('keeps vendor payout at 100 percent for MVP payments', () => {

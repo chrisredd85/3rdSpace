@@ -65,14 +65,18 @@ export interface Venue {
   min_capacity: number | null
   max_capacity: number | null
   square_footage: number | null
+  hourly_rate_cents?: number | null
   hourly_rate: number | null
+  daily_rate_cents?: number | null
   daily_rate: number | null
+  price_per_night_cents?: number | null
   pricing_model: PricingModel
   ticket_sales_share_enabled?: boolean | null
   ticket_sales_share_percent?: number | null
   bar_revenue_share_enabled?: boolean | null
   bar_revenue_share_percent?: number | null
   per_head_kickback_amount?: number | null
+  per_head_kickback_cents?: number | null
   bulk_approval_enabled?: boolean | null
   auto_approve_threshold?: number | null
   auto_approve_conditions?: Json | null
@@ -83,6 +87,7 @@ export interface Venue {
   claimed_user_id: string | null
   is_admin_seeded: boolean
   requires_deposit?: boolean | null
+  deposit_amount_cents?: number | null
   deposit_amount?: number | null
   deposit_type?: DepositType | null
   deposit_percentage?: number | null

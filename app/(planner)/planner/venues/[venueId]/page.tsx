@@ -12,6 +12,7 @@ import { VenueAmenitiesBadges } from '@/components/builder/VenueAmenitiesBadges'
 import { VenueUniqueFeatures } from '@/components/builder/VenueUniqueFeatures'
 import { VenueRulesDisplay } from '@/components/builder/VenueRulesDisplay'
 import { DepositDisplay } from '@/components/builder/DepositDisplay'
+import { centsToDollars } from '@/lib/money'
 
 interface BuilderVenueDetailPageProps {
   params: {
@@ -32,6 +33,11 @@ function estimatePreviewCost(hourlyRate?: number | null, dailyRate?: number | nu
   return 0
 }
 
+function formatRate(cents?: number | null, suffix = '') {
+  if (!cents || cents <= 0) return null
+  return `$${centsToDollars(cents).toLocaleString()}${suffix}`
+}
+
 /**
  * Venue detail page for builders, including highlights, amenities, rules, deposits, and booking request form.
  *
@@ -47,6 +53,7 @@ export default function BuilderVenueDetailPage({ params }: BuilderVenueDetailPag
     () => estimatePreviewCost(venue?.hourly_rate, venue?.daily_rate),
     [venue?.hourly_rate, venue?.daily_rate]
   )
+  const bookingCostDollars = centsToDollars(bookingCost)
 
   /**
    * Submits a pending venue booking request.
@@ -133,7 +140,7 @@ export default function BuilderVenueDetailPage({ params }: BuilderVenueDetailPag
                 <div className="flex items-center gap-2">
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                   <span>
-                    {venue.hourly_rate ? `$${venue.hourly_rate}/hr` : venue.daily_rate ? `$${venue.daily_rate}/day` : 'Rate TBD'}
+                    {formatRate(venue.hourly_rate, '/hr') ?? formatRate(venue.daily_rate, '/day') ?? 'Rate TBD'}
                   </span>
                 </div>
               </div>
@@ -159,7 +166,7 @@ export default function BuilderVenueDetailPage({ params }: BuilderVenueDetailPag
 
           <VenueRulesDisplay venueId={venue.id} audience="builders" />
 
-          <DepositDisplay venueId={venue.id} bookingCost={bookingCost} />
+          <DepositDisplay venueId={venue.id} bookingCost={bookingCostDollars} />
         </div>
 
         <Card className="h-fit">

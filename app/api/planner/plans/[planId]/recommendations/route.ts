@@ -292,8 +292,7 @@ function scoreVenue(
 ): ScoredVenue | null {
   const normalized = normalizeVenue(row)
   const capacity = normalized.capacity
-  // cents from DB — do not convert here
-  const hourlyRateCents = readNumber(row.hourly_rate)
+  const hourlyRateCents = normalized.hourly_rate
   const minimumHours = readNumber(row.minimum_hours) ?? 4
 
   if (!capacity || capacity < (plan.guest_count ?? 0)) return null
@@ -387,7 +386,6 @@ async function loadRecommendationsWithVenues(
           name: normalized.name,
           neighborhood: normalized.city || normalized.address || null,
           capacity: normalized.capacity,
-          // cents from DB — do not convert here
           hourly_rate: normalized.hourly_rate ? Math.round(normalized.hourly_rate) : null,
           minimum_hours: readNumber(row.minimum_hours),
           feature_tags: Array.isArray(row.unique_features_tags)

@@ -1,4 +1,10 @@
-import { createBuilderCheckoutSession, ensureStripeCustomerForBuilder } from '@/lib/billing/builder-billing'
+jest.mock('server-only', () => ({}))
+
+import {
+  createBuilderCheckoutSession,
+  ensureStripeCustomerForBuilder,
+  getBuilderBillingSummary,
+} from '@/lib/billing/builder-billing'
 import { getStripeClient } from '@/lib/stripe/connect'
 
 jest.mock('@/lib/stripe/connect', () => ({
@@ -145,5 +151,27 @@ describe('builder billing Stripe customer resolution', () => {
         mode: 'payment',
       })
     )
+  })
+})
+
+describe('builder billing free tier summary', () => {
+  it('grants two free events by default for new and legacy one-event profiles', () => {
+    expect(getBuilderBillingSummary({
+      ...builder,
+      billing_tier: 'free_trial',
+      subscription_status: 'trial',
+      free_events_granted: null,
+      free_events_used: 0,
+      paid_event_credits: 0,
+    }).freeEventsGranted).toBe(2)
+
+    expect(getBuilderBillingSummary({
+      ...builder,
+      billing_tier: 'free_trial',
+      subscription_status: 'trial',
+      free_events_granted: 1,
+      free_events_used: 0,
+      paid_event_credits: 0,
+    }).freeEventsGranted).toBe(2)
   })
 })

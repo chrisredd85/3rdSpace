@@ -62,6 +62,7 @@ export const agentNameSchema = z.enum([
   'workspace',
   'timeline',
   'data_connection',
+  'document_extraction',
   'event_plan_extractor',
   'event_planning_advisor',
   'booking_ops_assistant',

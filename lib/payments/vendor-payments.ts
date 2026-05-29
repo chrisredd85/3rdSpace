@@ -2,6 +2,12 @@ import 'server-only'
 
 import Stripe from 'stripe'
 import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
+import {
+  centsToDollars,
+  dollarsToCents,
+  readCents,
+  toFiniteNumber,
+} from '@/lib/money'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 import { getStripeClient } from '@/lib/stripe/connect'
 
@@ -17,9 +23,13 @@ export type VendorTransaction = {
   stripe_charge_id: string | null
   stripe_transfer_id: string | null
   amount: number
+  amount_cents?: number | null
   platform_fee: number
+  platform_fee_cents?: number | null
   stripe_fee: number
+  stripe_fee_cents?: number | null
   vendor_payout: number
+  vendor_payout_cents?: number | null
   payment_type: VendorPaymentType | 'refund'
   status: VendorTransactionStatus
   paid_at: string | null
@@ -50,21 +60,10 @@ type VendorBookingPaymentRow = {
   payment_status?: string | null
 }
 
-export function dollarsToCents(amount: number) {
-  return Math.round(amount * 100)
-}
-
-export function centsToDollars(amount: number) {
-  return Math.round(amount) / 100
-}
+export { centsToDollars, dollarsToCents, readCents }
 
 export function toMoney(value: number | string | null | undefined) {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
-  if (typeof value === 'string') {
-    const parsed = Number(value)
-    return Number.isFinite(parsed) ? parsed : 0
-  }
-  return 0
+  return toFiniteNumber(value) ?? 0
 }
 
 export function getPlatformFeePercentage() {
@@ -221,9 +220,13 @@ export async function createVendorTransfer(params: {
   chargeId: string
 }) {
   const stripe = getStripeClient()
+  const vendorPayoutCents = readCents(
+    params.transaction.vendor_payout_cents,
+    params.transaction.vendor_payout
+  ) ?? 0
   const transfer = await stripe.transfers.create(
     {
-      amount: dollarsToCents(params.transaction.vendor_payout),
+      amount: vendorPayoutCents,
       currency: 'usd',
       destination: params.connectedAccountId,
       source_transaction: params.chargeId,
@@ -243,14 +246,18 @@ export async function createVendorTransfer(params: {
   return transfer.id
 }
 
-export function getStripeFeeFromPaymentIntent(paymentIntent: Stripe.PaymentIntent) {
+export function getStripeFeeCentsFromPaymentIntent(paymentIntent: Stripe.PaymentIntent) {
   const charge = paymentIntent.latest_charge
 
   if (!charge || typeof charge === 'string') return 0
   const balanceTransaction = charge.balance_transaction
 
   if (!balanceTransaction || typeof balanceTransaction === 'string') return 0
-  return centsToDollars(balanceTransaction.fee)
+  return Math.round(balanceTransaction.fee)
+}
+
+export function getStripeFeeFromPaymentIntent(paymentIntent: Stripe.PaymentIntent) {
+  return centsToDollars(getStripeFeeCentsFromPaymentIntent(paymentIntent))
 }
 
 export function getChargeIdFromPaymentIntent(paymentIntent: Stripe.PaymentIntent) {

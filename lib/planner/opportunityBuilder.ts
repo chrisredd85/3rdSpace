@@ -18,6 +18,7 @@ import type {
   VenueOpportunityBrief,
   VenueOpportunityInvite,
 } from '@/lib/types'
+import { getVenueComplianceStatus } from '@/lib/planner/venueComplianceGate'
 
 type PlannerDb = { from: (table: string) => any }
 
@@ -123,6 +124,33 @@ const VENDOR_OPPORTUNITY_SELECT = `
   claimed_user_id,
   is_published
 `
+
+async function filterCompliantOpportunityMatches(
+  db: PlannerDb,
+  matches: PlannerOpportunityMatchTarget[]
+) {
+  const checked = await Promise.all(matches.map(async (match) => {
+    if (match.target_type !== 'venue') return match
+    if (!match.target_id) return null
+
+    try {
+      const status = await getVenueComplianceStatus(db as any, match.target_id)
+      if (!status.is_compliant) {
+        console.warn('Planner opportunity venue blocked for compliance', {
+          venue_id: match.target_id,
+          reason: status.reason,
+        })
+        return null
+      }
+      return match
+    } catch (error) {
+      console.error('Planner opportunity venue compliance check failed:', error)
+      return match
+    }
+  }))
+
+  return checked.filter((match): match is PlannerOpportunityMatchTarget => match !== null)
+}
 
 /**
  * Builds a normalized opportunity brief draft from the current plan and messages.
@@ -331,7 +359,13 @@ export async function createVenueOpportunityBundle(
   }
 
   const opportunity = briefData as VenueOpportunityBrief
-  const invitePayloads = matches.map((match) => ({
+  const compliantMatches = await filterCompliantOpportunityMatches(input.db, matches)
+  if (compliantMatches.length === 0) {
+    console.warn('Planner opportunity invite creation skipped: no compliant venue matches remain')
+    return null
+  }
+
+  const invitePayloads = compliantMatches.map((match) => ({
     opportunity_id: opportunity.id,
     brief_id: opportunity.id,
     target_type: match.target_type,
@@ -365,7 +399,7 @@ export async function createVenueOpportunityBundle(
   }
 
   const invites = inviteData as VenueOpportunityInvite[]
-  const targetSummary = matches.map((match) => ({
+  const targetSummary = compliantMatches.map((match) => ({
     target_type: match.target_type,
     target_id: match.target_id,
     name: match.name,

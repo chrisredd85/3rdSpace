@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { getVenueComplianceStatus } from '@/lib/planner/venueComplianceGate'
 import { enqueueJob, type AppJob } from '@/lib/server/job-queue'
 
 type SupabaseAdminClient = any
@@ -220,6 +221,26 @@ async function sendVenueInvite(admin: SupabaseAdminClient, inviteId: string) {
       responsePayload: { reason: `status_${context.invite.status}` },
     })
     return { processed: false, ignored: true, reason: `status_${context.invite.status}` }
+  }
+
+  if (context.invite.venue_id) {
+    const compliance = await getVenueComplianceStatus(admin as any, context.invite.venue_id)
+    if (!compliance.is_compliant) {
+      await updateInvite(admin, inviteId, {
+        status: 'venue_blocked_compliance',
+        blocked_reason: compliance.reason,
+      })
+      await logWebhookAttempt(admin, {
+        eventType: 'opportunity_send_venue_invite',
+        entityId: inviteId,
+        provider: 'internal',
+        outcome: 'skipped',
+        requestPayload: buildLogPayload(context),
+        responsePayload: { reason: compliance.reason, overdue_count: compliance.overdue_count },
+      })
+      await updateApprovalMessageStats(admin, context.brief.id)
+      return { processed: true, status: 'venue_blocked_compliance', inviteId, reason: compliance.reason }
+    }
   }
 
   if (!context.venue?.contact_email) {

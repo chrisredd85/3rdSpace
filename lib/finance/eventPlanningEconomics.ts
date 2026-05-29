@@ -8,6 +8,15 @@ const SCENARIO_ATTENDANCE_RATES = {
 } as const
 
 const TARGET_PROFIT_MARGIN = 0.2
+const DEFAULT_ESTIMATED_SPEND_PER_HEAD_CENTS = 4000
+
+const venueCommercialModelSchema = z.enum([
+  'flat_rental',
+  'minimum_spend',
+  'per_head_kickback',
+  'bar_revenue_share',
+  'ticket_revenue_share',
+])
 
 export const budgetLineItemSchema = z.object({
   label: z.string().trim().min(1),
@@ -23,12 +32,16 @@ export const eventPlanningEconomicsInputSchema = z.object({
   vendor_cost_cents: z.number().int().nonnegative(),
   ticket_price_cents: z.number().int().nonnegative(),
   sponsorship_revenue_cents: z.number().int().nonnegative().default(0),
+  venue_commercial_model: venueCommercialModelSchema.optional(),
+  venue_kickback_rate: z.number().nonnegative().default(0),
+  estimated_spend_per_head_cents: z.number().int().nonnegative().default(DEFAULT_ESTIMATED_SPEND_PER_HEAD_CENTS),
 })
 
 export const revenueScenarioSchema = z.object({
   attendance: z.number().int().nonnegative(),
   ticket_revenue_cents: z.number().int(),
   sponsorship_revenue_cents: z.number().int(),
+  kickback_projection_cents: z.number().int(),
   total_revenue_cents: z.number().int(),
   total_cost_cents: z.number().int(),
   profit_cents: z.number().int(),
@@ -57,7 +70,8 @@ export const eventPlanningEconomicsOutputSchema = z.object({
 })
 
 export type BudgetLineItem = z.infer<typeof budgetLineItemSchema>
-export type EventPlanningEconomicsInput = z.infer<typeof eventPlanningEconomicsInputSchema>
+export type EventPlanningEconomicsInput = z.input<typeof eventPlanningEconomicsInputSchema>
+type ParsedEventPlanningEconomicsInput = z.output<typeof eventPlanningEconomicsInputSchema>
 export type EventPlanningEconomicsOutput = z.infer<typeof eventPlanningEconomicsOutputSchema>
 export type RevenueScenarioName = keyof typeof SCENARIO_ATTENDANCE_RATES
 
@@ -103,23 +117,61 @@ export function calculateEventPlanningEconomics(
 
 function buildRevenueScenario(
   scenario: RevenueScenarioName,
-  input: EventPlanningEconomicsInput,
+  input: ParsedEventPlanningEconomicsInput,
   totalCostCents: number
 ) {
   const attendance = Math.floor(input.expected_attendance * SCENARIO_ATTENDANCE_RATES[scenario])
   const ticketRevenueCents = attendance * input.ticket_price_cents
-  const totalRevenueCents = ticketRevenueCents + input.sponsorship_revenue_cents
+  const kickbackProjectionCents = calculateVenueKickbackProjectionCents({
+    model: input.venue_commercial_model,
+    kickbackRate: input.venue_kickback_rate,
+    attendance,
+    grossTicketRevenueCents: ticketRevenueCents,
+    estimatedSpendPerHeadCents: input.estimated_spend_per_head_cents,
+  })
+  const totalRevenueCents = ticketRevenueCents + input.sponsorship_revenue_cents + kickbackProjectionCents
   const profitCents = totalRevenueCents - totalCostCents
 
   return revenueScenarioSchema.parse({
     attendance,
     ticket_revenue_cents: ticketRevenueCents,
     sponsorship_revenue_cents: input.sponsorship_revenue_cents,
+    kickback_projection_cents: kickbackProjectionCents,
     total_revenue_cents: totalRevenueCents,
     total_cost_cents: totalCostCents,
     profit_cents: profitCents,
     profit_margin: calculateProfitMargin(profitCents, totalRevenueCents),
   })
+}
+
+export function calculateVenueKickbackProjectionCents({
+  model,
+  kickbackRate,
+  attendance,
+  grossTicketRevenueCents,
+  estimatedSpendPerHeadCents = DEFAULT_ESTIMATED_SPEND_PER_HEAD_CENTS,
+}: {
+  model?: z.infer<typeof venueCommercialModelSchema>
+  kickbackRate?: number
+  attendance: number
+  grossTicketRevenueCents: number
+  estimatedSpendPerHeadCents?: number
+}) {
+  const rate = Number.isFinite(kickbackRate ?? 0) ? Math.max(kickbackRate ?? 0, 0) : 0
+  if (model === 'per_head_kickback') {
+    return Math.round(rate) * attendance
+  }
+
+  if (model === 'bar_revenue_share') {
+    const estimatedBarRevenueCents = attendance * Math.max(estimatedSpendPerHeadCents, 0)
+    return Math.round(estimatedBarRevenueCents * (rate / 100))
+  }
+
+  if (model === 'ticket_revenue_share') {
+    return Math.round(grossTicketRevenueCents * (rate / 100))
+  }
+
+  return 0
 }
 
 function buildRecommendedTicketPriceRange(
@@ -147,7 +199,7 @@ function buildRecommendedTicketPriceRange(
 }
 
 function buildRiskFlags(
-  input: EventPlanningEconomicsInput,
+  input: ParsedEventPlanningEconomicsInput,
   rawBreakEvenAttendance: number | null,
   expectedScenario: z.infer<typeof revenueScenarioSchema>,
   optimisticScenario: z.infer<typeof revenueScenarioSchema>

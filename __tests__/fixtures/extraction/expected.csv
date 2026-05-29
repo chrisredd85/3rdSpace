@@ -1,0 +1,11 @@
+fixture,mode,expected_value,expected_confidence,expected_basis
+eventbrite-checked-in.png,headcount,58,high,checked_in
+eventbrite-rsvp-only.png,headcount,74,low,rsvp_only
+eventbrite-attendees.csv,headcount,58,high,checked_in_rows
+eventbrite-ticket-sales.pdf,headcount,87,high,ticket_count
+luma-rsvp.png,headcount,41,medium,rsvp_only
+partiful-going.png,headcount,36,medium,rsvp_only
+square-summary-1.png,venue_revenue,428000,high,net_sales_cents
+square-summary.xlsx,venue_revenue,428000,high,net_sales_cents
+toast-revenue.pdf,venue_revenue,582450,high,net_sales_cents
+handwritten-tab.jpg,venue_revenue,94750,low,handwritten_total_cents

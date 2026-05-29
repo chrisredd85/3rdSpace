@@ -1,4 +1,5 @@
 import { SERVICE_TYPE_LABELS, VENUE_AMENITY_LABEL_BY_ID, type TicketPlatform } from '@/lib/constants/account-setup'
+import { dollarsToCents } from '@/lib/money'
 import { normalizeBuilderAmenityPreferences, normalizeBuilderEventTypes } from '@/lib/server/builderPreferences'
 import type { ServiceType, UserType, VenueType } from '@/lib/types'
 
@@ -91,7 +92,7 @@ function toPositiveNumberOrNull(value: number | null | undefined) {
 
 function toIntegerCentsOrNull(value: number | null | undefined) {
   const positiveValue = toPositiveNumberOrNull(value)
-  return positiveValue === null ? null : Math.round(positiveValue * 100)
+  return positiveValue === null ? null : dollarsToCents(positiveValue)
 }
 
 function toPositivePercentageOrNull(value: number | null | undefined) {
@@ -261,7 +262,8 @@ export async function ensureOwnerProfile(admin: SupabaseLikeClient, input: Venue
 
 export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSetupInput) {
   let venueId: string
-  const depositPercentage = toPositivePercentageOrNull(input.deposit)
+  const depositAmountCents = toIntegerCentsOrNull(input.deposit)
+  const pricePerNightCents = toIntegerCentsOrNull(input.pricePerNight)
   const minimumSpendCents = toIntegerCentsOrNull(input.minBarSpend)
   const autoApproveConditions = {
     ...(minimumSpendCents !== null && { minimum_spend_cents: minimumSpendCents }),
@@ -290,14 +292,16 @@ export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSe
     standing_capacity: input.capacity,
     seated_capacity: input.capacity,
     pricing_model: 'hourly',
-    hourly_rate: input.pricePerNight ?? null,
+    hourly_rate_cents: pricePerNightCents,
+    daily_rate_cents: pricePerNightCents,
+    price_per_night_cents: pricePerNightCents,
     bar_revenue_share_enabled: hasBar,
     offers_kickbacks: hasBar,
     bar_revenue_percentage: hasBar ? input.barKickbackPct ?? null : null,
     bar_revenue_share_percent: hasBar ? input.perHeadDrinkPct ?? null : null,
-    deposit_percentage: depositPercentage,
-    deposit_type: depositPercentage === null ? null : 'percentage',
-    requires_deposit: depositPercentage !== null,
+    deposit_amount_cents: depositAmountCents,
+    deposit_type: depositAmountCents === null ? null : 'fixed',
+    requires_deposit: depositAmountCents !== null,
     cancellation_terms: input.cancellationTerms ?? null,
     available_days: input.availableDays ?? null,
     open_from: input.openFrom ?? null,

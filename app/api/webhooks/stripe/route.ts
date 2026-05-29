@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
+import { sendBuilderPaidEmail, sendRefundCompletedEmail, sendVenuePaymentFailedEmail } from '@/lib/email'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import {
   getStripeClient,
@@ -147,6 +148,8 @@ async function applyKickbackPaymentIntent(admin: any, paymentIntent: Stripe.Paym
 }
 
 async function applyKickbackTransferEvent(admin: any, transfer: Stripe.Transfer, status: 'completed' | 'refunded') {
+  if (transfer.metadata?.settlement_method === 'invoice') return true
+
   const paymentId = transfer.metadata?.kickback_payment_id
   const query = admin
     .from('kickback_payments')
@@ -164,6 +167,137 @@ async function applyKickbackTransferEvent(admin: any, transfer: Stripe.Transfer,
 
   await query.eq('stripe_transfer_id', transfer.id)
   return true
+}
+
+async function applyKickbackInvoicePaid(admin: any, invoice: Stripe.Invoice) {
+  const paymentId = invoice.metadata?.kickback_payment_id
+  if (!paymentId) return false
+  if (invoice.metadata?.settlement_method !== 'invoice') return true
+
+  const principalCents = Number(invoice.metadata?.principal_cents ?? 0)
+  const builderStripeAccountId = invoice.metadata?.builder_stripe_account_id
+
+  if (!builderStripeAccountId || principalCents <= 0) {
+    console.error('[stripe.webhook] Missing builder account or principal for kickback invoice', invoice.id)
+    return true
+  }
+
+  const { data: payment, error: paymentError } = await admin
+    .from('kickback_payments')
+    .select('id, agreement_id, status, stripe_transfer_id')
+    .eq('id', paymentId)
+    .maybeSingle()
+
+  if (paymentError) throw new Error(paymentError.message)
+  if (!payment?.id) return true
+  if (payment.status === 'paid' || payment.stripe_transfer_id) return true
+
+  const stripe = getStripeClient()
+  const transfer = await stripe.transfers.create({
+    amount: principalCents,
+    currency: 'usd',
+    destination: builderStripeAccountId,
+    transfer_group: `kickback_${paymentId}`,
+    metadata: {
+      kickback_payment_id: paymentId,
+      settlement_method: 'invoice',
+    },
+  })
+
+  const now = new Date().toISOString()
+  await admin
+    .from('kickback_payments')
+    .update({
+      status: 'paid',
+      paid_at: now,
+      completed_at: now,
+      stripe_transfer_id: transfer.id,
+      builder_payout_cents: principalCents,
+      failed_at: null,
+      failure_reason: null,
+    })
+    .eq('id', paymentId)
+
+  if (payment.agreement_id) {
+    await admin
+      .from('event_kickback_agreements')
+      .update({
+        status: 'payment_completed',
+        stripe_transfer_id: transfer.id,
+        payment_completed_at: now,
+        updated_at: now,
+      })
+      .eq('id', payment.agreement_id)
+  }
+
+  await sendBuilderPaidEmail({ paymentId }).catch((error) => {
+    console.error('[stripe.webhook] Failed to send builder paid email', error)
+  })
+
+  return true
+}
+
+async function applyKickbackInvoicePaymentFailed(admin: any, invoice: Stripe.Invoice) {
+  const paymentId = invoice.metadata?.kickback_payment_id
+  if (!paymentId) return false
+  if (invoice.metadata?.settlement_method !== 'invoice') return true
+
+  await admin
+    .from('kickback_payments')
+    .update({
+      status: 'invoice_failed',
+      failed_at: new Date().toISOString(),
+      failure_reason: 'Stripe invoice payment failed',
+    })
+    .eq('id', paymentId)
+
+  await sendVenuePaymentFailedEmail({ paymentId }).catch((error) => {
+    console.error('[stripe.webhook] Failed to send venue payment failed email', error)
+  })
+
+  return true
+}
+
+async function applyKickbackRefundCompleted(admin: any, paymentId: string | null) {
+  if (!paymentId) return false
+
+  const { data: payment, error } = await admin
+    .from('kickback_payments')
+    .select('id, status, refund_amount_cents, builder_payout_cents, amount_cents')
+    .eq('id', paymentId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  if (!payment?.id) return true
+  if (payment.status === 'refunded_full' || payment.status === 'refunded_partial') return true
+
+  const refundAmountCents = Number(payment.refund_amount_cents ?? 0)
+  const payoutCents = Number(payment.builder_payout_cents ?? payment.amount_cents ?? 0)
+  const isFullRefund = refundAmountCents > 0 && refundAmountCents >= payoutCents
+  const nextStatus = isFullRefund ? 'refunded_full' : 'refunded_partial'
+
+  await admin
+    .from('kickback_payments')
+    .update({
+      status: nextStatus,
+      completed_at: new Date().toISOString(),
+    })
+    .eq('id', paymentId)
+
+  await sendRefundCompletedEmail({ paymentId, isFullRefund }).catch((emailError) => {
+    console.error('[stripe.webhook] Failed to send refund completed email', emailError)
+  })
+
+  return true
+}
+
+function getKickbackPaymentIdFromRefundedCharge(charge: Stripe.Charge) {
+  const directPaymentId = charge.metadata?.kickback_payment_id
+  if (directPaymentId) return directPaymentId
+
+  const refunds = (charge.refunds?.data ?? []) as Array<Stripe.Refund>
+  const metadataRefund = refunds.find((refund) => refund.metadata?.kickback_payment_id)
+  return metadataRefund?.metadata?.kickback_payment_id ?? null
 }
 
 /**
@@ -208,12 +342,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (event.type === 'invoice.paid') {
+      const handledKickbackInvoice = await applyKickbackInvoicePaid(admin as any, event.data.object as Stripe.Invoice)
+      if (!handledKickbackInvoice) {
+        await applyInvoicePayment(admin as any, event.data.object as Stripe.Invoice)
+      }
+    }
+
     if (event.type === 'invoice.payment_succeeded') {
-      await applyInvoicePayment(admin as any, event.data.object as Stripe.Invoice)
+      const invoice = event.data.object as Stripe.Invoice
+      if (!invoice.metadata?.kickback_payment_id) {
+        await applyInvoicePayment(admin as any, invoice)
+      }
     }
 
     if (event.type === 'invoice.payment_failed') {
-      await applyInvoicePaymentFailed(admin as any, event.data.object as Stripe.Invoice)
+      const handledKickbackInvoice = await applyKickbackInvoicePaymentFailed(admin as any, event.data.object as Stripe.Invoice)
+      if (!handledKickbackInvoice) {
+        await applyInvoicePaymentFailed(admin as any, event.data.object as Stripe.Invoice)
+      }
     }
 
     if (event.type === 'customer.subscription.created' || event.type === 'customer.subscription.updated') {
@@ -272,10 +419,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (event.type === 'charge.refunded') {
-      await applyPlannerStripeRefundWebhook(
+      const charge = event.data.object as Stripe.Charge
+      const handledKickbackRefund = await applyKickbackRefundCompleted(
         admin as any,
-        getPaymentIntentIdFromCharge(event.data.object as Stripe.Charge)
+        getKickbackPaymentIdFromRefundedCharge(charge)
       )
+      if (!handledKickbackRefund) {
+        await applyPlannerStripeRefundWebhook(
+          admin as any,
+          getPaymentIntentIdFromCharge(charge)
+        )
+      }
     }
 
     if (event.type === 'transfer.created' || event.type === 'transfer.updated') {
@@ -283,7 +437,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (event.type === 'transfer.reversed') {
-      await applyKickbackTransferEvent(admin as any, event.data.object as Stripe.Transfer, 'refunded')
+      const transfer = event.data.object as Stripe.Transfer
+      const handledKickbackRefund = await applyKickbackRefundCompleted(
+        admin as any,
+        transfer.metadata?.settlement_method === 'invoice'
+          ? transfer.metadata?.kickback_payment_id ?? null
+          : null
+      )
+      if (!handledKickbackRefund) {
+        await applyKickbackTransferEvent(admin as any, transfer, 'refunded')
+      }
     }
 
     if (event.type === 'payout.paid' || event.type === 'payout.failed') {
@@ -332,6 +495,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true })
   } catch (error) {
     console.error('[Stripe Webhook] Processing failed', error)
-    return NextResponse.json({ received: true, processed: false }, { status: 200 })
+    return NextResponse.json({ received: true, processed: false }, { status: 500 })
   }
 }

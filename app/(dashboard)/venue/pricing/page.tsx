@@ -15,6 +15,7 @@ import { supabase } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
 import { DepositSettings } from '@/components/venue/DepositSettings'
+import { centsToDollars, dollarsToCents } from '@/lib/money'
 import type { PricingModel } from '@/lib/types'
 
 const pricingSchema = z.object({
@@ -123,16 +124,16 @@ export default function VenuePricingPage() {
     if (venue) {
       reset({
         pricing_model: venue.pricing_model,
-        hourly_rate: venue.hourly_rate || undefined,
-        daily_rate: venue.daily_rate || undefined,
-        flat_rate: venue.daily_rate || undefined,
-        per_person_rate: venue.per_head_kickback_amount || undefined,
+        hourly_rate: venue.hourly_rate ? centsToDollars(venue.hourly_rate) : undefined,
+        daily_rate: venue.daily_rate ? centsToDollars(venue.daily_rate) : undefined,
+        flat_rate: venue.daily_rate ? centsToDollars(venue.daily_rate) : undefined,
+        per_person_rate: venue.per_head_kickback_amount ? centsToDollars(venue.per_head_kickback_amount) : undefined,
         min_hours: 2,
         ticket_sales_share: venue.ticket_sales_share_enabled || false,
         ticket_sales_share_percent: venue.ticket_sales_share_percent ?? 10,
         bar_revenue_share: venue.bar_revenue_share_enabled || false,
         bar_revenue_percent: venue.bar_revenue_share_percent ?? 15,
-        per_head_kickback: venue.per_head_kickback_amount ?? 0,
+        per_head_kickback: venue.per_head_kickback_amount ? centsToDollars(venue.per_head_kickback_amount) : 0,
       })
     }
   }, [venue, reset])
@@ -160,13 +161,13 @@ export default function VenuePricingPage() {
         id: venueId,
         updates: {
           pricing_model: data.pricing_model,
-          hourly_rate: data.hourly_rate || null,
-          daily_rate: data.flat_rate || data.daily_rate || null,
+          hourly_rate_cents: data.hourly_rate ? dollarsToCents(data.hourly_rate) : null,
+          daily_rate_cents: data.flat_rate || data.daily_rate ? dollarsToCents(data.flat_rate || data.daily_rate) : null,
           ticket_sales_share_enabled: Boolean(data.ticket_sales_share),
           ticket_sales_share_percent: data.ticket_sales_share ? (data.ticket_sales_share_percent || 0) : 0,
           bar_revenue_share_enabled: Boolean(data.bar_revenue_share),
           bar_revenue_share_percent: data.bar_revenue_share ? (data.bar_revenue_percent || 0) : 0,
-          per_head_kickback_amount: data.per_head_kickback || 0,
+          per_head_kickback_cents: data.per_head_kickback ? dollarsToCents(data.per_head_kickback) : 0,
         },
       })
       addToast({ title: 'Pricing updated', description: 'Your venue pricing has been saved.' })

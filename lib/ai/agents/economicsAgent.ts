@@ -5,6 +5,7 @@ import { AgentRunExecutionError, type AgentResult } from '@/lib/ai/types'
 import { buildAgentRunMetadata, type AgentMessagePayload } from '@/lib/ai/run-metadata'
 import {
   calculateEventPlanningEconomics,
+  calculateVenueKickbackProjectionCents,
   eventPlanningEconomicsInputSchema,
   eventPlanningEconomicsOutputSchema,
 } from '@/lib/finance/eventPlanningEconomics'
@@ -137,6 +138,9 @@ export async function runEconomicsAgent(
           vendor_cost_cents: input.vendor_cost_cents,
           ticket_price_cents: input.ticket_price_cents,
           sponsorship_revenue_cents: input.sponsorship_revenue_cents,
+          venue_commercial_model: input.venue_commercial_model ?? null,
+          venue_kickback_rate: input.venue_kickback_rate,
+          estimated_spend_per_head_cents: input.estimated_spend_per_head_cents,
           cost_confidence: input.cost_confidence,
           negotiated_savings_cents: input.negotiated_savings_cents,
         },
@@ -185,7 +189,11 @@ export async function runEconomicsAgent(
     const historicalAnchor = input.elasticity?.confidence === 'high'
       ? input.elasticity.reasoning_for_agent
       : null
-    const narrative = buildNarrative(recommendation, historicalAnchor)
+    const narrative = buildNarrative(
+      recommendation,
+      historicalAnchor,
+      calculations.revenue_scenarios.expected.kickback_projection_cents
+    )
     output = economicsAgentOutputSchema.parse({
       ...calculations,
       recommendation_summary: recommendation.recommendation_summary,
@@ -213,9 +221,18 @@ function buildPricePoints(input: EconomicsAgentInput): z.infer<typeof economicsP
   const netCostAfterSponsorshipCents = Math.max(totalCostCents - input.sponsorship_revenue_cents, 0)
 
   return sweep.map((priceCents) => {
+    const grossTicketRevenueCents = input.expected_attendance * priceCents
+    const kickbackProjectionCents = calculateVenueKickbackProjectionCents({
+      model: input.venue_commercial_model,
+      kickbackRate: input.venue_kickback_rate,
+      attendance: input.expected_attendance,
+      grossTicketRevenueCents,
+      estimatedSpendPerHeadCents: input.estimated_spend_per_head_cents,
+    })
     const projectedNetCents = input.expected_attendance * priceCents +
       input.sponsorship_revenue_cents -
-      totalCostCents
+      totalCostCents +
+      kickbackProjectionCents
 
     return {
       price_cents: priceCents,
@@ -360,12 +377,16 @@ function mergePricePointNarrative(
 
 function buildNarrative(
   recommendation: z.infer<typeof economicsRecommendationSchema>,
-  historicalAnchor: string | null
+  historicalAnchor: string | null,
+  expectedKickbackProjectionCents: number
 ): string {
   const narrative = recommendation.narrative ?? recommendation.recommendation_summary
-  if (!historicalAnchor) return narrative
-  if (narrative.startsWith(historicalAnchor)) return narrative
-  return `${historicalAnchor} ${narrative}`
+  const withKickbackLine = expectedKickbackProjectionCents > 0
+    ? `${narrative} Expected venue kickback: ${formatCurrency(expectedKickbackProjectionCents)}.`
+    : narrative
+  if (!historicalAnchor) return withKickbackLine
+  if (withKickbackLine.startsWith(historicalAnchor)) return withKickbackLine
+  return `${historicalAnchor} ${withKickbackLine}`
 }
 
 function formatCurrency(cents: number): string {

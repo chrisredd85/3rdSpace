@@ -18,7 +18,7 @@ export function StripeDashboardLink({
   onOpen,
 }: StripeDashboardLinkProps) {
   return (
-    <Button type="button" variant="outline" onClick={onOpen} disabled={disabled || isLoading}>
+    <Button type="button" variant="glass" onClick={onOpen} disabled={disabled || isLoading}>
       {isLoading ? (
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
       ) : (

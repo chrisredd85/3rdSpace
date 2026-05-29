@@ -6,7 +6,7 @@ import { sendEmailNotification } from '@/lib/email'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 import { getStripeClient } from '@/lib/stripe/connect'
-import { centsToDollars, dollarsToCents, getFriendlyStripeError, toMoney } from '@/lib/payments/vendor-payments'
+import { centsToDollars, dollarsToCents, getFriendlyStripeError, readCents, toMoney } from '@/lib/payments/vendor-payments'
 
 export const runtime = 'nodejs'
 
@@ -23,7 +23,9 @@ type RefundableVendorTransaction = {
   stripe_payment_intent_id: string | null
   stripe_transfer_id: string | null
   amount: number | string
+  amount_cents?: number | string | null
   vendor_payout: number | string | null
+  vendor_payout_cents?: number | string | null
   payment_type: string
 }
 
@@ -43,13 +45,14 @@ async function reverseVendorTransfer(params: {
   refundAmount: number
   stripeRefundId: string
 }) {
-  if (!params.transaction.stripe_transfer_id || toMoney(params.transaction.vendor_payout) <= 0) return 0
+  const payoutCents = readCents(params.transaction.vendor_payout_cents, params.transaction.vendor_payout) ?? 0
+  if (!params.transaction.stripe_transfer_id || payoutCents <= 0) return 0
 
   const stripe = getStripeClient()
-  const originalAmount = toMoney(params.transaction.amount)
-  const payout = toMoney(params.transaction.vendor_payout)
-  const payoutRatio = originalAmount > 0 ? params.refundAmount / originalAmount : 0
-  const reversalCents = Math.min(dollarsToCents(payout), Math.round(dollarsToCents(payout) * payoutRatio))
+  const originalAmountCents = readCents(params.transaction.amount_cents, params.transaction.amount) ?? 0
+  const refundCents = dollarsToCents(params.refundAmount)
+  const payoutRatio = originalAmountCents > 0 ? refundCents / originalAmountCents : 0
+  const reversalCents = Math.min(payoutCents, Math.round(payoutCents * payoutRatio))
 
   if (reversalCents <= 0) return 0
 
@@ -142,7 +145,7 @@ async function refundVendorService(params: {
 
   const { data, error } = await params.admin
     .from('vendor_transactions')
-    .select('id, booking_id, vendor_id, builder_id, stripe_payment_intent_id, stripe_transfer_id, amount, vendor_payout, payment_type')
+    .select('id, booking_id, vendor_id, builder_id, stripe_payment_intent_id, stripe_transfer_id, amount, amount_cents, vendor_payout, vendor_payout_cents, payment_type')
     .eq('booking_id', params.bookingId)
     .eq('status', 'succeeded')
     .neq('payment_type', 'refund')
@@ -159,7 +162,7 @@ async function refundVendorService(params: {
     if (remainingCents <= 0) break
     if (!transaction.stripe_payment_intent_id) continue
 
-    const transactionCents = dollarsToCents(toMoney(transaction.amount))
+    const transactionCents = readCents(transaction.amount_cents, transaction.amount) ?? 0
     const refundCents = Math.min(remainingCents, transactionCents)
     if (refundCents <= 0) continue
 
@@ -198,10 +201,10 @@ async function refundVendorService(params: {
         stripe_payment_intent_id: transaction.stripe_payment_intent_id,
         stripe_charge_id: refund.id,
         stripe_transfer_id: transaction.stripe_transfer_id,
-        amount: refundAmount,
-        platform_fee: 0,
-        stripe_fee: 0,
-        vendor_payout: reversedPayout,
+        amount_cents: refundCents,
+        platform_fee_cents: 0,
+        stripe_fee_cents: 0,
+        vendor_payout_cents: dollarsToCents(reversedPayout),
         payment_type: 'refund',
         status: 'refunded',
         paid_at: now,

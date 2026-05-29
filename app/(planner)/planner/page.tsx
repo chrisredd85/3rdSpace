@@ -15,6 +15,7 @@ import { CalendarDays, CheckCircle2, ChevronDown, Copy, ExternalLink, LayoutTemp
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
 import { PlannerDataConnectionPanel } from '@/components/planner/PlannerDataConnectionPanel'
 import { PlannerLivePlanPanel } from '@/components/planner/PlannerLivePlanPanel'
+import { PostEventReportCard } from '@/components/planner/PostEventReportCard'
 import { PlannerSignupGate } from '@/components/planner/PlannerSignupGate'
 import { PlannerTimelineCountdown } from '@/components/planner/PlannerTimelineCountdown'
 import { PlannerTopBar } from '@/components/planner/PlannerTopBar'
@@ -1489,6 +1490,9 @@ function PlannerPageContent() {
 
             {activeTab === 'recommendations' ? (
               <>
+                {persistenceMode === 'server' ? (
+                  <PostEventReportCard plan={activePlan} />
+                ) : null}
                 {visibleMessages.length > 0 ? (
                   visibleMessages.map((message) => (
                     <PlannerFocusedMessageCard

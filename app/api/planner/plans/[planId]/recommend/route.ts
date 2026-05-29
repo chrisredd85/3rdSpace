@@ -32,6 +32,7 @@ import {
   type RankedCatalogRecommendation,
 } from '@/lib/planner/catalogRanker'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS, RECOMMENDATION_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import { getVenueComplianceStatus } from '@/lib/planner/venueComplianceGate'
 import {
   applyArchetypeDefaultFills,
   readPlanMatchingBoolean,
@@ -58,6 +59,7 @@ import {
   type ElasticitySignal,
 } from '@/lib/server/builderTierElasticity'
 import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
+import { readCents } from '@/lib/money'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlanMessage, PlannerApiErrorResponse, Recommendation } from '@/lib/types'
 import {
@@ -239,6 +241,9 @@ const VENUE_RANKER_SELECT_COLUMNS = `
   seated_capacity,
   pricing_model,
   hourly_rate,
+  hourly_rate_cents,
+  daily_rate_cents,
+  price_per_night_cents,
   minimum_hours,
   average_rating,
   total_bookings,
@@ -294,14 +299,23 @@ const VENUE_AGENT_SELECT_COLUMNS = `
   city,
   state,
   hourly_rate,
+  hourly_rate_cents,
+  daily_rate_cents,
+  price_per_night_cents,
   minimum_hours,
   is_published,
   per_head_kickback,
+  per_head_kickback_cents,
   offers_kickbacks,
   deposit_percentage,
   cancellation_terms,
   available_days,
   bar_revenue_share_enabled,
+  bar_rev_share_pct,
+  bar_revenue_share_percent,
+  ticket_sales_share_enabled,
+  ticket_sales_share_pct,
+  ticket_sales_share_percent,
   unique_features,
   unique_features_tags,
   venue_amenities (
@@ -383,9 +397,13 @@ export async function POST(
     const candidateVenues = await loadVenueAgentCandidates(auth.db, recommendationPlan, rankingInput, {
       neighborhoodMode: 'strict',
     })
+    const compliantCandidateVenues = await filterCompliantVenueCandidates(
+      createServiceRoleClient() as any,
+      candidateVenues
+    )
     const venuePayload = {
       event_plan: eventPlan,
-      candidate_venues: candidateVenues,
+      candidate_venues: compliantCandidateVenues,
       builder_attendance: builderAttendance,
       organizer_preferences: {
         ...(buildOrganizerPreferencePayload(organizerPreferences) ?? {}),
@@ -408,7 +426,7 @@ export async function POST(
       archetype,
       eventPlan,
       baseVenueResult: venueResult,
-      baseCandidateVenues: candidateVenues,
+      baseCandidateVenues: compliantCandidateVenues,
       basePayload: venuePayload,
     })
     // TODO(ticket-data): plug ticket sales/history lookup here once the surfaced data contract is defined.
@@ -2328,6 +2346,36 @@ async function loadVenueAgentCandidates(
     .filter((candidate) => venueFitsBudget(candidate, budgetCents))
 }
 
+async function filterCompliantVenueCandidates(
+  admin: PlannerDb,
+  venues: VenueMatchingCandidate[]
+): Promise<VenueMatchingCandidate[]> {
+  if (venues.length === 0) return venues
+
+  const checked = await Promise.all(venues.map(async (venue) => {
+    try {
+      const status = await getVenueComplianceStatus(admin as any, venue.id)
+      return status.is_compliant ? venue : null
+    } catch (error) {
+      console.error('[planner.recommend] Venue compliance check failed', {
+        venue_id: venue.id,
+        error,
+      })
+      return venue
+    }
+  }))
+  const compliantVenues = checked.filter((venue): venue is VenueMatchingCandidate => venue !== null)
+
+  if (compliantVenues.length < venues.length && compliantVenues.length < 3) {
+    console.warn('[planner.recommend] Venue compliance filtering left fewer than 3 candidates', {
+      before: venues.length,
+      after: compliantVenues.length,
+    })
+  }
+
+  return compliantVenues
+}
+
 function buildRankingInput(
   plan: Plan,
   messages: PlanMessage[],
@@ -2414,6 +2462,8 @@ function buildEconomicsPayload(
     vendorCostSummary: VendorEconomicsCostSummary
   }
 ): EconomicsAgentInput {
+  const venueKickback = deriveVenueKickbackEconomics(context.venue)
+
   return {
     event_plan: eventPlan,
     budget_line_items: [],
@@ -2422,6 +2472,9 @@ function buildEconomicsPayload(
     vendor_cost_cents: vendorCostCents,
     ticket_price_cents: plan.ticketed ? eventPlan.ticket_price_target ?? 0 : 0,
     sponsorship_revenue_cents: 0,
+    venue_commercial_model: venueKickback.venue_commercial_model,
+    venue_kickback_rate: venueKickback.venue_kickback_rate ?? 0,
+    estimated_spend_per_head_cents: 4000,
     cost_confidence: context.vendorCostSummary.cost_confidence,
     negotiated_savings_cents: context.vendorCostSummary.negotiated_savings_cents,
     plan: plan as unknown as Record<string, unknown>,
@@ -2448,6 +2501,39 @@ function buildEconomicsPayload(
       },
     },
   }
+}
+
+function deriveVenueKickbackEconomics(venue: VenueMatchingCandidate | null): Partial<Pick<
+  EconomicsAgentInput,
+  'venue_commercial_model' | 'venue_kickback_rate'
+>> {
+  if (!venue) return {}
+
+  const barRevenueSharePercent = readNumber(venue.bar_revenue_share_percent)
+  if (venue.bar_revenue_share_enabled && barRevenueSharePercent && barRevenueSharePercent > 0) {
+    return {
+      venue_commercial_model: 'bar_revenue_share',
+      venue_kickback_rate: barRevenueSharePercent,
+    }
+  }
+
+  const ticketSharePercent = readNumber(venue.ticket_sales_share_percent)
+  if (venue.ticket_sales_share_enabled && ticketSharePercent && ticketSharePercent > 0) {
+    return {
+      venue_commercial_model: 'ticket_revenue_share',
+      venue_kickback_rate: ticketSharePercent,
+    }
+  }
+
+  const perHeadKickbackCents = readCents(venue.per_head_kickback)
+  if (perHeadKickbackCents && perHeadKickbackCents > 0) {
+    return {
+      venue_commercial_model: 'per_head_kickback',
+      venue_kickback_rate: perHeadKickbackCents,
+    }
+  }
+
+  return {}
 }
 
 function buildFallbackEconomicsOutput(
@@ -2924,15 +3010,24 @@ function toVenueMatchingCandidate(row: Record<string, unknown>): VenueMatchingCa
     seated_capacity: readNumber(row.seated_capacity),
     city: readString(row.city),
     state: readString(row.state),
-    hourly_rate: readNumber(row.hourly_rate),
+    hourly_rate: readCents(
+      row.hourly_rate_cents as number | string | null | undefined,
+      row.hourly_rate as number | string | null | undefined
+    ),
     minimum_hours: readNumber(row.minimum_hours),
     is_published: readBoolean(row.is_published),
-    per_head_kickback: readNumber(row.per_head_kickback),
+    per_head_kickback: readCents(
+      row.per_head_kickback_cents as number | string | null | undefined,
+      row.per_head_kickback as number | string | null | undefined
+    ),
     offers_kickbacks: readBoolean(row.offers_kickbacks),
     deposit_percentage: readNumber(row.deposit_percentage),
     cancellation_terms: readString(row.cancellation_terms),
     available_days: readStringArray(row.available_days),
     bar_revenue_share_enabled: readBoolean(row.bar_revenue_share_enabled),
+    bar_revenue_share_percent: readNumber(row.bar_revenue_share_percent ?? row.bar_rev_share_pct ?? row.bar_revenue_percentage),
+    ticket_sales_share_enabled: readBoolean(row.ticket_sales_share_enabled),
+    ticket_sales_share_percent: readNumber(row.ticket_sales_share_percent ?? row.ticket_sales_share_pct),
     venue_amenities: readVenueAmenities(row.venue_amenities),
   })
 

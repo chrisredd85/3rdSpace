@@ -1,3 +1,4 @@
+import { readCents } from '@/lib/money'
 import type { PricingModel, Venue } from '@/lib/types'
 
 export type VenueRow = Record<string, any>
@@ -20,6 +21,9 @@ export const VENUE_SELECT_COLUMNS = `
   seated_capacity,
   pricing_model,
   hourly_rate,
+  hourly_rate_cents,
+  daily_rate_cents,
+  price_per_night_cents,
   minimum_hours,
   bar_revenue_percentage,
   per_head_kickback,
@@ -44,6 +48,7 @@ export const VENUE_SELECT_COLUMNS = `
   is_admin_seeded,
   requires_deposit,
   deposit_amount,
+  deposit_amount_cents,
   deposit_type,
   deposit_refundable,
   deposit_terms,
@@ -98,6 +103,12 @@ export const VENUE_DETAIL_SELECT_COLUMNS = VENUE_SELECT_COLUMNS
  */
 export function normalizeVenue(row: VenueRow): Venue {
   const standingCapacity = row.capacity ?? row.standing_capacity ?? row.seated_capacity ?? 0
+  const hourlyRateCents = readCents(row.hourly_rate_cents, row.hourly_rate)
+  const dailyRateCents = readCents(row.daily_rate_cents, row.daily_rate)
+  const pricePerNightCents = readCents(row.price_per_night_cents, row.price_per_night)
+  const depositAmountCents = readCents(row.deposit_amount_cents, row.deposit_amount)
+  const perHeadKickbackCents =
+    readCents(row.per_head_kickback_cents, row.per_head_kickback_amount ?? row.per_head_kickback) ?? 0
   const autoApproveConditions =
     row.auto_approve_conditions && typeof row.auto_approve_conditions === 'object' && !Array.isArray(row.auto_approve_conditions)
       ? row.auto_approve_conditions as Record<string, unknown>
@@ -127,8 +138,11 @@ export function normalizeVenue(row: VenueRow): Venue {
     min_capacity: row.min_capacity ?? row.seated_capacity ?? null,
     max_capacity: row.max_capacity ?? standingCapacity,
     square_footage: row.square_footage ?? null,
-    hourly_rate: row.hourly_rate ?? null,
-    daily_rate: row.daily_rate ?? null,
+    hourly_rate: hourlyRateCents,
+    hourly_rate_cents: hourlyRateCents,
+    daily_rate: dailyRateCents ?? pricePerNightCents,
+    daily_rate_cents: dailyRateCents,
+    price_per_night_cents: pricePerNightCents,
     pricing_model: normalizeVenuePricingModel(row.pricing_model),
     ticket_sales_share_enabled: row.ticket_sales_share_enabled ?? false,
     ticket_sales_share_percent:
@@ -138,7 +152,8 @@ export function normalizeVenue(row: VenueRow): Venue {
     bar_revenue_share_percent:
       row.bar_revenue_share_percent ?? row.bar_rev_share_pct ?? row.bar_revenue_percentage ?? 0,
     per_head_kickback_amount:
-      row.per_head_kickback_amount ?? row.per_head_kickback_cents ?? row.per_head_kickback ?? 0,
+      perHeadKickbackCents,
+    per_head_kickback_cents: perHeadKickbackCents,
     bulk_approval_enabled: row.bulk_approval_enabled ?? false,
     auto_approve_threshold: row.auto_approve_threshold ?? null,
     auto_approve_conditions: row.auto_approve_conditions ?? null,
@@ -148,8 +163,9 @@ export function normalizeVenue(row: VenueRow): Venue {
     is_claimed: row.is_claimed ?? false,
     claimed_user_id: row.claimed_user_id ?? null,
     is_admin_seeded: row.is_admin_seeded ?? false,
-    requires_deposit: row.requires_deposit ?? row.deposit_amount != null,
-    deposit_amount: row.deposit_amount ?? null,
+    requires_deposit: row.requires_deposit ?? depositAmountCents != null,
+    deposit_amount: depositAmountCents,
+    deposit_amount_cents: depositAmountCents,
     deposit_type: row.deposit_type ?? null,
     deposit_percentage: row.deposit_percentage ?? null,
     deposit_refundable: row.deposit_refundable ?? true,
@@ -196,7 +212,13 @@ export function toVenueRowUpdate(updates: Partial<Omit<Venue, 'id' | 'created_at
   if (updates.min_capacity !== undefined) row.seated_capacity = updates.min_capacity
   if (updates.max_capacity !== undefined) row.standing_capacity = updates.max_capacity
   if (updates.square_footage !== undefined) row.square_footage = updates.square_footage
-  if (updates.hourly_rate !== undefined) row.hourly_rate = updates.hourly_rate
+  if (updates.hourly_rate_cents !== undefined) row.hourly_rate_cents = updates.hourly_rate_cents
+  else if (updates.hourly_rate !== undefined) row.hourly_rate_cents = updates.hourly_rate
+  if (updates.daily_rate_cents !== undefined) row.daily_rate_cents = updates.daily_rate_cents
+  else if (updates.daily_rate !== undefined) row.daily_rate_cents = updates.daily_rate
+  if (updates.price_per_night_cents !== undefined) {
+    row.price_per_night_cents = updates.price_per_night_cents
+  }
   if (updates.pricing_model !== undefined) row.pricing_model = updates.pricing_model
   if (updates.ticket_sales_share_enabled !== undefined) {
     row.ticket_sales_share_enabled = updates.ticket_sales_share_enabled
@@ -211,7 +233,10 @@ export function toVenueRowUpdate(updates: Partial<Omit<Venue, 'id' | 'created_at
     row.bar_revenue_share_percent = updates.bar_revenue_share_percent
   }
   if (updates.per_head_kickback_amount !== undefined) {
-    row.per_head_kickback_amount = updates.per_head_kickback_amount
+    row.per_head_kickback_cents = updates.per_head_kickback_amount
+  }
+  if (updates.per_head_kickback_cents !== undefined) {
+    row.per_head_kickback_cents = updates.per_head_kickback_cents
   }
   if (updates.bulk_approval_enabled !== undefined) {
     row.bulk_approval_enabled = updates.bulk_approval_enabled
@@ -227,7 +252,8 @@ export function toVenueRowUpdate(updates: Partial<Omit<Venue, 'id' | 'created_at
     row.unique_features_tags = updates.unique_features_tags
   }
   if (updates.requires_deposit !== undefined) row.requires_deposit = updates.requires_deposit
-  if (updates.deposit_amount !== undefined) row.deposit_amount = updates.deposit_amount
+  if (updates.deposit_amount_cents !== undefined) row.deposit_amount_cents = updates.deposit_amount_cents
+  else if (updates.deposit_amount !== undefined) row.deposit_amount_cents = updates.deposit_amount
   if (updates.deposit_type !== undefined) row.deposit_type = updates.deposit_type
   if (updates.deposit_percentage !== undefined) {
     row.deposit_percentage = updates.deposit_percentage

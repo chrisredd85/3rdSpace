@@ -7,6 +7,7 @@ import { Building2, CheckCircle2, MapPin, Search, SlidersHorizontal, Users } fro
 import { BookedPartnersWorkspace } from '@/components/planner/BookedPartnersWorkspace'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { centsToDollars } from '@/lib/money'
 import { cn } from '@/lib/utils'
 
 interface CatalogVenue {
@@ -371,13 +372,10 @@ function getVenueTerms(venue: CatalogVenue) {
   return venue.pricing_model ? formatVenueType(venue.pricing_model) : 'Quote needed'
 }
 
-/**
- * Formats hourly rates while tolerating existing dollar and cents payloads.
- */
 function formatVenueHourlyRate(rate: number | null | undefined) {
   if (typeof rate !== 'number') return 'TBD'
 
-  const dollars = rate > 1000 ? rate / 100 : rate
+  const dollars = centsToDollars(rate)
   const formatted = new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',

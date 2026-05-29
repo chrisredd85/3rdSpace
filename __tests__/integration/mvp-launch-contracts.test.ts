@@ -1,3 +1,5 @@
+jest.mock('server-only', () => ({}))
+
 import type { NextRequest } from 'next/server'
 import { POST as createAgentAction } from '@/app/api/planner/plans/[planId]/agent-actions/route'
 import { PATCH as updateApproval } from '@/app/api/planner/plans/[planId]/approvals/route'
@@ -277,7 +279,7 @@ describe('MVP launch API contracts', () => {
       name: 'MVP Builder',
       billing_tier: 'free_trial',
       subscription_status: 'trial',
-      free_events_granted: 1,
+      free_events_granted: 2,
       free_events_used: 0,
       paid_event_credits: 0,
     })
@@ -411,8 +413,8 @@ describe('MVP launch API contracts', () => {
   it('PATCH planner approvals blocks execution when builder has no product access', async () => {
     db.rows.builder_profiles[0] = {
       ...db.rows.builder_profiles[0],
-      free_events_granted: 1,
-      free_events_used: 1,
+      free_events_granted: 2,
+      free_events_used: 2,
       paid_event_credits: 0,
       billing_tier: 'free_trial',
       subscription_status: 'trial',

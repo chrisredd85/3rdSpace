@@ -287,7 +287,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       city: 'San Francisco',
       neighborhood: 'Mission',
       state: 'CA',
-      hourly_rate: 50000,
+      hourly_rate_cents: 50000,
       minimum_hours: 4,
       is_published: true,
       per_head_kickback: null,
