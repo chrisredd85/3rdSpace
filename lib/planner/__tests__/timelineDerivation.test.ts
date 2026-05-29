@@ -6,7 +6,7 @@
  * approved).
  */
 
-import { deriveMilestoneStatuses } from '../timelineDerivation'
+import { deriveMilestoneStatuses, type DerivationAgentAction } from '../timelineDerivation'
 import type { PlanMessage } from '@/lib/types/planner'
 import type { PlanningMilestone } from '@/lib/events/milestoneTemplates'
 
@@ -46,6 +46,16 @@ function outreachApprovalMsg(status: string, id = 'approval-1'): PlanMessage {
   })
 }
 
+function holdAction(status: string, id = `hold-${status}`, venueName = 'The Valencia Room'): DerivationAgentAction {
+  return {
+    id,
+    action_type: 'hold_request',
+    status,
+    payload_json: { venue_name: venueName },
+    created_at: '2026-05-01T12:00:00.000Z',
+  }
+}
+
 function milestone(overrides: Partial<PlanningMilestone> & Pick<PlanningMilestone, 'title' | 'category'>): PlanningMilestone {
   return {
     due_date: '2099-12-31', // far future = not overdue by default
@@ -67,8 +77,20 @@ describe('venue confirmation milestone', () => {
     expect(derived.blocker_tab).toBe('recommendations')
   })
 
-  it('is in_progress when phase-2 rec exists', () => {
+  it('is still blocked when only a phase-2 rec exists', () => {
     const [derived] = deriveMilestoneStatuses(plan, [phase2RecMsg()], [venueConfirm])
+    expect(derived.status).toBe('blocked')
+  })
+
+  it('is awaiting_venue_response when a hold request is pending', () => {
+    const [derived] = deriveMilestoneStatuses(plan, [phase2RecMsg()], [venueConfirm], [holdAction('pending')])
+    expect(derived.status).toBe('awaiting_venue_response')
+    expect(derived.awaiting_venue_name).toBe('The Valencia Room')
+    expect(derived.blocker_reason).toBe('Awaiting The Valencia Room')
+  })
+
+  it('is in_progress when approved hold_request action exists', () => {
+    const [derived] = deriveMilestoneStatuses(plan, [], [venueConfirm], [holdAction('approved')])
     expect(derived.status).toBe('in_progress')
   })
 
@@ -91,16 +113,23 @@ describe('vendor confirmation milestone', () => {
   })
 
   it('is blocked (approve outreach) when hold exists but no outreach approval', () => {
-    const [derived] = deriveMilestoneStatuses(plan, [phase2RecMsg()], [vendorConfirm])
+    const [derived] = deriveMilestoneStatuses(plan, [phase2RecMsg()], [vendorConfirm], [holdAction('authorized')])
     expect(derived.status).toBe('blocked')
     expect(derived.blocker_tab).toBe('approvals')
+  })
+
+  it('is awaiting_venue_response when a vendor milestone has only a pending venue hold', () => {
+    const [derived] = deriveMilestoneStatuses(plan, [phase2RecMsg()], [vendorConfirm], [holdAction('pending')])
+    expect(derived.status).toBe('awaiting_venue_response')
+    expect(derived.awaiting_venue_name).toBe('The Valencia Room')
   })
 
   it('is in_progress when outreach is approved', () => {
     const [derived] = deriveMilestoneStatuses(
       plan,
       [phase2RecMsg(), outreachApprovalMsg('authorized')],
-      [vendorConfirm]
+      [vendorConfirm],
+      [holdAction('complete')]
     )
     expect(derived.status).toBe('in_progress')
   })
@@ -109,7 +138,8 @@ describe('vendor confirmation milestone', () => {
     const [derived] = deriveMilestoneStatuses(
       plan,
       [phase2RecMsg(), outreachApprovalMsg('pending', 'outreach-msg-id')],
-      [vendorConfirm]
+      [vendorConfirm],
+      [holdAction('executing')]
     )
     expect(derived.status).toBe('blocked')
     expect(derived.blocker_msg_id).toBe('outreach-msg-id')
@@ -134,8 +164,13 @@ describe('payment milestone', () => {
   })
 
   it('is in_progress when hold exists', () => {
-    const [derived] = deriveMilestoneStatuses(plan, [phase2RecMsg()], [depositMilestone])
+    const [derived] = deriveMilestoneStatuses(plan, [], [depositMilestone], [holdAction('approved')])
     expect(derived.status).toBe('in_progress')
+  })
+
+  it('is awaiting_venue_response when deposit is waiting on a pending hold request', () => {
+    const [derived] = deriveMilestoneStatuses(plan, [phase2RecMsg()], [depositMilestone], [holdAction('pending')])
+    expect(derived.status).toBe('awaiting_venue_response')
   })
 })
 
@@ -195,7 +230,7 @@ describe('default milestones', () => {
       milestone({ title: 'Confirm vendor bookings', category: 'booking' }),
       milestone({ title: 'Send first promo push', category: 'marketing' }),
     ]
-    const derived = deriveMilestoneStatuses(plan, [phase2RecMsg()], milestones)
+    const derived = deriveMilestoneStatuses(plan, [phase2RecMsg()], milestones, [holdAction('approved')])
     expect(derived).toHaveLength(3)
     expect(derived[0].title).toBe('Confirm venue booking')
     expect(derived[1].title).toBe('Confirm vendor bookings')

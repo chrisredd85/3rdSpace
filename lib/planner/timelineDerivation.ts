@@ -2,13 +2,14 @@
  * Pure derivation layer for planner timeline milestone statuses.
  *
  * This module computes per-milestone status (done / in_progress / blocked /
- * overdue / pending) from the observable planner message state — no extra API
- * calls required. The derivation intentionally stays conservative: it marks a
- * milestone as "done" only when there is a clear signal, and falls back to
- * "pending" (neutral) rather than surfacing false-positive blockers.
+ * overdue / pending / awaiting_venue_response) from observable planner state.
+ * The derivation intentionally stays conservative: it marks a milestone as
+ * "done" only when there is a clear signal, and falls back to "pending"
+ * (neutral) rather than surfacing false-positive blockers.
  *
- * Signals used (all read from PlanMessage[]):
- * - Phase 2 recommendation message (phase = 'vendors') → active venue hold
+ * Signals used:
+ * - Agent action with action_type = hold_request + approved/executing status → active venue hold
+ * - Pending hold_request action → awaiting venue response
  * - Approval message with kind = 'venue_outreach' + status authorized → outreach sent
  * - Plan.ticketed + plan.ticketing_model → ticketing intent
  */
@@ -16,7 +17,7 @@
 import type { PlanMessage } from '@/lib/types/planner'
 import type { PlanningMilestone } from '@/lib/events/milestoneTemplates'
 
-export type MilestoneStatus = 'done' | 'in_progress' | 'blocked' | 'overdue' | 'pending'
+export type MilestoneStatus = 'done' | 'in_progress' | 'blocked' | 'overdue' | 'pending' | 'awaiting_venue_response'
 
 export interface DerivedMilestone extends PlanningMilestone {
   /** Computed lifecycle status for the milestone. */
@@ -27,6 +28,8 @@ export interface DerivedMilestone extends PlanningMilestone {
   blocker_tab?: 'recommendations' | 'approvals'
   /** ID of the specific planner message to scroll to when resolving. */
   blocker_msg_id?: string
+  /** Venue name for pending hold requests, when known. */
+  awaiting_venue_name?: string
 }
 
 /**
@@ -38,13 +41,27 @@ export interface DerivationPlan {
   ticketing_model?: string | null
 }
 
+export interface DerivationAgentAction {
+  id: string
+  action_type?: string | null
+  status?: string | null
+  target_type?: string | null
+  payload_json?: unknown
+  result_metadata?: unknown
+  created_at?: string | null
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Derivation context — built once per call from the messages list
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface DerivationContext {
-  /** A phase-2 recommendation message exists, which only runs when a hold is active. */
+  /** A hold_request agent action has reached an approved/executing state. */
   hasVenueHold: boolean
+  /** A hold_request exists but is not yet approved or terminal. */
+  hasPendingVenueHold: boolean
+  /** Pending hold request venue name, when present in action metadata. */
+  awaitingVenueName: string | null
   /** A venue_outreach approval message exists in the thread. */
   hasOutreachApproval: boolean
   /** The venue_outreach approval has been authorized/approved. */
@@ -54,6 +71,9 @@ interface DerivationContext {
   /** ID of the most recent venue_outreach approval message (for deep-link scroll). */
   outreachMsgId: string | null
 }
+
+const CONFIRMED_HOLD_STATUSES = new Set(['approved', 'authorized', 'executing', 'complete'])
+const TERMINAL_HOLD_STATUSES = new Set(['cancelled', 'canceled', 'failed', 'rejected', 'declined', 'expired'])
 
 function readMeta(message: PlanMessage): Record<string, unknown> | null {
   if (!message.metadata || typeof message.metadata !== 'object' || Array.isArray(message.metadata)) {
@@ -74,12 +94,22 @@ function readApprovalStatus(meta: Record<string, unknown>): string | null {
   return null
 }
 
-function buildDerivationContext(messages: PlanMessage[]): DerivationContext {
-  // Phase 2 recommendation: only emitted when an active venue hold exists.
+function buildDerivationContext(messages: PlanMessage[], agentActions: DerivationAgentAction[]): DerivationContext {
+  // Phase 2 recommendation: useful for deep-linking, but not proof that a hold
+  // is approved. Actual hold state comes from agent_actions below.
   const phase2Rec = [...messages].reverse().find((msg) => {
     if (String(msg.message_type) !== 'recommendation') return false
     const meta = readMeta(msg)
     return meta?.phase === 'vendors'
+  })
+
+  const holdActions = [...agentActions]
+    .filter((action) => action.action_type === 'hold_request')
+    .sort(compareNewestActionFirst)
+  const confirmedHold = holdActions.find((action) => CONFIRMED_HOLD_STATUSES.has(normalizeStatus(action.status)))
+  const pendingHold = holdActions.find((action) => {
+    const status = normalizeStatus(action.status)
+    return !CONFIRMED_HOLD_STATUSES.has(status) && !TERMINAL_HOLD_STATUSES.has(status)
   })
 
   // Venue outreach approval message.
@@ -99,7 +129,9 @@ function buildDerivationContext(messages: PlanMessage[]): DerivationContext {
   }
 
   return {
-    hasVenueHold: Boolean(phase2Rec),
+    hasVenueHold: Boolean(confirmedHold),
+    hasPendingVenueHold: Boolean(pendingHold),
+    awaitingVenueName: pendingHold ? readVenueNameFromAction(pendingHold) : null,
     hasOutreachApproval: Boolean(outreachMsg),
     outreachApproved,
     recMsgId: phase2Rec?.id ?? null,
@@ -116,6 +148,17 @@ type StatusResult = {
   blocker_reason?: string
   blocker_tab?: 'recommendations' | 'approvals'
   blocker_msg_id?: string
+  awaiting_venue_name?: string
+}
+
+function awaitingVenueResponse(ctx: DerivationContext, fallback = 'Awaiting venue response'): StatusResult {
+  return {
+    status: 'awaiting_venue_response',
+    blocker_reason: ctx.awaitingVenueName ? `Awaiting ${ctx.awaitingVenueName}` : fallback,
+    blocker_tab: 'recommendations',
+    blocker_msg_id: ctx.recMsgId ?? undefined,
+    awaiting_venue_name: ctx.awaitingVenueName ?? undefined,
+  }
 }
 
 function deriveStatus(
@@ -134,8 +177,8 @@ function deriveStatus(
     (title.includes('venue') && (title.includes('confirm') || title.includes('book'))) ||
     category === 'venue'
   ) {
-    if (ctx.outreachApproved) return { status: 'in_progress' }
     if (ctx.hasVenueHold) return { status: 'in_progress' }
+    if (ctx.hasPendingVenueHold) return awaitingVenueResponse(ctx)
     if (isOverdue) {
       return {
         status: 'overdue',
@@ -158,6 +201,7 @@ function deriveStatus(
     (title.includes('deposit') && title.includes('venue')) ||
     (title.includes('pay') && title.includes('venue'))
   ) {
+    if (ctx.hasPendingVenueHold && !ctx.hasVenueHold) return awaitingVenueResponse(ctx, 'Awaiting venue response before deposit')
     if (!ctx.hasVenueHold) {
       if (isOverdue) {
         return {
@@ -182,7 +226,9 @@ function deriveStatus(
     (title.includes('vendor') && (title.includes('confirm') || title.includes('book'))) ||
     category === 'vendor'
   ) {
-    if (ctx.outreachApproved) return { status: 'in_progress' }
+    if (ctx.hasPendingVenueHold && !ctx.hasVenueHold) {
+      return awaitingVenueResponse(ctx, 'Awaiting venue response before contacting vendors')
+    }
     if (!ctx.hasVenueHold) {
       if (isOverdue) {
         return {
@@ -199,7 +245,7 @@ function deriveStatus(
         blocker_msg_id: ctx.recMsgId ?? undefined,
       }
     }
-    if (!ctx.hasOutreachApproval) {
+    if (!ctx.hasOutreachApproval || !ctx.outreachApproved) {
       if (isOverdue) {
         return {
           status: 'overdue',
@@ -227,6 +273,9 @@ function deriveStatus(
 
   // ── Compliance / venue requirements ────────────────────────────────────────
   if (category === 'compliance') {
+    if (ctx.hasPendingVenueHold && !ctx.hasVenueHold) {
+      return awaitingVenueResponse(ctx, 'Awaiting venue response to surface its requirements')
+    }
     if (!ctx.hasVenueHold) {
       if (isOverdue) {
         return {
@@ -276,10 +325,11 @@ export function deriveMilestoneStatuses(
   plan: DerivationPlan,
   messages: PlanMessage[],
   milestones: PlanningMilestone[],
+  agentActions: DerivationAgentAction[] = [],
   today: Date = new Date()
 ): DerivedMilestone[] {
   const startOfToday = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
-  const ctx = buildDerivationContext(messages)
+  const ctx = buildDerivationContext(messages, agentActions)
   return milestones.map((milestone) => {
     const { status, ...extras } = deriveStatus(milestone, ctx, plan, startOfToday)
     return { ...milestone, status, ...extras }
@@ -293,4 +343,37 @@ export function deriveMilestoneStatuses(
 function parseDateOnly(value: string): Date | null {
   const parsed = new Date(`${value.slice(0, 10)}T00:00:00Z`)
   return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function normalizeStatus(value: string | null | undefined): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : ''
+}
+
+function compareNewestActionFirst(a: DerivationAgentAction, b: DerivationAgentAction): number {
+  const aTime = Date.parse(a.created_at ?? '')
+  const bTime = Date.parse(b.created_at ?? '')
+  return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0)
+}
+
+function readVenueNameFromAction(action: DerivationAgentAction): string | null {
+  const payload = readRecord(action.payload_json)
+  const result = readRecord(action.result_metadata)
+  return (
+    readString(payload?.venue_name) ??
+    readString(payload?.venueName) ??
+    readString(payload?.provider) ??
+    readString(payload?.target_name) ??
+    readString(readRecord(payload?.venue)?.name) ??
+    readString(result?.venue_name) ??
+    readString(result?.venueName) ??
+    null
+  )
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }

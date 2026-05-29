@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   deriveMilestoneStatuses,
+  type DerivationAgentAction,
   type DerivationPlan,
   type DerivedMilestone,
   type MilestoneStatus,
@@ -54,6 +55,7 @@ interface CountdownBucket {
 interface PlannerTimelineCountdownProps {
   plan: DerivationPlan & { date_window_start?: string | null; date_window_end?: string | null }
   messages: PlanMessage[]
+  agentActions: DerivationAgentAction[]
   timeline: TimelineOutput | null
   isLoading: boolean
   error: string | null
@@ -64,6 +66,7 @@ interface PlannerTimelineCountdownProps {
 export function PlannerTimelineCountdown({
   plan,
   messages,
+  agentActions,
   timeline,
   isLoading,
   error,
@@ -73,7 +76,7 @@ export function PlannerTimelineCountdown({
   const eventDate = plan.date_window_start ?? plan.date_window_end ?? null
 
   const derivedMilestones = timeline
-    ? deriveMilestoneStatuses(plan, messages, timeline.planning_milestones)
+    ? deriveMilestoneStatuses(plan, messages, timeline.planning_milestones, agentActions)
     : []
 
   const sorted = [...derivedMilestones].sort((a, b) => a.due_date.localeCompare(b.due_date))
@@ -194,7 +197,7 @@ function MilestoneCard({
 
           {/* Status badge */}
           <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-bold uppercase tracking-widest', statusBadgeClass(status))}>
-            {statusLabel(status)}
+            {statusLabel(status, milestone)}
           </span>
         </div>
 
@@ -265,10 +268,12 @@ function bucketMilestones(milestones: DerivedMilestone[]): CountdownBucket[] {
 // Status display helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function statusLabel(status: MilestoneStatus): string {
+function statusLabel(status: MilestoneStatus, milestone?: DerivedMilestone): string {
   switch (status) {
     case 'done': return '✓ done'
     case 'in_progress': return '⏳ in progress'
+    case 'awaiting_venue_response':
+      return milestone?.awaiting_venue_name ? `⏳ Awaiting ${milestone.awaiting_venue_name}` : '⏳ awaiting venue'
     case 'blocked': return '⚠ blocked'
     case 'overdue': return '✗ overdue'
     case 'pending': return 'pending'
@@ -279,6 +284,7 @@ function statusBadgeClass(status: MilestoneStatus): string {
   switch (status) {
     case 'done': return 'border-success/30 bg-success/10 text-success'
     case 'in_progress': return 'border-primary/30 bg-primary/10 text-primary'
+    case 'awaiting_venue_response': return 'border-secondary/30 bg-secondary/10 text-secondary'
     case 'blocked': return 'border-secondary/30 bg-secondary/10 text-secondary'
     case 'overdue': return 'border-destructive/30 bg-destructive/10 text-destructive'
     case 'pending': return 'border-border bg-muted text-muted-foreground'

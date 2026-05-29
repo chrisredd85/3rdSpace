@@ -8,7 +8,7 @@
  */
 'use client'
 
-import { Suspense, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { CalendarDays, CheckCircle2, ChevronDown, Copy, ExternalLink, LayoutTemplate, Loader2, MessageSquare, RefreshCw, SendHorizontal, Sparkles, X } from 'lucide-react'
@@ -25,6 +25,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/components/ui/toast'
 import { humanizeEventType } from '@/lib/planner/archetypes/driftControl'
 import { migratePlannerDraftToServer, plannerDraftStorageKey } from '@/lib/planner/migrateDraft'
+import type { DerivationAgentAction } from '@/lib/planner/timelineDerivation'
 import type {
   Plan,
   PlanMessage,
@@ -217,6 +218,7 @@ function PlannerPageContent() {
   const [replyAnalysisError, setReplyAnalysisError] = useState<string | null>(null)
   const [replyAnalysisResult, setReplyAnalysisResult] = useState<ResponseAnalysisOutput | null>(null)
   const [timelineResult, setTimelineResult] = useState<TimelineOutput | null>(null)
+  const [agentActions, setAgentActions] = useState<DerivationAgentAction[]>([])
   const [isTimelineLoading, setIsTimelineLoading] = useState(false)
   const [timelineError, setTimelineError] = useState<string | null>(null)
   const [isDemoResetting, setIsDemoResetting] = useState(false)
@@ -232,6 +234,31 @@ function PlannerPageContent() {
       }
     },
   })
+
+  const loadPlanAgentActions = useCallback(async (planId: string) => {
+    if (!planId || planId.startsWith('mock-plan-')) {
+      setAgentActions([])
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/planner/plans/${planId}/agent-actions?limit=50`, {
+        method: 'GET',
+        credentials: 'include',
+      })
+      const payload = await response.json().catch(() => ({} as { agentActions?: DerivationAgentAction[] }))
+
+      if (!response.ok) {
+        console.warn('[planner] Unable to load agent actions for timeline', response.status)
+        return
+      }
+
+      setAgentActions(Array.isArray(payload.agentActions) ? payload.agentActions : [])
+    } catch (error) {
+      console.warn('[planner] Unable to load agent actions for timeline', error)
+    }
+  }, [])
+
   useEffect(() => {
     setIsAuthenticated(persistenceMode === 'server')
   }, [persistenceMode])
@@ -278,6 +305,15 @@ function PlannerPageContent() {
     void loadPlannerTimeline()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, activePlan, timelineResult, isTimelineLoading])
+
+  useEffect(() => {
+    if (persistenceMode !== 'server' || !activePlan?.id) {
+      setAgentActions([])
+      return
+    }
+
+    void loadPlanAgentActions(activePlan.id)
+  }, [activePlan?.id, persistenceMode, loadPlanAgentActions])
 
   useEffect(() => {
     let isCancelled = false
@@ -566,6 +602,7 @@ function PlannerPageContent() {
       const data = payload as PlannerCreatePlanResponse
       setActivePlan(data.plan)
       setMessages(data.messages)
+      setAgentActions([])
       setActiveTab('chat')
       publishLivePlan(data.plan, data.messages)
       if (data.needs_recommendations) {
@@ -778,6 +815,7 @@ function PlannerPageContent() {
     clearStoredPlannerConversation()
     setActivePlan(null)
     setMessages([])
+    setAgentActions([])
     setReply('')
     setActiveTab('chat')
     setErrorMessage(null)
@@ -851,6 +889,9 @@ function PlannerPageContent() {
     if (tabId === 'timeline' && !timelineResult && !isTimelineLoading) {
       void loadPlannerTimeline()
     }
+    if (tabId === 'timeline' && activePlan?.id && persistenceMode === 'server') {
+      void loadPlanAgentActions(activePlan.id)
+    }
   }
 
   function navigateToPlannerTab(tabId: PlannerTab, messageId?: string) {
@@ -886,6 +927,10 @@ function PlannerPageContent() {
     setTimelineError(null)
 
     try {
+      if (persistenceMode === 'server') {
+        await loadPlanAgentActions(activePlan.id)
+      }
+
       const response = await fetch('/api/ai/agents/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1496,6 +1541,7 @@ function PlannerPageContent() {
               <PlannerTimelineCountdown
                 plan={activePlan}
                 messages={messages}
+                agentActions={agentActions}
                 timeline={timelineResult}
                 isLoading={isTimelineLoading}
                 error={timelineError}
