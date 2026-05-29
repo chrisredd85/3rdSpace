@@ -13,12 +13,12 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { CalendarDays, CheckCircle2, ChevronDown, Copy, ExternalLink, LayoutTemplate, Loader2, MessageSquare, RefreshCw, SendHorizontal, Sparkles, X } from 'lucide-react'
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
-import { BillingGateModal } from '@/components/planner/BillingGateModal'
 import { PlannerDataConnectionPanel } from '@/components/planner/PlannerDataConnectionPanel'
 import { PlannerLivePlanPanel } from '@/components/planner/PlannerLivePlanPanel'
 import { PlannerSignupGate } from '@/components/planner/PlannerSignupGate'
 import { PlannerTimelineCountdown } from '@/components/planner/PlannerTimelineCountdown'
 import { PlannerTopBar } from '@/components/planner/PlannerTopBar'
+import { usePlannerBillingGate } from '@/components/planner/usePlannerBillingGate'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -56,6 +56,7 @@ type PlannerTab = (typeof planTabs)[number]['id']
 type ApprovalUiStatus = 'approved' | 'rejected'
 type PlannerPersistenceMode = 'loading' | 'server' | 'draft'
 type PendingConversionActionType = 'save' | 'hold' | 'authorize'
+type BillingRequiredHandler = (message?: string | null) => void
 
 interface PlannerAgentActionRequest {
   actionType: string
@@ -221,11 +222,16 @@ function PlannerPageContent() {
   const [isDemoResetting, setIsDemoResetting] = useState(false)
   const [demoResetError, setDemoResetError] = useState<string | null>(null)
   const [signupGateContext, setSignupGateContext] = useState<'default' | 'recommendations'>('default')
-  const [billingGate, setBillingGate] = useState<{ isOpen: boolean; message: string | null }>({
-    isOpen: false,
-    message: null,
-  })
   const [plannerAccount, setPlannerAccount] = useState<PlannerAccountSummary | null>(null)
+  const billingGate = usePlannerBillingGate({
+    onPlanArchived: (planId) => {
+      if (activePlan?.id === planId) {
+        setActivePlan(null)
+        setMessages([])
+        publishLivePlan(null, [])
+      }
+    },
+  })
   useEffect(() => {
     setIsAuthenticated(persistenceMode === 'server')
   }, [persistenceMode])
@@ -548,12 +554,7 @@ function PlannerPageContent() {
       }
 
       if (response.status === 402) {
-        // Billing gate - do not fall back to draft. Show the upgrade modal so
-        // the user can buy a credit, upgrade, or archive an old plan.
-        setBillingGate({
-          isOpen: true,
-          message: payload?.error ?? "You've used your free events. Choose how to keep planning.",
-        })
+        billingGate.handleBillingRequiredResponse(response, payload)
         setIsCreatingPlan(false)
         return null
       }
@@ -903,6 +904,12 @@ function PlannerPageContent() {
       const payload = await response.json().catch(() => ({}))
 
       if (!response.ok) {
+        if (billingGate.handleBillingRequiredResponse(
+          response,
+          payload as { error?: string; message?: string; billingRequired?: boolean }
+        )) {
+          throw new Error('Choose a billing path to continue.')
+        }
         const serverMessage = readUnknownRecord(payload)?.error
         throw new Error(
           typeof serverMessage === 'string' && serverMessage.trim()
@@ -1213,7 +1220,13 @@ function PlannerPageContent() {
         }),
       })
 
-      if (!response.ok) throw new Error('Authorization failed — try again')
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
+        if (billingGate.handleBillingRequiredResponse(response, payload)) {
+          throw new Error('Choose a billing path to continue.')
+        }
+        throw new Error('Authorization failed — try again')
+      }
       return
     }
 
@@ -1229,6 +1242,10 @@ function PlannerPageContent() {
     })
 
     if (!response.ok) {
+      const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
+      if (billingGate.handleBillingRequiredResponse(response, payload)) {
+        throw new Error('Choose a billing path to continue.')
+      }
       throw new Error(action.type === 'authorize' ? 'Authorization failed — try again' : 'Failed to create hold request — try again')
     }
   }
@@ -1410,6 +1427,7 @@ function PlannerPageContent() {
                     onToast={addToast}
                     onQuestionAnswerSubmit={(answer) => void submitReply(answer)}
                     onNavigateToTab={navigateToPlannerTab}
+                    onBillingRequired={billingGate.openBillingGate}
                   />
                 ))}
                 {isAwaitingRecommendations ? (
@@ -1437,6 +1455,7 @@ function PlannerPageContent() {
                       onApprovalStatusChange={handleApprovalStatusChange}
                       onToast={addToast}
                       onQuestionAnswerSubmit={(answer) => void submitReply(answer)}
+                      onBillingRequired={billingGate.openBillingGate}
                     />
                   ))
                 ) : (
@@ -1462,6 +1481,7 @@ function PlannerPageContent() {
                       onAuthRequired={requestSignupForAction}
                       onApprovalStatusChange={handleApprovalStatusChange}
                       onToast={addToast}
+                      onBillingRequired={billingGate.openBillingGate}
                     />
                   ))
                 ) : (
@@ -1619,18 +1639,7 @@ function PlannerPageContent() {
         onApply={(templateId) => void applyPlannerTemplate(templateId)}
         onSaveCurrentPlan={() => void saveActivePlanAsTemplate()}
       />
-      <BillingGateModal
-        isOpen={billingGate.isOpen}
-        message={billingGate.message}
-        onClose={() => setBillingGate({ isOpen: false, message: null })}
-        onPlanArchived={(planId) => {
-          if (activePlan?.id === planId) {
-            setActivePlan(null)
-            setMessages([])
-            publishLivePlan(null, [])
-          }
-        }}
-      />
+      {billingGate.modal}
     </div>
   )
 }
@@ -3115,6 +3124,7 @@ interface PlannerMessageBubbleProps {
   planId: string
   isAuthenticated: boolean
   onAuthRequired: (action: PendingConversionAction) => void
+  onBillingRequired?: BillingRequiredHandler
   onApprovalStatusChange: (approvalId: string, status: ApprovalUiStatus) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
   onQuestionAnswerSubmit?: (answer: string) => void
@@ -3152,6 +3162,7 @@ function PlannerMessageBubble({
   planId,
   isAuthenticated,
   onAuthRequired,
+  onBillingRequired,
   onApprovalStatusChange,
   onToast,
   onQuestionAnswerSubmit,
@@ -3217,6 +3228,7 @@ function PlannerMessageBubble({
               planId={planId}
               isAuthenticated={isAuthenticated}
               onAuthRequired={onAuthRequired}
+              onBillingRequired={onBillingRequired}
               onApprovalStatusChange={onApprovalStatusChange}
               onToast={onToast}
               onQuestionAnswerSubmit={onQuestionAnswerSubmit}
@@ -3313,6 +3325,7 @@ interface PlannerFocusedMessageCardProps {
   planId: string
   isAuthenticated: boolean
   onAuthRequired: (action: PendingConversionAction) => void
+  onBillingRequired?: BillingRequiredHandler
   onApprovalStatusChange: (approvalId: string, status: ApprovalUiStatus) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
   onQuestionAnswerSubmit?: (answer: string) => void
@@ -3327,6 +3340,7 @@ function PlannerFocusedMessageCard({
   planId,
   isAuthenticated,
   onAuthRequired,
+  onBillingRequired,
   onApprovalStatusChange,
   onToast,
   onQuestionAnswerSubmit,
@@ -3355,6 +3369,7 @@ function PlannerFocusedMessageCard({
         planId={planId}
         isAuthenticated={isAuthenticated}
         onAuthRequired={onAuthRequired}
+        onBillingRequired={onBillingRequired}
         onApprovalStatusChange={onApprovalStatusChange}
         onToast={onToast}
         onQuestionAnswerSubmit={onQuestionAnswerSubmit}
@@ -3371,6 +3386,7 @@ function PlannerApprovalFocusedCard({
   planId,
   isAuthenticated,
   onAuthRequired,
+  onBillingRequired,
   onApprovalStatusChange,
   onToast,
 }: PlannerFocusedMessageCardProps) {
@@ -3395,6 +3411,7 @@ function PlannerApprovalFocusedCard({
         approval={buildApprovalDisplayMetadata(message.metadata, approval)}
         isAuthenticated={isAuthenticated}
         onAuthRequired={onAuthRequired}
+        onBillingRequired={onBillingRequired}
         onStatusChange={onApprovalStatusChange}
         onToast={onToast}
       />
@@ -3563,6 +3580,7 @@ interface PlannerMessageMetadataProps {
   planId: string
   isAuthenticated: boolean
   onAuthRequired: (action: PendingConversionAction) => void
+  onBillingRequired?: BillingRequiredHandler
   onApprovalStatusChange: (approvalId: string, status: ApprovalUiStatus) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
   onQuestionAnswerSubmit?: (answer: string) => void
@@ -3576,6 +3594,7 @@ function PlannerMessageMetadata({
   planId,
   isAuthenticated,
   onAuthRequired,
+  onBillingRequired,
   onApprovalStatusChange,
   onToast,
   onQuestionAnswerSubmit,
@@ -3802,6 +3821,7 @@ function PlannerMessageMetadata({
                   planId={planId}
                   isAuthenticated={isAuthenticated}
                   onAuthRequired={onAuthRequired}
+                  onBillingRequired={onBillingRequired}
                   recommendation={recommendation as Record<string, unknown>}
                   label={action}
                   variant={index === 0 ? 'hero' : 'glass'}
@@ -4000,6 +4020,7 @@ function PlannerMessageMetadata({
           approval={buildApprovalDisplayMetadata(message.metadata, approval as Record<string, unknown>)}
           isAuthenticated={isAuthenticated}
           onAuthRequired={onAuthRequired}
+          onBillingRequired={onBillingRequired}
           onStatusChange={onApprovalStatusChange}
           onToast={onToast}
         />
@@ -4199,6 +4220,7 @@ interface PlannerRecommendationActionButtonProps {
   planId: string
   isAuthenticated: boolean
   onAuthRequired: (action: PendingConversionAction) => void
+  onBillingRequired?: BillingRequiredHandler
   recommendation: Record<string, unknown>
   label: string
   variant: 'hero' | 'glass'
@@ -4213,6 +4235,7 @@ function PlannerRecommendationActionButton({
   planId,
   isAuthenticated,
   onAuthRequired,
+  onBillingRequired,
   recommendation,
   label,
   variant,
@@ -4253,6 +4276,11 @@ function PlannerRecommendationActionButton({
         })
 
         if (!response.ok) {
+          const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
+          if (response.status === 402) {
+            onBillingRequired?.(payload.error ?? payload.message)
+            return
+          }
           throw new Error('Failed to create agent action')
         }
       }
@@ -4859,6 +4887,7 @@ interface PlannerApprovalCardProps {
   approval: Record<string, unknown>
   isAuthenticated: boolean
   onAuthRequired: (action: PendingConversionAction) => void
+  onBillingRequired?: BillingRequiredHandler
   onStatusChange: (approvalId: string, status: ApprovalUiStatus, updatedApproval?: Record<string, unknown>) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
 }
@@ -4882,6 +4911,7 @@ function PlannerApprovalCard({
   approval,
   isAuthenticated,
   onAuthRequired,
+  onBillingRequired,
   onStatusChange,
   onToast,
 }: PlannerApprovalCardProps) {
@@ -4990,7 +5020,11 @@ function PlannerApprovalCard({
     })
 
     if (!response.ok) {
-      const payload = await response.json().catch(() => ({} as { error?: string }))
+      const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
+      if (response.status === 402) {
+        onBillingRequired?.(payload.error ?? payload.message)
+        throw new Error('Choose a billing path to continue.')
+      }
       throw new Error(payload?.error ?? 'Approval update failed')
     }
 
@@ -5003,7 +5037,11 @@ function PlannerApprovalCard({
       requestSignupForAuthorization(amountCents)
       return
     }
-    if (isProductGateRequired || isProductGateLoading) return
+    if (isProductGateRequired) {
+      onBillingRequired?.('Choose how to keep planning before approving outreach.')
+      return
+    }
+    if (isProductGateLoading) return
 
     setIsSubmitting(true)
     setInlineError(null)
@@ -5049,7 +5087,11 @@ function PlannerApprovalCard({
       requestSignupForAuthorization(nextAuthorizedAmountCents)
       return
     }
-    if (isProductGateRequired || isProductGateLoading) return
+    if (isProductGateRequired) {
+      onBillingRequired?.('Choose how to keep planning before approving outreach.')
+      return
+    }
+    if (isProductGateLoading) return
 
     setIsSubmitting(true)
     setInlineError(null)
