@@ -13,6 +13,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { CalendarDays, CheckCircle2, ChevronDown, Copy, ExternalLink, LayoutTemplate, Loader2, MessageSquare, RefreshCw, SendHorizontal, Sparkles, X } from 'lucide-react'
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
+import { BillingGateModal } from '@/components/planner/BillingGateModal'
 import { PlannerDataConnectionPanel } from '@/components/planner/PlannerDataConnectionPanel'
 import { PlannerLivePlanPanel } from '@/components/planner/PlannerLivePlanPanel'
 import { PlannerSignupGate } from '@/components/planner/PlannerSignupGate'
@@ -220,6 +221,10 @@ function PlannerPageContent() {
   const [isDemoResetting, setIsDemoResetting] = useState(false)
   const [demoResetError, setDemoResetError] = useState<string | null>(null)
   const [signupGateContext, setSignupGateContext] = useState<'default' | 'recommendations'>('default')
+  const [billingGate, setBillingGate] = useState<{ isOpen: boolean; message: string | null }>({
+    isOpen: false,
+    message: null,
+  })
   const [plannerAccount, setPlannerAccount] = useState<PlannerAccountSummary | null>(null)
   useEffect(() => {
     setIsAuthenticated(persistenceMode === 'server')
@@ -543,11 +548,12 @@ function PlannerPageContent() {
       }
 
       if (response.status === 402) {
-        // Billing gate — do not fall back to draft. Show the upgrade prompt so
-        // the user can choose a plan, then retry.
-        setErrorMessage(
-          payload?.error ?? "You've used your free events. Upgrade to keep planning."
-        )
+        // Billing gate - do not fall back to draft. Show the upgrade modal so
+        // the user can buy a credit, upgrade, or archive an old plan.
+        setBillingGate({
+          isOpen: true,
+          message: payload?.error ?? "You've used your free events. Choose how to keep planning.",
+        })
         setIsCreatingPlan(false)
         return null
       }
@@ -1612,6 +1618,18 @@ function PlannerPageContent() {
         onRefresh={() => void loadPlannerTemplates()}
         onApply={(templateId) => void applyPlannerTemplate(templateId)}
         onSaveCurrentPlan={() => void saveActivePlanAsTemplate()}
+      />
+      <BillingGateModal
+        isOpen={billingGate.isOpen}
+        message={billingGate.message}
+        onClose={() => setBillingGate({ isOpen: false, message: null })}
+        onPlanArchived={(planId) => {
+          if (activePlan?.id === planId) {
+            setActivePlan(null)
+            setMessages([])
+            publishLivePlan(null, [])
+          }
+        }}
       />
     </div>
   )
