@@ -172,7 +172,16 @@ export default function HomePage() {
       </section>
 
       <footer className="border-t border-border py-8 text-center text-sm text-muted-foreground">
-        © 2026 3rdPlace. Agent-first event planning for the Bay Area.
+        <p>© 2026 3rdPlace. Agent-first event planning for the Bay Area.</p>
+        <nav className="mt-3 flex flex-wrap items-center justify-center gap-4 text-xs">
+          <a href="/privacy" className="transition-smooth hover:text-foreground hover:underline">
+            Privacy
+          </a>
+          <span aria-hidden="true">/</span>
+          <a href="/terms" className="transition-smooth hover:text-foreground hover:underline">
+            Terms
+          </a>
+        </nav>
       </footer>
     </div>
   )
