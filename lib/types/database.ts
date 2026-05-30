@@ -236,6 +236,17 @@ export interface VendorStripeAccount {
 export type VendorPaymentStatus = 'pending' | 'processing' | 'succeeded' | 'fully_paid' | 'failed' | 'refunded'
 export type VendorTransactionPaymentType = 'deposit' | 'final_payment' | 'refund'
 export type VendorTransactionStatus = 'pending' | 'processing' | 'succeeded' | 'failed' | 'refunded'
+export type VenuePaymentMethodType = 'card' | 'us_bank_account'
+export type VenuePaymentTransactionStatus =
+  | 'pending_builder_payment'
+  | 'checkout_created'
+  | 'paid'
+  | 'refund_requested'
+  | 'refund_approved'
+  | 'refunded_partial'
+  | 'refunded_full'
+  | 'cancelled'
+  | 'failed'
 
 /**
  * Vendor payment transaction table row
@@ -256,6 +267,43 @@ export interface VendorTransaction {
   status: VendorTransactionStatus
   paid_at: string | null
   created_at: string
+}
+
+/**
+ * Venue rental payment transaction table row
+ */
+export interface VenuePaymentTransaction {
+  id: string
+  plan_id: string
+  venue_booking_id: string | null
+  builder_id: string
+  venue_id: string
+  venue_owner_id: string
+  amount_cents: number
+  processing_fee_cents: number
+  application_fee_cents: number
+  venue_payout_cents: number
+  currency: string
+  status: VenuePaymentTransactionStatus
+  payment_method_type: VenuePaymentMethodType
+  stripe_checkout_session_id: string | null
+  stripe_payment_intent_id: string | null
+  stripe_charge_id: string | null
+  stripe_transfer_id: string | null
+  stripe_refund_id: string | null
+  stripe_transfer_reversal_id: string | null
+  refund_amount_cents: number | null
+  refund_reason: string | null
+  refund_requested_by: string | null
+  refund_requested_at: string | null
+  refund_approved_by: string | null
+  refund_approved_at: string | null
+  paid_at: string | null
+  transfer_completed_at: string | null
+  failed_at: string | null
+  failure_reason: string | null
+  created_at: string
+  updated_at: string
 }
 
 export type VendorInvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'
@@ -747,6 +795,44 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<Omit<VendorTransaction, 'id' | 'created_at'>>
+        Relationships: []
+      }
+      venue_payment_transactions: {
+        Row: VenuePaymentTransaction
+        Insert: {
+          id?: string
+          plan_id: string
+          venue_booking_id?: string | null
+          builder_id: string
+          venue_id: string
+          venue_owner_id: string
+          amount_cents: number
+          processing_fee_cents?: number
+          application_fee_cents?: number
+          venue_payout_cents: number
+          currency?: string
+          status?: VenuePaymentTransactionStatus
+          payment_method_type: VenuePaymentMethodType
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          stripe_charge_id?: string | null
+          stripe_transfer_id?: string | null
+          stripe_refund_id?: string | null
+          stripe_transfer_reversal_id?: string | null
+          refund_amount_cents?: number | null
+          refund_reason?: string | null
+          refund_requested_by?: string | null
+          refund_requested_at?: string | null
+          refund_approved_by?: string | null
+          refund_approved_at?: string | null
+          paid_at?: string | null
+          transfer_completed_at?: string | null
+          failed_at?: string | null
+          failure_reason?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<VenuePaymentTransaction>
         Relationships: []
       }
       vendor_invoices: {

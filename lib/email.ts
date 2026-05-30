@@ -163,6 +163,33 @@ type KickbackNotificationContext = {
   settlementSource: string
 }
 
+type VenueRentalNotificationTransaction = {
+  id: string
+  plan_id: string | null
+  venue_booking_id: string | null
+  builder_id: string | null
+  venue_id: string | null
+  venue_owner_id: string | null
+  amount_cents: number | string | null
+  processing_fee_cents: number | string | null
+  refund_amount_cents: number | string | null
+  refund_reason: string | null
+  status: string | null
+}
+
+type VenueRentalNotificationContext = {
+  transaction: VenueRentalNotificationTransaction
+  eventTitle: string
+  eventDate: string | null
+  venueName: string
+  venueEmail: string | null
+  builderName: string
+  builderEmail: string | null
+  amountCents: number
+  processingFeeCents: number
+  refundAmountCents: number
+}
+
 export async function sendVenueInvoiceEmail({ paymentId }: { paymentId: string }) {
   const context = await loadKickbackNotificationContext(paymentId)
   if (!context.venueEmail) return skippedEmail('Venue email not found')
@@ -300,6 +327,88 @@ export async function sendRefundCompletedEmail({
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Venue rental payment notifications (Phase 2)
+// ─────────────────────────────────────────────────────────────────────
+
+export async function sendVenueRefundRequestedEmail({ transactionId }: { transactionId: string }) {
+  const context = await loadVenueRentalNotificationContext(transactionId)
+  if (!context.venueEmail) return skippedEmail('Venue email not found')
+
+  return sendEmailNotification({
+    to: context.venueEmail,
+    subject: `Refund requested - ${context.eventTitle}`,
+    templateType: 'payment_due',
+    actionUrl: buildAppUrl('/venue/payouts'),
+    body: [
+      `Hi ${context.venueName},`,
+      `${context.builderName} requested a ${formatMoney(context.refundAmountCents)} refund for "${context.eventTitle}".`,
+      `Reason: ${context.transaction.refund_reason || 'No reason provided.'}`,
+      'Review the request from your venue payout dashboard.',
+    ].join('\n\n'),
+  })
+}
+
+export async function sendBuilderRefundApprovedEmail({ transactionId }: { transactionId: string }) {
+  const context = await loadVenueRentalNotificationContext(transactionId)
+  if (!context.builderEmail) return skippedEmail('Builder email not found')
+
+  return sendEmailNotification({
+    to: context.builderEmail,
+    subject: `Refund approved - ${formatMoney(context.refundAmountCents)} coming back`,
+    templateType: 'payment_received',
+    actionUrl: buildAppUrl('/planner/payments'),
+    body: [
+      `Hi ${context.builderName},`,
+      `${context.venueName} approved your refund request for "${context.eventTitle}".`,
+      `Refund amount: ${formatMoney(context.refundAmountCents)}.`,
+      'Funds usually return to the original payment method in 5-10 business days.',
+      'The original processing fee is not refunded.',
+    ].join('\n\n'),
+  })
+}
+
+export async function sendBuilderRefundRejectedEmail({
+  transactionId,
+  venueNote,
+}: {
+  transactionId: string
+  venueNote?: string | null
+}) {
+  const context = await loadVenueRentalNotificationContext(transactionId)
+  if (!context.builderEmail) return skippedEmail('Builder email not found')
+
+  return sendEmailNotification({
+    to: context.builderEmail,
+    subject: `Refund request not approved - ${context.eventTitle}`,
+    templateType: 'payment_due',
+    actionUrl: buildAppUrl('/planner/payments'),
+    body: [
+      `Hi ${context.builderName},`,
+      `${context.venueName} declined your refund request for "${context.eventTitle}".`,
+      venueNote ? `Venue note: ${venueNote}` : 'No venue note was included.',
+    ].join('\n\n'),
+  })
+}
+
+export async function sendBuilderRefundCounteredEmail({ transactionId }: { transactionId: string }) {
+  const context = await loadVenueRentalNotificationContext(transactionId)
+  if (!context.builderEmail) return skippedEmail('Builder email not found')
+
+  return sendEmailNotification({
+    to: context.builderEmail,
+    subject: `Venue countered your refund request - ${context.eventTitle}`,
+    templateType: 'payment_due',
+    actionUrl: buildAppUrl('/planner/payments'),
+    body: [
+      `Hi ${context.builderName},`,
+      `${context.venueName} proposed a ${formatMoney(context.refundAmountCents)} refund for "${context.eventTitle}".`,
+      `Details: ${context.transaction.refund_reason || 'No venue note provided.'}`,
+      'You can review the counter-offer from your planner payments ledger.',
+    ].join('\n\n'),
+  })
+}
+
 export async function sendVenueOverdueWarningEmail({
   venueId,
   overdueCount,
@@ -411,6 +520,55 @@ async function loadKickbackNotificationContext(paymentId: string): Promise<Kickb
   }
 }
 
+async function loadVenueRentalNotificationContext(transactionId: string): Promise<VenueRentalNotificationContext> {
+  const admin = await createKickbackEmailAdminClient()
+  const { data: transaction, error: transactionError } = await admin
+    .from('venue_payment_transactions')
+    .select(
+      [
+        'id',
+        'plan_id',
+        'venue_booking_id',
+        'builder_id',
+        'venue_id',
+        'venue_owner_id',
+        'amount_cents',
+        'processing_fee_cents',
+        'refund_amount_cents',
+        'refund_reason',
+        'status',
+      ].join(', ')
+    )
+    .eq('id', transactionId)
+    .maybeSingle()
+
+  if (transactionError) throw new Error(transactionError.message ?? 'Failed to load venue rental payment')
+  if (!transaction) throw new Error('Venue rental payment not found')
+
+  const typedTransaction = transaction as VenueRentalNotificationTransaction
+  const venue = typedTransaction.venue_id ? await loadVenue(admin, typedTransaction.venue_id) : null
+  const venueOwnerId = (venue as any)?.owner_id || typedTransaction.venue_owner_id
+  const venueOwner = venueOwnerId ? await loadUserEmail(admin, venueOwnerId) : null
+  const builder = typedTransaction.builder_id ? await loadUserEmail(admin, typedTransaction.builder_id) : null
+  const builderProfileName = typedTransaction.builder_id
+    ? await loadBuilderProfileName(admin, typedTransaction.builder_id)
+    : null
+  const eventLabel = await loadVenueRentalEventLabel(admin, typedTransaction.plan_id)
+
+  return {
+    transaction: typedTransaction,
+    eventTitle: eventLabel.title,
+    eventDate: eventLabel.date,
+    venueName: (venue as any)?.venue_name || venueOwner?.name || 'there',
+    venueEmail: (venue as any)?.contact_email || venueOwner?.email || null,
+    builderName: builderProfileName || builder?.name || 'Event builder',
+    builderEmail: builder?.email ?? null,
+    amountCents: readIntegerCents(typedTransaction.amount_cents),
+    processingFeeCents: readIntegerCents(typedTransaction.processing_fee_cents),
+    refundAmountCents: readIntegerCents(typedTransaction.refund_amount_cents),
+  }
+}
+
 async function loadKickbackAgreement(admin: any, agreementId: string): Promise<KickbackNotificationAgreement | null> {
   const { data, error } = await admin
     .from('event_kickback_agreements')
@@ -506,6 +664,24 @@ async function loadKickbackEventLabel(admin: any, eventId: string | null, planId
   }
 
   return { title: 'event', date: null }
+}
+
+async function loadVenueRentalEventLabel(admin: any, planId: string | null) {
+  if (!planId) return { title: 'event', date: null }
+
+  const { data, error } = await admin
+    .from('plans')
+    .select('title, date_window_start')
+    .eq('id', planId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to load plan')
+  if (!data) return { title: 'event', date: null }
+
+  return {
+    title: (data as any).title || 'event',
+    date: (data as any).date_window_start ?? null,
+  }
 }
 
 function readIntegerCents(value: number | string | null | undefined) {

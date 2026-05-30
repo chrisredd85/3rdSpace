@@ -7,6 +7,7 @@ import type {
   PartnershipPartnerKind,
   PartnershipThread,
 } from '@/lib/types'
+import { dollarsToCents, toFiniteNumber } from '@/lib/money'
 
 type PlannerDb = { from: (table: string) => any }
 
@@ -37,6 +38,25 @@ interface PartnerDisplayRow {
   parking_notes: string | null
 }
 
+interface VenueRentalBookingContext {
+  id: string
+  status: string | null
+  amount_cents: number
+}
+
+interface VenueRentalTransactionContext {
+  id: string
+  status: string
+  amount_cents: number
+  processing_fee_cents: number
+  refund_amount_cents: number | null
+  refund_reason: string | null
+  paid_at: string | null
+  refund_requested_at: string | null
+  refund_approved_at: string | null
+  stripe_transfer_id: string | null
+}
+
 export interface PartnershipWorkspace {
   thread: PartnershipThread
   partner: PartnerDisplayRow
@@ -60,6 +80,10 @@ export interface PartnershipWorkspace {
     deposit_cents: number | null
     is_deposit_paid: boolean
   }
+  venue_rental?: {
+    venue_booking: VenueRentalBookingContext | null
+    transaction: VenueRentalTransactionContext | null
+  } | null
   next_required_action: string
 }
 
@@ -83,6 +107,7 @@ export async function listPartnershipWorkspaces(
 ): Promise<PartnershipWorkspace[]> {
   const invites = await loadAcceptedEligibleInvites(db, planId, partnerKind)
   if (invites.length === 0) return []
+  const planOwnerId = await loadPlanOwnerId(db, planId)
 
   const workspaces: PartnershipWorkspace[] = []
   for (const invite of invites) {
@@ -92,7 +117,7 @@ export async function listPartnershipWorkspaces(
 
     const thread = await ensurePartnershipThread(db, planId, kind, partnerId, invite)
     await seedPartnershipThread(db, thread, invite)
-    const workspace = await loadPartnershipWorkspace(db, thread, invite)
+    const workspace = await loadPartnershipWorkspace(db, thread, invite, planOwnerId)
     if (workspace) workspaces.push(workspace)
   }
 
@@ -380,7 +405,8 @@ async function seedPartnershipThread(db: PlannerDb, thread: PartnershipThread, i
 async function loadPartnershipWorkspace(
   db: PlannerDb,
   thread: PartnershipThread,
-  invite: OpportunityInviteRow
+  invite: OpportunityInviteRow,
+  planOwnerId: string | null
 ): Promise<PartnershipWorkspace | null> {
   const [partner, messages, milestones, documents] = await Promise.all([
     loadPartnerDisplayRow(db, thread.partner_kind, thread.partner_id, invite),
@@ -392,6 +418,13 @@ async function loadPartnershipWorkspace(
   if (!partner) return null
   const payload = readResponsePayload(invite)
   const paymentStatus = getPaymentStatus(invite, milestones)
+  const venueRental = thread.partner_kind === 'venue' && planOwnerId
+    ? await loadVenueRentalContext(db, {
+        planId: thread.plan_id,
+        builderId: planOwnerId,
+        venueId: thread.partner_id,
+      })
+    : null
 
   return {
     thread,
@@ -412,7 +445,80 @@ async function loadPartnershipWorkspace(
       parking_notes: readString(payload.parking_notes) ?? partner.parking_notes,
     },
     payment_status: paymentStatus,
+    venue_rental: venueRental,
     next_required_action: getNextRequiredAction(milestones, documents),
+  }
+}
+
+async function loadPlanOwnerId(db: PlannerDb, planId: string) {
+  const { data, error } = await db
+    .from('plans')
+    .select('user_id')
+    .eq('id', planId)
+    .maybeSingle()
+
+  if (error) throw new Error('Failed to load plan owner')
+  return readString((data as Record<string, unknown> | null)?.user_id)
+}
+
+async function loadVenueRentalContext(
+  db: PlannerDb,
+  input: {
+    planId: string
+    builderId: string
+    venueId: string
+  }
+): Promise<PartnershipWorkspace['venue_rental']> {
+  const { data: bookingData, error: bookingError } = await db
+    .from('venue_bookings')
+    .select('id, status, final_price, quoted_price, total_amount, created_at')
+    .eq('organizer_id', input.builderId)
+    .eq('venue_id', input.venueId)
+    .eq('status', 'confirmed')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (bookingError) throw new Error('Failed to load confirmed venue booking')
+  const bookingRow = bookingData as Record<string, unknown> | null
+  if (!bookingRow) return { venue_booking: null, transaction: null }
+
+  const booking = {
+    id: readString(bookingRow.id) ?? '',
+    status: readString(bookingRow.status),
+    amount_cents: resolveLegacyDollarAmountCents(bookingRow),
+  }
+
+  if (!booking.id) return { venue_booking: null, transaction: null }
+
+  const { data: transactionData, error: transactionError } = await db
+    .from('venue_payment_transactions')
+    .select('id, status, amount_cents, processing_fee_cents, refund_amount_cents, refund_reason, paid_at, refund_requested_at, refund_approved_at, stripe_transfer_id')
+    .eq('plan_id', input.planId)
+    .eq('venue_booking_id', booking.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (transactionError) throw new Error('Failed to load venue rental payment transaction')
+  const transactionRow = transactionData as Record<string, unknown> | null
+
+  return {
+    venue_booking: booking,
+    transaction: transactionRow
+      ? {
+          id: readString(transactionRow.id) ?? '',
+          status: readString(transactionRow.status) ?? 'pending_builder_payment',
+          amount_cents: readNumber(transactionRow.amount_cents) ?? booking.amount_cents,
+          processing_fee_cents: readNumber(transactionRow.processing_fee_cents) ?? 0,
+          refund_amount_cents: readNumber(transactionRow.refund_amount_cents),
+          refund_reason: readString(transactionRow.refund_reason),
+          paid_at: readString(transactionRow.paid_at),
+          refund_requested_at: readString(transactionRow.refund_requested_at),
+          refund_approved_at: readString(transactionRow.refund_approved_at),
+          stripe_transfer_id: readString(transactionRow.stripe_transfer_id),
+        }
+      : null,
   }
 }
 
@@ -571,6 +677,21 @@ function readResponsePayload(invite: {
 
 function readString(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function readNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function resolveLegacyDollarAmountCents(row: Record<string, unknown>) {
+  for (const key of ['final_price', 'quoted_price', 'total_amount']) {
+    const value = row[key]
+    if (toFiniteNumber(value as number | string | null | undefined) !== null) {
+      return dollarsToCents(value as number | string)
+    }
+  }
+
+  return 0
 }
 
 function formatLabel(value: string) {

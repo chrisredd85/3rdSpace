@@ -15,8 +15,8 @@ jest.mock('next/server', () => ({
 }))
 
 import { POST } from '@/app/api/webhooks/stripe/route'
-import { applyInvoicePayment, applyInvoicePaymentFailed } from '@/lib/billing/builder-billing'
-import { applyPlannerStripeRefundWebhook } from '@/lib/planner/depositPayments'
+import { applyCheckoutSessionCompleted, applyInvoicePayment, applyInvoicePaymentFailed } from '@/lib/billing/builder-billing'
+import { applyPlannerStripePaymentIntentWebhook, applyPlannerStripeRefundWebhook } from '@/lib/planner/depositPayments'
 import { sendBuilderPaidEmail, sendRefundCompletedEmail, sendVenuePaymentFailedEmail } from '@/lib/email'
 import { allowWebhookRequest, getWebhookRateLimitKey } from '@/lib/server/webhook-rate-limit'
 import { createServiceRoleClient } from '@/lib/supabase/server'
@@ -60,6 +60,7 @@ type Row = Record<string, unknown>
 
 const PAYMENT_ID = 'payment-1'
 const AGREEMENT_ID = 'agreement-1'
+const VENUE_PAYMENT_ID = 'venue-payment-1'
 
 class MemoryDb {
   rows: Record<string, Row[]> = {
@@ -81,6 +82,7 @@ class MemoryDb {
         stripe_transfer_id: null,
       },
     ],
+    venue_payment_transactions: [],
   }
 
   from(table: string) {
@@ -162,6 +164,36 @@ function makeWebhookRequest() {
   }) as never
 }
 
+function makeVenuePaymentRow(overrides: Row = {}): Row {
+  return {
+    id: VENUE_PAYMENT_ID,
+    plan_id: 'plan-1',
+    venue_booking_id: 'booking-1',
+    builder_id: 'builder-1',
+    venue_id: 'venue-1',
+    venue_owner_id: 'venue-owner-1',
+    amount_cents: 120000,
+    processing_fee_cents: 3510,
+    application_fee_cents: 0,
+    venue_payout_cents: 120000,
+    currency: 'usd',
+    status: 'checkout_created',
+    payment_method_type: 'card',
+    stripe_checkout_session_id: 'cs_venue',
+    stripe_payment_intent_id: null,
+    stripe_charge_id: null,
+    stripe_transfer_id: null,
+    stripe_refund_id: null,
+    stripe_transfer_reversal_id: null,
+    refund_amount_cents: null,
+    paid_at: null,
+    transfer_completed_at: null,
+    failed_at: null,
+    failure_reason: null,
+    ...overrides,
+  }
+}
+
 describe('Stripe kickback invoice webhook routing', () => {
   let db: MemoryDb
   let stripe: any
@@ -178,6 +210,16 @@ describe('Stripe kickback invoice webhook routing', () => {
       },
       transfers: {
         create: jest.fn().mockResolvedValue({ id: 'tr_builder' }),
+      },
+      paymentIntents: {
+        retrieve: jest.fn().mockResolvedValue({
+          id: 'pi_venue',
+          latest_charge: {
+            id: 'ch_venue',
+            transfer: 'tr_venue',
+            receipt_url: 'https://stripe.test/receipt',
+          },
+        }),
       },
     }
     ;(createServiceRoleClient as jest.Mock).mockReturnValue(db)
@@ -251,6 +293,37 @@ describe('Stripe kickback invoice webhook routing', () => {
     expect(applyInvoicePayment).toHaveBeenCalledWith(db, invoice)
     expect(stripe.transfers.create).not.toHaveBeenCalled()
     expect(sendBuilderPaidEmail).not.toHaveBeenCalled()
+    expect(db.rows.venue_payment_transactions).toEqual([])
+  })
+
+  it('routes kickback checkout sessions without touching venue rental payments', async () => {
+    event = {
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: 'cs_kickback',
+          payment_intent: 'pi_kickback',
+          metadata: {
+            payment_kind: 'venue_builder_kickback',
+            payment_kind_namespace: 'venue_builder_kickback',
+            kickback_payment_id: PAYMENT_ID,
+            agreement_id: AGREEMENT_ID,
+          },
+        },
+      },
+    }
+
+    const response = await POST(makeWebhookRequest())
+
+    expect(response.status).toBe(200)
+    expect(applyCheckoutSessionCompleted).not.toHaveBeenCalled()
+    expect(db.rows.venue_payment_transactions).toEqual([])
+    expect(db.rows.kickback_payments[0]).toMatchObject({
+      status: 'completed',
+      stripe_payment_intent_id: 'pi_kickback',
+      stripe_charge_id: 'ch_venue',
+      stripe_transfer_id: 'tr_venue',
+    })
   })
 
   it('marks kickback invoices failed without calling builder billing failure handling', async () => {
@@ -315,6 +388,291 @@ describe('Stripe kickback invoice webhook routing', () => {
     })
     expect(db.rows.kickback_payments[0]).toMatchObject({
       status: 'refunded_partial',
+    })
+  })
+
+  describe('venue rental webhook routing', () => {
+    it('marks venue rental checkout sessions paid without calling subscription billing', async () => {
+      db.rows.venue_payment_transactions.push(makeVenuePaymentRow())
+      event = {
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            id: 'cs_venue',
+            payment_intent: 'pi_venue',
+            metadata: {
+              payment_kind_namespace: 'venue_rental',
+              venue_payment_transaction_id: VENUE_PAYMENT_ID,
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(stripe.paymentIntents.retrieve).toHaveBeenCalledWith('pi_venue', { expand: ['latest_charge'] })
+      expect(applyCheckoutSessionCompleted).not.toHaveBeenCalled()
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        status: 'paid',
+        stripe_payment_intent_id: 'pi_venue',
+        stripe_charge_id: 'ch_venue',
+        stripe_transfer_id: 'tr_venue',
+      })
+      expect(db.rows.venue_payment_transactions[0].paid_at).toEqual(expect.any(String))
+    })
+
+    it('treats payment_intent.succeeded after checkout completion as idempotent', async () => {
+      db.rows.venue_payment_transactions.push(makeVenuePaymentRow({
+        status: 'paid',
+        paid_at: '2026-05-30T00:00:00.000Z',
+        stripe_payment_intent_id: 'pi_venue',
+        stripe_charge_id: 'ch_venue',
+      }))
+      event = {
+        type: 'payment_intent.succeeded',
+        data: {
+          object: {
+            id: 'pi_venue',
+            status: 'succeeded',
+            latest_charge: 'ch_venue',
+            metadata: {
+              payment_kind_namespace: 'venue_rental',
+              venue_payment_transaction_id: VENUE_PAYMENT_ID,
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(applyPlannerStripePaymentIntentWebhook).not.toHaveBeenCalled()
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        status: 'paid',
+        paid_at: '2026-05-30T00:00:00.000Z',
+        stripe_payment_intent_id: 'pi_venue',
+        stripe_charge_id: 'ch_venue',
+      })
+    })
+
+    it('marks venue rental payment intents failed', async () => {
+      db.rows.venue_payment_transactions.push(makeVenuePaymentRow({
+        stripe_payment_intent_id: 'pi_venue',
+      }))
+      event = {
+        type: 'payment_intent.payment_failed',
+        data: {
+          object: {
+            id: 'pi_venue',
+            latest_charge: null,
+            metadata: {
+              payment_kind_namespace: 'venue_rental',
+              venue_payment_transaction_id: VENUE_PAYMENT_ID,
+            },
+            last_payment_error: {
+              message: 'Card was declined',
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(applyPlannerStripePaymentIntentWebhook).not.toHaveBeenCalled()
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        status: 'failed',
+        failure_reason: 'Card was declined',
+      })
+      expect(db.rows.venue_payment_transactions[0].failed_at).toEqual(expect.any(String))
+    })
+
+    it('marks full venue rental refunds from charge.refunded', async () => {
+      db.rows.venue_payment_transactions.push(makeVenuePaymentRow({
+        status: 'paid',
+        stripe_charge_id: 'ch_venue',
+      }))
+      event = {
+        type: 'charge.refunded',
+        data: {
+          object: {
+            id: 'ch_venue',
+            amount_refunded: 120000,
+            metadata: {
+              payment_kind_namespace: 'venue_rental',
+              venue_payment_transaction_id: VENUE_PAYMENT_ID,
+            },
+            refunds: {
+              data: [{ id: 're_full' }],
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(applyPlannerStripeRefundWebhook).not.toHaveBeenCalled()
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        status: 'refunded_full',
+        refund_amount_cents: 120000,
+        stripe_refund_id: 're_full',
+      })
+    })
+
+    it('marks partial venue rental refunds from charge.refunded', async () => {
+      db.rows.venue_payment_transactions.push(makeVenuePaymentRow({
+        status: 'paid',
+        stripe_charge_id: 'ch_venue',
+      }))
+      event = {
+        type: 'charge.refunded',
+        data: {
+          object: {
+            id: 'ch_venue',
+            amount_refunded: 50000,
+            metadata: {
+              payment_kind_namespace: 'venue_rental',
+              venue_payment_transaction_id: VENUE_PAYMENT_ID,
+            },
+            refunds: {
+              data: [{ id: 're_partial' }],
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        status: 'refunded_partial',
+        refund_amount_cents: 50000,
+        stripe_refund_id: 're_partial',
+      })
+    })
+
+    it('routes venue_rental transfer.created without mutating kickback payments', async () => {
+      db.rows.venue_payment_transactions.push(makeVenuePaymentRow({
+        status: 'paid',
+        stripe_transfer_id: 'tr_venue',
+      }))
+      event = {
+        type: 'transfer.created',
+        data: {
+          object: {
+            id: 'tr_venue',
+            metadata: {
+              payment_kind_namespace: 'venue_rental',
+              venue_payment_transaction_id: VENUE_PAYMENT_ID,
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        stripe_transfer_id: 'tr_venue',
+      })
+      expect(db.rows.venue_payment_transactions[0].transfer_completed_at).toEqual(expect.any(String))
+      expect(db.rows.kickback_payments[0]).toMatchObject({
+        status: 'invoice_sent',
+        stripe_transfer_id: null,
+      })
+    })
+
+    it('routes venue rental transfer.updated by stripe_transfer_id when metadata is absent', async () => {
+      db.rows.venue_payment_transactions.push(makeVenuePaymentRow({
+        status: 'paid',
+        stripe_transfer_id: 'tr_venue_existing',
+      }))
+      event = {
+        type: 'transfer.updated',
+        data: {
+          object: {
+            id: 'tr_venue_existing',
+            metadata: {},
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        stripe_transfer_id: 'tr_venue_existing',
+      })
+      expect(db.rows.venue_payment_transactions[0].transfer_completed_at).toEqual(expect.any(String))
+      expect(db.rows.kickback_payments[0]).toMatchObject({
+        status: 'invoice_sent',
+        stripe_transfer_id: null,
+      })
+    })
+
+    it('records venue_rental transfer.reversed without changing refund status', async () => {
+      db.rows.venue_payment_transactions.push(makeVenuePaymentRow({
+        status: 'paid',
+        stripe_transfer_id: 'tr_venue',
+      }))
+      event = {
+        type: 'transfer.reversed',
+        data: {
+          object: {
+            id: 'tr_venue',
+            metadata: {
+              payment_kind_namespace: 'venue_rental',
+              venue_payment_transaction_id: VENUE_PAYMENT_ID,
+            },
+            reversals: {
+              data: [{ id: 'trr_venue' }],
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        status: 'paid',
+        stripe_transfer_reversal_id: 'trr_venue',
+      })
+    })
+
+    it('logs malformed venue rental events without falling through to other handlers', async () => {
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      event = {
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            id: 'cs_missing_row',
+            payment_intent: null,
+            metadata: {
+              payment_kind_namespace: 'venue_rental',
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(applyCheckoutSessionCompleted).not.toHaveBeenCalled()
+      expect(db.rows.venue_payment_transactions).toEqual([])
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[stripe.webhook] venue rental event could not load transaction',
+        {
+          source: 'checkout.session.completed',
+          stripeObjectId: 'cs_missing_row',
+          metadata: {
+            payment_kind_namespace: 'venue_rental',
+          },
+        }
+      )
+      errorSpy.mockRestore()
     })
   })
 
@@ -394,6 +752,7 @@ describe('Stripe kickback invoice webhook routing', () => {
         stripe_transfer_id: 'tr_unrecognized',
         completed_at: null,
       })
+      expect(db.rows.venue_payment_transactions).toEqual([])
       expect(logSpy).toHaveBeenCalledWith(
         '[stripe.webhook] transfer event with no recognized namespace',
         {
