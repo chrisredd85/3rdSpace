@@ -11,6 +11,11 @@ const generatedTypes = readFileSync(
   'utf8'
 )
 
+const constraintMigration = readFileSync(
+  path.join(process.cwd(), 'supabase/migrations/20260530000001_venue_payment_transactions_constraints.sql'),
+  'utf8'
+)
+
 describe('venue payment transactions migration', () => {
   it('creates the venue rental payment ledger with required ownership anchors', () => {
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.venue_payment_transactions')
@@ -78,5 +83,12 @@ describe('venue payment transactions migration', () => {
     expect(generatedTypes).toContain('stripe_transfer_reversal_id: string | null')
     expect(generatedTypes).toContain('venue_payment_transactions_venue_booking_id_fkey')
     expect(generatedTypes).toContain('referencedRelation: "venue_bookings"')
+  })
+
+  it('tightens payout and refund invariants before checkout writes rows', () => {
+    expect(constraintMigration).toContain('venue_payment_transactions_payout_lte_amount_check')
+    expect(constraintMigration).toContain('CHECK (venue_payout_cents <= amount_cents)')
+    expect(constraintMigration).toContain('DROP CONSTRAINT IF EXISTS venue_payment_transactions_refund_amount_cents_check')
+    expect(constraintMigration).toContain('refund_amount_cents >= 0 AND refund_amount_cents <= amount_cents')
   })
 })
