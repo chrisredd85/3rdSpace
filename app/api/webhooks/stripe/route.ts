@@ -20,6 +20,17 @@ import {
   applyPlannerStripePaymentIntentWebhook,
   applyPlannerStripeRefundWebhook,
 } from '@/lib/planner/depositPayments'
+import {
+  getVenueRentalTransactionId,
+  isVenueRentalEvent,
+  loadVenueRentalTransaction,
+  markVenueRentalFailed,
+  markVenueRentalPaid,
+  markVenueRentalRefunded,
+  markVenueRentalTransferComplete,
+  markVenueRentalTransferReversed,
+  VENUE_RENTAL_PAYMENT_NAMESPACE,
+} from '@/lib/payments/venue-rental'
 
 export const runtime = 'nodejs'
 
@@ -64,6 +75,14 @@ function logUnrecognizedTransferEvent(transfer: Stripe.Transfer) {
   console.log('[stripe.webhook] transfer event with no recognized namespace', {
     transferId: transfer.id,
     metadata: transfer.metadata,
+  })
+}
+
+function logMissingVenueRentalTransaction(source: string, metadata: Stripe.Metadata | null | undefined, stripeObjectId: string) {
+  console.error('[stripe.webhook] venue rental event could not load transaction', {
+    source,
+    stripeObjectId,
+    metadata,
   })
 }
 
@@ -317,6 +336,155 @@ function getKickbackPaymentIdFromRefundedCharge(charge: Stripe.Charge) {
   return metadataRefund?.metadata?.kickback_payment_id ?? null
 }
 
+async function applyVenueRentalCheckoutSessionCompleted(admin: any, session: Stripe.Checkout.Session) {
+  const paymentIntentId = getPaymentIntentId(session.payment_intent)
+  const transaction = await loadVenueRentalTransaction(admin, {
+    venuePaymentTransactionId: getVenueRentalTransactionId(session.metadata),
+    checkoutSessionId: session.id,
+    paymentIntentId,
+  })
+
+  if (!isVenueRentalEvent(session.metadata) && !transaction) return false
+  if (!transaction) {
+    logMissingVenueRentalTransaction('checkout.session.completed', session.metadata, session.id)
+    return true
+  }
+
+  const stripe = getStripeClient()
+  const paymentIntent = paymentIntentId
+    ? await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] })
+    : null
+  const charge = paymentIntent ? getChargeFromPaymentIntent(paymentIntent) : { chargeId: null, transferId: null, receiptUrl: null }
+
+  await markVenueRentalPaid(admin, transaction, {
+    stripe_payment_intent_id: paymentIntentId,
+    stripe_charge_id: charge.chargeId,
+    stripe_transfer_id: charge.transferId,
+    paid_at: new Date().toISOString(),
+  })
+
+  return true
+}
+
+async function applyVenueRentalPaymentIntent(
+  admin: any,
+  paymentIntent: Stripe.PaymentIntent,
+  eventType: 'payment_intent.succeeded' | 'payment_intent.payment_failed'
+) {
+  const charge = getChargeFromPaymentIntent(paymentIntent)
+  const transaction = await loadVenueRentalTransaction(admin, {
+    venuePaymentTransactionId: getVenueRentalTransactionId(paymentIntent.metadata),
+    paymentIntentId: paymentIntent.id,
+    chargeId: charge.chargeId,
+  })
+
+  if (!isVenueRentalEvent(paymentIntent.metadata) && !transaction) return false
+  if (!transaction) {
+    logMissingVenueRentalTransaction(eventType, paymentIntent.metadata, paymentIntent.id)
+    return true
+  }
+
+  if (eventType === 'payment_intent.payment_failed') {
+    await markVenueRentalFailed(admin, transaction, {
+      failed_at: new Date().toISOString(),
+      failure_reason: paymentIntent.last_payment_error?.message ?? 'Payment failed',
+    })
+    return true
+  }
+
+  await markVenueRentalPaid(admin, transaction, {
+    stripe_payment_intent_id: paymentIntent.id,
+    stripe_charge_id: charge.chargeId,
+    stripe_transfer_id: charge.transferId,
+    paid_at: new Date().toISOString(),
+  })
+
+  return true
+}
+
+async function applyVenueRentalRefundedCharge(admin: any, charge: Stripe.Charge) {
+  const paymentIntentId = getPaymentIntentIdFromCharge(charge)
+  const transaction = await loadVenueRentalTransaction(admin, {
+    venuePaymentTransactionId: getVenueRentalTransactionId(charge.metadata),
+    paymentIntentId,
+    chargeId: charge.id,
+  })
+
+  if (!isVenueRentalEvent(charge.metadata) && !transaction) return false
+  if (!transaction) {
+    logMissingVenueRentalTransaction('charge.refunded', charge.metadata, charge.id)
+    return true
+  }
+
+  await markVenueRentalRefunded(admin, transaction, {
+    refund_amount_cents: Number(charge.amount_refunded ?? 0),
+    stripe_refund_id: getLatestRefundId(charge),
+  })
+
+  return true
+}
+
+async function routeTransferEvent(
+  admin: any,
+  transfer: Stripe.Transfer,
+  eventType: 'transfer.created' | 'transfer.updated' | 'transfer.reversed'
+) {
+  if (isKickbackTransferEvent(transfer)) {
+    if (eventType === 'transfer.reversed') {
+      const handledKickbackRefund = await applyKickbackRefundCompleted(
+        admin,
+        transfer.metadata?.settlement_method === 'invoice'
+          ? transfer.metadata?.kickback_payment_id ?? null
+          : null
+      )
+      if (!handledKickbackRefund) {
+        await applyKickbackTransferEvent(admin, transfer, 'refunded')
+      }
+      return
+    }
+
+    await applyKickbackTransferEvent(admin, transfer, 'completed')
+    return
+  }
+
+  const transaction = await loadVenueRentalTransaction(admin, {
+    venuePaymentTransactionId: getVenueRentalTransactionId(transfer.metadata),
+    transferId: transfer.id,
+  })
+
+  if (transfer.metadata?.payment_kind_namespace === VENUE_RENTAL_PAYMENT_NAMESPACE || transaction) {
+    if (!transaction) {
+      logMissingVenueRentalTransaction(eventType, transfer.metadata, transfer.id)
+      return
+    }
+
+    if (eventType === 'transfer.reversed') {
+      await markVenueRentalTransferReversed(admin, transaction, {
+        stripe_transfer_reversal_id: getLatestTransferReversalId(transfer),
+      })
+      return
+    }
+
+    await markVenueRentalTransferComplete(admin, transaction, {
+      stripe_transfer_id: transfer.id,
+      transfer_completed_at: new Date().toISOString(),
+    })
+    return
+  }
+
+  logUnrecognizedTransferEvent(transfer)
+}
+
+function getLatestRefundId(charge: Stripe.Charge) {
+  const refunds = (charge.refunds?.data ?? []) as Array<Stripe.Refund>
+  return refunds[0]?.id ?? null
+}
+
+function getLatestTransferReversalId(transfer: Stripe.Transfer) {
+  const reversals = (transfer.reversals?.data ?? []) as Array<{ id?: string }>
+  return reversals[0]?.id ?? transfer.id
+}
+
 /**
  * Receives Stripe webhooks for builder billing and connected vendor/venue/builder accounts.
  */
@@ -353,9 +521,13 @@ export async function POST(request: NextRequest) {
 
   try {
     if (event.type === 'checkout.session.completed') {
-      const handledKickback = await applyKickbackCheckoutSessionCompleted(admin as any, event.data.object as Stripe.Checkout.Session)
-      if (!handledKickback) {
-        await applyCheckoutSessionCompleted(admin as any, event.data.object as Stripe.Checkout.Session)
+      const session = event.data.object as Stripe.Checkout.Session
+      const handledVenueRental = await applyVenueRentalCheckoutSessionCompleted(admin as any, session)
+      if (!handledVenueRental) {
+        const handledKickback = await applyKickbackCheckoutSessionCompleted(admin as any, session)
+        if (!handledKickback) {
+          await applyCheckoutSessionCompleted(admin as any, session)
+        }
       }
     }
 
@@ -426,53 +598,44 @@ export async function POST(request: NextRequest) {
     }
 
     if (event.type === 'payment_intent.succeeded' || event.type === 'payment_intent.payment_failed') {
-      const handledPlannerDeposit = await applyPlannerStripePaymentIntentWebhook(
-        admin as any,
-        event.data.object as Stripe.PaymentIntent
-      )
-      if (!handledPlannerDeposit) {
-        await applyKickbackPaymentIntent(admin as any, event.data.object as Stripe.PaymentIntent)
+      const paymentIntent = event.data.object as Stripe.PaymentIntent
+      const handledVenueRental = await applyVenueRentalPaymentIntent(admin as any, paymentIntent, event.type)
+      if (!handledVenueRental) {
+        const handledPlannerDeposit = await applyPlannerStripePaymentIntentWebhook(
+          admin as any,
+          paymentIntent
+        )
+        if (!handledPlannerDeposit) {
+          await applyKickbackPaymentIntent(admin as any, paymentIntent)
+        }
       }
     }
 
     if (event.type === 'charge.refunded') {
       const charge = event.data.object as Stripe.Charge
-      const handledKickbackRefund = await applyKickbackRefundCompleted(
-        admin as any,
-        getKickbackPaymentIdFromRefundedCharge(charge)
-      )
-      if (!handledKickbackRefund) {
-        await applyPlannerStripeRefundWebhook(
+      const handledVenueRental = await applyVenueRentalRefundedCharge(admin as any, charge)
+      if (!handledVenueRental) {
+        const handledKickbackRefund = await applyKickbackRefundCompleted(
           admin as any,
-          getPaymentIntentIdFromCharge(charge)
+          getKickbackPaymentIdFromRefundedCharge(charge)
         )
+        if (!handledKickbackRefund) {
+          await applyPlannerStripeRefundWebhook(
+            admin as any,
+            getPaymentIntentIdFromCharge(charge)
+          )
+        }
       }
     }
 
     if (event.type === 'transfer.created' || event.type === 'transfer.updated') {
       const transfer = event.data.object as Stripe.Transfer
-      if (isKickbackTransferEvent(transfer)) {
-        await applyKickbackTransferEvent(admin as any, transfer, 'completed')
-      } else {
-        logUnrecognizedTransferEvent(transfer)
-      }
+      await routeTransferEvent(admin as any, transfer, event.type)
     }
 
     if (event.type === 'transfer.reversed') {
       const transfer = event.data.object as Stripe.Transfer
-      if (isKickbackTransferEvent(transfer)) {
-        const handledKickbackRefund = await applyKickbackRefundCompleted(
-          admin as any,
-          transfer.metadata?.settlement_method === 'invoice'
-            ? transfer.metadata?.kickback_payment_id ?? null
-            : null
-        )
-        if (!handledKickbackRefund) {
-          await applyKickbackTransferEvent(admin as any, transfer, 'refunded')
-        }
-      } else {
-        logUnrecognizedTransferEvent(transfer)
-      }
+      await routeTransferEvent(admin as any, transfer, event.type)
     }
 
     if (event.type === 'payout.paid' || event.type === 'payout.failed') {
