@@ -2,6 +2,12 @@ import type Stripe from 'stripe'
 import type { VenuePaymentTransaction } from '@/lib/types/database'
 
 export const VENUE_RENTAL_PAYMENT_NAMESPACE = 'venue_rental'
+export const VENUE_RENTAL_CARD_PROCESSING_RATE = 0.029
+export const VENUE_RENTAL_CARD_PROCESSING_FIXED_CENTS = 30
+export const VENUE_RENTAL_ACH_PROCESSING_RATE = 0.008
+export const VENUE_RENTAL_ACH_PROCESSING_CAP_CENTS = 500
+
+export type VenueRentalPaymentMethodType = 'card' | 'us_bank_account'
 
 type VenueRentalDb = {
   from: (table: 'venue_payment_transactions') => {
@@ -25,6 +31,27 @@ export type VenueRentalTransactionLookup = {
 }
 
 const TERMINAL_REFUND_STATUSES = new Set(['refunded_partial', 'refunded_full'])
+
+export function calculateVenueRentalCardProcessingFeeCents(amountCents: number) {
+  return Math.ceil(Math.max(0, amountCents) * VENUE_RENTAL_CARD_PROCESSING_RATE) +
+    VENUE_RENTAL_CARD_PROCESSING_FIXED_CENTS
+}
+
+export function calculateVenueRentalAchProcessingFeeCents(amountCents: number) {
+  return Math.min(
+    Math.ceil(Math.max(0, amountCents) * VENUE_RENTAL_ACH_PROCESSING_RATE),
+    VENUE_RENTAL_ACH_PROCESSING_CAP_CENTS
+  )
+}
+
+export function calculateVenueRentalProcessingFeeCents(
+  amountCents: number,
+  paymentMethodType: VenueRentalPaymentMethodType
+) {
+  return paymentMethodType === 'card'
+    ? calculateVenueRentalCardProcessingFeeCents(amountCents)
+    : calculateVenueRentalAchProcessingFeeCents(amountCents)
+}
 
 export function isVenueRentalEvent(metadata: Stripe.Metadata | null | undefined) {
   return (

@@ -6,6 +6,7 @@ import type Stripe from 'stripe'
 import { z } from 'zod'
 import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
 import { dollarsToCents, toFiniteNumber } from '@/lib/money'
+import { calculateVenueRentalProcessingFeeCents } from '@/lib/payments/venue-rental'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getAppBaseUrl, getStripeClient } from '@/lib/stripe/connect'
 
@@ -326,18 +327,8 @@ function resolveVenueBookingAmountCents(booking: VenueBookingRow) {
   return 0
 }
 
-function calculateCardProcessingFeeCents(amountCents: number) {
-  return Math.ceil(amountCents * 0.029) + 30
-}
-
-function calculateAchProcessingFeeCents(amountCents: number) {
-  return Math.min(Math.ceil(amountCents * 0.008), 500)
-}
-
 function calculateProcessingFeeCents(amountCents: number, paymentMethodType: PaymentMethodType) {
-  return paymentMethodType === 'card'
-    ? calculateCardProcessingFeeCents(amountCents)
-    : calculateAchProcessingFeeCents(amountCents)
+  return calculateVenueRentalProcessingFeeCents(amountCents, paymentMethodType)
 }
 
 async function loadActiveTransaction(

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, CreditCard, ExternalLink, Loader2, RefreshCw, ShieldCheck, WalletCards } from 'lucide-react'
+import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, CreditCard, ExternalLink, Loader2, RefreshCw, RotateCcw, ShieldCheck, WalletCards, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { centsToDollars, dollarsToCents } from '@/lib/money'
 import { cn } from '@/lib/utils'
@@ -46,6 +46,41 @@ type BuilderPayoutSummary = {
   error?: string
 }
 
+type VenueRentalPayment = {
+  id: string
+  plan_id: string
+  venue_booking_id?: string | null
+  event_name: string
+  event_date: string | null
+  venue_name: string
+  builder_name?: string | null
+  amount_cents: number
+  processing_fee_cents: number
+  venue_payout_cents: number
+  status: string
+  payment_method_type: string
+  paid_at?: string | null
+  transfer_completed_at?: string | null
+  created_at?: string | null
+  stripe_transfer_id?: string | null
+  refund_amount_cents?: number | null
+  refund_reason?: string | null
+  refund_requested_at?: string | null
+  refund_approved_at?: string | null
+}
+
+type VenueRentalSummary = {
+  summary: {
+    total_paid_cents: number
+    total_processing_fee_cents: number
+    refunded_cents: number
+    pending_refund_count: number
+    count: number
+  }
+  transactions: VenueRentalPayment[]
+  error?: string
+}
+
 const emptySummary: BuilderPayoutSummary = {
   account: null,
   summary: {
@@ -58,6 +93,17 @@ const emptySummary: BuilderPayoutSummary = {
   payments: [],
 }
 
+const emptyVenueRentalSummary: VenueRentalSummary = {
+  summary: {
+    total_paid_cents: 0,
+    total_processing_fee_cents: 0,
+    refunded_cents: 0,
+    pending_refund_count: 0,
+    count: 0,
+  },
+  transactions: [],
+}
+
 const paidStatuses = new Set(['paid', 'completed', 'refunded_partial', 'refunded_full'])
 const pendingStatuses = new Set(['pending', 'processing', 'pending_venue_approval', 'invoice_sent', 'refund_requested', 'refund_approved', 'refund_processing'])
 
@@ -66,22 +112,35 @@ const pendingStatuses = new Set(['pending', 'processing', 'pending_venue_approva
  */
 export default function PaymentsPage() {
   const [data, setData] = useState<BuilderPayoutSummary>(emptySummary)
+  const [venueRentalData, setVenueRentalData] = useState<VenueRentalSummary>(emptyVenueRentalSummary)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refundDecisionLoading, setRefundDecisionLoading] = useState<string | null>(null)
+  const [rentalSortNewestFirst, setRentalSortNewestFirst] = useState(true)
+  const [rentalRefundPayment, setRentalRefundPayment] = useState<VenueRentalPayment | null>(null)
+  const [rentalRefundAmount, setRentalRefundAmount] = useState('')
+  const [rentalRefundReason, setRentalRefundReason] = useState('')
+  const [isRentalRefundSubmitting, setIsRentalRefundSubmitting] = useState(false)
 
   const loadPayouts = useCallback(async () => {
     setIsLoading(true)
     setError(null)
 
     try {
-      const response = await fetch('/api/builder/payouts/summary', { cache: 'no-store' })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload?.error ?? 'Unable to load payments')
-      setData(payload as BuilderPayoutSummary)
+      const [payoutResponse, rentalResponse] = await Promise.all([
+        fetch('/api/builder/payouts/summary', { cache: 'no-store' }),
+        fetch('/api/planner/payments/venue-rentals/summary', { cache: 'no-store' }),
+      ])
+      const payoutPayload = await payoutResponse.json().catch(() => ({}))
+      const rentalPayload = await rentalResponse.json().catch(() => ({}))
+      if (!payoutResponse.ok) throw new Error(payoutPayload?.error ?? 'Unable to load payout payments')
+      if (!rentalResponse.ok) throw new Error(rentalPayload?.error ?? 'Unable to load venue rental payments')
+      setData(payoutPayload as BuilderPayoutSummary)
+      setVenueRentalData(rentalPayload as VenueRentalSummary)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load payments')
       setData(emptySummary)
+      setVenueRentalData(emptyVenueRentalSummary)
     } finally {
       setIsLoading(false)
     }
@@ -115,6 +174,62 @@ export default function PaymentsPage() {
 
   const refundRequests = data.payments.filter((payment) => payment.status === 'refund_requested')
   const ledgerRows = data.payments
+  const venueRentalRows = useMemo(() => {
+    return [...venueRentalData.transactions].sort((first, second) => {
+      const firstTime = getVenueRentalSortTime(first)
+      const secondTime = getVenueRentalSortTime(second)
+      return rentalSortNewestFirst ? secondTime - firstTime : firstTime - secondTime
+    })
+  }, [venueRentalData.transactions, rentalSortNewestFirst])
+
+  function openRentalRefund(payment: VenueRentalPayment) {
+    setRentalRefundPayment(payment)
+    setRentalRefundAmount(centsToDollars(payment.amount_cents).toFixed(2))
+    setRentalRefundReason('')
+    setError(null)
+  }
+
+  async function submitRentalRefundRequest() {
+    if (!rentalRefundPayment) return
+
+    const refundAmountCents = dollarsToCents(rentalRefundAmount)
+    if (refundAmountCents <= 0) {
+      setError('Refund amount must be greater than $0.00.')
+      return
+    }
+    if (refundAmountCents > rentalRefundPayment.amount_cents) {
+      setError('Refund amount cannot exceed the rental principal.')
+      return
+    }
+    if (rentalRefundReason.trim().length < 10) {
+      setError('Refund reason must be at least 10 characters.')
+      return
+    }
+
+    setIsRentalRefundSubmitting(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/planner/plans/${rentalRefundPayment.plan_id}/venue-payment/${rentalRefundPayment.id}/refund-request`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          refund_amount_cents: refundAmountCents,
+          reason: rentalRefundReason.trim(),
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.error ?? 'Unable to request venue rental refund')
+      setRentalRefundPayment(null)
+      setRentalRefundAmount('')
+      setRentalRefundReason('')
+      await loadPayouts()
+    } catch (refundError) {
+      setError(refundError instanceof Error ? refundError.message : 'Unable to request venue rental refund')
+    } finally {
+      setIsRentalRefundSubmitting(false)
+    }
+  }
 
   const decideRefund = async (
     payment: BuilderPayoutPayment,
@@ -314,6 +429,108 @@ export default function PaymentsPage() {
         </div>
 
         <section className="rounded-3xl border border-border bg-card/70 p-5 shadow-card">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sidebar-accent text-primary">
+                <CreditCard className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="font-display text-lg font-bold text-foreground">Venue Rental Payments</h2>
+                <p className="text-sm text-muted-foreground">Outgoing rental payments tied to confirmed venue bookings.</p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="glass"
+              size="sm"
+              onClick={() => setRentalSortNewestFirst((current) => !current)}
+            >
+              {rentalSortNewestFirst ? 'Newest first' : 'Oldest first'}
+            </Button>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-border bg-background/50 p-4">
+              <p className="text-xs font-semibold text-muted-foreground">Paid principal</p>
+              <p className="mt-2 font-display text-2xl font-bold text-foreground">{formatCents(venueRentalData.summary.total_paid_cents)}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background/50 p-4">
+              <p className="text-xs font-semibold text-muted-foreground">Processing fees</p>
+              <p className="mt-2 font-display text-2xl font-bold text-foreground">{formatCents(venueRentalData.summary.total_processing_fee_cents)}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background/50 p-4">
+              <p className="text-xs font-semibold text-muted-foreground">Refunds requested</p>
+              <p className="mt-2 font-display text-2xl font-bold text-foreground">{venueRentalData.summary.pending_refund_count}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background/50 p-4">
+              <p className="text-xs font-semibold text-muted-foreground">Ledger entries</p>
+              <p className="mt-2 font-display text-2xl font-bold text-foreground">{venueRentalData.summary.count}</p>
+            </div>
+          </div>
+
+          <div className="mt-5 overflow-hidden rounded-2xl border border-border">
+            <div className="grid grid-cols-[1.1fr_0.9fr_0.75fr_0.75fr_0.85fr_0.75fr_0.75fr] gap-3 bg-muted px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
+              <span>Event</span>
+              <span>Venue</span>
+              <span>Amount</span>
+              <span>Fee</span>
+              <span>Status</span>
+              <span>Transfer</span>
+              <span>Action</span>
+            </div>
+            {isLoading ? (
+              <div className="flex items-center gap-3 px-4 py-8 text-sm text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                Loading venue rentals...
+              </div>
+            ) : venueRentalRows.length > 0 ? (
+              venueRentalRows.map((payment) => (
+                <div key={payment.id} className="grid grid-cols-[1.1fr_0.9fr_0.75fr_0.75fr_0.85fr_0.75fr_0.75fr] gap-3 border-t border-border px-4 py-4 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-foreground">{payment.event_name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{formatDate(payment.event_date)}</p>
+                  </div>
+                  <p className="min-w-0 truncate text-muted-foreground">{payment.venue_name}</p>
+                  <p className="font-semibold text-foreground">{formatCents(payment.amount_cents)}</p>
+                  <p className="text-muted-foreground">{formatCents(payment.processing_fee_cents)}</p>
+                  <div>
+                    <StatusBadge status={payment.status} />
+                    {payment.status === 'refund_requested' ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {formatCents(payment.refund_amount_cents ?? 0)} awaiting venue
+                      </p>
+                    ) : null}
+                    {(payment.status === 'refund_approved' || payment.status === 'refunded_partial' || payment.status === 'refunded_full') ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {formatCents(payment.refund_amount_cents ?? 0)} refund
+                      </p>
+                    ) : null}
+                  </div>
+                  <p className="min-w-0 truncate text-xs text-muted-foreground" title={payment.stripe_transfer_id ?? undefined}>
+                    {payment.stripe_transfer_id ?? 'Pending'}
+                  </p>
+                  <div>
+                    {payment.status === 'paid' ? (
+                      <Button type="button" variant="glass" size="sm" onClick={() => openRentalRefund(payment)}>
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Refund
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="flex items-center gap-3 px-4 py-8 text-sm text-muted-foreground">
+                <CheckCircle2 className="h-5 w-5 shrink-0 text-primary" />
+                No venue rental payments yet. Pay a confirmed venue booking from your event plan to start tracking here.
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-border bg-card/70 p-5 shadow-card">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sidebar-accent text-primary">
               <WalletCards className="h-5 w-5" />
@@ -369,6 +586,62 @@ export default function PaymentsPage() {
           </div>
         </section>
       </div>
+
+      {rentalRefundPayment ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="venue-rental-refund-request-title"
+            className="w-full max-w-lg rounded-3xl border border-border bg-gradient-card p-6 shadow-card"
+          >
+            <button
+              type="button"
+              aria-label="Close venue rental refund request"
+              onClick={() => setRentalRefundPayment(null)}
+              disabled={isRentalRefundSubmitting}
+              className="float-right rounded-full border border-border bg-background/50 p-2 text-muted-foreground transition-smooth hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <h2 id="venue-rental-refund-request-title" className="font-display text-xl font-bold text-foreground">
+              Request refund from {rentalRefundPayment.venue_name}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Processing fees are not refunded. The venue decides whether to approve, reject, or counter this request.
+            </p>
+            <div className="mt-5 space-y-4">
+              <label className="block text-sm font-medium text-foreground">
+                Refund amount
+                <input
+                  value={rentalRefundAmount}
+                  onChange={(event) => setRentalRefundAmount(event.target.value)}
+                  inputMode="decimal"
+                  className="mt-2 w-full rounded-2xl border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary"
+                />
+              </label>
+              <label className="block text-sm font-medium text-foreground">
+                Reason
+                <textarea
+                  value={rentalRefundReason}
+                  onChange={(event) => setRentalRefundReason(event.target.value)}
+                  className="mt-2 min-h-28 w-full rounded-2xl border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary"
+                  placeholder="Explain what changed about the venue rental."
+                />
+              </label>
+            </div>
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="glass" onClick={() => setRentalRefundPayment(null)} disabled={isRentalRefundSubmitting}>
+                Cancel
+              </Button>
+              <Button type="button" variant="hero" onClick={() => void submitRentalRefundRequest()} disabled={isRentalRefundSubmitting}>
+                {isRentalRefundSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Send request
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -409,6 +682,13 @@ function StatusBadge({ status }: { status: string }) {
 
 function getPayoutCents(payment: BuilderPayoutPayment) {
   return payment.payout_cents ?? payment.principal_cents ?? payment.amount_cents ?? 0
+}
+
+function getVenueRentalSortTime(payment: VenueRentalPayment) {
+  const rawDate = payment.paid_at ?? payment.transfer_completed_at ?? payment.created_at ?? payment.event_date
+  if (!rawDate) return 0
+  const date = new Date(rawDate)
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime()
 }
 
 function formatCents(value: number | null | undefined) {
