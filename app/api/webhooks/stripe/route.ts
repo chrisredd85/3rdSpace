@@ -35,6 +35,13 @@ import {
 export const runtime = 'nodejs'
 
 const KICKBACK_TRANSFER_NAMESPACE = 'venue_builder_kickback'
+const CONNECT_ACCOUNT_EVENT_TYPES = new Set([
+  'account.updated',
+  'capability.updated',
+  'payout.created',
+  'payout.paid',
+  'payout.failed',
+])
 
 function getPaymentIntentId(value: Stripe.PaymentIntent | string | null) {
   if (!value) return null
@@ -497,7 +504,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true, ignored: true, reason: 'rate_limited' }, { status: 200 })
   }
 
-  const webhookSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
 
   if (!webhookSecret) {
     console.error('[Stripe Webhook] Missing webhook secret')
@@ -520,6 +527,19 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    if (event.account && CONNECT_ACCOUNT_EVENT_TYPES.has(event.type)) {
+      console.warn('[Stripe Webhook] Connect account event received on platform endpoint', {
+        eventId: event.id,
+        eventType: event.type,
+        accountId: event.account,
+      })
+      return NextResponse.json({
+        received: true,
+        ignored: true,
+        reason: 'connect_event_wrong_endpoint',
+      })
+    }
+
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session
       const handledVenueRental = await applyVenueRentalCheckoutSessionCompleted(admin as any, session)
