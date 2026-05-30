@@ -6704,6 +6704,158 @@ export type Database = {
           },
         ]
       }
+      venue_payment_transactions: {
+        Row: {
+          amount_cents: number
+          application_fee_cents: number
+          builder_id: string
+          created_at: string
+          currency: string
+          failed_at: string | null
+          failure_reason: string | null
+          id: string
+          paid_at: string | null
+          payment_method_type: string | null
+          plan_id: string
+          processing_fee_cents: number
+          refund_amount_cents: number | null
+          refund_approved_at: string | null
+          refund_approved_by: string | null
+          refund_reason: string | null
+          refund_requested_at: string | null
+          refund_requested_by: string | null
+          status: string
+          stripe_charge_id: string | null
+          stripe_checkout_session_id: string | null
+          stripe_payment_intent_id: string | null
+          stripe_refund_id: string | null
+          stripe_transfer_id: string | null
+          stripe_transfer_reversal_id: string | null
+          transfer_completed_at: string | null
+          updated_at: string
+          venue_booking_id: string | null
+          venue_id: string
+          venue_owner_id: string
+          venue_payout_cents: number
+        }
+        Insert: {
+          amount_cents: number
+          application_fee_cents?: number
+          builder_id: string
+          created_at?: string
+          currency?: string
+          failed_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          paid_at?: string | null
+          payment_method_type?: string | null
+          plan_id: string
+          processing_fee_cents?: number
+          refund_amount_cents?: number | null
+          refund_approved_at?: string | null
+          refund_approved_by?: string | null
+          refund_reason?: string | null
+          refund_requested_at?: string | null
+          refund_requested_by?: string | null
+          status?: string
+          stripe_charge_id?: string | null
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          stripe_refund_id?: string | null
+          stripe_transfer_id?: string | null
+          stripe_transfer_reversal_id?: string | null
+          transfer_completed_at?: string | null
+          updated_at?: string
+          venue_booking_id?: string | null
+          venue_id: string
+          venue_owner_id: string
+          venue_payout_cents: number
+        }
+        Update: {
+          amount_cents?: number
+          application_fee_cents?: number
+          builder_id?: string
+          created_at?: string
+          currency?: string
+          failed_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          paid_at?: string | null
+          payment_method_type?: string | null
+          plan_id?: string
+          processing_fee_cents?: number
+          refund_amount_cents?: number | null
+          refund_approved_at?: string | null
+          refund_approved_by?: string | null
+          refund_reason?: string | null
+          refund_requested_at?: string | null
+          refund_requested_by?: string | null
+          status?: string
+          stripe_charge_id?: string | null
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          stripe_refund_id?: string | null
+          stripe_transfer_id?: string | null
+          stripe_transfer_reversal_id?: string | null
+          transfer_completed_at?: string | null
+          updated_at?: string
+          venue_booking_id?: string | null
+          venue_id?: string
+          venue_owner_id?: string
+          venue_payout_cents?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "venue_payment_transactions_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_payment_transactions_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_payment_transactions_refund_approved_by_fkey"
+            columns: ["refund_approved_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_payment_transactions_refund_requested_by_fkey"
+            columns: ["refund_requested_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_payment_transactions_venue_booking_id_fkey"
+            columns: ["venue_booking_id"]
+            isOneToOne: false
+            referencedRelation: "venue_bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_payment_transactions_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_payment_transactions_venue_owner_id_fkey"
+            columns: ["venue_owner_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       venue_photos: {
         Row: {
           created_at: string | null
