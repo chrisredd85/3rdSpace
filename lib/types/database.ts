@@ -285,7 +285,7 @@ export interface VenuePaymentTransaction {
   venue_payout_cents: number
   currency: string
   status: VenuePaymentTransactionStatus
-  payment_method_type: VenuePaymentMethodType | null
+  payment_method_type: VenuePaymentMethodType
   stripe_checkout_session_id: string | null
   stripe_payment_intent_id: string | null
   stripe_charge_id: string | null
@@ -812,7 +812,7 @@ export interface Database {
           venue_payout_cents: number
           currency?: string
           status?: VenuePaymentTransactionStatus
-          payment_method_type?: VenuePaymentMethodType | null
+          payment_method_type: VenuePaymentMethodType
           stripe_checkout_session_id?: string | null
           stripe_payment_intent_id?: string | null
           stripe_charge_id?: string | null

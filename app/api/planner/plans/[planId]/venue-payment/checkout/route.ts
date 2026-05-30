@@ -20,6 +20,7 @@ const paramsSchema = z.object({
 
 const checkoutSchema = z.object({
   venue_booking_id: z.string().uuid(),
+  payment_method_type: z.enum(['card', 'us_bank_account']),
 }).strict()
 
 type PlannerDb = ReturnType<typeof createServiceRoleClient>
@@ -64,8 +65,11 @@ type VenuePaymentTransactionRow = {
   venue_payout_cents: number
   currency: string
   status: string
+  payment_method_type: PaymentMethodType
   stripe_checkout_session_id: string | null
 }
+
+type PaymentMethodType = 'card' | 'us_bank_account'
 
 type SupabaseErrorLike = {
   code?: string
@@ -77,17 +81,21 @@ type CheckoutResponse = {
   transaction_id: string
   amount_cents: number
   processing_fee_cents: number
+  payment_method_type: PaymentMethodType
   total_cents: number
 }
 
 /**
  * Creates or reuses a Stripe Checkout Session for a confirmed venue booking.
  *
- * Processing-fee decision: Stripe Checkout line item amounts are fixed before
- * the builder chooses card vs ACH. P2.19 therefore uses the higher card-rate
- * fee as the visible processing-fee line item, while P2.22 can show both
- * estimated fee options before redirecting. Venue payout remains exactly the
- * negotiated rental amount.
+ * Payment-method and fee decision: the planner UI must collect the builder's
+ * payment method before calling this route. The route then computes the exact
+ * processing fee for that selected method, writes payment_method_type +
+ * processing_fee_cents on the transaction row, and creates Checkout with a
+ * single payment_method_types entry so the builder cannot switch methods inside
+ * Stripe and create a fee mismatch. Re-selecting another method reuses the same
+ * transaction row and replaces fee/method/session fields before creating a new
+ * Checkout Session.
  */
 export async function POST(
   request: NextRequest,
@@ -164,22 +172,47 @@ export async function POST(
     })
     if (!connectedAccountId) return venueConciergeResponse()
 
-    const processingFeeCents = calculateProcessingFeeCents(amountCents)
+    const paymentMethodType = parsedBody.data.payment_method_type
+    const processingFeeCents = calculateProcessingFeeCents(amountCents, paymentMethodType)
     const existingTransaction = await loadActiveTransaction(admin, plan.id, booking.id)
-    const transaction = existingTransaction ?? await insertVenuePaymentTransaction(admin, {
+    let transaction = existingTransaction ?? await insertVenuePaymentTransaction(admin, {
       planId: plan.id,
       booking,
       builderId: user.id,
       venueOwnerId: venue.owner_id,
       amountCents,
       processingFeeCents,
+      paymentMethodType,
     })
 
-    if (transaction.stripe_checkout_session_id) {
+    const canReuseExistingSession =
+      transaction.stripe_checkout_session_id &&
+      transaction.amount_cents === amountCents &&
+      transaction.processing_fee_cents === processingFeeCents &&
+      transaction.payment_method_type === paymentMethodType
+
+    if (canReuseExistingSession && transaction.stripe_checkout_session_id) {
       const reusable = await getReusableCheckoutSession(stripe, transaction.stripe_checkout_session_id)
       if (reusable?.url) {
         return checkoutResponse(reusable.url, transaction)
       }
+    }
+
+    if (transaction.stripe_checkout_session_id) {
+      await expireCheckoutSessionIfOpen(stripe, transaction.stripe_checkout_session_id)
+    }
+
+    if (
+      transaction.amount_cents !== amountCents ||
+      transaction.processing_fee_cents !== processingFeeCents ||
+      transaction.payment_method_type !== paymentMethodType ||
+      transaction.stripe_checkout_session_id
+    ) {
+      transaction = await updateTransactionForSelectedMethod(admin, transaction.id, {
+        amountCents,
+        processingFeeCents,
+        paymentMethodType,
+      })
     }
 
     const session = await createCheckoutSession({
@@ -301,11 +334,10 @@ function calculateAchProcessingFeeCents(amountCents: number) {
   return Math.min(Math.ceil(amountCents * 0.008), 500)
 }
 
-function calculateProcessingFeeCents(amountCents: number) {
-  return Math.max(
-    calculateCardProcessingFeeCents(amountCents),
-    calculateAchProcessingFeeCents(amountCents)
-  )
+function calculateProcessingFeeCents(amountCents: number, paymentMethodType: PaymentMethodType) {
+  return paymentMethodType === 'card'
+    ? calculateCardProcessingFeeCents(amountCents)
+    : calculateAchProcessingFeeCents(amountCents)
 }
 
 async function loadActiveTransaction(
@@ -354,6 +386,7 @@ async function insertVenuePaymentTransaction(
     venueOwnerId: string
     amountCents: number
     processingFeeCents: number
+    paymentMethodType: PaymentMethodType
   }
 ): Promise<VenuePaymentTransactionRow> {
   const { data, error } = await db
@@ -370,6 +403,7 @@ async function insertVenuePaymentTransaction(
       venue_payout_cents: input.amountCents,
       currency: 'usd',
       status: 'pending_builder_payment',
+      payment_method_type: input.paymentMethodType,
     } as never)
     .select('*')
     .single()
@@ -387,6 +421,34 @@ async function insertVenuePaymentTransaction(
   return data as VenuePaymentTransactionRow
 }
 
+async function updateTransactionForSelectedMethod(
+  db: PlannerDb,
+  transactionId: string,
+  input: {
+    amountCents: number
+    processingFeeCents: number
+    paymentMethodType: PaymentMethodType
+  }
+): Promise<VenuePaymentTransactionRow> {
+  const { data, error } = await db
+    .from('venue_payment_transactions')
+    .update({
+      amount_cents: input.amountCents,
+      processing_fee_cents: input.processingFeeCents,
+      venue_payout_cents: input.amountCents,
+      application_fee_cents: 0,
+      payment_method_type: input.paymentMethodType,
+      status: 'pending_builder_payment',
+      stripe_checkout_session_id: null,
+    } as never)
+    .eq('id', transactionId)
+    .select('*')
+    .single()
+
+  if (error) throw new Error(error.message)
+  return data as VenuePaymentTransactionRow
+}
+
 async function getReusableCheckoutSession(stripe: ReturnType<typeof getStripeClient>, sessionId: string) {
   try {
     const session = await stripe.checkout.sessions.retrieve(sessionId)
@@ -399,6 +461,20 @@ async function getReusableCheckoutSession(stripe: ReturnType<typeof getStripeCli
       error,
     })
     return null
+  }
+}
+
+async function expireCheckoutSessionIfOpen(stripe: ReturnType<typeof getStripeClient>, sessionId: string) {
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId)
+    if (!session.status || session.status === 'open') {
+      await stripe.checkout.sessions.expire(sessionId)
+    }
+  } catch (error) {
+    console.warn('[planner.venue-payment.checkout] Unable to expire replaced Checkout Session', {
+      sessionId,
+      error,
+    })
   }
 }
 
@@ -432,12 +508,14 @@ async function createCheckoutSession({
     venue_id: venue.id,
     venue_owner_id: venueOwnerId,
     builder_id: builderId,
+    payment_method_type: transaction.payment_method_type,
+    processing_fee_cents: String(transaction.processing_fee_cents),
   }
 
   return stripe.checkout.sessions.create(
     {
       mode: 'payment',
-      payment_method_types: ['card', 'us_bank_account'],
+      payment_method_types: [transaction.payment_method_type],
       line_items: [
         {
           quantity: 1,
@@ -478,7 +556,7 @@ async function createCheckoutSession({
       cancel_url: `${baseUrl}/planner?planId=${encodeURIComponent(planId)}&venue_rental=cancelled&transaction=${encodeURIComponent(transaction.id)}`,
     },
     {
-      idempotencyKey: `venue_rental_checkout_${transaction.id}_${transaction.amount_cents}_${transaction.processing_fee_cents}`,
+      idempotencyKey: `venue_rental_checkout_${transaction.id}_${transaction.payment_method_type}_${transaction.amount_cents}_${transaction.processing_fee_cents}`,
     }
   )
 }
@@ -508,6 +586,7 @@ function checkoutResponse(url: string, transaction: VenuePaymentTransactionRow) 
     transaction_id: transaction.id,
     amount_cents: transaction.amount_cents,
     processing_fee_cents: transaction.processing_fee_cents,
+    payment_method_type: transaction.payment_method_type,
     total_cents: transaction.amount_cents + transaction.processing_fee_cents,
   })
 }

@@ -9,6 +9,9 @@ ALTER TABLE public.venue_payment_transactions
   CHECK (venue_payout_cents <= amount_cents);
 
 ALTER TABLE public.venue_payment_transactions
+  ALTER COLUMN payment_method_type SET NOT NULL;
+
+ALTER TABLE public.venue_payment_transactions
   DROP CONSTRAINT IF EXISTS venue_payment_transactions_refund_amount_cents_check,
   ADD CONSTRAINT venue_payment_transactions_refund_amount_cents_check
   CHECK (

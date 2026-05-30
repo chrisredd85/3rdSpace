@@ -6715,7 +6715,7 @@ export type Database = {
           failure_reason: string | null
           id: string
           paid_at: string | null
-          payment_method_type: string | null
+          payment_method_type: string
           plan_id: string
           processing_fee_cents: number
           refund_amount_cents: number | null
@@ -6748,7 +6748,7 @@ export type Database = {
           failure_reason?: string | null
           id?: string
           paid_at?: string | null
-          payment_method_type?: string | null
+          payment_method_type: string
           plan_id: string
           processing_fee_cents?: number
           refund_amount_cents?: number | null

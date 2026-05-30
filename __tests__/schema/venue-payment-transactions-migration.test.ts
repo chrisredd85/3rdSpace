@@ -88,6 +88,7 @@ describe('venue payment transactions migration', () => {
   it('tightens payout and refund invariants before checkout writes rows', () => {
     expect(constraintMigration).toContain('venue_payment_transactions_payout_lte_amount_check')
     expect(constraintMigration).toContain('CHECK (venue_payout_cents <= amount_cents)')
+    expect(constraintMigration).toContain('ALTER COLUMN payment_method_type SET NOT NULL')
     expect(constraintMigration).toContain('DROP CONSTRAINT IF EXISTS venue_payment_transactions_refund_amount_cents_check')
     expect(constraintMigration).toContain('refund_amount_cents >= 0 AND refund_amount_cents <= amount_cents')
   })

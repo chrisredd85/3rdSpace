@@ -199,7 +199,7 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null | { code?:
   }
 }
 
-function makeRequest(body: unknown = { venue_booking_id: BOOKING_ID }) {
+function makeRequest(body: unknown = { venue_booking_id: BOOKING_ID, payment_method_type: 'card' }) {
   return new Request(`http://localhost/api/planner/plans/${PLAN_ID}/venue-payment/checkout`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -224,6 +224,7 @@ function makeStripeMock() {
           status: 'open',
           expires_at: futureExpiry,
         }),
+        expire: jest.fn().mockResolvedValue({ id: 'cs_existing', status: 'expired' }),
       },
     },
   }
@@ -270,6 +271,7 @@ describe('venue rental checkout route', () => {
       transaction_id: TRANSACTION_ID,
       amount_cents: 120000,
       processing_fee_cents: 3510,
+      payment_method_type: 'card',
       total_cents: 123510,
     })
     expect(db.rows.venue_payment_transactions[0]).toMatchObject({
@@ -282,9 +284,22 @@ describe('venue rental checkout route', () => {
       processing_fee_cents: 3510,
       application_fee_cents: 0,
       venue_payout_cents: 120000,
+      payment_method_type: 'card',
       status: 'checkout_created',
       stripe_checkout_session_id: 'cs_venue',
     })
+  })
+
+  it('returns 400 when payment_method_type is missing', async () => {
+    const response = await POST(
+      makeRequest({ venue_booking_id: BOOKING_ID }),
+      { params: { planId: PLAN_ID } }
+    )
+    const json = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(json.error).toBe('Invalid request body')
+    expect(stripe.checkout.sessions.create).not.toHaveBeenCalled()
   })
 
   it('writes venue_rental metadata on the Checkout Session and PaymentIntent', async () => {
@@ -293,7 +308,7 @@ describe('venue rental checkout route', () => {
     expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
       expect.objectContaining({
         mode: 'payment',
-        payment_method_types: ['card', 'us_bank_account'],
+        payment_method_types: ['card'],
         metadata: expect.objectContaining({
           payment_kind_namespace: 'venue_rental',
           venue_payment_transaction_id: TRANSACTION_ID,
@@ -302,6 +317,8 @@ describe('venue rental checkout route', () => {
           venue_id: VENUE_ID,
           venue_owner_id: VENUE_OWNER_ID,
           builder_id: BUILDER_ID,
+          payment_method_type: 'card',
+          processing_fee_cents: '3510',
         }),
         payment_intent_data: expect.objectContaining({
           application_fee_amount: 0,
@@ -312,11 +329,47 @@ describe('venue rental checkout route', () => {
           metadata: expect.objectContaining({
             payment_kind_namespace: 'venue_rental',
             venue_payment_transaction_id: TRANSACTION_ID,
+            payment_method_type: 'card',
+            processing_fee_cents: '3510',
           }),
         }),
       }),
       expect.objectContaining({
-        idempotencyKey: `venue_rental_checkout_${TRANSACTION_ID}_120000_3510`,
+        idempotencyKey: `venue_rental_checkout_${TRANSACTION_ID}_card_120000_3510`,
+      })
+    )
+  })
+
+  it('creates ACH-only Checkout with the exact ACH capped fee', async () => {
+    const response = await POST(
+      makeRequest({ venue_booking_id: BOOKING_ID, payment_method_type: 'us_bank_account' }),
+      { params: { planId: PLAN_ID } }
+    )
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json).toMatchObject({
+      amount_cents: 120000,
+      processing_fee_cents: 500,
+      payment_method_type: 'us_bank_account',
+      total_cents: 120500,
+    })
+    expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+      processing_fee_cents: 500,
+      payment_method_type: 'us_bank_account',
+    })
+    expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_method_types: ['us_bank_account'],
+        payment_intent_data: expect.objectContaining({
+          metadata: expect.objectContaining({
+            payment_method_type: 'us_bank_account',
+            processing_fee_cents: '500',
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        idempotencyKey: `venue_rental_checkout_${TRANSACTION_ID}_us_bank_account_120000_500`,
       })
     )
   })
@@ -404,6 +457,7 @@ describe('venue rental checkout route', () => {
       venue_payout_cents: 120000,
       currency: 'usd',
       status: 'checkout_created',
+      payment_method_type: 'card',
       stripe_checkout_session_id: 'cs_existing',
     })
 
@@ -414,6 +468,55 @@ describe('venue rental checkout route', () => {
     expect(json.hosted_checkout_url).toBe('https://checkout.test/cs_existing')
     expect(stripe.checkout.sessions.retrieve).toHaveBeenCalledWith('cs_existing')
     expect(stripe.checkout.sessions.create).not.toHaveBeenCalled()
+  })
+
+  it('reuses the same transaction row and replaces fee, method, and session when builder switches methods', async () => {
+    db.rows.venue_payment_transactions.push({
+      id: TRANSACTION_ID,
+      plan_id: PLAN_ID,
+      venue_booking_id: BOOKING_ID,
+      builder_id: BUILDER_ID,
+      venue_id: VENUE_ID,
+      venue_owner_id: VENUE_OWNER_ID,
+      amount_cents: 120000,
+      processing_fee_cents: 3510,
+      application_fee_cents: 0,
+      venue_payout_cents: 120000,
+      currency: 'usd',
+      status: 'checkout_created',
+      payment_method_type: 'card',
+      stripe_checkout_session_id: 'cs_existing',
+    })
+
+    const response = await POST(
+      makeRequest({ venue_booking_id: BOOKING_ID, payment_method_type: 'us_bank_account' }),
+      { params: { planId: PLAN_ID } }
+    )
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json).toMatchObject({
+      transaction_id: TRANSACTION_ID,
+      hosted_checkout_url: 'https://checkout.test/cs_venue',
+      processing_fee_cents: 500,
+      payment_method_type: 'us_bank_account',
+    })
+    expect(db.rows.venue_payment_transactions).toHaveLength(1)
+    expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+      id: TRANSACTION_ID,
+      processing_fee_cents: 500,
+      payment_method_type: 'us_bank_account',
+      stripe_checkout_session_id: 'cs_venue',
+    })
+    expect(stripe.checkout.sessions.expire).toHaveBeenCalledWith('cs_existing')
+    expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_method_types: ['us_bank_account'],
+      }),
+      expect.objectContaining({
+        idempotencyKey: `venue_rental_checkout_${TRANSACTION_ID}_us_bank_account_120000_500`,
+      })
+    )
   })
 
   it('recovers a unique constraint race by returning the recovered Checkout URL', async () => {
