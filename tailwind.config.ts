@@ -19,8 +19,9 @@ const config = {
     },
     extend: {
       fontFamily: {
-        display: ['Space Grotesk', 'system-ui', 'sans-serif'],
+        display: ['Fraunces', 'Georgia', 'serif'],
         sans: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -28,6 +29,31 @@ const config = {
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
+        cream: "hsl(var(--cream))",
+        "cream-deep": "hsl(var(--cream-deep))",
+        ink: {
+          DEFAULT: "hsl(var(--ink))",
+          soft: "hsl(var(--ink-soft))",
+          faint: "hsl(var(--ink-faint))",
+        },
+        tan: "hsl(var(--tan))",
+        clay: {
+          DEFAULT: "hsl(var(--clay))",
+          deep: "hsl(var(--clay-deep))",
+          tint: "hsl(var(--clay-tint))",
+        },
+        forest: {
+          DEFAULT: "hsl(var(--forest))",
+          tint: "hsl(var(--forest-tint))",
+        },
+        ochre: {
+          DEFAULT: "hsl(var(--ochre))",
+          tint: "hsl(var(--ochre-tint))",
+        },
+        brick: {
+          DEFAULT: "hsl(var(--brick))",
+          tint: "hsl(var(--brick-tint))",
+        },
         success: "hsl(var(--success))",
         warning: "hsl(var(--warning))",
         info: "hsl(var(--info))",
