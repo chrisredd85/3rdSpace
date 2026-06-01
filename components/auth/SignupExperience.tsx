@@ -37,58 +37,40 @@ function AuthShell({
   eyebrow,
   title,
   subtitle,
-  accent = 'primary',
   alreadySignedInWarning = false,
   children,
 }: {
   eyebrow: string
   title: string
   subtitle?: string
-  accent?: 'primary' | 'secondary' | 'accent'
   alreadySignedInWarning?: boolean
   children: React.ReactNode
 }) {
-  const glowMap = {
-    primary: 'from-primary to-primary-glow',
-    secondary: 'from-secondary to-primary',
-    accent: 'from-accent to-secondary',
-  }
   return (
-    <div className="relative min-h-screen overflow-hidden bg-background">
-      <div className="absolute inset-0 bg-gradient-mesh opacity-60" />
-      <div
-        className={`absolute -left-32 top-0 h-[500px] w-[500px] rounded-full bg-gradient-to-br ${glowMap[accent]} opacity-20 blur-3xl`}
-      />
-      <div
-        className={`absolute -right-32 bottom-0 h-[500px] w-[500px] rounded-full bg-gradient-to-br ${glowMap[accent]} opacity-20 blur-3xl`}
-      />
-
-      <header className="relative flex items-center justify-between px-5 py-5 sm:px-6 lg:px-12">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
-            <Sparkles className="h-5 w-5 text-primary-foreground" />
-          </div>
-          <span className="font-display text-xl font-bold tracking-tight">3rdPlace</span>
+    <div className="auth-product-shell min-h-screen bg-background px-5 py-6 text-foreground sm:px-8">
+      <header className="mx-auto flex max-w-[920px] items-center justify-between">
+        <Link href="/" className="font-display text-[24px] font-semibold tracking-tight text-clay">
+          3rdPlace
         </Link>
         <Link
           href="/"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-smooth hover:text-foreground"
+          className="inline-flex items-center gap-2 text-[14px] font-semibold text-ink-soft transition-colors hover:text-clay"
         >
-          <ArrowLeft className="h-4 w-4" /> Back
+          <ArrowLeft className="h-4 w-4" /> Home
         </Link>
       </header>
 
-      <main className="relative mx-auto w-full max-w-2xl px-4 pb-16 pt-5 sm:px-6 sm:pb-20 sm:pt-6 lg:pt-12">
-        <div className="rounded-3xl border border-border bg-card/70 p-5 shadow-card backdrop-blur-xl sm:p-8 md:p-10">
+      <main className="mx-auto mt-8 w-full max-w-[760px] pb-16 sm:mt-12">
+        <div className="rounded-lg border border-tan bg-cream p-5 shadow-sm sm:p-8">
           {alreadySignedInWarning ? <AlreadySignedInBanner /> : null}
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-secondary sm:tracking-widest">{eyebrow}</p>
-          <h1 className="mt-2 text-balance font-display text-2xl font-bold leading-tight sm:text-3xl md:text-4xl">{title}</h1>
-          {subtitle && <p className="mt-3 text-sm leading-relaxed text-muted-foreground sm:text-base">{subtitle}</p>}
-          <div className="mt-6 sm:mt-8">{children}</div>
+          <p className="label-caps text-clay-deep">{eyebrow}</p>
+          <h1 className="mt-3 font-display text-[38px] font-semibold leading-[1.02] text-ink sm:text-[54px]">{title}</h1>
+          {subtitle && <p className="mt-3 max-w-2xl text-[16px] leading-relaxed text-ink-soft">{subtitle}</p>}
+          <div className="mt-7 space-y-5">{children}</div>
         </div>
-        <p className="mt-6 text-center text-sm text-muted-foreground">
+        <p className="mt-6 text-center text-[14px] text-ink-soft">
           Already have an account?{' '}
-          <Link href="/login" className="font-medium text-primary hover:underline">
+          <Link href="/login" className="font-semibold text-clay-deep hover:underline">
             Sign in
           </Link>
         </p>
@@ -111,19 +93,19 @@ function AlreadySignedInBanner() {
   }
 
   return (
-    <div className="mb-6 rounded-2xl border border-secondary/40 bg-secondary/10 p-4 text-sm text-muted-foreground">
-      <p className="font-medium text-foreground">You&apos;re already signed in.</p>
+    <div className="mb-6 rounded-md border border-ochre bg-ochre-tint p-4 text-[14px] text-ink-soft">
+      <p className="font-semibold text-ink">You&apos;re already signed in.</p>
       <p className="mt-1">Sign out to create a new account, or go back to your planner.</p>
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
           onClick={handleSignOut}
           disabled={isSigningOut}
-          className="rounded-full bg-secondary px-4 py-2 text-xs font-bold text-secondary-foreground transition-smooth hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md bg-clay px-4 py-2 text-xs font-bold text-primary-foreground transition-colors hover:bg-clay-deep disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isSigningOut ? 'Signing out...' : 'Sign out and continue'}
         </button>
-        <Link href="/planner" className="rounded-full border border-border px-4 py-2 text-xs font-bold text-foreground transition-smooth hover:border-primary/50">
+        <Link href="/planner" className="rounded-md border border-tan bg-cream px-4 py-2 text-xs font-bold text-ink transition-colors hover:border-clay">
           Back to planner
         </Link>
       </div>
@@ -133,15 +115,21 @@ function AlreadySignedInBanner() {
 
 function Stepper({ step, total }: { step: number; total: number }) {
   return (
-    <div className="mb-8 flex items-center gap-2">
-      {Array.from({ length: total }).map((_, i) => (
-        <div
-          key={i}
-          className={`h-1.5 flex-1 rounded-full transition-smooth ${
-            i + 1 <= step ? 'bg-gradient-brand' : 'bg-border'
-          }`}
-        />
-      ))}
+    <div className="mb-8">
+      <div className="flex items-center justify-between gap-4">
+        <span className="label-caps text-ink-soft">Step {step} of {total}</span>
+        <span className="font-mono text-[11px] text-ink-faint">{Math.round((step / total) * 100)}%</span>
+      </div>
+      <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: `repeat(${total}, minmax(0, 1fr))` }}>
+        {Array.from({ length: total }).map((_, i) => (
+          <div
+            key={i}
+            className={`h-1.5 rounded-full transition-colors ${
+              i + 1 <= step ? 'bg-clay' : 'bg-tan'
+            }`}
+          />
+        ))}
+      </div>
     </div>
   )
 }
@@ -149,7 +137,7 @@ function Stepper({ step, total }: { step: number; total: number }) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <Label className="mb-1.5 block">{label}</Label>
+      <Label className="mb-1.5 block text-[13px] font-semibold leading-normal text-ink-soft">{label}</Label>
       {children}
     </div>
   )
@@ -182,7 +170,7 @@ function PasswordInput({
         aria-label={isVisible ? 'Hide password' : 'Show password'}
         aria-pressed={isVisible}
         onClick={() => setIsVisible((current) => !current)}
-        className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+        className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-cream hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clay/30"
       >
         <Icon className="h-4 w-4" />
       </button>
@@ -210,11 +198,11 @@ function ChipGroup({
             onClick={() => onToggle(o)}
             className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-smooth ${
               active
-                ? 'border-primary bg-primary/15 text-foreground'
-                : 'border-border bg-card/40 text-muted-foreground hover:border-primary/40'
+                ? 'border-clay bg-clay-tint text-clay-deep'
+                : 'border-tan bg-cream text-ink-soft hover:border-clay hover:text-clay-deep'
             }`}
           >
-            {active && <Check className="h-3.5 w-3.5 text-primary" />}
+            {active && <Check className="h-3.5 w-3.5 text-clay" />}
             {o}
           </button>
         )
@@ -223,81 +211,124 @@ function ChipGroup({
   )
 }
 
+function ToggleRow({
+  checked,
+  onChange,
+  title,
+  description,
+  icon,
+}: {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  title: string
+  description?: string
+  icon?: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="flex w-full items-center justify-between gap-4 rounded-md border border-tan bg-cream px-4 py-3 text-left transition-colors hover:border-clay"
+    >
+      <span className="flex min-w-0 items-start gap-3">
+        {icon ? <span className="mt-0.5 text-clay">{icon}</span> : null}
+        <span>
+          <span className="block text-[15px] font-semibold text-ink">{title}</span>
+          {description ? <span className="mt-0.5 block text-[13px] leading-relaxed text-ink-soft">{description}</span> : null}
+        </span>
+      </span>
+      <span
+        className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors ${
+          checked ? 'border-forest bg-forest-tint' : 'border-tan bg-cream-deep'
+        }`}
+      >
+        <span
+          className={`absolute top-1 h-5 w-5 rounded-full bg-cream shadow-sm transition-transform ${
+            checked ? 'translate-x-5 border border-forest' : 'translate-x-1 border border-tan'
+          }`}
+        />
+      </span>
+    </button>
+  )
+}
+
+function NestedReveal({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mt-3 rounded-r-lg border-l-4 border-clay/40 bg-clay-tint/35 py-4 pl-4 pr-3">
+      {children}
+    </div>
+  )
+}
+
 // ─── Role selector ────────────────────────────────────────────────────────────
 
 function RoleSelector({
-  onSelect,
   alreadySignedInWarning = false,
 }: {
-  onSelect: (role: UserType) => void
   alreadySignedInWarning?: boolean
 }) {
-  return (
-    <div className="relative min-h-screen overflow-hidden bg-background">
-      <div className="absolute inset-0 bg-gradient-mesh opacity-60" />
-      <div className="absolute -left-32 top-0 h-[500px] w-[500px] rounded-full bg-gradient-to-br from-primary to-primary-glow opacity-20 blur-3xl" />
-      <div className="absolute -right-32 bottom-0 h-[500px] w-[500px] rounded-full bg-gradient-to-br from-secondary to-primary opacity-20 blur-3xl" />
+  const roles = [
+    {
+      href: '/signup/builder',
+      icon: <Users className="h-5 w-5" />,
+      label: 'Creator',
+      title: 'Run events',
+      description: 'I host gatherings and want to execute them faster.',
+    },
+    {
+      href: '/signup/venue',
+      icon: <Building2 className="h-5 w-5" />,
+      label: 'Venue',
+      title: 'List my venue',
+      description: 'I own or operate a room hosts can book.',
+    },
+    {
+      href: '/signup/vendor',
+      icon: <Store className="h-5 w-5" />,
+      label: 'Vendor',
+      title: 'List my services',
+      description: 'I book photo, catering, DJ, AV, or other event work.',
+    },
+  ]
 
-      <header className="relative flex items-center justify-between px-6 py-5 lg:px-12">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
-            <Sparkles className="h-5 w-5 text-primary-foreground" />
-          </div>
-          <span className="font-display text-xl font-bold tracking-tight">3rdPlace</span>
+  return (
+    <div className="min-h-screen bg-background px-5 py-6 text-foreground sm:px-8">
+      <header className="mx-auto flex max-w-[1040px] items-center justify-between">
+        <Link href="/" className="font-display text-[24px] font-semibold tracking-tight text-clay">
+          3rdPlace
         </Link>
       </header>
 
-      <main className="relative mx-auto w-full max-w-4xl px-6 pb-20 pt-10">
+      <main className="mx-auto w-full max-w-[1040px] pb-20 pt-12">
         {alreadySignedInWarning ? <AlreadySignedInBanner /> : null}
-        <div className="mb-10 text-center">
-          <h1 className="font-display text-4xl font-bold md:text-5xl">Join 3rdPlace</h1>
-          <p className="mt-3 text-lg text-muted-foreground">Choose your account type to get started</p>
+        <div className="max-w-3xl">
+          <p className="label-caps text-clay-deep">Signup</p>
+          <h1 className="mt-3 font-display text-[48px] font-semibold leading-[1] text-ink sm:text-[76px]">Which one are you?</h1>
+          <p className="mt-4 text-[18px] leading-relaxed text-ink-soft">Pick the role that fits. You can change later.</p>
         </div>
 
-        <div className="grid gap-5 md:grid-cols-3">
-          {[
-            {
-              type: 'community_builder' as UserType,
-              icon: <Users className="h-8 w-8" />,
-              label: 'Community Builder',
-              description: 'Create events, book venues and vendors, track finances all in one place.',
-              accent: 'border-primary/40 hover:border-primary',
-            },
-            {
-              type: 'venue_owner' as UserType,
-              icon: <Building2 className="h-8 w-8" />,
-              label: 'Venue Owner',
-              description: 'Get your space in front of SF Tech Week hosts, startup organizers, and community builders. Free to list.',
-              accent: 'border-secondary/40 hover:border-secondary',
-            },
-            {
-              type: 'vendor' as UserType,
-              icon: <Store className="h-8 w-8" />,
-              label: 'Vendor',
-              description: 'Join a curated network of Bay Area caterers, AV crews, photographers, DJs, and more. Free to list.',
-              accent: 'border-accent/40 hover:border-accent',
-            },
-          ].map((item) => (
-            <button
-              key={item.type}
-              onClick={() => onSelect(item.type)}
-              className={`group rounded-3xl border bg-gradient-card p-7 text-left shadow-card transition-smooth hover:-translate-y-1 hover:shadow-glow ${item.accent}`}
+        <div className="mt-10 grid gap-4 lg:grid-cols-3">
+          {roles.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="group rounded-lg border border-tan bg-cream p-6 shadow-sm transition-colors hover:border-clay"
             >
-              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-brand text-primary-foreground shadow-glow">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md border border-tan bg-cream-deep text-clay">
                 {item.icon}
               </div>
-              <h2 className="font-display text-xl font-bold">{item.label}</h2>
-              <p className="mt-2 text-sm text-muted-foreground">{item.description}</p>
-              <div className="mt-5 flex items-center gap-1 text-sm font-semibold text-primary">
-                Get started <ArrowRight className="h-4 w-4 transition-smooth group-hover:translate-x-1" />
-              </div>
-            </button>
+              <p className="label-caps mt-5 text-clay-deep">{item.label}</p>
+              <h2 className="mt-4 font-display text-[34px] font-semibold leading-tight text-ink">{item.title}</h2>
+              <p className="mt-3 text-[15px] leading-relaxed text-ink-soft">{item.description}</p>
+            </Link>
           ))}
         </div>
 
-        <p className="mt-8 text-center text-sm text-muted-foreground">
+        <p className="mt-8 text-center text-[14px] text-ink-soft">
           Already have an account?{' '}
-          <Link href="/login" className="font-medium text-primary hover:underline">
+          <Link href="/login" className="font-semibold text-clay-deep hover:underline">
             Sign in
           </Link>
         </p>
@@ -574,7 +605,6 @@ function BuilderSignupFlow({
       eyebrow={`Creator sign-up · Step ${step} of ${total}`}
       title="Set up your Creator account"
       subtitle="Tell us about your organization and the events you throw so we can match you to the right venues and vendors."
-      accent="primary"
       alreadySignedInWarning={alreadySignedInWarning}
     >
       <Stepper step={step} total={total} />
@@ -605,7 +635,7 @@ function BuilderSignupFlow({
               <select
                 value={form.orgType}
                 onChange={(e) => setForm({ ...form, orgType: e.target.value })}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="flex h-12 w-full rounded-md border border-tan bg-cream px-4 py-3 text-[15px] text-ink outline-none transition-colors focus:border-clay"
               >
                 <option value="">Select...</option>
                 {orgTypes.map((t) => <option key={t}>{t}</option>)}
@@ -645,25 +675,28 @@ function BuilderSignupFlow({
       {step === 4 && (
         <div className="space-y-6 animate-fade-in">
           <div>
-            <Label className="mb-2 block">Connect your ticketing platforms</Label>
-            <p className="mb-3 text-xs text-muted-foreground">We&apos;ll auto-import sales totals and attendee counts.</p>
+            <Label className="mb-2 block text-[13px] font-semibold text-ink-soft">Connect your ticketing platforms</Label>
+            <p className="mb-3 text-[13px] text-ink-soft">We&apos;ll auto-import sales totals and attendee counts.</p>
             <ChipGroup options={ticketPlatforms} selected={form.platforms} onToggle={(v) => toggle('platforms', v)} />
           </div>
 
           <TicketingSetupGuide selectedPlatforms={form.platforms} compact />
 
-          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-border bg-card/40 p-4 transition-smooth hover:border-primary/40">
-            <input
-              type="checkbox"
-              checked={form.bulkBooking}
-              onChange={(e) => setForm({ ...form, bulkBooking: e.target.checked })}
-              className="mt-1 h-4 w-4 accent-primary"
-            />
-            <div>
-              <p className="font-medium">Enable bulk booking & event templates</p>
-              <p className="text-xs text-muted-foreground">Run a recurring series? Save a template, clone it, book the whole season at once.</p>
-            </div>
-          </label>
+          <ToggleRow
+            checked={form.bulkBooking}
+            onChange={(bulkBooking) => setForm({ ...form, bulkBooking })}
+            title="Enable bulk booking and event templates"
+            description="Run a recurring series? Save a template, clone it, book the whole season at once."
+          />
+
+          {form.bulkBooking && (
+            <NestedReveal>
+              <p className="label-caps text-ochre">Pre-authorization preview</p>
+              <p className="mt-2 text-[14px] leading-relaxed text-ink-soft">
+                The agent can prepare outreach batches, but booking, payment, and deposits still require your approval.
+              </p>
+            </NestedReveal>
+          )}
 
           <Field label="Invite collaborators (comma-separated emails, optional)">
             <Textarea
@@ -933,7 +966,6 @@ function VenueSignupFlow({
       eyebrow={`Venue sign-up · Step ${step} of ${total}`}
       title="List your venue on 3rdPlace"
       subtitle="Show creators what makes your space special. Set your rules, your rates, and your calendar — once."
-      accent="secondary"
       alreadySignedInWarning={alreadySignedInWarning}
     >
       <Stepper step={step} total={total} />
@@ -972,7 +1004,7 @@ function VenueSignupFlow({
               <select
                 value={form.venueType}
                 onChange={(e) => setForm({ ...form, venueType: e.target.value })}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="flex h-12 w-full rounded-md border border-tan bg-cream px-4 py-3 text-[15px] text-ink outline-none transition-colors focus:border-clay"
               >
                 <option value="">Select...</option>
                 {venueTypes.map((t) => <option key={t}>{t}</option>)}
@@ -1041,41 +1073,41 @@ function VenueSignupFlow({
 
       {step === 4 && (
         <div className="space-y-6 animate-fade-in">
-          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-border bg-card/40 p-4 hover:border-primary/40 transition-smooth">
-            <input
-              type="checkbox"
-              checked={form.isBar}
-              onChange={(e) => setForm({ ...form, isBar: e.target.checked })}
-              className="mt-1 h-4 w-4 accent-primary"
-            />
-            <div>
-              <p className="font-medium">This venue serves alcohol / has a bar</p>
-              <p className="text-xs text-muted-foreground">Unlocks kickback & per-head drink revenue settings below.</p>
-            </div>
-          </label>
+          <ToggleRow
+            checked={form.isBar}
+            onChange={(isBar) => setForm({ ...form, isBar })}
+            title="This venue serves alcohol / has a bar"
+            description="Unlocks kickback and per-head drink revenue settings below."
+          />
 
           {form.isBar && (
-            <div className="grid gap-4 rounded-2xl border border-secondary/30 bg-secondary/5 p-5 sm:grid-cols-3">
-              <Field label="Bar kickback to creator (%)">
-                <Input type="number" value={form.barKickback} onChange={(e) => setForm({ ...form, barKickback: e.target.value })} placeholder="10" />
-              </Field>
-              <Field label="Per-head drink sales (%)">
-                <Input type="number" value={form.perHeadDrinkPct} onChange={(e) => setForm({ ...form, perHeadDrinkPct: e.target.value })} placeholder="15" />
-              </Field>
-              <Field label="Minimum bar spend ($)">
-                <Input type="number" value={form.minBarSpend} onChange={(e) => setForm({ ...form, minBarSpend: e.target.value })} placeholder="2000" />
-              </Field>
-            </div>
+            <NestedReveal>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Field label="Bar kickback to creator (%)">
+                  <Input type="number" value={form.barKickback} onChange={(e) => setForm({ ...form, barKickback: e.target.value })} placeholder="10" />
+                </Field>
+                <Field label="Per-head drink sales (%)">
+                  <Input type="number" value={form.perHeadDrinkPct} onChange={(e) => setForm({ ...form, perHeadDrinkPct: e.target.value })} placeholder="15" />
+                </Field>
+                <Field label="Minimum bar spend ($)">
+                  <Input type="number" value={form.minBarSpend} onChange={(e) => setForm({ ...form, minBarSpend: e.target.value })} placeholder="2000" />
+                </Field>
+              </div>
+            </NestedReveal>
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Base price per night ($)">
               <Input type="number" value={form.pricePerNight} onChange={(e) => setForm({ ...form, pricePerNight: e.target.value })} placeholder="3500" />
             </Field>
+          </div>
+
+          <NestedReveal>
             <Field label="Deposit required ($)">
               <Input type="number" value={form.deposit} onChange={(e) => setForm({ ...form, deposit: e.target.value })} placeholder="1500" />
             </Field>
-          </div>
+          </NestedReveal>
+
           <Field label="Cancellation terms">
             <Textarea
               rows={3}
@@ -1090,9 +1122,23 @@ function VenueSignupFlow({
       {step === 5 && (
         <div className="space-y-6 animate-fade-in">
           <div>
-            <Label className="mb-2 block">Available booking days</Label>
+            <Label className="mb-2 block text-[13px] font-semibold text-ink-soft">Available booking days</Label>
             <ChipGroup options={weekDays} selected={form.openDays} onToggle={(v) => toggle('openDays', v)} />
           </div>
+
+          {form.openDays.length > 0 ? (
+            <div className="space-y-3">
+              {form.openDays.map((day) => (
+                <NestedReveal key={day}>
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="label-caps text-clay-deep">{day}</p>
+                    <p className="text-[14px] text-ink-soft">Uses the shared booking window below.</p>
+                  </div>
+                </NestedReveal>
+              ))}
+            </div>
+          ) : null}
+
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Earliest start time">
               <Input type="time" value={form.openFrom} onChange={(e) => setForm({ ...form, openFrom: e.target.value })} />
@@ -1101,9 +1147,9 @@ function VenueSignupFlow({
               <Input type="time" value={form.openTo} onChange={(e) => setForm({ ...form, openTo: e.target.value })} />
             </Field>
           </div>
-          <div className="rounded-2xl border border-accent/30 bg-accent/5 p-4 text-sm">
-            <p className="font-medium">Calendar sync</p>
-            <p className="mt-1 text-muted-foreground">After signup, connect Google Calendar or import an .ics feed to prevent double-bookings automatically.</p>
+          <div className="rounded-md border border-tan bg-cream-deep p-4 text-[14px]">
+            <p className="font-semibold text-ink">Calendar sync</p>
+            <p className="mt-1 text-ink-soft">After signup, connect Google Calendar or import an .ics feed to prevent double-bookings automatically.</p>
           </div>
         </div>
       )}
@@ -1256,7 +1302,6 @@ function VendorSignupFlow({
       eyebrow={`Vendor sign-up · Step ${step} of ${total}`}
       title="Get booked on 3rdPlace"
       subtitle="List your services, set your rates, and choose whether you're available for last-minute emergency gigs."
-      accent="accent"
       alreadySignedInWarning={alreadySignedInWarning}
     >
       <Stepper step={step} total={total} />
@@ -1312,11 +1357,21 @@ function VendorSignupFlow({
 
       {step === 3 && (
         <div className="space-y-4 animate-fade-in">
-          <Field label="Base / starting price ($)">
-            <Input type="number" value={form.basePrice} onChange={(e) => setForm({ ...form, basePrice: e.target.value })} placeholder="800" />
-          </Field>
-          <div className="rounded-2xl border border-border bg-card/40 p-5">
-            <p className="mb-4 font-display text-sm font-semibold">Add a starter package</p>
+          <NestedReveal>
+            <p className="label-caps text-clay-deep">Pricing model</p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Field label="Base / starting price ($)">
+                <Input type="number" value={form.basePrice} onChange={(e) => setForm({ ...form, basePrice: e.target.value })} placeholder="800" />
+              </Field>
+              <div className="rounded-md border border-tan bg-cream px-4 py-3">
+                <p className="text-[13px] font-semibold text-ink-soft">Model</p>
+                <p className="mt-1 text-[15px] font-semibold text-ink">Base rate + starter package</p>
+              </div>
+            </div>
+          </NestedReveal>
+
+          <NestedReveal>
+            <p className="mb-4 font-display text-[22px] font-semibold text-ink">Starter package</p>
             <Field label="Package name">
               <Input value={form.packageName} onChange={(e) => setForm({ ...form, packageName: e.target.value })} placeholder="4-hour open format set" />
             </Field>
@@ -1330,15 +1385,20 @@ function VendorSignupFlow({
                 />
               </Field>
             </div>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Deposit required (%)">
-              <Input type="number" value={form.depositPct} onChange={(e) => setForm({ ...form, depositPct: e.target.value })} placeholder="30" />
-            </Field>
-            <Field label="Minimum lead time (days)">
-              <Input type="number" value={form.leadTimeDays} onChange={(e) => setForm({ ...form, leadTimeDays: e.target.value })} placeholder="7" />
-            </Field>
-          </div>
+          </NestedReveal>
+
+          <NestedReveal>
+            <p className="label-caps text-clay-deep">Deposit terms</p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Field label="Deposit required (%)">
+                <Input type="number" value={form.depositPct} onChange={(e) => setForm({ ...form, depositPct: e.target.value })} placeholder="30" />
+              </Field>
+              <Field label="Minimum lead time (days)">
+                <Input type="number" value={form.leadTimeDays} onChange={(e) => setForm({ ...form, leadTimeDays: e.target.value })} placeholder="7" />
+              </Field>
+            </div>
+          </NestedReveal>
+
           <Field label="Cancellation terms">
             <Textarea
               rows={2}
@@ -1356,31 +1416,25 @@ function VendorSignupFlow({
       {step === 4 && (
         <div className="space-y-6 animate-fade-in">
           <div>
-            <Label className="mb-2 block">Days you&apos;re typically available</Label>
+            <Label className="mb-2 block text-[13px] font-semibold text-ink-soft">Days you&apos;re typically available</Label>
             <ChipGroup options={weekDays} selected={form.availableDays} onToggle={(v) => toggle('availableDays', v)} />
-            <p className="mt-2 text-xs text-muted-foreground">After signup, set specific blocked dates on your calendar.</p>
+            <p className="mt-2 text-xs text-ink-soft">After signup, set specific blocked dates on your calendar.</p>
           </div>
 
-          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-5 hover:border-accent transition-smooth">
-            <input
-              type="checkbox"
-              checked={form.emergencyAvailable}
-              onChange={(e) => setForm({ ...form, emergencyAvailable: e.target.checked })}
-              className="mt-1 h-4 w-4 accent-primary"
-            />
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <Zap className="h-4 w-4 text-accent" />
-                <p className="font-medium">Available as an emergency vendor</p>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">Get pinged when a creator needs a last-minute replacement. Higher rate, faster pay.</p>
-            </div>
-          </label>
+          <ToggleRow
+            checked={form.emergencyAvailable}
+            onChange={(emergencyAvailable) => setForm({ ...form, emergencyAvailable })}
+            title="Available as an emergency vendor"
+            description="Get pinged when a creator needs a last-minute replacement. Higher rate, faster pay."
+            icon={<Zap className="h-4 w-4" />}
+          />
 
           {form.emergencyAvailable && (
-            <Field label="Emergency-rate uplift (%)">
-              <Input type="number" value={form.emergencyRate} onChange={(e) => setForm({ ...form, emergencyRate: e.target.value })} placeholder="50" />
-            </Field>
+            <NestedReveal>
+              <Field label="Emergency-rate uplift (%)">
+                <Input type="number" value={form.emergencyRate} onChange={(e) => setForm({ ...form, emergencyRate: e.target.value })} placeholder="50" />
+              </Field>
+            </NestedReveal>
           )}
         </div>
       )}
@@ -1416,11 +1470,18 @@ export function SignupExperience({
   initialUserType?: UserType | null
   alreadySignedInWarning?: boolean
 }) {
+  const router = useRouter()
   const [role, setRole] = useState<UserType | null>(initialUserType)
 
-  const handleBack = () => setRole(null)
+  const handleBack = () => {
+    if (initialUserType) {
+      router.push('/signup')
+      return
+    }
+    setRole(null)
+  }
 
-  if (!role) return <RoleSelector onSelect={setRole} alreadySignedInWarning={alreadySignedInWarning} />
+  if (!role) return <RoleSelector alreadySignedInWarning={alreadySignedInWarning} />
   if (role === 'community_builder') {
     return <BuilderSignupFlow onBack={handleBack} alreadySignedInWarning={alreadySignedInWarning} />
   }

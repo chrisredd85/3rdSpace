@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
-import { ArrowRight, Building2, Eye, EyeOff, Lock, Mail, Sparkles, Store, Ticket } from 'lucide-react'
+import { ArrowRight, Building2, Eye, EyeOff, Lock, Mail, Store, Ticket } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { loginSchema, type LoginInput } from '@/lib/validations/auth'
@@ -24,6 +24,7 @@ const portalConfig: Record<
     title: string
     description: string
     signupHref: string
+    signupLabel: string
     loginHref: string
     expectedUserType: UserType
     icon: typeof Ticket
@@ -33,6 +34,7 @@ const portalConfig: Record<
     title: 'Event Creator',
     description: 'Sign in to manage events, bookings, and collaborators.',
     signupHref: '/signup/builder',
+    signupLabel: 'Start running events ->',
     loginHref: '/login/builder',
     expectedUserType: 'community_builder',
     icon: Ticket,
@@ -41,6 +43,7 @@ const portalConfig: Record<
     title: 'Venue Owner',
     description: 'Sign in to manage your venue, availability, and requests.',
     signupHref: '/signup/venue',
+    signupLabel: 'List my venue ->',
     loginHref: '/login/venue',
     expectedUserType: 'venue_owner',
     icon: Building2,
@@ -49,6 +52,7 @@ const portalConfig: Record<
     title: 'Vendor',
     description: 'Sign in to manage your services, bookings, and vendor profile.',
     signupHref: '/signup/vendor',
+    signupLabel: 'List my services ->',
     loginHref: '/login/vendor',
     expectedUserType: 'vendor',
     icon: Store,
@@ -104,7 +108,7 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
     router.replace(config.loginHref)
   }, [config.loginHref, router, searchParams])
 
-  const signupHref = useMemo(() => config.signupHref, [config.signupHref])
+  const signupHref = config.signupHref
 
   const onSubmit = async (data: LoginInput) => {
     setIsLoading(true)
@@ -162,52 +166,52 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
   const Icon = config.icon
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-12">
-      {/* Ambient glow */}
-      <div className="absolute inset-0 bg-gradient-mesh opacity-60" />
+    <div className="min-h-screen bg-background px-5 py-6 text-foreground sm:px-8">
+      <header className="mx-auto flex max-w-[920px] items-center justify-between">
+        <Link href="/" className="font-display text-[24px] font-semibold tracking-tight text-clay">
+          3rdPlace
+        </Link>
+        <Link href="/signup" className="text-[14px] font-semibold text-ink-soft transition-colors hover:text-clay">
+          Create account
+        </Link>
+      </header>
 
-      <div className="relative w-full max-w-md">
-        {/* Logo */}
-        <div className="mb-8 flex flex-col items-center gap-2 text-center">
-          <Link href="/" className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
-              <Sparkles className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <span className="font-display text-xl font-bold tracking-tight">3rdPlace</span>
-          </Link>
+      <main className="mx-auto mt-10 w-full max-w-[460px] pb-16 sm:mt-14">
+        <div className="mb-7 text-center">
+          <p className="label-caps text-clay-deep">Sign in</p>
+          <h1 className="mt-3 font-display text-[42px] font-semibold leading-[1.02] text-ink sm:text-[54px]">{config.title}</h1>
+          <p className="mx-auto mt-3 max-w-sm text-[16px] leading-relaxed text-ink-soft">{config.description}</p>
         </div>
 
-        {/* Card */}
-        <div className="rounded-3xl border border-border bg-gradient-card p-8 shadow-card">
-          {/* Header */}
-          <div className="mb-7 text-center">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-brand shadow-glow">
-              <Icon className="h-7 w-7 text-primary-foreground" />
+        <div className="rounded-lg border border-tan bg-cream p-6 shadow-sm sm:p-8">
+          <div className="mb-7 flex items-center gap-3 border-b border-tan pb-5">
+            <div className="flex h-11 w-11 items-center justify-center rounded-md border border-tan bg-cream-deep text-clay">
+              <Icon className="h-5 w-5" />
             </div>
-            <h1 className="font-display text-2xl font-bold">{config.title}</h1>
-            <p className="mt-1.5 text-sm text-muted-foreground">{config.description}</p>
+            <div>
+              <p className="label-caps text-clay-deep">{portal === 'builder' ? 'Creator portal' : `${portal} portal`}</p>
+              <p className="mt-1 text-[14px] text-ink-soft">Use the account tied to this role.</p>
+            </div>
           </div>
 
-          {/* Wrong portal banner */}
           {portalHandoff && (
-            <div className="mb-5 rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4">
-              <p className="text-sm text-yellow-200">{portalHandoff.message}</p>
-              <div className="mt-3 flex gap-2">
+            <div className="mb-5 rounded-md border border-ochre bg-ochre-tint p-4">
+              <p className="text-[14px] leading-relaxed text-ink-soft">{portalHandoff.message}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" variant="hero" onClick={() => router.push(portalHandoff.href)}>
                   Go to correct portal
                 </Button>
-                <Button size="sm" variant="glass" onClick={() => setPortalHandoff(null)}>
+                <Button size="sm" variant="glass" onClick={() => setPortalHandoff(null)} className="rounded-md border border-tan bg-cream">
                   Stay here
                 </Button>
               </div>
             </div>
           )}
 
-          {/* Google */}
           <Button
             type="button"
             variant="glass"
-            className="w-full"
+            className="w-full rounded-md border border-tan bg-cream-deep text-ink hover:border-clay hover:bg-cream"
             onClick={handleGoogleSignIn}
             disabled={isGoogleLoading || isLoading}
           >
@@ -220,40 +224,38 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
             {isGoogleLoading ? 'Connecting...' : 'Continue with Google'}
           </Button>
 
-          {/* Divider */}
           <div className="relative my-5">
             <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-border" />
+              <span className="w-full border-t border-tan" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-3 text-muted-foreground">or continue with email</span>
+              <span className="bg-cream px-3 text-ink-faint">or continue with email</span>
             </div>
           </div>
 
-          {/* Email form */}
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-1.5">
-              <label htmlFor="email" className="text-sm font-medium text-foreground">
+              <label htmlFor="email" className="text-[13px] font-semibold text-ink-soft">
                 Email
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input id="email" type="email" placeholder="you@example.com" className="pl-10" {...register('email')} />
+                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+                <Input id="email" type="email" placeholder="you@example.com" className="rounded-md border-tan bg-cream-deep pl-10" {...register('email')} />
               </div>
-              {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+              {errors.email && <p className="text-xs text-brick">{errors.email.message}</p>}
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="password" className="text-sm font-medium text-foreground">
+              <label htmlFor="password" className="text-[13px] font-semibold text-ink-soft">
                 Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
                 <Input
                   id="password"
                   type={isPasswordVisible ? 'text' : 'password'}
                   placeholder="••••••••"
-                  className="pl-10 pr-12"
+                  className="rounded-md border-tan bg-cream-deep pl-10 pr-12"
                   {...register('password')}
                 />
                 <button
@@ -261,42 +263,42 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
                   aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
                   aria-pressed={isPasswordVisible}
                   onClick={() => setIsPasswordVisible((current) => !current)}
-                  className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                  className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-cream hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clay/30"
                 >
                   {isPasswordVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+              {errors.password && <p className="text-xs text-brick">{errors.password.message}</p>}
             </div>
 
             <InlineFormError message={loginError} />
 
-            <Button variant="hero" type="submit" className="w-full" disabled={isLoading || isGoogleLoading}>
+            <Button variant="hero" type="submit" className="w-full rounded-md" disabled={isLoading || isGoogleLoading}>
               {isLoading ? 'Signing in...' : <>Sign in <ArrowRight className="h-4 w-4" /></>}
             </Button>
           </form>
 
-          <p className="mt-5 text-center text-sm text-muted-foreground">
+          <p className="mt-5 text-center text-[14px] text-ink-soft">
             Don&apos;t have an account?{' '}
-            <Link href={signupHref} className="font-medium text-primary hover:underline">
-              Start planning →
+            <Link href={signupHref} className="font-semibold text-clay-deep hover:underline">
+              {config.signupLabel}
             </Link>
           </p>
 
           {portal === 'builder' && (
-            <div className="mt-6 flex items-center justify-center gap-3 text-xs text-muted-foreground/60">
-              <Link href="/login/venue" className="hover:text-muted-foreground transition-smooth">Venue partner login</Link>
+            <div className="mt-6 flex items-center justify-center gap-3 text-xs text-ink-faint">
+              <Link href="/login/venue" className="transition-colors hover:text-clay">Venue partner login</Link>
               <span>·</span>
-              <Link href="/login/vendor" className="hover:text-muted-foreground transition-smooth">Vendor login</Link>
+              <Link href="/login/vendor" className="transition-colors hover:text-clay">Vendor login</Link>
             </div>
           )}
           {portal !== 'builder' && (
-            <div className="mt-6 text-center text-xs text-muted-foreground/60">
-              <Link href="/login/builder" className="hover:text-muted-foreground transition-smooth">← Back to Event Creator login</Link>
+            <div className="mt-6 text-center text-xs text-ink-faint">
+              <Link href="/login/builder" className="transition-colors hover:text-clay">&lt;- Back to Event Creator login</Link>
             </div>
           )}
         </div>
-      </div>
+      </main>
     </div>
   )
 }
