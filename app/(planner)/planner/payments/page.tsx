@@ -277,18 +277,18 @@ export default function PaymentsPage() {
 
   return (
     <div className="min-h-screen">
-      <div className="border-b border-border px-6 py-5">
+      <div className="border-b border-tan px-6 py-5">
         <h1 className="font-display text-2xl font-bold">Payments & Approvals</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Authorize agent actions, track deposits, and keep spend tied to the active event plan.</p>
+        <p className="mt-1 text-sm text-ink-soft">Authorize agent actions, track deposits, and keep spend tied to the active event plan.</p>
       </div>
 
       <div className="mx-auto max-w-6xl space-y-6 px-6 py-6">
-        <section className="rounded-3xl border border-border bg-gradient-card p-5 shadow-card">
+        <section className="rounded-lg border border-tan bg-cream p-5 shadow-card">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Payment Control Center</p>
-              <h2 className="mt-2 font-display text-xl font-bold text-foreground">No money moves without organizer approval</h2>
-              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-clay">Payment Control Center</p>
+              <h2 className="mt-2 font-display text-xl font-bold text-ink">No money moves without organizer approval</h2>
+              <p className="mt-1 max-w-2xl text-sm text-ink-soft">
                 Track venue revenue-share payouts, approval requests, deposit deadlines, and partner payment history from one ledger.
               </p>
             </div>
@@ -308,16 +308,16 @@ export default function PaymentsPage() {
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {paymentMetrics.map((metric) => (
-              <div key={metric.label} className="rounded-2xl border border-border bg-background/50 p-4">
-                <p className="text-xs font-semibold text-muted-foreground">{metric.label}</p>
-                <p className="mt-2 font-display text-2xl font-bold text-foreground">{metric.value}</p>
-                <p className="mt-1 text-xs leading-snug text-muted-foreground">{metric.detail}</p>
+              <div key={metric.label} className="rounded-lg border border-tan bg-cream-deep/60 p-4">
+                <p className="text-xs font-semibold text-ink-soft">{metric.label}</p>
+                <p className="mt-2 font-display text-2xl font-bold text-ink">{metric.value}</p>
+                <p className="mt-1 text-xs leading-snug text-ink-soft">{metric.detail}</p>
               </div>
             ))}
           </div>
 
           {error ? (
-            <div className="mt-4 flex gap-2 rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <div className="mt-4 flex gap-2 rounded-lg border border-brick/40 bg-brick-tint px-4 py-3 text-sm text-brick">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{error}</span>
             </div>
@@ -325,27 +325,27 @@ export default function PaymentsPage() {
         </section>
 
         {refundRequests.length > 0 ? (
-          <section className="rounded-3xl border border-secondary/30 bg-secondary/10 p-5 shadow-card">
+          <section className="rounded-lg border border-clay/30 bg-clay-tint p-5 shadow-card">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-secondary/20 text-secondary">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-clay/20 text-clay">
                 <CreditCard className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="font-display text-lg font-bold text-foreground">Refund Requests</h2>
-                <p className="text-sm text-muted-foreground">Pending venue refund requests will become actionable in the refund flow.</p>
+                <h2 className="font-display text-lg font-bold text-ink">Refund Requests</h2>
+                <p className="text-sm text-ink-soft">Pending venue refund requests will become actionable in the refund flow.</p>
               </div>
             </div>
             <div className="mt-4 space-y-3">
               {refundRequests.map((payment) => (
-                <div key={payment.id} className="rounded-2xl border border-border bg-background/50 p-4">
+                <div key={payment.id} className="rounded-lg border border-tan bg-cream-deep/60 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                <p className="font-semibold text-foreground">{payment.event_name}</p>
-                      <p className="text-sm text-muted-foreground">
+                <p className="font-semibold text-ink">{payment.event_name}</p>
+                      <p className="text-sm text-ink-soft">
                         {payment.venue_name} requested {formatCents(payment.refund_amount_cents ?? getPayoutCents(payment))}.
                       </p>
                       {payment.refund_reason ? (
-                        <p className="mt-1 text-xs text-muted-foreground">Reason: {payment.refund_reason}</p>
+                        <p className="mt-1 text-xs text-ink-soft">Reason: {payment.refund_reason}</p>
                       ) : null}
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -386,37 +386,37 @@ export default function PaymentsPage() {
         ) : null}
 
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <section className="rounded-3xl border border-border bg-card/70 shadow-card">
-            <div className="border-b border-border p-5">
+          <section className="rounded-lg border border-tan bg-cream shadow-card">
+            <div className="border-b border-tan p-5">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sidebar-accent text-primary">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cream-deep text-clay">
                   <ShieldCheck className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="font-display text-lg font-bold text-foreground">Approval Queue</h2>
-                  <p className="text-sm text-muted-foreground">Venue holds, vendor outreach, and deposit payments waiting for action.</p>
+                  <h2 className="font-display text-lg font-bold text-ink">Approval Queue</h2>
+                  <p className="text-sm text-ink-soft">Venue holds, vendor outreach, and deposit payments waiting for action.</p>
                 </div>
               </div>
             </div>
             <div className="p-5">
-              <div className="rounded-2xl border border-dashed border-border bg-background/40 p-8 text-center">
-                <CreditCard className="mx-auto h-8 w-8 text-muted-foreground" />
-                <h3 className="mt-3 font-display text-lg font-bold text-foreground">No approvals pending</h3>
-                <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+              <div className="rounded-lg border border-dashed border-tan bg-cream-deep/55 p-8 text-center">
+                <CreditCard className="mx-auto h-8 w-8 text-ink-soft" />
+                <h3 className="mt-3 font-display text-lg font-bold text-ink">No approvals pending</h3>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-ink-soft">
                   Recommendation buttons create approval requests here. Once a venue or vendor accepts, the payment row will show amount, deadline, refund terms, and status.
                 </p>
               </div>
             </div>
           </section>
 
-          <section className="rounded-3xl border border-border bg-card/70 p-5 shadow-card">
+          <section className="rounded-lg border border-tan bg-cream p-5 shadow-card">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sidebar-accent text-primary">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cream-deep text-clay">
                 <Clock3 className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="font-display text-lg font-bold text-foreground">Payout Readiness</h2>
-                <p className="text-sm text-muted-foreground">Builder Connect account status for venue payouts.</p>
+                <h2 className="font-display text-lg font-bold text-ink">Payout Readiness</h2>
+                <p className="text-sm text-ink-soft">Builder Connect account status for venue payouts.</p>
               </div>
             </div>
 
@@ -428,15 +428,15 @@ export default function PaymentsPage() {
           </section>
         </div>
 
-        <section className="rounded-3xl border border-border bg-card/70 p-5 shadow-card">
+        <section className="rounded-lg border border-tan bg-cream p-5 shadow-card">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sidebar-accent text-primary">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cream-deep text-clay">
                 <CreditCard className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="font-display text-lg font-bold text-foreground">Venue Rental Payments</h2>
-                <p className="text-sm text-muted-foreground">Outgoing rental payments tied to confirmed venue bookings.</p>
+                <h2 className="font-display text-lg font-bold text-ink">Venue Rental Payments</h2>
+                <p className="text-sm text-ink-soft">Outgoing rental payments tied to confirmed venue bookings.</p>
               </div>
             </div>
             <Button
@@ -450,26 +450,26 @@ export default function PaymentsPage() {
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-2xl border border-border bg-background/50 p-4">
-              <p className="text-xs font-semibold text-muted-foreground">Paid principal</p>
-              <p className="mt-2 font-display text-2xl font-bold text-foreground">{formatCents(venueRentalData.summary.total_paid_cents)}</p>
+            <div className="rounded-lg border border-tan bg-cream-deep/60 p-4">
+              <p className="text-xs font-semibold text-ink-soft">Paid principal</p>
+              <p className="mt-2 font-display text-2xl font-bold text-ink">{formatCents(venueRentalData.summary.total_paid_cents)}</p>
             </div>
-            <div className="rounded-2xl border border-border bg-background/50 p-4">
-              <p className="text-xs font-semibold text-muted-foreground">Processing fees</p>
-              <p className="mt-2 font-display text-2xl font-bold text-foreground">{formatCents(venueRentalData.summary.total_processing_fee_cents)}</p>
+            <div className="rounded-lg border border-tan bg-cream-deep/60 p-4">
+              <p className="text-xs font-semibold text-ink-soft">Processing fees</p>
+              <p className="mt-2 font-display text-2xl font-bold text-ink">{formatCents(venueRentalData.summary.total_processing_fee_cents)}</p>
             </div>
-            <div className="rounded-2xl border border-border bg-background/50 p-4">
-              <p className="text-xs font-semibold text-muted-foreground">Refunds requested</p>
-              <p className="mt-2 font-display text-2xl font-bold text-foreground">{venueRentalData.summary.pending_refund_count}</p>
+            <div className="rounded-lg border border-tan bg-cream-deep/60 p-4">
+              <p className="text-xs font-semibold text-ink-soft">Refunds requested</p>
+              <p className="mt-2 font-display text-2xl font-bold text-ink">{venueRentalData.summary.pending_refund_count}</p>
             </div>
-            <div className="rounded-2xl border border-border bg-background/50 p-4">
-              <p className="text-xs font-semibold text-muted-foreground">Ledger entries</p>
-              <p className="mt-2 font-display text-2xl font-bold text-foreground">{venueRentalData.summary.count}</p>
+            <div className="rounded-lg border border-tan bg-cream-deep/60 p-4">
+              <p className="text-xs font-semibold text-ink-soft">Ledger entries</p>
+              <p className="mt-2 font-display text-2xl font-bold text-ink">{venueRentalData.summary.count}</p>
             </div>
           </div>
 
-          <div className="mt-5 overflow-hidden rounded-2xl border border-border">
-            <div className="grid grid-cols-[1.1fr_0.9fr_0.75fr_0.75fr_0.85fr_0.75fr_0.75fr] gap-3 bg-muted px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          <div className="mt-5 overflow-hidden rounded-lg border border-tan">
+            <div className="grid grid-cols-[1.1fr_0.9fr_0.75fr_0.75fr_0.85fr_0.75fr_0.75fr] gap-3 bg-cream-deep px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-ink-soft">
               <span>Event</span>
               <span>Venue</span>
               <span>Amount</span>
@@ -479,34 +479,34 @@ export default function PaymentsPage() {
               <span>Action</span>
             </div>
             {isLoading ? (
-              <div className="flex items-center gap-3 px-4 py-8 text-sm text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <div className="flex items-center gap-3 px-4 py-8 text-sm text-ink-soft">
+                <Loader2 className="h-5 w-5 animate-spin text-clay" />
                 Loading venue rentals...
               </div>
             ) : venueRentalRows.length > 0 ? (
               venueRentalRows.map((payment) => (
-                <div key={payment.id} className="grid grid-cols-[1.1fr_0.9fr_0.75fr_0.75fr_0.85fr_0.75fr_0.75fr] gap-3 border-t border-border px-4 py-4 text-sm">
+                <div key={payment.id} className="grid grid-cols-[1.1fr_0.9fr_0.75fr_0.75fr_0.85fr_0.75fr_0.75fr] gap-3 border-t border-tan px-4 py-4 text-sm">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold text-foreground">{payment.event_name}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{formatDate(payment.event_date)}</p>
+                    <p className="truncate font-semibold text-ink">{payment.event_name}</p>
+                    <p className="mt-1 text-xs text-ink-soft">{formatDate(payment.event_date)}</p>
                   </div>
-                  <p className="min-w-0 truncate text-muted-foreground">{payment.venue_name}</p>
-                  <p className="font-semibold text-foreground">{formatCents(payment.amount_cents)}</p>
-                  <p className="text-muted-foreground">{formatCents(payment.processing_fee_cents)}</p>
+                  <p className="min-w-0 truncate text-ink-soft">{payment.venue_name}</p>
+                  <p className="font-semibold text-ink">{formatCents(payment.amount_cents)}</p>
+                  <p className="text-ink-soft">{formatCents(payment.processing_fee_cents)}</p>
                   <div>
                     <StatusBadge status={payment.status} />
                     {payment.status === 'refund_requested' ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="mt-1 text-xs text-ink-soft">
                         {formatCents(payment.refund_amount_cents ?? 0)} awaiting venue
                       </p>
                     ) : null}
                     {(payment.status === 'refund_approved' || payment.status === 'refunded_partial' || payment.status === 'refunded_full') ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="mt-1 text-xs text-ink-soft">
                         {formatCents(payment.refund_amount_cents ?? 0)} refund
                       </p>
                     ) : null}
                   </div>
-                  <p className="min-w-0 truncate text-xs text-muted-foreground" title={payment.stripe_transfer_id ?? undefined}>
+                  <p className="min-w-0 truncate text-xs text-ink-soft" title={payment.stripe_transfer_id ?? undefined}>
                     {payment.stripe_transfer_id ?? 'Pending'}
                   </p>
                   <div>
@@ -516,33 +516,33 @@ export default function PaymentsPage() {
                         Refund
                       </Button>
                     ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
+                      <span className="text-xs text-ink-soft">—</span>
                     )}
                   </div>
                 </div>
               ))
             ) : (
-              <div className="flex items-center gap-3 px-4 py-8 text-sm text-muted-foreground">
-                <CheckCircle2 className="h-5 w-5 shrink-0 text-primary" />
+              <div className="flex items-center gap-3 px-4 py-8 text-sm text-ink-soft">
+                <CheckCircle2 className="h-5 w-5 shrink-0 text-clay" />
                 No venue rental payments yet. Pay a confirmed venue booking from your event plan to start tracking here.
               </div>
             )}
           </div>
         </section>
 
-        <section className="rounded-3xl border border-border bg-card/70 p-5 shadow-card">
+        <section className="rounded-lg border border-tan bg-cream p-5 shadow-card">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sidebar-accent text-primary">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cream-deep text-clay">
               <WalletCards className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="font-display text-lg font-bold text-foreground">Builder Payout Ledger</h2>
-              <p className="text-sm text-muted-foreground">Venue-to-builder revenue share payments. Platform fees are not taken from these payouts.</p>
+              <h2 className="font-display text-lg font-bold text-ink">Builder Payout Ledger</h2>
+              <p className="text-sm text-ink-soft">Venue-to-builder revenue share payments. Platform fees are not taken from these payouts.</p>
             </div>
           </div>
 
-          <div className="mt-5 overflow-hidden rounded-2xl border border-border">
-            <div className="grid grid-cols-[1.2fr_0.9fr_0.8fr_0.8fr_0.6fr] gap-3 bg-muted px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
+          <div className="mt-5 overflow-hidden rounded-lg border border-tan">
+            <div className="grid grid-cols-[1.2fr_0.9fr_0.8fr_0.8fr_0.6fr] gap-3 bg-cream-deep px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-ink-soft">
               <span>Event</span>
               <span>Venue</span>
               <span>Amount</span>
@@ -550,19 +550,19 @@ export default function PaymentsPage() {
               <span>Action</span>
             </div>
             {isLoading ? (
-              <div className="flex items-center gap-3 px-4 py-8 text-sm text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <div className="flex items-center gap-3 px-4 py-8 text-sm text-ink-soft">
+                <Loader2 className="h-5 w-5 animate-spin text-clay" />
                 Loading payments...
               </div>
             ) : ledgerRows.length > 0 ? (
               ledgerRows.map((payment) => (
-                <div key={payment.id} className="grid grid-cols-[1.2fr_0.9fr_0.8fr_0.8fr_0.6fr] gap-3 border-t border-border px-4 py-4 text-sm">
+                <div key={payment.id} className="grid grid-cols-[1.2fr_0.9fr_0.8fr_0.8fr_0.6fr] gap-3 border-t border-tan px-4 py-4 text-sm">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold text-foreground">{payment.event_name}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{formatDate(payment.event_date)}</p>
+                    <p className="truncate font-semibold text-ink">{payment.event_name}</p>
+                    <p className="mt-1 text-xs text-ink-soft">{formatDate(payment.event_date)}</p>
                   </div>
-                  <p className="min-w-0 truncate text-muted-foreground">{payment.venue_name}</p>
-                  <p className="font-semibold text-foreground">{formatCents(getPayoutCents(payment))}</p>
+                  <p className="min-w-0 truncate text-ink-soft">{payment.venue_name}</p>
+                  <p className="font-semibold text-ink">{formatCents(getPayoutCents(payment))}</p>
                   <StatusBadge status={payment.status} />
                   <div>
                     {payment.invoice_hosted_url && pendingStatuses.has(payment.status) ? (
@@ -572,14 +572,14 @@ export default function PaymentsPage() {
                         </a>
                       </Button>
                     ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
+                      <span className="text-xs text-ink-soft">—</span>
                     )}
                   </div>
                 </div>
               ))
             ) : (
-              <div className="flex items-center gap-3 px-4 py-8 text-sm text-muted-foreground">
-                <CheckCircle2 className="h-5 w-5 shrink-0 text-primary" />
+              <div className="flex items-center gap-3 px-4 py-8 text-sm text-ink-soft">
+                <CheckCircle2 className="h-5 w-5 shrink-0 text-clay" />
                 Ledger rows will populate after the first revenue share payment is created.
               </div>
             )}
@@ -588,44 +588,44 @@ export default function PaymentsPage() {
       </div>
 
       {rentalRefundPayment ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-cream-deep/80 p-4 backdrop-blur-sm">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="venue-rental-refund-request-title"
-            className="w-full max-w-lg rounded-3xl border border-border bg-gradient-card p-6 shadow-card"
+            className="w-full max-w-lg rounded-lg border border-tan bg-cream p-6 shadow-card"
           >
             <button
               type="button"
               aria-label="Close venue rental refund request"
               onClick={() => setRentalRefundPayment(null)}
               disabled={isRentalRefundSubmitting}
-              className="float-right rounded-full border border-border bg-background/50 p-2 text-muted-foreground transition-smooth hover:text-foreground"
+              className="float-right rounded-full border border-tan bg-cream-deep/60 p-2 text-ink-soft transition-smooth hover:text-ink"
             >
               <X className="h-4 w-4" />
             </button>
-            <h2 id="venue-rental-refund-request-title" className="font-display text-xl font-bold text-foreground">
+            <h2 id="venue-rental-refund-request-title" className="font-display text-xl font-bold text-ink">
               Request refund from {rentalRefundPayment.venue_name}
             </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-ink-soft">
               Processing fees are not refunded. The venue decides whether to approve, reject, or counter this request.
             </p>
             <div className="mt-5 space-y-4">
-              <label className="block text-sm font-medium text-foreground">
+              <label className="block text-sm font-medium text-ink">
                 Refund amount
                 <input
                   value={rentalRefundAmount}
                   onChange={(event) => setRentalRefundAmount(event.target.value)}
                   inputMode="decimal"
-                  className="mt-2 w-full rounded-2xl border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary"
+                  className="mt-2 w-full rounded-lg border border-tan bg-cream-deep px-3 py-2 text-ink outline-none focus:border-clay"
                 />
               </label>
-              <label className="block text-sm font-medium text-foreground">
+              <label className="block text-sm font-medium text-ink">
                 Reason
                 <textarea
                   value={rentalRefundReason}
                   onChange={(event) => setRentalRefundReason(event.target.value)}
-                  className="mt-2 min-h-28 w-full rounded-2xl border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary"
+                  className="mt-2 min-h-28 w-full rounded-lg border border-tan bg-cream-deep px-3 py-2 text-ink outline-none focus:border-clay"
                   placeholder="Explain what changed about the venue rental."
                 />
               </label>
@@ -648,13 +648,13 @@ export default function PaymentsPage() {
 
 function ReadinessRow({ label, ready }: { label: string; ready: boolean }) {
   return (
-    <div className="flex items-center justify-between rounded-2xl border border-border bg-background/40 p-3">
-      <span className="text-sm font-semibold text-foreground">{label}</span>
+    <div className="flex items-center justify-between rounded-lg border border-tan bg-cream-deep/55 p-3">
+      <span className="text-sm font-semibold text-ink">{label}</span>
       <span className={cn(
         'rounded-full border px-3 py-1 text-xs font-bold',
         ready
-          ? 'border-success/30 bg-success/10 text-success'
-          : 'border-muted-foreground/30 bg-muted/30 text-muted-foreground'
+          ? 'border-forest/30 bg-forest-tint text-forest'
+          : 'border-tan bg-cream-deep/60 text-ink-soft'
       )}>
         {ready ? 'Ready' : 'Needs setup'}
       </span>
@@ -670,10 +670,10 @@ function StatusBadge({ status }: { status: string }) {
     <span className={cn(
       'w-fit rounded-full border px-3 py-1 text-xs font-bold',
       paid
-        ? 'border-success/30 bg-success/10 text-success'
+        ? 'border-forest/30 bg-forest-tint text-forest'
         : pending
-          ? 'border-secondary/30 bg-secondary/10 text-secondary'
-          : 'border-destructive/30 bg-destructive/10 text-destructive'
+          ? 'border-clay/30 bg-clay-tint text-clay'
+          : 'border-brick/30 bg-brick-tint text-brick'
     )}>
       {formatStatus(status)}
     </span>

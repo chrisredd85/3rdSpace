@@ -141,7 +141,7 @@ export default function VenuePricingPage() {
   if (isUserLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="text-muted-foreground">Loading…</div>
+        <div className="text-ink-soft">Loading…</div>
       </div>
     )
   }
@@ -149,7 +149,7 @@ export default function VenuePricingPage() {
   if (userError || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="text-destructive">Please log in to continue</div>
+        <div className="text-brick">Please log in to continue</div>
       </div>
     )
   }
@@ -181,8 +181,8 @@ export default function VenuePricingPage() {
     return (
       <div className="flex h-64 items-center justify-center">
         <div className="text-center">
-          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-          <p className="text-muted-foreground">Loading pricing…</p>
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-clay border-t-transparent" />
+          <p className="text-ink-soft">Loading pricing…</p>
         </div>
       </div>
     )
@@ -191,7 +191,7 @@ export default function VenuePricingPage() {
   if (!venue) {
     return (
       <div className="py-12 text-center">
-        <p className="text-muted-foreground">No venue found.</p>
+        <p className="text-ink-soft">No venue found.</p>
       </div>
     )
   }
@@ -204,8 +204,8 @@ export default function VenuePricingPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-3xl font-bold text-foreground">Pricing &amp; Revenue</h1>
-        <p className="mt-1 text-muted-foreground">Configure how you charge for your venue</p>
+        <h1 className="font-display text-3xl font-bold text-ink">Pricing &amp; Revenue</h1>
+        <p className="mt-1 text-ink-soft">Configure how you charge for your venue</p>
       </div>
 
       <form onSubmit={handleSubmit(handleSave)} className="space-y-6">
@@ -227,22 +227,22 @@ export default function VenuePricingPage() {
                     type="button"
                     onClick={() => setValue('pricing_model', option.value, { shouldDirty: true })}
                     className={cn(
-                      'flex flex-col items-start rounded-xl border-2 p-4 text-left transition-smooth',
+                      'flex flex-col items-start rounded-lg border-2 p-4 text-left transition-smooth',
                       active
-                        ? 'border-primary bg-primary/10'
-                        : 'border-border hover:border-primary/40'
+                        ? 'border-clay bg-clay/10'
+                        : 'border-tan hover:border-clay/40'
                     )}
                   >
                     <div
                       className={cn(
                         'mb-2 flex h-8 w-8 items-center justify-center rounded-lg',
-                        active ? 'bg-primary/20' : 'bg-sidebar-accent/40'
+                        active ? 'bg-clay/20' : 'bg-cream-deep/40'
                       )}
                     >
-                      <Icon className={cn('h-4 w-4', active ? 'text-primary' : 'text-foreground')} />
+                      <Icon className={cn('h-4 w-4', active ? 'text-clay' : 'text-ink')} />
                     </div>
-                    <p className="text-sm font-semibold text-foreground">{option.label}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{option.description}</p>
+                    <p className="text-sm font-semibold text-ink">{option.label}</p>
+                    <p className="mt-0.5 text-xs text-ink-soft">{option.description}</p>
                   </button>
                 )
               })}
@@ -260,11 +260,11 @@ export default function VenuePricingPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <label className="mb-2 block text-sm font-medium text-foreground">
+              <label className="mb-2 block text-sm font-medium text-ink">
                 Rate per event ($)
               </label>
               <div className="relative max-w-xs">
-                <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+                <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft/60" />
                 <Input
                   type="number"
                   {...register('flat_rate', { valueAsNumber: true })}
@@ -287,11 +287,11 @@ export default function VenuePricingPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-foreground">
+                <label className="mb-2 block text-sm font-medium text-ink">
                   Rate per attendee ($)
                 </label>
                 <div className="relative max-w-xs">
-                  <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+                  <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft/60" />
                   <Input
                     type="number"
                     {...register('per_person_rate', { valueAsNumber: true })}
@@ -300,9 +300,9 @@ export default function VenuePricingPage() {
                   />
                 </div>
               </div>
-              <div className="rounded-xl bg-background/60 p-4">
-                <p className="mb-1 text-sm text-muted-foreground">Example (100 guests)</p>
-                <p className="text-lg font-semibold text-foreground">
+              <div className="rounded-lg bg-cream/60 p-4">
+                <p className="mb-1 text-sm text-ink-soft">Example (100 guests)</p>
+                <p className="text-lg font-semibold text-ink">
                   ${perPersonRate.toLocaleString()} × 100 = ${(perPersonRate * 100).toLocaleString()}
                 </p>
               </div>
@@ -322,11 +322,11 @@ export default function VenuePricingPage() {
             <CardContent className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-foreground">
+                  <label className="mb-2 block text-sm font-medium text-ink">
                     Hourly rate ($)
                   </label>
                   <div className="relative">
-                    <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+                    <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft/60" />
                     <Input
                       type="number"
                       {...register('hourly_rate', { valueAsNumber: true })}
@@ -336,12 +336,12 @@ export default function VenuePricingPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-foreground">
+                  <label className="mb-2 block text-sm font-medium text-ink">
                     Minimum hours
                   </label>
                   <select
                     {...register('min_hours', { valueAsNumber: true })}
-                    className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    className="flex h-10 w-full rounded-md border border-tan bg-cream px-3 py-2 text-sm"
                   >
                     <option value={2}>2 hours</option>
                     <option value={3}>3 hours</option>
@@ -352,9 +352,9 @@ export default function VenuePricingPage() {
                 </div>
               </div>
 
-              <div className="rounded-xl bg-background/60 p-4">
-                <p className="mb-1 text-sm text-muted-foreground">Minimum booking</p>
-                <p className="text-lg font-semibold text-foreground">
+              <div className="rounded-lg bg-cream/60 p-4">
+                <p className="mb-1 text-sm text-ink-soft">Minimum booking</p>
+                <p className="text-lg font-semibold text-ink">
                   ${hourlyRate.toLocaleString()}/hr × {minHours} hrs = ${(hourlyRate * minHours).toLocaleString()}
                 </p>
               </div>
@@ -377,11 +377,11 @@ export default function VenuePricingPage() {
             <CardContent className="space-y-5">
 
               {/* Ticket sales share */}
-              <div className="rounded-xl border border-border bg-card/40 p-5">
+              <div className="rounded-lg border border-tan bg-cream/40 p-5">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-sm font-medium text-foreground">Ticket sales share</p>
-                    <p className="mt-0.5 text-sm text-muted-foreground">
+                    <p className="text-sm font-medium text-ink">Ticket sales share</p>
+                    <p className="mt-0.5 text-sm text-ink-soft">
                       Receive a percentage of tracked Posh, Luma, or Eventbrite ticket revenue.
                     </p>
                   </div>
@@ -396,8 +396,8 @@ export default function VenuePricingPage() {
                 {ticketSalesShare && (
                   <div className="mt-5 space-y-3">
                     <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium text-foreground">Share percentage</label>
-                      <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
+                      <label className="text-sm font-medium text-ink">Share percentage</label>
+                      <span className="rounded-full bg-clay/10 px-3 py-1 text-sm font-semibold text-clay">
                         {ticketSalesSharePercent}%
                       </span>
                     </div>
@@ -415,25 +415,25 @@ export default function VenuePricingPage() {
                       }
                       className="h-2 w-full cursor-pointer accent-primary"
                     />
-                    <div className="flex justify-between text-xs text-muted-foreground">
+                    <div className="flex justify-between text-xs text-ink-soft">
                       <span>0%</span><span>25%</span><span>50%</span>
                     </div>
-                    <div className="rounded-xl bg-background/60 p-3 text-sm text-foreground">
+                    <div className="rounded-lg bg-cream/60 p-3 text-sm text-ink">
                       On $5,000 ticket sales: ${(5000 * (ticketSalesSharePercent / 100)).toLocaleString()}
                     </div>
                     {errors.ticket_sales_share_percent && (
-                      <p className="text-sm text-destructive">{errors.ticket_sales_share_percent.message}</p>
+                      <p className="text-sm text-brick">{errors.ticket_sales_share_percent.message}</p>
                     )}
                   </div>
                 )}
               </div>
 
               {/* Bar revenue share */}
-              <div className="rounded-xl border border-border bg-card/40 p-5">
+              <div className="rounded-lg border border-tan bg-cream/40 p-5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-sm font-medium text-foreground">Bar revenue share</p>
-                    <p className="mt-0.5 text-sm text-muted-foreground">
+                    <p className="text-sm font-medium text-ink">Bar revenue share</p>
+                    <p className="mt-0.5 text-sm text-ink-soft">
                       Earn a percentage of bar sales during the event.
                     </p>
                   </div>
@@ -448,8 +448,8 @@ export default function VenuePricingPage() {
                 {barRevenueShare && (
                   <div className="mt-4 space-y-3">
                     <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium text-foreground">Share percentage</label>
-                      <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
+                      <label className="text-sm font-medium text-ink">Share percentage</label>
+                      <span className="rounded-full bg-clay/10 px-3 py-1 text-sm font-semibold text-clay">
                         {barRevenuePercent}%
                       </span>
                     </div>
@@ -467,7 +467,7 @@ export default function VenuePricingPage() {
                       }
                       className="h-2 w-full cursor-pointer accent-primary"
                     />
-                    <div className="flex justify-between text-xs text-muted-foreground">
+                    <div className="flex justify-between text-xs text-ink-soft">
                       <span>0%</span><span>25%</span><span>50%</span>
                     </div>
                   </div>
@@ -476,14 +476,14 @@ export default function VenuePricingPage() {
 
               {/* Per-head kickback */}
               <div>
-                <label className="mb-2 block text-sm font-medium text-foreground">
+                <label className="mb-2 block text-sm font-medium text-ink">
                   Per-head kickback ($)
                 </label>
-                <p className="mb-3 text-sm text-muted-foreground">
+                <p className="mb-3 text-sm text-ink-soft">
                   Fixed amount earned per verified attendee, regardless of ticket or bar sales.
                 </p>
                 <div className="relative max-w-xs">
-                  <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+                  <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft/60" />
                   <Input
                     type="number"
                     {...register('per_head_kickback', { valueAsNumber: true })}
@@ -494,13 +494,13 @@ export default function VenuePricingPage() {
               </div>
 
               {/* Combined example */}
-              <div className="rounded-xl bg-background/60 p-4">
-                <p className="mb-2 text-sm font-medium text-foreground">Example (100 guests)</p>
-                <div className="space-y-1 text-sm text-muted-foreground">
+              <div className="rounded-lg bg-cream/60 p-4">
+                <p className="mb-2 text-sm font-medium text-ink">Example (100 guests)</p>
+                <div className="space-y-1 text-sm text-ink-soft">
                   {ticketSalesShare && (
                     <div className="flex justify-between">
                       <span>Ticket sales share ({ticketSalesSharePercent}%)</span>
-                      <span className="font-medium text-foreground">
+                      <span className="font-medium text-ink">
                         ${(5000 * (ticketSalesSharePercent / 100)).toLocaleString()}
                       </span>
                     </div>
@@ -508,18 +508,18 @@ export default function VenuePricingPage() {
                   {barRevenueShare && (
                     <div className="flex justify-between">
                       <span>Bar revenue share ({barRevenuePercent}%)</span>
-                      <span className="font-medium text-foreground">
+                      <span className="font-medium text-ink">
                         ${(100 * 50 * (barRevenuePercent / 100)).toLocaleString()}
                       </span>
                     </div>
                   )}
                   <div className="flex justify-between">
                     <span>Per-head kickback</span>
-                    <span className="font-medium text-foreground">
+                    <span className="font-medium text-ink">
                       ${(100 * perHeadKickback).toLocaleString()}
                     </span>
                   </div>
-                  <div className="flex justify-between border-t pt-1 font-semibold text-foreground">
+                  <div className="flex justify-between border-t pt-1 font-semibold text-ink">
                     <span>Total</span>
                     <span>
                       ${(

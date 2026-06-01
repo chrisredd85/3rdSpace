@@ -88,8 +88,8 @@ export function VendorServicesManager({ vendorId }: VendorServicesManagerProps) 
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold text-foreground">Service Listings</h2>
-          <p className="text-sm text-muted-foreground">Create bookable services with pricing, deliverables, add-ons, and portfolio photos.</p>
+          <h2 className="text-xl font-bold text-ink">Service Listings</h2>
+          <p className="text-sm text-ink-soft">Create bookable services with pricing, deliverables, add-ons, and portfolio photos.</p>
         </div>
         <Button type="button" onClick={() => {
           setEditingService(null)
@@ -117,14 +117,14 @@ export function VendorServicesManager({ vendorId }: VendorServicesManagerProps) 
         />
       ) : null}
 
-      {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
+      {error ? <div className="rounded-md border border-brick/30 bg-brick/10 p-3 text-sm text-brick">{error}</div> : null}
 
       {loading ? (
-        <div className="rounded-lg border border-border p-6 text-center text-sm text-muted-foreground">Loading services...</div>
+        <div className="rounded-lg border border-tan p-6 text-center text-sm text-ink-soft">Loading services...</div>
       ) : services.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center">
-          <p className="font-semibold text-foreground">No service listings yet</p>
-          <p className="mt-1 text-sm text-muted-foreground">Add your first package or service so builders can understand what you offer.</p>
+        <div className="rounded-lg border border-dashed border-tan p-8 text-center">
+          <p className="font-semibold text-ink">No service listings yet</p>
+          <p className="mt-1 text-sm text-ink-soft">Add your first package or service so builders can understand what you offer.</p>
         </div>
       ) : (
         <div className="grid gap-5 lg:grid-cols-2">

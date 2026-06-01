@@ -9,7 +9,7 @@ import { VendorSearchPage } from '@/components/builder/VendorSearchPage'
 export default function VendorMarketplacePage() {
   return (
     <div className="space-y-4 px-6 py-6">
-      <Link href="/planner/vendors" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+      <Link href="/planner/vendors" className="text-sm font-medium text-ink-soft hover:text-ink">
         ← Vendors
       </Link>
       <VendorSearchPage />

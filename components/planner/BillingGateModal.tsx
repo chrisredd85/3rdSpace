@@ -121,28 +121,28 @@ export function BillingGateModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 px-4 py-6 backdrop-blur-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/20 px-4 py-6 backdrop-blur-xl">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="billing-gate-title"
-        className="relative max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-3xl border border-border bg-gradient-card shadow-card"
+        className="relative max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-lg border border-tan bg-cream shadow-card"
       >
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-4 top-4 rounded-full border border-border bg-background/50 p-2 text-muted-foreground transition-smooth hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          className="absolute right-4 top-4 rounded-full border border-tan bg-cream-deep p-2 text-ink-soft transition-smooth hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clay/30"
           aria-label="Close billing options"
         >
           <X className="h-4 w-4" />
         </button>
 
-        <div className="border-b border-border px-6 py-5">
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-secondary">Planner access</p>
-          <h2 id="billing-gate-title" className="mt-2 font-display text-2xl font-bold text-foreground">
+        <div className="border-b border-tan px-6 py-5">
+          <p className="label-caps text-clay">Planner access</p>
+          <h2 id="billing-gate-title" className="mt-2 font-display text-2xl font-semibold text-ink">
             Choose how to keep planning
           </h2>
-          <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-soft">
             {message ?? 'Your free event slots are full. Buy one more event, upgrade, or archive an older plan.'}
           </p>
         </div>
@@ -185,8 +185,8 @@ export function BillingGateModal({
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h3 className="font-display text-lg font-bold text-foreground">Archive an old plan</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <h3 className="font-display text-lg font-semibold text-ink">Archive an old plan</h3>
+                  <p className="mt-1 text-sm text-ink-soft">
                     Archiving keeps the record in history and removes it from your active free-event count.
                   </p>
                 </div>
@@ -196,14 +196,14 @@ export function BillingGateModal({
               </div>
 
               {isLoadingPlans ? (
-                <div className="flex items-center gap-2 rounded-2xl border border-border bg-background/60 px-4 py-3 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2 rounded-md border border-tan bg-cream-deep/55 px-4 py-3 text-sm text-ink-soft">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading plans...
                 </div>
               ) : null}
 
               {!isLoadingPlans && activePlans.length === 0 ? (
-                <div className="rounded-2xl border border-border bg-background/60 px-4 py-8 text-center text-sm text-muted-foreground">
+                <div className="rounded-md border border-tan bg-cream-deep/55 px-4 py-8 text-center text-sm text-ink-soft">
                   No active plans are available to archive.
                 </div>
               ) : null}
@@ -213,13 +213,13 @@ export function BillingGateModal({
                   {activePlans.map((plan) => (
                     <div
                       key={plan.id}
-                      className="flex flex-col gap-3 rounded-2xl border border-border bg-background/60 p-4 sm:flex-row sm:items-center sm:justify-between"
+                      className="flex flex-col gap-3 rounded-lg border border-tan bg-cream-deep/55 p-4 sm:flex-row sm:items-center sm:justify-between"
                     >
                       <div className="min-w-0">
-                        <p className="truncate font-display text-base font-bold text-foreground">{plan.title}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          <span className="rounded-full bg-muted px-2 py-0.5">{formatPlanType(plan.event_type)}</span>
-                          <span className="rounded-full bg-muted px-2 py-0.5">{plan.status}</span>
+                        <p className="truncate font-display text-base font-semibold text-ink">{plan.title}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-soft">
+                          <span className="rounded-full bg-cream px-2 py-0.5">{formatPlanType(plan.event_type)}</span>
+                          <span className="rounded-full bg-cream px-2 py-0.5">{plan.status}</span>
                           <span className="inline-flex items-center gap-1">
                             <CalendarClock className="h-3 w-3" />
                             {formatUpdatedAt(plan.updated_at)}
@@ -244,13 +244,13 @@ export function BillingGateModal({
           )}
 
           {successMessage ? (
-            <div className="mt-4 rounded-2xl border border-success/30 bg-success/10 px-4 py-3 text-sm font-semibold text-success">
+            <div className="mt-4 rounded-md border border-forest/30 bg-forest-tint px-4 py-3 text-sm font-semibold text-forest">
               {successMessage}
             </div>
           ) : null}
 
           {error ? (
-            <div className="mt-4 rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <div className="mt-4 rounded-md border border-brick/40 bg-brick-tint px-4 py-3 text-sm text-brick">
               {error}
             </div>
           ) : null}
@@ -282,23 +282,23 @@ function BillingChoiceCard({
   onClick: () => void
 }) {
   return (
-    <div className="grid gap-4 rounded-3xl border border-border bg-background/60 p-4 shadow-card sm:grid-cols-[1fr_auto] sm:items-center">
+    <div className="grid gap-4 rounded-lg border border-tan bg-cream-deep/55 p-4 shadow-card sm:grid-cols-[1fr_auto] sm:items-center">
       <div className="flex gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-secondary/15 text-secondary">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-clay-tint text-clay">
           {icon}
         </div>
         <div>
           <div className="flex flex-wrap items-baseline gap-2">
-            <h3 className="font-display text-lg font-bold text-foreground">{title}</h3>
-            <span className="text-sm font-bold text-secondary">{price}</span>
+            <h3 className="font-display text-lg font-semibold text-ink">{title}</h3>
+            <span className="text-sm font-bold text-clay">{price}</span>
           </div>
-          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{description}</p>
+          <p className="mt-1 text-sm leading-relaxed text-ink-soft">{description}</p>
         </div>
       </div>
       <Button
         type="button"
         variant={buttonVariant}
-        className={cn('min-h-11 w-full sm:w-auto', buttonVariant === 'glass' && 'border border-border')}
+        className={cn('min-h-11 w-full sm:w-auto', buttonVariant === 'glass' && 'border border-tan')}
         disabled={disabled}
         onClick={onClick}
       >

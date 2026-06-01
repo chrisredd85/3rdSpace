@@ -162,7 +162,7 @@ export default function BuilderBillingPage() {
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 text-sm text-ink-soft">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading billing…
         </div>
@@ -173,38 +173,38 @@ export default function BuilderBillingPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="font-display text-3xl font-bold text-foreground">Billing</h1>
-        <p className="mt-1 text-muted-foreground">Manage your event access and plan</p>
+        <h1 className="font-display text-3xl font-bold text-ink">Billing</h1>
+        <p className="mt-1 text-ink-soft">Manage your event access and plan</p>
       </div>
 
       {/* Status banner */}
       {statusBanner && (
         <div
           className={cn(
-            'flex items-start gap-4 rounded-2xl border p-5',
-            statusBanner.variant === 'pro' && 'border-primary/30 bg-primary/10',
-            statusBanner.variant === 'free' && 'border-emerald-500/30 bg-emerald-500/10',
-            statusBanner.variant === 'credits' && 'border-border bg-gradient-card',
-            statusBanner.variant === 'empty' && 'border-destructive/30 bg-destructive/10'
+            'flex items-start gap-4 rounded-lg border p-5',
+            statusBanner.variant === 'pro' && 'border-clay/30 bg-clay-tint',
+            statusBanner.variant === 'free' && 'border-forest/30 bg-forest-tint',
+            statusBanner.variant === 'credits' && 'border-tan bg-cream',
+            statusBanner.variant === 'empty' && 'border-brick/30 bg-brick-tint'
           )}
         >
           <div
             className={cn(
-              'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl',
-              statusBanner.variant === 'pro' && 'bg-primary/20',
-              statusBanner.variant === 'free' && 'bg-emerald-500/20',
-              statusBanner.variant === 'credits' && 'bg-sidebar-accent/40',
-              statusBanner.variant === 'empty' && 'bg-destructive/20'
+              'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md',
+              statusBanner.variant === 'pro' && 'bg-clay-tint',
+              statusBanner.variant === 'free' && 'bg-forest-tint',
+              statusBanner.variant === 'credits' && 'bg-cream-deep/60',
+              statusBanner.variant === 'empty' && 'bg-brick-tint'
             )}
           >
-            {statusBanner.variant === 'pro' && <Crown className="h-5 w-5 text-primary" />}
-            {statusBanner.variant === 'free' && <Calendar className="h-5 w-5 text-emerald-400" />}
-            {statusBanner.variant === 'credits' && <Zap className="h-5 w-5 text-foreground" />}
-            {statusBanner.variant === 'empty' && <AlertTriangle className="h-5 w-5 text-destructive" />}
+            {statusBanner.variant === 'pro' && <Crown className="h-5 w-5 text-clay" />}
+            {statusBanner.variant === 'free' && <Calendar className="h-5 w-5 text-forest" />}
+            {statusBanner.variant === 'credits' && <Zap className="h-5 w-5 text-ink" />}
+            {statusBanner.variant === 'empty' && <AlertTriangle className="h-5 w-5 text-brick" />}
           </div>
           <div>
-            <p className="font-semibold text-foreground">{statusBanner.headline}</p>
-            <p className="mt-0.5 text-sm text-muted-foreground">{statusBanner.detail}</p>
+            <p className="font-semibold text-ink">{statusBanner.headline}</p>
+            <p className="mt-0.5 text-sm text-ink-soft">{statusBanner.detail}</p>
           </div>
         </div>
       )}
@@ -218,7 +218,7 @@ export default function BuilderBillingPage() {
               <CardTitle className="text-2xl">{billing.freeEventsRemaining}</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-ink-soft">
                 {billing.freeEventsUsed} of {billing.freeEventsGranted} used
               </p>
             </CardContent>
@@ -230,7 +230,7 @@ export default function BuilderBillingPage() {
               <CardTitle className="text-2xl">{billing.paidEventCredits}</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-muted-foreground">Pay-per-event credits available</p>
+              <p className="text-sm text-ink-soft">Pay-per-event credits available</p>
             </CardContent>
           </Card>
 
@@ -240,7 +240,7 @@ export default function BuilderBillingPage() {
               <CardTitle className="flex items-center gap-2 text-2xl">
                 {billing.hasProAccess ? (
                   <>
-                    <Check className="h-5 w-5 text-emerald-400" />
+                    <Check className="h-5 w-5 text-forest" />
                     Active
                   </>
                 ) : (
@@ -249,7 +249,7 @@ export default function BuilderBillingPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-muted-foreground">{billing.tierLabel}</p>
+              <p className="text-sm text-ink-soft">{billing.tierLabel}</p>
             </CardContent>
           </Card>
         </div>
@@ -257,29 +257,29 @@ export default function BuilderBillingPage() {
 
       {/* Plan options */}
       <div>
-        <h2 className="mb-4 font-display text-xl font-semibold text-foreground">Choose a plan</h2>
+        <h2 className="mb-4 font-display text-xl font-semibold text-ink">Choose a plan</h2>
         <div className="grid gap-4 md:grid-cols-3">
 
           {/* Pay-Per-Event */}
-          <Card className={cn(billing?.tier === 'pay_per_event' && !isProActive && 'border-primary')}>
+          <Card className={cn(billing?.tier === 'pay_per_event' && !isProActive && 'border-clay')}>
             <CardHeader>
-              <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-accent/40">
-                <Zap className="h-5 w-5 text-foreground" />
+              <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-md bg-cream-deep/60">
+                <Zap className="h-5 w-5 text-ink" />
               </div>
               <CardTitle>Pay-Per-Event</CardTitle>
               <CardDescription>One event credit per purchase</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {billing && (
-                <div className="text-3xl font-bold text-foreground">
+                <div className="text-3xl font-bold text-ink">
                   ${billing.prices.payPerEventAmount}
-                  <span className="ml-1 text-base font-normal text-muted-foreground">/event</span>
+                  <span className="ml-1 text-base font-normal text-ink-soft">/event</span>
                 </div>
               )}
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-400" />All platform features</li>
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-400" />Credits never expire</li>
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-400" />No monthly commitment</li>
+              <ul className="space-y-2 text-sm text-ink-soft">
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-forest" />All platform features</li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-forest" />Credits never expire</li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-forest" />No monthly commitment</li>
               </ul>
               <Button
                 type="button"
@@ -297,17 +297,17 @@ export default function BuilderBillingPage() {
           </Card>
 
           {/* Pro */}
-          <Card className={cn('md:col-span-2', isProActive && 'border-primary shadow-glow')}>
+          <Card className={cn('md:col-span-2', isProActive && 'border-clay shadow-glow')}>
             <CardHeader>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/20">
-                    <Crown className="h-5 w-5 text-primary" />
+                  <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-md bg-clay-tint">
+                    <Crown className="h-5 w-5 text-clay" />
                   </div>
                   <CardTitle className="flex items-center gap-2">
                     Pro
                     {isProActive && (
-                      <span className="rounded-full bg-primary/20 px-2 py-0.5 text-xs font-semibold text-primary">
+                      <span className="rounded-full bg-clay-tint px-2 py-0.5 text-xs font-semibold text-clay">
                         Current plan
                       </span>
                     )}
@@ -316,15 +316,15 @@ export default function BuilderBillingPage() {
                 </div>
 
                 {/* Monthly / Annual toggle */}
-                <div className="inline-flex items-center gap-1 rounded-lg bg-sidebar-accent/30 p-1">
+                <div className="inline-flex items-center gap-1 rounded-lg bg-cream-deep/55 p-1">
                   <button
                     type="button"
                     onClick={() => setProBilling('monthly')}
                     className={cn(
                       'rounded-md px-3 py-1 text-xs font-semibold transition-smooth',
                       proBilling === 'monthly'
-                        ? 'bg-card text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
+                        ? 'bg-cream text-ink shadow-sm'
+                        : 'text-ink-soft hover:text-ink'
                     )}
                   >
                     Monthly
@@ -335,13 +335,13 @@ export default function BuilderBillingPage() {
                     className={cn(
                       'flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition-smooth',
                       proBilling === 'annual'
-                        ? 'bg-card text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
+                        ? 'bg-cream text-ink shadow-sm'
+                        : 'text-ink-soft hover:text-ink'
                     )}
                   >
                     Annual
                     {annualSavings > 0 && (
-                      <span className="rounded-full bg-lime-500/20 px-1.5 py-0.5 text-xs font-bold text-lime-400">
+                      <span className="rounded-full bg-forest-tint px-1.5 py-0.5 text-xs font-bold text-forest">
                         Save ${annualSavings}
                       </span>
                     )}
@@ -351,26 +351,26 @@ export default function BuilderBillingPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {proPrice !== null && (
-                <div className="text-3xl font-bold text-foreground">
+                <div className="text-3xl font-bold text-ink">
                   ${proPrice}
-                  <span className="ml-1 text-base font-normal text-muted-foreground">
+                  <span className="ml-1 text-base font-normal text-ink-soft">
                     /{proBilling === 'monthly' ? 'month' : 'year'}
                   </span>
                   {proBilling === 'annual' && (
-                    <span className="ml-2 text-sm font-semibold text-lime-400">
+                    <span className="ml-2 text-sm font-semibold text-forest">
                       ~${annualMonthlyEquivalent}/mo
                     </span>
                   )}
                 </div>
               )}
 
-              <ul className="grid gap-2 sm:grid-cols-2 text-sm text-muted-foreground">
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" />Unlimited events</li>
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" />No per-event platform fee</li>
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" />Advanced analytics</li>
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" />Priority support</li>
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" />Early feature access</li>
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-primary" />Cancel anytime</li>
+              <ul className="grid gap-2 sm:grid-cols-2 text-sm text-ink-soft">
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-clay" />Unlimited events</li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-clay" />No per-event platform fee</li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-clay" />Advanced analytics</li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-clay" />Priority support</li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-clay" />Early feature access</li>
+                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-clay" />Cancel anytime</li>
               </ul>
 
               <div className="flex items-center gap-3">
@@ -393,7 +393,7 @@ export default function BuilderBillingPage() {
                     variant="outline"
                     disabled={cancelLoading || Boolean(checkoutLoading)}
                     onClick={cancelSubscription}
-                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    className="text-brick hover:bg-brick-tint hover:text-brick"
                   >
                     {cancelLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Cancel'}
                   </Button>
@@ -405,7 +405,7 @@ export default function BuilderBillingPage() {
       </div>
 
       {/* Pricing footnote */}
-      <p className="text-sm text-muted-foreground">
+      <p className="text-sm text-ink-soft">
         Vendor service payments are always separate from platform access fees. Vendors keep 100% of their service fee.
       </p>
     </div>

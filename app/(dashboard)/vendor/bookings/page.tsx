@@ -57,7 +57,7 @@ export default function VendorBookingsPage() {
 
   if (isUserLoading || loadingVendor) {
     return (
-      <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-64 items-center justify-center text-sm text-ink-soft">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         Loading booking dashboard...
       </div>
@@ -67,7 +67,7 @@ export default function VendorBookingsPage() {
   if (userError || !user) {
     return (
       <Card>
-        <CardContent className="py-12 text-center text-destructive">Please log in to continue.</CardContent>
+        <CardContent className="py-12 text-center text-brick">Please log in to continue.</CardContent>
       </Card>
     )
   }
@@ -75,7 +75,7 @@ export default function VendorBookingsPage() {
   if (!vendorId) {
     return (
       <Card>
-        <CardContent className="py-12 text-center text-muted-foreground">No vendor profile found.</CardContent>
+        <CardContent className="py-12 text-center text-ink-soft">No vendor profile found.</CardContent>
       </Card>
     )
   }

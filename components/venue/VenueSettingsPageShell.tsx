@@ -67,7 +67,7 @@ export function VenueSettingsPageShell({ title, description, children }: VenueSe
   if (isUserLoading || loadingVenue) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 text-sm text-ink-soft">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading venue settings...
         </div>
@@ -78,8 +78,8 @@ export function VenueSettingsPageShell({ title, description, children }: VenueSe
   if (userError || !user) {
     return (
       <Card>
-        <CardContent className="py-10 text-center text-destructive">
-          Please log in as a venue owner to manage these settings.
+        <CardContent className="py-10 text-center text-brick">
+          Please log in as a venue owner to adjust these settings.
         </CardContent>
       </Card>
     )
@@ -89,9 +89,9 @@ export function VenueSettingsPageShell({ title, description, children }: VenueSe
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-          <Building2 className="mb-4 h-10 w-10 text-muted-foreground/60" />
-          <p className="font-semibold text-foreground">No venue found</p>
-          <p className="mt-1 text-sm text-muted-foreground">Create a venue listing before configuring owner features.</p>
+          <Building2 className="mb-4 h-10 w-10 text-ink-soft/60" />
+          <p className="font-semibold text-ink">No venue found</p>
+          <p className="mt-1 text-sm text-ink-soft">Create a venue listing before configuring owner features.</p>
           <Button asChild className="mt-4">
             <Link href="/venue/listing">Go to listing</Link>
           </Button>
@@ -109,8 +109,8 @@ export function VenueSettingsPageShell({ title, description, children }: VenueSe
             Venue dashboard
           </Link>
         </Button>
-        <h1 className="text-3xl font-bold text-foreground">{title}</h1>
-        <p className="mt-1 text-muted-foreground">{description}</p>
+        <h1 className="text-3xl font-bold text-ink">{title}</h1>
+        <p className="mt-1 text-ink-soft">{description}</p>
       </div>
 
       <Card>
@@ -119,4 +119,3 @@ export function VenueSettingsPageShell({ title, description, children }: VenueSe
     </div>
   )
 }
-

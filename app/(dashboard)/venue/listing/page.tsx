@@ -121,7 +121,7 @@ export default function VenueListingPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-ink-soft">Loading...</div>
       </div>
     )
   }
@@ -129,7 +129,7 @@ export default function VenueListingPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-destructive">Please log in to continue</div>
+        <div className="text-brick">Please log in to continue</div>
       </div>
     )
   }
@@ -267,8 +267,8 @@ export default function VenueListingPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading venue...</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-clay border-t-transparent mx-auto mb-4" />
+          <p className="text-ink-soft">Loading venue...</p>
         </div>
       </div>
     )
@@ -277,7 +277,7 @@ export default function VenueListingPage() {
   if (!venue) {
     return (
       <div className="text-center py-12">
-        <p className="text-muted-foreground">No venue found. Please create a venue first.</p>
+        <p className="text-ink-soft">No venue found. Please create a venue first.</p>
       </div>
     )
   }
@@ -286,8 +286,8 @@ export default function VenueListingPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Venue Listing</h1>
-          <p className="text-muted-foreground mt-1">Manage your venue details and public listing</p>
+          <h1 className="text-3xl font-bold text-ink">Venue Listing</h1>
+          <p className="text-ink-soft mt-1">Keep venue details and the public listing current</p>
         </div>
         <Button
           variant="outline"
@@ -307,10 +307,10 @@ export default function VenueListingPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-4 rounded-lg border border-tan bg-cream/60 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">Make listing visible to event planners</p>
-                <p className="text-sm text-muted-foreground">Visible listings appear in the 3rdPlace event planner</p>
+                <p className="text-sm font-medium text-ink">Make listing visible to event planners</p>
+                <p className="text-sm text-ink-soft">Visible listings appear in the 3rdPlace event planner</p>
               </div>
               <Switch
                 checked={Boolean(venue.is_active)}
@@ -331,7 +331,7 @@ export default function VenueListingPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
+              <label className="text-sm font-medium text-ink mb-2 block">
                 Venue Name *
               </label>
               <Input
@@ -339,30 +339,30 @@ export default function VenueListingPage() {
                 placeholder="The Grand Hall"
               />
               {errors.name && (
-                <p className="text-sm text-destructive mt-1">{errors.name.message}</p>
+                <p className="text-sm text-brick mt-1">{errors.name.message}</p>
               )}
             </div>
 
             <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
+              <label className="text-sm font-medium text-ink mb-2 block">
                 Description
               </label>
               <textarea
                 {...register('description')}
                 rows={4}
-                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full rounded-md border border-tan px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-clay"
                 placeholder="Describe your venue, its atmosphere, and what makes it special..."
               />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-foreground mb-2 block">
+                <label className="text-sm font-medium text-ink mb-2 block">
                   Venue Type *
                 </label>
                 <select
                   {...register('venue_type')}
-                  className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
+                  className="flex h-10 w-full rounded-md border border-tan px-3 py-2 text-sm"
                 >
                   <option value="loft_warehouse">Loft/Warehouse</option>
                   <option value="gallery">Gallery</option>
@@ -374,7 +374,7 @@ export default function VenueListingPage() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-foreground mb-2 block">
+                <label className="text-sm font-medium text-ink mb-2 block">
                   Square Footage
                 </label>
                 <Input
@@ -387,7 +387,7 @@ export default function VenueListingPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="text-sm font-medium text-foreground mb-2 block">
+                <label className="text-sm font-medium text-ink mb-2 block">
                   Standing Capacity *
                 </label>
                 <Input
@@ -396,12 +396,12 @@ export default function VenueListingPage() {
                   placeholder="200"
                 />
                 {errors.capacity && (
-                  <p className="text-sm text-destructive mt-1">{errors.capacity.message}</p>
+                  <p className="text-sm text-brick mt-1">{errors.capacity.message}</p>
                 )}
               </div>
 
               <div>
-                <label className="text-sm font-medium text-foreground mb-2 block">
+                <label className="text-sm font-medium text-ink mb-2 block">
                   Min Capacity
                 </label>
                 <Input
@@ -412,7 +412,7 @@ export default function VenueListingPage() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-foreground mb-2 block">
+                <label className="text-sm font-medium text-ink mb-2 block">
                   Max Capacity
                 </label>
                 <Input
@@ -424,7 +424,7 @@ export default function VenueListingPage() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
+              <label className="text-sm font-medium text-ink mb-2 block">
                 Address *
               </label>
               <Input
@@ -432,45 +432,45 @@ export default function VenueListingPage() {
                 placeholder="123 Main Street"
               />
               {errors.address && (
-                <p className="text-sm text-destructive mt-1">{errors.address.message}</p>
+                <p className="text-sm text-brick mt-1">{errors.address.message}</p>
               )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="text-sm font-medium text-foreground mb-2 block">
+                <label className="text-sm font-medium text-ink mb-2 block">
                   City *
                 </label>
                 <Input {...register('city')} placeholder="San Francisco" />
                 {errors.city && (
-                  <p className="text-sm text-destructive mt-1">{errors.city.message}</p>
+                  <p className="text-sm text-brick mt-1">{errors.city.message}</p>
                 )}
               </div>
 
               <div>
-                <label className="text-sm font-medium text-foreground mb-2 block">
+                <label className="text-sm font-medium text-ink mb-2 block">
                   Neighborhood
                 </label>
                 <Input {...register('neighborhood')} placeholder="SOMA" />
               </div>
 
               <div>
-                <label className="text-sm font-medium text-foreground mb-2 block">
+                <label className="text-sm font-medium text-ink mb-2 block">
                   State *
                 </label>
                 <Input {...register('state')} placeholder="CA" />
                 {errors.state && (
-                  <p className="text-sm text-destructive mt-1">{errors.state.message}</p>
+                  <p className="text-sm text-brick mt-1">{errors.state.message}</p>
                 )}
               </div>
 
               <div>
-                <label className="text-sm font-medium text-foreground mb-2 block">
+                <label className="text-sm font-medium text-ink mb-2 block">
                   ZIP Code *
                 </label>
                 <Input {...register('zip_code')} placeholder="94102" />
                 {errors.zip_code && (
-                  <p className="text-sm text-destructive mt-1">{errors.zip_code.message}</p>
+                  <p className="text-sm text-brick mt-1">{errors.zip_code.message}</p>
                 )}
               </div>
             </div>
@@ -540,7 +540,7 @@ export default function VenueListingPage() {
                 {photos.map((photo, index) => (
                   <div
                     key={photo.id}
-                    className="relative group aspect-square rounded-lg overflow-hidden border border-border"
+                    className="relative group aspect-square rounded-lg overflow-hidden border border-tan"
                   >
                     <Image
                       src={photo.photo_url}
@@ -549,21 +549,21 @@ export default function VenueListingPage() {
                       sizes="(min-width: 768px) 25vw, 50vw"
                       className="w-full h-full object-cover"
                     />
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <div className="absolute inset-0 bg-ink/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                       {!photo.is_primary && (
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
                           onClick={() => handleSetPrimary(photo.id)}
-                          className="text-white hover:text-white hover:bg-primary-foreground/20"
+                          className="text-cream hover:text-cream hover:bg-cream/20"
                         >
                           <Star className="h-4 w-4" />
                         </Button>
                       )}
                       {photo.is_primary && (
                         <div className="absolute top-2 right-2">
-                          <Star className="h-5 w-5 fill-yellow-400 text-yellow-400" />
+                          <Star className="h-5 w-5 fill-ochre text-ochre" />
                         </div>
                       )}
                       <Button
@@ -571,7 +571,7 @@ export default function VenueListingPage() {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleDeletePhoto(photo.id)}
-                        className="text-white hover:text-white hover:bg-destructive/20"
+                        className="text-cream hover:text-cream hover:bg-brick/20"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -582,9 +582,9 @@ export default function VenueListingPage() {
             )}
 
             {photos.length === 0 && (
-              <div className="text-center py-8 border-2 border-dashed border-border rounded-lg">
-                <Upload className="h-12 w-12 text-muted-foreground/60 mx-auto mb-4" />
-                <p className="text-sm text-muted-foreground">No photos uploaded yet</p>
+              <div className="text-center py-8 border-2 border-dashed border-tan rounded-lg">
+                <Upload className="h-12 w-12 text-ink-soft/60 mx-auto mb-4" />
+                <p className="text-sm text-ink-soft">No photos uploaded yet</p>
               </div>
             )}
           </CardContent>

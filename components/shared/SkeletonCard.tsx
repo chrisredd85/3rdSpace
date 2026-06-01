@@ -49,11 +49,11 @@ export function SkeletonCard({
 }: SkeletonCardProps) {
   if (variant === 'list') {
     return (
-      <div className={cn('flex items-center gap-4 p-4 border-b border-border', className)}>
-        <div className="h-12 w-12 rounded-full bg-sidebar-accent animate-pulse" />
+      <div className={cn('flex items-center gap-4 p-4 border-b border-tan', className)}>
+        <div className="h-12 w-12 rounded-full bg-cream-deep animate-pulse" />
         <div className="flex-1 space-y-2">
-          <div className="h-4 w-3/4 bg-sidebar-accent rounded animate-pulse" />
-          <div className="h-3 w-1/2 bg-sidebar-accent rounded animate-pulse" />
+          <div className="h-4 w-3/4 bg-cream-deep rounded animate-pulse" />
+          <div className="h-3 w-1/2 bg-cream-deep rounded animate-pulse" />
         </div>
       </div>
     )
@@ -61,12 +61,12 @@ export function SkeletonCard({
 
   if (variant === 'table') {
     return (
-      <div className={cn('p-4 border-b border-border', className)}>
+      <div className={cn('p-4 border-b border-tan', className)}>
         <div className="grid grid-cols-4 gap-4">
-          <div className="h-4 bg-sidebar-accent rounded animate-pulse" />
-          <div className="h-4 bg-sidebar-accent rounded animate-pulse" />
-          <div className="h-4 bg-sidebar-accent rounded animate-pulse" />
-          <div className="h-4 bg-sidebar-accent rounded animate-pulse" />
+          <div className="h-4 bg-cream-deep rounded animate-pulse" />
+          <div className="h-4 bg-cream-deep rounded animate-pulse" />
+          <div className="h-4 bg-cream-deep rounded animate-pulse" />
+          <div className="h-4 bg-cream-deep rounded animate-pulse" />
         </div>
       </div>
     )
@@ -75,12 +75,12 @@ export function SkeletonCard({
   return (
     <Card className={cn('overflow-hidden', className)}>
       {showImage && (
-        <div className="h-48 w-full bg-sidebar-accent animate-pulse" />
+        <div className="h-48 w-full bg-cream-deep animate-pulse" />
       )}
       {showHeader && (
         <CardHeader>
-          <div className="h-6 w-3/4 bg-sidebar-accent rounded animate-pulse mb-2" />
-          <div className="h-4 w-1/2 bg-sidebar-accent rounded animate-pulse" />
+          <div className="h-6 w-3/4 bg-cream-deep rounded animate-pulse mb-2" />
+          <div className="h-4 w-1/2 bg-cream-deep rounded animate-pulse" />
         </CardHeader>
       )}
       <CardContent className={cn(showHeader ? '' : 'p-6')}>
@@ -89,7 +89,7 @@ export function SkeletonCard({
             <div
               key={i}
               className={cn(
-                'h-4 bg-sidebar-accent rounded animate-pulse',
+                'h-4 bg-cream-deep rounded animate-pulse',
                 i === lines - 1 ? 'w-2/3' : 'w-full'
               )}
             />
@@ -113,7 +113,7 @@ export function SkeletonLoader({
   height?: string
 }) {
   return (
-    <div className={cn('bg-sidebar-accent rounded animate-pulse', width, height, className)} />
+    <div className={cn('bg-cream-deep rounded animate-pulse', width, height, className)} />
   )
 }
 

@@ -138,9 +138,9 @@ export default function PlannerVendorsPage() {
 
   return (
     <div className="min-h-screen">
-      <div className="border-b border-border px-6 py-5">
+      <div className="border-b border-tan px-6 py-5">
         <h1 className="font-display text-2xl font-bold">Vendors</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-sm text-ink-soft">
           Bay Area vendors available to book for your events.
         </p>
       </div>
@@ -156,12 +156,12 @@ export default function PlannerVendorsPage() {
 
         <InviteKnownVendorPanel activePlanId={activePlanId} onCatalogChanged={() => void refetch()} />
 
-        <section className="rounded-2xl border border-border bg-card/70 p-5 shadow-card">
+        <section className="rounded-lg border border-tan bg-cream p-5 shadow-card">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Vendor Catalog</p>
-              <h2 className="mt-2 font-display text-xl font-bold text-foreground">Book the missing pieces</h2>
-              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-clay">Vendor Catalog</p>
+              <h2 className="mt-2 font-display text-xl font-bold text-ink">Book the missing pieces</h2>
+              <p className="mt-1 max-w-2xl text-sm text-ink-soft">
                 Compare service type, pricing signals, and readiness before the agent requests availability or deposit terms.
               </p>
             </div>
@@ -172,18 +172,18 @@ export default function PlannerVendorsPage() {
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {catalogStats.map((stat) => (
-              <div key={stat.label} className="rounded-xl border border-border bg-background/50 p-4">
-                <p className="text-xs font-semibold text-muted-foreground">{stat.label}</p>
-                <p className="mt-2 font-display text-2xl font-bold text-foreground">{stat.value}</p>
+              <div key={stat.label} className="rounded-md border border-tan bg-cream-deep/60 p-4">
+                <p className="text-xs font-semibold text-ink-soft">{stat.label}</p>
+                <p className="mt-2 font-display text-2xl font-bold text-ink">{stat.value}</p>
               </div>
             ))}
           </div>
         </section>
 
-        <div className="rounded-2xl border border-border bg-card/70 p-4 shadow-card">
+        <div className="rounded-lg border border-tan bg-cream p-4 shadow-card">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft" />
               <Input
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
@@ -192,7 +192,7 @@ export default function PlannerVendorsPage() {
               />
             </div>
             <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
-              <SlidersHorizontal className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <SlidersHorizontal className="h-4 w-4 shrink-0 text-ink-soft" />
               {serviceOptions.map((service) => (
                 <button
                   key={service}
@@ -201,8 +201,8 @@ export default function PlannerVendorsPage() {
                   className={cn(
                     'shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition-smooth',
                     selectedService === service
-                      ? 'border-primary/40 bg-primary text-primary-foreground'
-                      : 'border-border bg-background text-muted-foreground hover:text-foreground'
+                      ? 'border-clay/40 bg-clay text-cream'
+                      : 'border-tan bg-cream-deep text-ink-soft hover:text-ink'
                   )}
                 >
                   {service}
@@ -215,8 +215,8 @@ export default function PlannerVendorsPage() {
         {isLoading ? <VendorSkeletonGrid /> : null}
 
         {!isLoading && isError ? (
-          <div className="rounded-lg border border-border bg-card px-5 py-8 text-sm text-muted-foreground">
-            <p className="font-semibold text-foreground">Catalog temporarily unavailable</p>
+          <div className="rounded-lg border border-tan bg-cream px-5 py-8 text-sm text-ink-soft">
+            <p className="font-semibold text-ink">Catalog temporarily unavailable</p>
             <p className="mt-1">Vendor listings could not be loaded right now.</p>
             <Button className="mt-4" variant="glass" size="sm" onClick={() => void refetch()} disabled={isFetching}>
               {isFetching ? 'Retrying...' : 'Retry'}
@@ -225,13 +225,13 @@ export default function PlannerVendorsPage() {
         ) : null}
 
         {!isLoading && !isError && vendors.length === 0 ? (
-          <div className="rounded-lg border border-border bg-card px-5 py-8 text-sm text-muted-foreground">
+          <div className="rounded-lg border border-tan bg-cream px-5 py-8 text-sm text-ink-soft">
             No vendors in the catalog yet.
           </div>
         ) : null}
 
         {!isLoading && !isError && vendors.length > 0 && filteredVendors.length === 0 ? (
-          <div className="rounded-lg border border-border bg-card px-5 py-8 text-sm text-muted-foreground">
+          <div className="rounded-lg border border-tan bg-cream px-5 py-8 text-sm text-ink-soft">
             No vendors match that search.
           </div>
         ) : null}
@@ -339,16 +339,16 @@ function InviteKnownVendorPanel({ activePlanId, onCatalogChanged }: InviteKnownV
   }
 
   return (
-    <section className="rounded-2xl border border-primary/20 bg-gradient-card p-5 shadow-card">
+    <section className="rounded-lg border border-clay/20 bg-cream p-5 shadow-card">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-clay-tint text-clay">
             <UserPlus className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Your people</p>
-            <h2 className="mt-1 font-display text-xl font-bold text-foreground">Bring a vendor you already trust</h2>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-clay">Your people</p>
+            <h2 className="mt-1 font-display text-xl font-bold text-ink">Bring a vendor you already trust</h2>
+            <p className="mt-1 max-w-2xl text-sm text-ink-soft">
               Invite them with the private rate you agreed on. They claim the profile, confirm or counter that rate, then set a separate public catalog rate.
             </p>
           </div>
@@ -359,25 +359,25 @@ function InviteKnownVendorPanel({ activePlanId, onCatalogChanged }: InviteKnownV
       </div>
 
       {isOpen ? (
-        <form onSubmit={handleSubmit} className="mt-5 grid gap-4 rounded-2xl border border-border bg-background/50 p-4 lg:grid-cols-6">
+        <form onSubmit={handleSubmit} className="mt-5 grid gap-4 rounded-lg border border-tan bg-cream-deep/60 p-4 lg:grid-cols-6">
           <label className="space-y-1 lg:col-span-2">
-            <span className="text-xs font-semibold text-muted-foreground">Vendor name</span>
+            <span className="text-xs font-semibold text-ink-soft">Vendor name</span>
             <Input name="vendorName" required placeholder="DJ Maya" />
           </label>
           <label className="space-y-1 lg:col-span-2">
-            <span className="text-xs font-semibold text-muted-foreground">Email</span>
+            <span className="text-xs font-semibold text-ink-soft">Email</span>
             <Input name="email" required type="email" placeholder="maya@example.com" />
           </label>
           <label className="space-y-1 lg:col-span-2">
-            <span className="text-xs font-semibold text-muted-foreground">Phone optional</span>
+            <span className="text-xs font-semibold text-ink-soft">Phone optional</span>
             <Input name="phone" type="tel" placeholder="(415) 555-0100" />
           </label>
 
           <label className="space-y-1 lg:col-span-2">
-            <span className="text-xs font-semibold text-muted-foreground">Service</span>
+            <span className="text-xs font-semibold text-ink-soft">Service</span>
             <select
               name="serviceType"
-              className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground"
+              className="h-10 w-full rounded-md border border-tan bg-cream-deep px-3 text-sm text-ink"
               defaultValue="dj"
             >
               <option value="dj">DJ / music</option>
@@ -392,14 +392,14 @@ function InviteKnownVendorPanel({ activePlanId, onCatalogChanged }: InviteKnownV
             </select>
           </label>
           <label className="space-y-1 lg:col-span-2">
-            <span className="text-xs font-semibold text-muted-foreground">Private agreed rate</span>
+            <span className="text-xs font-semibold text-ink-soft">Private agreed rate</span>
             <Input name="proposedRateAmount" required min="1" step="1" type="number" placeholder="450" />
           </label>
           <label className="space-y-1 lg:col-span-2">
-            <span className="text-xs font-semibold text-muted-foreground">Rate type</span>
+            <span className="text-xs font-semibold text-ink-soft">Rate type</span>
             <select
               name="rateType"
-              className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground"
+              className="h-10 w-full rounded-md border border-tan bg-cream-deep px-3 text-sm text-ink"
               defaultValue="flat"
             >
               <option value="flat">Flat</option>
@@ -409,7 +409,7 @@ function InviteKnownVendorPanel({ activePlanId, onCatalogChanged }: InviteKnownV
           </label>
 
           <div className="flex flex-col gap-3 lg:col-span-6 lg:flex-row lg:items-center lg:justify-between">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-ink-soft">
               Private rates are scoped to you and this vendor. Public catalog rates are set by the vendor after claim.
             </p>
             <Button type="submit" variant="hero" size="sm" disabled={isPending}>
@@ -422,15 +422,15 @@ function InviteKnownVendorPanel({ activePlanId, onCatalogChanged }: InviteKnownV
       {result ? (
         <div
           className={cn(
-            'mt-4 rounded-xl border px-4 py-3 text-sm',
+            'mt-4 rounded-md border px-4 py-3 text-sm',
             result.ok
-              ? 'border-accent/30 bg-accent/10 text-foreground'
-              : 'border-destructive/30 bg-destructive/10 text-foreground'
+              ? 'border-accent/30 bg-accent/10 text-ink'
+              : 'border-brick/30 bg-brick-tint text-ink'
           )}
         >
           <p className="font-semibold">{result.message}</p>
           {result.ok && result.claimUrl ? (
-            <div className="mt-2 flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center">
+            <div className="mt-2 flex flex-col gap-2 text-xs text-ink-soft sm:flex-row sm:items-center">
               {result.emailSent ? (
                 <span className="inline-flex items-center gap-1">
                   <Mail className="h-3.5 w-3.5" />
@@ -443,7 +443,7 @@ function InviteKnownVendorPanel({ activePlanId, onCatalogChanged }: InviteKnownV
                 </span>
               )}
               {!result.emailSent ? (
-                <a className="break-all font-semibold text-primary underline" href={result.claimUrl}>
+                <a className="break-all font-semibold text-clay underline" href={result.claimUrl}>
                   {result.claimUrl}
                 </a>
               ) : null}
@@ -462,10 +462,10 @@ function VendorSkeletonGrid() {
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {[0, 1, 2].map((item) => (
-        <div key={item} className="rounded-lg border border-border bg-card p-5">
-          <div className="h-5 w-2/3 rounded bg-muted" />
-          <div className="mt-4 h-4 w-1/2 rounded bg-muted" />
-          <div className="mt-6 h-10 rounded bg-muted" />
+        <div key={item} className="rounded-lg border border-tan bg-cream p-5">
+          <div className="h-5 w-2/3 rounded bg-cream-deep" />
+          <div className="mt-4 h-4 w-1/2 rounded bg-cream-deep" />
+          <div className="mt-6 h-10 rounded bg-cream-deep" />
         </div>
       ))}
     </div>
@@ -492,62 +492,62 @@ function VendorCard({ vendor, activePlanId }: VendorCardProps) {
     : 'Standard lead'
 
   return (
-    <article className={cn('flex min-h-full flex-col rounded-2xl border border-border bg-card p-5 shadow-card')}>
+    <article className={cn('flex min-h-full flex-col rounded-lg border border-tan bg-cream p-5 shadow-card')}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent text-primary">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cream-deep text-clay">
             <Package className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <h2 className="font-display text-lg font-bold text-foreground">{vendorName}</h2>
+            <h2 className="font-display text-lg font-bold text-ink">{vendorName}</h2>
             {vendor.claim_status === 'invited_unclaimed' ? (
-              <span className="mt-2 inline-flex rounded-full bg-secondary/15 px-2 py-0.5 text-xs font-medium text-secondary">
+              <span className="mt-2 inline-flex rounded-full bg-clay-tint px-2 py-0.5 text-xs font-medium text-clay">
                 Invited — pending signup
               </span>
             ) : null}
-            <p className="mt-1 text-sm font-semibold text-muted-foreground">{serviceType}</p>
+            <p className="mt-1 text-sm font-semibold text-ink-soft">{serviceType}</p>
           </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
           {vendor.tier ? (
-            <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
+            <span className="rounded-full border border-clay/30 bg-clay-tint px-2 py-1 text-xs font-semibold text-clay">
               {formatTierLabel(vendor.tier)}
             </span>
           ) : null}
           {vendor.is_claimed === false ? (
-            <span className="rounded-full border border-border bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">
+            <span className="rounded-full border border-tan bg-cream-deep px-2 py-1 text-xs font-semibold text-ink-soft">
               Unclaimed
             </span>
           ) : null}
         </div>
       </div>
 
-      <p className="mt-4 min-h-12 text-sm leading-relaxed text-muted-foreground">{summary}</p>
+      <p className="mt-4 min-h-12 text-sm leading-relaxed text-ink-soft">{summary}</p>
       {vendor.tier === 'your_people' && vendor.last_booked_event_name ? (
-        <p className="mt-2 text-xs font-semibold text-primary">
+        <p className="mt-2 text-xs font-semibold text-clay">
           Uses your last confirmed rate from {vendor.last_booked_event_name}
         </p>
       ) : null}
 
       <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
-        <div className="rounded-lg border border-border bg-background/40 p-3">
-          <p className="text-xs text-muted-foreground">Location</p>
-          <p className="mt-1 flex min-w-0 items-center gap-1.5 truncate font-semibold text-foreground" title={city}>
-            <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <div className="rounded-lg border border-tan bg-cream-deep/55 p-3">
+          <p className="text-xs text-ink-soft">Location</p>
+          <p className="mt-1 flex min-w-0 items-center gap-1.5 truncate font-semibold text-ink" title={city}>
+            <MapPin className="h-3.5 w-3.5 shrink-0 text-ink-soft" />
             {city}
           </p>
         </div>
-        <div className="rounded-lg border border-border bg-background/40 p-3">
-          <p className="text-xs text-muted-foreground">Starting rate</p>
-          <p className="mt-1 truncate font-semibold text-foreground" title={startingRate}>{startingRate}</p>
+        <div className="rounded-lg border border-tan bg-cream-deep/55 p-3">
+          <p className="text-xs text-ink-soft">Starting rate</p>
+          <p className="mt-1 truncate font-semibold text-ink" title={startingRate}>{startingRate}</p>
         </div>
-        <div className="rounded-lg border border-border bg-background/40 p-3">
-          <p className="text-xs text-muted-foreground">Deposit</p>
-          <p className="mt-1 truncate font-semibold text-foreground" title={depositLabel}>{depositLabel}</p>
+        <div className="rounded-lg border border-tan bg-cream-deep/55 p-3">
+          <p className="text-xs text-ink-soft">Deposit</p>
+          <p className="mt-1 truncate font-semibold text-ink" title={depositLabel}>{depositLabel}</p>
         </div>
-        <div className="rounded-lg border border-border bg-background/40 p-3">
-          <p className="text-xs text-muted-foreground">Lead time</p>
-          <p className="mt-1 truncate font-semibold text-foreground">
+        <div className="rounded-lg border border-tan bg-cream-deep/55 p-3">
+          <p className="text-xs text-ink-soft">Lead time</p>
+          <p className="mt-1 truncate font-semibold text-ink">
             {typeof vendor.lead_time_days === 'number' && vendor.lead_time_days > 0
               ? `${vendor.lead_time_days} days`
               : 'Confirm'}
@@ -562,12 +562,12 @@ function VendorCard({ vendor, activePlanId }: VendorCardProps) {
             {emergencyLabel}
           </span>
         ) : null}
-        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-semibold text-muted-foreground">
-          <CheckCircle2 className="h-3 w-3 text-primary" />
+        <span className="inline-flex items-center gap-1 rounded-full border border-tan bg-cream-deep px-2.5 py-1 text-xs font-semibold text-ink-soft">
+          <CheckCircle2 className="h-3 w-3 text-clay" />
           Availability request
         </span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-semibold text-muted-foreground">
-          <CheckCircle2 className="h-3 w-3 text-primary" />
+        <span className="inline-flex items-center gap-1 rounded-full border border-tan bg-cream-deep px-2.5 py-1 text-xs font-semibold text-ink-soft">
+          <CheckCircle2 className="h-3 w-3 text-clay" />
           Deposit approval
         </span>
       </div>
@@ -660,7 +660,7 @@ function PlanVendorRateAttach({ planId, vendor }: PlanVendorRateAttachProps) {
   }
 
   return (
-    <div className="mt-3 rounded-2xl border border-border bg-background/40 p-3">
+    <div className="mt-3 rounded-lg border border-tan bg-cream-deep/55 p-3">
       <Button type="button" variant="glass" size="sm" className="w-full" onClick={openRateEditor}>
         {isOpen ? 'Hide plan rate' : 'Add to active plan'}
       </Button>
@@ -668,12 +668,12 @@ function PlanVendorRateAttach({ planId, vendor }: PlanVendorRateAttachProps) {
       {isOpen ? (
         <div className="mt-3 space-y-3">
           {isLoading ? (
-            <p className="text-xs text-muted-foreground">Loading your rate history...</p>
+            <p className="text-xs text-ink-soft">Loading your rate history...</p>
           ) : (
             <>
               <div className="grid grid-cols-[1fr_120px] gap-2">
                 <label className="space-y-1">
-                  <span className="text-xs font-semibold text-muted-foreground">Rate</span>
+                  <span className="text-xs font-semibold text-ink-soft">Rate</span>
                   <Input
                     value={amount}
                     min="1"
@@ -687,14 +687,14 @@ function PlanVendorRateAttach({ planId, vendor }: PlanVendorRateAttachProps) {
                   />
                 </label>
                 <label className="space-y-1">
-                  <span className="text-xs font-semibold text-muted-foreground">Type</span>
+                  <span className="text-xs font-semibold text-ink-soft">Type</span>
                   <select
                     value={rateType}
                     onChange={(event) => {
                       setRateType(event.target.value as 'flat' | 'per_person' | 'hourly')
                       setHasEdited(true)
                     }}
-                    className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground"
+                    className="h-10 w-full rounded-md border border-tan bg-cream-deep px-3 text-sm text-ink"
                   >
                     <option value="flat">Flat</option>
                     <option value="per_person">Per person</option>
@@ -704,23 +704,23 @@ function PlanVendorRateAttach({ planId, vendor }: PlanVendorRateAttachProps) {
               </div>
 
               {provenanceLabel && !hasEdited ? (
-                <p className="text-xs font-semibold text-primary">{provenanceLabel}</p>
+                <p className="text-xs font-semibold text-clay">{provenanceLabel}</p>
               ) : hasEdited ? (
-                <p className="text-xs font-semibold text-muted-foreground">edited</p>
+                <p className="text-xs font-semibold text-ink-soft">edited</p>
               ) : null}
 
               {warning ? (
-                <p className="rounded-xl border border-secondary/30 bg-secondary/10 px-3 py-2 text-xs text-secondary">
+                <p className="rounded-md border border-clay/30 bg-clay-tint px-3 py-2 text-xs text-clay">
                   {warning}
                 </p>
               ) : null}
               {statusMessage ? (
-                <p className="rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
+                <p className="rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
                   {statusMessage}
                 </p>
               ) : null}
               {errorMessage ? (
-                <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <p className="rounded-md border border-brick/30 bg-brick-tint px-3 py-2 text-xs text-brick">
                   {errorMessage}
                 </p>
               ) : null}

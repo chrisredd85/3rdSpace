@@ -141,17 +141,17 @@ export function ErrorState({
   const sizeClass = sizeClasses[size]
 
   return (
-    <Card className={cn('border-destructive/30 bg-destructive/10', className)}>
+    <Card className={cn('border-brick/30 bg-brick/10', className)}>
       <CardContent className={cn('flex flex-col items-center justify-center text-center', sizeClass.container)}>
-        <div className={cn('mb-4 flex items-center justify-center rounded-full bg-destructive/15 p-3', sizeClass.icon)}>
-          <Icon className={cn('text-destructive', sizeClass.icon)} />
+        <div className={cn('mb-4 flex items-center justify-center rounded-full bg-brick/15 p-3', sizeClass.icon)}>
+          <Icon className={cn('text-brick', sizeClass.icon)} />
         </div>
 
-        <CardTitle className={cn('mb-2 text-foreground', sizeClass.title)}>
+        <CardTitle className={cn('mb-2 text-ink', sizeClass.title)}>
           {errorTitle}
         </CardTitle>
 
-        <CardDescription className={cn('mb-6 max-w-md text-muted-foreground', sizeClass.message)}>
+        <CardDescription className={cn('mb-6 max-w-md text-ink-soft', sizeClass.message)}>
           {errorMessageText}
         </CardDescription>
 
@@ -170,7 +170,7 @@ export function ErrorState({
           {(showSupport || supportLink) && (
             <a
               href={supportLink || 'mailto:support@3rdspace.com?subject=Error Report'}
-              className="inline-flex min-h-[44px] items-center justify-center rounded-xl border-2 border-border bg-card/40 px-6 py-3 text-base font-semibold text-foreground transition-all duration-200 hover:border-border hover:bg-background"
+              className="inline-flex min-h-[44px] items-center justify-center rounded-lg border-2 border-tan bg-cream/40 px-6 py-3 text-base font-semibold text-ink transition-all duration-200 hover:border-tan hover:bg-cream"
             >
               <Mail className="mr-2 h-4 w-4" />
               Contact Support

@@ -267,7 +267,7 @@ export default function VendorServicesPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-ink-soft">Loading...</div>
       </div>
     )
   }
@@ -275,7 +275,7 @@ export default function VendorServicesPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-destructive">Please log in to continue</div>
+        <div className="text-brick">Please log in to continue</div>
       </div>
     )
   }
@@ -499,8 +499,8 @@ export default function VendorServicesPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading services...</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-clay border-t-transparent mx-auto mb-4" />
+          <p className="text-ink-soft">Loading services...</p>
         </div>
       </div>
     )
@@ -509,7 +509,7 @@ export default function VendorServicesPage() {
   if (!vendorId) {
     return (
       <div className="text-center py-12">
-        <p className="text-muted-foreground">No vendor profile found. Please complete vendor onboarding first.</p>
+        <p className="text-ink-soft">No vendor profile found. Please complete vendor onboarding first.</p>
       </div>
     )
   }
@@ -517,8 +517,8 @@ export default function VendorServicesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-foreground">Service Listing</h1>
-        <p className="text-muted-foreground mt-1">Manage your vendor profile, bookable services, portfolio, and private documents.</p>
+        <h1 className="text-3xl font-bold text-ink">Service Listing</h1>
+        <p className="text-ink-soft mt-1">Run your vendor profile, bookable services, portfolio, and private documents.</p>
       </div>
 
       <form onSubmit={handleSubmit(handleSave)} className="space-y-6">
@@ -526,14 +526,14 @@ export default function VendorServicesPage() {
           <CardHeader>
             <CardTitle>Planner Visibility</CardTitle>
             <CardDescription>
-              Control whether builders can discover this vendor while planning.
+              Control whether builders can discover this vendor while composing an event.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-4 rounded-lg border border-tan bg-cream/60 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">Make service visible to event planners</p>
-                <p className="text-sm text-muted-foreground">Visible services appear in the 3rdPlace event planner and recommendation flow.</p>
+                <p className="text-sm font-medium text-ink">Make service visible to event planners</p>
+                <p className="text-sm text-ink-soft">Visible services appear in the 3rdPlace event planner and recommendation flow.</p>
               </div>
               <Switch
                 checked={Boolean(isPublished)}
@@ -553,7 +553,7 @@ export default function VendorServicesPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
+              <label className="text-sm font-medium text-ink mb-2 block">
                 Business Name *
               </label>
               <Input
@@ -561,30 +561,30 @@ export default function VendorServicesPage() {
                 placeholder="DJ Services Co."
               />
               {errors.business_name && (
-                <p className="text-sm text-destructive mt-1">{errors.business_name.message}</p>
+                <p className="text-sm text-brick mt-1">{errors.business_name.message}</p>
               )}
             </div>
 
             <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
+              <label className="text-sm font-medium text-ink mb-2 block">
                 Description
               </label>
               <textarea
                 {...register('description')}
                 rows={4}
-                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full rounded-md border border-tan px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-clay"
                 placeholder="Describe your services, experience, and what makes you unique..."
               />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-foreground mb-2 block">
+                <label className="text-sm font-medium text-ink mb-2 block">
                   Service Type *
                 </label>
                 <select
                   {...register('service_type')}
-                  className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
+                  className="flex h-10 w-full rounded-md border border-tan px-3 py-2 text-sm"
                 >
                   <option value="dj">DJ</option>
                   <option value="catering">Catering</option>
@@ -592,19 +592,19 @@ export default function VendorServicesPage() {
                   <option value="photography">Photography</option>
                   <option value="videography">Videography</option>
                   <option value="av_tech">AV Tech</option>
-                  <option value="event_planning">Event Planning</option>
+                  <option value="event_planning">Event Production</option>
                   <option value="florist">Florist</option>
                   <option value="other">Other</option>
                 </select>
               </div>
 
               <div>
-                <label className="text-sm font-medium text-foreground mb-2 block">
+                <label className="text-sm font-medium text-ink mb-2 block">
                   Service Area *
                 </label>
                 <select
                   {...register('service_area')}
-                  className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
+                  className="flex h-10 w-full rounded-md border border-tan px-3 py-2 text-sm"
                 >
                   {serviceAreaOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -613,18 +613,18 @@ export default function VendorServicesPage() {
                   ))}
                 </select>
                 {errors.service_area && (
-                  <p className="text-sm text-destructive mt-1">{errors.service_area.message}</p>
+                  <p className="text-sm text-brick mt-1">{errors.service_area.message}</p>
                 )}
               </div>
             </div>
 
             <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
+              <label className="text-sm font-medium text-ink mb-2 block">
                 Setup Time Required
               </label>
               <select
                 {...register('setup_time')}
-                className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
+                className="flex h-10 w-full rounded-md border border-tan px-3 py-2 text-sm"
               >
                 <option value="30">30 minutes</option>
                 <option value="60">60 minutes (1 hour)</option>
@@ -646,46 +646,46 @@ export default function VendorServicesPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div>
-                <label className="mb-2 block text-sm font-medium text-foreground">Base / starting price ($)</label>
+                <label className="mb-2 block text-sm font-medium text-ink">Base / starting price ($)</label>
                 <Input type="number" step="1" {...register('base_rate')} placeholder="950" />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-foreground">Deposit required (%)</label>
+                <label className="mb-2 block text-sm font-medium text-ink">Deposit required (%)</label>
                 <Input type="number" step="1" {...register('deposit_percentage')} placeholder="30" />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-foreground">Minimum lead time (days)</label>
+                <label className="mb-2 block text-sm font-medium text-ink">Minimum lead time (days)</label>
                 <Input type="number" step="1" {...register('lead_time_days')} placeholder="7" />
               </div>
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-foreground">Availability notes</label>
+              <label className="mb-2 block text-sm font-medium text-ink">Availability notes</label>
               <textarea
                 {...register('availability_notes')}
                 rows={3}
-                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full rounded-md border border-tan px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-clay"
                 placeholder="Available Tuesday-Saturday. Can handle same-week panel AV when gear is in town."
               />
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-foreground">Cancellation terms</label>
+              <label className="mb-2 block text-sm font-medium text-ink">Cancellation terms</label>
               <textarea
                 {...register('cancellation_terms')}
                 rows={2}
-                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full rounded-md border border-tan px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-clay"
                 placeholder="Refundable until seven days out, then 50% deposit retained."
               />
             </div>
 
-            <div className="rounded-2xl border border-accent/40 bg-accent/5 p-4">
+            <div className="rounded-lg border border-forest/40 bg-forest/5 p-4">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex gap-3">
-                  <Zap className="mt-0.5 h-4 w-4 text-accent" />
+                  <Zap className="mt-0.5 h-4 w-4 text-forest" />
                   <div>
-                    <p className="font-medium text-foreground">Available as an emergency vendor</p>
-                    <p className="mt-1 text-sm text-muted-foreground">
+                    <p className="font-medium text-ink">Available as an emergency vendor</p>
+                    <p className="mt-1 text-sm text-ink-soft">
                       Let planners flag you for last-minute replacement requests at a higher rate.
                     </p>
                   </div>
@@ -698,7 +698,7 @@ export default function VendorServicesPage() {
               </div>
               {emergencyAvailable ? (
                 <div className="mt-4 max-w-xs">
-                  <label className="mb-2 block text-sm font-medium text-foreground">Emergency-rate uplift (%)</label>
+                  <label className="mb-2 block text-sm font-medium text-ink">Emergency-rate uplift (%)</label>
                   <Input type="number" step="1" {...register('emergency_rate_uplift')} placeholder="25" />
                 </div>
               ) : null}
@@ -759,12 +759,12 @@ export default function VendorServicesPage() {
                 {documents.map((document) => (
                   <div
                     key={document.id}
-                    className="flex items-center gap-3 rounded-lg border border-border p-3"
+                    className="flex items-center gap-3 rounded-lg border border-tan p-3"
                   >
-                    <FileText className="h-5 w-5 text-muted-foreground/60" />
+                    <FileText className="h-5 w-5 text-ink-soft/60" />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm text-foreground">{document.name}</p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="truncate text-sm text-ink">{document.name}</p>
+                      <p className="text-xs text-ink-soft">
                         {document.mimeType || 'Document'}
                         {document.size ? ` • ${(document.size / 1024 / 1024).toFixed(1)} MB` : ''}
                       </p>
@@ -790,7 +790,7 @@ export default function VendorServicesPage() {
                 ))}
               </div>
             ) : (
-              <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
+              <div className="rounded-lg border border-dashed border-tan p-6 text-sm text-ink-soft">
                 No private vendor documents uploaded yet.
               </div>
             )}

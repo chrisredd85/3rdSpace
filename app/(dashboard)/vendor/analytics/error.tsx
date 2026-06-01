@@ -14,7 +14,7 @@ export default function VendorAnalyticsError({
   reset: () => void
 }) {
   return (
-    <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-6 text-destructive">
+    <div className="rounded-lg border border-brick/30 bg-brick/10 p-6 text-brick">
       <div className="flex items-start gap-3">
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
         <div>

@@ -35,12 +35,12 @@ export function StripeIntegrationNotice({
   const copy = COPY[context]
 
   return (
-    <div className={`rounded-lg border border-primary/30 bg-primary/10 p-3 text-foreground ${className}`}>
+    <div className={`rounded-lg border border-clay/30 bg-clay/10 p-3 text-ink ${className}`}>
       <div className="flex items-start gap-3">
-        <CreditCard className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary/80" />
+        <CreditCard className="mt-0.5 h-4 w-4 flex-shrink-0 text-clay/80" />
         <div>
           <p className="text-sm font-semibold">{copy.title}</p>
-          <p className="mt-1 text-xs leading-relaxed text-foreground">{copy.body}</p>
+          <p className="mt-1 text-xs leading-relaxed text-ink">{copy.body}</p>
         </div>
       </div>
     </div>

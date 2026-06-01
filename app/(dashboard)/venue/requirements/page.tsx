@@ -95,7 +95,7 @@ export default function VenueRequirementsPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-ink-soft">Loading...</div>
       </div>
     )
   }
@@ -103,7 +103,7 @@ export default function VenueRequirementsPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-destructive">Please log in to continue</div>
+        <div className="text-brick">Please log in to continue</div>
       </div>
     )
   }
@@ -222,8 +222,8 @@ export default function VenueRequirementsPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading requirements...</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-clay border-t-transparent mx-auto mb-4" />
+          <p className="text-ink-soft">Loading requirements...</p>
         </div>
       </div>
     )
@@ -232,7 +232,7 @@ export default function VenueRequirementsPage() {
   if (!venue) {
     return (
       <div className="text-center py-12">
-        <p className="text-muted-foreground">No venue found.</p>
+        <p className="text-ink-soft">No venue found.</p>
       </div>
     )
   }
@@ -240,8 +240,8 @@ export default function VenueRequirementsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-foreground">Requirements</h1>
-        <p className="text-muted-foreground mt-1">Set requirements and rules for event organizers</p>
+        <h1 className="text-3xl font-bold text-ink">Requirements</h1>
+        <p className="text-ink-soft mt-1">Set requirements and rules for event organizers</p>
       </div>
 
       {/* Required Documents */}
@@ -265,7 +265,7 @@ export default function VenueRequirementsPage() {
             ].map((doc) => (
               <label
                 key={doc.key}
-                className="flex items-center gap-3 p-3 border border-border rounded-lg hover:bg-background cursor-pointer"
+                className="flex items-center gap-3 p-3 border border-tan rounded-lg hover:bg-cream cursor-pointer"
               >
                 <input
                   type="checkbox"
@@ -276,9 +276,9 @@ export default function VenueRequirementsPage() {
                       [doc.key]: e.target.checked,
                     })
                   }
-                  className="h-4 w-4 text-primary focus:ring-primary"
+                  className="h-4 w-4 text-clay focus:ring-clay"
                 />
-                <span className="text-sm font-medium text-foreground">{doc.label}</span>
+                <span className="text-sm font-medium text-ink">{doc.label}</span>
               </label>
             ))}
           </div>
@@ -298,7 +298,7 @@ export default function VenueRequirementsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <label className="text-sm font-medium text-foreground mb-2 block">
+            <label className="text-sm font-medium text-ink mb-2 block">
               Minimum Coverage Amount
             </label>
             <Input
@@ -309,7 +309,7 @@ export default function VenueRequirementsPage() {
           </div>
 
           <div>
-            <label className="text-sm font-medium text-foreground mb-2 block">
+            <label className="text-sm font-medium text-ink mb-2 block">
               Additional Insured
             </label>
             <Input

@@ -133,7 +133,7 @@ export function PackageModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-cream/80 backdrop-blur-sm p-4">
       <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <CardHeader>
           <div className="flex items-start justify-between">
@@ -153,22 +153,22 @@ export function PackageModal({
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
+              <label className="text-sm font-medium text-ink mb-2 block">
                 Package Name *
               </label>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Premium DJ Package"
-                className={errors.name ? 'border-red-500' : ''}
+                className={errors.name ? 'border-brick' : ''}
               />
               {errors.name && (
-                <p className="text-sm text-destructive mt-1">{errors.name}</p>
+                <p className="text-sm text-brick mt-1">{errors.name}</p>
               )}
             </div>
 
             <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
+              <label className="text-sm font-medium text-ink mb-2 block">
                 Description
               </label>
               <textarea
@@ -176,13 +176,13 @@ export function PackageModal({
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
                 placeholder="Describe what's included in this package..."
-                className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full rounded-md border border-tan px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-clay"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-foreground mb-2 block">
+                <label className="text-sm font-medium text-ink mb-2 block">
                   Price ($) *
                 </label>
                 <Input
@@ -190,15 +190,15 @@ export function PackageModal({
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
                   placeholder="1500"
-                  className={errors.price ? 'border-red-500' : ''}
+                  className={errors.price ? 'border-brick' : ''}
                 />
                 {errors.price && (
-                  <p className="text-sm text-destructive mt-1">{errors.price}</p>
+                  <p className="text-sm text-brick mt-1">{errors.price}</p>
                 )}
               </div>
 
               <div>
-                <label className="text-sm font-medium text-foreground mb-2 block">
+                <label className="text-sm font-medium text-ink mb-2 block">
                   Duration (hours) *
                 </label>
                 <Input
@@ -206,23 +206,23 @@ export function PackageModal({
                   value={duration}
                   onChange={(e) => setDuration(e.target.value)}
                   placeholder="4"
-                  className={errors.duration ? 'border-red-500' : ''}
+                  className={errors.duration ? 'border-brick' : ''}
                 />
                 {errors.duration && (
-                  <p className="text-sm text-destructive mt-1">{errors.duration}</p>
+                  <p className="text-sm text-brick mt-1">{errors.duration}</p>
                 )}
               </div>
             </div>
 
             <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
+              <label className="text-sm font-medium text-ink mb-2 block">
                 Inclusions
               </label>
               <div className="space-y-2">
                 {commonInclusions.map((inclusion) => (
                   <label
                     key={inclusion}
-                    className="flex items-center gap-2 p-2 border border-border rounded hover:bg-background cursor-pointer"
+                    className="flex items-center gap-2 p-2 border border-tan rounded hover:bg-cream cursor-pointer"
                   >
                     <input
                       type="checkbox"
@@ -236,9 +236,9 @@ export function PackageModal({
                           )
                         }
                       }}
-                      className="h-4 w-4 text-primary"
+                      className="h-4 w-4 text-clay"
                     />
-                    <span className="text-sm text-foreground">{inclusion}</span>
+                    <span className="text-sm text-ink">{inclusion}</span>
                   </label>
                 ))}
 
@@ -279,9 +279,9 @@ export function PackageModal({
                 id="isActive"
                 checked={isActive}
                 onChange={(e) => setIsActive(e.target.checked)}
-                className="h-4 w-4 text-primary"
+                className="h-4 w-4 text-clay"
               />
-              <label htmlFor="isActive" className="text-sm font-medium text-foreground">
+              <label htmlFor="isActive" className="text-sm font-medium text-ink">
                 Package is active (visible to clients)
               </label>
             </div>

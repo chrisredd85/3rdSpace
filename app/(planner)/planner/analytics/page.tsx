@@ -255,17 +255,17 @@ export default function PlannerAnalyticsPage() {
 
   return (
     <PageShell>
-      <header className="rounded-3xl border border-border bg-gradient-card p-5 shadow-card sm:p-6">
+      <header className="rounded-lg border border-tan bg-cream p-5 shadow-card sm:p-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-clay/30 bg-clay-tint px-3 py-1 text-xs font-semibold text-clay">
               <BarChart3 className="h-3.5 w-3.5" />
               Post-event operating scorecard
             </div>
-            <h1 className="font-display text-3xl font-bold text-foreground sm:text-4xl">
+            <h1 className="font-display text-3xl font-bold text-ink sm:text-4xl">
               Analytics that feeds the <span className="text-gradient-brand">next plan</span>
             </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-ink-soft">
               Money, ticket tier performance, attendance, and data coverage are separated by source so the page does not invent metrics the schema cannot support yet.
             </p>
           </div>
@@ -276,7 +276,7 @@ export default function PlannerAnalyticsPage() {
               id="event-select"
               value={selectedEventId ?? ''}
               onChange={(event) => setSelectedEventId(event.target.value || null)}
-              className="min-h-11 rounded-xl border border-border bg-card/60 px-4 py-2 text-sm font-semibold text-foreground outline-none transition-smooth hover:bg-card focus:border-primary focus:ring-2 focus:ring-primary/20"
+              className="min-h-11 rounded-md border border-tan bg-cream px-4 py-2 text-sm font-semibold text-ink outline-none transition-smooth hover:bg-cream focus:border-clay focus:ring-2 focus:ring-clay/20"
             >
               {sortedEvents.map((event) => (
                 <option key={event.id} value={event.id}>
@@ -297,7 +297,7 @@ export default function PlannerAnalyticsPage() {
       </header>
 
       {loadState.error && (
-        <div className="rounded-3xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+        <div className="rounded-lg border border-brick/40 bg-brick-tint p-4 text-sm text-brick">
           {loadState.error}
         </div>
       )}
@@ -342,7 +342,7 @@ export default function PlannerAnalyticsPage() {
           </section>
 
           <section className="grid gap-6 2xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
-            <Card className="min-w-0 rounded-3xl">
+            <Card className="min-w-0 rounded-lg">
               <CardHeader>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
@@ -359,7 +359,7 @@ export default function PlannerAnalyticsPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[760px] text-sm">
                       <thead>
-                        <tr className="border-b border-border text-left text-xs uppercase text-muted-foreground">
+                        <tr className="border-b border-tan text-left text-xs uppercase text-ink-soft">
                           <th className="pb-3 pr-4 font-semibold">Tier</th>
                           <th className="pb-3 pr-4 font-semibold">Sold</th>
                           <th className="pb-3 pr-4 font-semibold">Avg price</th>
@@ -370,32 +370,32 @@ export default function PlannerAnalyticsPage() {
                       </thead>
                       <tbody>
                         {scorecard.tiers.map((tier) => (
-                          <tr key={`${tier.platform}-${tier.ticket_tier_category}-${tier.ticket_tier_name}`} className="border-b border-border/70">
+                          <tr key={`${tier.platform}-${tier.ticket_tier_category}-${tier.ticket_tier_name}`} className="border-b border-tan">
                             <td className="py-4 pr-4">
-                              <div className="font-semibold text-foreground">{tier.ticket_tier_name}</div>
+                              <div className="font-semibold text-ink">{tier.ticket_tier_name}</div>
                               <div className="mt-1 flex flex-wrap gap-2">
                                 <SourcePill label={formatTierCategory(tier.ticket_tier_category)} compact />
                                 <SourcePill label={tier.platform} compact muted />
                               </div>
                             </td>
-                            <td className="py-4 pr-4 text-foreground">
+                            <td className="py-4 pr-4 text-ink">
                               {tier.tickets_sold}
                               {tier.tickets_refunded > 0 && (
-                                <span className="ml-2 text-xs text-muted-foreground">({tier.tickets_refunded} refunded)</span>
+                                <span className="ml-2 text-xs text-ink-soft">({tier.tickets_refunded} refunded)</span>
                               )}
                             </td>
-                            <td className="py-4 pr-4 text-foreground">{formatCents(tier.average_ticket_price_cents)}</td>
-                            <td className="py-4 pr-4 font-semibold text-foreground">{formatCents(tier.net_revenue_cents)}</td>
+                            <td className="py-4 pr-4 text-ink">{formatCents(tier.average_ticket_price_cents)}</td>
+                            <td className="py-4 pr-4 font-semibold text-ink">{formatCents(tier.net_revenue_cents)}</td>
                             <td className="py-4 pr-4">
                               {tier.allocatedProfitCents === null ? (
-                                <span className="text-muted-foreground">Needs costs</span>
+                                <span className="text-ink-soft">Needs costs</span>
                               ) : (
-                                <span className={cn('font-semibold', tier.allocatedProfitCents >= 0 ? 'text-lime-200' : 'text-coral')}>
+                                <span className={cn('font-semibold', tier.allocatedProfitCents >= 0 ? 'text-forest' : 'text-brick')}>
                                   {formatCents(tier.allocatedProfitCents)}
                                 </span>
                               )}
                             </td>
-                            <td className="py-4 text-muted-foreground">{tier.read}</td>
+                            <td className="py-4 text-ink-soft">{tier.read}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -411,7 +411,7 @@ export default function PlannerAnalyticsPage() {
               </CardContent>
             </Card>
 
-            <Card className="min-w-0 rounded-3xl 2xl:min-w-[360px]">
+            <Card className="min-w-0 rounded-lg 2xl:min-w-[360px]">
               <CardHeader className="min-w-0">
                 <CardTitle>Run Again</CardTitle>
                 <CardDescription className="[overflow-wrap:normal]">
@@ -419,16 +419,16 @@ export default function PlannerAnalyticsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="min-w-0 space-y-4">
-                <div className="rounded-2xl border border-border bg-background/40 p-4">
+                <div className="rounded-lg border border-tan bg-cream-deep/55 p-4">
                   <div className="flex min-w-0 items-start gap-3">
-                    <div className="shrink-0 rounded-xl border border-primary/30 bg-primary/10 p-2 text-primary">
+                    <div className="shrink-0 rounded-md border border-clay/30 bg-clay-tint p-2 text-clay">
                       <Repeat2 className="h-5 w-5" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="font-display text-lg font-bold leading-tight text-foreground [overflow-wrap:normal] sm:text-xl">
+                      <p className="font-display text-lg font-bold leading-tight text-ink [overflow-wrap:normal] sm:text-xl">
                         {scorecard.recommendation.title}
                       </p>
-                      <p className="mt-2 text-sm leading-6 text-muted-foreground [overflow-wrap:normal]">
+                      <p className="mt-2 text-sm leading-6 text-ink-soft [overflow-wrap:normal]">
                         {scorecard.recommendation.body}
                       </p>
                     </div>
@@ -436,8 +436,8 @@ export default function PlannerAnalyticsPage() {
                 </div>
                 <div className="space-y-3">
                   {scorecard.recommendation.nextSteps.map((step) => (
-                    <div key={step} className="flex min-w-0 gap-3 rounded-2xl border border-border bg-card/40 p-3 text-sm text-muted-foreground">
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-lime-200" />
+                    <div key={step} className="flex min-w-0 gap-3 rounded-lg border border-tan bg-cream p-3 text-sm text-ink-soft">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-forest" />
                       <span className="min-w-0 flex-1 leading-6 [overflow-wrap:normal]">{step}</span>
                     </div>
                   ))}
@@ -447,7 +447,7 @@ export default function PlannerAnalyticsPage() {
           </section>
 
           <section className="grid gap-6 xl:grid-cols-3">
-            <Card className="rounded-3xl xl:col-span-2">
+            <Card className="rounded-lg xl:col-span-2">
               <CardHeader>
                 <CardTitle>Attendance</CardTitle>
                 <CardDescription>Check-ins, no-show risk, and arrival shape from imported attendee rows.</CardDescription>
@@ -462,7 +462,7 @@ export default function PlannerAnalyticsPage() {
               </CardContent>
             </Card>
 
-            <Card className="rounded-3xl">
+            <Card className="rounded-lg">
               <CardHeader>
                 <CardTitle>Venue Impact</CardTitle>
                 <CardDescription>Useful for a venue recap, with proxy labels where exact POS data is missing.</CardDescription>
@@ -477,7 +477,7 @@ export default function PlannerAnalyticsPage() {
           </section>
 
           <section className="grid gap-6 lg:grid-cols-2">
-            <Card className="rounded-3xl">
+            <Card className="rounded-lg">
               <CardHeader>
                 <CardTitle>Sales Velocity</CardTitle>
                 <CardDescription>Tier movement from purchase timestamps when providers include them.</CardDescription>
@@ -486,18 +486,18 @@ export default function PlannerAnalyticsPage() {
                 {scorecard.velocity.length > 0 ? (
                   <div className="space-y-3">
                     {scorecard.velocity.map((tier) => (
-                      <div key={`${tier.tier_name}-${tier.ticket_price_cents ?? 'unknown'}`} className="rounded-2xl border border-border bg-card/40 p-4">
+                      <div key={`${tier.tier_name}-${tier.ticket_price_cents ?? 'unknown'}`} className="rounded-lg border border-tan bg-cream p-4">
                         <div className="flex items-center justify-between gap-3">
                           <div>
-                            <p className="font-semibold text-foreground">{tier.tier_name}</p>
-                            <p className="text-xs text-muted-foreground">{tier.ticket_price_cents === null ? 'Unknown price' : formatCents(tier.ticket_price_cents)}</p>
+                            <p className="font-semibold text-ink">{tier.tier_name}</p>
+                            <p className="text-xs text-ink-soft">{tier.ticket_price_cents === null ? 'Unknown price' : formatCents(tier.ticket_price_cents)}</p>
                           </div>
                           <div className="text-right">
-                            <p className="text-sm font-bold text-foreground">{tier.tickets_sold} sold</p>
-                            <p className="text-xs text-muted-foreground">{tier.tickets_refunded} refunded</p>
+                            <p className="text-sm font-bold text-ink">{tier.tickets_sold} sold</p>
+                            <p className="text-xs text-ink-soft">{tier.tickets_refunded} refunded</p>
                           </div>
                         </div>
-                        <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                        <div className="mt-3 grid gap-2 text-xs text-ink-soft sm:grid-cols-2">
                           <span>First: {formatDateTime(tier.first_purchase_at)}</span>
                           <span>Last: {formatDateTime(tier.last_purchase_at)}</span>
                         </div>
@@ -514,7 +514,7 @@ export default function PlannerAnalyticsPage() {
               </CardContent>
             </Card>
 
-            <Card className="rounded-3xl">
+            <Card className="rounded-lg">
               <CardHeader>
                 <CardTitle>Data Coverage</CardTitle>
                 <CardDescription>What is factual today versus what still needs instrumentation.</CardDescription>
@@ -527,7 +527,7 @@ export default function PlannerAnalyticsPage() {
             </Card>
           </section>
 
-          <Card className="rounded-3xl">
+          <Card className="rounded-lg">
             <CardHeader>
               <CardTitle>Not Factual Yet</CardTitle>
               <CardDescription>These should stay hidden, empty, or explicitly marked as assumptions until the app captures the source data.</CardDescription>
@@ -539,12 +539,12 @@ export default function PlannerAnalyticsPage() {
                 ['Walk-ins', 'Needs a dedicated walk-in count, not just ticket/check-in proxy.'],
                 ['Satisfaction/NPS', 'Needs event-linked survey or review rows.'],
               ].map(([title, body]) => (
-                <div key={title} className="rounded-2xl border border-border bg-background/40 p-4">
-                  <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl border border-coral/30 bg-coral/10 text-coral">
+                <div key={title} className="rounded-lg border border-tan bg-cream-deep/55 p-4">
+                  <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-md border border-ochre/30 bg-ochre-tint text-ochre">
                     <AlertTriangle className="h-4 w-4" />
                   </div>
-                  <p className="font-semibold text-foreground">{title}</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{body}</p>
+                  <p className="font-semibold text-ink">{title}</p>
+                  <p className="mt-2 text-sm leading-6 text-ink-soft">{body}</p>
                 </div>
               ))}
             </CardContent>
@@ -771,23 +771,23 @@ function MetricCard({
   tone?: 'neutral' | 'positive' | 'warning'
 }) {
   return (
-    <Card className="rounded-3xl">
+    <Card className="rounded-lg">
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold text-muted-foreground">{label}</p>
-            <p className="mt-3 font-display text-3xl font-bold text-foreground">{value}</p>
+            <p className="text-sm font-semibold text-ink-soft">{label}</p>
+            <p className="mt-3 font-display text-3xl font-bold text-ink">{value}</p>
           </div>
           <div className={cn(
-            'rounded-2xl border p-3',
-            tone === 'positive' && 'border-lime/30 bg-lime/10 text-lime-200',
-            tone === 'warning' && 'border-coral/30 bg-coral/10 text-coral',
-            tone === 'neutral' && 'border-primary/30 bg-primary/10 text-primary'
+            'rounded-lg border p-3',
+            tone === 'positive' && 'border-forest/30 bg-forest-tint text-forest',
+            tone === 'warning' && 'border-ochre/30 bg-ochre-tint text-ochre',
+            tone === 'neutral' && 'border-clay/30 bg-clay-tint text-clay'
           )}>
             {icon}
           </div>
         </div>
-        <p className="mt-4 text-sm leading-6 text-muted-foreground">{detail}</p>
+        <p className="mt-4 text-sm leading-6 text-ink-soft">{detail}</p>
         <div className="mt-4">
           <SourcePill label={source} compact />
         </div>
@@ -798,9 +798,9 @@ function MetricCard({
 
 function CompactMetric({ label, value, source }: { label: string; value: string; source: string }) {
   return (
-    <div className="rounded-2xl border border-border bg-card/40 p-4">
-      <p className="text-xs font-semibold uppercase text-muted-foreground">{label}</p>
-      <p className="mt-2 font-display text-2xl font-bold text-foreground">{value}</p>
+    <div className="rounded-lg border border-tan bg-cream p-4">
+      <p className="text-xs font-semibold uppercase text-ink-soft">{label}</p>
+      <p className="mt-2 font-display text-2xl font-bold text-ink">{value}</p>
       <div className="mt-3">
         <SourcePill label={source} compact muted />
       </div>
@@ -810,12 +810,12 @@ function CompactMetric({ label, value, source }: { label: string; value: string;
 
 function ImpactRow({ label, value, source, muted = false }: { label: string; value: string; source: string; muted?: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card/40 p-3">
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-tan bg-cream p-3">
       <div>
-        <p className={cn('text-sm font-semibold', muted ? 'text-muted-foreground' : 'text-foreground')}>{label}</p>
+        <p className={cn('text-sm font-semibold', muted ? 'text-ink-soft' : 'text-ink')}>{label}</p>
         <SourcePill label={source} compact muted />
       </div>
-      <p className={cn('text-right font-display text-lg font-bold', muted ? 'text-muted-foreground' : 'text-foreground')}>{value}</p>
+      <p className={cn('text-right font-display text-lg font-bold', muted ? 'text-ink-soft' : 'text-ink')}>{value}</p>
     </div>
   )
 }
@@ -823,19 +823,19 @@ function ImpactRow({ label, value, source, muted = false }: { label: string; val
 function CoverageRow({ label, value, status, source }: { label: string; value: string; status: 'ready' | 'missing' | 'assumption'; source: string }) {
   const Icon = status === 'ready' ? CheckCircle2 : status === 'assumption' ? Activity : AlertTriangle
   return (
-    <div className="flex items-start gap-3 rounded-2xl border border-border bg-card/40 p-4">
+    <div className="flex items-start gap-3 rounded-lg border border-tan bg-cream p-4">
       <div className={cn(
-        'rounded-xl border p-2',
-        status === 'ready' && 'border-lime/30 bg-lime/10 text-lime-200',
-        status === 'assumption' && 'border-primary/30 bg-primary/10 text-primary',
-        status === 'missing' && 'border-coral/30 bg-coral/10 text-coral'
+        'rounded-md border p-2',
+        status === 'ready' && 'border-forest/30 bg-forest-tint text-forest',
+        status === 'assumption' && 'border-clay/30 bg-clay-tint text-clay',
+        status === 'missing' && 'border-brick/30 bg-brick-tint text-brick'
       )}>
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="font-semibold text-foreground">{label}</p>
-          <span className="text-sm text-muted-foreground">{value}</span>
+          <p className="font-semibold text-ink">{label}</p>
+          <span className="text-sm text-ink-soft">{value}</span>
         </div>
         <div className="mt-2">
           <SourcePill label={source} compact muted />
@@ -850,7 +850,7 @@ function SourcePill({ label, compact = false, muted = false }: { label: string; 
     <span className={cn(
       'inline-flex items-center rounded-full border font-semibold',
       compact ? 'px-2 py-0.5 text-[11px]' : 'px-3 py-1 text-xs',
-      muted ? 'border-border bg-background/50 text-muted-foreground' : 'border-primary/30 bg-primary/10 text-primary'
+      muted ? 'border-tan bg-cream-deep/60 text-ink-soft' : 'border-clay/30 bg-clay-tint text-clay'
     )}>
       {label}
     </span>
@@ -859,12 +859,12 @@ function SourcePill({ label, compact = false, muted = false }: { label: string; 
 
 function EmptyBlock({ icon, title, body }: { icon: ReactNode; title: string; body: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-border bg-background/40 p-8 text-center">
-      <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-border bg-card/60 text-muted-foreground">
+    <div className="rounded-lg border border-dashed border-tan bg-cream-deep/55 p-8 text-center">
+      <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-lg border border-tan bg-cream text-ink-soft">
         {icon}
       </div>
-      <p className="font-semibold text-foreground">{title}</p>
-      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">{body}</p>
+      <p className="font-semibold text-ink">{title}</p>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-ink-soft">{body}</p>
     </div>
   )
 }
@@ -872,15 +872,15 @@ function EmptyBlock({ icon, title, body }: { icon: ReactNode; title: string; bod
 function EmptyState({ title, body, tone = 'neutral' }: { title: string; body: string; tone?: 'neutral' | 'warning' }) {
   return (
     <div className="flex min-h-[70vh] items-center justify-center">
-      <div className="w-full max-w-xl rounded-3xl border border-border bg-gradient-card p-8 text-center shadow-card">
+      <div className="w-full max-w-xl rounded-lg border border-tan bg-cream p-8 text-center shadow-card">
         <div className={cn(
-          'mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border',
-          tone === 'warning' ? 'border-coral/30 bg-coral/10 text-coral' : 'border-primary/30 bg-primary/10 text-primary'
+          'mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-lg border',
+          tone === 'warning' ? 'border-ochre/30 bg-ochre-tint text-ochre' : 'border-clay/30 bg-clay-tint text-clay'
         )}>
           {tone === 'warning' ? <AlertTriangle className="h-6 w-6" /> : <BarChart3 className="h-6 w-6" />}
         </div>
-        <h1 className="font-display text-3xl font-bold text-foreground">{title}</h1>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">{body}</p>
+        <h1 className="font-display text-3xl font-bold text-ink">{title}</h1>
+        <p className="mt-3 text-sm leading-6 text-ink-soft">{body}</p>
       </div>
     </div>
   )
@@ -890,7 +890,7 @@ function ScorecardSkeleton() {
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       {[0, 1, 2, 3].map((item) => (
-        <div key={item} className="h-48 animate-pulse rounded-3xl border border-border bg-card/40" />
+        <div key={item} className="h-48 animate-pulse rounded-lg border border-tan bg-cream" />
       ))}
     </div>
   )

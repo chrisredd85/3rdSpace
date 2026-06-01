@@ -146,7 +146,7 @@ export function UniqueFeaturesEditor({ venueId, onSave }: UniqueFeaturesEditorPr
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2 text-sm text-ink-soft">
         <Loader2 className="h-4 w-4 animate-spin" />
         Loading unique features...
       </div>
@@ -156,11 +156,11 @@ export function UniqueFeaturesEditor({ venueId, onSave }: UniqueFeaturesEditorPr
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="flex items-center gap-2 text-xl font-bold text-foreground">
-          <Sparkles className="h-6 w-6 text-yellow-500" />
+        <h3 className="flex items-center gap-2 text-xl font-bold text-ink">
+          <Sparkles className="h-6 w-6 text-ochre" />
           What Makes Your Venue Unique?
         </h3>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-sm text-ink-soft">
           Describe the details that help builders picture the experience, not just the room.
         </p>
       </div>
@@ -172,20 +172,20 @@ export function UniqueFeaturesEditor({ venueId, onSave }: UniqueFeaturesEditorPr
           placeholder="Historic brick building with exposed beams and original hardwood floors. Floor-to-ceiling windows provide natural light. Rooftop terrace with skyline views. In-house sound system and lighting rig. Walking distance from BART."
           rows={8}
           maxLength={3000}
-          className="w-full resize-none rounded-md border border-border px-3 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="w-full resize-none rounded-md border border-tan px-3 py-3 text-sm focus:border-clay focus:outline-none focus:ring-2 focus:ring-clay/20"
         />
 
-        <div className="flex flex-col gap-1 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-1 text-xs text-ink-soft sm:flex-row sm:items-center sm:justify-between">
           <span>{wordCount} words · {charCount} characters</span>
-          <span className={charCount > 500 ? 'text-yellow-200' : ''}>
+          <span className={charCount > 500 ? 'text-ochre' : ''}>
             {draftSavedAt ? `Draft autosaved at ${draftSavedAt}` : charCount > 500 ? 'Consider trimming for card readability.' : 'Specific details make better matches.'}
           </span>
         </div>
       </div>
 
-      <div className="rounded-lg border border-primary/30 bg-primary/10 p-4">
-        <p className="mb-2 font-semibold text-foreground">Writing Tips</p>
-        <ul className="space-y-1 text-sm text-foreground">
+      <div className="rounded-lg border border-clay/30 bg-clay/10 p-4">
+        <p className="mb-2 font-semibold text-ink">Writing Tips</p>
+        <ul className="space-y-1 text-sm text-ink">
           <li>Mention architectural features like exposed brick, high ceilings, or skylights.</li>
           <li>Call out technical amenities such as projectors, sound, and lighting.</li>
           <li>Describe ambiance, transit, parking, views, and event flow.</li>
@@ -195,17 +195,17 @@ export function UniqueFeaturesEditor({ venueId, onSave }: UniqueFeaturesEditorPr
       {tags.length > 0 ? (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <Tag className="h-4 w-4 text-muted-foreground" />
-            <p className="text-sm font-semibold text-foreground">Auto-detected search tags</p>
+            <Tag className="h-4 w-4 text-ink-soft" />
+            <p className="text-sm font-semibold text-ink">Auto-detected search tags</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {tags.map((tag) => (
-              <span key={tag} className="rounded-full bg-primary/15 px-3 py-1 text-xs font-medium capitalize text-primary">
+              <span key={tag} className="rounded-full bg-clay/15 px-3 py-1 text-xs font-medium capitalize text-clay">
                 {tag}
               </span>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground">These tags help builders find your venue in marketplace search.</p>
+          <p className="text-xs text-ink-soft">These tags help builders find your venue in marketplace search.</p>
         </div>
       ) : null}
 

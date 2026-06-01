@@ -945,20 +945,20 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
 
   return (
     <aside className={cn(
-      'flex w-full min-w-0 flex-col bg-card text-foreground',
-      inline ? '' : 'h-full border-l border-border shadow-card'
+      'flex w-full min-w-0 flex-col bg-cream text-ink',
+      inline ? '' : 'h-full border-l border-tan shadow-card'
     )}>
-      <div className="border-b border-border px-4 py-6">
+      <div className="border-b border-tan px-4 py-6">
         <div className="space-y-2">
-          <p className="whitespace-nowrap text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Event Plan</p>
+          <p className="label-caps whitespace-nowrap text-ink-soft">Event Plan</p>
           {updatedAtLabel ? (
-            <span className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-emerald-600">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            <span className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-forest">
+              <span className="h-2 w-2 rounded-full bg-forest" />
               Updated {updatedAtLabel}
             </span>
           ) : null}
         </div>
-        <h2 className="mt-4 break-words font-display text-2xl leading-[1.05] tracking-normal text-foreground" title={title}>
+        <h2 className="mt-4 break-words font-display text-xl font-semibold leading-[1.08] tracking-normal text-ink sm:text-2xl" title={title}>
           {title}
         </h2>
         <div className="mt-5 flex flex-wrap gap-2">
@@ -1003,18 +1003,18 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             />
           </div>
 
-          <div className="mt-7 rounded-2xl border border-primary/20 bg-primary/5 p-5">
+          <div className="mt-7 rounded-lg border border-clay/25 bg-clay-tint/55 p-5">
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-primary">Top Venue</p>
-                <p className="mt-3 break-words text-lg font-semibold leading-tight text-foreground sm:text-xl" title={primaryVenue?.name ?? 'Recommendation pending'}>
+                <p className="label-caps text-clay">Top Venue</p>
+                <p className="mt-3 break-words text-lg font-semibold leading-tight text-ink sm:text-xl" title={primaryVenue?.name ?? 'Recommendation pending'}>
                   {primaryVenue?.name ?? 'Recommendation pending'}
                 </p>
-                <p className="mt-1 flex min-w-0 items-start gap-1.5 break-words text-sm leading-snug text-muted-foreground" title={venueMetaLabel(primaryVenue, eventSummary)}>
+                <p className="mt-1 flex min-w-0 items-start gap-1.5 break-words text-sm leading-snug text-ink-soft" title={venueMetaLabel(primaryVenue, eventSummary)}>
                   <MapPin className="h-4 w-4 shrink-0" />
                   {venueMetaLabel(primaryVenue, eventSummary)}
                 </p>
-                <p className="mt-3 break-words text-sm leading-snug text-primary/70">
+                <p className="mt-3 break-words text-sm leading-snug text-clay-deep">
                   {workspaceSummary?.workspaceSummary
                     ?? (primaryVenue?.name
                       ? `${primaryVenue.name} will receive the plan after approval.`
@@ -1025,15 +1025,15 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                     <span className={cn(
                       'rounded-full px-2 py-1 text-[11px] font-bold uppercase tracking-[0.06em]',
                       workspaceSummary.currentStatus === 'blocked'
-                        ? 'bg-destructive/15 text-destructive'
+                        ? 'bg-brick-tint text-brick'
                         : workspaceSummary.currentStatus === 'at_risk'
-                          ? 'bg-warning/15 text-warning'
-                          : 'bg-success/15 text-success'
+                          ? 'bg-ochre-tint text-ochre'
+                          : 'bg-forest-tint text-forest'
                     )}>
                       {workspaceSummary.currentStatus.replace(/_/g, ' ')}
                     </span>
                     {workspaceSummary.approvalsNeeded.slice(0, 1).map((approval) => (
-                      <span key={approval} className="rounded-full bg-muted px-2 py-1 text-[11px] font-semibold text-muted-foreground">
+                      <span key={approval} className="rounded-full bg-cream px-2 py-1 text-[11px] font-semibold text-ink-soft">
                         {approval}
                       </span>
                     ))}
@@ -1042,7 +1042,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
               </div>
               <Link
                 href="/planner/venues"
-                className="inline-flex shrink-0 items-center gap-1 text-sm font-bold text-primary transition-colors hover:text-primary/80"
+                className="inline-flex shrink-0 items-center gap-1 text-sm font-bold text-clay transition-colors hover:text-clay-deep"
               >
                 View
                 <ChevronRight className="h-4 w-4" />
@@ -1050,20 +1050,20 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             </div>
           </div>
 
-          <div className="mt-4 rounded-2xl border border-border bg-muted/20 p-5">
-            <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Open Questions</p>
+          <div className="mt-4 rounded-lg border border-tan bg-cream-deep/50 p-5">
+            <p className="label-caps text-ink-soft">Open Questions</p>
             {openQuestions.length > 0 ? (
               <div className="mt-4 space-y-2">
                 {openQuestions.map((question) => (
-                  <div key={question} className="flex items-start gap-3 text-base text-muted-foreground">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                  <div key={question} className="flex items-start gap-3 text-base text-ink-soft">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-ochre" />
                     <span className="break-words leading-snug">{question}</span>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="mt-4 flex items-start gap-3 text-base text-muted-foreground">
-                <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+              <div className="mt-4 flex items-start gap-3 text-base text-ink-soft">
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-forest" />
                 <span className="break-words leading-snug">Core plan details are coherent enough to request holds.</span>
               </div>
             )}
@@ -1071,14 +1071,14 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         </ArtifactSection>
 
         <ArtifactSection icon={<TrendingUp className="h-5 w-5" />} title="Profit Window" subtitle="Forecast range">
-          <div className="mb-5 rounded-2xl border border-border bg-muted/20 p-5">
-            <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Ticket Pricing</p>
+          <div className="mb-5 rounded-lg border border-tan bg-cream-deep/50 p-5">
+            <p className="label-caps text-ink-soft">Ticket Pricing</p>
             <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(118px,1fr))]">
               <PricingMetric label="Market avg" value={formatCents(profitModel.ticketPricing.marketAverageCents)} />
               <PricingMetric label="Break-even" value={eventSummary.ticketed ? formatCents(profitModel.ticketPricing.breakEvenCents) : 'N/A'} />
               <PricingMetric label="Recommend" value={eventSummary.ticketed ? formatCents(profitModel.ticketPricing.recommendedCents) : 'Free RSVP'} featured />
             </div>
-            <p className="mt-4 text-sm leading-snug text-muted-foreground">
+            <p className="mt-4 text-sm leading-snug text-ink-soft">
               {profitModel.ticketPricing.rationale}
             </p>
           </div>
@@ -1088,20 +1088,20 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             <ProfitCard label="Upside" value={profitModel.upsideCents} />
           </div>
 
-          <div className="mt-5 overflow-hidden rounded-2xl border border-border bg-muted/20">
+          <div className="mt-5 overflow-hidden rounded-lg border border-tan bg-cream-deep/50">
             {profitModel.lineItems.map((item) => (
-              <div key={item.label} className="flex min-w-0 items-center justify-between gap-5 border-b border-border px-5 py-3 last:border-b-0">
-                <span className="min-w-0 truncate text-base text-muted-foreground" title={item.label}>{item.label}</span>
-                <span className={cn('shrink-0 font-semibold tabular-nums', item.negative ? 'text-destructive' : 'text-foreground')}>
+              <div key={item.label} className="flex min-w-0 items-center justify-between gap-5 border-b border-tan px-5 py-3 last:border-b-0">
+                <span className="min-w-0 truncate text-base text-ink-soft" title={item.label}>{item.label}</span>
+                <span className={cn('shrink-0 font-semibold tabular-nums', item.negative ? 'text-brick' : 'text-ink')}>
                   {item.negative ? '-' : ''}
                   {formatCents(item.amountCents)}
                 </span>
               </div>
             ))}
             {profitModel.breakEvenTickets !== null ? (
-              <div className="flex min-w-0 items-center justify-between gap-5 border-t border-primary/20 bg-primary/5 px-5 py-3">
-                <span className="min-w-0 truncate text-sm font-semibold text-primary">Break-even tickets</span>
-                <span className="shrink-0 font-bold tabular-nums text-primary">{profitModel.breakEvenTickets}</span>
+              <div className="flex min-w-0 items-center justify-between gap-5 border-t border-clay/25 bg-clay-tint px-5 py-3">
+                <span className="min-w-0 truncate text-sm font-semibold text-clay">Break-even tickets</span>
+                <span className="shrink-0 font-bold tabular-nums text-clay">{profitModel.breakEvenTickets}</span>
               </div>
             ) : null}
           </div>
@@ -1109,30 +1109,30 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           {/* Custom costs */}
           <div className="mt-5">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+              <p className="label-caps text-ink-soft">
                 Custom Costs
-                {isSavingCustomCosts ? <span className="ml-2 text-[10px] font-normal normal-case text-muted-foreground/60">saving…</span> : null}
+                {isSavingCustomCosts ? <span className="ml-2 text-[10px] font-normal normal-case text-ink-faint">saving…</span> : null}
               </p>
               {profitModel.customCostsTotalCents > 0 ? (
-                <span className="shrink-0 text-sm font-semibold tabular-nums text-destructive">
+                <span className="shrink-0 text-sm font-semibold tabular-nums text-brick">
                   −{formatCents(profitModel.customCostsTotalCents)} total
                 </span>
               ) : null}
             </div>
 
             {customCosts.length > 0 ? (
-              <div className="mb-3 overflow-hidden rounded-2xl border border-border bg-muted/20">
+              <div className="mb-3 overflow-hidden rounded-lg border border-tan bg-cream-deep/50">
                 {customCosts.map((cost) => (
-                  <div key={cost.id} className="flex min-w-0 items-center justify-between gap-3 border-b border-border px-4 py-3 last:border-b-0">
-                    <span className="min-w-0 truncate text-sm text-foreground" title={cost.label}>{cost.label}</span>
+                  <div key={cost.id} className="flex min-w-0 items-center justify-between gap-3 border-b border-tan px-4 py-3 last:border-b-0">
+                    <span className="min-w-0 truncate text-sm text-ink" title={cost.label}>{cost.label}</span>
                     <div className="flex shrink-0 items-center gap-3">
-                      <span className="tabular-nums text-sm font-semibold text-destructive">
+                      <span className="tabular-nums text-sm font-semibold text-brick">
                         −{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(cost.amount)}
                       </span>
                       <button
                         type="button"
                         onClick={() => handleRemoveCost(cost.id)}
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-soft transition-colors hover:bg-brick-tint hover:text-brick"
                         aria-label={`Remove ${cost.label}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -1152,7 +1152,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                   onKeyDown={(e) => { if (e.key === 'Enter') handleAddCost() }}
                   placeholder="Label (e.g. Permit fees)"
                   maxLength={200}
-                  className="min-w-0 flex-1 rounded-xl border border-border bg-muted/30 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  className="min-w-0 flex-1 rounded-md border border-tan bg-cream-deep px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-clay/50 focus:outline-none focus:ring-1 focus:ring-clay/30"
                 />
                 <input
                   type="number"
@@ -1162,16 +1162,16 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                   placeholder="$"
                   min="0.01"
                   step="0.01"
-                  className="w-24 shrink-0 rounded-xl border border-border bg-muted/30 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  className="w-24 shrink-0 rounded-md border border-tan bg-cream-deep px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-clay/50 focus:outline-none focus:ring-1 focus:ring-clay/30"
                 />
               </div>
               {customCostError ? (
-                <p className="text-xs font-medium text-destructive">{customCostError}</p>
+                <p className="text-xs font-medium text-brick">{customCostError}</p>
               ) : null}
               <button
                 type="button"
                 onClick={handleAddCost}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-muted/30 px-4 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-tan bg-cream-deep px-4 py-2 text-sm font-semibold text-ink-soft transition-colors hover:border-clay/40 hover:text-clay"
               >
                 <Plus className="h-4 w-4" />
                 Add cost
@@ -1186,7 +1186,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           subtitle={isComparingCommercialModels ? 'Agent comparison' : 'Compare structures'}
         >
           {isComparingCommercialModels ? (
-            <p className="mb-4 rounded-2xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm leading-snug text-muted-foreground">
+            <p className="mb-4 rounded-md border border-clay/30 bg-clay-tint px-4 py-3 text-sm leading-snug text-ink-soft">
               The agent will compare flat rental, minimum spend, per-head kickback, bar share, and ticket share before asking you to approve outreach.
             </p>
           ) : null}
@@ -1213,9 +1213,9 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             {shoppingListItems.map((item) => (
               <div key={`${item.category}-${item.label}`} className="flex min-w-0 items-start justify-between gap-5">
                 <div className="min-w-0">
-                  <p className="text-[12px] font-medium uppercase tracking-[0.16em] text-muted-foreground">{item.category}</p>
+                  <p className="text-[12px] font-medium uppercase tracking-[0.16em] text-ink-faint">{item.category}</p>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <p className="break-words text-lg leading-tight text-foreground" title={item.label}>{item.label}</p>
+                    <p className="break-words text-lg leading-tight text-ink" title={item.label}>{item.label}</p>
                     {item.badge ? (
                       <span className="rounded-full bg-secondary/15 px-2 py-0.5 text-xs font-medium text-secondary">
                         {item.badge}
@@ -1223,10 +1223,10 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                     ) : null}
                   </div>
                   {item.note ? (
-                    <p className="mt-1 break-words text-sm leading-snug text-muted-foreground" title={item.note}>{item.note}</p>
+                    <p className="mt-1 break-words text-sm leading-snug text-ink-soft" title={item.note}>{item.note}</p>
                   ) : null}
                 </div>
-                <span className="shrink-0 pt-5 text-lg font-semibold tabular-nums text-foreground">{item.amountLabel}</span>
+                <span className="shrink-0 pt-5 text-lg font-semibold tabular-nums text-ink">{item.amountLabel}</span>
               </div>
             ))}
           </div>
@@ -1241,18 +1241,18 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
               const isExpanded = Boolean(expandedAuthorizationDetails[approval.id])
 
               return (
-                <div key={approval.id} className="rounded-2xl border border-border bg-muted/20 p-5">
+                <div key={approval.id} className="rounded-lg border border-tan bg-cream-deep/50 p-5">
                   <div className="flex items-start justify-between gap-5">
                     <div className="min-w-0">
-                      <h3 className="break-words text-lg font-semibold leading-tight text-foreground sm:text-xl" title={approval.label}>{approval.label}</h3>
-                      <p className="mt-1 break-words text-sm leading-snug text-muted-foreground" title={approval.subtitle}>{approval.subtitle}</p>
+                      <h3 className="break-words text-lg font-semibold leading-tight text-ink sm:text-xl" title={approval.label}>{approval.label}</h3>
+                      <p className="mt-1 break-words text-sm leading-snug text-ink-soft" title={approval.subtitle}>{approval.subtitle}</p>
                     </div>
-                    <span className="shrink-0 text-xl font-semibold tabular-nums text-foreground">{approval.amountLabel}</span>
+                    <span className="shrink-0 text-xl font-semibold tabular-nums text-ink">{approval.amountLabel}</span>
                   </div>
 
                   {isExpanded ? (
-                    <div className="mt-4 rounded-xl bg-muted/50 p-3 text-sm text-muted-foreground">
-                      <p className="font-semibold text-foreground">Action details</p>
+                    <div className="mt-4 rounded-md border border-tan bg-cream p-3 text-sm text-ink-soft">
+                      <p className="font-semibold text-ink">Action details</p>
                       <p className="mt-1">{approval.subtitle}</p>
                       <p className="mt-2">Approval is recorded before the agent contacts the venue or places a hold.</p>
                     </div>
@@ -1264,10 +1264,10 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                       disabled={isLoading || isSent}
                       onClick={() => void handleAuthorizationAction(approval)}
                       className={cn(
-                        'inline-flex flex-1 items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold transition-colors',
+                        'inline-flex flex-1 items-center justify-center rounded-md px-4 py-3 text-sm font-semibold transition-colors',
                         isSent
-                          ? 'bg-success text-white'
-                          : 'bg-gradient-brand text-primary-foreground hover:opacity-90',
+                          ? 'bg-forest text-cream'
+                          : 'bg-gradient-brand text-cream hover:opacity-90',
                         (isLoading || isSent) && 'cursor-not-allowed opacity-90'
                       )}
                     >
@@ -1282,13 +1282,13 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                           [approval.id]: !current[approval.id],
                         }))
                       }}
-                      className="inline-flex items-center justify-center rounded-2xl border border-border px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/50"
+                      className="inline-flex items-center justify-center rounded-md border border-tan px-4 py-3 text-sm font-semibold text-ink transition-colors hover:bg-cream"
                     >
                       Details
                     </button>
                   </div>
                   {feedback === 'error' ? (
-                    <p className="mt-3 text-sm font-medium text-red-500">Failed - try again</p>
+                    <p className="mt-3 text-sm font-medium text-brick">Failed - try again</p>
                   ) : null}
                 </div>
               )
@@ -1299,8 +1299,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         <ArtifactSection icon={<Check className="h-5 w-5" />} title="Connected Data" subtitle={`${sources.length} sources available`}>
           <div className="flex flex-wrap gap-2">
             {sources.map((source) => (
-              <span key={source} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/30 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
-                <Check className="h-3 w-3 text-success" />
+              <span key={source} className="inline-flex items-center gap-1.5 rounded-full border border-tan bg-cream-deep px-3 py-1.5 text-xs font-semibold text-ink-soft">
+                <Check className="h-3 w-3 text-forest" />
                 {source}
               </span>
             ))}
@@ -1308,8 +1308,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           <div className="mt-5 space-y-2">
             {spendingRules.map((rule) => (
               <div key={rule.label} className="flex items-center justify-between gap-3 text-sm">
-                <span className="min-w-0 truncate text-muted-foreground" title={rule.label}>{rule.label}</span>
-                <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold', rule.enabled ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground')}>
+                <span className="min-w-0 truncate text-ink-soft" title={rule.label}>{rule.label}</span>
+                <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold', rule.enabled ? 'bg-forest-tint text-forest' : 'bg-cream-deep text-ink-soft')}>
                   {rule.enabled ? 'On' : 'Off'}
                 </span>
               </div>
@@ -1318,14 +1318,14 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         </ArtifactSection>
       </div>
 
-      <div className="border-t border-border bg-card/95 px-4 py-4 backdrop-blur">
+      <div className="border-t border-tan bg-cream/95 px-4 py-4 backdrop-blur">
         <button
           type="button"
           disabled={!primaryAuthorization || actionFeedback[primaryAuthorization.id] === 'loading' || actionFeedback[primaryAuthorization.id] === 'sent'}
           onClick={() => {
             if (primaryAuthorization) void handleAuthorizationAction(primaryAuthorization)
           }}
-          className="inline-flex min-h-14 w-full items-center justify-center gap-3 rounded-2xl bg-gradient-brand px-5 py-3 text-center text-base font-semibold leading-snug text-primary-foreground shadow-glow transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="inline-flex min-h-14 w-full items-center justify-center gap-3 rounded-md bg-gradient-brand px-5 py-3 text-center text-base font-semibold leading-snug text-cream shadow-glow transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           <Check className="h-5 w-5" />
           {primaryAuthorization && actionFeedback[primaryAuthorization.id] === 'sent'
@@ -1334,7 +1334,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
               ? 'Request venue hold'
               : 'Complete plan for holds'}
         </button>
-        <p className="mt-2 truncate text-center text-xs text-muted-foreground" title={activePlanId ? `Plan ${activePlanId}` : 'Plan saves after sign-in'}>
+        <p className="mt-2 truncate text-center text-xs text-ink-faint" title={activePlanId ? `Plan ${activePlanId}` : 'Plan saves after sign-in'}>
           {activePlanId ? `Plan ${activePlanId.slice(-6)}` : 'Plan saves after sign-in'}
         </p>
       </div>
@@ -1379,14 +1379,14 @@ function ArtifactSection({
   children: React.ReactNode
 }) {
   return (
-    <section className="border-b border-border px-4 py-7">
+    <section className="border-b border-tan px-4 py-7">
       <div className="mb-5 flex items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-cream-deep text-ink-soft">
           {icon}
         </div>
         <div className="min-w-0">
-          <h3 className="break-words text-lg font-bold leading-tight text-foreground" title={title}>{title}</h3>
-          <p className="break-words text-sm leading-snug text-muted-foreground" title={subtitle}>{subtitle}</p>
+          <h3 className="break-words text-lg font-semibold leading-tight text-ink" title={title}>{title}</h3>
+          <p className="break-words text-sm leading-snug text-ink-soft" title={subtitle}>{subtitle}</p>
         </div>
       </div>
       {children}
@@ -1397,8 +1397,8 @@ function ArtifactSection({
 function ArtifactField({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">{label}</p>
-      <p className="mt-2 break-words text-lg leading-tight text-foreground sm:text-xl" title={value}>{value}</p>
+      <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-ink-faint">{label}</p>
+      <p className="mt-2 break-words text-lg leading-tight text-ink sm:text-xl" title={value}>{value}</p>
     </div>
   )
 }
@@ -1424,38 +1424,38 @@ function RunOfShowField({
 
   return (
     <div className="min-w-0">
-      <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">Run of Show</p>
+      <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-ink-faint">Run of Show</p>
       {visibleMilestones.length > 0 ? (
         <div className="mt-2 space-y-2">
           {visibleMilestones.map((milestone) => (
-            <p key={`${milestone.dueDate}-${milestone.title}`} className="break-words text-sm leading-snug text-foreground" title={milestone.title}>
-              <span className="font-semibold text-primary">{formatRunOfShowDateLabel(milestone.dueDate, eventDate)}</span>
-              <span className="text-muted-foreground"> · </span>
+            <p key={`${milestone.dueDate}-${milestone.title}`} className="break-words text-sm leading-snug text-ink" title={milestone.title}>
+              <span className="font-semibold text-clay">{formatRunOfShowDateLabel(milestone.dueDate, eventDate)}</span>
+              <span className="text-ink-soft"> · </span>
               {milestone.title}
-              <span className="text-muted-foreground"> · pending</span>
+              <span className="text-ink-soft"> · pending</span>
             </p>
           ))}
           {hiddenCount > 0 ? (
-            <Link href="/planner?tab=timeline" className="inline-flex text-sm font-semibold text-primary hover:text-primary/80">
+            <Link href="/planner?tab=timeline" className="inline-flex text-sm font-semibold text-clay hover:text-clay-deep">
               + {hiddenCount} more
             </Link>
           ) : null}
         </div>
       ) : (
         <div className="mt-2 space-y-2">
-          <p className="break-words text-lg leading-tight text-foreground sm:text-xl">Not set</p>
+          <p className="break-words text-lg leading-tight text-ink sm:text-xl">Not set</p>
           {canGenerate ? (
             <button
               type="button"
               onClick={onGenerate}
               disabled={isGenerating}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-bold text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-full border border-tan bg-cream-deep px-3 py-1.5 text-xs font-bold text-ink-soft transition-colors hover:border-clay/50 hover:text-clay disabled:cursor-not-allowed disabled:opacity-60"
             >
               <RefreshCw className={cn('h-3.5 w-3.5', isGenerating ? 'animate-spin' : '')} />
               {isGenerating ? 'Generating' : 'Generate timeline'}
             </button>
           ) : null}
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          {error ? <p className="text-xs text-brick">{error}</p> : null}
         </div>
       )}
     </div>
@@ -1467,7 +1467,7 @@ function PlanPill({ children, intent = 'neutral' }: { children: React.ReactNode;
     <span
       className={cn(
         'inline-flex min-w-0 items-center rounded-full px-3 py-2 text-xs font-bold uppercase leading-tight tracking-[0.04em]',
-        intent === 'recommended' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+        intent === 'recommended' ? 'bg-clay text-cream' : 'bg-cream-deep text-ink-soft'
       )}
     >
       {children}
@@ -1479,11 +1479,11 @@ function ProfitCard({ label, value, featured = false }: { label: string; value: 
   return (
     <div
       className={cn(
-        'min-w-0 rounded-2xl px-4 py-4 text-center',
-        featured ? 'bg-gradient-brand text-primary-foreground shadow-glow' : 'bg-muted text-foreground'
+        'min-w-0 rounded-md px-4 py-4 text-center',
+        featured ? 'bg-gradient-brand text-cream shadow-glow' : 'bg-cream-deep text-ink'
       )}
     >
-      <p className={cn('whitespace-nowrap text-xs font-bold uppercase leading-none tracking-[0.08em]', featured ? 'text-primary-foreground/80' : 'text-muted-foreground')}>{label}</p>
+      <p className={cn('whitespace-nowrap text-xs font-bold uppercase leading-none tracking-[0.08em]', featured ? 'text-cream/80' : 'text-ink-faint')}>{label}</p>
       <p className="mt-3 whitespace-nowrap font-display text-2xl leading-none tabular-nums">{formatCents(value)}</p>
     </div>
   )
@@ -1491,8 +1491,8 @@ function ProfitCard({ label, value, featured = false }: { label: string; value: 
 
 function PricingMetric({ label, value, featured = false }: { label: string; value: string; featured?: boolean }) {
   return (
-    <div className={cn('min-w-0 rounded-2xl p-3', featured ? 'bg-gradient-brand text-primary-foreground' : 'bg-muted text-foreground')}>
-      <p className={cn('whitespace-nowrap text-[11px] font-bold uppercase tracking-[0.08em]', featured ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+    <div className={cn('min-w-0 rounded-md p-3', featured ? 'bg-gradient-brand text-cream' : 'bg-cream-deep text-ink')}>
+      <p className={cn('whitespace-nowrap text-[11px] font-bold uppercase tracking-[0.08em]', featured ? 'text-cream/80' : 'text-ink-faint')}>
         {label}
       </p>
       <p className="mt-2 truncate text-lg font-semibold tabular-nums" title={value}>{value}</p>
@@ -1516,23 +1516,23 @@ function KickbackCard({
   recommended: boolean
 }) {
   return (
-    <div className={cn('mb-4 rounded-2xl border p-4 last:mb-0', recommended ? 'border-primary/40 bg-primary/5' : 'border-border bg-muted/20')}>
+    <div className={cn('mb-4 rounded-lg border p-4 last:mb-0', recommended ? 'border-clay/40 bg-clay-tint/55' : 'border-tan bg-cream-deep/50')}>
       <div className="flex min-w-0 flex-col gap-3">
         {recommended ? (
-          <span className="inline-flex w-fit max-w-full shrink-0 whitespace-nowrap rounded-lg bg-gradient-brand px-3 py-2 text-[11px] font-bold uppercase leading-none tracking-normal text-primary-foreground">
+          <span className="inline-flex w-fit max-w-full shrink-0 whitespace-nowrap rounded-md bg-gradient-brand px-3 py-2 text-[11px] font-bold uppercase leading-none tracking-normal text-cream">
             Best fit
           </span>
         ) : null}
         <div className="min-w-0">
-          <h3 className="whitespace-normal text-lg font-semibold leading-tight text-foreground [overflow-wrap:normal]" title={title}>{title}</h3>
-          <p className="mt-2 whitespace-normal text-sm leading-snug text-muted-foreground [overflow-wrap:normal]" title={subtitle}>{subtitle}</p>
+          <h3 className="whitespace-normal text-lg font-semibold leading-tight text-ink [overflow-wrap:normal]" title={title}>{title}</h3>
+          <p className="mt-2 whitespace-normal text-sm leading-snug text-ink-soft [overflow-wrap:normal]" title={subtitle}>{subtitle}</p>
         </div>
       </div>
-      <div className="mt-5 grid gap-3 text-sm text-muted-foreground [grid-template-columns:repeat(auto-fit,minmax(120px,1fr))]">
-        <p className="whitespace-normal leading-snug [overflow-wrap:normal]"><span className="text-muted-foreground/70">Builder:</span> {builderText}</p>
-        <p className="whitespace-normal leading-snug [overflow-wrap:normal]"><span className="text-muted-foreground/70">Venue:</span> {venueText}</p>
+      <div className="mt-5 grid gap-3 text-sm text-ink-soft [grid-template-columns:repeat(auto-fit,minmax(120px,1fr))]">
+        <p className="whitespace-normal leading-snug [overflow-wrap:normal]"><span className="text-ink-faint">Builder:</span> {builderText}</p>
+        <p className="whitespace-normal leading-snug [overflow-wrap:normal]"><span className="text-ink-faint">Venue:</span> {venueText}</p>
       </div>
-      <p className="mt-5 whitespace-normal border-t border-border pt-4 text-sm font-semibold leading-snug text-foreground [overflow-wrap:normal]">{estimate}</p>
+      <p className="mt-5 whitespace-normal border-t border-tan pt-4 text-sm font-semibold leading-snug text-ink [overflow-wrap:normal]">{estimate}</p>
     </div>
   )
 }

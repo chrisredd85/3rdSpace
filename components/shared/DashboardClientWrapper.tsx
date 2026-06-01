@@ -76,13 +76,13 @@ export function DashboardClientWrapper({
 
   if (isUserLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-screen items-center justify-center bg-cream">
         <div className="text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-brand shadow-glow">
-            <Sparkles className="h-7 w-7 animate-pulse text-primary-foreground" />
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-clay shadow-card">
+            <Sparkles className="h-7 w-7 animate-pulse text-cream" />
           </div>
-          <p className="font-display text-lg font-semibold text-foreground">3rdPlace</p>
-          <p className="mt-1 text-sm text-muted-foreground">Loading your dashboard...</p>
+          <p className="font-display text-lg font-semibold text-ink">3rdPlace</p>
+          <p className="mt-1 text-sm text-ink-soft">Loading your dashboard...</p>
         </div>
       </div>
     )
@@ -92,7 +92,7 @@ export function DashboardClientWrapper({
   if (userType === 'community_builder') return null
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-screen overflow-hidden bg-cream">
       {/* Desktop sidebar */}
       <aside className="hidden md:flex md:shrink-0">
         <Sidebar userType={userType} />
@@ -102,7 +102,7 @@ export function DashboardClientWrapper({
       {isMobileMenuOpen && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm md:hidden"
+            className="fixed inset-0 z-40 bg-cream/80 backdrop-blur-sm md:hidden"
             onClick={() => setIsMobileMenuOpen(false)}
           />
           <aside className="fixed inset-y-0 left-0 z-50 w-64 md:hidden">
@@ -118,7 +118,7 @@ export function DashboardClientWrapper({
           onMenuClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           isMobileMenuOpen={isMobileMenuOpen}
         />
-        <main className="flex-1 animate-fade-in overflow-y-auto bg-background">
+        <main className="flex-1 animate-fade-in overflow-y-auto bg-cream">
           <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
             {children}
           </div>

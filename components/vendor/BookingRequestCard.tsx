@@ -22,10 +22,10 @@ interface BookingRequestCardProps {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  pending: 'bg-yellow-500/15 text-yellow-200',
-  confirmed: 'bg-primary/15 text-primary',
-  declined: 'bg-sidebar-accent/40 text-foreground',
-  cancelled: 'bg-destructive/15 text-destructive',
+  pending: 'bg-ochre-tint text-ochre',
+  confirmed: 'bg-clay/15 text-clay',
+  declined: 'bg-cream-deep/40 text-ink',
+  cancelled: 'bg-brick/15 text-brick',
 }
 
 /**
@@ -61,8 +61,8 @@ export function BookingRequestCard({
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-lg font-semibold text-foreground">{getVendorBookingTitle(booking)}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <h3 className="text-lg font-semibold text-ink">{getVendorBookingTitle(booking)}</h3>
+                <p className="mt-1 text-sm text-ink-soft">
                   {getVendorBookingServiceName(booking)}
                   {organizer?.name ? ` by ${organizer.name}` : ''}
                 </p>
@@ -71,7 +71,7 @@ export function BookingRequestCard({
                 <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[booking.status] || STATUS_STYLES.pending}`}>
                   {booking.status}
                 </span>
-                <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary/80">
+                <span className="rounded-full bg-clay/10 px-2.5 py-1 text-xs font-semibold text-clay/80">
                   Payment: {paymentStatus}
                 </span>
               </div>
@@ -79,35 +79,35 @@ export function BookingRequestCard({
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="flex items-center gap-2 text-sm">
-                <Calendar className="h-4 w-4 text-muted-foreground/60" />
+                <Calendar className="h-4 w-4 text-ink-soft/60" />
                 <span>{formatBookingDate(date)}</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
-                <Clock className="h-4 w-4 text-muted-foreground/60" />
+                <Clock className="h-4 w-4 text-ink-soft/60" />
                 <span>{startTime ? `${startTime}${endTime ? ` - ${endTime}` : ''}` : 'Time TBD'}</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
-                <Users className="h-4 w-4 text-muted-foreground/60" />
+                <Users className="h-4 w-4 text-ink-soft/60" />
                 <span>{booking.events?.expected_attendees || booking.guest_count || 'Guests TBD'}</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
-                <DollarSign className="h-4 w-4 text-muted-foreground/60" />
+                <DollarSign className="h-4 w-4 text-ink-soft/60" />
                 <span>{formatBookingMoney(fee)}</span>
               </div>
             </div>
 
             {venue?.name ? (
-              <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
-                <MapPin className="h-4 w-4 text-muted-foreground/60" />
+              <div className="mt-3 flex items-center gap-2 text-sm text-ink-soft">
+                <MapPin className="h-4 w-4 text-ink-soft/60" />
                 <span>{venue.name}{venue.city ? `, ${venue.city}` : ''}</span>
               </div>
             ) : null}
 
-            <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <span className="rounded-md bg-background px-2 py-1">
+            <div className="mt-3 flex flex-wrap gap-2 text-xs text-ink-soft">
+              <span className="rounded-md bg-cream px-2 py-1">
                 Deposit {booking.deposit_paid ? 'paid' : 'pending'}
               </span>
-              <span className="rounded-md bg-background px-2 py-1">
+              <span className="rounded-md bg-cream px-2 py-1">
                 Final payment {paymentStatus === 'succeeded' ? 'paid' : 'pending'}
               </span>
             </div>

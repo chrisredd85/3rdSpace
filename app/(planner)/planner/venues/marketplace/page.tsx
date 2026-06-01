@@ -9,7 +9,7 @@ import { VenueMarketplace } from '@/components/builder/VenueMarketplace'
 export default function VenueMarketplacePage() {
   return (
     <div className="space-y-4 px-6 py-6">
-      <Link href="/planner/venues" className="text-sm font-medium text-muted-foreground hover:text-foreground">
+      <Link href="/planner/venues" className="text-sm font-medium text-ink-soft hover:text-ink">
         ← Venues
       </Link>
       <VenueMarketplace />

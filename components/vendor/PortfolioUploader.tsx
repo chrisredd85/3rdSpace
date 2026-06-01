@@ -94,13 +94,13 @@ export function PortfolioUploader({ serviceId, images, maxImages = 10, onUploade
           setIsDragging(false)
           uploadFiles(event.dataTransfer.files).catch(console.error)
         }}
-        className={`rounded-lg border border-dashed p-4 text-center ${isDragging ? 'border-primary bg-primary/10' : 'border-border bg-background'}`}
+        className={`rounded-lg border border-dashed p-4 text-center ${isDragging ? 'border-clay bg-clay/10' : 'border-tan bg-cream'}`}
       >
-        <ImagePlus className="mx-auto h-6 w-6 text-muted-foreground/60" />
-        <p className="mt-2 text-sm font-medium text-foreground">
+        <ImagePlus className="mx-auto h-6 w-6 text-ink-soft/60" />
+        <p className="mt-2 text-sm font-medium text-ink">
           {remaining > 0 ? `Add portfolio photos (${remaining} slots left)` : 'Portfolio limit reached'}
         </p>
-        <p className="mt-1 text-xs text-muted-foreground">Drag images here or choose files.</p>
+        <p className="mt-1 text-xs text-ink-soft">Drag images here or choose files.</p>
 
         <input
           ref={inputRef}

@@ -10,7 +10,6 @@ import {
   Search,
   ChevronDown,
   Settings,
-  CreditCard,
   LogOut,
   Users,
   Building2,
@@ -96,11 +95,11 @@ export function Header({
   const dashBase = userType === 'community_builder' ? 'planner' : userType === 'venue_owner' ? 'venue' : 'vendor'
 
   return (
-    <header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b border-border bg-background/70 px-4 backdrop-blur-xl sm:px-6">
+    <header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b border-tan bg-cream/70 px-4 backdrop-blur-xl sm:px-6">
       {/* Mobile menu toggle */}
       <button
         onClick={onMenuClick}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-card/40 transition-smooth hover:bg-card md:hidden"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-tan bg-cream/40 transition-smooth hover:bg-cream md:hidden"
         aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
       >
         {isMobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
@@ -108,10 +107,10 @@ export function Header({
 
       {/* Search */}
       <div className="relative flex-1 max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft" />
         <input
           placeholder={getSearchPlaceholder(userType)}
-          className="h-10 w-full rounded-xl border border-border bg-card/40 pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground transition-smooth focus:border-primary focus:bg-card"
+          className="h-10 w-full rounded-lg border border-tan bg-cream/40 pl-9 pr-3 text-sm text-ink outline-none placeholder:text-ink-soft transition-smooth focus:border-clay focus:bg-cream"
         />
       </div>
 
@@ -134,7 +133,7 @@ export function Header({
             {isTypeMenuOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setIsTypeMenuOpen(false)} />
-                <div className="absolute right-0 top-full z-20 mt-2 w-48 overflow-hidden rounded-xl border border-border bg-card shadow-card">
+                <div className="absolute right-0 top-full z-20 mt-2 w-48 overflow-hidden rounded-lg border border-tan bg-cream shadow-card">
                   {[
                     { type: 'community_builder' as UserType, label: 'Event Creator', icon: Users },
                     { type: 'venue_owner' as UserType, label: 'Venue Owner', icon: Building2 },
@@ -144,8 +143,8 @@ export function Header({
                       key={type}
                       onClick={() => handleUserTypeChange(type)}
                       className={cn(
-                        'flex w-full items-center gap-2.5 px-4 py-2.5 text-sm transition-smooth hover:bg-sidebar-accent',
-                        userType === type ? 'bg-primary/15 text-primary' : 'text-foreground'
+                        'flex w-full items-center gap-2.5 px-4 py-2.5 text-sm transition-smooth hover:bg-cream-deep',
+                        userType === type ? 'bg-clay/15 text-clay' : 'text-ink'
                       )}
                     >
                       <Icon className="h-4 w-4" />
@@ -169,7 +168,7 @@ export function Header({
         <div className="relative">
           <button
             onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-brand font-display text-sm font-bold text-primary-foreground shadow-glow transition-smooth hover:shadow-coral"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-clay font-display text-sm font-bold text-cream shadow-card transition-smooth hover:shadow-card"
             aria-label="User menu"
           >
             {initials}
@@ -177,34 +176,26 @@ export function Header({
           {isUserMenuOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setIsUserMenuOpen(false)} />
-              <div className="absolute right-0 top-full z-20 mt-2 w-52 overflow-hidden rounded-xl border border-border bg-card shadow-card">
-                <div className="border-b border-border px-4 py-3">
-                  <p className="text-sm font-medium text-foreground truncate">
+              <div className="absolute right-0 top-full z-20 mt-2 w-52 overflow-hidden rounded-lg border border-tan bg-cream shadow-card">
+                <div className="border-b border-tan px-4 py-3">
+                  <p className="text-sm font-medium text-ink truncate">
                     {user?.email?.split('@')[0] || 'Account'}
                   </p>
-                  <p className="text-xs text-muted-foreground truncate">{user?.email || ''}</p>
+                  <p className="text-xs text-ink-soft truncate">{user?.email || ''}</p>
                 </div>
                 <div className="py-1">
                   <Link
                     href={`/${dashBase}/settings`}
                     onClick={() => setIsUserMenuOpen(false)}
-                    className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground transition-smooth hover:bg-sidebar-accent"
+                    className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-ink transition-smooth hover:bg-cream-deep"
                   >
-                    <Settings className="h-4 w-4 text-muted-foreground" />
+                    <Settings className="h-4 w-4 text-ink-soft" />
                     Settings
                   </Link>
-                  <Link
-                    href={`/${dashBase}/billing`}
-                    onClick={() => setIsUserMenuOpen(false)}
-                    className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground transition-smooth hover:bg-sidebar-accent"
-                  >
-                    <CreditCard className="h-4 w-4 text-muted-foreground" />
-                    Billing
-                  </Link>
-                  <div className="my-1 border-t border-border" />
+                  <div className="my-1 border-t border-tan" />
                   <button
                     onClick={handleSignOut}
-                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-destructive transition-smooth hover:bg-destructive/10"
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-brick transition-smooth hover:bg-brick/10"
                   >
                     <LogOut className="h-4 w-4" />
                     Sign out

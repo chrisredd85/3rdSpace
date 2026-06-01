@@ -28,10 +28,10 @@ interface AvailabilityResponse {
 }
 
 const STATUS_STYLES: Record<VendorAvailabilityStatus, string> = {
-  available: 'bg-card/40 border-border',
-  tentative: 'bg-yellow-500/10 border-yellow-500/30',
-  booked: 'bg-primary/10 border-primary/40',
-  blocked: 'bg-destructive/10 border-red-300',
+  available: 'bg-cream/40 border-tan',
+  tentative: 'bg-ochre-tint border-ochre/30',
+  booked: 'bg-clay/10 border-clay/40',
+  blocked: 'bg-brick/10 border-brick/30',
 }
 
 /**
@@ -200,13 +200,13 @@ export function VendorCalendar({ vendorId }: VendorCalendarProps) {
 
   return (
     <div className="space-y-6">
-      <Card className="border-primary/30 bg-primary/10">
+      <Card className="border-clay/30 bg-clay/10">
         <CardContent className="flex items-center justify-between p-4">
           <div>
-            <p className="text-sm font-medium text-primary">Unavailable Days - {monthLabel}</p>
-            <p className="mt-1 text-2xl font-bold text-primary">{utilization}%</p>
+            <p className="text-sm font-medium text-clay">Unavailable Days - {monthLabel}</p>
+            <p className="mt-1 text-2xl font-bold text-clay">{utilization}%</p>
           </div>
-          <div className="rounded-full bg-primary p-4 text-white">
+          <div className="rounded-full bg-clay p-4 text-cream">
             <CalendarDays className="h-7 w-7" />
           </div>
         </CardContent>
@@ -231,17 +231,17 @@ export function VendorCalendar({ vendorId }: VendorCalendarProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <AvailabilityLegend />
-          {error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
+          {error ? <div className="rounded-md border border-brick/30 bg-brick/10 p-3 text-sm text-brick">{error}</div> : null}
 
           {loading ? (
-            <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+            <div className="flex h-64 items-center justify-center text-sm text-ink-soft">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Loading calendar...
             </div>
           ) : (
             <div className="grid grid-cols-7 gap-1">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-                <div key={day} className="p-2 text-center text-sm font-semibold text-foreground">{day}</div>
+                <div key={day} className="p-2 text-center text-sm font-semibold text-ink">{day}</div>
               ))}
 
               {visibleDates.map((date, index) => {
@@ -262,13 +262,13 @@ export function VendorCalendar({ vendorId }: VendorCalendarProps) {
                     key={dateString}
                     type="button"
                     onClick={() => handleSelectDay(day)}
-                    className={`min-h-[96px] rounded-md border p-2 text-left transition hover:border-primary/80 ${STATUS_STYLES[day.status]} ${isToday ? 'ring-2 ring-primary' : ''} ${isOutsideMonth ? 'opacity-50' : ''}`}
+                    className={`min-h-[96px] rounded-md border p-2 text-left transition hover:border-clay/80 ${STATUS_STYLES[day.status]} ${isToday ? 'ring-2 ring-clay' : ''} ${isOutsideMonth ? 'opacity-50' : ''}`}
                   >
-                    <span className="text-sm font-semibold text-foreground">{date.getDate()}</span>
+                    <span className="text-sm font-semibold text-ink">{date.getDate()}</span>
                     <div className="mt-2 space-y-1">
-                      <span className="inline-flex rounded-md bg-background/80 px-2 py-0.5 text-xs font-medium capitalize text-foreground">{day.status}</span>
-                      {day.booking ? <p className="truncate text-xs text-muted-foreground">{day.booking.events?.event_name || 'Booking'}</p> : null}
-                      {day.notes ? <p className="line-clamp-2 text-xs text-muted-foreground">{day.notes}</p> : null}
+                      <span className="inline-flex rounded-md bg-cream/80 px-2 py-0.5 text-xs font-medium capitalize text-ink">{day.status}</span>
+                      {day.booking ? <p className="truncate text-xs text-ink-soft">{day.booking.events?.event_name || 'Booking'}</p> : null}
+                      {day.notes ? <p className="line-clamp-2 text-xs text-ink-soft">{day.notes}</p> : null}
                     </div>
                   </button>
                 )
@@ -285,18 +285,18 @@ export function VendorCalendar({ vendorId }: VendorCalendarProps) {
           </CardHeader>
           <CardContent className="space-y-4">
             {isSelectedBookingControlled ? (
-              <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-100">
+              <div className="rounded-md border border-ochre/30 bg-ochre-tint p-3 text-sm text-ochre">
                 This date is controlled by a {selectedDay.booking?.status || 'linked'} booking. Booking-controlled dates cannot be manually cleared.
               </div>
             ) : null}
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="mb-2 block text-sm font-medium text-foreground">Status</label>
+                <label className="mb-2 block text-sm font-medium text-ink">Status</label>
                 <select
                   value={status}
                   onChange={(event) => setStatus(event.target.value as VendorAvailabilityStatus)}
                   disabled={isSelectedBookingControlled}
-                  className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
+                  className="flex h-10 w-full rounded-md border border-tan px-3 py-2 text-sm"
                 >
                   <option value="available">Available</option>
                   <option value="blocked">Blocked</option>
@@ -304,11 +304,11 @@ export function VendorCalendar({ vendorId }: VendorCalendarProps) {
                 </select>
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-foreground">Notes</label>
+                <label className="mb-2 block text-sm font-medium text-ink">Notes</label>
                 <input
                   value={notes}
                   onChange={(event) => setNotes(event.target.value)}
-                  className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
+                  className="flex h-10 w-full rounded-md border border-tan px-3 py-2 text-sm"
                   placeholder="Reason for block or tentative hold"
                 />
               </div>

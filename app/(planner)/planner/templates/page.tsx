@@ -187,13 +187,13 @@ export default function PlannerTemplatesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background px-4 py-8 text-foreground sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-cream-deep px-4 py-8 text-ink sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
-        <header className="flex flex-col gap-4 rounded-3xl border border-border bg-gradient-card p-6 shadow-card md:flex-row md:items-end md:justify-between">
+        <header className="flex flex-col gap-4 rounded-lg border border-tan bg-cream p-6 shadow-card md:flex-row md:items-end md:justify-between">
           <div className="max-w-3xl">
-            <p className="text-xs font-bold uppercase tracking-[0.28em] text-primary">Planner templates</p>
+            <p className="text-xs font-bold uppercase tracking-[0.28em] text-clay">Planner templates</p>
             <h1 className="mt-3 font-display text-3xl font-bold sm:text-4xl">Rebook proven event plans</h1>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
+            <p className="mt-3 text-sm leading-6 text-ink-soft sm:text-base">
               Save a completed plan, apply it to a new date and headcount, then re-run venue, vendor, and economics matching before any approval or outreach can happen.
             </p>
           </div>
@@ -210,7 +210,7 @@ export default function PlannerTemplatesPage() {
         </header>
 
         {error ? (
-          <div className="rounded-3xl border border-destructive/40 bg-destructive/10 px-5 py-4 text-sm text-destructive shadow-card">
+          <div className="rounded-lg border border-brick/40 bg-brick-tint px-5 py-4 text-sm text-brick shadow-card">
             {error}
           </div>
         ) : null}
@@ -219,24 +219,24 @@ export default function PlannerTemplatesPage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-display text-xl font-bold">Saved event templates</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-1 text-sm text-ink-soft">
                 Apply one to a fresh plan. Old recommendations are treated as assumptions and matching is recalculated.
               </p>
             </div>
           </div>
 
           {isLoading ? (
-            <div className="rounded-3xl border border-border bg-gradient-card px-5 py-12 text-center text-sm text-muted-foreground shadow-card">
-              <Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin text-primary" />
+            <div className="rounded-lg border border-tan bg-cream px-5 py-12 text-center text-sm text-ink-soft shadow-card">
+              <Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin text-clay" />
               Loading saved templates...
             </div>
           ) : null}
 
           {!isLoading && !hasTemplates ? (
-            <div className="rounded-3xl border border-dashed border-border bg-gradient-card px-5 py-12 text-center shadow-card">
-              <LayoutTemplate className="mx-auto h-8 w-8 text-primary" />
+            <div className="rounded-lg border border-dashed border-tan bg-cream px-5 py-12 text-center shadow-card">
+              <LayoutTemplate className="mx-auto h-8 w-8 text-clay" />
               <h3 className="mt-4 font-display text-lg font-bold">No saved templates yet</h3>
-              <p className="mx-auto mt-2 max-w-xl text-sm text-muted-foreground">
+              <p className="mx-auto mt-2 max-w-xl text-sm text-ink-soft">
                 Finish a plan in the chat, save it as a template, then come back here to create the next run with fresh timing, size, budget, and matching.
               </p>
               <Button type="button" variant="hero" className="mt-5" onClick={() => router.push('/planner')}>
@@ -265,7 +265,7 @@ export default function PlannerTemplatesPage() {
         <section className="space-y-4">
           <div>
             <h2 className="font-display text-xl font-bold">Starter templates</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-ink-soft">
               Use these when you do not have a completed event plan saved yet.
             </p>
           </div>
@@ -273,12 +273,12 @@ export default function PlannerTemplatesPage() {
             {STARTER_TEMPLATES.map((template) => {
               const Icon = template.icon
               return (
-                <article key={template.id} className="rounded-3xl border border-border bg-gradient-card p-5 shadow-card">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-brand shadow-glow">
-                    <Icon className="h-6 w-6 text-primary-foreground" />
+                <article key={template.id} className="rounded-lg border border-tan bg-cream p-5 shadow-card">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-brand shadow-glow">
+                    <Icon className="h-6 w-6 text-cream" />
                   </div>
                   <h3 className="mt-4 font-display text-lg font-bold">{template.title}</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">{template.meta}</p>
+                  <p className="mt-2 text-sm text-ink-soft">{template.meta}</p>
                   <Button type="button" variant="glass" className="mt-5 w-full" onClick={() => startFromStarter(template.prompt)}>
                     Start from this
                   </Button>
@@ -307,20 +307,20 @@ function SavedTemplateCard(props: {
   const createdAt = formatTemplateCreatedAt(props.template.created_at)
 
   return (
-    <article className="rounded-3xl border border-border bg-gradient-card p-5 shadow-card">
+    <article className="rounded-lg border border-tan bg-cream p-5 shadow-card">
       <div className="flex items-start gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-brand shadow-glow">
-          <LayoutTemplate className="h-6 w-6 text-primary-foreground" />
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-brand shadow-glow">
+          <LayoutTemplate className="h-6 w-6 text-cream" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="break-words font-display text-lg font-bold">{props.template.name}</h3>
-            <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-[11px] font-bold uppercase tracking-widest text-primary">
+            <span className="rounded-full border border-clay/30 bg-clay-tint px-2 py-1 text-[11px] font-bold uppercase tracking-widest text-clay">
               Saved
             </span>
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">{props.template.description ?? eventType}</p>
-          <p className="mt-2 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">{createdAt}</p>
+          <p className="mt-1 text-sm text-ink-soft">{props.template.description ?? eventType}</p>
+          <p className="mt-2 text-[11px] font-medium uppercase tracking-widest text-ink-soft">{createdAt}</p>
         </div>
       </div>
 
@@ -384,7 +384,7 @@ function SavedTemplateCard(props: {
         </Field>
 
         <div className="grid gap-2 sm:grid-cols-2">
-          <label className={cn('flex items-start gap-3 rounded-2xl border p-3 text-sm text-muted-foreground transition-smooth', props.draft.use_same_venue ? 'border-primary/40 bg-primary/5' : 'border-border bg-background/50')}>
+          <label className={cn('flex items-start gap-3 rounded-lg border p-3 text-sm text-ink-soft transition-smooth', props.draft.use_same_venue ? 'border-clay/40 bg-clay-tint/55' : 'border-tan bg-cream-deep/60')}>
             <input
               type="checkbox"
               checked={props.draft.use_same_venue}
@@ -393,11 +393,11 @@ function SavedTemplateCard(props: {
               className="mt-1 h-4 w-4 accent-primary"
             />
             <span>
-              <span className="block font-semibold text-foreground">Try same venue</span>
+              <span className="block font-semibold text-ink">Try same venue</span>
               Boost ranking for the saved venue. Capacity and availability still checked — no preference if ineligible.
             </span>
           </label>
-          <label className={cn('flex items-start gap-3 rounded-2xl border p-3 text-sm text-muted-foreground transition-smooth', props.draft.use_same_vendors ? 'border-primary/40 bg-primary/5' : 'border-border bg-background/50')}>
+          <label className={cn('flex items-start gap-3 rounded-lg border p-3 text-sm text-ink-soft transition-smooth', props.draft.use_same_vendors ? 'border-clay/40 bg-clay-tint/55' : 'border-tan bg-cream-deep/60')}>
             <input
               type="checkbox"
               checked={props.draft.use_same_vendors}
@@ -406,7 +406,7 @@ function SavedTemplateCard(props: {
               className="mt-1 h-4 w-4 accent-primary"
             />
             <span>
-              <span className="block font-semibold text-foreground">Try same vendors</span>
+              <span className="block font-semibold text-ink">Try same vendors</span>
               Boost ranking for saved vendors. No outreach until you approve the fresh plan.
             </span>
           </label>
@@ -428,12 +428,12 @@ function TemplateStat(props: {
 }) {
   const Icon = props.icon
   return (
-    <div className="rounded-2xl border border-border bg-background/50 p-3">
-      <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-        <Icon className="h-3.5 w-3.5 text-primary" />
+    <div className="rounded-lg border border-tan bg-cream-deep/60 p-3">
+      <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-ink-soft">
+        <Icon className="h-3.5 w-3.5 text-clay" />
         {props.label}
       </div>
-      <p className="mt-2 break-words text-sm font-semibold text-foreground">{props.value}</p>
+      <p className="mt-2 break-words text-sm font-semibold text-ink">{props.value}</p>
     </div>
   )
 }
@@ -443,7 +443,7 @@ function Field(props: {
   children: ReactNode
 }) {
   return (
-    <label className="block space-y-2 text-sm font-semibold text-foreground">
+    <label className="block space-y-2 text-sm font-semibold text-ink">
       <span>{props.label}</span>
       {props.children}
     </label>

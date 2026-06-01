@@ -146,14 +146,14 @@ export function PayoutOverviewPanel({ role }: { role: PayoutRole }) {
   const count = Number(summary?.count || 0)
 
   return (
-    <section className="rounded-3xl border border-border bg-gradient-card p-5 shadow-card sm:p-6">
+    <section className="rounded-lg border border-tan bg-cream p-5 shadow-card sm:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-clay/15 text-clay">
             <Banknote className="h-5 w-5" />
           </div>
           <h2 className="font-display text-xl font-semibold">{config.title}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{config.description}</p>
+          <p className="mt-1 text-sm text-ink-soft">{config.description}</p>
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -172,7 +172,7 @@ export function PayoutOverviewPanel({ role }: { role: PayoutRole }) {
       </div>
 
       {error ? (
-        <div className="mt-5 flex items-start gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+        <div className="mt-5 flex items-start gap-3 rounded-lg border border-brick/30 bg-brick/10 p-4 text-sm text-brick">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <p>{error}</p>
         </div>
@@ -220,20 +220,20 @@ function PayoutMetric({
   emphasis: 'primary' | 'success' | 'muted'
 }) {
   const iconClass = {
-    primary: 'bg-primary/15 text-primary',
-    success: 'bg-success/15 text-success',
-    muted: 'bg-muted text-muted-foreground',
+    primary: 'bg-clay/15 text-clay',
+    success: 'bg-forest/15 text-forest',
+    muted: 'bg-cream-deep text-ink-soft',
   }[emphasis]
 
   return (
-    <div className="rounded-2xl border border-border bg-card/40 p-4">
+    <div className="rounded-lg border border-tan bg-cream/40 p-4">
       <div className="mb-3 flex items-center gap-2">
-        <span className={`flex h-8 w-8 items-center justify-center rounded-xl ${iconClass}`}>
+        <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${iconClass}`}>
           <Icon className="h-4 w-4" />
         </span>
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-ink-soft">{label}</p>
       </div>
-      <p className="font-display text-lg font-semibold leading-tight text-foreground">{value}</p>
+      <p className="font-display text-lg font-semibold leading-tight text-ink">{value}</p>
     </div>
   )
 }

@@ -118,9 +118,9 @@ export default function PlannerVenuesPage() {
 
   return (
     <div className="min-h-screen">
-      <div className="border-b border-border px-6 py-5">
+      <div className="border-b border-tan px-6 py-5">
         <h1 className="font-display text-2xl font-bold">Venues</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-sm text-ink-soft">
           Bay Area venues available for your events.
         </p>
       </div>
@@ -133,12 +133,12 @@ export default function PlannerVenuesPage() {
           partnerKind="venue"
         />
 
-        <section className="rounded-2xl border border-border bg-card/70 p-5 shadow-card">
+        <section className="rounded-lg border border-tan bg-cream p-5 shadow-card">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Venue Catalog</p>
-              <h2 className="mt-2 font-display text-xl font-bold text-foreground">Find the right room before outreach</h2>
-              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-clay">Venue Catalog</p>
+              <h2 className="mt-2 font-display text-xl font-bold text-ink">Find the right room before outreach</h2>
+              <p className="mt-1 max-w-2xl text-sm text-ink-soft">
                 Search capacity, neighborhood, terms, and amenities. Holds and deposits stay approval-gated until the organizer confirms.
               </p>
             </div>
@@ -149,18 +149,18 @@ export default function PlannerVenuesPage() {
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {catalogStats.map((stat) => (
-              <div key={stat.label} className="rounded-xl border border-border bg-background/50 p-4">
-                <p className="text-xs font-semibold text-muted-foreground">{stat.label}</p>
-                <p className="mt-2 font-display text-2xl font-bold text-foreground">{stat.value}</p>
+              <div key={stat.label} className="rounded-md border border-tan bg-cream-deep/60 p-4">
+                <p className="text-xs font-semibold text-ink-soft">{stat.label}</p>
+                <p className="mt-2 font-display text-2xl font-bold text-ink">{stat.value}</p>
               </div>
             ))}
           </div>
         </section>
 
-        <div className="rounded-2xl border border-border bg-card/70 p-4 shadow-card">
+        <div className="rounded-lg border border-tan bg-cream p-4 shadow-card">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft" />
               <Input
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
@@ -169,7 +169,7 @@ export default function PlannerVenuesPage() {
               />
             </div>
             <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
-              <SlidersHorizontal className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <SlidersHorizontal className="h-4 w-4 shrink-0 text-ink-soft" />
               {areaOptions.map((area) => (
                 <button
                   key={area}
@@ -178,8 +178,8 @@ export default function PlannerVenuesPage() {
                   className={cn(
                     'shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition-smooth',
                     selectedArea === area
-                      ? 'border-primary/40 bg-primary text-primary-foreground'
-                      : 'border-border bg-background text-muted-foreground hover:text-foreground'
+                      ? 'border-clay/40 bg-clay text-cream'
+                      : 'border-tan bg-cream-deep text-ink-soft hover:text-ink'
                   )}
                 >
                   {area}
@@ -192,8 +192,8 @@ export default function PlannerVenuesPage() {
         {isLoading ? <VenueSkeletonGrid /> : null}
 
         {!isLoading && isError ? (
-          <div className="rounded-lg border border-border bg-card px-5 py-8 text-sm text-muted-foreground">
-            <p className="font-semibold text-foreground">Catalog temporarily unavailable</p>
+          <div className="rounded-lg border border-tan bg-cream px-5 py-8 text-sm text-ink-soft">
+            <p className="font-semibold text-ink">Catalog temporarily unavailable</p>
             <p className="mt-1">Venue listings could not be loaded right now.</p>
             <Button className="mt-4" variant="glass" size="sm" onClick={() => void refetch()} disabled={isFetching}>
               {isFetching ? 'Retrying...' : 'Retry'}
@@ -202,13 +202,13 @@ export default function PlannerVenuesPage() {
         ) : null}
 
         {!isLoading && !isError && venues.length === 0 ? (
-          <div className="rounded-lg border border-border bg-card px-5 py-8 text-sm text-muted-foreground">
+          <div className="rounded-lg border border-tan bg-cream px-5 py-8 text-sm text-ink-soft">
             No venues in the catalog yet.
           </div>
         ) : null}
 
         {!isLoading && !isError && venues.length > 0 && filteredVenues.length === 0 ? (
-          <div className="rounded-lg border border-border bg-card px-5 py-8 text-sm text-muted-foreground">
+          <div className="rounded-lg border border-tan bg-cream px-5 py-8 text-sm text-ink-soft">
             No venues match that search.
           </div>
         ) : null}
@@ -232,10 +232,10 @@ function VenueSkeletonGrid() {
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {[0, 1, 2].map((item) => (
-        <div key={item} className="rounded-lg border border-border bg-card p-5">
-          <div className="h-5 w-2/3 rounded bg-muted" />
-          <div className="mt-4 h-4 w-1/2 rounded bg-muted" />
-          <div className="mt-6 h-10 rounded bg-muted" />
+        <div key={item} className="rounded-lg border border-tan bg-cream p-5">
+          <div className="h-5 w-2/3 rounded bg-cream-deep" />
+          <div className="mt-4 h-4 w-1/2 rounded bg-cream-deep" />
+          <div className="mt-6 h-10 rounded bg-cream-deep" />
         </div>
       ))}
     </div>
@@ -261,56 +261,56 @@ function VenueCard({ venue }: VenueCardProps) {
   const tags = (venue.unique_features_tags || []).slice(0, 3)
 
   return (
-    <article className={cn('flex min-h-full flex-col rounded-2xl border border-border bg-card p-5 shadow-card')}>
+    <article className={cn('flex min-h-full flex-col rounded-lg border border-tan bg-cream p-5 shadow-card')}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent text-primary">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cream-deep text-clay">
             <Building2 className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <h2 className="font-display text-lg font-bold text-foreground">{venueName}</h2>
-            <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
+            <h2 className="font-display text-lg font-bold text-ink">{venueName}</h2>
+            <p className="mt-1 flex items-center gap-1.5 text-sm text-ink-soft">
               <MapPin className="h-3.5 w-3.5" />
               {location}
             </p>
           </div>
         </div>
         {venue.is_claimed === false ? (
-          <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">
+          <span className="shrink-0 rounded-full border border-tan bg-cream-deep px-2 py-1 text-xs font-semibold text-ink-soft">
             Unclaimed
           </span>
         ) : null}
       </div>
 
-      <p className="mt-4 text-sm leading-relaxed text-muted-foreground">{description}</p>
+      <p className="mt-4 text-sm leading-relaxed text-ink-soft">{description}</p>
 
       <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
-        <div className="rounded-lg border border-border bg-background/40 p-3">
-          <p className="text-xs text-muted-foreground">Capacity fit</p>
-          <p className="mt-1 flex items-center gap-1.5 font-semibold text-foreground">
-            <Users className="h-3.5 w-3.5 text-muted-foreground" />
+        <div className="rounded-lg border border-tan bg-cream-deep/55 p-3">
+          <p className="text-xs text-ink-soft">Capacity fit</p>
+          <p className="mt-1 flex items-center gap-1.5 font-semibold text-ink">
+            <Users className="h-3.5 w-3.5 text-ink-soft" />
             {formatCapacityRange(minCapacity, capacity)}
           </p>
         </div>
-        <div className="rounded-lg border border-border bg-background/40 p-3">
-          <p className="text-xs text-muted-foreground">Starting rate</p>
-          <p className="mt-1 font-semibold text-foreground">{hourlyRate}</p>
+        <div className="rounded-lg border border-tan bg-cream-deep/55 p-3">
+          <p className="text-xs text-ink-soft">Starting rate</p>
+          <p className="mt-1 font-semibold text-ink">{hourlyRate}</p>
         </div>
-        <div className="rounded-lg border border-border bg-background/40 p-3">
-          <p className="text-xs text-muted-foreground">Type</p>
-          <p className="mt-1 truncate font-semibold text-foreground" title={venueType}>{venueType}</p>
+        <div className="rounded-lg border border-tan bg-cream-deep/55 p-3">
+          <p className="text-xs text-ink-soft">Type</p>
+          <p className="mt-1 truncate font-semibold text-ink" title={venueType}>{venueType}</p>
         </div>
-        <div className="rounded-lg border border-border bg-background/40 p-3">
-          <p className="text-xs text-muted-foreground">Terms</p>
-          <p className="mt-1 truncate font-semibold text-foreground" title={terms}>{terms}</p>
+        <div className="rounded-lg border border-tan bg-cream-deep/55 p-3">
+          <p className="text-xs text-ink-soft">Terms</p>
+          <p className="mt-1 truncate font-semibold text-ink" title={terms}>{terms}</p>
         </div>
       </div>
 
       {tags.length > 0 ? (
         <div className="mt-4 flex flex-wrap gap-2">
           {tags.map((tag) => (
-            <span key={tag} className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-semibold text-muted-foreground">
-              <CheckCircle2 className="h-3 w-3 text-primary" />
+            <span key={tag} className="inline-flex items-center gap-1 rounded-full border border-tan bg-cream-deep px-2.5 py-1 text-xs font-semibold text-ink-soft">
+              <CheckCircle2 className="h-3 w-3 text-clay" />
               {formatVenueType(tag)}
             </span>
           ))}

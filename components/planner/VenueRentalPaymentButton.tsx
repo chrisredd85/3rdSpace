@@ -101,36 +101,36 @@ export function VenueRentalPaymentButton({
       </Button>
 
       {isOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 px-4 py-6 backdrop-blur-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/20 px-4 py-6 backdrop-blur-xl">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="venue-rental-checkout-title"
-            className="relative max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-3xl border border-border bg-gradient-card shadow-card"
+            className="relative max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-lg border border-tan bg-cream shadow-card"
           >
             <button
               type="button"
               onClick={() => setIsOpen(false)}
-              className="absolute right-4 top-4 rounded-full border border-border bg-background/50 p-2 text-muted-foreground transition-smooth hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              className="absolute right-4 top-4 rounded-full border border-tan bg-cream-deep p-2 text-ink-soft transition-smooth hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clay/30"
               aria-label="Close venue rental checkout"
               disabled={isSubmitting}
             >
               <X className="h-4 w-4" />
             </button>
 
-            <div className="border-b border-border px-6 py-5">
-              <p className="text-xs font-bold uppercase tracking-[0.22em] text-secondary">Venue rental</p>
-              <h2 id="venue-rental-checkout-title" className="mt-2 font-display text-2xl font-bold text-foreground">
+            <div className="border-b border-tan px-6 py-5">
+              <p className="label-caps text-clay">Venue rental</p>
+              <h2 id="venue-rental-checkout-title" className="mt-2 font-display text-2xl font-semibold text-ink">
                 Pay {venueName}
               </h2>
-              <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
+              <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-soft">
                 Choose card or ACH before Stripe Checkout opens. ACH transfers take 2-3 business days to settle in the venue&apos;s account.
               </p>
             </div>
 
             <div className="max-h-[calc(90vh-8rem)] overflow-y-auto p-6">
               {isSubmitting ? (
-                <div className="mb-4 flex items-center gap-2 rounded-2xl border border-primary/25 bg-primary/10 px-4 py-3 text-sm font-semibold text-primary">
+                <div className="mb-4 flex items-center gap-2 rounded-md border border-clay/25 bg-clay-tint px-4 py-3 text-sm font-semibold text-clay">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Creating secure Stripe Checkout...
                 </div>

@@ -169,7 +169,7 @@ const plannerStateRequestCache = new Map<string, {
  */
 export default function PlannerPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-background" />}>
+    <Suspense fallback={<div className="min-h-screen bg-cream" />}>
       <PlannerPageContent />
     </Suspense>
   )
@@ -1301,17 +1301,17 @@ function PlannerPageContent() {
 
   if (shouldHardResetDemo) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-4">
-        <div className="w-full max-w-md rounded-3xl border border-border bg-card/70 p-6 text-center shadow-card">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-secondary/15 text-secondary">
+      <div className="flex min-h-screen items-center justify-center bg-cream px-4 text-ink">
+        <div className="w-full max-w-md rounded-lg border border-tan bg-cream p-6 text-center shadow-card">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-md bg-clay-tint text-clay">
             <RefreshCw className={cn('h-5 w-5', isDemoResetting && 'animate-spin')} />
           </div>
-          <h1 className="mt-4 font-display text-xl font-bold text-foreground">Resetting demo session</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <h1 className="mt-4 font-display text-xl font-semibold text-ink">Resetting demo session</h1>
+          <p className="mt-2 text-sm text-ink-soft">
             Clearing the previous demo plan and loading a fresh one.
           </p>
           {demoResetError ? (
-            <div className="mt-4 rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <div className="mt-4 rounded-md border border-brick/40 bg-brick-tint px-4 py-3 text-sm text-brick">
               {demoResetError}
             </div>
           ) : null}
@@ -1327,11 +1327,11 @@ function PlannerPageContent() {
 
   if (!activePlan) {
     return (
-      <div className="min-h-screen">
+      <div className="min-h-screen bg-cream text-ink">
         <PlannerTopBar userName={organizationName} userRole={plannerRoleLabel} />
         <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6">
           {errorMessage ? (
-            <div className="mx-auto mb-4 max-w-3xl rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <div className="mx-auto mb-4 max-w-3xl rounded-md border border-brick/40 bg-brick-tint px-4 py-3 text-sm text-brick">
               {errorMessage}
             </div>
           ) : null}
@@ -1371,24 +1371,24 @@ function PlannerPageContent() {
   ) : null
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-cream text-ink">
       {demoBanner}
       <PlannerTopBar userName={organizationName} userRole={plannerRoleLabel} />
 
       <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6">
-        <div className="mb-5 flex flex-col gap-4 rounded-3xl border border-border bg-card/50 p-5 shadow-card sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-5 flex flex-col gap-4 rounded-lg border border-tan bg-cream p-5 shadow-card sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-secondary">{organizationName}</p>
-            <h1 className="mt-1 break-words font-display text-xl font-bold leading-tight sm:text-2xl">{activePlan.title}</h1>
-            <p className="mt-1 text-xs text-muted-foreground">Active planner workspace</p>
+            <p className="label-caps text-clay">{organizationName}</p>
+            <h1 className="mt-1 break-words font-display text-lg font-semibold leading-tight text-ink sm:text-2xl">{activePlan.title}</h1>
+            <p className="mt-1 text-xs text-ink-soft">Active planner workspace</p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
             <span
               className={cn(
                 'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold',
                 persistenceMode === 'draft'
-                  ? 'border-secondary/30 bg-secondary/10 text-secondary'
-                  : 'border-success/30 bg-success/10 text-success'
+                  ? 'border-ochre/30 bg-ochre-tint text-ochre'
+                  : 'border-forest/30 bg-forest-tint text-forest'
               )}
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
@@ -1398,10 +1398,10 @@ function PlannerPageContent() {
               className={cn(
                 'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold',
                 activeDateChip.status === 'pending'
-                  ? 'border-secondary/30 bg-secondary/10 text-secondary'
+                  ? 'border-ochre/30 bg-ochre-tint text-ochre'
                   : activeDateChip.status === 'confirmed'
-                    ? 'border-success/30 bg-success/10 text-success'
-                    : 'border-border bg-muted text-muted-foreground'
+                    ? 'border-forest/30 bg-forest-tint text-forest'
+                    : 'border-tan bg-cream-deep text-ink-soft'
               )}
             >
               {activeDateChip.status === 'confirmed' ? (
@@ -1417,7 +1417,7 @@ function PlannerPageContent() {
           </div>
         </div>
 
-        <div className="mb-5 flex gap-2 overflow-x-auto rounded-2xl border border-border bg-card/40 p-1">
+        <div className="mb-5 flex gap-1 overflow-x-auto rounded-md border border-tan bg-cream-deep/60 p-1">
           {planTabs.map((tab) => {
             if (tab.id === 'timeline' && persistenceMode !== 'server') return null
             if (tab.id === 'data' && persistenceMode !== 'server') return null
@@ -1428,10 +1428,10 @@ function PlannerPageContent() {
               type="button"
               onClick={() => handlePlannerTabSelect(tab.id)}
               className={cn(
-                'inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-semibold transition-smooth',
+                'inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-4 py-2 text-sm font-semibold transition-smooth',
                 activeTab === tab.id
-                  ? 'bg-secondary text-secondary-foreground shadow-card'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  ? 'bg-ink text-cream'
+                  : 'text-ink-soft hover:bg-cream hover:text-ink'
               )}
             >
               {tab.label}
@@ -1439,7 +1439,7 @@ function PlannerPageContent() {
                 <span
                   className={cn(
                     'rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums',
-                    activeTab === tab.id ? 'bg-background/30 text-secondary-foreground' : 'bg-muted text-muted-foreground'
+                    activeTab === tab.id ? 'bg-cream/20 text-cream' : 'bg-cream text-ink-soft'
                   )}
                 >
                   {count}
@@ -1450,13 +1450,13 @@ function PlannerPageContent() {
           })}
         </div>
 
-        <section className="overflow-hidden rounded-3xl border border-border bg-card/50 shadow-card">
-          <div className="border-b border-border px-5 py-4">
+        <section className="overflow-hidden rounded-lg border border-tan bg-cream shadow-card">
+          <div className="border-b border-tan px-5 py-4">
             <div className="flex items-center gap-2">
               {activeTab === 'event_plan'
-                ? <Sparkles className="h-5 w-5 text-secondary" />
-                : <MessageSquare className="h-5 w-5 text-secondary" />}
-              <h2 className="font-display text-lg font-bold">{activeTabLabel}</h2>
+                ? <Sparkles className="h-5 w-5 text-clay" />
+                : <MessageSquare className="h-5 w-5 text-clay" />}
+              <h2 className="font-display text-lg font-semibold text-ink">{activeTabLabel}</h2>
             </div>
           </div>
           <div className="space-y-4 p-5">
@@ -1478,7 +1478,7 @@ function PlannerPageContent() {
                   />
                 ))}
                 {isAwaitingRecommendations ? (
-                  <div className="flex items-center gap-2 rounded-2xl bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2 rounded-md border border-tan bg-cream-deep px-4 py-3 text-sm text-ink-soft">
                     <Loader2 className="h-4 w-4 animate-spin shrink-0" />
                     Matching venues and vendors…
                   </div>
@@ -1509,7 +1509,7 @@ function PlannerPageContent() {
                     />
                   ))
                 ) : (
-                  <div className="py-12 text-center text-sm text-muted-foreground">
+                  <div className="py-12 text-center text-sm text-ink-soft">
                     No recommendations yet — describe your event and the agent will suggest venues and vendors.
                   </div>
                 )}
@@ -1518,7 +1518,7 @@ function PlannerPageContent() {
 
             {activeTab === 'approvals' ? (
               <>
-                <div className="rounded-2xl border border-border bg-background/60 px-4 py-3 text-sm font-semibold text-muted-foreground">
+                <div className="rounded-md border border-tan bg-cream-deep px-4 py-3 text-sm font-semibold text-ink-soft">
                   {approvalSummary.pending} pending · {approvalSummary.authorized} authorized · {approvalSummary.cancelled} cancelled
                 </div>
                 {visibleMessages.length > 0 ? (
@@ -1535,7 +1535,7 @@ function PlannerPageContent() {
                     />
                   ))
                 ) : (
-                  <div className="py-12 text-center text-sm text-muted-foreground">
+                  <div className="py-12 text-center text-sm text-ink-soft">
                     No pending approvals — approvals appear here when the agent requests authorization.
                   </div>
                 )}
@@ -1564,14 +1564,14 @@ function PlannerPageContent() {
             ) : null}
 
             {errorMessage ? (
-              <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              <div className="rounded-md border border-brick/40 bg-brick-tint px-4 py-3 text-sm text-brick">
                 {errorMessage}
               </div>
             ) : null}
 
             {activeTab === 'chat' ? (
               <>
-                <form onSubmit={handleReplySubmit} className="relative z-10 rounded-2xl border border-border bg-background/70 p-3">
+                <form onSubmit={handleReplySubmit} className="relative z-10 rounded-lg border border-tan bg-cream-deep/60 p-3">
                   <div className="relative z-10 flex items-end gap-2">
                     <Textarea
                       ref={replyRef}
@@ -1590,7 +1590,7 @@ function PlannerPageContent() {
                       onKeyDown={handleReplyKeyDown}
                       name="reply"
                       rows={2}
-                      className="relative z-10 h-20 max-h-48 min-h-20 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-2 py-2 focus-visible:ring-0"
+                      className="relative z-10 h-20 max-h-48 min-h-20 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-2 py-2 text-ink placeholder:text-ink-faint focus-visible:ring-0"
                       placeholder="Reply with details…"
                       aria-label="Reply to planner agent"
                       disabled={isSendingReply}
@@ -1598,7 +1598,7 @@ function PlannerPageContent() {
                     <Button
                       type="submit"
                       size="icon"
-                      className="mb-1 rounded-xl"
+                      className="mb-1 rounded-md"
                       aria-label="Send planner reply"
                       disabled={isSendingReply}
                     >
@@ -1608,27 +1608,27 @@ function PlannerPageContent() {
                 </form>
 
                 {persistenceMode === 'server' ? (
-                  <div className="rounded-2xl border border-border bg-background/60">
+                  <div className="rounded-lg border border-tan bg-cream-deep/55">
                     <button
                       type="button"
                       onClick={() => setIsReplyAnalysisOpen((current) => !current)}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold transition-smooth hover:text-foreground"
+                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-ink-soft transition-smooth hover:text-ink"
                     >
                       <span className="inline-flex items-center gap-2">
-                        <Sparkles className="h-4 w-4 text-primary" />
+                        <Sparkles className="h-4 w-4 text-clay" />
                         Analyze a Reply
                       </span>
-                      <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', isReplyAnalysisOpen && 'rotate-180')} />
+                      <ChevronDown className={cn('h-4 w-4 text-ink-faint transition-transform', isReplyAnalysisOpen && 'rotate-180')} />
                     </button>
 
                     {isReplyAnalysisOpen ? (
-                      <div className="space-y-3 border-t border-border p-4">
+                      <div className="space-y-3 border-t border-tan p-4">
                         <Textarea
                           value={replyAnalysisText}
                           onChange={(event) => setReplyAnalysisText(event.target.value)}
                           rows={5}
                           placeholder="Paste venue or vendor reply"
-                          className="min-h-32 resize-y bg-card/60"
+                          className="min-h-32 resize-y border-tan bg-cream"
                         />
                         <Button
                           type="button"
@@ -1642,7 +1642,7 @@ function PlannerPageContent() {
                         </Button>
 
                         {replyAnalysisError ? (
-                          <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                          <div className="rounded-md border border-brick/40 bg-brick-tint px-3 py-2 text-sm text-brick">
                             {replyAnalysisError}
                           </div>
                         ) : null}
@@ -1711,18 +1711,18 @@ function PlannerTemplatesModal(props: {
   if (!props.isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 px-4 py-6 backdrop-blur-md">
-      <div className="max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-3xl border border-border bg-card shadow-card">
-        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/20 px-4 py-6 backdrop-blur-md">
+      <div className="max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-lg border border-tan bg-cream shadow-card">
+        <div className="flex items-start justify-between gap-4 border-b border-tan px-5 py-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-primary">Planner templates</p>
-            <h2 className="mt-1 font-display text-xl font-bold">Use a proven event shape</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Save this plan once the event shape works, then reuse it with fresh dates and headcount.</p>
+            <p className="label-caps text-clay">Planner templates</p>
+            <h2 className="mt-1 font-display text-xl font-semibold text-ink">Use a proven event shape</h2>
+            <p className="mt-1 text-sm text-ink-soft">Save this plan once the event shape works, then reuse it with fresh dates and headcount.</p>
           </div>
           <button
             type="button"
             onClick={props.onClose}
-            className="rounded-xl border border-border bg-background/60 p-2 text-muted-foreground transition-smooth hover:text-foreground"
+            className="rounded-md border border-tan bg-cream-deep p-2 text-ink-soft transition-smooth hover:text-ink"
             aria-label="Close templates"
           >
             <X className="h-4 w-4" />
@@ -1731,20 +1731,20 @@ function PlannerTemplatesModal(props: {
 
         <div className="max-h-[65vh] space-y-4 overflow-y-auto p-5">
           {props.error ? (
-            <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <div className="rounded-md border border-brick/40 bg-brick-tint px-4 py-3 text-sm text-brick">
               {props.error}
             </div>
           ) : null}
 
           {props.isLoading ? (
-            <div className="flex items-center justify-center gap-2 rounded-2xl border border-border bg-background/60 px-4 py-10 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            <div className="flex items-center justify-center gap-2 rounded-md border border-tan bg-cream-deep px-4 py-10 text-sm text-ink-soft">
+              <Loader2 className="h-4 w-4 animate-spin text-clay" />
               Loading templates…
             </div>
           ) : null}
 
           {!props.isLoading && props.templates.length === 0 ? (
-            <div className="rounded-2xl border border-border bg-background/60 px-4 py-10 text-center text-sm text-muted-foreground">
+            <div className="rounded-md border border-tan bg-cream-deep px-4 py-10 text-center text-sm text-ink-soft">
               <p>No saved templates yet.</p>
               {props.canSaveCurrentPlan ? (
                 <Button
@@ -1765,17 +1765,17 @@ function PlannerTemplatesModal(props: {
           {!props.isLoading ? (
             <div className="grid gap-3 sm:grid-cols-2">
               {props.templates.map((template) => (
-                <div key={template.id} className="rounded-2xl border border-border bg-background/60 p-4">
+                <div key={template.id} className="rounded-lg border border-tan bg-cream-deep/55 p-4">
                   <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
-                      <LayoutTemplate className="h-5 w-5 text-primary-foreground" />
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-gradient-brand shadow-glow">
+                      <LayoutTemplate className="h-5 w-5 text-cream" />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="break-words font-display text-base font-bold">{template.name}</h3>
-                      <p className="mt-1 line-clamp-3 text-sm text-muted-foreground">
+                      <h3 className="break-words font-display text-base font-semibold text-ink">{template.name}</h3>
+                      <p className="mt-1 line-clamp-3 text-sm text-ink-soft">
                         {template.description ?? 'Reusable planner template'}
                       </p>
-                      <p className="mt-2 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+                      <p className="mt-2 text-[11px] font-medium uppercase tracking-widest text-ink-faint">
                         {formatTemplateCreatedAt(template.created_at)}
                       </p>
                     </div>
@@ -1801,7 +1801,7 @@ function PlannerTemplatesModal(props: {
           ) : null}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
+        <div className="flex justify-end gap-2 border-t border-tan px-5 py-4">
           {props.canSaveCurrentPlan ? (
             <Button type="button" variant="hero" size="sm" onClick={props.onSaveCurrentPlan} disabled={props.isSavingTemplate}>
               {props.isSavingTemplate ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutTemplate className="h-4 w-4" />}
@@ -1834,37 +1834,37 @@ function ReplyAnalysisResult({ result }: { result: ResponseAnalysisOutput }) {
     : result.extracted_questions
 
   return (
-    <div className="space-y-4 rounded-2xl border border-border bg-card/60 p-4">
+    <div className="space-y-4 rounded-lg border border-tan bg-cream-deep/55 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className={cn('rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-widest', getAvailabilityBadgeClass(result.availability_status))}>
           {result.availability_status}
         </span>
         {result.quoted_price_cents !== null ? (
-          <span className="rounded-full border border-border bg-background/70 px-3 py-1 text-xs font-semibold text-muted-foreground">
+          <span className="rounded-full border border-tan bg-cream px-3 py-1 text-xs font-semibold text-ink-soft">
             Quote {formatMockCents(result.quoted_price_cents)}
           </span>
         ) : null}
         {result.minimum_spend_cents !== null ? (
-          <span className="rounded-full border border-border bg-background/70 px-3 py-1 text-xs font-semibold text-muted-foreground">
+          <span className="rounded-full border border-tan bg-cream px-3 py-1 text-xs font-semibold text-ink-soft">
             Minimum {formatMockCents(result.minimum_spend_cents)}
           </span>
         ) : null}
         {result.deposit_required_cents !== null ? (
-          <span className="rounded-full border border-border bg-background/70 px-3 py-1 text-xs font-semibold text-muted-foreground">
+          <span className="rounded-full border border-tan bg-cream px-3 py-1 text-xs font-semibold text-ink-soft">
             Deposit {formatMockCents(result.deposit_required_cents)}
           </span>
         ) : null}
       </div>
 
-      <p className="text-sm leading-relaxed text-muted-foreground">{result.summary}</p>
+      <p className="text-sm leading-relaxed text-ink-soft">{result.summary}</p>
 
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-foreground">Action items</p>
-          <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+          <p className="text-xs font-bold uppercase tracking-widest text-ink">Action items</p>
+          <ul className="mt-2 space-y-1 text-sm text-ink-soft">
             {actionItems.length > 0 ? actionItems.map((item) => (
               <li key={item} className="flex gap-2">
-                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-clay" />
                 <span>{item}</span>
               </li>
             )) : (
@@ -1874,11 +1874,11 @@ function ReplyAnalysisResult({ result }: { result: ResponseAnalysisOutput }) {
         </div>
 
         <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-destructive">Risk flags</p>
-          <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+          <p className="text-xs font-bold uppercase tracking-widest text-brick">Risk flags</p>
+          <ul className="mt-2 space-y-1 text-sm text-ink-soft">
             {result.risk_flags.length > 0 ? result.risk_flags.map((flag) => (
-              <li key={flag} className="flex gap-2 text-destructive">
-                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" />
+              <li key={flag} className="flex gap-2 text-brick">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brick" />
                 <span>{flag}</span>
               </li>
             )) : (
@@ -1890,7 +1890,7 @@ function ReplyAnalysisResult({ result }: { result: ResponseAnalysisOutput }) {
 
       <div>
         <div className="mb-2 flex items-center justify-between gap-2">
-          <p className="text-xs font-bold uppercase tracking-widest text-foreground">Suggested reply</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-ink">Suggested reply</p>
           <Button
             type="button"
             variant="glass"
@@ -1901,7 +1901,7 @@ function ReplyAnalysisResult({ result }: { result: ResponseAnalysisOutput }) {
             Copy
           </Button>
         </div>
-        <pre className="whitespace-pre-wrap rounded-xl border border-border bg-background/80 p-3 text-sm text-muted-foreground">
+        <pre className="whitespace-pre-wrap rounded-md border border-tan bg-cream p-3 text-sm text-ink-soft">
           {suggestedReply}
         </pre>
       </div>
@@ -1910,8 +1910,8 @@ function ReplyAnalysisResult({ result }: { result: ResponseAnalysisOutput }) {
 }
 
 function getAvailabilityBadgeClass(status: ResponseAnalysisOutput['availability_status']): string {
-  if (status === 'available') return 'border-success/30 bg-success/10 text-success'
-  if (status === 'unavailable') return 'border-destructive/30 bg-destructive/10 text-destructive'
+  if (status === 'available') return 'border-forest/30 bg-forest-tint text-forest'
+  if (status === 'unavailable') return 'border-brick/30 bg-brick-tint text-brick'
   return 'border-secondary/30 bg-secondary/10 text-secondary'
 }
 
@@ -1954,13 +1954,13 @@ function DemoSessionBanner({
   onStartOver: () => void
 }) {
   return (
-    <div className="border-b border-secondary/30 bg-secondary/10 px-4 py-3">
+    <div className="border-b border-ochre/30 bg-ochre-tint px-4 py-3">
       <div className="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">
+          <p className="text-sm font-semibold text-ink">
             Continuing demo session from {formatDemoSessionTime(updatedAt)}.
           </p>
-          {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
+          {error ? <p className="mt-1 text-xs text-brick">{error}</p> : null}
         </div>
         <Button
           type="button"
@@ -3184,19 +3184,19 @@ interface PlannerMessageBubbleProps {
 
 function DraftMatchSignupCard({ onContinue }: { onContinue: () => void }) {
   return (
-    <div className="rounded-3xl border border-primary/30 bg-gradient-card p-5 shadow-card">
+    <div className="rounded-lg border border-clay/30 bg-cream p-5 shadow-card">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+          <div className="flex items-center gap-2 text-sm font-semibold text-clay">
             <Sparkles className="h-4 w-4" />
             Ready to make your event happen
           </div>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
             I can save this draft and run the live planner pipeline for venue matches, vendor picks,
             financial projections, and approval cards after you create your planner account.
           </p>
         </div>
-        <Button type="button" variant="hero" className="shrink-0 rounded-2xl" onClick={onContinue}>
+        <Button type="button" variant="hero" className="shrink-0 rounded-md" onClick={onContinue}>
           Save draft & show matches
         </Button>
       </div>
@@ -3231,11 +3231,11 @@ function PlannerMessageBubble({
           type="button"
           onClick={() => onNavigateToTab?.(narrationChip.target_tab, narrationChip.target_msg_id)}
           disabled={!onNavigateToTab}
-          className="group flex max-w-full items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-2 text-left text-xs font-semibold text-primary transition hover:border-primary hover:bg-primary/20 disabled:cursor-default disabled:opacity-70"
+          className="group flex max-w-full items-center gap-2 rounded-full border border-clay/35 bg-clay-tint px-4 py-2 text-left text-xs font-semibold text-clay transition hover:border-clay hover:bg-clay-tint/80 disabled:cursor-default disabled:opacity-70"
         >
           <Sparkles className="h-3.5 w-3.5" />
           <span className="truncate">{message.content}</span>
-          <span aria-hidden className="ml-1 text-primary/70 transition group-hover:translate-x-0.5">→</span>
+          <span aria-hidden className="ml-1 text-clay/70 transition group-hover:translate-x-0.5">→</span>
         </button>
       </div>
     )
@@ -3246,10 +3246,10 @@ function PlannerMessageBubble({
       <div className={cn('flex max-w-full flex-col gap-1 sm:max-w-2xl', isUser ? 'items-end' : 'items-start')}>
         {!isUser ? (
           <div className="flex items-center gap-2 px-1">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-card">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-clay text-cream shadow-card">
               <Sparkles className="h-3.5 w-3.5" />
             </span>
-            <span className="text-xs font-semibold text-muted-foreground">3rdPlace Agent</span>
+            <span className="text-xs font-semibold text-ink-soft">3rdPlace Agent</span>
           </div>
         ) : null}
 
@@ -3261,12 +3261,12 @@ function PlannerMessageBubble({
           className={cn(
             'max-w-full text-sm leading-relaxed',
             hasStructuredQuestion && !isUser
-              ? 'text-foreground'
+              ? 'text-ink'
               : cn(
                   'break-words border px-4 py-3 shadow-card',
                   isUser
-                    ? 'rounded-3xl rounded-br-md border-primary/20 bg-primary text-primary-foreground'
-                    : 'rounded-3xl rounded-bl-md border-border bg-card text-foreground'
+                    ? 'rounded-lg rounded-br-sm border-clay/20 bg-clay-tint text-ink'
+                    : 'rounded-lg rounded-bl-sm border-tan bg-cream-deep text-ink'
                 )
           )}
         >
@@ -3287,7 +3287,7 @@ function PlannerMessageBubble({
           ) : null}
         </div>
 
-        <p className="px-2 text-[11px] text-muted-foreground">{isUser ? `You · ${messageTime}` : messageTime}</p>
+        <p className="px-2 text-[11px] text-ink-faint">{isUser ? `You · ${messageTime}` : messageTime}</p>
           </>
         )}
       </div>
@@ -3304,7 +3304,7 @@ function CollapsedConfirmationCard({ message, messageTime }: { message: PlanMess
   if (isExpanded) {
     return (
       <>
-        <div className="max-w-full rounded-3xl rounded-bl-md border border-border bg-card px-4 py-3 text-sm leading-relaxed text-foreground shadow-card">
+        <div className="max-w-full rounded-lg rounded-bl-sm border border-tan bg-cream-deep px-4 py-3 text-sm leading-relaxed text-ink shadow-card">
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
           <PlannerMessageMetadata
             message={message}
@@ -3318,7 +3318,7 @@ function CollapsedConfirmationCard({ message, messageTime }: { message: PlanMess
         </div>
         <button
           type="button"
-          className="px-2 text-[11px] text-muted-foreground underline-offset-4 hover:underline"
+          className="px-2 text-[11px] text-ink-faint underline-offset-4 hover:underline"
           onClick={() => setIsExpanded(false)}
         >
           Collapse · {messageTime}
@@ -3331,13 +3331,13 @@ function CollapsedConfirmationCard({ message, messageTime }: { message: PlanMess
     <>
       <button
         type="button"
-        className="flex max-w-full items-center gap-2 rounded-2xl border border-border bg-card/70 px-4 py-2 text-left text-sm font-semibold leading-snug text-muted-foreground shadow-card transition-smooth hover:bg-card hover:text-foreground"
+        className="flex max-w-full items-center gap-2 rounded-md border border-tan bg-cream-deep/70 px-4 py-2 text-left text-sm font-semibold leading-snug text-ink-soft shadow-card transition-smooth hover:bg-cream-deep hover:text-ink"
         onClick={() => setIsExpanded(true)}
       >
         <ChevronDown className="-rotate-90 h-4 w-4" />
         Event summary · updated
       </button>
-      <p className="px-2 text-[11px] text-muted-foreground">{messageTime}</p>
+      <p className="px-2 text-[11px] text-ink-faint">{messageTime}</p>
     </>
   )
 }
@@ -3361,9 +3361,9 @@ function PlanSummaryChips({ plan }: PlanSummaryChipsProps) {
   return (
     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
       {chips.map((chip) => (
-        <div key={chip.label} className="min-w-0 rounded-2xl border border-border bg-background/60 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{chip.label}</p>
-          <p className="mt-1 break-words text-sm font-bold leading-snug text-foreground">{chip.value}</p>
+        <div key={chip.label} className="min-w-0 rounded-md border border-tan bg-cream-deep/60 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{chip.label}</p>
+          <p className="mt-1 break-words text-sm font-semibold leading-snug text-ink">{chip.value}</p>
         </div>
       ))}
     </div>
@@ -3410,10 +3410,10 @@ function PlannerFocusedMessageCard({
   return (
     <article
       data-plan-message-id={message.id}
-      className="min-w-0 rounded-2xl border border-border bg-background/60 p-4"
+      className="min-w-0 rounded-lg border border-tan bg-cream-deep/55 p-4"
     >
       {!hasStructuredQuestion ? (
-        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{message.content}</p>
+        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">{message.content}</p>
       ) : null}
       <PlannerMessageMetadata
         message={message}
@@ -3447,9 +3447,9 @@ function PlannerApprovalFocusedCard({
     return (
       <article
         data-plan-message-id={message.id}
-        className="min-w-0 rounded-2xl border border-border bg-background/60 p-4"
+        className="min-w-0 rounded-lg border border-tan bg-cream-deep/55 p-4"
       >
-        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{message.content}</p>
+        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">{message.content}</p>
       </article>
     )
   }
@@ -3680,9 +3680,9 @@ function PlannerMessageMetadata({
             const confirmed = Boolean(item.confirmed)
 
             return (
-              <div key={`${label}-${index}`} className="min-w-0 rounded-xl border border-border bg-background/50 p-3">
-                <p className="text-xs text-muted-foreground">{label}</p>
-                <p className="mt-1 break-words text-sm font-semibold leading-snug text-foreground">
+              <div key={`${label}-${index}`} className="min-w-0 rounded-md border border-tan bg-cream-deep/60 p-3">
+                <p className="text-xs text-ink-faint">{label}</p>
+                <p className="mt-1 break-words text-sm font-semibold leading-snug text-ink">
                   {confirmed ? '✓ ' : ''}
                   {value}
                 </p>
@@ -3693,7 +3693,7 @@ function PlannerMessageMetadata({
       ) : null}
 
       {Array.isArray(missingFields) && missingFields.length > 0 && !hasStructuredQuestion ? (
-        <div className="text-xs text-muted-foreground">
+        <div className="text-xs text-ink-faint">
           Missing: {missingFields.filter((field) => typeof field === 'string').join(', ')}
         </div>
       ) : null}
@@ -3718,17 +3718,17 @@ function PlannerMessageMetadata({
       {Array.isArray(recommendations) ? (
         <div className="space-y-3">
           {capacityCalibration?.calibration_signal === 'historical_higher' ? (
-            <div className="rounded-2xl border border-primary/30 bg-primary/10 p-4 text-xs leading-snug text-foreground">
+            <div className="rounded-lg border border-clay/30 bg-clay-tint/55 p-4 text-xs leading-snug text-ink">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold text-primary">Sized for historical attendance</span>
+                <span className="font-semibold text-clay">Sized for historical attendance</span>
                 <span
-                  className="cursor-help rounded-full border border-primary/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary"
+                  className="cursor-help rounded-full border border-clay/30 bg-cream px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-clay"
                   title={`Based on ${capacityCalibration.sample_size} past event${capacityCalibration.sample_size === 1 ? '' : 's'} analyzed from connected ticketing imports.`}
                 >
                   What&apos;s this?
                 </span>
               </div>
-              <p className="mt-2 text-muted-foreground">
+              <p className="mt-2 text-ink-soft">
                 Sized for both your stated {capacityCalibration.stated_guest_count ?? 'planned'} guests and your typical attendance
                 {capacityCalibration.history_p75 ? ` (~${Math.round(capacityCalibration.history_p75)} in recent similar events)` : ''}.
                 Showing venues that fit both.
@@ -3736,9 +3736,9 @@ function PlannerMessageMetadata({
             </div>
           ) : null}
           {matchedArchetype || vendorStackGroups.length > 0 ? (
-            <div className="space-y-3 rounded-2xl border border-border bg-background/50 p-4">
+            <div className="space-y-3 rounded-lg border border-tan bg-cream-deep/60 p-4">
               {matchedArchetype ? (
-                <span className="inline-block rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                <span className="inline-block rounded-full border border-clay/40 bg-clay-tint px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-clay">
                   Matched: {matchedArchetype}
                 </span>
               ) : null}
@@ -3752,14 +3752,14 @@ function PlannerMessageMetadata({
                   conditional: 'Conditional',
                 }
                 const tierColor: Record<string, string> = {
-                  required: 'border-destructive/40 bg-destructive/10 text-destructive',
-                  recommended: 'border-success/40 bg-success/10 text-success',
-                  optional: 'border-border bg-muted text-muted-foreground',
-                  conditional: 'border-warning/40 bg-warning/10 text-warning',
+                  required: 'border-brick/40 bg-brick-tint text-brick',
+                  recommended: 'border-forest/40 bg-forest-tint text-forest',
+                  optional: 'border-tan bg-cream text-ink-soft',
+                  conditional: 'border-ochre/40 bg-ochre-tint text-ochre',
                 }
                 return (
                   <div key={tier}>
-                    <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{tierLabel[tier]}</p>
+                    <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-ink-faint">{tierLabel[tier]}</p>
                     <div className="flex flex-wrap gap-1.5">
                       {tierGroups.map((group) => (
                         <span
@@ -3810,49 +3810,49 @@ function PlannerMessageMetadata({
               <div
                 key={`${name}-${index}`}
                 className={cn(
-                  'min-w-0 rounded-2xl border bg-background/60 p-4',
-                  index === 0 ? 'border-primary/50 shadow-glow' : 'border-border'
+                  'min-w-0 rounded-lg border bg-cream p-4',
+                  index === 0 ? 'border-clay/45 shadow-card' : 'border-tan'
                 )}
               >
                 <div className="mb-3 flex items-center justify-between gap-2">
-                  <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <span className="rounded-full border border-tan bg-cream-deep px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
                     {type}
                   </span>
                   {index === 0 ? (
-                    <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground">
+                    <span className="rounded-full bg-clay px-2 py-0.5 text-[10px] font-bold text-cream">
                       Best fit
                     </span>
                   ) : null}
                 </div>
-                <h3 className="break-words font-display text-base font-bold leading-tight text-foreground">{name}</h3>
-                <p className="mt-1 break-words text-sm leading-relaxed text-muted-foreground">{fit}</p>
+                <h3 className="break-words font-display text-base font-bold leading-tight text-ink">{name}</h3>
+                <p className="mt-1 break-words text-sm leading-relaxed text-ink-soft">{fit}</p>
                 <div className="mt-4 grid gap-2 text-xs">
                   <div className="flex min-w-0 items-center justify-between gap-3">
-                    <span className="text-muted-foreground">Estimate</span>
-                    <span className="shrink-0 font-semibold text-foreground">{priceCents > 0 ? formatMockCents(priceCents) : 'TBD'}</span>
+                    <span className="text-ink-faint">Estimate</span>
+                    <span className="shrink-0 font-semibold text-ink">{priceCents > 0 ? formatMockCents(priceCents) : 'TBD'}</span>
                   </div>
                   {capacity ? (
                     <div className="flex min-w-0 items-center justify-between gap-3">
-                      <span className="text-muted-foreground">Capacity</span>
-                      <span className="shrink-0 font-semibold text-foreground">{capacity}</span>
+                      <span className="text-ink-faint">Capacity</span>
+                      <span className="shrink-0 font-semibold text-ink">{capacity}</span>
                     </div>
                   ) : null}
                   {commercialModelMatch ? (
                     <div className="flex min-w-0 items-center justify-between gap-3">
-                      <span className="text-muted-foreground">Model</span>
-                      <span className="shrink-0 font-semibold text-foreground">{commercialModelMatch.replace(/_/g, ' ')}</span>
+                      <span className="text-ink-faint">Model</span>
+                      <span className="shrink-0 font-semibold text-ink">{commercialModelMatch.replace(/_/g, ' ')}</span>
                     </div>
                   ) : null}
                 </div>
                 {reasonBullets.length > 0 ? (
-                  <div className="mt-3 rounded-xl border border-border bg-card/40 p-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  <div className="mt-3 rounded-md border border-tan bg-cream-deep/60 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">
                       Why this fits
                     </p>
-                    <ul className="mt-2 space-y-1.5 text-sm leading-relaxed text-muted-foreground">
+                    <ul className="mt-2 space-y-1.5 text-sm leading-relaxed text-ink-soft">
                       {reasonBullets.slice(0, 3).map((reason) => (
                         <li key={reason} className="flex gap-2">
-                          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-clay" />
                           <span className="min-w-0 break-words">{reason}</span>
                         </li>
                       ))}
@@ -3862,7 +3862,7 @@ function PlannerMessageMetadata({
                 {tags.length > 0 ? (
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {tags.map((tag) => (
-                      <span key={tag} className="max-w-full rounded-full bg-muted px-2 py-1 text-[10px] font-medium leading-tight text-muted-foreground">
+                      <span key={tag} className="max-w-full rounded-full bg-cream-deep px-2 py-1 text-[10px] font-medium leading-tight text-ink-soft">
                         {tag}
                       </span>
                     ))}
@@ -3885,25 +3885,25 @@ function PlannerMessageMetadata({
       ) : null}
 
       {byoVendors.length > 0 ? (
-        <div className="rounded-2xl border border-border bg-background/50 p-4">
+        <div className="rounded-lg border border-tan bg-cream-deep/60 p-4">
           <div className="flex items-baseline justify-between gap-2">
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Yours (BYO)</p>
-            <p className="text-xs font-medium text-muted-foreground">
+            <p className="text-xs font-semibold uppercase tracking-widest text-ink-faint">Yours (BYO)</p>
+            <p className="text-xs font-medium text-ink-soft">
               Folded into your projection
             </p>
           </div>
           <ul className="mt-2 space-y-1.5">
             {byoVendors.map((vendor) => (
-              <li key={`${vendor.service_type}:${vendor.name ?? ''}`} className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-card/40 px-3 py-2">
+              <li key={`${vendor.service_type}:${vendor.name ?? ''}`} className="flex items-center justify-between gap-3 rounded-md border border-tan bg-cream px-3 py-2">
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-foreground">
+                  <p className="text-sm font-semibold text-ink">
                     {vendor.name ?? formatByoServiceType(vendor.service_type)}
                   </p>
-                  <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+                  <p className="text-[11px] font-medium uppercase tracking-widest text-ink-faint">
                     {formatByoServiceType(vendor.service_type)}
                   </p>
                 </div>
-                <span className="shrink-0 text-sm font-semibold text-foreground">
+                <span className="shrink-0 text-sm font-semibold text-ink">
                   {typeof vendor.cost_cents === 'number' ? formatMockCents(vendor.cost_cents) : 'Cost TBD'}
                 </span>
               </li>
@@ -3913,16 +3913,16 @@ function PlannerMessageMetadata({
       ) : null}
 
       {economicsGate ? (
-        <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4">
+        <div className="rounded-lg border border-brick/40 bg-brick-tint p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-xs font-semibold uppercase tracking-widest text-destructive">
+            <p className="text-xs font-semibold uppercase tracking-widest text-brick">
               Pricing check — needs your call
             </p>
-            <p className="text-xs font-medium text-destructive/80">
+            <p className="text-xs font-medium text-brick/80">
               Loss of {formatMockCents(economicsGate.projected_loss_cents)} at full sell-through
             </p>
           </div>
-          <p className="mt-2 text-sm leading-relaxed text-foreground">
+          <p className="mt-2 text-sm leading-relaxed text-ink">
             At your stated {formatMockCents(economicsGate.stated_price_cents)}/ticket, costs ({formatMockCents(economicsGate.total_costs_cents)}) outrun ticket revenue. Pick a path so I can re-plan against a budget that works:
           </p>
           <div className="mt-3 grid gap-2">
@@ -3934,10 +3934,10 @@ function PlannerMessageMetadata({
                   if (onQuestionAnswerSubmit) onQuestionAnswerSubmit(option.action_message)
                 }}
                 disabled={!onQuestionAnswerSubmit}
-                className="group flex flex-col gap-1 rounded-xl border border-border/80 bg-background/60 px-3 py-2 text-left transition hover:border-primary/50 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60"
+                className="group flex flex-col gap-1 rounded-md border border-tan bg-cream px-3 py-2 text-left transition hover:border-clay/50 hover:bg-clay-tint/45 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <span className="text-sm font-semibold text-foreground">{option.label}</span>
-                <span className="text-xs leading-snug text-muted-foreground">{option.sub}</span>
+                <span className="text-sm font-semibold text-ink">{option.label}</span>
+                <span className="text-xs leading-snug text-ink-soft">{option.sub}</span>
               </button>
             ))}
           </div>
@@ -3945,11 +3945,11 @@ function PlannerMessageMetadata({
       ) : null}
 
       {economicsPrompt ? (
-        <div className="rounded-2xl border border-warning/30 bg-warning/10 p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-warning">
+        <div className="rounded-lg border border-ochre/30 bg-ochre-tint p-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-ochre">
             {economicsPrompt.economics_placeholder ? 'Unit economics pending' : 'Improve this projection'}
           </p>
-          <div className="mt-2 space-y-2 text-sm leading-relaxed text-foreground">
+          <div className="mt-2 space-y-2 text-sm leading-relaxed text-ink">
             {economicsPrompt.economics_placeholder ? <p>{economicsPrompt.economics_placeholder}</p> : null}
             {economicsPrompt.ticketing_platform_prompt ? <p>{economicsPrompt.ticketing_platform_prompt}</p> : null}
           </div>
@@ -3957,30 +3957,30 @@ function PlannerMessageMetadata({
       ) : null}
 
       {!economicsPrompt?.economics_placeholder && economicsDetails ? (
-        <div className="rounded-2xl border border-border bg-background/50 p-4">
+        <div className="rounded-lg border border-tan bg-cream-deep/60 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Pricing economics</p>
-              <p className="mt-1 text-sm leading-snug text-foreground">{economicsDetails.narrative}</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-ink-faint">Pricing economics</p>
+              <p className="mt-1 text-sm leading-snug text-ink">{economicsDetails.narrative}</p>
             </div>
             {economicsDetails.recommended_price_cents > 0 ? (
-              <span className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+              <span className="rounded-full border border-clay/40 bg-clay-tint px-3 py-1 text-xs font-semibold text-clay">
                 Recommended {formatMockCents(economicsDetails.recommended_price_cents)}
               </span>
             ) : null}
           </div>
           {economicsDetails.historical_anchor ? (
-            <p className="mt-3 border-l-2 border-primary/50 pl-3 text-xs italic leading-snug text-muted-foreground">
+            <p className="mt-3 border-l-2 border-clay/50 pl-3 text-xs italic leading-snug text-ink-soft">
               {economicsDetails.historical_anchor}
             </p>
           ) : null}
           {economicsDetails.estimate_note ? (
-            <p className="mt-3 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs font-medium leading-snug text-warning">
+            <p className="mt-3 rounded-md border border-ochre/30 bg-ochre-tint px-3 py-2 text-xs font-medium leading-snug text-ochre">
               {economicsDetails.estimate_note}
             </p>
           ) : null}
           {economicsDetails.risk_flags.length > 0 ? (
-            <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-medium leading-snug text-destructive">
+            <div className="mt-3 rounded-md border border-brick/30 bg-brick-tint px-3 py-2 text-xs font-medium leading-snug text-brick">
               {economicsDetails.risk_flags.slice(0, 2).map((flag) => (
                 <p key={flag}>{flag}</p>
               ))}
@@ -3996,37 +3996,37 @@ function PlannerMessageMetadata({
                   <div
                     key={`${point.price_cents}-${point.recommendation}`}
                     className={cn(
-                      'rounded-xl border bg-card/60 p-3 text-xs',
-                      isRecommended ? 'border-primary/60 shadow-glow' : 'border-border',
+                      'rounded-md border bg-cream p-3 text-xs',
+                      isRecommended ? 'border-clay/60 shadow-card' : 'border-tan',
                       isAvoid ? 'opacity-60' : ''
                     )}
                   >
                     <div className="grid gap-2 sm:grid-cols-[0.8fr_1fr_1fr_auto] sm:items-center">
-                      <span className={cn('font-semibold text-foreground', isAvoid ? 'line-through' : '')}>
+                      <span className={cn('font-semibold text-ink', isAvoid ? 'line-through' : '')}>
                         {formatMockCents(point.price_cents)}
                       </span>
-                      <span className="text-muted-foreground">
+                      <span className="text-ink-soft">
                         Net {formatMockCents(point.projected_net_cents)}
                       </span>
-                      <span className="text-muted-foreground">
+                      <span className="text-ink-soft">
                         Break-even {point.break_even_tickets} tickets
                       </span>
                       <span className={cn(
                         'w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                        isRecommended ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                        isRecommended ? 'bg-clay text-cream' : 'bg-cream-deep text-ink-soft'
                       )}>
                         {point.recommendation}
                       </span>
                     </div>
-                    <p className="mt-2 leading-snug text-muted-foreground">{point.reasoning}</p>
+                    <p className="mt-2 leading-snug text-ink-soft">{point.reasoning}</p>
                   </div>
                 )
               })}
             </div>
           ) : null}
           {economicsDetails.elasticity ? (
-            <details className="mt-4 rounded-xl border border-border bg-background/40 p-3 text-xs text-muted-foreground">
-              <summary className="cursor-pointer font-semibold text-foreground">How was this priced?</summary>
+            <details className="mt-4 rounded-md border border-tan bg-cream p-3 text-xs text-ink-soft">
+              <summary className="cursor-pointer font-semibold text-ink">How was this priced?</summary>
               <div className="mt-3 space-y-2">
                 <p>
                   {economicsDetails.elasticity.sample_size} events analyzed · pattern {economicsDetails.elasticity.tier_pattern.replace(/_/g, ' ')}
@@ -4050,12 +4050,12 @@ function PlannerMessageMetadata({
       ) : null}
 
       {Array.isArray(nextActions) ? (
-        <div className="rounded-2xl border border-border bg-background/50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Agent can do next</p>
+        <div className="rounded-lg border border-tan bg-cream-deep/60 p-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-ink-faint">Agent can do next</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {nextActions.map((action, index) =>
               typeof action === 'string' ? (
-                <div key={`${action}-${index}`} className="min-w-0 rounded-xl border border-border bg-card/70 px-3 py-2 text-xs font-medium leading-snug text-foreground">
+                <div key={`${action}-${index}`} className="min-w-0 rounded-md border border-tan bg-cream px-3 py-2 text-xs font-medium leading-snug text-ink">
                   {action}
                 </div>
               ) : null
@@ -4122,11 +4122,11 @@ function PlannerStructuredQuestionCard({
 
   if (isSkipped) {
     return (
-      <div className="rounded-2xl border border-border bg-background/50 p-4">
+      <div className="rounded-lg border border-tan bg-cream-deep/60 p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
-            <p className="mt-1 text-sm font-semibold text-muted-foreground">Skipped for now</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-ink-faint">{label}</p>
+            <p className="mt-1 text-sm font-semibold text-ink-soft">Skipped for now</p>
           </div>
           <Button type="button" variant="glass" size="sm" onClick={() => setIsSkipped(false)}>
             Answer
@@ -4137,13 +4137,13 @@ function PlannerStructuredQuestionCard({
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-background/60 shadow-card">
-      <div className="flex flex-col gap-2 border-b border-border bg-muted/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="overflow-hidden rounded-lg border border-tan bg-cream shadow-card">
+      <div className="flex flex-col gap-2 border-b border-tan bg-cream-deep/55 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
-          <h3 className="mt-1 break-words font-display text-base font-bold leading-snug text-foreground">{prompt}</h3>
+          <p className="text-xs font-semibold uppercase tracking-widest text-ink-faint">{label}</p>
+          <h3 className="mt-1 break-words font-display text-base font-bold leading-snug text-ink">{prompt}</h3>
         </div>
-        <span className="shrink-0 text-xs font-semibold text-muted-foreground">{instruction}</span>
+        <span className="shrink-0 text-xs font-semibold text-ink-soft">{instruction}</span>
       </div>
 
       <div className="space-y-2 p-4">
@@ -4157,16 +4157,16 @@ function PlannerStructuredQuestionCard({
                 type="button"
                 onClick={() => setSelectedValue(option.value)}
                 className={cn(
-                  'flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-smooth',
+                  'flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-smooth',
                   isSelected
-                    ? 'border-primary/60 bg-sidebar-accent text-foreground'
-                    : 'border-transparent bg-card/70 text-foreground hover:border-border hover:bg-muted'
+                    ? 'border-clay/60 bg-clay-tint text-ink'
+                    : 'border-tan bg-cream-deep/50 text-ink hover:border-clay/40 hover:bg-cream'
                 )}
               >
                 <span
                   className={cn(
                     'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border',
-                    isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/50'
+                    isSelected ? 'border-clay bg-clay text-cream' : 'border-ink-faint/50'
                   )}
                   aria-hidden="true"
                 >
@@ -4174,7 +4174,7 @@ function PlannerStructuredQuestionCard({
                 </span>
                 <span className="min-w-0">
                   <span className="block break-words text-sm font-bold leading-snug">{option.label}</span>
-                  <span className="mt-1 block break-words text-xs leading-snug text-muted-foreground">
+                  <span className="mt-1 block break-words text-xs leading-snug text-ink-soft">
                     {option.description}
                   </span>
                 </span>
@@ -4182,8 +4182,8 @@ function PlannerStructuredQuestionCard({
             )
           })
         ) : (
-          <div className="rounded-xl border border-border bg-card/70 px-3 py-2">
-            <p className="break-words text-sm font-medium leading-snug text-foreground">{prompt}</p>
+          <div className="rounded-md border border-tan bg-cream-deep/50 px-3 py-2">
+            <p className="break-words text-sm font-medium leading-snug text-ink">{prompt}</p>
           </div>
         )}
 
@@ -4191,18 +4191,18 @@ function PlannerStructuredQuestionCard({
           <div
             onClick={() => setSelectedValue(otherQuestionValue)}
             className={cn(
-              'flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-smooth',
+              'flex w-full items-center gap-3 rounded-md border px-3 py-3 text-left transition-smooth',
               selectedValue === otherQuestionValue
-                ? 'border-primary/60 bg-sidebar-accent'
-                : 'border-border bg-card/70 hover:bg-muted'
+                ? 'border-clay/60 bg-clay-tint'
+                : 'border-tan bg-cream-deep/50 hover:bg-cream'
             )}
           >
             <span
               className={cn(
                 'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border',
                 selectedValue === otherQuestionValue
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-muted-foreground/50'
+                  ? 'border-clay bg-clay text-cream'
+                  : 'border-ink-faint/50'
               )}
               aria-hidden="true"
             >
@@ -4222,7 +4222,7 @@ function PlannerStructuredQuestionCard({
         ) : null}
       </div>
 
-      <div className="flex items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3">
+      <div className="flex items-center justify-between gap-3 border-t border-tan bg-cream-deep/45 px-4 py-3">
         <Button type="button" variant="ghost" size="sm" onClick={() => setIsSkipped(true)}>
           Skip
         </Button>
@@ -4353,7 +4353,7 @@ function PlannerRecommendationActionButton({
         className={cn(
           'min-h-11 w-full whitespace-nowrap text-center text-sm font-semibold leading-snug',
           isComplete &&
-            'border border-success/30 bg-success/10 text-success shadow-none hover:bg-success/10 hover:text-success'
+            'border border-forest/30 bg-forest-tint text-forest shadow-none hover:bg-forest-tint hover:text-forest'
         )}
         onClick={handleActionClick}
         disabled={isLoading || isComplete}
@@ -4362,8 +4362,8 @@ function PlannerRecommendationActionButton({
         {buttonLabel}
         {!isLoading && !isComplete ? <ExternalLink className="h-3.5 w-3.5" /> : null}
       </Button>
-      {statusMessage ? <p className="break-words text-xs font-semibold leading-snug text-success">{statusMessage}</p> : null}
-      {errorMessage ? <p className="break-words text-xs font-semibold leading-snug text-destructive">{errorMessage}</p> : null}
+      {statusMessage ? <p className="break-words text-xs font-semibold leading-snug text-forest">{statusMessage}</p> : null}
+      {errorMessage ? <p className="break-words text-xs font-semibold leading-snug text-brick">{errorMessage}</p> : null}
     </div>
   )
 }
@@ -5175,23 +5175,23 @@ function PlannerApprovalCard({
 
   if (status === 'rejected') {
     return (
-      <div className="rounded-2xl border border-border bg-muted/40 p-4">
-        <span className="inline-flex items-center rounded-full border border-border bg-background px-3 py-1 text-xs font-bold text-muted-foreground">
+      <div className="rounded-lg border border-tan bg-cream-deep/60 p-4">
+        <span className="inline-flex items-center rounded-full border border-tan bg-cream px-3 py-1 text-xs font-bold text-ink-soft">
           ✗ Cancelled
         </span>
-        <p className="mt-3 text-sm text-muted-foreground">This approval was cancelled. No booking or payment will be executed.</p>
+        <p className="mt-3 text-sm text-ink-soft">This approval was cancelled. No booking or payment will be executed.</p>
       </div>
     )
   }
 
   return (
-    <div className="min-w-0 rounded-2xl border border-primary/40 bg-primary/10 p-4">
-      <p className="text-xs font-semibold uppercase tracking-widest text-primary">Is this correct?</p>
-      <h3 className="mt-2 break-words font-display text-lg font-bold leading-tight text-foreground">{label}</h3>
+    <div className="min-w-0 rounded-lg border border-clay/35 bg-clay-tint/45 p-4">
+      <p className="label-caps text-clay">Is this correct?</p>
+      <h3 className="mt-2 break-words font-display text-lg font-semibold leading-tight text-ink">{label}</h3>
 
       {mode === 'edit' ? (
         <div className="mt-4 space-y-3">
-          <label className="block text-sm font-semibold text-foreground">
+          <label className="block text-sm font-semibold text-ink">
             Authorized amount ($)
             <Input
               value={amount}
@@ -5201,7 +5201,7 @@ function PlannerApprovalCard({
               disabled={isSubmitting}
             />
           </label>
-          <label className="block text-sm font-semibold text-foreground">
+          <label className="block text-sm font-semibold text-ink">
             Date
             <Input
               value={eventDate}
@@ -5211,7 +5211,7 @@ function PlannerApprovalCard({
               disabled={isSubmitting}
             />
           </label>
-          <label className="block text-sm font-semibold text-foreground">
+          <label className="block text-sm font-semibold text-ink">
             Notes
             <Textarea
               value={notes}
@@ -5222,7 +5222,7 @@ function PlannerApprovalCard({
             />
           </label>
           {editNotice ? (
-            <div className="rounded-xl border border-secondary/30 bg-secondary/10 px-3 py-2 text-sm font-semibold text-secondary">
+            <div className="rounded-md border border-ochre/30 bg-ochre-tint px-3 py-2 text-sm font-semibold text-ochre">
               {editNotice}
             </div>
           ) : null}
@@ -5239,33 +5239,33 @@ function PlannerApprovalCard({
         <>
           <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
             <div>
-              <p className="text-xs text-muted-foreground">Provider</p>
-              <p className="break-words font-semibold leading-snug text-foreground">{provider}</p>
+              <p className="text-xs text-ink-faint">Provider</p>
+              <p className="break-words font-semibold leading-snug text-ink">{provider}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Estimated amount</p>
-              <p className="break-words font-semibold leading-snug text-foreground">
+              <p className="text-xs text-ink-faint">Estimated amount</p>
+              <p className="break-words font-semibold leading-snug text-ink">
                 {amountCents > 0 ? formatMockCents(amountCents) : 'No payment yet'}
               </p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Delivery email</p>
-              <p className="break-words font-semibold leading-snug text-foreground">{deliveryEmail}</p>
+              <p className="text-xs text-ink-faint">Delivery email</p>
+              <p className="break-words font-semibold leading-snug text-ink">{deliveryEmail}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Terms</p>
-              <p className="break-words font-semibold leading-snug text-foreground">{terms}</p>
+              <p className="text-xs text-ink-faint">Terms</p>
+              <p className="break-words font-semibold leading-snug text-ink">{terms}</p>
             </div>
           </div>
 
           {isSendToVenues ? (
-            <div className="mt-4 space-y-3 rounded-xl border border-border bg-background/60 p-3 text-sm">
+            <div className="mt-4 space-y-3 rounded-md border border-tan bg-cream p-3 text-sm">
               {venueNames.length > 0 ? (
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Venue list</p>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-ink-faint">Venue list</p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {venueNames.map((venueName) => (
-                      <span key={venueName} className="rounded-full border border-border bg-card px-2 py-1 text-xs font-semibold text-foreground">
+                      <span key={venueName} className="rounded-full border border-tan bg-cream-deep px-2 py-1 text-xs font-semibold text-ink">
                         {venueName}
                       </span>
                     ))}
@@ -5274,14 +5274,14 @@ function PlannerApprovalCard({
               ) : null}
               {briefPreview ? (
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Brief preview</p>
-                  <p className="mt-1 break-words text-sm leading-snug text-foreground">{briefPreview}</p>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-ink-faint">Brief preview</p>
+                  <p className="mt-1 break-words text-sm leading-snug text-ink">{briefPreview}</p>
                 </div>
               ) : null}
               {responseDeadline ? (
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Response deadline</p>
-                  <p className="mt-1 font-semibold text-foreground">{responseDeadline}</p>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-ink-faint">Response deadline</p>
+                  <p className="mt-1 font-semibold text-ink">{responseDeadline}</p>
                 </div>
               ) : null}
             </div>
@@ -5289,32 +5289,32 @@ function PlannerApprovalCard({
 
           {status === 'approved' ? (
             <div className="mt-4">
-              <span className="inline-flex items-center rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs font-bold text-success">
+              <span className="inline-flex items-center rounded-full border border-forest/30 bg-forest-tint px-3 py-1 text-xs font-bold text-forest">
                 ✓ Authorized
               </span>
               {isSendToVenues ? (
                 <div className="mt-2 space-y-2">
-                  <p className="text-sm font-semibold text-success">
+                  <p className="text-sm font-semibold text-forest">
                     {sentAt
                       ? `Sent at ${sentAt} · (${inviteStats?.viewed_count ?? 0} viewed, ${inviteStats?.responded_count ?? 0} responded)`
                       : `Queued — ${queuedInviteCount} invite${queuedInviteCount === 1 ? '' : 's'} ready to send`}
                   </p>
                   {conciergeFollowupCount > 0 ? (
-                    <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-xs font-bold text-warning">
+                    <span className="inline-flex items-center rounded-full border border-ochre/30 bg-ochre-tint px-2.5 py-1 text-xs font-bold text-ochre">
                       {conciergeFollowupCount} venue{conciergeFollowupCount === 1 ? '' : 's'} need concierge outreach
                     </span>
                   ) : null}
                 </div>
               ) : (
-                <p className="mt-2 text-sm font-semibold text-success">
+                <p className="mt-2 text-sm font-semibold text-forest">
                   Authorization recorded
                   {authorizedAmountCents != null ? ` · ${formatMockCents(authorizedAmountCents)}` : ''} · pending execution
                 </p>
               )}
             </div>
           ) : mode === 'confirm_cancel' ? (
-            <div className="mt-4 rounded-xl border border-border bg-background/70 p-3">
-              <p className="text-sm font-semibold text-foreground">Cancel this approval? This cannot be undone.</p>
+            <div className="mt-4 rounded-md border border-tan bg-cream p-3">
+              <p className="text-sm font-semibold text-ink">Cancel this approval? This cannot be undone.</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button type="button" variant="destructive" size="sm" onClick={handleReject} disabled={isSubmitting}>
                   {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -5326,9 +5326,9 @@ function PlannerApprovalCard({
               </div>
             </div>
           ) : !isAuthenticated ? (
-            <div className="mt-4 rounded-xl border border-border bg-background/60 px-4 py-3">
-              <p className="text-sm font-semibold text-foreground">Create an account to approve this action</p>
-              <p className="mt-1 text-xs leading-snug text-muted-foreground">
+            <div className="mt-4 rounded-md border border-tan bg-cream px-4 py-3">
+              <p className="text-sm font-semibold text-ink">Create an account to approve this action</p>
+              <p className="mt-1 text-xs leading-snug text-ink-soft">
                 Approval requires a planner account. Sign up to save this plan and authorize outreach or payments.
               </p>
               <div className="mt-3">
@@ -5338,9 +5338,9 @@ function PlannerApprovalCard({
               </div>
             </div>
           ) : isProductGateRequired ? (
-            <div className="mt-4 rounded-xl border border-secondary/30 bg-secondary/10 px-4 py-3">
-              <p className="text-sm font-semibold text-foreground">Activate planner access to approve outreach</p>
-              <p className="mt-1 text-xs leading-snug text-muted-foreground">
+            <div className="mt-4 rounded-md border border-ochre/30 bg-ochre-tint px-4 py-3">
+              <p className="text-sm font-semibold text-ink">Activate planner access to approve outreach</p>
+              <p className="mt-1 text-xs leading-snug text-ink-soft">
                 {formatPlannerBillingGateMessage(billingSummary)}
               </p>
               <div className="mt-3">
@@ -5364,7 +5364,7 @@ function PlannerApprovalCard({
             </div>
           )}
 
-          {inlineError ? <p className="mt-3 text-sm font-semibold text-destructive">{inlineError}</p> : null}
+          {inlineError ? <p className="mt-3 text-sm font-semibold text-brick">{inlineError}</p> : null}
         </>
       )}
     </div>

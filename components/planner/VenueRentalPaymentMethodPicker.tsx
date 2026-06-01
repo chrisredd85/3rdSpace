@@ -50,9 +50,9 @@ export function VenueRentalPaymentMethodPicker({
   return (
     <div className="space-y-4">
       <div>
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Select payment method</p>
-        <h3 className="mt-2 font-display text-xl font-bold text-foreground">Choose the exact processing fee</h3>
-        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+        <p className="label-caps text-clay">Select payment method</p>
+        <h3 className="mt-2 font-display text-xl font-semibold text-ink">Choose the exact processing fee</h3>
+        <p className="mt-1 text-sm leading-relaxed text-ink-soft">
           The venue receives {formatCents(amountCents)}. The processing fee is itemized and matched to the method you pick before Checkout opens.
         </p>
       </div>
@@ -72,36 +72,36 @@ export function VenueRentalPaymentMethodPicker({
               disabled={isSubmitting}
               onClick={() => onSelect(option.method)}
               className={cn(
-                'group rounded-3xl border border-border bg-gradient-card p-4 text-left shadow-card transition-smooth',
-                'hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-glow',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                'group rounded-lg border border-tan bg-cream-deep/55 p-4 text-left shadow-card transition-smooth',
+                'hover:border-clay/40 hover:shadow-glow',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-clay/40',
                 isSubmitting && 'cursor-not-allowed opacity-60'
               )}
             >
               <div className="flex items-start justify-between gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/10 text-primary">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-clay/25 bg-clay-tint text-clay">
                   <Icon className="h-5 w-5" />
                 </span>
-                <span className="rounded-full border border-border bg-background/50 px-3 py-1 text-xs font-semibold text-muted-foreground">
+                <span className="rounded-full border border-tan bg-cream px-3 py-1 text-xs font-semibold text-ink-soft">
                   {option.settlementCopy}
                 </span>
               </div>
 
-              <p className="mt-4 font-display text-lg font-bold text-foreground">{option.label}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{option.description}</p>
+              <p className="mt-4 font-display text-lg font-semibold text-ink">{option.label}</p>
+              <p className="mt-1 text-sm text-ink-soft">{option.description}</p>
 
-              <div className="mt-4 rounded-2xl border border-border bg-background/50 p-3">
+              <div className="mt-4 rounded-md border border-tan bg-cream p-3">
                 <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-muted-foreground">Processing fee</span>
+                  <span className="text-ink-soft">Processing fee</span>
                   <span className="font-semibold text-gradient-brand">{formatCents(feeCents)}</span>
                 </div>
                 <div className="mt-2 flex items-center justify-between gap-3 text-sm">
-                  <span className="text-muted-foreground">Checkout total</span>
-                  <span className="font-display text-lg font-bold text-foreground">{formatCents(totalCents)}</span>
+                  <span className="text-ink-soft">Checkout total</span>
+                  <span className="font-display text-lg font-semibold text-ink">{formatCents(totalCents)}</span>
                 </div>
               </div>
 
-              <div className="glass mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-foreground transition-smooth group-hover:bg-card/80">
+              <div className="glass mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md px-3 text-sm font-medium text-ink transition-smooth group-hover:bg-cream">
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 Continue with {option.method === 'card' ? 'card' : 'ACH'}
               </div>
@@ -111,11 +111,11 @@ export function VenueRentalPaymentMethodPicker({
       </div>
 
       {venuePaymentTransactionId ? (
-        <p className="text-xs text-muted-foreground">Continuing existing payment row {venuePaymentTransactionId.slice(0, 8)}.</p>
+        <p className="text-xs text-ink-faint">Continuing existing payment row {venuePaymentTransactionId.slice(0, 8)}.</p>
       ) : null}
 
       {error ? (
-        <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        <div className="rounded-md border border-brick/40 bg-brick-tint px-4 py-3 text-sm text-brick">
           {error}
         </div>
       ) : null}

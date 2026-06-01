@@ -33,17 +33,17 @@ export function PlannerSignupGate({ isOpen, onClose, context = 'default' }: Plan
     }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md overflow-hidden rounded-3xl border border-border bg-card shadow-card">
-        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-5">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-ink/20 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md overflow-hidden rounded-lg border border-tan bg-cream shadow-card">
+        <div className="flex items-start justify-between gap-4 border-b border-tan px-5 py-5">
           <div className="min-w-0">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-brand shadow-glow">
-                <Sparkles className="h-5 w-5 text-primary-foreground" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-gradient-brand shadow-glow">
+                <Sparkles className="h-5 w-5 text-cream" />
               </div>
               <div className="min-w-0">
-                <h2 className="font-display text-xl font-bold leading-tight text-foreground">{copy.title}</h2>
-                <p className="mt-1 text-sm leading-snug text-muted-foreground">
+                <h2 className="font-display text-xl font-semibold leading-tight text-ink">{copy.title}</h2>
+                <p className="mt-1 text-sm leading-snug text-ink-soft">
                   {copy.description}
                 </p>
               </div>
@@ -52,7 +52,7 @@ export function PlannerSignupGate({ isOpen, onClose, context = 'default' }: Plan
           <button
             type="button"
             aria-label="Close signup"
-            className="rounded-xl p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="rounded-md p-2 text-ink-soft transition-colors hover:bg-cream-deep hover:text-ink"
             onClick={onClose}
           >
             <X className="h-5 w-5" />
@@ -60,13 +60,13 @@ export function PlannerSignupGate({ isOpen, onClose, context = 'default' }: Plan
         </div>
 
         <div className="space-y-4 px-5 py-5">
-          <div className="rounded-2xl border border-border bg-background/60 px-4 py-3">
-            <p className="text-sm leading-relaxed text-muted-foreground">
+          <div className="rounded-md border border-tan bg-cream-deep/55 px-4 py-3">
+            <p className="text-sm leading-relaxed text-ink-soft">
               Your chat draft stays in this browser. After creator signup, I’ll save it to your workspace and return you to the planner.
             </p>
           </div>
 
-          <Button asChild className="h-12 w-full rounded-2xl">
+          <Button asChild className="h-12 w-full rounded-md">
             <Link href="/signup/builder">{copy.submitLabel}</Link>
           </Button>
         </div>

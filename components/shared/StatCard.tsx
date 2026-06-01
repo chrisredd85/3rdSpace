@@ -58,8 +58,8 @@ export function StatCard({
   change,
   changeDirection,
   icon,
-  iconBgColor = 'bg-primary/15',
-  iconColor = 'text-primary',
+  iconBgColor = 'bg-clay/15',
+  iconColor = 'text-clay',
   className,
 }: StatCardProps) {
   const formattedValue =
@@ -70,8 +70,8 @@ export function StatCard({
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div className="flex-1 min-w-0">
-            <p className="text-xs sm:text-sm font-semibold text-muted-foreground uppercase tracking-wide">{label}</p>
-            <p className="text-3xl sm:text-4xl font-bold text-foreground mt-2 tracking-tight">
+            <p className="text-xs sm:text-sm font-semibold text-ink-soft uppercase tracking-wide">{label}</p>
+            <p className="text-3xl sm:text-4xl font-bold text-ink mt-2 tracking-tight">
               {formattedValue}
             </p>
             {change !== undefined && (
@@ -79,10 +79,10 @@ export function StatCard({
                 className={cn(
                   'flex items-center gap-1 mt-2 text-sm font-medium',
                   changeDirection === 'up'
-                    ? 'text-primary'
+                    ? 'text-clay'
                     : changeDirection === 'down'
-                    ? 'text-destructive'
-                    : 'text-muted-foreground'
+                    ? 'text-brick'
+                    : 'text-ink-soft'
                 )}
               >
                 {changeDirection === 'up' && (
@@ -102,7 +102,7 @@ export function StatCard({
             )}
           </div>
           {icon && (
-            <div className={cn('h-14 w-14 rounded-xl flex items-center justify-center flex-shrink-0', iconBgColor)}>
+            <div className={cn('h-14 w-14 rounded-lg flex items-center justify-center flex-shrink-0', iconBgColor)}>
               <div className={iconColor}>{icon}</div>
             </div>
           )}

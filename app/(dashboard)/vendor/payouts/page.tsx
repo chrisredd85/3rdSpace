@@ -237,12 +237,12 @@ export default function VendorPayoutsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-foreground">Payouts</h1>
-        <p className="mt-1 text-muted-foreground">Vendor payment collection, payout setup, and statements.</p>
+        <h1 className="text-3xl font-bold text-ink">Payouts</h1>
+        <p className="mt-1 text-ink-soft">Vendor payment collection, payout setup, and statements.</p>
       </div>
 
       {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-red-900">
+        <div className="rounded-lg border border-brick/30 bg-brick/10 p-3 text-brick">
           <div className="flex items-start gap-3">
             <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
             <p className="text-sm font-medium">{error}</p>
@@ -280,7 +280,7 @@ export default function VendorPayoutsPage() {
         </CardHeader>
         <CardContent>
           {isLoadingStatus ? (
-            <div className="h-32 animate-pulse rounded-lg bg-sidebar-accent/40" />
+            <div className="h-32 animate-pulse rounded-lg bg-cream-deep/40" />
           ) : (
             <StripeAccountStatus
               account={status.account}
@@ -306,14 +306,14 @@ export default function VendorPayoutsPage() {
           return (
             <Card key={item.title}>
               <CardHeader>
-                <div className="mb-2 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-sidebar-accent/40 text-foreground">
+                <div className="mb-2 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-cream-deep/40 text-ink">
                   <Icon className="h-5 w-5" />
                 </div>
                 <CardTitle className="text-lg">{item.title}</CardTitle>
                 <CardDescription>{item.description}</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="rounded-md bg-background px-3 py-2 text-sm font-semibold text-foreground">
+                <div className="rounded-md bg-cream px-3 py-2 text-sm font-semibold text-ink">
                   {isLoadingSummary ? 'Loading...' : values[index]}
                 </div>
               </CardContent>
@@ -329,9 +329,9 @@ export default function VendorPayoutsPage() {
         </CardHeader>
         <CardContent>
           {isLoadingSummary ? (
-            <div className="h-28 animate-pulse rounded-lg bg-sidebar-accent/40" />
+            <div className="h-28 animate-pulse rounded-lg bg-cream-deep/40" />
           ) : transactions.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
+            <div className="rounded-lg border border-dashed border-tan p-6 text-sm text-ink-soft">
               Vendor payment activity will appear here after builders pay deposits or balances.
             </div>
           ) : (
@@ -339,21 +339,21 @@ export default function VendorPayoutsPage() {
               {transactions.map((transaction) => (
                 <div
                   key={transaction.id}
-                  className="flex flex-col gap-3 rounded-lg border border-border bg-background p-4 md:flex-row md:items-center md:justify-between"
+                  className="flex flex-col gap-3 rounded-lg border border-tan bg-cream p-4 md:flex-row md:items-center md:justify-between"
                 >
                   <div>
-                    <p className="font-medium text-foreground">{transaction.event_name}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">
+                    <p className="font-medium text-ink">{transaction.event_name}</p>
+                    <p className="mt-1 text-sm text-ink-soft">
                       {formatDate(transaction.event_date)} - {transaction.payment_type.replace(/_/g, ' ')}
                     </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="mt-1 text-xs text-ink-soft">
                       {transaction.stripe_transfer_id ? 'Stripe transfer created' : 'Awaiting transfer'}
                     </p>
                   </div>
                   <div className="text-left md:text-right">
-                    <p className="text-lg font-semibold text-foreground">{formatMoney(transaction.vendor_payout)}</p>
-                    <p className="text-xs font-medium uppercase text-muted-foreground">{statusLabel(transaction.status)}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="text-lg font-semibold text-ink">{formatMoney(transaction.vendor_payout)}</p>
+                    <p className="text-xs font-medium uppercase text-ink-soft">{statusLabel(transaction.status)}</p>
+                    <p className="mt-1 text-xs text-ink-soft">
                       {transaction.paid_at ? `Paid ${formatDate(transaction.paid_at)}` : `Created ${formatDate(transaction.created_at)}`}
                     </p>
                   </div>

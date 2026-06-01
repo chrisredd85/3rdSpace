@@ -237,7 +237,7 @@ export function AmenitiesSelector({ venueId, onSave }: AmenitiesSelectorProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2 rounded-lg border border-tan bg-cream p-4 text-sm text-ink-soft">
         <Loader2 className="h-4 w-4 animate-spin" />
         Loading amenities...
       </div>
@@ -247,15 +247,15 @@ export function AmenitiesSelector({ venueId, onSave }: AmenitiesSelectorProps) {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-xl font-bold text-foreground">Amenities & Features</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <h3 className="text-xl font-bold text-ink">Amenities & Features</h3>
+        <p className="mt-1 text-sm text-ink-soft">
           Select standard amenities or add custom features that make your venue stand out.
         </p>
       </div>
 
       {Object.entries(available).map(([category, amenities]) => (
         <section key={category} className="space-y-3">
-          <h4 className="font-semibold text-foreground">
+          <h4 className="font-semibold text-ink">
             {CATEGORY_LABELS[category] || category}
           </h4>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
@@ -268,20 +268,20 @@ export function AmenitiesSelector({ venueId, onSave }: AmenitiesSelectorProps) {
                   key={amenity.id}
                   type="button"
                   onClick={() => toggleAmenity(amenity.id)}
-                  className={`flex min-h-[76px] items-center gap-3 rounded-xl border-2 p-3 text-left transition-all ${
+                  className={`flex min-h-[76px] items-center gap-3 rounded-lg border-2 p-3 text-left transition-all ${
                     isSelected
-                      ? 'border-primary bg-primary/10'
-                      : 'border-border hover:border-border'
+                      ? 'border-clay bg-clay/10'
+                      : 'border-tan hover:border-tan'
                   }`}
                 >
                   <div
                     className={`rounded-lg p-2 ${
-                      isSelected ? 'bg-primary text-primary-foreground' : 'bg-sidebar-accent/40 text-muted-foreground'
+                      isSelected ? 'bg-clay text-cream' : 'bg-cream-deep/40 text-ink-soft'
                     }`}
                   >
                     <Icon className="h-5 w-5" />
                   </div>
-                  <span className={`text-sm font-medium ${isSelected ? 'text-primary' : 'text-foreground'}`}>
+                  <span className={`text-sm font-medium ${isSelected ? 'text-clay' : 'text-ink'}`}>
                     {amenity.name}
                   </span>
                 </button>
@@ -292,7 +292,7 @@ export function AmenitiesSelector({ venueId, onSave }: AmenitiesSelectorProps) {
       ))}
 
       <section className="space-y-3">
-        <h4 className="font-semibold text-foreground">Custom Amenities</h4>
+        <h4 className="font-semibold text-ink">Custom Amenities</h4>
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
             type="text"
@@ -305,7 +305,7 @@ export function AmenitiesSelector({ venueId, onSave }: AmenitiesSelectorProps) {
               }
             }}
             placeholder="Rooftop access, piano, green room..."
-            className="min-h-[44px] flex-1 rounded-xl border-2 border-border px-4 py-2 text-sm focus:border-primary focus:outline-none"
+            className="min-h-[44px] flex-1 rounded-lg border-2 border-tan px-4 py-2 text-sm focus:border-clay focus:outline-none"
           />
           <Button type="button" onClick={addCustomAmenity}>
             <Plus className="mr-2 h-4 w-4" />
@@ -318,13 +318,13 @@ export function AmenitiesSelector({ venueId, onSave }: AmenitiesSelectorProps) {
             {customAmenities.map((amenity, index) => (
               <div
                 key={`${amenity}-${index}`}
-                className="flex items-center gap-2 rounded-lg border-2 border-primary/30 bg-primary/10 px-3 py-2"
+                className="flex items-center gap-2 rounded-lg border-2 border-clay/30 bg-clay/10 px-3 py-2"
               >
-                <span className="text-sm font-medium text-foreground">{amenity}</span>
+                <span className="text-sm font-medium text-ink">{amenity}</span>
                 <button
                   type="button"
                   onClick={() => removeCustomAmenity(index)}
-                  className="rounded-full text-primary hover:text-primary"
+                  className="rounded-full text-clay hover:text-clay"
                   aria-label={`Remove ${amenity}`}
                 >
                   <X className="h-4 w-4" />
@@ -335,7 +335,7 @@ export function AmenitiesSelector({ venueId, onSave }: AmenitiesSelectorProps) {
         ) : null}
       </section>
 
-      <div className="flex justify-end gap-3 border-t border-border pt-4">
+      <div className="flex justify-end gap-3 border-t border-tan pt-4">
         <Button type="button" onClick={loadAmenities} variant="outline" disabled={saving}>
           <Trash2 className="mr-2 h-4 w-4" />
           Reset

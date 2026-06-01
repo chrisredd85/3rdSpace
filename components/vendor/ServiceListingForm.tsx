@@ -117,18 +117,18 @@ export function ServiceListingForm({ vendorId, service, onSaved, onCancel }: Ser
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5 rounded-lg border border-border bg-background p-4">
+    <form onSubmit={handleSubmit} className="space-y-5 rounded-lg border border-tan bg-cream p-4">
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <label className="mb-2 block text-sm font-medium text-foreground">Service Name *</label>
+          <label className="mb-2 block text-sm font-medium text-ink">Service Name *</label>
           <Input value={offeringName} onChange={(event) => setOfferingName(event.target.value)} placeholder="Wedding DJ Package" required />
         </div>
         <div>
-          <label className="mb-2 block text-sm font-medium text-foreground">Category *</label>
+          <label className="mb-2 block text-sm font-medium text-ink">Category *</label>
           <select
             value={serviceCategory}
             onChange={(event) => setServiceCategory(event.target.value as typeof serviceCategory)}
-            className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
+            className="flex h-10 w-full rounded-md border border-tan px-3 py-2 text-sm"
           >
             {VENDOR_SERVICE_CATEGORIES.map((category) => (
               <option key={category.value} value={category.value}>{category.label}</option>
@@ -138,27 +138,27 @@ export function ServiceListingForm({ vendorId, service, onSaved, onCancel }: Ser
       </div>
 
       <div>
-        <label className="mb-2 block text-sm font-medium text-foreground">Description</label>
+        <label className="mb-2 block text-sm font-medium text-ink">Description</label>
         <textarea
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           rows={3}
-          className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          className="w-full rounded-md border border-tan px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-clay"
           placeholder="Describe the experience, ideal event type, and deliverables."
         />
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
         <div>
-          <label className="mb-2 block text-sm font-medium text-foreground">Base Price *</label>
+          <label className="mb-2 block text-sm font-medium text-ink">Base Price *</label>
           <Input type="number" min={0} step="25" value={basePrice} onChange={(event) => setBasePrice(event.target.value)} placeholder="1200" required />
         </div>
         <div>
-          <label className="mb-2 block text-sm font-medium text-foreground">Duration</label>
+          <label className="mb-2 block text-sm font-medium text-ink">Duration</label>
           <select
             value={durationHours}
             onChange={(event) => setDurationHours(event.target.value)}
-            className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
+            className="flex h-10 w-full rounded-md border border-tan px-3 py-2 text-sm"
           >
             {SERVICE_DURATION_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>{option.label}</option>
@@ -166,26 +166,26 @@ export function ServiceListingForm({ vendorId, service, onSaved, onCancel }: Ser
           </select>
         </div>
         <div>
-          <label className="mb-2 block text-sm font-medium text-foreground">Max Capacity</label>
+          <label className="mb-2 block text-sm font-medium text-ink">Max Capacity</label>
           <Input type="number" min={1} value={maxCapacity} onChange={(event) => setMaxCapacity(event.target.value)} placeholder="250" />
         </div>
       </div>
 
       <div>
-        <label className="mb-2 block text-sm font-medium text-foreground">Equipment / Deliverables Included</label>
+        <label className="mb-2 block text-sm font-medium text-ink">Equipment / Deliverables Included</label>
         <textarea
           value={equipmentText}
           onChange={(event) => setEquipmentText(event.target.value)}
           rows={4}
-          className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          className="w-full rounded-md border border-tan px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-clay"
           placeholder={'Two wireless microphones\nSound system\nSetup and teardown\nEdited photo gallery'}
         />
-        <p className="mt-1 text-xs text-muted-foreground">One item per line.</p>
+        <p className="mt-1 text-xs text-ink-soft">One item per line.</p>
       </div>
 
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <label className="text-sm font-medium text-foreground">Optional Add-ons</label>
+          <label className="text-sm font-medium text-ink">Optional Add-ons</label>
           <Button type="button" variant="outline" size="sm" onClick={() => setAddOns((current) => [...current, createEmptyAddOn()])}>
             <Plus className="mr-2 h-4 w-4" />
             Add-on
@@ -193,7 +193,7 @@ export function ServiceListingForm({ vendorId, service, onSaved, onCancel }: Ser
         </div>
 
         {addOns.map((addOn, index) => (
-          <div key={index} className="grid gap-3 rounded-md border border-border bg-card/40 p-3 md:grid-cols-[1fr_120px_1fr_auto]">
+          <div key={index} className="grid gap-3 rounded-md border border-tan bg-cream/40 p-3 md:grid-cols-[1fr_120px_1fr_auto]">
             <Input
               value={addOn.name}
               onChange={(event) => setAddOns((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))}
@@ -218,9 +218,9 @@ export function ServiceListingForm({ vendorId, service, onSaved, onCancel }: Ser
         ))}
       </div>
 
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {error ? <p className="text-sm text-brick">{error}</p> : null}
 
-      <div className="flex justify-end gap-2 border-t border-border pt-4">
+      <div className="flex justify-end gap-2 border-t border-tan pt-4">
         <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>Cancel</Button>
         <Button type="submit" disabled={saving}>{saving ? 'Saving...' : isEditing ? 'Save Service' : 'Create Service'}</Button>
       </div>

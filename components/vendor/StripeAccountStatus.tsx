@@ -40,7 +40,7 @@ function getStatusMeta(status: StripeAccount['account_status'] | 'not_connected'
     return {
       icon: CheckCircle2,
       label: 'Ready for payouts',
-      className: 'border-success/30 bg-success/10 text-success',
+      className: 'border-forest/30 bg-forest/10 text-forest',
     }
   }
 
@@ -48,14 +48,14 @@ function getStatusMeta(status: StripeAccount['account_status'] | 'not_connected'
     return {
       icon: AlertCircle,
       label: 'Action required',
-      className: 'border-destructive/30 bg-destructive/10 text-destructive',
+      className: 'border-brick/30 bg-brick/10 text-brick',
     }
   }
 
   return {
     icon: Clock,
     label: status === 'not_connected' ? 'Not connected' : 'Onboarding in progress',
-    className: 'border-accent/30 bg-accent/10 text-accent',
+    className: 'border-forest/30 bg-forest/10 text-forest',
   }
 }
 
@@ -108,15 +108,15 @@ export function StripeAccountStatus({
   ]
 
   return (
-    <div className={cn('rounded-3xl border p-5', meta.className)}>
+    <div className={cn('rounded-lg border p-5', meta.className)}>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex min-w-0 gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-background/40">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-cream/40">
             <Icon className="h-5 w-5" />
           </span>
           <div className="min-w-0">
-            <p className="font-display text-xl font-bold text-foreground">{meta.label}</p>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            <p className="font-display text-xl font-bold text-ink">{meta.label}</p>
+            <p className="mt-1 max-w-2xl text-sm text-ink-soft">
               {account ? (
                 <>
                   Stripe is checked server-side on page load and every refresh. This page only marks setup complete after Stripe returns a live account ID, cleared requirements, and enabled payout flags.
@@ -136,16 +136,16 @@ export function StripeAccountStatus({
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {verificationChecks.map((check) => (
-          <div key={check.label} className="rounded-2xl border border-border bg-background/45 p-3">
+          <div key={check.label} className="rounded-lg border border-tan bg-cream/45 p-3">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{check.label}</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-ink-soft">{check.label}</p>
               {check.isVerified ? (
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-forest" />
               ) : (
-                <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <Clock className="h-4 w-4 shrink-0 text-ink-soft" />
               )}
             </div>
-            <p className="mt-2 truncate text-sm font-semibold text-foreground">{check.value}</p>
+            <p className="mt-2 truncate text-sm font-semibold text-ink">{check.value}</p>
           </div>
         ))}
       </div>
@@ -155,29 +155,29 @@ export function StripeAccountStatus({
           <span>Onboarding completion</span>
           <span>{completionPercent}%</span>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-background/60">
+        <div className="h-2 overflow-hidden rounded-full bg-cream/60">
           <div className="h-full rounded-full bg-current" style={{ width: `${completionPercent}%` }} />
         </div>
       </div>
 
       {account && due.length === 0 ? (
-        <div className="mt-4 flex items-start gap-2 rounded-2xl border border-success/20 bg-success/10 p-3 text-sm text-success">
+        <div className="mt-4 flex items-start gap-2 rounded-lg border border-forest/20 bg-forest/10 p-3 text-sm text-forest">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
           <span>No currently due or past due Stripe requirements were returned.</span>
         </div>
       ) : null}
 
       {due.length > 0 && (
-        <div className="mt-4 rounded-2xl border border-border bg-background/50 p-3">
+        <div className="mt-4 rounded-lg border border-tan bg-cream/50 p-3">
           <p className="text-xs font-semibold uppercase">Stripe still needs</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {due.slice(0, 6).map((item) => (
-              <span key={item} className="rounded-xl bg-card/60 px-2 py-1 text-xs font-medium">
+              <span key={item} className="rounded-lg bg-cream/60 px-2 py-1 text-xs font-medium">
                 {item.replace(/_/g, ' ')}
               </span>
             ))}
             {due.length > 6 && (
-              <span className="rounded-xl bg-card/60 px-2 py-1 text-xs font-medium">+{due.length - 6} more</span>
+              <span className="rounded-lg bg-cream/60 px-2 py-1 text-xs font-medium">+{due.length - 6} more</span>
             )}
           </div>
         </div>

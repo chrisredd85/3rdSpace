@@ -60,7 +60,7 @@ function StarRating({ rating }: { rating: number }) {
         return (
           <Star
             key={index}
-            className={filled ? 'h-4 w-4 fill-yellow-400 text-yellow-400' : 'h-4 w-4 text-muted-foreground/40'}
+            className={filled ? 'h-4 w-4 fill-ochre text-ochre' : 'h-4 w-4 text-ink-soft/40'}
           />
         )
       })}
@@ -115,7 +115,7 @@ export function VendorReviews({ vendorId, initialAverageRating = 0, initialRevie
   if (loading) {
     return (
       <Card>
-        <CardContent className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+        <CardContent className="flex items-center justify-center py-10 text-sm text-ink-soft">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           Loading reviews...
         </CardContent>
@@ -126,7 +126,7 @@ export function VendorReviews({ vendorId, initialAverageRating = 0, initialRevie
   if (error) {
     return (
       <Card>
-        <CardContent className="py-8 text-sm text-destructive">{error}</CardContent>
+        <CardContent className="py-8 text-sm text-brick">{error}</CardContent>
       </Card>
     )
   }
@@ -137,45 +137,45 @@ export function VendorReviews({ vendorId, initialAverageRating = 0, initialRevie
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2 text-2xl">
-              <MessageSquare className="h-5 w-5 text-primary" />
+              <MessageSquare className="h-5 w-5 text-clay" />
               Reviews
             </CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">Post-event feedback from builders.</p>
+            <p className="mt-1 text-sm text-ink-soft">Post-event feedback from builders.</p>
           </div>
-          <div className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
-            <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-            <span className="font-bold text-foreground">{averageRating > 0 ? averageRating.toFixed(1) : 'New'}</span>
-            <span className="text-sm text-muted-foreground">({reviewCount})</span>
+          <div className="flex items-center gap-2 rounded-lg border border-tan px-3 py-2">
+            <Star className="h-4 w-4 fill-ochre text-ochre" />
+            <span className="font-bold text-ink">{averageRating > 0 ? averageRating.toFixed(1) : 'New'}</span>
+            <span className="text-sm text-ink-soft">({reviewCount})</span>
           </div>
         </div>
       </CardHeader>
       <CardContent>
         {reviews.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border py-10 text-center text-sm text-muted-foreground">
+          <div className="rounded-lg border border-dashed border-tan py-10 text-center text-sm text-ink-soft">
             This vendor does not have reviews yet.
           </div>
         ) : (
           <div className="space-y-4">
             {reviews.map((review) => (
-              <article key={review.id} className="rounded-lg border border-border p-4">
+              <article key={review.id} className="rounded-lg border border-tan p-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="font-semibold text-foreground">{review.reviewer_name}</p>
-                    <p className="text-xs text-muted-foreground">{formatReviewDate(review.created_at)}</p>
+                    <p className="font-semibold text-ink">{review.reviewer_name}</p>
+                    <p className="text-xs text-ink-soft">{formatReviewDate(review.created_at)}</p>
                   </div>
                   <StarRating rating={review.rating} />
                 </div>
 
                 {review.review_text ? (
-                  <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground">{review.review_text}</p>
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-ink">{review.review_text}</p>
                 ) : null}
 
                 {review.vendor_response ? (
-                  <div className="mt-4 rounded-lg bg-background p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Vendor response</p>
-                    <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground">{review.vendor_response}</p>
+                  <div className="mt-4 rounded-lg bg-cream p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">Vendor response</p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-ink">{review.vendor_response}</p>
                     {review.response_date ? (
-                      <p className="mt-2 text-xs text-muted-foreground">{formatReviewDate(review.response_date)}</p>
+                      <p className="mt-2 text-xs text-ink-soft">{formatReviewDate(review.response_date)}</p>
                     ) : null}
                   </div>
                 ) : null}

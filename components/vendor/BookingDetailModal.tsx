@@ -261,7 +261,7 @@ export function BookingDetailModal({
     : null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-cream/80 backdrop-blur-sm p-4">
       <Card className="w-full max-w-3xl max-h-[90vh] overflow-y-auto">
         <CardHeader>
           <div className="flex items-start justify-between">
@@ -279,12 +279,12 @@ export function BookingDetailModal({
         <CardContent className="space-y-6">
           {/* Event Information */}
           <section>
-            <h3 className="text-sm font-semibold text-foreground mb-3">Event Information</h3>
+            <h3 className="text-sm font-semibold text-ink mb-3">Event Information</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="flex items-center gap-2 text-sm">
-                <Calendar className="h-4 w-4 text-muted-foreground/60" />
+                <Calendar className="h-4 w-4 text-ink-soft/60" />
                 <div>
-                  <p className="text-muted-foreground">Date</p>
+                  <p className="text-ink-soft">Date</p>
                   <p className="font-medium">
                     {requestedDate
                       ? requestedDate.toLocaleDateString('en-US', {
@@ -300,9 +300,9 @@ export function BookingDetailModal({
 
               {event?.expected_attendees && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Users className="h-4 w-4 text-muted-foreground/60" />
+                  <Users className="h-4 w-4 text-ink-soft/60" />
                   <div>
-                    <p className="text-muted-foreground">Expected Guests</p>
+                    <p className="text-ink-soft">Expected Guests</p>
                     <p className="font-medium">{event.expected_attendees}</p>
                   </div>
                 </div>
@@ -310,9 +310,9 @@ export function BookingDetailModal({
 
               {event?.venue_name && (
                 <div className="flex items-center gap-2 text-sm">
-                  <MapPin className="h-4 w-4 text-muted-foreground/60" />
+                  <MapPin className="h-4 w-4 text-ink-soft/60" />
                   <div>
-                    <p className="text-muted-foreground">Venue</p>
+                    <p className="text-ink-soft">Venue</p>
                     <p className="font-medium">{event.venue_name}</p>
                   </div>
                 </div>
@@ -320,9 +320,9 @@ export function BookingDetailModal({
 
               {booking.duration && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Clock className="h-4 w-4 text-muted-foreground/60" />
+                  <Clock className="h-4 w-4 text-ink-soft/60" />
                   <div>
-                    <p className="text-muted-foreground">Duration</p>
+                    <p className="text-ink-soft">Duration</p>
                     <p className="font-medium">{booking.duration} hours</p>
                   </div>
                 </div>
@@ -331,23 +331,23 @@ export function BookingDetailModal({
 
             {event?.description && (
               <div className="mt-4">
-                <p className="text-sm font-medium text-foreground mb-1">Event Description</p>
-                <p className="text-sm text-muted-foreground">{event.description}</p>
+                <p className="text-sm font-medium text-ink mb-1">Event Description</p>
+                <p className="text-sm text-ink-soft">{event.description}</p>
               </div>
             )}
           </section>
 
           {/* Setup & Timeline */}
           <section>
-            <h3 className="text-sm font-semibold text-foreground mb-3">Setup & Timeline</h3>
-            <div className="bg-background rounded-lg p-4 space-y-3">
+            <h3 className="text-sm font-semibold text-ink mb-3">Setup & Timeline</h3>
+            <div className="bg-cream rounded-lg p-4 space-y-3">
               {arrivalTime && (
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-muted-foreground/60" />
-                    <span className="text-sm font-medium text-foreground">Arrival Time</span>
+                    <Clock className="h-4 w-4 text-ink-soft/60" />
+                    <span className="text-sm font-medium text-ink">Arrival Time</span>
                   </div>
-                  <span className="text-sm text-foreground">
+                  <span className="text-sm text-ink">
                     {arrivalTime.toLocaleTimeString('en-US', {
                       hour: 'numeric',
                       minute: '2-digit',
@@ -359,10 +359,10 @@ export function BookingDetailModal({
               {eventStartTime && (
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <CheckCircle className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-medium text-foreground">Event Start</span>
+                    <CheckCircle className="h-4 w-4 text-clay" />
+                    <span className="text-sm font-medium text-ink">Event Start</span>
                   </div>
-                  <span className="text-sm text-foreground">
+                  <span className="text-sm text-ink">
                     {eventStartTime.toLocaleTimeString('en-US', {
                       hour: 'numeric',
                       minute: '2-digit',
@@ -374,10 +374,10 @@ export function BookingDetailModal({
               {eventEndTime && (
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <XCircle className="h-4 w-4 text-muted-foreground/60" />
-                    <span className="text-sm font-medium text-foreground">Event End</span>
+                    <XCircle className="h-4 w-4 text-ink-soft/60" />
+                    <span className="text-sm font-medium text-ink">Event End</span>
                   </div>
-                  <span className="text-sm text-foreground">
+                  <span className="text-sm text-ink">
                     {eventEndTime.toLocaleTimeString('en-US', {
                       hour: 'numeric',
                       minute: '2-digit',
@@ -389,10 +389,10 @@ export function BookingDetailModal({
               {loadOutTime && (
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-muted-foreground/60" />
-                    <span className="text-sm font-medium text-foreground">Load-Out Complete</span>
+                    <Clock className="h-4 w-4 text-ink-soft/60" />
+                    <span className="text-sm font-medium text-ink">Load-Out Complete</span>
                   </div>
-                  <span className="text-sm text-foreground">
+                  <span className="text-sm text-ink">
                     {loadOutTime.toLocaleTimeString('en-US', {
                       hour: 'numeric',
                       minute: '2-digit',
@@ -402,8 +402,8 @@ export function BookingDetailModal({
               )}
 
               {booking.setup_time && (
-                <div className="pt-2 border-t border-border">
-                  <span className="text-xs text-muted-foreground">
+                <div className="pt-2 border-t border-tan">
+                  <span className="text-xs text-ink-soft">
                     Setup time: {booking.setup_time} minutes
                   </span>
                 </div>
@@ -414,11 +414,11 @@ export function BookingDetailModal({
           {/* Venue Information */}
           {event?.venue_name && (
             <section>
-              <h3 className="text-sm font-semibold text-foreground mb-3">Venue Information</h3>
-              <div className="bg-background rounded-lg p-4">
-                <p className="text-sm font-medium text-foreground mb-1">{event.venue_name}</p>
+              <h3 className="text-sm font-semibold text-ink mb-3">Venue Information</h3>
+              <div className="bg-cream rounded-lg p-4">
+                <p className="text-sm font-medium text-ink mb-1">{event.venue_name}</p>
                 {event?.venue_address && (
-                  <p className="text-sm text-muted-foreground">{event.venue_address}</p>
+                  <p className="text-sm text-ink-soft">{event.venue_address}</p>
                 )}
               </div>
             </section>
@@ -426,33 +426,33 @@ export function BookingDetailModal({
 
           {/* Service Details */}
           <section>
-            <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-ink mb-3 flex items-center gap-2">
               <Package className="h-4 w-4" />
               Service Details
             </h3>
             {booking.notes ? (
-              <div className="bg-background rounded-lg p-4">
-                <p className="text-sm text-foreground whitespace-pre-wrap">{booking.notes}</p>
+              <div className="bg-cream rounded-lg p-4">
+                <p className="text-sm text-ink whitespace-pre-wrap">{booking.notes}</p>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">No specific service details provided</p>
+              <p className="text-sm text-ink-soft">No specific service details provided</p>
             )}
           </section>
 
           {/* Organizer Contact */}
           <section>
-            <h3 className="text-sm font-semibold text-foreground mb-3">Organizer Contact</h3>
+            <h3 className="text-sm font-semibold text-ink mb-3">Organizer Contact</h3>
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm">
-                <Users className="h-4 w-4 text-muted-foreground/60" />
+                <Users className="h-4 w-4 text-ink-soft/60" />
                 <span className="font-medium">{organizerName}</span>
               </div>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Mail className="h-4 w-4 text-muted-foreground/60" />
+              <div className="flex items-center gap-2 text-sm text-ink-soft">
+                <Mail className="h-4 w-4 text-ink-soft/60" />
                 <span>{organizerEmail}</span>
               </div>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Phone className="h-4 w-4 text-muted-foreground/60" />
+              <div className="flex items-center gap-2 text-sm text-ink-soft">
+                <Phone className="h-4 w-4 text-ink-soft/60" />
                 <span>{organizerPhone}</span>
               </div>
             </div>
@@ -460,11 +460,11 @@ export function BookingDetailModal({
 
           {/* Fee Breakdown */}
           <section>
-            <h3 className="text-sm font-semibold text-foreground mb-3">Fee Breakdown</h3>
-            <div className="bg-background rounded-lg p-4 space-y-3">
+            <h3 className="text-sm font-semibold text-ink mb-3">Fee Breakdown</h3>
+            <div className="bg-cream rounded-lg p-4 space-y-3">
               <div className="flex justify-between">
-                <span className="font-semibold text-foreground">Your Fee</span>
-                <span className="font-bold text-lg text-primary">
+                <span className="font-semibold text-ink">Your Fee</span>
+                <span className="font-bold text-lg text-clay">
                   ${booking.quoted_price?.toLocaleString() || 'TBD'}
                 </span>
               </div>
@@ -474,21 +474,21 @@ export function BookingDetailModal({
 
           {/* Add Note */}
           <section>
-            <h3 className="text-sm font-semibold text-foreground mb-3">Add Note to Client (Optional)</h3>
+            <h3 className="text-sm font-semibold text-ink mb-3">Add Note to Client (Optional)</h3>
             <textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Add a message to the organizer..."
               rows={3}
-              className="w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full rounded-md border border-tan px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-clay"
             />
           </section>
 
           {/* Counter Offer Section */}
           <section>
-            <h3 className="text-sm font-semibold text-foreground mb-3">Counter Offer</h3>
+            <h3 className="text-sm font-semibold text-ink mb-3">Counter Offer</h3>
             <div className="flex items-center gap-2">
-              <DollarSign className="h-4 w-4 text-muted-foreground/60" />
+              <DollarSign className="h-4 w-4 text-ink-soft/60" />
               <Input
                 type="number"
                 placeholder="Enter counter offer amount"
@@ -500,7 +500,7 @@ export function BookingDetailModal({
           </section>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-3 pt-4 border-t border-border">
+          <div className="flex items-center gap-3 pt-4 border-t border-tan">
             <Button
               variant="outline"
               onClick={handleDecline}
@@ -530,7 +530,7 @@ export function BookingDetailModal({
           </div>
 
           {isSubmitting && (
-            <div className="text-center text-sm text-muted-foreground">
+            <div className="text-center text-sm text-ink-soft">
               Processing...
             </div>
           )}

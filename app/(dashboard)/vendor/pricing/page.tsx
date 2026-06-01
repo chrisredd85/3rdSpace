@@ -146,7 +146,7 @@ export default function VendorPricingPage() {
   if (isUserLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="text-muted-foreground">Loading…</div>
+        <div className="text-ink-soft">Loading…</div>
       </div>
     )
   }
@@ -154,7 +154,7 @@ export default function VendorPricingPage() {
   if (userError || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="text-destructive">Please log in to continue</div>
+        <div className="text-brick">Please log in to continue</div>
       </div>
     )
   }
@@ -196,8 +196,8 @@ export default function VendorPricingPage() {
     return (
       <div className="flex h-64 items-center justify-center">
         <div className="text-center">
-          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-          <p className="text-muted-foreground">Loading pricing…</p>
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-clay border-t-transparent" />
+          <p className="text-ink-soft">Loading pricing…</p>
         </div>
       </div>
     )
@@ -206,7 +206,7 @@ export default function VendorPricingPage() {
   if (!vendor) {
     return (
       <div className="py-12 text-center">
-        <p className="text-muted-foreground">No vendor profile found.</p>
+        <p className="text-ink-soft">No vendor profile found.</p>
       </div>
     )
   }
@@ -218,8 +218,8 @@ export default function VendorPricingPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-3xl font-bold text-foreground">Pricing &amp; Packages</h1>
-        <p className="mt-1 text-muted-foreground">Configure your pricing model and service packages</p>
+        <h1 className="font-display text-3xl font-bold text-ink">Pricing &amp; Packages</h1>
+        <p className="mt-1 text-ink-soft">Configure your pricing model and service packages</p>
       </div>
 
       <form onSubmit={handleSubmit(handleSave)} className="space-y-6">
@@ -241,22 +241,22 @@ export default function VendorPricingPage() {
                     type="button"
                     onClick={() => setValue('pricing_model', option.value, { shouldDirty: true })}
                     className={cn(
-                      'flex flex-col items-start rounded-xl border-2 p-4 text-left transition-smooth',
+                      'flex flex-col items-start rounded-lg border-2 p-4 text-left transition-smooth',
                       active
-                        ? 'border-primary bg-primary/10'
-                        : 'border-border hover:border-primary/40'
+                        ? 'border-clay bg-clay/10'
+                        : 'border-tan hover:border-clay/40'
                     )}
                   >
                     <div
                       className={cn(
                         'mb-2 flex h-8 w-8 items-center justify-center rounded-lg',
-                        active ? 'bg-primary/20' : 'bg-sidebar-accent/40'
+                        active ? 'bg-clay/20' : 'bg-cream-deep/40'
                       )}
                     >
-                      <Icon className={cn('h-4 w-4', active ? 'text-primary' : 'text-foreground')} />
+                      <Icon className={cn('h-4 w-4', active ? 'text-clay' : 'text-ink')} />
                     </div>
-                    <p className="font-semibold text-foreground text-sm">{option.label}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{option.description}</p>
+                    <p className="font-semibold text-ink text-sm">{option.label}</p>
+                    <p className="mt-0.5 text-xs text-ink-soft">{option.description}</p>
                   </button>
                 )
               })}
@@ -278,11 +278,11 @@ export default function VendorPricingPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <label className="mb-2 block text-sm font-medium text-foreground">
+              <label className="mb-2 block text-sm font-medium text-ink">
                 {pricingModel === 'hourly' ? 'Hourly Rate ($)' : 'Base Rate ($)'}
               </label>
               <div className="relative max-w-xs">
-                <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+                <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft/60" />
                 <Input
                   type="number"
                   {...register('base_rate', { valueAsNumber: true })}
@@ -291,7 +291,7 @@ export default function VendorPricingPage() {
                 />
               </div>
               {errors.base_rate && (
-                <p className="mt-1 text-xs text-destructive">{errors.base_rate.message}</p>
+                <p className="mt-1 text-xs text-brick">{errors.base_rate.message}</p>
               )}
             </CardContent>
           </Card>
@@ -308,11 +308,11 @@ export default function VendorPricingPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-foreground">
+                <label className="mb-2 block text-sm font-medium text-ink">
                   Rate per attendee ($)
                 </label>
                 <div className="relative max-w-xs">
-                  <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+                  <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft/60" />
                   <Input
                     type="number"
                     {...register('per_person_rate', { valueAsNumber: true })}
@@ -321,9 +321,9 @@ export default function VendorPricingPage() {
                   />
                 </div>
               </div>
-              <div className="rounded-xl bg-background/60 p-4">
-                <p className="mb-1 text-sm text-muted-foreground">Example (100 guests)</p>
-                <p className="text-lg font-semibold text-foreground">
+              <div className="rounded-lg bg-cream/60 p-4">
+                <p className="mb-1 text-sm text-ink-soft">Example (100 guests)</p>
+                <p className="text-lg font-semibold text-ink">
                   ${perPersonRate.toLocaleString()} × 100 = ${(perPersonRate * 100).toLocaleString()}
                 </p>
               </div>
@@ -349,9 +349,9 @@ export default function VendorPricingPage() {
                   type="checkbox"
                   id="headcount_kickback"
                   {...register('headcount_kickback')}
-                  className="h-4 w-4 rounded text-primary"
+                  className="h-4 w-4 rounded text-clay"
                 />
-                <label htmlFor="headcount_kickback" className="text-sm font-medium text-foreground">
+                <label htmlFor="headcount_kickback" className="text-sm font-medium text-ink">
                   Enable per-head kickback
                 </label>
               </div>
@@ -359,11 +359,11 @@ export default function VendorPricingPage() {
               {headcountKickback && (
                 <div className="space-y-3 pl-7">
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-foreground">
+                    <label className="mb-2 block text-sm font-medium text-ink">
                       Per-person rate ($)
                     </label>
                     <div className="relative max-w-xs">
-                      <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+                      <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft/60" />
                       <Input
                         type="number"
                         {...register('per_person_rate', { valueAsNumber: true })}
@@ -372,9 +372,9 @@ export default function VendorPricingPage() {
                       />
                     </div>
                   </div>
-                  <div className="rounded-xl bg-background/60 p-4">
-                    <p className="mb-1 text-sm text-muted-foreground">Example (100 guests)</p>
-                    <p className="text-lg font-semibold text-foreground">
+                  <div className="rounded-lg bg-cream/60 p-4">
+                    <p className="mb-1 text-sm text-ink-soft">Example (100 guests)</p>
+                    <p className="text-lg font-semibold text-ink">
                       ${perPersonRate.toLocaleString()} × 100 = ${(perPersonRate * 100).toLocaleString()}
                     </p>
                   </div>
@@ -413,8 +413,8 @@ export default function VendorPricingPage() {
           </CardHeader>
           <CardContent>
             {packages.length === 0 ? (
-              <div className="rounded-xl border-2 border-dashed border-border py-10 text-center">
-                <p className="mb-4 text-sm text-muted-foreground">No packages yet</p>
+              <div className="rounded-lg border-2 border-dashed border-tan py-10 text-center">
+                <p className="mb-4 text-sm text-ink-soft">No packages yet</p>
                 <Button
                   type="button"
                   variant="outline"
@@ -433,28 +433,28 @@ export default function VendorPricingPage() {
                       <CardContent className="p-4">
                         <div className="mb-3 flex items-start justify-between">
                           <div className="flex-1">
-                            <h3 className="font-semibold text-foreground">{pkg.package_name}</h3>
+                            <h3 className="font-semibold text-ink">{pkg.package_name}</h3>
                             {pkg.description && (
-                              <p className="mt-0.5 text-sm text-muted-foreground">{pkg.description}</p>
+                              <p className="mt-0.5 text-sm text-ink-soft">{pkg.description}</p>
                             )}
                             <div className="mt-2 flex items-center gap-4 text-sm">
-                              <span className="font-semibold text-primary">
+                              <span className="font-semibold text-clay">
                                 ${pkg.base_price?.toLocaleString()}
                               </span>
                               {pkg.duration_hours && (
-                                <span className="text-muted-foreground">{pkg.duration_hours} hrs</span>
+                                <span className="text-ink-soft">{pkg.duration_hours} hrs</span>
                               )}
                             </div>
                           </div>
                           {!pkg.is_active && (
-                            <span className="rounded-full bg-sidebar-accent/40 px-2 py-0.5 text-xs text-foreground">
+                            <span className="rounded-full bg-cream-deep/40 px-2 py-0.5 text-xs text-ink">
                               Inactive
                             </span>
                           )}
                         </div>
 
                         {inclusions.length > 0 && (
-                          <ul className="mb-3 space-y-0.5 text-xs text-muted-foreground">
+                          <ul className="mb-3 space-y-0.5 text-xs text-ink-soft">
                             {inclusions.slice(0, 3).map((inc, idx) => (
                               <li key={idx}>• {inc}</li>
                             ))}
@@ -479,7 +479,7 @@ export default function VendorPricingPage() {
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="flex-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            className="flex-1 text-brick hover:bg-brick/10 hover:text-brick"
                             onClick={() => handleDeletePackage(pkg.id)}
                           >
                             <Trash2 className="mr-1 h-3 w-3" />

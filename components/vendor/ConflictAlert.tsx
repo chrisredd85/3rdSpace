@@ -76,7 +76,7 @@ export function ConflictAlert({ vendorId, date, compact = false, onConflictChang
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 rounded-md bg-background p-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 rounded-md bg-cream p-2 text-xs text-ink-soft">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         Checking vendor availability...
       </div>
@@ -84,12 +84,12 @@ export function ConflictAlert({ vendorId, date, compact = false, onConflictChang
   }
 
   if (error) {
-    return <div className="rounded-md bg-destructive/10 p-2 text-xs text-destructive">{error}</div>
+    return <div className="rounded-md bg-brick/10 p-2 text-xs text-brick">{error}</div>
   }
 
   if (hasConflict) {
     return (
-      <div className={`flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 ${compact ? 'p-2 text-xs' : 'p-3 text-sm'} text-destructive`}>
+      <div className={`flex items-start gap-2 rounded-md border border-brick/30 bg-brick/10 ${compact ? 'p-2 text-xs' : 'p-3 text-sm'} text-brick`}>
         <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
         <span>This vendor is {status} on {date}. Choose another date before booking.</span>
       </div>
@@ -97,7 +97,7 @@ export function ConflictAlert({ vendorId, date, compact = false, onConflictChang
   }
 
   return (
-    <div className={`flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 ${compact ? 'p-2 text-xs' : 'p-3 text-sm'} text-primary`}>
+    <div className={`flex items-center gap-2 rounded-md border border-clay/30 bg-clay/10 ${compact ? 'p-2 text-xs' : 'p-3 text-sm'} text-clay`}>
       <CheckCircle2 className="h-4 w-4" />
       Vendor is {status || 'available'} on {date}.
     </div>

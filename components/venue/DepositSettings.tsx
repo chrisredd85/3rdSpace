@@ -209,12 +209,12 @@ export function DepositSettings({ venueId, vendorId, targetType, onSave }: Depos
       : `${Number.parseInt(depositPercentage, 10) || 0}%`
 
   if (!target) {
-    return <div className="text-sm text-muted-foreground">Select a venue or vendor before setting deposits.</div>
+    return <div className="text-sm text-ink-soft">Select a venue or vendor before setting deposits.</div>
   }
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2 text-sm text-ink-soft">
         <Loader2 className="h-4 w-4 animate-spin" />
         Loading deposit settings...
       </div>
@@ -224,44 +224,44 @@ export function DepositSettings({ venueId, vendorId, targetType, onSave }: Depos
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-xl font-bold text-foreground">Deposit Requirements</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <h3 className="text-xl font-bold text-ink">Deposit Requirements</h3>
+        <p className="mt-1 text-sm text-ink-soft">
           Require money up front to secure bookings and protect against cancellations.
         </p>
       </div>
 
       <StripeIntegrationNotice context="settings" />
 
-      <label className="flex items-center gap-3 rounded-lg bg-background p-4">
+      <label className="flex items-center gap-3 rounded-lg bg-cream p-4">
         <input
           type="checkbox"
           checked={requiresDeposit}
           onChange={(event) => setRequiresDeposit(event.target.checked)}
-          className="h-5 w-5 rounded border-border text-primary"
+          className="h-5 w-5 rounded border-tan text-clay"
         />
-        <span className="font-semibold text-foreground">Require deposit for bookings</span>
+        <span className="font-semibold text-ink">Require deposit for bookings</span>
       </label>
 
       {requiresDeposit ? (
         <>
           <div className="space-y-3">
-            <label className="block text-sm font-semibold text-foreground">Deposit Type</label>
+            <label className="block text-sm font-semibold text-ink">Deposit Type</label>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <button
                 type="button"
                 onClick={() => setDepositType('fixed')}
                 className={`flex min-h-[88px] items-center gap-3 rounded-lg border-2 p-4 text-left transition-all ${
                   depositType === 'fixed'
-                    ? 'border-primary bg-primary/10'
-                    : 'border-border hover:border-border'
+                    ? 'border-clay bg-clay/10'
+                    : 'border-tan hover:border-tan'
                 }`}
               >
-                <span className={`rounded-lg p-2 ${depositType === 'fixed' ? 'bg-primary text-primary-foreground' : 'bg-sidebar-accent/40 text-muted-foreground'}`}>
+                <span className={`rounded-lg p-2 ${depositType === 'fixed' ? 'bg-clay text-cream' : 'bg-cream-deep/40 text-ink-soft'}`}>
                   <DollarSign className="h-5 w-5" />
                 </span>
                 <span>
-                  <span className="block font-semibold text-foreground">Fixed Amount</span>
-                  <span className="block text-xs text-muted-foreground">A specific dollar amount</span>
+                  <span className="block font-semibold text-ink">Fixed Amount</span>
+                  <span className="block text-xs text-ink-soft">A specific dollar amount</span>
                 </span>
               </button>
 
@@ -270,16 +270,16 @@ export function DepositSettings({ venueId, vendorId, targetType, onSave }: Depos
                 onClick={() => setDepositType('percentage')}
                 className={`flex min-h-[88px] items-center gap-3 rounded-lg border-2 p-4 text-left transition-all ${
                   depositType === 'percentage'
-                    ? 'border-primary bg-primary/10'
-                    : 'border-border hover:border-border'
+                    ? 'border-clay bg-clay/10'
+                    : 'border-tan hover:border-tan'
                 }`}
               >
-                <span className={`rounded-lg p-2 ${depositType === 'percentage' ? 'bg-primary text-primary-foreground' : 'bg-sidebar-accent/40 text-muted-foreground'}`}>
+                <span className={`rounded-lg p-2 ${depositType === 'percentage' ? 'bg-clay text-cream' : 'bg-cream-deep/40 text-ink-soft'}`}>
                   <Percent className="h-5 w-5" />
                 </span>
                 <span>
-                  <span className="block font-semibold text-foreground">Percentage</span>
-                  <span className="block text-xs text-muted-foreground">A percent of booking total</span>
+                  <span className="block font-semibold text-ink">Percentage</span>
+                  <span className="block text-xs text-ink-soft">A percent of booking total</span>
                 </span>
               </button>
             </div>
@@ -287,9 +287,9 @@ export function DepositSettings({ venueId, vendorId, targetType, onSave }: Depos
 
           {depositType === 'fixed' ? (
             <div className="space-y-2">
-              <label className="block text-sm font-semibold text-foreground">Deposit Amount</label>
+              <label className="block text-sm font-semibold text-ink">Deposit Amount</label>
               <div className="relative">
-                <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+                <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft/60" />
                 <input
                   type="number"
                   value={depositAmount}
@@ -297,13 +297,13 @@ export function DepositSettings({ venueId, vendorId, targetType, onSave }: Depos
                   placeholder="500"
                   min={1}
                   step="50"
-                  className="h-11 w-full rounded-md border border-border pl-10 pr-4 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="h-11 w-full rounded-md border border-tan pl-10 pr-4 text-sm focus:border-clay focus:outline-none focus:ring-2 focus:ring-clay/20"
                 />
               </div>
             </div>
           ) : (
             <div className="space-y-2">
-              <label className="block text-sm font-semibold text-foreground">Deposit Percentage</label>
+              <label className="block text-sm font-semibold text-ink">Deposit Percentage</label>
               <div className="relative">
                 <input
                   type="number"
@@ -312,44 +312,44 @@ export function DepositSettings({ venueId, vendorId, targetType, onSave }: Depos
                   placeholder="20"
                   min={1}
                   max={100}
-                  className="h-11 w-full rounded-md border border-border pl-4 pr-12 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="h-11 w-full rounded-md border border-tan pl-4 pr-12 text-sm focus:border-clay focus:outline-none focus:ring-2 focus:ring-clay/20"
                 />
-                <Percent className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+                <Percent className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft/60" />
               </div>
             </div>
           )}
 
           <div className="space-y-2">
-            <label className="block text-sm font-semibold text-foreground">Refund Policy</label>
-            <label className="flex items-center gap-3 rounded-lg bg-background p-4">
+            <label className="block text-sm font-semibold text-ink">Refund Policy</label>
+            <label className="flex items-center gap-3 rounded-lg bg-cream p-4">
               <input
                 type="checkbox"
                 checked={depositRefundable}
                 onChange={(event) => setDepositRefundable(event.target.checked)}
-                className="h-5 w-5 rounded border-border text-primary"
+                className="h-5 w-5 rounded border-tan text-clay"
               />
-              <span className="text-sm text-foreground">Deposit is refundable under stated conditions</span>
+              <span className="text-sm text-ink">Deposit is refundable under stated conditions</span>
             </label>
           </div>
 
           <div className="space-y-2">
-            <label className="block text-sm font-semibold text-foreground">Deposit Terms</label>
+            <label className="block text-sm font-semibold text-ink">Deposit Terms</label>
             <textarea
               value={depositTerms}
               onChange={(event) => setDepositTerms(event.target.value)}
               rows={4}
               maxLength={2000}
               placeholder="Explain refund conditions, cancellation windows, and exceptions."
-              className="w-full resize-none rounded-md border border-border px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="w-full resize-none rounded-md border border-tan px-3 py-2 text-sm focus:border-clay focus:outline-none focus:ring-2 focus:ring-clay/20"
             />
           </div>
 
-          <div className="rounded-lg border border-primary/30 bg-primary/10 p-4">
-            <div className="mb-2 flex items-center gap-2 text-foreground">
+          <div className="rounded-lg border border-clay/30 bg-clay/10 p-4">
+            <div className="mb-2 flex items-center gap-2 text-ink">
               <AlertCircle className="h-5 w-5" />
               <p className="font-semibold">Deposit Preview</p>
             </div>
-            <p className="text-sm text-foreground">
+            <p className="text-sm text-ink">
               Bookings will require a <strong>{previewValue}</strong> deposit that is{' '}
               <strong>{depositRefundable ? 'refundable' : 'non-refundable'}</strong>.
             </p>

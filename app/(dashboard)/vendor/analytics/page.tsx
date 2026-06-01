@@ -137,7 +137,7 @@ export default function VendorAnalyticsPage() {
 
   if (loading) {
     return (
-      <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-64 items-center justify-center text-sm text-ink-soft">
         Loading analytics...
       </div>
     )
@@ -145,7 +145,7 @@ export default function VendorAnalyticsPage() {
 
   if (error || !analytics) {
     return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-6 text-sm text-destructive">
+      <div className="rounded-lg border border-brick/30 bg-brick/10 p-6 text-sm text-brick">
         {error || 'No analytics data available'}
       </div>
     )
@@ -155,15 +155,15 @@ export default function VendorAnalyticsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="text-4xl font-bold tracking-tight text-foreground">Analytics</h1>
-          <p className="mt-2 text-lg text-muted-foreground">Revenue, bookings, and performance for your vendor business</p>
+          <h1 className="text-4xl font-bold tracking-tight text-ink">Analytics</h1>
+          <p className="mt-2 text-lg text-ink-soft">Revenue, bookings, and performance for your vendor business</p>
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <select
             value={period}
             onChange={handlePeriodChange}
-            className="h-11 rounded-lg border border-border bg-card/40 px-3 text-sm outline-none transition-colors focus:border-primary"
+            className="h-11 rounded-lg border border-tan bg-cream/40 px-3 text-sm outline-none transition-colors focus:border-clay"
           >
             <option value="month">This Month</option>
             <option value="year">This Year</option>
@@ -247,20 +247,20 @@ export default function VendorAnalyticsPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <section className="rounded-lg border border-border bg-card/40 p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-bold text-foreground">Revenue Over Time</h2>
+        <section className="rounded-lg border border-tan bg-cream/40 p-5 shadow-sm">
+          <h2 className="mb-4 text-lg font-bold text-ink">Revenue Over Time</h2>
           <RevenueChart data={analytics.charts.revenue_by_month} />
         </section>
 
-        <section className="rounded-lg border border-border bg-card/40 p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-bold text-foreground">Bookings Over Time</h2>
+        <section className="rounded-lg border border-tan bg-cream/40 p-5 shadow-sm">
+          <h2 className="mb-4 text-lg font-bold text-ink">Bookings Over Time</h2>
           <BookingsChart data={analytics.charts.bookings_by_month} />
         </section>
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_420px]">
-        <section className="rounded-lg border border-border bg-card/40 p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-bold text-foreground">This Month vs Last Month</h2>
+        <section className="rounded-lg border border-tan bg-cream/40 p-5 shadow-sm">
+          <h2 className="mb-4 text-lg font-bold text-ink">This Month vs Last Month</h2>
           <div className="grid gap-3 md:grid-cols-3">
             <ComparisonMetric label="Revenue" current={formatCurrency(analytics.comparison.current.revenue)} previous={formatCurrency(analytics.comparison.previous.revenue)} />
             <ComparisonMetric label="Bookings" current={analytics.comparison.current.bookings.toLocaleString()} previous={analytics.comparison.previous.bookings.toLocaleString()} />
@@ -268,21 +268,21 @@ export default function VendorAnalyticsPage() {
           </div>
         </section>
 
-        <section className="rounded-lg border border-border bg-card/40 p-5 shadow-sm">
-          <h2 className="mb-4 text-lg font-bold text-foreground">Popular Services</h2>
+        <section className="rounded-lg border border-tan bg-cream/40 p-5 shadow-sm">
+          <h2 className="mb-4 text-lg font-bold text-ink">Popular Services</h2>
           {analytics.popular_services.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            <div className="rounded-lg border border-dashed border-tan p-6 text-center text-sm text-ink-soft">
               No booked services in this period
             </div>
           ) : (
             <div className="space-y-3">
               {analytics.popular_services.map((service) => (
-                <div key={service.service_name} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                <div key={service.service_name} className="flex items-center justify-between gap-3 rounded-lg border border-tan p-3">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold text-foreground">{service.service_name}</p>
-                    <p className="text-sm text-muted-foreground">{Number(service.bookings).toLocaleString()} bookings</p>
+                    <p className="truncate font-semibold text-ink">{service.service_name}</p>
+                    <p className="text-sm text-ink-soft">{Number(service.bookings).toLocaleString()} bookings</p>
                   </div>
-                  <p className="shrink-0 font-semibold text-foreground">{formatCurrency(Number(service.revenue))}</p>
+                  <p className="shrink-0 font-semibold text-ink">{formatCurrency(Number(service.revenue))}</p>
                 </div>
               ))}
             </div>
@@ -308,15 +308,15 @@ function PerformancePanel({
   icon: ReactNode
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card/40 p-5 shadow-sm">
+    <div className="rounded-lg border border-tan bg-cream/40 p-5 shadow-sm">
       <div className="mb-3 flex items-center gap-3">
-        <div className="rounded-lg bg-sidebar-accent/40 p-2 text-foreground">{icon}</div>
+        <div className="rounded-lg bg-cream-deep/40 p-2 text-ink">{icon}</div>
         <div>
-          <p className="text-sm text-muted-foreground">{title}</p>
-          <p className="text-2xl font-bold text-foreground">{value}</p>
+          <p className="text-sm text-ink-soft">{title}</p>
+          <p className="text-2xl font-bold text-ink">{value}</p>
         </div>
       </div>
-      <p className="text-sm text-muted-foreground">{subtitle}</p>
+      <p className="text-sm text-ink-soft">{subtitle}</p>
     </div>
   )
 }
@@ -326,10 +326,10 @@ function PerformancePanel({
  */
 function ComparisonMetric({ label, current, previous }: { label: string; current: string; previous: string }) {
   return (
-    <div className="rounded-lg bg-background p-4">
-      <p className="text-sm font-medium text-muted-foreground">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-foreground">{current}</p>
-      <p className="mt-1 text-xs text-muted-foreground">Last month: {previous}</p>
+    <div className="rounded-lg bg-cream p-4">
+      <p className="text-sm font-medium text-ink-soft">{label}</p>
+      <p className="mt-2 text-2xl font-bold text-ink">{current}</p>
+      <p className="mt-1 text-xs text-ink-soft">Last month: {previous}</p>
     </div>
   )
 }
@@ -339,7 +339,7 @@ function ComparisonMetric({ label, current, previous }: { label: string; current
  */
 function ChartLoading({ label }: { label: string }) {
   return (
-    <div className="flex h-[300px] items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+    <div className="flex h-[300px] items-center justify-center rounded-lg border border-dashed border-tan text-sm text-ink-soft">
       {label}
     </div>
   )

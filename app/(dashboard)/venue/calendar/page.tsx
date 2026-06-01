@@ -307,7 +307,7 @@ export default function VenueCalendarPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-ink-soft">Loading...</div>
       </div>
     )
   }
@@ -315,7 +315,7 @@ export default function VenueCalendarPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-destructive">Please log in to continue</div>
+        <div className="text-brick">Please log in to continue</div>
       </div>
     )
   }
@@ -336,8 +336,8 @@ export default function VenueCalendarPage() {
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Calendar</h1>
-          <p className="text-sm sm:text-base text-muted-foreground mt-1">Manage your venue availability and bookings</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-ink">Calendar</h1>
+          <p className="text-sm sm:text-base text-ink-soft mt-1">Set venue availability and bookings</p>
         </div>
         <Button onClick={() => setShowBlockModal(true)} className="min-h-[44px] w-full sm:w-auto">
           <Plus className="h-4 w-4 mr-2" />
@@ -346,19 +346,19 @@ export default function VenueCalendarPage() {
       </div>
 
       {/* Booking Percentage Banner */}
-      <Card className="bg-gradient-to-r from-primary/10 to-primary/20 border-primary/30">
+      <Card className="bg-gradient-to-r from-clay/10 to-clay/20 border-clay/30">
         <CardContent className="p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-primary">
+              <p className="text-sm font-medium text-clay">
                 Booking Percentage - {monthName}
               </p>
-              <p className="text-2xl font-bold text-primary mt-1">
+              <p className="text-2xl font-bold text-clay mt-1">
                 {bookingPercentage}%
               </p>
             </div>
-            <div className="h-16 w-16 rounded-full bg-primary flex items-center justify-center">
-              <CalendarIcon className="h-8 w-8 text-white" />
+            <div className="h-16 w-16 rounded-full bg-clay flex items-center justify-center">
+              <CalendarIcon className="h-8 w-8 text-cream" />
             </div>
           </div>
         </CardContent>
@@ -405,18 +405,18 @@ export default function VenueCalendarPage() {
         <CardContent className="p-2 sm:p-6">
           {/* Legend */}
           <div className="flex flex-wrap items-center gap-2 sm:gap-4 mb-4 text-xs sm:text-sm">
-            <span className="font-medium text-foreground">Legend:</span>
+            <span className="font-medium text-ink">Legend:</span>
             <div className="flex items-center gap-2">
-              <div className="h-3 w-3 sm:h-4 sm:w-4 rounded bg-yellow-400" />
-              <span className="text-muted-foreground">Pending</span>
+              <div className="h-3 w-3 sm:h-4 sm:w-4 rounded bg-ochre" />
+              <span className="text-ink-soft">Pending</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="h-3 w-3 sm:h-4 sm:w-4 rounded bg-primary" />
-              <span className="text-muted-foreground">Confirmed</span>
+              <div className="h-3 w-3 sm:h-4 sm:w-4 rounded bg-clay" />
+              <span className="text-ink-soft">Confirmed</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="h-3 w-3 sm:h-4 sm:w-4 rounded bg-destructive/100" />
-              <span className="text-muted-foreground">Blocked</span>
+              <div className="h-3 w-3 sm:h-4 sm:w-4 rounded bg-brick" />
+              <span className="text-ink-soft">Blocked</span>
             </div>
           </div>
 
@@ -427,7 +427,7 @@ export default function VenueCalendarPage() {
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
                 <div
                   key={day}
-                  className="text-center text-xs sm:text-sm font-medium text-foreground p-1 sm:p-2"
+                  className="text-center text-xs sm:text-sm font-medium text-ink p-1 sm:p-2"
                 >
                   {day}
                 </div>
@@ -447,28 +447,28 @@ export default function VenueCalendarPage() {
                   date.getMonth() === new Date().getMonth() &&
                   date.getFullYear() === new Date().getFullYear()
 
-                let dayColor = 'bg-card/40'
-                let dayText = 'text-foreground'
+                let dayColor = 'bg-cream/40'
+                let dayText = 'text-ink'
                 let eventTag = null
 
                 if (confirmedBooking) {
-                  dayColor = 'bg-primary/10'
+                  dayColor = 'bg-clay/10'
                   eventTag = (
-                    <div className="bg-primary text-white text-xs px-1 py-0.5 rounded truncate">
+                    <div className="bg-clay text-cream text-xs px-1 py-0.5 rounded truncate">
                       {(confirmedBooking as import('@/lib/types').VenueBookingWithEvent).events?.title?.substring(0, 10) || 'Event'}
                     </div>
                   )
                 } else if (pendingBooking) {
-                  dayColor = 'bg-yellow-500/10'
+                  dayColor = 'bg-ochre-tint'
                   eventTag = (
-                    <div className="bg-yellow-400 text-yellow-100 text-xs px-1 py-0.5 rounded truncate">
+                    <div className="bg-ochre text-cream text-xs px-1 py-0.5 rounded truncate">
                       {(pendingBooking as import('@/lib/types').VenueBookingWithEvent).events?.title?.substring(0, 10) || 'Pending'}
                     </div>
                   )
                 } else if (block) {
-                  dayColor = 'bg-destructive/10'
+                  dayColor = 'bg-brick/10'
                   eventTag = (
-                    <div className="bg-destructive/100 text-white text-xs px-1 py-0.5 rounded truncate">
+                    <div className="bg-brick text-cream text-xs px-1 py-0.5 rounded truncate">
                       {block.reason?.substring(0, 10) || 'Blocked'}
                     </div>
                   )
@@ -478,8 +478,8 @@ export default function VenueCalendarPage() {
                   <div
                     key={index}
                     onClick={() => handleDayClick(date)}
-                    className={`min-h-[80px] sm:min-h-[100px] border border-border p-1 sm:p-2 cursor-pointer hover:bg-background transition-colors ${dayColor} ${
-                      isToday ? 'ring-2 ring-primary' : ''
+                    className={`min-h-[80px] sm:min-h-[100px] border border-tan p-1 sm:p-2 cursor-pointer hover:bg-cream transition-colors ${dayColor} ${
+                      isToday ? 'ring-2 ring-clay' : ''
                     }`}
                   >
                     <div className={`text-sm sm:text-base font-medium mb-1 ${dayText}`}>
@@ -496,7 +496,7 @@ export default function VenueCalendarPage() {
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
               <div
                 key={day}
-                className="text-center text-sm font-medium text-foreground p-2"
+                className="text-center text-sm font-medium text-ink p-2"
               >
                 {day}
               </div>
@@ -520,28 +520,28 @@ export default function VenueCalendarPage() {
                 date.getMonth() === new Date().getMonth() &&
                 date.getFullYear() === new Date().getFullYear()
 
-              let dayColor = 'bg-card/40'
-              let dayText = 'text-foreground'
+              let dayColor = 'bg-cream/40'
+              let dayText = 'text-ink'
               let eventTag = null
 
               if (confirmedBooking) {
-                dayColor = 'bg-primary/10'
+                dayColor = 'bg-clay/10'
                 eventTag = (
-                  <div className="bg-primary text-white text-xs px-1 py-0.5 rounded truncate">
+                  <div className="bg-clay text-cream text-xs px-1 py-0.5 rounded truncate">
                     {(confirmedBooking as import('@/lib/types').VenueBookingWithEvent).events?.title || 'Event'}
                   </div>
                 )
               } else if (pendingBooking) {
-                dayColor = 'bg-yellow-500/10'
+                dayColor = 'bg-ochre-tint'
                 eventTag = (
-                  <div className="bg-yellow-400 text-yellow-100 text-xs px-1 py-0.5 rounded truncate">
+                  <div className="bg-ochre text-cream text-xs px-1 py-0.5 rounded truncate">
                     {(pendingBooking as import('@/lib/types').VenueBookingWithEvent).events?.title || 'Pending'}
                   </div>
                 )
               } else if (block) {
-                dayColor = 'bg-destructive/10'
+                dayColor = 'bg-brick/10'
                 eventTag = (
-                  <div className="bg-destructive/100 text-white text-xs px-1 py-0.5 rounded truncate">
+                  <div className="bg-brick text-cream text-xs px-1 py-0.5 rounded truncate">
                     {block.reason || 'Blocked'}
                   </div>
                 )
@@ -551,8 +551,8 @@ export default function VenueCalendarPage() {
                 <div
                   key={index}
                   onClick={() => handleDayClick(date)}
-                  className={`aspect-square border border-border p-1 cursor-pointer hover:bg-background transition-colors ${dayColor} ${
-                    isToday ? 'ring-2 ring-primary' : ''
+                  className={`aspect-square border border-tan p-1 cursor-pointer hover:bg-cream transition-colors ${dayColor} ${
+                    isToday ? 'ring-2 ring-clay' : ''
                   }`}
                 >
                   <div className={`text-xs font-medium mb-1 ${dayText}`}>
@@ -560,7 +560,7 @@ export default function VenueCalendarPage() {
                   </div>
                   {eventTag}
                   {bookings.length > 1 && (
-                    <div className="text-xs text-muted-foreground mt-1">
+                    <div className="text-xs text-ink-soft mt-1">
                       +{bookings.length - 1} more
                     </div>
                   )}

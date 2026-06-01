@@ -134,26 +134,26 @@ export function PlannerDataConnectionPanel({ plan, className }: PlannerDataConne
 
   return (
     <div className={cn('space-y-5', className)}>
-      <section className="rounded-3xl border border-border bg-card/60 p-5 shadow-card">
+      <section className="rounded-lg border border-tan bg-cream p-5 shadow-card">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
-            <p className="text-xs font-bold uppercase tracking-widest text-primary">Data Connection Agent</p>
-            <h3 className="mt-2 font-display text-2xl font-bold text-foreground">
+            <p className="label-caps text-clay">Data Connection Agent</p>
+            <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
               Set up real RSVP, ticket, and check-in data
             </h3>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            <p className="mt-2 text-sm leading-relaxed text-ink-soft">
               AI only guides setup. Actual attendance, sales, refunds, and check-ins come from webhook/API rows and post-event venue reports.
             </p>
           </div>
-          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs font-bold text-success">
+          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-forest/30 bg-forest-tint px-3 py-1 text-xs font-bold text-forest">
             <ShieldCheck className="h-3.5 w-3.5" />
             Metrics stay deterministic
           </span>
         </div>
 
         <div className="mt-5 grid gap-3 lg:grid-cols-[0.8fr_1.2fr]">
-          <div className="rounded-2xl border border-border bg-background/50 p-4">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Setup target</p>
+          <div className="rounded-lg border border-tan bg-cream-deep/55 p-4">
+            <p className="label-caps text-ink-soft">Setup target</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {TICKET_PLATFORM_OPTIONS.map((platform) => (
                 <button
@@ -161,10 +161,10 @@ export function PlannerDataConnectionPanel({ plan, className }: PlannerDataConne
                   type="button"
                   onClick={() => setSelectedPlatform(platform.id)}
                   className={cn(
-                    'rounded-xl border px-3 py-2 text-left text-sm font-semibold transition-smooth',
+                    'rounded-md border px-3 py-2 text-left text-sm font-semibold transition-smooth',
                     selectedPlatform === platform.id
-                      ? 'border-primary bg-primary/10 text-foreground'
-                      : 'border-border bg-card/40 text-muted-foreground hover:text-foreground'
+                      ? 'border-clay bg-clay-tint text-ink'
+                      : 'border-tan bg-cream text-ink-soft hover:text-ink'
                   )}
                 >
                   {platform.label}
@@ -181,38 +181,38 @@ export function PlannerDataConnectionPanel({ plan, className }: PlannerDataConne
               {isLoadingSetup ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
               Generate setup guide
             </Button>
-            {setupError ? <p className="mt-3 text-sm font-semibold text-destructive">{setupError}</p> : null}
+            {setupError ? <p className="mt-3 text-sm font-semibold text-brick">{setupError}</p> : null}
           </div>
 
-          <div className="rounded-2xl border border-border bg-background/50 p-4">
+          <div className="rounded-lg border border-tan bg-cream-deep/55 p-4">
             {setup ? (
               <>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full border border-secondary/30 bg-secondary/10 px-3 py-1 text-xs font-bold text-secondary">
+                  <span className="rounded-full border border-ochre/30 bg-ochre-tint px-3 py-1 text-xs font-bold text-ochre">
                     {setupStatusCopy[setup.setup_status]}
                   </span>
-                  <span className="rounded-full border border-border bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">
+                  <span className="rounded-full border border-tan bg-cream px-3 py-1 text-xs font-semibold text-ink-soft">
                     {setupMode === 'openai' ? 'OpenAI setup guide' : 'Deterministic fallback'}
                   </span>
                 </div>
-                <p className="mt-3 text-sm leading-relaxed text-foreground">{setup.summary}</p>
+                <p className="mt-3 text-sm leading-relaxed text-ink">{setup.summary}</p>
                 <div className="mt-4 space-y-3">
                   {setup.setup_steps.map((step, index) => (
-                    <div key={`${step.title}-${index}`} className="rounded-xl border border-border bg-card/40 p-3">
-                      <p className="text-sm font-bold text-foreground">{index + 1}. {step.title}</p>
-                      <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{step.detail}</p>
+                    <div key={`${step.title}-${index}`} className="rounded-md border border-tan bg-cream p-3">
+                      <p className="text-sm font-bold text-ink">{index + 1}. {step.title}</p>
+                      <p className="mt-1 text-sm leading-relaxed text-ink-soft">{step.detail}</p>
                     </div>
                   ))}
                 </div>
-                <p className="mt-4 rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs font-semibold text-muted-foreground">
+                <p className="mt-4 rounded-md border border-tan bg-cream px-3 py-2 text-xs font-semibold text-ink-soft">
                   {setup.cost_note}
                 </p>
               </>
             ) : (
-              <div className="flex min-h-64 flex-col justify-center rounded-2xl border border-dashed border-border px-4 py-8 text-center">
-                <Bot className="mx-auto h-8 w-8 text-primary" />
-                <h4 className="mt-3 font-display text-lg font-bold text-foreground">No setup guide generated yet</h4>
-                <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+              <div className="flex min-h-64 flex-col justify-center rounded-lg border border-dashed border-tan px-4 py-8 text-center">
+                <Bot className="mx-auto h-8 w-8 text-clay" />
+                <h4 className="mt-3 font-display text-lg font-semibold text-ink">No setup guide generated yet</h4>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-ink-soft">
                   Pick the platform the organizer uses. The agent returns the exact setup path and the post-event facts still needed from the venue.
                 </p>
               </div>
@@ -222,11 +222,11 @@ export function PlannerDataConnectionPanel({ plan, className }: PlannerDataConne
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
-        <div className="rounded-3xl border border-border bg-card/60 p-5 shadow-card">
+        <div className="rounded-lg border border-tan bg-cream p-5 shadow-card">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Actual event data</p>
-              <h3 className="mt-1 font-display text-xl font-bold text-foreground">{headlineMetric}</h3>
+              <p className="label-caps text-ink-soft">Actual event data</p>
+              <h3 className="mt-1 font-display text-xl font-semibold text-ink">{headlineMetric}</h3>
             </div>
             <Button
               type="button"
@@ -241,7 +241,7 @@ export function PlannerDataConnectionPanel({ plan, className }: PlannerDataConne
           </div>
 
           {isLoadingReport ? (
-            <div className="mt-5 flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="mt-5 flex items-center gap-2 text-sm text-ink-soft">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading deterministic report
             </div>
@@ -254,10 +254,10 @@ export function PlannerDataConnectionPanel({ plan, className }: PlannerDataConne
                 <MetricCard icon={<ClipboardList className="h-4 w-4" />} label="No-show rate" value={report.summary.no_show_rate == null ? 'No data' : `${Math.round(report.summary.no_show_rate * 100)}%`} />
               </div>
 
-              <div className="mt-5 rounded-2xl border border-border bg-background/50 p-4">
+              <div className="mt-5 rounded-lg border border-tan bg-cream-deep/55 p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-bold text-foreground">Arrival curve</p>
-                  <span className="text-xs font-semibold text-muted-foreground">
+                  <p className="text-sm font-bold text-ink">Arrival curve</p>
+                  <span className="text-xs font-semibold text-ink-soft">
                     Peak: {report.summary.peak_arrival_hour ?? 'No check-ins yet'}
                   </span>
                 </div>
@@ -265,26 +265,26 @@ export function PlannerDataConnectionPanel({ plan, className }: PlannerDataConne
                   <div className="mt-4 space-y-2">
                     {report.arrival_buckets.slice(0, 8).map((bucket) => (
                       <div key={bucket.label} className="grid grid-cols-[4rem_1fr_2rem] items-center gap-3 text-sm">
-                        <span className="font-semibold text-muted-foreground">{bucket.label}</span>
-                        <span className="h-2 overflow-hidden rounded-full bg-muted">
+                        <span className="font-semibold text-ink-soft">{bucket.label}</span>
+                        <span className="h-2 overflow-hidden rounded-full bg-cream">
                           <span
                             className="block h-full rounded-full bg-gradient-brand"
                             style={{ width: `${Math.max(8, Math.min(100, bucket.count * 12))}%` }}
                           />
                         </span>
-                        <span className="text-right font-bold text-foreground">{bucket.count}</span>
+                        <span className="text-right font-bold text-ink">{bucket.count}</span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="mt-3 rounded-xl border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                  <p className="mt-3 rounded-md border border-dashed border-tan px-3 py-4 text-sm text-ink-soft">
                     No check-in timestamps yet. Connect a source or import attendees after the event.
                   </p>
                 )}
               </div>
             </>
           ) : (
-            <p className="mt-4 rounded-xl border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+            <p className="mt-4 rounded-md border border-dashed border-tan px-3 py-4 text-sm text-ink-soft">
               {reportError ?? 'Post-event report loads after a creator account connects data sources.'}
             </p>
           )}
@@ -292,12 +292,12 @@ export function PlannerDataConnectionPanel({ plan, className }: PlannerDataConne
 
         <div className="space-y-5">
           <PlannerTicketingConnectPanel mode="compact" ticketed={plan?.ticketed ?? false} />
-          <div className="rounded-3xl border border-border bg-card/60 p-5 shadow-card">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Post-event questions</p>
-            <h3 className="mt-1 font-display text-lg font-bold text-foreground">Ask only what APIs cannot know</h3>
+          <div className="rounded-lg border border-tan bg-cream p-5 shadow-card">
+            <p className="label-caps text-ink-soft">Post-event questions</p>
+            <h3 className="mt-1 font-display text-lg font-semibold text-ink">Ask only what APIs cannot know</h3>
             <div className="mt-4 space-y-2">
               {(setup?.post_event_questions ?? report?.post_event_questions ?? []).slice(0, 5).map((question) => (
-                <div key={question} className="rounded-xl border border-border bg-background/50 px-3 py-2 text-sm text-muted-foreground">
+                <div key={question} className="rounded-md border border-tan bg-cream-deep/55 px-3 py-2 text-sm text-ink-soft">
                   {question}
                 </div>
               ))}
@@ -311,12 +311,12 @@ export function PlannerDataConnectionPanel({ plan, className }: PlannerDataConne
 
 function MetricCard({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-border bg-background/50 p-4">
-      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+    <div className="rounded-lg border border-tan bg-cream-deep/55 p-4">
+      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-ink-faint">
         {icon}
         {label}
       </div>
-      <p className="mt-3 truncate font-display text-2xl font-bold text-foreground" title={value}>{value}</p>
+      <p className="mt-3 truncate font-display text-2xl font-semibold text-ink" title={value}>{value}</p>
     </div>
   )
 }

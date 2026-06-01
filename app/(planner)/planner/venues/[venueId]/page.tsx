@@ -96,7 +96,7 @@ export default function BuilderVenueDetailPage({ params }: BuilderVenueDetailPag
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-clay border-t-transparent" />
       </div>
     )
   }
@@ -104,7 +104,7 @@ export default function BuilderVenueDetailPage({ params }: BuilderVenueDetailPag
   if (!venue) {
     return (
       <Card>
-        <CardContent className="py-12 text-center text-muted-foreground">Venue not found.</CardContent>
+        <CardContent className="py-12 text-center text-ink-soft">Venue not found.</CardContent>
       </Card>
     )
   }
@@ -114,16 +114,16 @@ export default function BuilderVenueDetailPage({ params }: BuilderVenueDetailPag
   return (
     <div className="space-y-6">
       <Button asChild variant="ghost" size="sm" className="-ml-3">
-        <Link href="/planner/venues/marketplace">
+        <Link href="/planner/venues">
           <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to marketplace
+          Back to venues
         </Link>
       </Button>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <div className="space-y-6">
           <Card className="overflow-hidden">
-            <div className="h-64 bg-gradient-to-br from-primary/80 to-primary" />
+            <div className="h-64 bg-gradient-to-br from-clay/80 to-clay" />
             <CardHeader>
               <CardTitle className="text-3xl">{venue.name}</CardTitle>
               <CardDescription className="flex items-center gap-1">
@@ -134,17 +134,17 @@ export default function BuilderVenueDetailPage({ params }: BuilderVenueDetailPag
             <CardContent className="space-y-4">
               <div className="grid gap-3 text-sm sm:grid-cols-2">
                 <div className="flex items-center gap-2">
-                  <Users className="h-4 w-4 text-muted-foreground" />
+                  <Users className="h-4 w-4 text-ink-soft" />
                   <span>{venue.capacity || 'Capacity TBD'} capacity</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                  <DollarSign className="h-4 w-4 text-ink-soft" />
                   <span>
                     {formatRate(venue.hourly_rate, '/hr') ?? formatRate(venue.daily_rate, '/day') ?? 'Rate TBD'}
                   </span>
                 </div>
               </div>
-              {venue.description ? <p className="text-foreground">{venue.description}</p> : null}
+              {venue.description ? <p className="text-ink">{venue.description}</p> : null}
             </CardContent>
           </Card>
 

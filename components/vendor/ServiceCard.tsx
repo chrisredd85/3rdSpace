@@ -51,8 +51,8 @@ export function ServiceCard({ service, onEdit, onDelete, compact = false }: Serv
   const coverImage = portfolioImages[0]
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card/40">
-      <div className="aspect-[16/9] bg-sidebar-accent/40">
+    <div className="overflow-hidden rounded-lg border border-tan bg-cream/40">
+      <div className="aspect-[16/9] bg-cream-deep/40">
         {coverImage ? (
           <div
             role="img"
@@ -61,7 +61,7 @@ export function ServiceCard({ service, onEdit, onDelete, compact = false }: Serv
             style={{ backgroundImage: `url(${getImageUrl(coverImage)})` }}
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-muted-foreground/60">
+          <div className="flex h-full items-center justify-center text-ink-soft/60">
             <Camera className="h-8 w-8" />
           </div>
         )}
@@ -70,43 +70,43 @@ export function ServiceCard({ service, onEdit, onDelete, compact = false }: Serv
       <div className={compact ? 'space-y-3 p-4' : 'space-y-4 p-5'}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+            <p className="text-xs font-semibold uppercase tracking-wide text-clay">
               {getServiceCategoryLabel(service.service_category)}
             </p>
-            <h3 className="mt-1 text-lg font-bold text-foreground">{service.offering_name}</h3>
+            <h3 className="mt-1 text-lg font-bold text-ink">{service.offering_name}</h3>
           </div>
           <div className="text-right">
-            <p className="text-lg font-bold text-foreground">{formatCurrency(service.base_price)}</p>
-            <p className="text-xs text-muted-foreground">base price</p>
+            <p className="text-lg font-bold text-ink">{formatCurrency(service.base_price)}</p>
+            <p className="text-xs text-ink-soft">base price</p>
           </div>
         </div>
 
         {service.description ? (
-          <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{service.description}</p>
+          <p className="line-clamp-3 text-sm leading-relaxed text-ink-soft">{service.description}</p>
         ) : null}
 
-        <div className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+        <div className="grid gap-2 text-sm text-ink-soft sm:grid-cols-2">
           {service.duration_hours ? (
             <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground/60" />
+              <Clock className="h-4 w-4 text-ink-soft/60" />
               {service.duration_hours >= 12 ? 'All-day' : `${service.duration_hours} hours`}
             </div>
           ) : null}
           {service.max_capacity ? (
             <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-muted-foreground/60" />
+              <Users className="h-4 w-4 text-ink-soft/60" />
               Up to {service.max_capacity}
             </div>
           ) : null}
           {addOns.length > 0 ? (
             <div className="flex items-center gap-2">
-              <DollarSign className="h-4 w-4 text-muted-foreground/60" />
+              <DollarSign className="h-4 w-4 text-ink-soft/60" />
               {addOns.length} add-on{addOns.length === 1 ? '' : 's'}
             </div>
           ) : null}
           {equipmentIncluded.length > 0 ? (
             <div className="flex items-center gap-2">
-              <Package className="h-4 w-4 text-muted-foreground/60" />
+              <Package className="h-4 w-4 text-ink-soft/60" />
               {equipmentIncluded.length} included
             </div>
           ) : null}
@@ -115,7 +115,7 @@ export function ServiceCard({ service, onEdit, onDelete, compact = false }: Serv
         {equipmentIncluded.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {equipmentIncluded.slice(0, 5).map((item) => (
-              <span key={item} className="rounded-md bg-sidebar-accent/40 px-2 py-1 text-xs font-medium text-foreground">
+              <span key={item} className="rounded-md bg-cream-deep/40 px-2 py-1 text-xs font-medium text-ink">
                 {item}
               </span>
             ))}
@@ -123,7 +123,7 @@ export function ServiceCard({ service, onEdit, onDelete, compact = false }: Serv
         ) : null}
 
         {(onEdit || onDelete) ? (
-          <div className="flex justify-end gap-2 border-t border-border pt-3">
+          <div className="flex justify-end gap-2 border-t border-tan pt-3">
             {onEdit ? (
               <Button type="button" variant="outline" size="sm" onClick={() => onEdit(service)}>
                 <Pencil className="mr-2 h-4 w-4" />

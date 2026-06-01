@@ -253,7 +253,7 @@ export function BulkApprovalDashboard({ venueId }: BulkApprovalDashboardProps) {
   if (loading) {
     return (
       <div className="flex h-40 items-center justify-center">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 text-sm text-ink-soft">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading pending bookings...
         </div>
@@ -265,8 +265,8 @@ export function BulkApprovalDashboard({ venueId }: BulkApprovalDashboardProps) {
     <div className="space-y-4">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h3 className="text-xl font-bold text-foreground">Pending Bookings</h3>
-          <p className="text-sm text-muted-foreground">
+          <h3 className="text-xl font-bold text-ink">Pending Bookings</h3>
+          <p className="text-sm text-ink-soft">
             {bookings.length} pending · {selected.size} selected
           </p>
         </div>
@@ -303,9 +303,9 @@ export function BulkApprovalDashboard({ venueId }: BulkApprovalDashboardProps) {
       ) : null}
 
       {bookings.length === 0 ? (
-        <div className="rounded-lg bg-background py-12 text-center">
-          <p className="font-medium text-foreground">No pending bookings</p>
-          <p className="mt-1 text-sm text-muted-foreground">New venue requests will appear here.</p>
+        <div className="rounded-lg bg-cream py-12 text-center">
+          <p className="font-medium text-ink">No pending bookings</p>
+          <p className="mt-1 text-sm text-ink-soft">New venue requests will appear here.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -324,8 +324,8 @@ export function BulkApprovalDashboard({ venueId }: BulkApprovalDashboardProps) {
                 onClick={() => toggleSelection(booking.id)}
                 className={`w-full rounded-lg border-2 p-4 text-left transition-all ${
                   isSelected
-                    ? 'border-primary bg-primary/10'
-                    : 'border-border bg-card/40 hover:border-border'
+                    ? 'border-clay bg-clay/10'
+                    : 'border-tan bg-cream/40 hover:border-tan'
                 }`}
               >
                 <div className="flex gap-4">
@@ -334,24 +334,24 @@ export function BulkApprovalDashboard({ venueId }: BulkApprovalDashboardProps) {
                     checked={isSelected}
                     onChange={() => toggleSelection(booking.id)}
                     onClick={(event) => event.stopPropagation()}
-                    className="mt-1 h-5 w-5 rounded border-border text-primary"
+                    className="mt-1 h-5 w-5 rounded border-tan text-clay"
                   />
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                       <div>
-                        <h4 className="font-bold text-foreground">{event?.title || 'Event Booking Request'}</h4>
-                        <p className="text-sm text-muted-foreground">
+                        <h4 className="font-bold text-ink">{event?.title || 'Event Booking Request'}</h4>
+                        <p className="text-sm text-ink-soft">
                           by {builderName} · {booking.venues?.name || 'Venue'}
                         </p>
                       </div>
 
                       {booking.auto_approval?.eligible ? (
-                        <span className="w-fit rounded-full bg-primary/15 px-2.5 py-1 text-xs font-semibold text-primary">
+                        <span className="w-fit rounded-full bg-clay/15 px-2.5 py-1 text-xs font-semibold text-clay">
                           Auto-eligible
                         </span>
                       ) : booking.auto_approval?.reasons?.length ? (
-                        <span className="w-fit rounded-full bg-sidebar-accent/40 px-2.5 py-1 text-xs font-semibold text-foreground">
+                        <span className="w-fit rounded-full bg-cream-deep/40 px-2.5 py-1 text-xs font-semibold text-ink">
                           Manual review
                         </span>
                       ) : null}
@@ -359,27 +359,27 @@ export function BulkApprovalDashboard({ venueId }: BulkApprovalDashboardProps) {
 
                     <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
                       <div className="flex items-center gap-2">
-                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <Calendar className="h-4 w-4 text-ink-soft" />
                         <span>{formatDate(booking.requested_date || event?.event_date)}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Users className="h-4 w-4 text-muted-foreground" />
+                        <Users className="h-4 w-4 text-ink-soft" />
                         <span>{expectedAttendees || 'TBD'} guests</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
+                        <DollarSign className="h-4 w-4 text-ink-soft" />
                         <span>{formatMoney(amount)}</span>
                       </div>
                     </div>
 
                     {booking.auto_approval?.reasons?.length ? (
-                      <p className="mt-3 text-xs text-muted-foreground">
+                      <p className="mt-3 text-xs text-ink-soft">
                         {booking.auto_approval.reasons.join(' · ')}
                       </p>
                     ) : null}
 
                     {booking.notes ? (
-                      <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{booking.notes}</p>
+                      <p className="mt-3 line-clamp-2 text-sm text-ink-soft">{booking.notes}</p>
                     ) : null}
                   </div>
                 </div>

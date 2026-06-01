@@ -43,8 +43,8 @@ interface SidebarProps {
 }
 
 const roleMeta: Record<Exclude<UserType, 'community_builder'>, { icon: ComponentType<{ className?: string }>; label: string; tagline: string }> = {
-  venue_owner: { icon: Building2, label: 'Venue Owner', tagline: 'Manage your space' },
-  vendor: { icon: Store, label: 'Vendor', tagline: 'Grow your business' },
+  venue_owner: { icon: Building2, label: 'Venue Owner', tagline: 'Operate your space' },
+  vendor: { icon: Store, label: 'Vendor', tagline: 'Run your business' },
 }
 
 /**
@@ -81,7 +81,7 @@ function SidebarComponent({ userType, onClose }: SidebarProps) {
             ],
           },
           {
-            title: 'MANAGE',
+            title: 'OPERATE',
             items: [
               { label: 'Venue Listing', href: '/venue/listing', icon: Building2 },
               { label: 'Pricing & Revenue', href: '/venue/pricing', icon: DollarSign },
@@ -109,7 +109,7 @@ function SidebarComponent({ userType, onClose }: SidebarProps) {
             ],
           },
           {
-            title: 'MANAGE',
+            title: 'OPERATE',
             items: [
               { label: 'Service Listing', href: '/vendor/services', icon: Package },
               { label: 'Pricing & Packages', href: '/vendor/pricing', icon: DollarSign },
@@ -152,24 +152,24 @@ function SidebarComponent({ userType, onClose }: SidebarProps) {
     : 'ME'
 
   return (
-    <div className="flex h-full w-64 flex-col bg-sidebar border-r border-sidebar-border">
+    <div className="flex h-full w-64 flex-col bg-cream border-r border-tan">
       {/* Logo */}
       <Link href="/" className="flex items-center gap-2.5 px-6 py-5" onClick={handleLinkClick}>
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
-          <Sparkles className="h-5 w-5 text-primary-foreground" />
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-clay shadow-card">
+          <Sparkles className="h-5 w-5 text-cream" />
         </div>
-        <span className="font-display text-xl font-bold tracking-tight text-sidebar-foreground">3rdPlace</span>
+        <span className="font-display text-xl font-bold tracking-tight text-ink">3rdPlace</span>
       </Link>
 
       {/* Role card */}
       <div className="px-4 pb-4">
-        <div className="flex items-center gap-3 rounded-xl border border-sidebar-border bg-sidebar-accent/60 px-3 py-2.5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
-            <RoleIcon className="h-4 w-4 text-primary-foreground" />
+        <div className="flex items-center gap-3 rounded-lg border border-tan bg-cream-deep/60 px-3 py-2.5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-clay shadow-card">
+            <RoleIcon className="h-4 w-4 text-cream" />
           </div>
           <div className="flex-1 overflow-hidden">
-            <p className="truncate font-display text-sm font-semibold text-sidebar-accent-foreground">{meta.label}</p>
-            <p className="truncate text-[11px] text-muted-foreground">{meta.tagline}</p>
+            <p className="truncate font-display text-sm font-semibold text-ink">{meta.label}</p>
+            <p className="truncate text-[11px] text-ink-soft">{meta.tagline}</p>
           </div>
         </div>
       </div>
@@ -178,7 +178,7 @@ function SidebarComponent({ userType, onClose }: SidebarProps) {
       <nav className="flex-1 space-y-4 overflow-y-auto px-4 py-2">
         {navigation.map((section) => (
           <div key={section.title}>
-            <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+            <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-widest text-ink-soft/60">
               {section.title}
             </p>
             <div className="space-y-0.5">
@@ -191,10 +191,10 @@ function SidebarComponent({ userType, onClose }: SidebarProps) {
                     href={item.href}
                     onClick={handleLinkClick}
                     className={cn(
-                      'flex min-h-[40px] items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-smooth',
+                      'flex min-h-[40px] items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-smooth',
                       isActive
-                        ? 'bg-gradient-brand text-primary-foreground shadow-glow'
-                        : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                        ? 'bg-clay text-cream shadow-card'
+                        : 'text-ink hover:bg-cream-deep hover:text-ink'
                     )}
                   >
                     <Icon className="h-4 w-4 shrink-0" />
@@ -202,7 +202,7 @@ function SidebarComponent({ userType, onClose }: SidebarProps) {
                     {item.badge !== undefined && (
                       <span className={cn(
                         'flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold',
-                        isActive ? 'bg-primary-foreground/20 text-white' : 'bg-primary text-primary-foreground'
+                        isActive ? 'bg-cream/20 text-cream' : 'bg-clay text-cream'
                       )}>
                         {item.badge > 9 ? '9+' : item.badge}
                       </span>
@@ -216,28 +216,28 @@ function SidebarComponent({ userType, onClose }: SidebarProps) {
       </nav>
 
       {/* User footer */}
-      <div className="border-t border-sidebar-border p-4">
-        <div className="flex items-center gap-3 rounded-xl p-2">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-brand font-display text-sm font-bold text-primary-foreground shadow-glow">
+      <div className="border-t border-tan p-4">
+        <div className="flex items-center gap-3 rounded-lg p-2">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-clay font-display text-sm font-bold text-cream shadow-card">
             {initials}
           </div>
           <div className="flex-1 overflow-hidden">
-            <p className="truncate text-sm font-medium text-sidebar-foreground">
+            <p className="truncate text-sm font-medium text-ink">
               {user?.email?.split('@')[0] || 'Account'}
             </p>
-            <p className="truncate text-xs text-muted-foreground">{meta.label}</p>
+            <p className="truncate text-xs text-ink-soft">{meta.label}</p>
           </div>
           <Link
             href={`/${userType === 'venue_owner' ? 'venue' : 'vendor'}/settings`}
             onClick={handleLinkClick}
-            className="text-muted-foreground transition-smooth hover:text-foreground"
+            className="text-ink-soft transition-smooth hover:text-ink"
             aria-label="Settings"
           >
             <Settings className="h-4 w-4" />
           </Link>
           <button
             onClick={handleSignOut}
-            className="text-muted-foreground transition-smooth hover:text-destructive"
+            className="text-ink-soft transition-smooth hover:text-brick"
             aria-label="Sign out"
           >
             <LogOut className="h-4 w-4" />

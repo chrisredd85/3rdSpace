@@ -78,7 +78,7 @@ export function EditBlockModal({ block, onClose, onSuccess }: EditBlockModalProp
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-cream/80 backdrop-blur-sm p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
           <div className="flex items-start justify-between">
@@ -93,19 +93,19 @@ export function EditBlockModal({ block, onClose, onSuccess }: EditBlockModalProp
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <label className="text-sm font-medium text-foreground mb-2 block">
+            <label className="text-sm font-medium text-ink mb-2 block">
               Start Date
             </label>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
+              className="flex h-10 w-full rounded-md border border-tan px-3 py-2 text-sm"
             />
           </div>
 
           <div>
-            <label className="text-sm font-medium text-foreground mb-2 block">
+            <label className="text-sm font-medium text-ink mb-2 block">
               End Date
             </label>
             <input
@@ -113,18 +113,18 @@ export function EditBlockModal({ block, onClose, onSuccess }: EditBlockModalProp
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
               min={startDate}
-              className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
+              className="flex h-10 w-full rounded-md border border-tan px-3 py-2 text-sm"
             />
           </div>
 
           <div>
-            <label className="text-sm font-medium text-foreground mb-2 block">
+            <label className="text-sm font-medium text-ink mb-2 block">
               Reason
             </label>
             <select
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="flex h-10 w-full rounded-md border border-border px-3 py-2 text-sm"
+              className="flex h-10 w-full rounded-md border border-tan px-3 py-2 text-sm"
             >
               <option value="private_event">Private Event</option>
               <option value="maintenance">Maintenance</option>

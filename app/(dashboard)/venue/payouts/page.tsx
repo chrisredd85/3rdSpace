@@ -213,34 +213,34 @@ const statusStyles: Record<StatusTone, {
   amount: string
 }> = {
   ready: {
-    badge: 'border-primary/30 bg-primary/10 text-primary',
-    row: 'hover:border-primary/40',
-    accent: 'bg-primary',
-    amount: 'text-foreground',
+    badge: 'border-clay/30 bg-clay/10 text-clay',
+    row: 'hover:border-clay/40',
+    accent: 'bg-clay',
+    amount: 'text-ink',
   },
   processing: {
-    badge: 'border-accent/30 bg-accent/10 text-accent',
-    row: 'hover:border-accent/40',
-    accent: 'bg-accent',
-    amount: 'text-foreground',
+    badge: 'border-forest/30 bg-forest/10 text-forest',
+    row: 'hover:border-forest/40',
+    accent: 'bg-forest',
+    amount: 'text-ink',
   },
   paid: {
-    badge: 'border-success/30 bg-success/10 text-success',
-    row: 'hover:border-success/40',
-    accent: 'bg-success',
-    amount: 'text-success',
+    badge: 'border-forest/30 bg-forest/10 text-forest',
+    row: 'hover:border-forest/40',
+    accent: 'bg-forest',
+    amount: 'text-forest',
   },
   failed: {
-    badge: 'border-destructive/40 bg-destructive/10 text-destructive',
-    row: 'hover:border-destructive/40',
-    accent: 'bg-destructive',
-    amount: 'text-foreground',
+    badge: 'border-brick/40 bg-brick/10 text-brick',
+    row: 'hover:border-brick/40',
+    accent: 'bg-brick',
+    amount: 'text-ink',
   },
   refunded: {
-    badge: 'border-secondary/40 bg-secondary/10 text-secondary',
-    row: 'hover:border-secondary/40',
-    accent: 'bg-secondary',
-    amount: 'text-secondary',
+    badge: 'border-clay/40 bg-clay/10 text-clay',
+    row: 'hover:border-clay/40',
+    accent: 'bg-clay',
+    amount: 'text-clay',
   },
 }
 
@@ -609,48 +609,48 @@ export default function VenuePayoutsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="overflow-hidden rounded-3xl border border-border bg-gradient-card p-6 shadow-card">
+      <section className="overflow-hidden rounded-lg border border-tan bg-cream p-6 shadow-card">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase text-primary">
+            <div className="inline-flex items-center gap-2 rounded-full border border-clay/25 bg-clay/10 px-3 py-1 text-xs font-semibold uppercase text-clay">
               <WalletCards className="h-3.5 w-3.5" />
               Venue payouts
             </div>
-            <h1 className="mt-4 font-display text-4xl font-bold text-foreground">Payouts</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+            <h1 className="mt-4 font-display text-4xl font-bold text-ink">Payouts</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-soft sm:text-base">
               Track Stripe Connect readiness, venue-to-builder settlement invoices, refund requests, and statement-ready payout history.
             </p>
           </div>
 
-          <div className={cn('flex min-w-0 items-start gap-3 rounded-3xl border p-4 lg:max-w-md', readinessStyles.badge)}>
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-background/45">
+          <div className={cn('flex min-w-0 items-start gap-3 rounded-lg border p-4 lg:max-w-md', readinessStyles.badge)}>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cream/45">
               <ReadinessIcon className={cn('h-5 w-5', isLoadingStatus ? 'animate-spin' : '')} />
             </span>
             <div className="min-w-0">
-              <p className="font-display text-lg font-bold text-foreground">{readiness.label}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{readiness.detail}</p>
+              <p className="font-display text-lg font-bold text-ink">{readiness.label}</p>
+              <p className="mt-1 text-sm text-ink-soft">{readiness.detail}</p>
             </div>
           </div>
         </div>
 
         <div className="mt-6 grid gap-3 md:grid-cols-3">
-          <div className="rounded-2xl border border-border bg-background/45 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Stripe account</p>
-            <p className="mt-2 truncate font-display text-xl font-bold text-foreground">{maskStripeAccountId(status.account?.stripe_account_id)}</p>
+          <div className="rounded-lg border border-tan bg-cream/45 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-ink-soft">Stripe account</p>
+            <p className="mt-2 truncate font-display text-xl font-bold text-ink">{maskStripeAccountId(status.account?.stripe_account_id)}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-background/45 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Payout readiness</p>
-            <p className="mt-2 font-display text-xl font-bold text-foreground">{isLoadingStatus ? 'Checking' : `${status.completionPercent}%`}</p>
+          <div className="rounded-lg border border-tan bg-cream/45 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-ink-soft">Payout readiness</p>
+            <p className="mt-2 font-display text-xl font-bold text-ink">{isLoadingStatus ? 'Checking' : `${status.completionPercent}%`}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-background/45 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Requirements due</p>
-            <p className="mt-2 font-display text-xl font-bold text-foreground">{isLoadingStatus ? 'Checking' : dueRequirementCount}</p>
+          <div className="rounded-lg border border-tan bg-cream/45 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-ink-soft">Requirements due</p>
+            <p className="mt-2 font-display text-xl font-bold text-ink">{isLoadingStatus ? 'Checking' : dueRequirementCount}</p>
           </div>
         </div>
       </section>
 
       {error && (
-        <div className="rounded-3xl border border-destructive/30 bg-destructive/10 p-4 text-destructive">
+        <div className="rounded-lg border border-brick/30 bg-brick/10 p-4 text-brick">
           <div className="flex items-start gap-3">
             <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
             <p className="text-sm font-medium">{error}</p>
@@ -688,7 +688,7 @@ export default function VenuePayoutsPage() {
         </CardHeader>
         <CardContent>
           {isLoadingStatus ? (
-            <div className="h-32 animate-pulse rounded-lg bg-sidebar-accent/40" />
+            <div className="h-32 animate-pulse rounded-lg bg-cream-deep/40" />
           ) : (
             <StripeAccountStatus
               account={status.account}
@@ -709,14 +709,14 @@ export default function VenuePayoutsPage() {
           return (
             <Card key={item.title}>
               <CardHeader>
-                <div className="mb-2 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-sidebar-accent/40 text-foreground">
+                <div className="mb-2 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-cream-deep/40 text-ink">
                   <Icon className="h-5 w-5" />
                 </div>
                 <CardTitle className="text-lg">{item.title}</CardTitle>
                 <CardDescription>{item.description}</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="rounded-md bg-background px-3 py-2 text-xs font-medium text-muted-foreground">
+                <div className="rounded-md bg-cream px-3 py-2 text-xs font-medium text-ink-soft">
                   {status.account?.account_status === 'active' ? 'Ready for payment activity' : 'Available after onboarding'}
                 </div>
               </CardContent>
@@ -728,14 +728,14 @@ export default function VenuePayoutsPage() {
       <section className="space-y-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-secondary/20 bg-secondary/10 px-3 py-1 text-xs font-semibold uppercase text-secondary">
+            <div className="inline-flex items-center gap-2 rounded-full border border-clay/20 bg-clay/10 px-3 py-1 text-xs font-semibold uppercase text-clay">
               <WalletCards className="h-3.5 w-3.5" />
               Rental payments
             </div>
-            <h2 className="mt-3 font-display text-2xl font-bold text-foreground">Rental payments received</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Incoming builder-to-venue rental payments and refund decisions.</p>
+            <h2 className="mt-3 font-display text-2xl font-bold text-ink">Rental payments received</h2>
+            <p className="mt-1 text-sm text-ink-soft">Incoming builder-to-venue rental payments and refund decisions.</p>
           </div>
-          <div className="text-sm text-muted-foreground">
+          <div className="text-sm text-ink-soft">
             {isLoadingRentals ? 'Loading rentals...' : `${rentalPayments.length} payment${rentalPayments.length === 1 ? '' : 's'}`}
           </div>
         </div>
@@ -765,9 +765,9 @@ export default function VenuePayoutsPage() {
         </div>
 
         {isLoadingRentals ? (
-          <div className="h-36 animate-pulse rounded-3xl border border-border bg-gradient-card shadow-card" />
+          <div className="h-36 animate-pulse rounded-lg border border-tan bg-cream shadow-card" />
         ) : rentalPayments.length === 0 ? (
-          <div className="rounded-3xl border border-dashed border-border bg-gradient-card p-8 text-sm text-muted-foreground shadow-card">
+          <div className="rounded-lg border border-dashed border-tan bg-cream p-8 text-sm text-ink-soft shadow-card">
             Rental payments will appear here after a builder pays a confirmed venue booking.
           </div>
         ) : (
@@ -786,14 +786,14 @@ export default function VenuePayoutsPage() {
       <section className="space-y-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase text-primary">
+            <div className="inline-flex items-center gap-2 rounded-full border border-clay/20 bg-clay/10 px-3 py-1 text-xs font-semibold uppercase text-clay">
               <ShieldCheck className="h-3.5 w-3.5" />
               Revenue share
             </div>
-            <h2 className="mt-3 font-display text-2xl font-bold text-foreground">Settlement ledger</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Venue-to-builder revenue share payments after verified attendance.</p>
+            <h2 className="mt-3 font-display text-2xl font-bold text-ink">Settlement ledger</h2>
+            <p className="mt-1 text-sm text-ink-soft">Venue-to-builder revenue share payments after verified attendance.</p>
           </div>
-          <div className="text-sm text-muted-foreground">
+          <div className="text-sm text-ink-soft">
             {isLoadingKickbacks ? 'Loading records...' : `${kickbackPayments.length} settlement${kickbackPayments.length === 1 ? '' : 's'}`}
           </div>
         </div>
@@ -831,11 +831,11 @@ export default function VenuePayoutsPage() {
 
         {isLoadingKickbacks ? (
           <div className="grid gap-3">
-            <div className="h-36 animate-pulse rounded-3xl border border-border bg-gradient-card shadow-card" />
-            <div className="h-36 animate-pulse rounded-3xl border border-border bg-gradient-card shadow-card" />
+            <div className="h-36 animate-pulse rounded-lg border border-tan bg-cream shadow-card" />
+            <div className="h-36 animate-pulse rounded-lg border border-tan bg-cream shadow-card" />
           </div>
         ) : kickbackPayments.length === 0 ? (
-          <div className="rounded-3xl border border-dashed border-border bg-gradient-card p-8 text-sm text-muted-foreground shadow-card">
+          <div className="rounded-lg border border-dashed border-tan bg-cream p-8 text-sm text-ink-soft shadow-card">
             Revenue share settlements will appear here after verified post-event reports qualify for a venue agreement.
           </div>
         ) : (
@@ -861,17 +861,17 @@ export default function VenuePayoutsPage() {
       />
 
       {rentalRefundPayment ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-cream/80 p-4 backdrop-blur-sm">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="rental-refund-decision-title"
-            className="w-full max-w-xl rounded-3xl border border-border bg-gradient-card p-6 shadow-card"
+            className="w-full max-w-xl rounded-lg border border-tan bg-cream p-6 shadow-card"
           >
-            <h2 id="rental-refund-decision-title" className="font-display text-xl font-bold text-foreground">
+            <h2 id="rental-refund-decision-title" className="font-display text-xl font-bold text-ink">
               Decide on refund
             </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-ink-soft">
               {rentalRefundPayment.builder_name} requested {formatCents(rentalRefundPayment.refund_amount_cents ?? 0)} for {rentalRefundPayment.event_name}.
             </p>
 
@@ -882,10 +882,10 @@ export default function VenuePayoutsPage() {
                   type="button"
                   onClick={() => setRentalRefundDecision(decision)}
                   className={cn(
-                    'rounded-2xl border px-4 py-3 text-sm font-semibold capitalize transition-smooth',
+                    'rounded-lg border px-4 py-3 text-sm font-semibold capitalize transition-smooth',
                     rentalRefundDecision === decision
-                      ? 'border-primary/40 bg-primary/15 text-primary'
-                      : 'border-border bg-background/50 text-foreground hover:bg-card/70'
+                      ? 'border-clay/40 bg-clay/15 text-clay'
+                      : 'border-tan bg-cream/50 text-ink hover:bg-cream/70'
                   )}
                 >
                   {decision}
@@ -894,23 +894,23 @@ export default function VenuePayoutsPage() {
             </div>
 
             {rentalRefundDecision === 'counter' ? (
-              <label className="mt-5 block text-sm font-medium text-foreground">
+              <label className="mt-5 block text-sm font-medium text-ink">
                 Counter amount
                 <input
                   value={rentalCounterAmount}
                   onChange={(event) => setRentalCounterAmount(event.target.value)}
                   inputMode="decimal"
-                  className="mt-2 w-full rounded-2xl border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary"
+                  className="mt-2 w-full rounded-lg border border-tan bg-cream px-3 py-2 text-ink outline-none focus:border-clay"
                 />
               </label>
             ) : null}
 
-            <label className="mt-5 block text-sm font-medium text-foreground">
+            <label className="mt-5 block text-sm font-medium text-ink">
               Venue note
               <textarea
                 value={rentalDecisionNote}
                 onChange={(event) => setRentalDecisionNote(event.target.value)}
-                className="mt-2 min-h-28 w-full rounded-2xl border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary"
+                className="mt-2 min-h-28 w-full rounded-lg border border-tan bg-cream px-3 py-2 text-ink outline-none focus:border-clay"
                 placeholder="Optional message for the builder"
               />
             </label>
@@ -929,36 +929,36 @@ export default function VenuePayoutsPage() {
       ) : null}
 
       {refundPayment ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-cream/80 p-4 backdrop-blur-sm">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="refund-request-title"
             aria-describedby="refund-request-description"
-            className="w-full max-w-lg rounded-3xl border border-border bg-gradient-card p-6 shadow-card"
+            className="w-full max-w-lg rounded-lg border border-tan bg-cream p-6 shadow-card"
           >
             <div>
-              <h2 id="refund-request-title" className="font-display text-xl font-bold text-foreground">Request refund</h2>
-              <p id="refund-request-description" className="mt-1 text-sm text-muted-foreground">
+              <h2 id="refund-request-title" className="font-display text-xl font-bold text-ink">Request refund</h2>
+              <p id="refund-request-description" className="mt-1 text-sm text-ink-soft">
                 Send a refund request to the builder for {refundPayment.event_name}.
               </p>
             </div>
             <div className="mt-5 space-y-4">
-              <label className="block text-sm font-medium text-foreground">
+              <label className="block text-sm font-medium text-ink">
                 Amount
                 <input
                   value={refundAmount}
                   onChange={(event) => setRefundAmount(event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary"
+                  className="mt-2 w-full rounded-lg border border-tan bg-cream px-3 py-2 text-ink outline-none focus:border-clay"
                   inputMode="decimal"
                 />
               </label>
-              <label className="block text-sm font-medium text-foreground">
+              <label className="block text-sm font-medium text-ink">
                 Reason
                 <textarea
                   value={refundReason}
                   onChange={(event) => setRefundReason(event.target.value)}
-                  className="mt-2 min-h-28 w-full rounded-2xl border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-primary"
+                  className="mt-2 min-h-28 w-full rounded-lg border border-tan bg-cream px-3 py-2 text-ink outline-none focus:border-clay"
                   placeholder="What changed about the reported revenue or agreement?"
                 />
               </label>
@@ -994,17 +994,17 @@ function SettlementMetric({
   const styles = statusStyles[tone]
 
   return (
-    <div className="rounded-3xl border border-border bg-gradient-card p-5 shadow-card">
+    <div className="rounded-lg border border-tan bg-cream p-5 shadow-card">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
-          <p className="mt-2 font-display text-2xl font-bold tabular-nums text-foreground sm:text-3xl">{value}</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-ink-soft">{label}</p>
+          <p className="mt-2 font-display text-2xl font-bold tabular-nums text-ink sm:text-3xl">{value}</p>
         </div>
-        <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border', styles.badge)}>
+        <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border', styles.badge)}>
           <Icon className="h-5 w-5" />
         </span>
       </div>
-      <p className="mt-3 text-sm text-muted-foreground">{detail}</p>
+      <p className="mt-3 text-sm text-ink-soft">{detail}</p>
     </div>
   )
 }
@@ -1030,7 +1030,7 @@ function SettlementRow({
   const isStarting = checkoutLoading === payment.id
 
   return (
-    <article className={cn('group relative overflow-hidden rounded-3xl border border-border bg-gradient-card p-5 shadow-card transition-smooth sm:p-6', styles.row)}>
+    <article className={cn('group relative overflow-hidden rounded-lg border border-tan bg-cream p-5 shadow-card transition-smooth sm:p-6', styles.row)}>
       <div className={cn('absolute inset-y-0 left-0 w-1.5', styles.accent)} />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
         <div className="min-w-0 pl-2">
@@ -1040,32 +1040,32 @@ function SettlementRow({
               {statusLabel(payment.status)}
             </span>
             {payment.processing_fee_cents ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/40 px-3 py-1 text-xs font-medium text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-tan bg-cream/40 px-3 py-1 text-xs font-medium text-ink-soft">
                 <WalletCards className="h-3.5 w-3.5" />
                 {formatCents(payment.processing_fee_cents, payment.currency || 'usd')} fee
               </span>
             ) : null}
           </div>
 
-          <h3 className="mt-4 truncate font-display text-xl font-bold text-foreground sm:text-2xl">
+          <h3 className="mt-4 truncate font-display text-xl font-bold text-ink sm:text-2xl">
             {payment.event_name}
           </h3>
 
-          <div className="mt-3 flex flex-wrap gap-2 text-sm text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-card/40 px-3 py-1">
+          <div className="mt-3 flex flex-wrap gap-2 text-sm text-ink-soft">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-cream/40 px-3 py-1">
               <Banknote className="h-3.5 w-3.5" />
               {payment.builder_name}
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-card/40 px-3 py-1">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-cream/40 px-3 py-1">
               <CalendarClock className="h-3.5 w-3.5" />
               {formatDate(payment.event_date)}
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-card/40 px-3 py-1">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-cream/40 px-3 py-1">
               <UsersRound className="h-3.5 w-3.5" />
               {payment.actual_attendance ?? 0} verified
             </span>
             {payment.per_head_amount ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-card/40 px-3 py-1">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-cream/40 px-3 py-1">
                 <ReceiptText className="h-3.5 w-3.5" />
                 {formatMoney(payment.per_head_amount)}/head
               </span>
@@ -1073,16 +1073,16 @@ function SettlementRow({
           </div>
 
           {payment.failure_reason ? (
-            <div className="mt-4 inline-flex max-w-full items-start gap-2 rounded-2xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <div className="mt-4 inline-flex max-w-full items-start gap-2 rounded-lg border border-brick/30 bg-brick/10 px-3 py-2 text-sm text-brick">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <span className="min-w-0">{payment.failure_reason}</span>
             </div>
           ) : null}
         </div>
 
-        <div className="flex flex-col gap-3 rounded-2xl border border-border bg-background/50 p-4 sm:min-w-64 lg:items-end">
+        <div className="flex flex-col gap-3 rounded-lg border border-tan bg-cream/50 p-4 sm:min-w-64 lg:items-end">
           <div className="lg:text-right">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Settlement</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-ink-soft">Settlement</p>
             <p className={cn('mt-1 font-display text-3xl font-bold tabular-nums', styles.amount)}>
               {formatCents(amountCents, payment.currency || 'usd')}
             </p>
@@ -1146,7 +1146,7 @@ function RentalPaymentRow({
   const canDecideRefund = payment.status === 'refund_requested'
 
   return (
-    <article className={cn('group relative overflow-hidden rounded-3xl border border-border bg-gradient-card p-5 shadow-card transition-smooth sm:p-6', styles.row)}>
+    <article className={cn('group relative overflow-hidden rounded-lg border border-tan bg-cream p-5 shadow-card transition-smooth sm:p-6', styles.row)}>
       <div className={cn('absolute inset-y-0 left-0 w-1.5', styles.accent)} />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
         <div className="min-w-0 pl-2">
@@ -1155,47 +1155,47 @@ function RentalPaymentRow({
               <StatusIcon className="h-3.5 w-3.5" />
               {statusLabel(payment.status)}
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/40 px-3 py-1 text-xs font-medium text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-tan bg-cream/40 px-3 py-1 text-xs font-medium text-ink-soft">
               <CreditCard className="h-3.5 w-3.5" />
               {payment.payment_method_type === 'us_bank_account' ? 'ACH' : 'Card'}
             </span>
           </div>
 
-          <h3 className="mt-4 truncate font-display text-xl font-bold text-foreground sm:text-2xl">
+          <h3 className="mt-4 truncate font-display text-xl font-bold text-ink sm:text-2xl">
             {payment.event_name}
           </h3>
 
-          <div className="mt-3 flex flex-wrap gap-2 text-sm text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-card/40 px-3 py-1">
+          <div className="mt-3 flex flex-wrap gap-2 text-sm text-ink-soft">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-cream/40 px-3 py-1">
               <UsersRound className="h-3.5 w-3.5" />
               {payment.builder_name}
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-card/40 px-3 py-1">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-cream/40 px-3 py-1">
               <CalendarClock className="h-3.5 w-3.5" />
               {formatDate(payment.event_date)}
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-card/40 px-3 py-1">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-cream/40 px-3 py-1">
               <ReceiptText className="h-3.5 w-3.5" />
               Transfer {payment.stripe_transfer_id ?? 'pending'}
             </span>
           </div>
 
           {payment.refund_reason ? (
-            <div className="mt-4 inline-flex max-w-full items-start gap-2 rounded-2xl border border-secondary/30 bg-secondary/10 px-3 py-2 text-sm text-secondary">
+            <div className="mt-4 inline-flex max-w-full items-start gap-2 rounded-lg border border-clay/30 bg-clay/10 px-3 py-2 text-sm text-clay">
               <RotateCcw className="mt-0.5 h-4 w-4 shrink-0" />
               <span className="min-w-0">{payment.refund_reason}</span>
             </div>
           ) : null}
         </div>
 
-        <div className="flex flex-col gap-3 rounded-2xl border border-border bg-background/50 p-4 sm:min-w-72 lg:items-end">
+        <div className="flex flex-col gap-3 rounded-lg border border-tan bg-cream/50 p-4 sm:min-w-72 lg:items-end">
           <div className="lg:text-right">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Amount received</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-ink-soft">Amount received</p>
             <p className={cn('mt-1 font-display text-3xl font-bold tabular-nums', styles.amount)}>
               {formatCents(payment.venue_payout_cents, payment.currency || 'usd')}
             </p>
             {payment.refund_amount_cents ? (
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1 text-xs text-ink-soft">
                 Refund: {formatCents(payment.refund_amount_cents, payment.currency || 'usd')}
               </p>
             ) : null}

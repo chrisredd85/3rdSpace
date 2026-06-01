@@ -54,21 +54,21 @@ export function ProgressBar({
   }
 
   const variantClasses = {
-    default: 'bg-primary',
-    success: 'bg-primary',
-    warning: 'bg-yellow-500',
-    error: 'bg-destructive/100',
+    default: 'bg-clay',
+    success: 'bg-clay',
+    warning: 'bg-ochre',
+    error: 'bg-brick',
   }
 
   return (
     <div className={cn('w-full', className)}>
       {showLabel && (
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-medium text-foreground">Progress</span>
-          <span className="text-xs font-medium text-foreground">{Math.round(percentage)}%</span>
+          <span className="text-xs font-medium text-ink">Progress</span>
+          <span className="text-xs font-medium text-ink">{Math.round(percentage)}%</span>
         </div>
       )}
-      <div className={cn('w-full bg-sidebar-accent rounded-full overflow-hidden', sizeClasses[size])}>
+      <div className={cn('w-full bg-cream-deep rounded-full overflow-hidden', sizeClasses[size])}>
         <div
           className={cn(
             'h-full rounded-full transition-all duration-300 ease-out',

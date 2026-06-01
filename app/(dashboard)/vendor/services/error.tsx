@@ -19,7 +19,7 @@ export default function VendorServicesError({
         <CardTitle>Service listing unavailable</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-ink-soft">
           We could not load your vendor profile tools. {error.message || 'Please try again.'}
         </p>
         <Button type="button" onClick={reset}>Try again</Button>

@@ -85,10 +85,10 @@ export function PlannerTimelineCountdown({
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-tan bg-cream px-4 py-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-primary">Timeline</p>
-          <h3 className="mt-1 font-display text-lg font-bold">Planning milestones</h3>
+          <p className="label-caps text-clay">Timeline</p>
+          <h3 className="mt-1 font-display text-lg font-semibold text-ink">Planning milestones</h3>
         </div>
         <Button type="button" variant="glass" size="sm" onClick={onRefresh} disabled={isLoading}>
           <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
@@ -100,14 +100,14 @@ export function PlannerTimelineCountdown({
       {isLoading ? (
         <div className="space-y-3">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-20 animate-pulse rounded-2xl border border-border bg-muted/40" />
+            <div key={i} className="h-20 animate-pulse rounded-lg border border-tan bg-cream-deep" />
           ))}
         </div>
       ) : null}
 
       {/* Error */}
       {!isLoading && error ? (
-        <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        <div className="rounded-md border border-brick/40 bg-brick-tint px-4 py-3 text-sm text-brick">
           {error}
         </div>
       ) : null}
@@ -116,13 +116,13 @@ export function PlannerTimelineCountdown({
       {!isLoading && !error && timeline ? (
         <>
           {timeline.impossible_timeline ? (
-            <div className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <div className="rounded-md border border-brick/40 bg-brick-tint px-4 py-3 text-sm text-brick">
               This timeline is compressed — critical milestones may not be realistic before the event date.
             </div>
           ) : null}
 
           {timeline.dependency_warnings.length > 0 ? (
-            <div className="rounded-2xl border border-secondary/30 bg-secondary/10 px-4 py-3 text-sm text-secondary">
+            <div className="rounded-md border border-ochre/30 bg-ochre-tint px-4 py-3 text-sm text-ochre">
               {timeline.dependency_warnings.join(' ')}
             </div>
           ) : null}
@@ -130,11 +130,11 @@ export function PlannerTimelineCountdown({
           {buckets.map((bucket) =>
             bucket.milestones.length === 0 ? null : (
               <section key={bucket.id} className="space-y-3">
-                <div className="flex items-baseline justify-between border-b border-border/60 pb-1">
+                <div className="flex items-baseline justify-between border-b border-tan pb-1">
                   <h4 className={cn('text-xs font-bold uppercase tracking-widest', bucket.headingClass)}>
                     {bucket.heading}
                   </h4>
-                  <span className="text-[11px] font-semibold text-muted-foreground">
+                  <span className="text-[11px] font-semibold text-ink-faint">
                     {bucket.milestones.length} {bucket.milestones.length === 1 ? 'item' : 'items'}
                   </span>
                 </div>
@@ -155,7 +155,7 @@ export function PlannerTimelineCountdown({
 
       {/* Empty state */}
       {!isLoading && !error && !timeline ? (
-        <div className="rounded-2xl border border-border bg-background/60 px-4 py-10 text-center text-sm text-muted-foreground">
+        <div className="rounded-lg border border-tan bg-cream px-4 py-10 text-center text-sm text-ink-soft">
           Open this tab to generate a timeline from the current plan.
         </div>
       ) : null}
@@ -179,19 +179,19 @@ function MilestoneCard({
   const { status } = milestone
 
   return (
-    <div className="flex gap-4 rounded-2xl border border-border bg-background/60 p-4">
+    <div className="flex gap-4 rounded-lg border border-tan bg-cream p-4">
       {/* Date label */}
-      <div className="w-24 shrink-0 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+      <div className="w-24 shrink-0 text-xs font-bold uppercase tracking-widest text-ink-faint">
         {formatDateLabel(milestone.due_date, eventDate)}
       </div>
 
       {/* Content */}
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <h4 className="font-display text-base font-bold">{milestone.title}</h4>
+          <h4 className="font-display text-base font-semibold text-ink">{milestone.title}</h4>
 
           {/* Category chip */}
-          <span className="rounded-full border border-border bg-card/70 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+          <span className="rounded-full border border-tan bg-cream-deep px-2 py-0.5 text-[11px] font-semibold text-ink-soft">
             {milestone.category}
           </span>
 
@@ -204,7 +204,7 @@ function MilestoneCard({
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {/* Blocking indicator */}
           {milestone.is_blocking ? (
-            <span className="rounded-full border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive">
+            <span className="rounded-full border border-brick/30 bg-brick-tint px-2 py-1 text-xs text-brick">
               Blocking
             </span>
           ) : null}
@@ -216,7 +216,7 @@ function MilestoneCard({
               onClick={() =>
                 onNavigateToTab(milestone.blocker_tab!, milestone.blocker_msg_id)
               }
-              className="rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary transition hover:border-primary hover:bg-primary/20"
+              className="rounded-full border border-clay/30 bg-clay-tint px-2 py-1 text-xs font-semibold text-clay transition hover:border-clay hover:bg-clay-tint/80"
             >
               {resolveLabel(milestone.blocker_tab)} →
             </button>
@@ -224,7 +224,7 @@ function MilestoneCard({
 
           {/* Blocker reason */}
           {milestone.blocker_reason && !milestone.blocker_tab ? (
-            <span className="text-xs text-muted-foreground">{milestone.blocker_reason}</span>
+            <span className="text-xs text-ink-soft">{milestone.blocker_reason}</span>
           ) : null}
         </div>
       </div>
@@ -257,10 +257,10 @@ function bucketMilestones(milestones: DerivedMilestone[]): CountdownBucket[] {
   }
 
   return [
-    { id: 'overdue', heading: 'Overdue', headingClass: 'text-destructive', milestones: overdue },
-    { id: 'next_7', heading: 'Next 7 days', headingClass: 'text-primary', milestones: next7 },
-    { id: 'next_30', heading: 'Next 30 days', headingClass: 'text-foreground', milestones: next30 },
-    { id: 'later', heading: 'Later', headingClass: 'text-muted-foreground', milestones: later },
+    { id: 'overdue', heading: 'Overdue', headingClass: 'text-brick', milestones: overdue },
+    { id: 'next_7', heading: 'Next 7 days', headingClass: 'text-clay', milestones: next7 },
+    { id: 'next_30', heading: 'Next 30 days', headingClass: 'text-ink', milestones: next30 },
+    { id: 'later', heading: 'Later', headingClass: 'text-ink-soft', milestones: later },
   ]
 }
 
@@ -282,12 +282,12 @@ function statusLabel(status: MilestoneStatus, milestone?: DerivedMilestone): str
 
 function statusBadgeClass(status: MilestoneStatus): string {
   switch (status) {
-    case 'done': return 'border-success/30 bg-success/10 text-success'
-    case 'in_progress': return 'border-primary/30 bg-primary/10 text-primary'
-    case 'awaiting_venue_response': return 'border-secondary/30 bg-secondary/10 text-secondary'
-    case 'blocked': return 'border-secondary/30 bg-secondary/10 text-secondary'
-    case 'overdue': return 'border-destructive/30 bg-destructive/10 text-destructive'
-    case 'pending': return 'border-border bg-muted text-muted-foreground'
+    case 'done': return 'border-forest/30 bg-forest-tint text-forest'
+    case 'in_progress': return 'border-clay/30 bg-clay-tint text-clay'
+    case 'awaiting_venue_response': return 'border-ochre/30 bg-ochre-tint text-ochre'
+    case 'blocked': return 'border-ochre/30 bg-ochre-tint text-ochre'
+    case 'overdue': return 'border-brick/30 bg-brick-tint text-brick'
+    case 'pending': return 'border-tan bg-cream-deep text-ink-soft'
   }
 }
 

@@ -129,7 +129,7 @@ export default function MessagesPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-ink-soft">Loading...</div>
       </div>
     )
   }
@@ -137,20 +137,20 @@ export default function MessagesPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-destructive">Please log in to continue</div>
+        <div className="text-brick">Please log in to continue</div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] border border-border rounded-lg overflow-hidden bg-card/40">
+    <div className="flex h-[calc(100vh-8rem)] border border-tan rounded-lg overflow-hidden bg-cream">
       {/* Left Column: Thread List */}
       <div className={cn(
-        "w-full md:w-80 border-r border-border flex flex-col absolute md:relative inset-0 md:inset-auto z-10 md:z-auto bg-card/40",
+        "w-full md:w-80 border-r border-tan flex flex-col absolute md:relative inset-0 md:inset-auto z-10 md:z-auto bg-cream",
         !showThreadList && "hidden md:flex"
       )}>
         {/* Search Bar */}
-        <div className="p-4 border-b border-border flex items-center gap-2">
+        <div className="p-4 border-b border-tan flex items-center gap-2">
           <Button
             variant="ghost"
             size="icon"
@@ -160,7 +160,7 @@ export default function MessagesPage() {
             <X className="h-5 w-5" />
           </Button>
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
             <Input
               placeholder="Search conversations..."
               value={searchQuery}
@@ -175,24 +175,24 @@ export default function MessagesPage() {
           {threadsLoading ? (
             <div className="flex items-center justify-center h-32">
               <div className="text-center">
-                <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent mx-auto mb-2" />
-                <p className="text-xs text-muted-foreground">Loading threads...</p>
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-clay border-t-transparent mx-auto mb-2" />
+                <p className="text-xs text-ink-soft">Loading threads...</p>
               </div>
             </div>
           ) : filteredThreads.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full p-6 text-center">
-              <div className="h-12 w-12 rounded-full bg-sidebar-accent/40 flex items-center justify-center mb-4">
-                <FileText className="h-6 w-6 text-muted-foreground/60" />
+              <div className="h-12 w-12 rounded-full bg-cream-deep/60 flex items-center justify-center mb-4">
+                <FileText className="h-6 w-6 text-ink-faint" />
               </div>
-              <p className="text-sm font-medium text-foreground mb-1">No conversations</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm font-medium text-ink mb-1">No conversations</p>
+              <p className="text-xs text-ink-soft">
                 {searchQuery
                   ? 'No threads match your search'
                   : 'Start a conversation from an event or booking'}
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-gray-100">
+            <div className="divide-y divide-tan">
               {filteredThreads.map((thread) => {
                 const isSelected = thread.id === selectedThreadId
                 // Calculate unread count - messages from other participant that aren't read
@@ -230,11 +230,11 @@ export default function MessagesPage() {
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <div className="h-16 w-16 rounded-full bg-sidebar-accent/40 flex items-center justify-center mx-auto mb-4">
-                <FileText className="h-8 w-8 text-muted-foreground/60" />
+              <div className="h-16 w-16 rounded-full bg-cream-deep/60 flex items-center justify-center mx-auto mb-4">
+                <FileText className="h-8 w-8 text-ink-faint" />
               </div>
-              <p className="text-sm font-medium text-foreground mb-1">Select a conversation</p>
-              <p className="text-xs text-muted-foreground">Choose a thread from the list to view messages</p>
+              <p className="text-sm font-medium text-ink mb-1">Select a conversation</p>
+              <p className="text-xs text-ink-soft">Choose a thread from the list to view messages</p>
             </div>
           </div>
         )}
@@ -295,14 +295,14 @@ function ThreadItem({ thread, isSelected, unreadCount, onClick }: ThreadItemProp
     <div
       onClick={onClick}
       className={cn(
-        'p-4 cursor-pointer hover:bg-background transition-colors',
-        isSelected && 'bg-primary/10 border-l-4 border-l-primary'
+        'p-4 cursor-pointer hover:bg-cream-deep transition-colors',
+        isSelected && 'bg-clay-tint border-l-4 border-l-clay'
       )}
     >
       <div className="flex items-start gap-3">
         {/* Avatar */}
         <div className="flex-shrink-0">
-          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center text-white">
+          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-clay/80 to-clay flex items-center justify-center text-cream">
             {thread.other_participant?.avatar_url ? (
               <Image
                 src={thread.other_participant.avatar_url}
@@ -326,12 +326,12 @@ function ThreadItem({ thread, isSelected, unreadCount, onClick }: ThreadItemProp
             <div className="flex-1 min-w-0">
               <p className={cn(
                 'text-sm font-medium truncate',
-                isSelected ? 'text-primary' : 'text-foreground',
+                isSelected ? 'text-clay' : 'text-ink',
                 unreadCount > 0 && 'font-semibold'
               )}>
                 {participantName}
               </p>
-              <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+              <div className="flex items-center gap-1 text-xs text-ink-soft mt-0.5">
                 {getIcon()}
                 <span className="truncate">
                   {thread.venue_booking_id ? 'Venue' : thread.vendor_booking_id ? 'Vendor' : 'Event'}
@@ -341,7 +341,7 @@ function ThreadItem({ thread, isSelected, unreadCount, onClick }: ThreadItemProp
             {lastMessageTime && (
               <span className={cn(
                 'text-xs whitespace-nowrap',
-                isSelected ? 'text-primary' : 'text-muted-foreground'
+                isSelected ? 'text-clay' : 'text-ink-soft'
               )}>
                 {formatTime(lastMessageTime)}
               </span>
@@ -350,13 +350,13 @@ function ThreadItem({ thread, isSelected, unreadCount, onClick }: ThreadItemProp
           <div className="flex items-center justify-between gap-2">
             <p className={cn(
               'text-sm truncate',
-              isSelected ? 'text-primary' : 'text-muted-foreground',
-              unreadCount > 0 && 'font-medium text-foreground'
+              isSelected ? 'text-clay' : 'text-ink-soft',
+              unreadCount > 0 && 'font-medium text-ink'
             )}>
               {lastMessage}
             </p>
             {unreadCount > 0 && (
-              <span className="flex-shrink-0 h-5 w-5 rounded-full bg-primary text-white text-xs font-semibold flex items-center justify-center">
+              <span className="flex-shrink-0 h-5 w-5 rounded-full bg-clay text-cream text-xs font-semibold flex items-center justify-center">
                 {unreadCount}
               </span>
             )}
@@ -439,7 +439,7 @@ function MessageView({
   return (
     <div className="flex flex-col h-full">
       {/* Thread Header */}
-      <div className="p-4 border-b border-border bg-card/40">
+      <div className="p-4 border-b border-tan bg-cream">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 sm:gap-3">
             {onBack && (
@@ -452,7 +452,7 @@ function MessageView({
                 <ArrowLeft className="h-5 w-5" />
               </Button>
             )}
-            <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center text-white">
+            <div className="h-10 w-10 rounded-full bg-gradient-to-br from-clay/80 to-clay flex items-center justify-center text-cream">
               {thread.other_participant?.avatar_url ? (
                 <Image
                   src={thread.other_participant.avatar_url}
@@ -469,9 +469,9 @@ function MessageView({
               )}
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-foreground">{participantName}</h3>
+              <h3 className="text-sm font-semibold text-ink">{participantName}</h3>
               {contextLink && (
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1 text-xs text-ink-soft">
                   <Calendar className="h-3 w-3" />
                   <span>Re: Event</span>
                 </div>
@@ -506,19 +506,19 @@ function MessageView({
       </div>
 
       {/* Message History */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-background">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-cream-deep">
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent mx-auto mb-2" />
-              <p className="text-xs text-muted-foreground">Loading messages...</p>
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-clay border-t-transparent mx-auto mb-2" />
+              <p className="text-xs text-ink-soft">Loading messages...</p>
             </div>
           </div>
         ) : messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <p className="text-sm text-muted-foreground">No messages yet</p>
-              <p className="text-xs text-muted-foreground mt-1">Start the conversation below</p>
+              <p className="text-sm text-ink-soft">No messages yet</p>
+              <p className="text-xs text-ink-soft mt-1">Start the conversation below</p>
             </div>
           </div>
         ) : (
@@ -537,8 +537,8 @@ function MessageView({
                     className={cn(
                       'max-w-[70%] rounded-lg px-4 py-2',
                       isOwn
-                        ? 'bg-primary text-white'
-                        : 'bg-card/40 text-foreground border border-border'
+                        ? 'bg-clay text-cream'
+                        : 'bg-cream text-ink border border-tan'
                     )}
                   >
                     <p className="text-sm whitespace-pre-wrap break-words">
@@ -547,7 +547,7 @@ function MessageView({
                     <p
                       className={cn(
                         'text-xs mt-1',
-                        isOwn ? 'text-primary/20' : 'text-muted-foreground'
+                        isOwn ? 'text-clay/20' : 'text-ink-soft'
                       )}
                     >
                       {formatMessageTime(message.created_at)}
@@ -562,7 +562,7 @@ function MessageView({
       </div>
 
       {/* Message Input */}
-      <div className="p-4 border-t border-border bg-card/40">
+      <div className="p-4 border-t border-tan bg-cream">
         <div className="flex items-end gap-2">
           <div className="flex-1">
             <textarea
@@ -571,10 +571,10 @@ function MessageView({
               onKeyPress={handleKeyPress}
               placeholder="Type a message..."
               rows={1}
-              className="w-full rounded-md border border-border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              className="w-full rounded-md border border-tan px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-clay focus:border-transparent"
               style={{ minHeight: '40px', maxHeight: '120px' }}
             />
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-xs text-ink-soft mt-1">
               All communication is logged
             </p>
           </div>

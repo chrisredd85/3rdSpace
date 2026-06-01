@@ -244,8 +244,8 @@ export function VendorBookingsDashboard({ vendorId }: VendorBookingsDashboardPro
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Vendor Bookings</h1>
-          <p className="mt-1 text-muted-foreground">Review requests, manage confirmed jobs, and track payment readiness.</p>
+          <h1 className="text-3xl font-bold text-ink">Vendor Bookings</h1>
+          <p className="mt-1 text-ink-soft">Review requests, track confirmed jobs, and confirm payment readiness.</p>
         </div>
         <Button type="button" variant="outline" onClick={() => exportBookingsToCsv(bookings)} disabled={bookings.length === 0}>
           <Download className="mr-2 h-4 w-4" />
@@ -265,8 +265,8 @@ export function VendorBookingsDashboard({ vendorId }: VendorBookingsDashboardPro
                 onClick={() => setStatus(filter.value)}
                 className={`rounded-lg border p-3 text-left transition ${
                   status === filter.value
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border bg-card/40 text-foreground hover:border-border'
+                    ? 'border-clay bg-clay/10 text-clay'
+                    : 'border-tan bg-cream/40 text-ink hover:border-tan'
                 }`}
               >
                 <span className="block text-sm font-semibold">{filter.label}</span>
@@ -298,19 +298,19 @@ export function VendorBookingsDashboard({ vendorId }: VendorBookingsDashboardPro
             ) : null}
           </div>
 
-          {error ? <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
+          {error ? <div className="rounded-lg border border-brick/30 bg-brick/10 p-3 text-sm text-brick">{error}</div> : null}
 
           {loading ? (
-            <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+            <div className="flex h-64 items-center justify-center text-sm text-ink-soft">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Loading bookings...
             </div>
           ) : bookings.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                <CalendarDays className="mb-3 h-12 w-12 text-muted-foreground/60" />
-                <p className="font-semibold text-foreground">No {status === 'all' ? '' : status} bookings</p>
-                <p className="mt-1 text-sm text-muted-foreground">Bookings matching this filter will appear here.</p>
+                <CalendarDays className="mb-3 h-12 w-12 text-ink-soft/60" />
+                <p className="font-semibold text-ink">No {status === 'all' ? '' : status} bookings</p>
+                <p className="mt-1 text-sm text-ink-soft">Bookings matching this filter will appear here.</p>
               </CardContent>
             </Card>
           ) : view === 'list' ? (
@@ -331,29 +331,29 @@ export function VendorBookingsDashboard({ vendorId }: VendorBookingsDashboardPro
               <CardContent className="p-4">
                 <div className="grid grid-cols-7 gap-1">
                   {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-                    <div key={day} className="p-2 text-center text-xs font-semibold text-muted-foreground">{day}</div>
+                    <div key={day} className="p-2 text-center text-xs font-semibold text-ink-soft">{day}</div>
                   ))}
                   {monthDates.map((date, index) => {
-                    if (!date) return <div key={`empty-${index}`} className="min-h-[108px] rounded-md bg-background" />
+                    if (!date) return <div key={`empty-${index}`} className="min-h-[108px] rounded-md bg-cream" />
                     const key = toDateKey(date)
                     const dayBookings = bookingsByDate.get(key) || []
 
                     return (
-                      <div key={key} className="min-h-[108px] rounded-md border border-border p-2">
-                        <p className="text-sm font-semibold text-foreground">{date.getDate()}</p>
+                      <div key={key} className="min-h-[108px] rounded-md border border-tan p-2">
+                        <p className="text-sm font-semibold text-ink">{date.getDate()}</p>
                         <div className="mt-2 space-y-1">
                           {dayBookings.slice(0, 2).map((booking) => (
                             <button
                               key={booking.id}
                               type="button"
                               onClick={() => handleViewDetails(booking)}
-                              className="block w-full truncate rounded bg-primary/10 px-2 py-1 text-left text-xs text-primary hover:bg-primary/15"
+                              className="block w-full truncate rounded bg-clay/10 px-2 py-1 text-left text-xs text-clay hover:bg-clay/15"
                             >
                               {getVendorBookingTitle(booking)}
                             </button>
                           ))}
                           {dayBookings.length > 2 ? (
-                            <span className="block text-xs text-muted-foreground">+{dayBookings.length - 2} more</span>
+                            <span className="block text-xs text-ink-soft">+{dayBookings.length - 2} more</span>
                           ) : null}
                         </div>
                       </div>

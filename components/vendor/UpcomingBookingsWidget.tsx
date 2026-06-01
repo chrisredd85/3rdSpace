@@ -36,13 +36,13 @@ export function UpcomingBookingsWidget({ bookings, onSelect }: UpcomingBookingsW
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-lg">
-          <CalendarDays className="h-5 w-5 text-primary" />
+          <CalendarDays className="h-5 w-5 text-clay" />
           Upcoming Bookings
         </CardTitle>
       </CardHeader>
       <CardContent>
         {upcoming.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No confirmed upcoming bookings yet.</p>
+          <p className="text-sm text-ink-soft">No confirmed upcoming bookings yet.</p>
         ) : (
           <div className="space-y-3">
             {upcoming.map((booking) => (
@@ -50,10 +50,10 @@ export function UpcomingBookingsWidget({ bookings, onSelect }: UpcomingBookingsW
                 key={booking.id}
                 type="button"
                 onClick={() => onSelect?.(booking)}
-                className="w-full rounded-lg border border-border p-3 text-left transition hover:border-primary/40 hover:bg-primary/10"
+                className="w-full rounded-lg border border-tan p-3 text-left transition hover:border-clay/40 hover:bg-clay/10"
               >
-                <p className="font-semibold text-foreground">{getVendorBookingTitle(booking)}</p>
-                <div className="mt-1 flex items-center justify-between gap-3 text-sm text-muted-foreground">
+                <p className="font-semibold text-ink">{getVendorBookingTitle(booking)}</p>
+                <div className="mt-1 flex items-center justify-between gap-3 text-sm text-ink-soft">
                   <span>{formatBookingDate(getVendorBookingDate(booking))}</span>
                   <span>{formatBookingMoney(booking.final_price ?? booking.quoted_price)}</span>
                 </div>

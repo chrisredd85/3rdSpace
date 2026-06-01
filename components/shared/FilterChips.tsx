@@ -73,8 +73,8 @@ export function FilterChips({
               'px-4 py-2 rounded-full text-sm font-medium transition-colors',
               'border-2',
               isSelected
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'bg-card/40 text-foreground border-border hover:border-primary'
+                ? 'bg-clay text-cream border-clay'
+                : 'bg-cream/40 text-ink border-tan hover:border-clay'
             )}
           >
             {option.label}
@@ -82,7 +82,7 @@ export function FilterChips({
               <span
                 className={cn(
                   'ml-2 px-1.5 py-0.5 rounded-full text-xs',
-                  isSelected ? 'bg-primary-foreground/20' : 'bg-sidebar-accent/40'
+                  isSelected ? 'bg-cream/20' : 'bg-cream-deep/40'
                 )}
               >
                 {option.count}

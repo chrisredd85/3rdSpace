@@ -62,7 +62,7 @@ export default function VenueRequestsPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-ink-soft">Loading...</div>
       </div>
     )
   }
@@ -70,7 +70,7 @@ export default function VenueRequestsPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-destructive">Please log in to continue</div>
+        <div className="text-brick">Please log in to continue</div>
       </div>
     )
   }
@@ -78,21 +78,21 @@ export default function VenueRequestsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-foreground">Booking Requests</h1>
-        <p className="text-muted-foreground mt-1">Manage incoming booking requests for your venues</p>
+        <h1 className="text-3xl font-bold text-ink">Booking Requests</h1>
+        <p className="text-ink-soft mt-1">Review incoming booking requests for your venues</p>
       </div>
 
       {/* Warning Banner */}
       {pendingRequests.length > 0 && (
-        <Card className="border-yellow-500/30 bg-yellow-500/10">
+        <Card className="border-ochre/30 bg-ochre-tint">
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-yellow-200 flex-shrink-0 mt-0.5" />
+              <AlertTriangle className="h-5 w-5 text-ochre flex-shrink-0 mt-0.5" />
               <div className="flex-1">
-                <p className="text-sm font-medium text-yellow-100">
+                <p className="text-sm font-medium text-ochre">
                   {pendingRequests.length} new request{pendingRequests.length !== 1 ? 's' : ''} waiting
                 </p>
-                <p className="text-sm text-yellow-200 mt-1">
+                <p className="text-sm text-ochre mt-1">
                   {oldRequestsCount > 0 && (
                     <span className="font-semibold">{oldRequestsCount} request{oldRequestsCount !== 1 ? 's' : ''} over 24 hours old. </span>
                   )}
@@ -117,7 +117,7 @@ export default function VenueRequestsPage() {
               <select
                 value={selectedBulkVenueId}
                 onChange={(event) => setSelectedBulkVenueId(event.target.value)}
-                className="h-11 rounded-md border border-border px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="h-11 rounded-md border border-tan px-3 text-sm focus:border-clay focus:outline-none focus:ring-2 focus:ring-clay/20"
               >
                 {venueOptions.map((venue) => (
                   <option key={venue.id} value={venue.id}>
@@ -131,27 +131,27 @@ export default function VenueRequestsPage() {
             {selectedBulkVenueId ? (
               <BulkApprovalSettings venueId={selectedBulkVenueId} />
             ) : (
-              <p className="text-sm text-muted-foreground">Select a venue to manage approval settings.</p>
+              <p className="text-sm text-ink-soft">Select a venue to adjust approval settings.</p>
             )}
           </CardContent>
         </Card>
       )}
 
       {/* Tabs */}
-      <div className="flex items-center gap-4 border-b border-border">
+      <div className="flex items-center gap-4 border-b border-tan">
         <button
           onClick={() => setActiveTab('pending')}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'pending'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
+              ? 'border-clay text-clay'
+              : 'border-transparent text-ink-soft hover:text-ink'
           }`}
         >
           <div className="flex items-center gap-2">
             <Clock className="h-4 w-4" />
             Pending Requests
             {pendingRequests.length > 0 && (
-              <span className="ml-1 px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-200 text-xs font-semibold">
+              <span className="ml-1 px-2 py-0.5 rounded-full bg-ochre-tint text-ochre text-xs font-semibold">
                 {pendingRequests.length}
               </span>
             )}
@@ -161,15 +161,15 @@ export default function VenueRequestsPage() {
           onClick={() => setActiveTab('confirmed')}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === 'confirmed'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground'
+              ? 'border-clay text-clay'
+              : 'border-transparent text-ink-soft hover:text-ink'
           }`}
         >
           <div className="flex items-center gap-2">
             <CheckCircle className="h-4 w-4" />
             Confirmed Bookings
             {confirmedBookings.length > 0 && (
-              <span className="ml-1 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-xs font-semibold">
+              <span className="ml-1 px-2 py-0.5 rounded-full bg-clay/15 text-clay text-xs font-semibold">
                 {confirmedBookings.length}
               </span>
             )}
@@ -187,16 +187,16 @@ export default function VenueRequestsPage() {
       ) : allLoading ? (
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4" />
-            <p className="text-muted-foreground">Loading requests...</p>
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-clay border-t-transparent mx-auto mb-4" />
+            <p className="text-ink-soft">Loading requests...</p>
           </div>
         </div>
       ) : displayedBookings.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <Calendar className="h-12 w-12 text-muted-foreground/60 mb-4" />
-            <p className="text-muted-foreground mb-2">No confirmed bookings</p>
-            <p className="text-sm text-muted-foreground">Confirmed bookings will appear here</p>
+            <Calendar className="h-12 w-12 text-ink-soft/60 mb-4" />
+            <p className="text-ink-soft mb-2">No confirmed bookings</p>
+            <p className="text-sm text-ink-soft">Confirmed bookings will appear here</p>
           </CardContent>
         </Card>
       ) : (
@@ -263,17 +263,17 @@ function BookingRequestCard({ booking, onClick }: BookingRequestCardProps) {
           <div className="flex-1">
             <div className="flex items-start justify-between mb-3">
               <div>
-                <h3 className="text-lg font-semibold text-foreground mb-1">
+                <h3 className="text-lg font-semibold text-ink mb-1">
                   {event?.title || 'Event Booking Request'}
                 </h3>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-ink-soft">
                   {organizerName} • {organizerCompany}
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 {statusBadge}
                 {isUrgent && (
-                  <span className="px-2 py-1 text-xs font-medium rounded-full bg-destructive/15 text-destructive">
+                  <span className="px-2 py-1 text-xs font-medium rounded-full bg-brick/15 text-brick">
                     Urgent
                   </span>
                 )}
@@ -282,9 +282,9 @@ function BookingRequestCard({ booking, onClick }: BookingRequestCardProps) {
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
               <div className="flex items-center gap-2 text-sm">
-                <Calendar className="h-4 w-4 text-muted-foreground/60" />
+                <Calendar className="h-4 w-4 text-ink-soft/60" />
                 <div>
-                  <p className="text-muted-foreground">Date</p>
+                  <p className="text-ink-soft">Date</p>
                   <p className="font-medium">
                     {requestedDate
                       ? requestedDate.toLocaleDateString('en-US', {
@@ -299,9 +299,9 @@ function BookingRequestCard({ booking, onClick }: BookingRequestCardProps) {
 
               {booking.requested_start_time && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Clock className="h-4 w-4 text-muted-foreground/60" />
+                  <Clock className="h-4 w-4 text-ink-soft/60" />
                   <div>
-                    <p className="text-muted-foreground">Time</p>
+                    <p className="text-ink-soft">Time</p>
                     <p className="font-medium">
                       {new Date(`2000-01-01T${booking.requested_start_time}`).toLocaleTimeString(
                         'en-US',
@@ -314,18 +314,18 @@ function BookingRequestCard({ booking, onClick }: BookingRequestCardProps) {
 
               {event?.expected_attendees && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Users className="h-4 w-4 text-muted-foreground/60" />
+                  <Users className="h-4 w-4 text-ink-soft/60" />
                   <div>
-                    <p className="text-muted-foreground">Guests</p>
+                    <p className="text-ink-soft">Guests</p>
                     <p className="font-medium">{event.expected_attendees}</p>
                   </div>
                 </div>
               )}
 
               <div className="flex items-center gap-2 text-sm">
-                <DollarSign className="h-4 w-4 text-muted-foreground/60" />
+                <DollarSign className="h-4 w-4 text-ink-soft/60" />
                 <div>
-                  <p className="text-muted-foreground">Revenue</p>
+                  <p className="text-ink-soft">Revenue</p>
                   <p className="font-medium">
                     {booking.quoted_price
                       ? `$${booking.quoted_price.toLocaleString()}`
@@ -337,12 +337,12 @@ function BookingRequestCard({ booking, onClick }: BookingRequestCardProps) {
 
             {booking.notes && (
               <div className="mb-4">
-                <p className="text-xs font-medium text-foreground mb-1">Special Requests:</p>
-                <p className="text-sm text-muted-foreground line-clamp-2">{booking.notes}</p>
+                <p className="text-xs font-medium text-ink mb-1">Special Requests:</p>
+                <p className="text-sm text-ink-soft line-clamp-2">{booking.notes}</p>
               </div>
             )}
 
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 text-xs text-ink-soft">
               <Clock className="h-3 w-3" />
               <span>
                 Requested {hoursSinceRequest}h ago
@@ -359,27 +359,27 @@ function BookingRequestCard({ booking, onClick }: BookingRequestCardProps) {
 function getStatusBadge(status: BookingStatus) {
   const badges = {
     pending: (
-      <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-500/15 text-yellow-200">
+      <span className="px-2 py-1 text-xs font-medium rounded-full bg-ochre-tint text-ochre">
         Pending
       </span>
     ),
     confirmed: (
-      <span className="px-2 py-1 text-xs font-medium rounded-full bg-primary/15 text-primary">
+      <span className="px-2 py-1 text-xs font-medium rounded-full bg-clay/15 text-clay">
         Confirmed
       </span>
     ),
     declined: (
-      <span className="px-2 py-1 text-xs font-medium rounded-full bg-sidebar-accent/40 text-foreground">
+      <span className="px-2 py-1 text-xs font-medium rounded-full bg-cream-deep/40 text-ink">
         Declined
       </span>
     ),
     cancelled: (
-      <span className="px-2 py-1 text-xs font-medium rounded-full bg-destructive/15 text-destructive">
+      <span className="px-2 py-1 text-xs font-medium rounded-full bg-brick/15 text-brick">
         Cancelled
       </span>
     ),
     completed: (
-      <span className="px-2 py-1 text-xs font-medium rounded-full bg-primary/15 text-foreground">
+      <span className="px-2 py-1 text-xs font-medium rounded-full bg-clay/15 text-ink">
         Completed
       </span>
     ),

@@ -78,10 +78,10 @@ export function BookingCard({
       <CardContent className="p-6">
         <div className="flex items-start justify-between mb-4">
           <div className="flex-1">
-            <h3 className="text-lg font-semibold text-foreground mb-1">
+            <h3 className="text-lg font-semibold text-ink mb-1">
               {eventTitle}
             </h3>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-ink-soft">
               {type === 'venue' ? 'Venue' : 'Vendor'}: {relatedName}
             </p>
           </div>
@@ -90,11 +90,11 @@ export function BookingCard({
 
         <div className="grid grid-cols-2 gap-4 text-sm">
           {displayDate && (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Calendar className="h-4 w-4 text-muted-foreground/60" />
+            <div className="flex items-center gap-2 text-ink-soft">
+              <Calendar className="h-4 w-4 text-ink-soft/60" />
               <div>
-                <p className="text-muted-foreground">Date</p>
-                <p className="font-medium text-foreground">
+                <p className="text-ink-soft">Date</p>
+                <p className="font-medium text-ink">
                   {displayDate.toLocaleDateString('en-US', {
                     month: 'short',
                     day: 'numeric',
@@ -106,11 +106,11 @@ export function BookingCard({
           )}
 
           {booking.requested_start_time && (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Clock className="h-4 w-4 text-muted-foreground/60" />
+            <div className="flex items-center gap-2 text-ink-soft">
+              <Clock className="h-4 w-4 text-ink-soft/60" />
               <div>
-                <p className="text-muted-foreground">Time</p>
-                <p className="font-medium text-foreground">
+                <p className="text-ink-soft">Time</p>
+                <p className="font-medium text-ink">
                   {new Date(`2000-01-01T${booking.requested_start_time}`).toLocaleTimeString(
                     'en-US',
                     { hour: 'numeric', minute: '2-digit' }
@@ -121,11 +121,11 @@ export function BookingCard({
           )}
 
           {type === 'vendor' && (booking as import('@/lib/types').VendorBookingWithEvent).setup_time && (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Clock className="h-4 w-4 text-muted-foreground/60" />
+            <div className="flex items-center gap-2 text-ink-soft">
+              <Clock className="h-4 w-4 text-ink-soft/60" />
               <div>
-                <p className="text-muted-foreground">Setup</p>
-                <p className="font-medium text-foreground">
+                <p className="text-ink-soft">Setup</p>
+                <p className="font-medium text-ink">
                   {(booking as import('@/lib/types').VendorBookingWithEvent).setup_time} min
                 </p>
               </div>
@@ -133,11 +133,11 @@ export function BookingCard({
           )}
 
           {event?.expected_attendees && (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Users className="h-4 w-4 text-muted-foreground/60" />
+            <div className="flex items-center gap-2 text-ink-soft">
+              <Users className="h-4 w-4 text-ink-soft/60" />
               <div>
-                <p className="text-muted-foreground">Guests</p>
-                <p className="font-medium text-foreground">
+                <p className="text-ink-soft">Guests</p>
+                <p className="font-medium text-ink">
                   {event.expected_attendees}
                 </p>
               </div>
@@ -145,11 +145,11 @@ export function BookingCard({
           )}
 
           {(booking.quoted_price || booking.final_price) && (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <DollarSign className="h-4 w-4 text-muted-foreground/60" />
+            <div className="flex items-center gap-2 text-ink-soft">
+              <DollarSign className="h-4 w-4 text-ink-soft/60" />
               <div>
-                <p className="text-muted-foreground">Price</p>
-                <p className="font-medium text-foreground">
+                <p className="text-ink-soft">Price</p>
+                <p className="font-medium text-ink">
                   ${(booking.final_price || booking.quoted_price || 0).toLocaleString()}
                 </p>
               </div>
@@ -158,9 +158,9 @@ export function BookingCard({
         </div>
 
         {booking.notes && (
-          <div className="mt-4 pt-4 border-t border-border">
-            <p className="text-xs font-medium text-foreground mb-1">Notes</p>
-            <p className="text-sm text-muted-foreground line-clamp-2">{booking.notes}</p>
+          <div className="mt-4 pt-4 border-t border-tan">
+            <p className="text-xs font-medium text-ink mb-1">Notes</p>
+            <p className="text-sm text-ink-soft line-clamp-2">{booking.notes}</p>
           </div>
         )}
       </CardContent>

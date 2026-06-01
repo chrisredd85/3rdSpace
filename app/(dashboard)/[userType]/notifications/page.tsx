@@ -72,7 +72,7 @@ export default function NotificationsPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-ink-soft">Loading...</div>
       </div>
     )
   }
@@ -80,7 +80,7 @@ export default function NotificationsPage() {
   if (userError || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-destructive">Please log in to continue</div>
+        <div className="text-brick">Please log in to continue</div>
       </div>
     )
   }
@@ -178,29 +178,29 @@ export default function NotificationsPage() {
     switch (notificationType) {
       case 'new_booking_request':
       case 'new_booking':
-        return <Calendar className="h-5 w-5 text-primary" />
+        return <Calendar className="h-5 w-5 text-clay" />
       case 'booking_confirmed':
       case 'booking_approved':
-        return <CheckCircle className="h-5 w-5 text-primary" />
+        return <CheckCircle className="h-5 w-5 text-clay" />
       case 'booking_declined':
       case 'booking_rejected':
       case 'booking_cancelled':
       case 'cancellation':
-        return <XCircle className="h-5 w-5 text-destructive" />
+        return <XCircle className="h-5 w-5 text-brick" />
       case 'new_message':
-        return <MessageSquare className="h-5 w-5 text-purple-600" />
+        return <MessageSquare className="h-5 w-5 text-clay" />
       case 'payment_received':
       case 'invoice_sent':
       case 'payment_due':
-        return <DollarSign className="h-5 w-5 text-yellow-200" />
+        return <DollarSign className="h-5 w-5 text-ochre" />
       case 'review_posted':
       case 'review_received':
       case 'review_request':
-        return <Star className="h-5 w-5 text-yellow-200" />
+        return <Star className="h-5 w-5 text-ochre" />
       case 'reminder':
-        return <Bell className="h-5 w-5 text-orange-600" />
+        return <Bell className="h-5 w-5 text-ochre" />
       default:
-        return <Bell className="h-5 w-5 text-muted-foreground" />
+        return <Bell className="h-5 w-5 text-ink-soft" />
     }
   }
 
@@ -307,8 +307,8 @@ export default function NotificationsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Notifications</h1>
-          <p className="text-muted-foreground mt-1">Stay updated on your events and bookings</p>
+          <h1 className="text-3xl font-bold text-ink">Notifications</h1>
+          <p className="text-ink-soft mt-1">Stay updated on your events and bookings</p>
         </div>
         {unreadCount > 0 && (
           <Button variant="outline" onClick={handleMarkAllAsRead}>
@@ -319,7 +319,7 @@ export default function NotificationsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-4 border-b border-border">
+      <div className="flex items-center gap-4 border-b border-tan">
         {[
           { id: 'all' as TabType, label: 'All' },
           { id: 'unread' as TabType, label: 'Unread', count: unreadCount },
@@ -334,14 +334,14 @@ export default function NotificationsPage() {
             className={cn(
               'px-4 py-2 text-sm font-medium border-b-2 transition-colors',
               activeTab === tab.id
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
+                ? 'border-clay text-clay'
+                : 'border-transparent text-ink-soft hover:text-ink'
             )}
           >
             <div className="flex items-center gap-2">
               {tab.label}
               {tab.count !== undefined && tab.count > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-primary/15 text-primary text-xs font-semibold">
+                <span className="px-2 py-0.5 rounded-full bg-clay/15 text-clay text-xs font-semibold">
                   {tab.count}
                 </span>
               )}
@@ -352,10 +352,10 @@ export default function NotificationsPage() {
 
       {/* Bulk Actions */}
       {selectedNotifications.size > 0 && (
-        <Card className="bg-primary/10 border-primary/30">
+        <Card className="bg-clay/10 border-clay/30">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-primary">
+              <span className="text-sm font-medium text-clay">
                 {selectedNotifications.size} notification{selectedNotifications.size !== 1 ? 's' : ''} selected
               </span>
               <div className="flex items-center gap-2">
@@ -448,22 +448,22 @@ export default function NotificationsPage() {
                             className={cn(
                               'text-sm',
                               !notification.is_read
-                                ? 'font-semibold text-foreground'
-                                : 'text-foreground'
+                                ? 'font-semibold text-ink'
+                                : 'text-ink'
                             )}
                           >
                             {notification.title}
                           </h3>
                           {!notification.is_read && (
-                            <div className="h-2 w-2 rounded-full bg-primary flex-shrink-0" />
+                            <div className="h-2 w-2 rounded-full bg-clay flex-shrink-0" />
                           )}
                         </div>
                         {notification.message && (
-                          <p className="text-sm text-muted-foreground mb-2">
+                          <p className="text-sm text-ink-soft mb-2">
                             {notification.message}
                           </p>
                         )}
-                        <p className="text-xs text-muted-foreground/60">
+                        <p className="text-xs text-ink-soft/60">
                           {formatTimestamp(notification.created_at)}
                         </p>
                       </div>
@@ -484,7 +484,7 @@ export default function NotificationsPage() {
                             })
                           }}
                           onClick={(e) => e.stopPropagation()}
-                          className="h-4 w-4 text-primary"
+                          className="h-4 w-4 text-clay"
                         />
                         {getActionButton(notification)}
                         <Button
