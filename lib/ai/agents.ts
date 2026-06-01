@@ -17,6 +17,11 @@ import {
   type OutreachAgentResult,
 } from '@/lib/ai/agents/outreachAgent'
 import {
+  replyClassifierDefinition,
+  runReplyClassifier,
+  type ReplyClassifierResult,
+} from '@/lib/ai/agents/replyClassifier'
+import {
   responseAnalysisAgentDefinition,
   runResponseAnalysisAgent,
   type ResponseAnalysisAgentResult,
@@ -90,6 +95,7 @@ type AgentDefinition = {
   | { outputSchema: 'economics' }
   | { outputSchema: 'venue_matching' }
   | { outputSchema: 'outreach' }
+  | { outputSchema: 'reply_classifier' }
   | { outputSchema: 'response_analysis' }
   | { outputSchema: 'workspace' }
   | { outputSchema: 'timeline' }
@@ -131,6 +137,11 @@ export const AGENT_REGISTRY: Record<AgentName, AgentDefinition> = {
     agentName: outreachAgentDefinition.agentName,
     model: outreachAgentDefinition.model,
     outputSchema: 'outreach',
+  },
+  reply_classifier: {
+    agentName: replyClassifierDefinition.agentName,
+    model: replyClassifierDefinition.model,
+    outputSchema: 'reply_classifier',
   },
   response_analysis: {
     agentName: responseAnalysisAgentDefinition.agentName,
@@ -213,6 +224,7 @@ export async function runAgent(
   | EconomicsAgentResult
   | VenueMatchingAgentResult
   | OutreachAgentResult
+  | ReplyClassifierResult
   | ResponseAnalysisAgentResult
   | WorkspaceAgentResult
   | TimelineAgentResult
@@ -237,6 +249,10 @@ export async function runAgent(
 
   if (agent.outputSchema === 'outreach') {
     return runOutreachAgent(input.payload, client)
+  }
+
+  if (agent.outputSchema === 'reply_classifier') {
+    return runReplyClassifier(input.payload, client)
   }
 
   if (agent.outputSchema === 'response_analysis') {

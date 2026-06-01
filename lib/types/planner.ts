@@ -98,6 +98,38 @@ export type VenueOpportunityInviteStatus =
   | 'concierge_queue'
   | 'cancelled'
 
+/** Connected creator email provider for agentic outreach. */
+export type CreatorEmailProvider = 'gmail'
+
+/** Outreach channel supported by Phase 1. */
+export type OutreachChannel = 'email'
+
+/** Partner categories supported by Phase 1 outreach. */
+export type OutreachTargetType = 'venue' | 'vendor'
+
+/** Direction for outreach message records. */
+export type OutreachMessageDirection = 'outbound' | 'inbound'
+
+/** Explicit state machine states for creator-led outreach threads. */
+export type OutreachThreadState =
+  | 'draft'
+  | 'awaiting_reply'
+  | 'in_negotiation'
+  | 'confirmed'
+  | 'declined'
+  | 'stale'
+  | 'cancelled'
+
+/** Reply classifier intents for inbound outreach messages. */
+export type OutreachReplyIntent =
+  | 'available'
+  | 'unavailable'
+  | 'needs_info'
+  | 'redirect'
+  | 'price_quote'
+  | 'contract_request'
+  | 'other'
+
 /** Partner categories that can become booked workspaces. */
 export type PartnershipPartnerKind = 'venue' | 'vendor'
 
@@ -304,6 +336,106 @@ export interface Approval {
   created_at: string
   /** Timestamp when the approval was last updated. */
   updated_at: string
+}
+
+/** Creator-owned OAuth email account used for Gmail outreach sends. */
+export interface CreatorEmailAccount {
+  /** Unique identifier for the connected account. */
+  id: string
+  /** Creator who owns this account. */
+  user_id: string
+  /** Email provider. Phase 1 supports Gmail only. */
+  provider: CreatorEmailProvider
+  /** Creator Gmail address used as sender and Reply-To. */
+  email_address: string
+  /** Encrypted OAuth access token. */
+  oauth_access_token: string
+  /** Encrypted OAuth refresh token. */
+  oauth_refresh_token: string
+  /** Access-token expiration timestamp. */
+  token_expires_at: string | null
+  /** Gmail history id for future watch/poll optimizations. */
+  history_id: string | null
+  /** Optional Gmail label id for outreach messages. */
+  label_id: string | null
+  /** Timestamp when this connection was created. */
+  created_at: string
+  /** Timestamp when this account was disconnected. */
+  revoked_at: string | null
+}
+
+/** Planner-owned venue/vendor outreach conversation. */
+export interface OutreachThread {
+  /** Unique identifier for the outreach thread. */
+  id: string
+  /** Planner plan that owns the thread. */
+  plan_id: string
+  /** Creator who owns the thread. */
+  user_id: string
+  /** Target category. */
+  target_type: OutreachTargetType
+  /** Catalog row id for the venue or vendor, when available. */
+  target_id: string | null
+  /** Display name for the venue/vendor contact. */
+  target_name: string
+  /** Destination email address. */
+  target_email: string
+  /** Outreach channel. */
+  channel: OutreachChannel
+  /** Explicit state-machine state. */
+  state: OutreachThreadState
+  /** Approved agent action that produced the initial draft. */
+  source_agent_action_id: string | null
+  /** True when creator review is needed before the agent can continue. */
+  needs_attention: boolean
+  /** Number of follow-up drafts generated after silence. */
+  follow_up_count: number
+  /** Latest activity timestamp used for sorting. */
+  last_event_at: string
+  /** Latest outbound send timestamp. */
+  last_outbound_at: string | null
+  /** Latest inbound reply timestamp. */
+  last_inbound_at: string | null
+  /** Next scheduled agent action, usually a follow-up check. */
+  next_action_at: string | null
+  /** Timestamp when this thread was created. */
+  created_at: string
+  /** Timestamp when this thread was last updated. */
+  updated_at: string
+}
+
+/** Outbound draft/send or inbound Gmail reply attached to an outreach thread. */
+export interface OutreachMessage {
+  /** Unique identifier for the message. */
+  id: string
+  /** Parent outreach thread. */
+  thread_id: string
+  /** Planner action whose approval authorizes this outbound draft, when applicable. */
+  agent_action_id: string | null
+  /** Approval row attached to the authorizing action, when applicable. */
+  approval_id: string | null
+  /** Message direction. */
+  direction: OutreachMessageDirection
+  /** Gmail message id after send or ingest. */
+  gmail_message_id: string | null
+  /** Gmail thread id after send or ingest. */
+  gmail_thread_id: string | null
+  /** Email subject. */
+  subject: string
+  /** Plain text body. */
+  body_text: string
+  /** Optional HTML body. */
+  body_html: string | null
+  /** Provider headers and metadata. */
+  headers_json: Json
+  /** Timestamp when outbound email was sent. */
+  sent_at: string | null
+  /** Timestamp when inbound email was received. */
+  received_at: string | null
+  /** Reply classifier output for inbound messages. */
+  classification_json: Json | null
+  /** Timestamp when this row was created. */
+  created_at: string
 }
 
 /** User-defined spending guardrail for Agent Planner execution. */

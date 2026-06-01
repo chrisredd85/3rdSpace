@@ -128,6 +128,16 @@ class MemoryQuery {
     return this
   }
 
+  neq(field: string, value: unknown) {
+    this.filters.push([field, { not: value }])
+    return this
+  }
+
+  is(field: string, value: unknown) {
+    this.filters.push([field, value])
+    return this
+  }
+
   order(field: string, options?: { ascending?: boolean }) {
     this.orderBy = { field, ascending: options?.ascending ?? true }
     return this
@@ -190,7 +200,12 @@ class MemoryQuery {
 
   private matches(row: Row) {
     return (
-      this.filters.every(([field, value]) => row[field] === value) &&
+      this.filters.every(([field, value]) => {
+        if (value && typeof value === 'object' && 'not' in (value as Row)) {
+          return row[field] !== (value as Row).not
+        }
+        return row[field] === value
+      }) &&
       this.inFilters.every(([field, values]) => values.includes(row[field]))
     )
   }
@@ -350,10 +365,10 @@ describe('MVP launch API contracts', () => {
     expect(db.rows.approvals).toHaveLength(1)
   })
 
-  it('PATCH planner approvals authorizes send-to-venues and enqueues invite jobs', async () => {
+  it('PATCH planner approvals authorizes send-to-venues and prepares Gmail drafts', async () => {
     db.rows.venues.push(
-      { id: VENUE_ID_1, venue_name: 'Foundry Rooftop', city: 'San Francisco', state: 'CA', standing_capacity: 160, is_claimed: true },
-      { id: VENUE_ID_2, venue_name: 'Mission Social Hall', city: 'San Francisco', state: 'CA', standing_capacity: 120, is_claimed: false }
+      { id: VENUE_ID_1, venue_name: 'Foundry Rooftop', contact_email: 'events@foundry.example', city: 'San Francisco', state: 'CA', standing_capacity: 160, is_claimed: true },
+      { id: VENUE_ID_2, venue_name: 'Mission Social Hall', contact_email: 'bookings@mission.example', city: 'San Francisco', state: 'CA', standing_capacity: 120, is_claimed: false }
     )
     db.rows.agent_actions.push({
       id: ACTION_ID,
@@ -390,24 +405,16 @@ describe('MVP launch API contracts', () => {
 
     expect(response.status).toBe(200)
     expect(db.rows.approvals[0].status).toBe('authorized')
-    expect(db.rows.agent_actions[0].status).toBe('complete')
+    expect(db.rows.agent_actions[0].status).toBe('approved')
     expect(db.rows.builder_profiles[0].free_events_used).toBe(1)
     expect(db.rows.plans[0].metadata.product_gate.event_access_source).toBe('free_trial')
-    expect(db.rows.venue_opportunity_briefs).toHaveLength(1)
-    expect(db.rows.venue_opportunity_invites).toHaveLength(2)
-    expect(db.rows.venue_opportunity_invites.map((invite) => invite.status)).toEqual(['queued', 'queued'])
-    expect(new Set(db.rows.venue_opportunity_invites.map((invite) => invite.magic_link_token)).size).toBe(2)
-    db.rows.venue_opportunity_invites.forEach((invite) => {
-      expect(invite.magic_link_token).toMatch(/^[a-f0-9]{64}$/)
-      expect(new Date(invite.magic_link_expires_at).getTime()).toBeGreaterThan(Date.now())
-    })
-    expect(mockEnqueueOpportunityInviteSendJobs).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.arrayContaining([
-        expect.objectContaining({ venue_id: VENUE_ID_1 }),
-        expect.objectContaining({ venue_id: VENUE_ID_2 }),
-      ])
-    )
+    expect(db.rows.outreach_threads).toHaveLength(2)
+    expect(db.rows.outreach_messages).toHaveLength(2)
+    expect(db.rows.outreach_threads.map((thread) => thread.state)).toEqual(['draft', 'draft'])
+    expect(db.rows.outreach_messages.map((message) => message.direction)).toEqual(['outbound', 'outbound'])
+    expect(db.rows.venue_opportunity_briefs).toHaveLength(0)
+    expect(db.rows.venue_opportunity_invites).toHaveLength(0)
+    expect(mockEnqueueOpportunityInviteSendJobs).not.toHaveBeenCalled()
   })
 
   it('PATCH planner approvals blocks execution when builder has no product access', async () => {

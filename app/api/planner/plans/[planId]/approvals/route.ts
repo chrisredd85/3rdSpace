@@ -22,6 +22,7 @@ import {
   enqueueOpportunityInviteSendJobs,
   enqueueVendorOpportunityInviteSendJobs,
 } from '@/lib/server/opportunity-email-worker'
+import { ensureOutreachThreadsForApprovedAction } from '@/lib/outreach/drafts'
 import {
   BuilderBillingRequiredError,
   consumeBuilderEventAccess,
@@ -502,6 +503,9 @@ async function markAgentActionExecuted(
   }
 
   const fromStatus = typeof currentAction?.status === 'string' ? currentAction.status : null
+  // Phase 1 Gmail outreach treats approval as authorization to prepare drafts.
+  // Actual execution happens later in /outreach/[threadId]/send from the creator Gmail.
+  if (isExecutableOutreachAction(currentAction)) return
   if (!isExecutableOutreachAction(currentAction)) return
   if (fromStatus === 'complete') return
 
@@ -544,6 +548,51 @@ async function syncOpportunityInviteStatuses(db: PlannerDb, plan: Plan, userId: 
   const action = data as { id: string; action_type?: string | null; payload_json?: unknown; result_metadata?: unknown }
   const payloadRecord = payload as Record<string, unknown>
   const opportunityBriefId = readString(payloadRecord.opportunity_brief_id)
+  const isOutreachAction = isVenueOutreachAction(action) || isVendorOutreachAction(action)
+
+  if (isOutreachAction && (approval.status === 'authorized' || approval.status === 'approved')) {
+    const threads = await ensureOutreachThreadsForApprovedAction({
+      db,
+      plan,
+      userId,
+      approval,
+      action: {
+        id: action.id,
+        action_type: action.action_type,
+        payload_json: payloadRecord,
+      },
+    })
+    await updateActionPayload(db, approval.agent_action_id, {
+      ...payloadRecord,
+      outreach_thread_ids: threads.threadIds,
+      outreach_draft_message_ids: threads.draftMessageIds,
+      skipped_outreach_targets: threads.skippedTargets,
+      queued_invite_count: threads.threadIds.length,
+      gmail_send_required: true,
+    })
+    await insertOpportunityStatusMessage(db, plan.id, {
+      opportunity_brief_id: opportunityBriefId ?? approval.agent_action_id,
+      approval_id: approval.id,
+      status: 'drafts_ready',
+      content: `${threads.threadIds.length} Gmail outreach draft${threads.threadIds.length === 1 ? '' : 's'} ready in Outreach.`,
+    })
+    return
+  }
+
+  if (isOutreachAction && (approval.status === 'cancelled' || approval.status === 'rejected')) {
+    const { error: threadCancelError } = await db
+      .from('outreach_threads')
+      .update({
+        state: 'cancelled',
+        needs_attention: false,
+        last_event_at: new Date().toISOString(),
+        next_action_at: null,
+      })
+      .eq('source_agent_action_id', approval.agent_action_id)
+      .eq('user_id', userId)
+
+    if (threadCancelError) console.error('Planner outreach thread cancel error:', threadCancelError)
+  }
 
   if (isVenueOutreachAction(action)) {
     await syncVenueOpportunitySendApproval(db, plan, userId, approval, payloadRecord, opportunityBriefId)
