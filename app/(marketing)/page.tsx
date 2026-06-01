@@ -103,8 +103,7 @@ export default function HomePage() {
               <span className="block text-clay sm:whitespace-nowrap">Repeat what paid.</span>
             </h1>
             <p className="mt-4 max-w-[720px] text-[18px] leading-[1.4] text-ink-soft lg:text-[19px]">
-              3rdPlace models event economics, executes the operational work, and shows what every
-              event actually returned.
+              See what every event actually returned — then run the next one.
             </p>
             <div className="mt-3 max-w-[720px]">
               <HomePlannerStart />

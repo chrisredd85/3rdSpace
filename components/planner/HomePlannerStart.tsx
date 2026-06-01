@@ -16,9 +16,18 @@ interface HomePlannerStartProps {
 }
 
 const samplePrompts = [
-  'Monthly founder dinner for 24 in Hayes Valley',
-  'Supper club for 18 in the Mission, cocktails and a photographer',
-  'Rebook my June rooftop mixer — same venue, new date',
+  {
+    label: 'Founder dinner, 24, Hayes Valley',
+    prompt: 'Monthly founder dinner for 24 in Hayes Valley',
+  },
+  {
+    label: 'Supper club, 18, Mission',
+    prompt: 'Supper club for 18 in the Mission, cocktails and a photographer',
+  },
+  {
+    label: 'Rebook June rooftop, new date',
+    prompt: 'Rebook my June rooftop mixer — same venue, new date',
+  },
 ]
 
 /**
@@ -62,11 +71,7 @@ export function HomePlannerStart({ className }: HomePlannerStartProps) {
 
   return (
     <div className={cn('rounded-lg border border-tan bg-cream p-3 shadow-sm', className)}>
-      <span className="label-caps text-ink-soft">Try it now — free</span>
-      <h2 className="mt-3 font-display text-[29px] font-semibold leading-tight text-ink sm:text-[31px]">What do you want to host?</h2>
-      <p className="mt-1.5 text-[15px] leading-snug text-ink-soft">
-        Describe the event. The agent starts the run with venue, vendor, and money context.
-      </p>
+      <h2 className="font-display text-[29px] font-semibold leading-tight text-ink sm:text-[31px]">What do you want to host?</h2>
 
       <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-tan bg-cream-deep p-2.5">
         <div>
@@ -88,7 +93,8 @@ export function HomePlannerStart({ className }: HomePlannerStartProps) {
             aria-label="Describe the event you want to host"
             disabled={isSubmitting}
           />
-          <div className="mt-2 flex justify-end">
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <p className="text-[12px] font-medium text-ink-soft">Approval required before booking.</p>
             <button
               type="submit"
               className="inline-flex items-center justify-center rounded-md bg-clay px-5 py-2 text-[16px] font-semibold text-primary-foreground transition-colors hover:bg-clay-deep disabled:cursor-not-allowed disabled:opacity-60"
@@ -103,19 +109,17 @@ export function HomePlannerStart({ className }: HomePlannerStartProps) {
       </form>
 
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {samplePrompts.map((prompt) => (
+        {samplePrompts.map(({ label, prompt }) => (
           <button
             key={prompt}
             type="button"
             onClick={() => setDraft(prompt)}
             className="rounded-full border border-tan bg-cream px-3.5 py-0.5 text-[13px] font-semibold text-ink-soft transition-colors hover:border-clay hover:text-clay-deep"
           >
-            {prompt}
+            {label}
           </button>
         ))}
       </div>
-
-      <p className="mt-2 text-[14px] font-semibold text-forest">Approval required before booking or payment.</p>
     </div>
   )
 }
