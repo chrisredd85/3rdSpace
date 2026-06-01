@@ -89,7 +89,7 @@ function countApprovalMessages(messages: LivePlanSidebarPayload['messages']) {
 }
 
 /**
- * Planner sidebar with brand, workspace switcher, nav items, and monthly agent spend meter.
+ * Planner sidebar with brand, workspace context, and the full planner nav.
  */
 export const PlannerSidebar = memo(function PlannerSidebar({
   isCollapsed = false,
@@ -140,36 +140,35 @@ export const PlannerSidebar = memo(function PlannerSidebar({
   }, [])
 
   return (
-    <aside className="flex h-full w-full min-w-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-      <div className={cn('border-b border-sidebar-border py-5', isCollapsed ? 'px-3' : 'px-4 lg:px-5')}>
+    <aside className="flex h-full w-full min-w-0 flex-col border-r border-tan bg-cream/80 text-ink">
+      <div className={cn('border-b border-tan py-5', isCollapsed ? 'px-3' : 'px-4 lg:px-5')}>
         <Link href="/planner" className={cn('flex items-center gap-3', isCollapsed && 'justify-center')}>
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-brand shadow-glow">
-            <span className="font-display text-lg font-bold text-primary-foreground">3</span>
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-clay shadow-glow">
+            <span className="font-display text-lg font-bold text-cream">3</span>
           </div>
           <div className={cn('min-w-0', isCollapsed && 'sr-only')}>
             <div className="flex items-baseline gap-2">
-              <span className="font-display text-xl font-bold tracking-tight">3rdPlace</span>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-primary/70">Bay Area</span>
+              <span className="font-display text-xl font-semibold tracking-normal text-ink">3rdPlace</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-clay-deep">Bay Area</span>
             </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">Agent Planner OS</p>
+            <p className="mt-0.5 text-xs text-ink-soft">Agent Planner OS</p>
           </div>
         </Link>
 
-        <button
-          type="button"
+        <div
           className={cn(
-            'mt-5 flex w-full items-center justify-between rounded-2xl border border-sidebar-border bg-sidebar-accent/70 px-3 py-3 text-left transition-smooth hover:bg-sidebar-accent',
+            'mt-5 flex w-full items-center justify-between rounded-lg border border-tan bg-cream px-3 py-3 text-left shadow-sm',
             isCollapsed && 'hidden'
           )}
         >
           <span className="min-w-0 pr-3">
-            <span className="block truncate text-sm font-semibold">{workspaceName}</span>
-            <span className="mt-0.5 block text-xs text-muted-foreground">Founder workspace</span>
+            <span className="block truncate text-sm font-semibold text-ink">{workspaceName}</span>
+            <span className="mt-0.5 block text-xs text-ink-soft">Founder workspace</span>
           </span>
-          <span className="shrink-0 whitespace-nowrap rounded-full border border-primary/40 bg-primary/15 px-2.5 py-1 text-[10px] font-bold uppercase leading-none tracking-normal text-primary">
+          <span className="shrink-0 whitespace-nowrap rounded-full border border-clay/30 bg-clay-tint px-2.5 py-1 text-[10px] font-bold uppercase leading-none tracking-normal text-clay">
             {workspaceTier}
           </span>
-        </button>
+        </div>
       </div>
 
       <nav
@@ -187,22 +186,22 @@ export const PlannerSidebar = memo(function PlannerSidebar({
               prefetch={item.prefetch}
               title={isCollapsed ? item.label : undefined}
               className={cn(
-                'group flex min-h-11 items-center gap-3 rounded-xl border-l-2 text-sm font-semibold transition-smooth',
+                'group flex min-h-11 items-center gap-3 rounded-md border-l-2 text-sm font-semibold transition-smooth',
                 isCollapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2.5',
                 isActive
-                  ? 'border-l-primary bg-sidebar-accent text-sidebar-accent-foreground'
-                  : 'border-l-transparent text-sidebar-foreground/80 hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground'
+                  ? 'border-l-clay bg-clay-tint text-ink'
+                  : 'border-l-transparent text-ink-soft hover:bg-cream-deep hover:text-ink'
               )}
             >
-              <Icon className={cn('h-5 w-5 shrink-0', isActive ? 'text-primary' : 'text-muted-foreground')} />
+              <Icon className={cn('h-5 w-5 shrink-0', isActive ? 'text-clay' : 'text-ink-faint group-hover:text-clay-deep')} />
               <span className={cn('block flex-1 truncate', isCollapsed && 'sr-only')}>{item.label}</span>
               {item.live && !isCollapsed && (
-                <span className="inline-flex rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary-foreground">
+                <span className="inline-flex rounded-full bg-clay px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cream">
                   Live
                 </span>
               )}
               {typeof item.badge === 'number' && item.badge > 0 && !isCollapsed ? (
-                <span className="inline-flex min-w-6 rounded-full bg-sidebar-accent px-2 py-0.5 text-center text-[11px] font-bold text-sidebar-accent-foreground ring-1 ring-sidebar-border">
+                <span className="inline-flex min-w-6 rounded-full bg-cream-deep px-2 py-0.5 text-center text-[11px] font-bold text-ink-soft ring-1 ring-tan">
                   {item.badge}
                 </span>
               ) : null}

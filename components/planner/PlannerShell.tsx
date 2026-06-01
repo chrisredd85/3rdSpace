@@ -28,7 +28,7 @@ const PlannerSidebar = dynamic(
   () => import('@/components/planner/PlannerSidebar').then((module) => module.PlannerSidebar),
   {
     ssr: false,
-    loading: () => <div className="h-screen w-full border-r border-sidebar-border bg-sidebar" />,
+    loading: () => <div className="h-screen w-full border-r border-tan bg-cream" />,
   }
 )
 
@@ -44,10 +44,11 @@ export function PlannerShell({ children }: PlannerShellProps) {
 
   useEffect(() => {
     const isNarrowViewport = window.innerWidth < 900
-    const left = Number(window.localStorage.getItem('planner-left-panel-width'))
+    const storedLeftWidth = window.localStorage.getItem('planner-left-panel-width')
+    const left = storedLeftWidth === null ? null : Number(storedLeftWidth)
     if (isNarrowViewport) {
       setLeftWidth(leftPanelCollapsedWidth)
-    } else if (Number.isFinite(left)) {
+    } else if (typeof left === 'number' && Number.isFinite(left)) {
       setLeftWidth(snapLeftPanelWidth(left))
     }
     setHasLoadedLeftWidth(true)
@@ -108,7 +109,7 @@ export function PlannerShell({ children }: PlannerShellProps) {
 
   return (
     <div
-      className="planner-product-shell relative flex h-screen overflow-hidden bg-background text-foreground"
+      className="planner-product-shell relative flex h-screen overflow-hidden bg-cream text-ink"
     >
       <div
         className="h-screen shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
@@ -116,7 +117,7 @@ export function PlannerShell({ children }: PlannerShellProps) {
         aria-label={isLeftCollapsed ? 'Collapsed planner navigation' : 'Planner navigation'}
       >
         <div className="h-full w-full transition-transform duration-200 ease-out">
-          <Suspense fallback={<div className="h-screen w-full border-r border-sidebar-border bg-sidebar" />}>
+          <Suspense fallback={<div className="h-screen w-full border-r border-tan bg-cream" />}>
             <PlannerSidebar isCollapsed={isLeftCollapsed} />
           </Suspense>
         </div>
@@ -162,7 +163,7 @@ function PanelSlideHandle({
       tabIndex={0}
       onPointerDown={onPointerDown}
       className={cn(
-        'group fixed inset-y-0 z-50 w-3 cursor-col-resize touch-none transition-colors duration-150 hover:bg-secondary/10 active:bg-secondary/20',
+        'group fixed inset-y-0 z-50 w-3 cursor-col-resize touch-none transition-colors duration-150 hover:bg-clay-tint/60 active:bg-clay-tint',
         side === 'left' ? '-translate-x-1/2' : 'translate-x-1/2',
         className
       )}
@@ -170,7 +171,7 @@ function PanelSlideHandle({
     >
       <div
         className={cn(
-          'absolute top-1/2 h-16 w-1 -translate-y-1/2 rounded-full bg-border opacity-40 transition-opacity duration-150 group-hover:opacity-100',
+          'absolute top-1/2 h-16 w-1 -translate-y-1/2 rounded-full bg-tan opacity-50 transition-colors duration-150 group-hover:bg-clay group-hover:opacity-100',
           side === 'left' ? 'left-1/2 -translate-x-1/2' : 'right-1/2 translate-x-1/2'
         )}
       />
