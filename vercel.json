@@ -7,6 +7,18 @@
     {
       "path": "/api/internal/jobs/outreach-poll",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/internal/jobs/discovery-enrich",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/internal/jobs/outreach-scheduled-send",
+      "schedule": "*/1 * * * *"
+    },
+    {
+      "path": "/api/internal/jobs/outreach-trust-recompute",
+      "schedule": "0 12 * * 1"
     }
   ]
 }
