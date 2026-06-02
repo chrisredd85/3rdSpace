@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { ArrowRight, Mail, Send, Sparkles } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { OutreachAutonomyControls } from '@/components/planner/OutreachAutonomyControls'
 import { createClient } from '@/lib/supabase/server'
 import { cn } from '@/lib/utils'
 import type { OutreachThread, Plan } from '@/lib/types'
@@ -14,7 +15,12 @@ const THREAD_SELECT = `
   target_id,
   target_name,
   target_email,
+  target_phone,
+  target_instagram_handle,
   channel,
+  target_source,
+  discovery_venue_id,
+  channel_strategy,
   state,
   source_agent_action_id,
   needs_attention,
@@ -42,13 +48,29 @@ export default async function PlannerOutreachPage() {
     )
   }
 
-  const { data: threadRows } = await db
-    .from('outreach_threads')
-    .select(THREAD_SELECT)
-    .eq('user_id', user.id)
-    .order('last_event_at', { ascending: false })
+  const [{ data: threadRows }, { data: policyRows }, { data: notificationRows }] = await Promise.all([
+    db
+      .from('outreach_threads')
+      .select(THREAD_SELECT)
+      .eq('user_id', user.id)
+      .order('last_event_at', { ascending: false }),
+    db
+      .from('creator_outreach_policies')
+      .select('version, trust_level, allowed_autonomous_actions')
+      .eq('user_id', user.id)
+      .order('version', { ascending: false })
+      .limit(1),
+    db
+      .from('outreach_notifications')
+      .select('id, read_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(10),
+  ])
 
   const threads = (threadRows ?? []) as OutreachThread[]
+  const latestPolicy = Array.isArray(policyRows) ? policyRows[0] as { version?: number; trust_level?: number; allowed_autonomous_actions?: string[] } | undefined : undefined
+  const unreadNotifications = ((notificationRows ?? []) as Array<{ read_at: string | null }>).filter((row) => !row.read_at).length
   const planIds = Array.from(new Set(threads.map((thread) => thread.plan_id)))
   const { data: planRows } = planIds.length
     ? await db
@@ -70,7 +92,7 @@ export default async function PlannerOutreachPage() {
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Agent outreach</p>
             <h1 className="mt-2 font-display text-3xl font-bold text-foreground">Outreach</h1>
           </div>
-          <Button asChild variant="glass">
+          <Button asChild variant="outline">
             <Link href="/planner/settings/integrations">
               <Mail className="h-4 w-4" />
               Gmail settings
@@ -78,8 +100,15 @@ export default async function PlannerOutreachPage() {
           </Button>
         </div>
 
+        <OutreachAutonomyControls
+          policyVersion={latestPolicy?.version ?? 0}
+          trustLevel={latestPolicy?.trust_level ?? 0}
+          allowedActions={latestPolicy?.allowed_autonomous_actions ?? []}
+          unreadNotifications={unreadNotifications}
+        />
+
         {threads.length === 0 ? (
-          <Card className="rounded-3xl">
+          <Card className="rounded-md">
             <CardContent className="flex min-h-[320px] flex-col items-center justify-center gap-4 text-center">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/15 text-primary ring-1 ring-primary/30">
                 <Sparkles className="h-6 w-6" />
@@ -90,7 +119,7 @@ export default async function PlannerOutreachPage() {
                   Approved outreach drafts will appear here before any Gmail send.
                 </p>
               </div>
-              <Button asChild variant="hero">
+              <Button asChild variant="default">
                 <Link href="/planner">
                   Open planner
                   <ArrowRight className="h-4 w-4" />
@@ -112,19 +141,19 @@ export default async function PlannerOutreachPage() {
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {group.threads.map((thread) => (
                   <Link key={thread.id} href={`/planner/outreach/${thread.id}`} className="group block">
-                    <Card className="h-full rounded-3xl transition-smooth group-hover:-translate-y-0.5 group-hover:border-primary/50">
+                    <Card className="h-full rounded-md transition-smooth group-hover:-translate-y-0.5 group-hover:border-primary/50">
                       <CardHeader className="space-y-3">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <CardTitle className="truncate text-lg">{thread.target_name}</CardTitle>
-                            <p className="mt-1 truncate text-sm text-muted-foreground">{thread.target_email}</p>
+                            <p className="mt-1 truncate text-sm text-muted-foreground">{thread.target_email ?? thread.target_phone ?? thread.target_instagram_handle ?? 'No contact'}</p>
                           </div>
                           <StateBadge state={thread.state} needsAttention={thread.needs_attention} />
                         </div>
                       </CardHeader>
                       <CardContent className="flex items-center justify-between gap-4">
                         <div className="text-sm text-muted-foreground">
-                          <p>{thread.target_type === 'venue' ? 'Venue' : 'Vendor'}</p>
+                          <p>{formatThreadChannel(thread.channel)} · {thread.target_type === 'venue' ? 'Venue' : 'Vendor'}</p>
                           <p>{formatRelative(thread.last_event_at)}</p>
                         </div>
                         <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sidebar-accent text-primary">
@@ -141,6 +170,13 @@ export default async function PlannerOutreachPage() {
       </div>
     </div>
   )
+}
+
+function formatThreadChannel(value: string) {
+  if (value === 'sms') return 'SMS'
+  if (value === 'instagram') return 'Instagram'
+  if (value === 'voice') return 'Voice'
+  return 'Email'
 }
 
 function StateBadge({ state, needsAttention }: { state: string; needsAttention: boolean }) {

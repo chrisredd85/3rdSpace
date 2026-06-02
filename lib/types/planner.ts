@@ -101,11 +101,14 @@ export type VenueOpportunityInviteStatus =
 /** Connected creator email provider for agentic outreach. */
 export type CreatorEmailProvider = 'gmail'
 
-/** Outreach channel supported by Phase 1. */
-export type OutreachChannel = 'email'
+/** Outreach channels supported by creator-approved outreach. */
+export type OutreachChannel = 'email' | 'instagram' | 'sms' | 'voice'
 
 /** Partner categories supported by Phase 1 outreach. */
 export type OutreachTargetType = 'venue' | 'vendor'
+
+/** Source catalog for an outreach thread target. */
+export type OutreachTargetSource = 'onboarded' | 'discovery'
 
 /** Direction for outreach message records. */
 export type OutreachMessageDirection = 'outbound' | 'inbound'
@@ -119,6 +122,7 @@ export type OutreachThreadState =
   | 'declined'
   | 'stale'
   | 'cancelled'
+  | 'awaiting_creator_review'
 
 /** Reply classifier intents for inbound outreach messages. */
 export type OutreachReplyIntent =
@@ -129,6 +133,63 @@ export type OutreachReplyIntent =
   | 'price_quote'
   | 'contract_request'
   | 'other'
+
+/** Creator-approved autonomous outreach action categories. */
+export type OutreachPolicyAction =
+  | 'ask_for_quote'
+  | 'send_follow_up'
+  | 'accept_quote_under_cap'
+  | 'schedule_walkthrough'
+  | 'first_contact'
+  | 'reply_to_needs_info'
+  | 'reply_to_price_quote'
+  | 'escalate_channel'
+
+/** Autonomous-send lifecycle for outreach message rows. */
+export type OutreachAutonomyStatus =
+  | 'manual'
+  | 'pending_approval'
+  | 'blocked'
+  | 'scheduled'
+  | 'sent'
+  | 'cancelled'
+  | 'undone'
+
+/** Creator-facing outreach notification categories. */
+export type OutreachNotificationType =
+  | 'agent_acted_autonomously'
+  | 'requires_approval'
+  | 'quote_received'
+  | 'booking_confirmed'
+  | 'thread_stale'
+  | 'policy_blocked_action'
+
+/** Policy audit decision categories. */
+export type OutreachPolicyDecision =
+  | 'allowed'
+  | 'blocked'
+  | 'pending_approval'
+  | 'autonomous_scheduled'
+  | 'autonomous_sent'
+  | 'manual_approval_required'
+  | 'paused'
+  | 'undone'
+
+/** Discovery venue import/enrichment source. */
+export type DiscoveryVenueSource =
+  | 'google_places'
+  | 'manual_seed'
+  | 'creator_referral'
+  | 'claimed'
+  | 'scrape'
+
+/** Discovery and onboarded venue response signal categories. */
+export type DiscoveryVenueSignalType =
+  | 'email_sent'
+  | 'reply_received'
+  | 'booked'
+  | 'declined'
+  | 'stale'
 
 /** Partner categories that can become booked workspaces. */
 export type PartnershipPartnerKind = 'venue' | 'vendor'
@@ -379,9 +440,19 @@ export interface OutreachThread {
   /** Display name for the venue/vendor contact. */
   target_name: string
   /** Destination email address. */
-  target_email: string
+  target_email: string | null
+  /** Destination business phone number for SMS or voice outreach. */
+  target_phone?: string | null
+  /** Destination Instagram handle for creator-sent DM drafts. */
+  target_instagram_handle?: string | null
   /** Outreach channel. */
   channel: OutreachChannel
+  /** Approved or proposed channel strategy metadata. */
+  channel_strategy?: Json
+  /** Source catalog for this target. */
+  target_source?: OutreachTargetSource
+  /** Discovery row preserved after a non-onboarded venue claims. */
+  discovery_venue_id?: string | null
   /** Explicit state-machine state. */
   state: OutreachThreadState
   /** Approved agent action that produced the initial draft. */
@@ -420,6 +491,8 @@ export interface OutreachMessage {
   gmail_message_id: string | null
   /** Gmail thread id after send or ingest. */
   gmail_thread_id: string | null
+  /** Provider id such as Twilio SID, Instagram manual marker, or voice call id. */
+  channel_external_id?: string | null
   /** Email subject. */
   subject: string
   /** Plain text body. */
@@ -428,6 +501,32 @@ export interface OutreachMessage {
   body_html: string | null
   /** Provider headers and metadata. */
   headers_json: Json
+  /** Attachments or provider media metadata for non-email channels. */
+  attachments_json?: Json
+  /** Transcript text for voice calls or manually logged channel replies. */
+  transcript_text?: string | null
+  /** Recording URL for voice when permitted. */
+  recording_url?: string | null
+  /** True when the creator performed the send manually outside an API. */
+  sent_manually?: boolean
+  /** Provider-specific response metadata and compliance details. */
+  provider_metadata_json?: Json
+  /** Provider cost in integer cents when known. */
+  provider_cost_cents?: number | null
+  /** When an autonomous send may be dispatched by the scheduler. */
+  scheduled_send_at?: string | null
+  /** Earliest legal send time for autonomous channel delay requirements. */
+  autonomous_send_after?: string | null
+  /** Timestamp when a scheduled autonomous send was cancelled. */
+  cancelled_at?: string | null
+  /** Versioned creator policy row consulted for an autonomous decision. */
+  autonomy_policy_id?: string | null
+  /** Version number of the creator policy consulted for an autonomous decision. */
+  autonomy_policy_version?: number | null
+  /** Autonomous-send lifecycle state for this message. */
+  autonomy_status?: OutreachAutonomyStatus
+  /** Creator undo deadline for an autonomous action. */
+  undo_expires_at?: string | null
   /** Timestamp when outbound email was sent. */
   sent_at: string | null
   /** Timestamp when inbound email was received. */
@@ -436,6 +535,150 @@ export interface OutreachMessage {
   classification_json: Json | null
   /** Timestamp when this row was created. */
   created_at: string
+}
+
+/** Non-onboarded Bay Area venue discovery catalog row. */
+export interface DiscoveryVenue {
+  id: string
+  name: string
+  address: string | null
+  neighborhood: string | null
+  city: string
+  state: string
+  lat: number | null
+  lng: number | null
+  contact_email: string | null
+  contact_phone: string | null
+  website: string | null
+  instagram_handle: string | null
+  capacity_seated: number | null
+  capacity_standing: number | null
+  capacity_cocktail: number | null
+  vibe_tags: string[]
+  alcohol_policy: string | null
+  av_available: boolean | null
+  parking_notes: string | null
+  price_hint_cents_low: number | null
+  price_hint_cents_high: number | null
+  price_hint_note: string | null
+  source: DiscoveryVenueSource
+  source_external_id: string | null
+  google_rating?: number | null
+  google_user_ratings_total?: number | null
+  google_photo_names?: string[]
+  opening_hours_json?: Json
+  metadata?: Json
+  last_enriched_at: string | null
+  last_verified_at: string | null
+  is_claimed: boolean
+  claimed_venue_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Venue response history used by discovery ranking. */
+export interface DiscoveryVenueSignal {
+  id: string
+  discovery_venue_id: string | null
+  venue_id: string | null
+  event_type: DiscoveryVenueSignalType
+  thread_id: string | null
+  latency_seconds: number | null
+  created_at: string
+}
+
+/** Creator-owned verified phone number for SMS outreach. */
+export interface CreatorPhoneNumber {
+  id: string
+  user_id: string
+  e164_number: string
+  verified_at: string | null
+  twilio_sid: string | null
+  a2p_registration_status: 'not_started' | 'pending' | 'approved' | 'rejected'
+  created_at: string
+  updated_at: string
+}
+
+/** Public venue contact profile used for channel selection. */
+export interface VenueContactProfile {
+  id: string
+  venue_id: string | null
+  discovery_venue_id: string | null
+  contact_name: string | null
+  email: string | null
+  phone_e164: string | null
+  instagram_handle: string | null
+  preferred_channel: OutreachChannel
+  sms_opted_out_at: string | null
+  voice_allowed: boolean
+  source: string
+  verified_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Versioned creator policy that controls earned outreach autonomy. */
+export interface CreatorOutreachPolicy {
+  id: string
+  user_id: string
+  version: number
+  max_unattended_budget_cents: number
+  allowed_autonomous_actions: OutreachPolicyAction[]
+  quiet_hours_start_local: string | null
+  quiet_hours_end_local: string | null
+  max_inquiries_per_event: number
+  max_followups_per_thread: number
+  blacklisted_venue_ids: string[]
+  blacklisted_keywords: string[]
+  require_approval_for_first_contact: boolean
+  irreversible_autonomous_actions: OutreachPolicyAction[]
+  trust_level: number
+  created_at: string
+  updated_at: string
+}
+
+/** Creator-facing notification emitted by the outreach autonomy layer. */
+export interface OutreachNotification {
+  id: string
+  user_id: string
+  thread_id: string | null
+  notification_type: OutreachNotificationType
+  payload_json: Json
+  read_at: string | null
+  created_at: string
+}
+
+/** Immutable policy gate and autonomous-action audit row. */
+export interface OutreachPolicyAuditLog {
+  id: string
+  user_id: string
+  thread_id: string | null
+  message_id: string | null
+  policy_id: string | null
+  policy_version: number | null
+  action: OutreachPolicyAction | string
+  decision: OutreachPolicyDecision
+  reason: string
+  required_approval_type: string | null
+  model_name: string | null
+  human_intervened: boolean
+  context_json: Json
+  result_json: Json
+  reversible_until: string | null
+  undone_at: string | null
+  created_at: string
+  retention_expires_at: string
+}
+
+/** Weekly trust-score snapshot for autonomy observability. */
+export interface CreatorOutreachTrustHistory {
+  id: string
+  user_id: string
+  policy_id: string | null
+  policy_version: number | null
+  trust_level: number
+  metrics_json: Json
+  computed_at: string
 }
 
 /** User-defined spending guardrail for Agent Planner execution. */

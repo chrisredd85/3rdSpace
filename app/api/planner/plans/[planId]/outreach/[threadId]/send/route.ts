@@ -13,6 +13,8 @@ type PlannerAuth =
 
 const sendDraftSchema = z.object({
   draftMessageId: z.string().uuid(),
+  manualSent: z.boolean().optional(),
+  autonomous: z.boolean().optional(),
 })
 
 interface RouteContext {
@@ -49,6 +51,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       threadId: context.params.threadId,
       draftMessageId: parsed.data.draftMessageId,
       userId: auth.userId,
+      manualSent: parsed.data.manualSent,
+      autonomous: parsed.data.autonomous === true,
     })
     return NextResponse.json(result)
   } catch (error) {

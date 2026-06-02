@@ -22,6 +22,7 @@ export const replyClassifierStateSchema = z.enum([
   'declined',
   'stale',
   'cancelled',
+  'awaiting_creator_review',
 ])
 
 export const replyClassifierInputSchema = z.object({
@@ -79,7 +80,7 @@ const REPLY_CLASSIFIER_OUTPUT_CONTRACT = {
     alternative_date: 'string or null',
     required_action_from_creator: 'string or null',
   },
-  suggested_next_state: 'draft | awaiting_reply | in_negotiation | confirmed | declined | stale | cancelled',
+  suggested_next_state: 'draft | awaiting_reply | in_negotiation | confirmed | declined | stale | cancelled | awaiting_creator_review',
   requires_human_review: 'boolean',
   summary_for_creator: 'string',
 }

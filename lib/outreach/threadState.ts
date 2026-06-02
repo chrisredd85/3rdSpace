@@ -16,12 +16,14 @@ export type OutreachThreadEvent =
   | { type: 'mark_confirmed' }
   | { type: 'mark_declined' }
   | { type: 'mark_stale' }
+  | { type: 'require_creator_review' }
   | { type: 'cancel' }
 
 const transitions: Record<OutreachThreadState, Partial<Record<OutreachThreadEvent['type'], OutreachThreadState>>> = {
   draft: {
     draft_created: 'draft',
     outbound_sent: 'awaiting_reply',
+    require_creator_review: 'awaiting_creator_review',
     cancel: 'cancelled',
   },
   awaiting_reply: {
@@ -35,6 +37,7 @@ const transitions: Record<OutreachThreadState, Partial<Record<OutreachThreadEven
     mark_confirmed: 'confirmed',
     mark_declined: 'declined',
     mark_stale: 'stale',
+    require_creator_review: 'awaiting_creator_review',
     cancel: 'cancelled',
   },
   in_negotiation: {
@@ -48,6 +51,7 @@ const transitions: Record<OutreachThreadState, Partial<Record<OutreachThreadEven
     mark_confirmed: 'confirmed',
     mark_declined: 'declined',
     mark_stale: 'stale',
+    require_creator_review: 'awaiting_creator_review',
     cancel: 'cancelled',
   },
   confirmed: {
@@ -63,6 +67,20 @@ const transitions: Record<OutreachThreadState, Partial<Record<OutreachThreadEven
     reply_contract_request: 'in_negotiation',
     reply_redirect: 'in_negotiation',
     reply_unavailable: 'declined',
+    require_creator_review: 'awaiting_creator_review',
+    cancel: 'cancelled',
+  },
+  awaiting_creator_review: {
+    outbound_sent: 'awaiting_reply',
+    reply_available: 'in_negotiation',
+    reply_needs_info: 'in_negotiation',
+    reply_price_quote: 'in_negotiation',
+    reply_contract_request: 'in_negotiation',
+    reply_redirect: 'in_negotiation',
+    reply_unavailable: 'declined',
+    mark_confirmed: 'confirmed',
+    mark_declined: 'declined',
+    mark_stale: 'stale',
     cancel: 'cancelled',
   },
   cancelled: {},
@@ -94,5 +112,6 @@ export function eventForSuggestedState(state: OutreachThreadState): OutreachThre
   if (state === 'declined') return { type: 'mark_declined' }
   if (state === 'stale') return { type: 'mark_stale' }
   if (state === 'cancelled') return { type: 'cancel' }
+  if (state === 'awaiting_creator_review') return { type: 'require_creator_review' }
   return null
 }

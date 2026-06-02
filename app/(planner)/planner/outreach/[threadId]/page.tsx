@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, CheckCircle2, Clock3, Mail, Send } from 'lucide-react'
 import { OutreachDraftComposer } from '@/components/planner/OutreachDraftComposer'
+import { OutreachManualReplyForm } from '@/components/planner/OutreachManualReplyForm'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { createClient } from '@/lib/supabase/server'
@@ -16,7 +17,12 @@ const THREAD_SELECT = `
   target_id,
   target_name,
   target_email,
+  target_phone,
+  target_instagram_handle,
   channel,
+  target_source,
+  discovery_venue_id,
+  channel_strategy,
   state,
   source_agent_action_id,
   needs_attention,
@@ -37,10 +43,24 @@ const MESSAGE_SELECT = `
   direction,
   gmail_message_id,
   gmail_thread_id,
+  channel_external_id,
   subject,
   body_text,
   body_html,
   headers_json,
+  attachments_json,
+  transcript_text,
+  recording_url,
+  sent_manually,
+  provider_metadata_json,
+  provider_cost_cents,
+  scheduled_send_at,
+  autonomous_send_after,
+  cancelled_at,
+  autonomy_policy_id,
+  autonomy_policy_version,
+  autonomy_status,
+  undo_expires_at,
   sent_at,
   received_at,
   classification_json,
@@ -89,17 +109,19 @@ export default async function OutreachThreadPage({ params }: PageProps) {
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <Button asChild variant="glass" size="sm" className="mb-4">
+            <Button asChild variant="outline" size="sm" className="mb-4">
               <Link href="/planner/outreach">
                 <ArrowLeft className="h-4 w-4" />
                 Outreach
               </Link>
             </Button>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">
-              {thread.target_type}
+              {thread.target_source === 'discovery' ? 'Discovery venue' : thread.target_type}
             </p>
             <h1 className="mt-2 font-display text-3xl font-bold text-foreground">{thread.target_name}</h1>
-            <p className="mt-2 text-sm text-muted-foreground">{thread.target_email}</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {thread.target_email ?? thread.target_phone ?? thread.target_instagram_handle ?? 'No contact method'}
+            </p>
           </div>
           <StateBadge state={thread.state} needsAttention={thread.needs_attention} />
         </div>
@@ -112,7 +134,7 @@ export default async function OutreachThreadPage({ params }: PageProps) {
           </div>
 
           <aside className="space-y-4">
-            <Card className="rounded-3xl">
+            <Card className="rounded-md">
               <CardHeader>
                 <CardTitle className="text-xl">Thread</CardTitle>
               </CardHeader>
@@ -120,13 +142,25 @@ export default async function OutreachThreadPage({ params }: PageProps) {
                 <InfoRow label="Plan" value={plan?.title ?? 'Untitled plan'} />
                 <InfoRow label="Event date" value={formatPlanDate(plan)} />
                 <InfoRow label="Headcount" value={plan?.guest_count ? String(plan.guest_count) : 'TBD'} />
+                <InfoRow label="Channel" value={formatChannel(thread.channel)} />
                 <InfoRow label="Follow-ups" value={String(thread.follow_up_count)} />
                 <InfoRow label="Next action" value={formatOptionalDateTime(thread.next_action_at)} />
               </CardContent>
             </Card>
 
+            {thread.channel !== 'email' ? (
+              <Card className="rounded-md">
+                <CardHeader>
+                  <CardTitle className="text-xl">Log a reply</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <OutreachManualReplyForm planId={thread.plan_id} threadId={thread.id} />
+                </CardContent>
+              </Card>
+            ) : null}
+
             {editableDraft ? (
-              <Card className="rounded-3xl">
+              <Card className="rounded-md">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-xl">
                     <Send className="h-5 w-5 text-primary" />
@@ -141,7 +175,7 @@ export default async function OutreachThreadPage({ params }: PageProps) {
                   ) : approvalStatus && !['approved', 'authorized'].includes(approvalStatus) ? (
                     <div className="space-y-3 rounded-2xl border border-secondary/40 bg-secondary/10 p-3 text-sm font-semibold text-secondary">
                       <p>Approval status: {approvalStatus.replace(/_/g, ' ')}</p>
-                      <Button asChild variant="glass" size="sm">
+                      <Button asChild variant="outline" size="sm">
                         <Link href="/planner/payments">Open approvals</Link>
                       </Button>
                     </div>
@@ -153,6 +187,8 @@ export default async function OutreachThreadPage({ params }: PageProps) {
                     initialSubject={editableDraft.subject}
                     initialBody={editableDraft.body_text}
                     canSend={approvalStatus === 'approved' || approvalStatus === 'authorized'}
+                    channel={thread.channel}
+                    instagramHandle={thread.target_instagram_handle}
                   />
                 </CardContent>
               </Card>
@@ -168,9 +204,12 @@ function MessageCard({ message }: { message: OutreachMessage }) {
   const classification = readRecord(message.classification_json)
   const summary = typeof classification?.summary_for_creator === 'string' ? classification.summary_for_creator : null
   const intent = typeof classification?.intent === 'string' ? classification.intent : null
+  const autonomyStatus = message.autonomy_status && message.autonomy_status !== 'manual'
+    ? message.autonomy_status.replace(/_/g, ' ')
+    : null
 
   return (
-    <Card className={cn('rounded-3xl', message.direction === 'inbound' && 'border-primary/30')}>
+    <Card className={cn('rounded-md', message.direction === 'inbound' && 'border-primary/30')}>
       <CardHeader className="border-b border-border">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -181,7 +220,7 @@ function MessageCard({ message }: { message: OutreachMessage }) {
           </div>
           <span className="inline-flex items-center gap-2 rounded-full border border-border bg-sidebar-accent px-3 py-1 text-xs font-bold text-muted-foreground">
             {message.sent_at ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clock3 className="h-3.5 w-3.5" />}
-            {formatOptionalDateTime(message.sent_at ?? message.received_at ?? message.created_at)}
+            {formatOptionalDateTime(message.sent_at ?? message.scheduled_send_at ?? message.received_at ?? message.created_at)}
           </span>
         </div>
       </CardHeader>
@@ -193,6 +232,16 @@ function MessageCard({ message }: { message: OutreachMessage }) {
           <div className="rounded-2xl border border-primary/30 bg-primary/10 p-4">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">{intent ?? 'classifier'}</p>
             <p className="mt-2 text-sm text-foreground">{summary}</p>
+          </div>
+        ) : null}
+        {autonomyStatus ? (
+          <div className="rounded-2xl border border-accent/30 bg-accent/10 p-4">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-accent">Autonomy</p>
+            <p className="mt-2 text-sm text-foreground">
+              {autonomyStatus}
+              {message.scheduled_send_at ? ` · sends ${formatOptionalDateTime(message.scheduled_send_at)}` : ''}
+              {message.undo_expires_at ? ` · undo until ${formatOptionalDateTime(message.undo_expires_at)}` : ''}
+            </p>
           </div>
         ) : null}
       </CardContent>
@@ -242,6 +291,13 @@ function formatPlanDate(plan: Plan | null) {
   const value = plan?.date_window_start ?? plan?.date_window_end
   if (!value) return 'TBD'
   return formatOptionalDateTime(value)
+}
+
+function formatChannel(value: string) {
+  if (value === 'sms') return 'SMS'
+  if (value === 'instagram') return 'Instagram DM'
+  if (value === 'voice') return 'Voice'
+  return 'Email'
 }
 
 function formatOptionalDateTime(value: string | null) {

@@ -22,4 +22,9 @@ describe('outreach thread state machine', () => {
       InvalidOutreachTransitionError
     )
   })
+
+  it('can pause open threads into creator review', () => {
+    expect(transition({ state: 'awaiting_reply' }, { type: 'require_creator_review' })).toBe('awaiting_creator_review')
+    expect(transition({ state: 'awaiting_creator_review' }, { type: 'outbound_sent' })).toBe('awaiting_reply')
+  })
 })

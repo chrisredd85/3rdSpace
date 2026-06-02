@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import type { Json } from '@/lib/types'
 
 const updateDraftSchema = z.object({
-  subject: z.string().trim().min(1).max(300),
+  subject: z.string().trim().max(300).optional(),
   bodyText: z.string().trim().min(1).max(8000),
 })
 
@@ -44,7 +44,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
   const { data: thread, error: threadError } = await db
     .from('outreach_threads')
-    .select('id')
+    .select('id, channel')
     .eq('id', context.params.threadId)
     .eq('plan_id', context.params.planId)
     .eq('user_id', user.id)
@@ -55,11 +55,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: 'Unable to load outreach thread' }, { status: 500 })
   }
   if (!thread) return NextResponse.json({ error: 'Outreach thread not found' }, { status: 404 })
+  if (thread.channel === 'email' && !parsed.data.subject) {
+    return NextResponse.json({ error: 'Email drafts require a subject' }, { status: 400 })
+  }
 
   const { data, error: updateError } = await db
     .from('outreach_messages')
     .update({
-      subject: parsed.data.subject,
+      subject: parsed.data.subject ?? '',
       body_text: parsed.data.bodyText,
     })
     .eq('id', context.params.messageId)

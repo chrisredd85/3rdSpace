@@ -5,7 +5,15 @@ import { runReplyClassifier, type ReplyClassifierOutput } from '@/lib/ai/agents/
 import { runOutreachAgent } from '@/lib/ai/agents/outreachAgent'
 import { getAgentRunErrorMetadata } from '@/lib/ai/types'
 import { buildEventPlanFromPlannerPlan } from '@/lib/planner/agentPlanAdapter'
+import { maybeCreateAutonomousReplyDraft } from '@/lib/outreach/autonomousReplies'
+import { getReplyLatencySeconds, insertVenueDiscoverySignal } from '@/lib/outreach/discoverySignals'
 import { getUsableGmailAccessToken, listGmailThreadMessages, type ParsedGmailMessage } from '@/lib/outreach/gmail'
+import {
+  canActAutonomously,
+  createOutreachNotification,
+  recordPolicyDecision,
+} from '@/lib/outreach/policyGate'
+import { sendOutreachDraft } from '@/lib/outreach/send'
 import { eventForSuggestedState, transition } from '@/lib/outreach/threadState'
 import { logAgentRun, type AgentRunDb } from '@/lib/server/agent-runs'
 import type { CreatorEmailAccount, Json, OutreachThread, Plan } from '@/lib/types'
@@ -34,7 +42,12 @@ const THREAD_SELECT = `
   target_id,
   target_name,
   target_email,
+  target_phone,
+  target_instagram_handle,
   channel,
+  target_source,
+  discovery_venue_id,
+  channel_strategy,
   state,
   source_agent_action_id,
   needs_attention,
@@ -277,6 +290,34 @@ async function applyClassification(
     .eq('id', thread.id)
 
   if (threadError) throw new Error(`Failed to update outreach thread classification: ${threadError.message}`)
+
+  await insertVenueDiscoverySignal({
+    db,
+    thread,
+    eventType: 'reply_received',
+    latencySeconds: getReplyLatencySeconds(thread, gmailMessage.receivedAt),
+  })
+
+  if (nextState === 'declined') {
+    await insertVenueDiscoverySignal({ db, thread, eventType: 'declined' })
+  }
+
+  if (nextState === 'confirmed') {
+    await insertVenueDiscoverySignal({ db, thread, eventType: 'booked' })
+  }
+
+  try {
+    const plan = await loadPlan(db, thread.plan_id)
+    await maybeCreateAutonomousReplyDraft({
+      db,
+      thread: { ...thread, state: nextState, needs_attention: needsAttention },
+      plan,
+      inboundMessageId: messageId,
+      classification,
+    })
+  } catch (error) {
+    capturePollError(error, { planId: thread.plan_id, threadId: thread.id, operation: 'autonomous_reply' })
+  }
 }
 
 async function maybeCreateFollowUpDraft(db: OutreachDb, thread: OutreachThread): Promise<'none' | 'draft_created' | 'stale'> {
@@ -299,6 +340,7 @@ async function maybeCreateFollowUpDraft(db: OutreachDb, thread: OutreachThread):
       .eq('id', thread.id)
 
     if (error) throw new Error(`Failed to mark outreach thread stale: ${error.message}`)
+    await insertVenueDiscoverySignal({ db, thread, eventType: 'stale' })
     return 'stale'
   }
 
@@ -307,7 +349,7 @@ async function maybeCreateFollowUpDraft(db: OutreachDb, thread: OutreachThread):
   const approval = await createFollowUpApproval(db, plan, thread, String(action.id))
   const draft = await buildFollowUpDraft(plan, thread, await buildThreadSummary(db, thread.id))
 
-  const { error: messageError } = await db
+  const { data: message, error: messageError } = await db
     .from('outreach_messages')
     .insert({
       thread_id: thread.id,
@@ -322,14 +364,22 @@ async function maybeCreateFollowUpDraft(db: OutreachDb, thread: OutreachThread):
         follow_up_count: thread.follow_up_count + 1,
       } as Json,
     })
+    .select('id')
+    .single()
 
-  if (messageError) throw new Error(`Failed to create follow-up draft: ${messageError.message}`)
+  if (messageError || !message) throw new Error(`Failed to create follow-up draft: ${messageError?.message ?? 'Unknown error'}`)
+
+  const autoScheduled = await maybeScheduleAutonomousFollowUp(db, {
+    plan,
+    thread,
+    draftMessageId: String(message.id),
+  })
 
   const { error: threadError } = await db
     .from('outreach_threads')
     .update({
       follow_up_count: thread.follow_up_count + 1,
-      needs_attention: true,
+      needs_attention: !autoScheduled,
       last_event_at: new Date().toISOString(),
       next_action_at: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString(),
     })
@@ -337,6 +387,82 @@ async function maybeCreateFollowUpDraft(db: OutreachDb, thread: OutreachThread):
 
   if (threadError) throw new Error(`Failed to update follow-up schedule: ${threadError.message}`)
   return 'draft_created'
+}
+
+async function maybeScheduleAutonomousFollowUp(db: OutreachDb, input: {
+  plan: Plan
+  thread: OutreachThread
+  draftMessageId: string
+}) {
+  const gate = await canActAutonomously({
+    db,
+    userId: input.thread.user_id,
+    action: 'send_follow_up',
+    context: {
+      planId: input.plan.id,
+      threadId: input.thread.id,
+      messageId: input.draftMessageId,
+      targetId: input.thread.target_id,
+      targetName: input.thread.target_name,
+      targetType: input.thread.target_type,
+      targetSource: input.thread.target_source,
+      channel: input.thread.channel,
+      budgetCapCents: input.plan.budget_cap_cents,
+      followUpCount: input.thread.follow_up_count + 1,
+      moneyMovement: false,
+      requiresSignature: false,
+      legalCommitment: false,
+    },
+  })
+
+  if (!gate.allowed) {
+    await db
+      .from('outreach_messages')
+      .update({
+        autonomy_status: 'pending_approval',
+        autonomy_policy_id: gate.policy?.id ?? null,
+        autonomy_policy_version: gate.policy?.version ?? null,
+      })
+      .eq('id', input.draftMessageId)
+
+    await recordPolicyDecision({
+      db,
+      userId: input.thread.user_id,
+      action: 'send_follow_up',
+      decision: 'pending_approval',
+      reason: gate.reason,
+      policy: gate.policy,
+      context: {
+        planId: input.plan.id,
+        threadId: input.thread.id,
+        messageId: input.draftMessageId,
+        channel: input.thread.channel,
+      },
+      result: { required_approval_type: gate.required_approval_type ?? 'approval' },
+    })
+    await createOutreachNotification({
+      db,
+      userId: input.thread.user_id,
+      threadId: input.thread.id,
+      notificationType: 'requires_approval',
+      payload: {
+        action: 'send_follow_up',
+        message_id: input.draftMessageId,
+        reason: gate.reason,
+      },
+    })
+    return false
+  }
+
+  await sendOutreachDraft({
+    db,
+    threadId: input.thread.id,
+    draftMessageId: input.draftMessageId,
+    userId: input.thread.user_id,
+    autonomous: true,
+  })
+
+  return true
 }
 
 async function createFollowUpAction(db: OutreachDb, plan: Plan, thread: OutreachThread) {
@@ -415,7 +541,7 @@ async function buildFollowUpDraft(plan: Plan, thread: OutreachThread, previousTh
       })
 
       return {
-        subject: result.output.subject,
+        subject: result.output.subject ?? `Following up: ${plan.title}`,
         bodyText: result.output.message_body,
       }
     } catch (error) {
@@ -452,6 +578,7 @@ async function loadActiveThreads(db: OutreachDb, userId: string): Promise<Outrea
     .from('outreach_threads')
     .select(THREAD_SELECT)
     .eq('user_id', userId)
+    .eq('channel', 'email')
     .in('state', ['awaiting_reply', 'in_negotiation'])
 
   if (error) throw new Error(`Failed to load active outreach threads: ${error.message}`)
