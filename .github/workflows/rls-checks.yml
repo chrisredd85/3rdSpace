@@ -1,0 +1,50 @@
+name: RLS Checks
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/security/**'
+      - '__tests__/security/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/rls-checks.yml'
+
+jobs:
+  rls:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local Supabase
+        run: supabase start
+
+      - name: Reset local database
+        run: supabase db reset
+
+      - name: Run RLS regression tests
+        run: npm test -- __tests__/security/rls.test.ts --runInBand
+        env:
+          RUN_RLS_DB_TESTS: '1'
+
+      - name: Run RLS enabled check
+        run: npm run security:rls
