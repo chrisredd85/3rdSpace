@@ -273,11 +273,11 @@ describeIfDatabase('RLS security baseline', () => {
   })
 
   describe('vendor_profiles', () => {
-    it('documents existing public visibility before the vendor profile privacy follow-up', () => {
+    it('keeps published profiles public and unpublished profiles owner-only', () => {
       expect(asRole('anon', null, `select count(*) from public.vendor_profiles where id = '${ids.publicVendorProfile}';`)).toBe('1')
-      expect(asRole('anon', null, `select count(*) from public.vendor_profiles where id = '${ids.vendorProfile}';`)).toBe('1')
+      expect(asRole('anon', null, `select count(*) from public.vendor_profiles where id = '${ids.vendorProfile}';`)).toBe('0')
       expect(asRole('authenticated', ids.vendorUser, `select count(*) from public.vendor_profiles where id = '${ids.vendorProfile}';`)).toBe('1')
-      expect(asRole('authenticated', ids.otherVendorUser, `select count(*) from public.vendor_profiles where id = '${ids.vendorProfile}';`)).toBe('1')
+      expect(asRole('authenticated', ids.otherVendorUser, `select count(*) from public.vendor_profiles where id = '${ids.vendorProfile}';`)).toBe('0')
     })
   })
 })

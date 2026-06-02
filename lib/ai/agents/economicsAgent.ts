@@ -9,6 +9,13 @@ import {
   eventPlanningEconomicsInputSchema,
   eventPlanningEconomicsOutputSchema,
 } from '@/lib/finance/eventPlanningEconomics'
+import {
+  evaluateLiveTriggers,
+  liveTriggerSchema,
+  pnlSnapshotSchema,
+  type LiveTrigger,
+  type PnLSnapshot,
+} from '@/lib/finance/liveTriggers'
 
 const elasticitySignalSchema = z.object({
   archetype_key: z.string().trim().min(1).nullable(),
@@ -46,7 +53,16 @@ const modelPricePointSchema = z.object({
   reasoning: z.string().trim().min(1).optional(),
 })
 
+const economicsModeSchema = z.enum(['projection', 'live', 'post_event'])
+
+const debriefSchema = z.object({
+  repeat_recommendation: z.enum(['repeat', 'adjust', 'retire']),
+  reasoning: z.string().trim().min(1),
+})
+
 export const economicsAgentInputSchema = eventPlanningEconomicsInputSchema.extend({
+  mode: economicsModeSchema.default('projection'),
+  actuals: pnlSnapshotSchema.nullable().default(null),
   venue: z.record(z.unknown()).nullish(),
   score_breakdown: z.record(z.unknown()).nullish(),
   plan: z.record(z.unknown()).nullish(),
@@ -70,6 +86,7 @@ const economicsRecommendationSchema = z.object({
   ).optional(),
   recommended_price_cents: z.preprocess(coerceFiniteNumber, z.number().int().nonnegative()).optional(),
   historical_anchor: z.unknown().nullable().optional(),
+  debrief: debriefSchema.optional().nullable(),
 })
 
 export const economicsAgentOutputSchema = eventPlanningEconomicsOutputSchema.extend({
@@ -78,9 +95,13 @@ export const economicsAgentOutputSchema = eventPlanningEconomicsOutputSchema.ext
   price_points: z.array(economicsPricePointSchema),
   recommended_price_cents: z.number().int().nonnegative(),
   historical_anchor: z.string().trim().min(1).nullable(),
+  live_triggers: z.array(liveTriggerSchema).optional(),
+  debrief: debriefSchema.nullable().optional(),
+  pnl_snapshot: pnlSnapshotSchema.nullable().optional(),
 })
 
-export type EconomicsAgentInput = z.infer<typeof economicsAgentInputSchema>
+export type EconomicsAgentInput = z.input<typeof economicsAgentInputSchema>
+type ParsedEconomicsAgentInput = z.output<typeof economicsAgentInputSchema>
 export type EconomicsAgentOutput = z.infer<typeof economicsAgentOutputSchema>
 export type EconomicsAgentResult = AgentResult<EconomicsAgentOutput>
 
@@ -92,9 +113,12 @@ export const economicsAgentDefinition = {
 type ChatCompletionClient = Pick<OpenAI['chat']['completions'], 'create'>
 
 const ECONOMICS_SYSTEM_PROMPT = [
-  'You are the 3rdSpace Event Economics Agent.',
-  'Explain pre-event profitability projections from supplied hypothetical inputs only.',
-  'Return JSON only with recommendation_summary, narrative, price_points, recommended_price_cents, and historical_anchor.',
+  'You are the 3rdPlace Event Economics Agent.',
+  'You operate in exactly one mode: projection, live, or post_event.',
+  'projection: Explain pre-event profitability projections from supplied hypothetical inputs only.',
+  'live: Report on actuals. Each item in live_triggers must be cited with its evidence numbers verbatim. Do not recommend price changes that contradict elasticity bounds. Do not invent triggers.',
+  'post_event: Produce a debrief. Compare actuals to the original projection. Output debrief.repeat_recommendation with clear reasoning. No price recommendations.',
+  'Return JSON only with recommendation_summary, narrative, price_points, recommended_price_cents, historical_anchor, and optional debrief.',
   'Do not recalculate, overwrite, or reinterpret numeric fields. The application code owns all totals, scenarios, margins, and break-even math.',
   'If any raw model number conflicts with the supplied calculated_price_points or calculated_output_cents, the server will clamp it and annotate with deterministic warnings. Prefer returning null/no value over inventing unsupported profit, cost, or break-even math.',
   'All money in the input is integer cents. Convert cents to dollars only inside display wording.',
@@ -118,7 +142,10 @@ export async function runEconomicsAgent(
   const startedAt = Date.now()
   const input = economicsAgentInputSchema.parse(payload)
   const calculations = calculateEventPlanningEconomics(input)
-  const deterministicPricePoints = buildPricePoints(input)
+  const deterministicPricePoints = buildPricePoints(input, calculations.cost_summary_cents.total_cost_cents)
+  const liveTriggers = input.mode === 'live' && input.actuals
+    ? evaluateLiveTriggers(input.actuals)
+    : []
 
   assertOpenAIConfigured()
 
@@ -130,6 +157,7 @@ export async function runEconomicsAgent(
     {
       role: 'user',
       content: JSON.stringify({
+        mode: input.mode,
         event_plan: input.event_plan,
         input_cents: {
           budget_line_items: input.budget_line_items,
@@ -145,6 +173,8 @@ export async function runEconomicsAgent(
           negotiated_savings_cents: input.negotiated_savings_cents,
         },
         calculated_output_cents: calculations,
+        pnl_snapshot: input.actuals,
+        live_triggers: liveTriggers,
         score_breakdown: {
           ...(input.score_breakdown ?? {}),
           financial: {
@@ -184,15 +214,21 @@ export async function runEconomicsAgent(
   let output: EconomicsAgentOutput
   try {
     const recommendation = economicsRecommendationSchema.parse(parseJsonObject(content))
-    const recommendedPriceCents = chooseRecommendedPrice(input, recommendation.recommended_price_cents, deterministicPricePoints)
-    const pricePoints = mergePricePointNarrative(deterministicPricePoints, recommendation.price_points ?? [], recommendedPriceCents, input.elasticity ?? null)
+    const recommendedPriceCents = input.mode === 'post_event'
+      ? 0
+      : chooseRecommendedPrice(input, recommendation.recommended_price_cents, deterministicPricePoints)
+    const pricePoints = input.mode === 'post_event'
+      ? []
+      : mergePricePointNarrative(deterministicPricePoints, recommendation.price_points ?? [], recommendedPriceCents, input.elasticity ?? null)
     const historicalAnchor = input.elasticity?.confidence === 'high'
       ? input.elasticity.reasoning_for_agent
       : null
     const narrative = buildNarrative(
       recommendation,
       historicalAnchor,
-      calculations.revenue_scenarios.expected.kickback_projection_cents
+      calculations.revenue_scenarios.expected.kickback_projection_cents,
+      input.mode,
+      liveTriggers
     )
     output = economicsAgentOutputSchema.parse({
       ...calculations,
@@ -201,6 +237,11 @@ export async function runEconomicsAgent(
       price_points: pricePoints,
       recommended_price_cents: recommendedPriceCents,
       historical_anchor: historicalAnchor,
+      live_triggers: liveTriggers,
+      debrief: input.mode === 'post_event'
+        ? buildPostEventDebrief(recommendation.debrief ?? null, input.actuals, calculations)
+        : null,
+      pnl_snapshot: input.actuals,
     })
   } catch (error) {
     throw new AgentRunExecutionError(getErrorMessage(error), metadata, error)
@@ -215,8 +256,10 @@ export async function runEconomicsAgent(
   }
 }
 
-function buildPricePoints(input: EconomicsAgentInput): z.infer<typeof economicsPricePointSchema>[] {
-  const totalCostCents = getProjectedTotalCostCents(input)
+function buildPricePoints(
+  input: ParsedEconomicsAgentInput,
+  totalCostCents: number
+): z.infer<typeof economicsPricePointSchema>[] {
   const sweep = getTicketPriceSweep(input)
   const netCostAfterSponsorshipCents = Math.max(totalCostCents - input.sponsorship_revenue_cents, 0)
 
@@ -244,13 +287,6 @@ function buildPricePoints(input: EconomicsAgentInput): z.infer<typeof economicsP
       reasoning: `At ${formatCurrency(priceCents)}, projected net is ${formatCurrency(projectedNetCents)}.`,
     }
   })
-}
-
-function getProjectedTotalCostCents(input: EconomicsAgentInput): number {
-  const knownCostCents = input.venue_cost_cents +
-    input.vendor_cost_cents +
-    input.budget_line_items.reduce((sum, item) => sum + item.amount_cents, 0)
-  return Math.max(knownCostCents, input.event_plan.budget ?? 0)
 }
 
 function clampBreakEvenTickets(rawBreakEvenTickets: number, expectedAttendance: number): number {
@@ -304,7 +340,7 @@ function coerceFiniteNumber(value: unknown): unknown {
   return Number.isFinite(parsed) ? parsed : value
 }
 
-function getTicketPriceSweep(input: EconomicsAgentInput): number[] {
+function getTicketPriceSweep(input: ParsedEconomicsAgentInput): number[] {
   const rawSweep = input.ticket_price_sweep_cents?.length
     ? input.ticket_price_sweep_cents
     : [input.ticket_price_cents || 2500, 5000, 7500, 10000]
@@ -314,7 +350,7 @@ function getTicketPriceSweep(input: EconomicsAgentInput): number[] {
 }
 
 function chooseRecommendedPrice(
-  input: EconomicsAgentInput,
+  input: ParsedEconomicsAgentInput,
   modelRecommendedPrice: number | undefined,
   pricePoints: z.infer<typeof economicsPricePointSchema>[]
 ): number {
@@ -352,7 +388,7 @@ function mergePricePointNarrative(
     reasoning?: string
   }>,
   recommendedPriceCents: number,
-  elasticity: EconomicsAgentInput['elasticity']
+  elasticity: ParsedEconomicsAgentInput['elasticity']
 ): z.infer<typeof economicsPricePointSchema>[] {
   const modelByPrice = new Map(modelPoints.map((point) => [point.price_cents, point]))
   const highestPrice = Math.max(...deterministicPoints.map((point) => point.price_cents))
@@ -378,15 +414,78 @@ function mergePricePointNarrative(
 function buildNarrative(
   recommendation: z.infer<typeof economicsRecommendationSchema>,
   historicalAnchor: string | null,
-  expectedKickbackProjectionCents: number
+  expectedKickbackProjectionCents: number,
+  mode: z.infer<typeof economicsModeSchema>,
+  liveTriggers: LiveTrigger[]
 ): string {
   const narrative = recommendation.narrative ?? recommendation.recommendation_summary
   const withKickbackLine = expectedKickbackProjectionCents > 0
     ? `${narrative} Expected venue kickback: ${formatCurrency(expectedKickbackProjectionCents)}.`
     : narrative
-  if (!historicalAnchor) return withKickbackLine
-  if (withKickbackLine.startsWith(historicalAnchor)) return withKickbackLine
-  return `${historicalAnchor} ${withKickbackLine}`
+  const withTriggerEvidence = mode === 'live' && liveTriggers.length > 0
+    ? `${withKickbackLine} ${formatLiveTriggerEvidence(liveTriggers)}`
+    : withKickbackLine
+
+  if (!historicalAnchor) return withTriggerEvidence
+  if (withTriggerEvidence.startsWith(historicalAnchor)) return withTriggerEvidence
+  return `${historicalAnchor} ${withTriggerEvidence}`
+}
+
+function formatLiveTriggerEvidence(liveTriggers: LiveTrigger[]) {
+  const triggerSummary = liveTriggers.map((trigger) => {
+    const evidence = Object.entries(trigger.evidence)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(', ')
+    return `${trigger.trigger_key} evidence ${evidence}`
+  }).join('; ')
+
+  return `Live triggers fired: ${triggerSummary}.`
+}
+
+function buildPostEventDebrief(
+  modelDebrief: z.infer<typeof debriefSchema> | null,
+  actuals: PnLSnapshot | null,
+  calculations: z.infer<typeof eventPlanningEconomicsOutputSchema>
+) {
+  if (modelDebrief) return modelDebrief
+  if (!actuals) {
+    return {
+      repeat_recommendation: 'adjust' as const,
+      reasoning: 'No actual P&L snapshot was supplied, so repeatability cannot be scored from real event data yet.',
+    }
+  }
+
+  const expectedProjectionCents = calculations.profit_projection_cents
+  const actualExpectedNetCents = actuals.net.expected_cents
+  const attendanceRatio = actuals.revenue.tickets_sold > 0 && calculations.revenue_scenarios.optimistic.attendance > 0
+    ? actuals.revenue.tickets_sold / calculations.revenue_scenarios.optimistic.attendance
+    : 0
+  const refundRatio = actuals.revenue.gross_revenue_cents > 0
+    ? actuals.revenue.refunds_cents / actuals.revenue.gross_revenue_cents
+    : 0
+
+  if (actualExpectedNetCents < 0 && (refundRatio >= 0.25 || attendanceRatio < 0.5)) {
+    return {
+      repeat_recommendation: 'retire' as const,
+      reasoning: `Actual expected net was ${actualExpectedNetCents} cents against the original expected projection of ${expectedProjectionCents} cents, with refund_ratio=${roundNumber(refundRatio)} and attendance_ratio=${roundNumber(attendanceRatio)}.`,
+    }
+  }
+
+  if (actualExpectedNetCents >= expectedProjectionCents && actuals.margin_pct >= 20 && attendanceRatio >= 0.8) {
+    return {
+      repeat_recommendation: 'repeat' as const,
+      reasoning: `Actual expected net was ${actualExpectedNetCents} cents against the original expected projection of ${expectedProjectionCents} cents, margin_pct=${actuals.margin_pct}, and attendance_ratio=${roundNumber(attendanceRatio)}.`,
+    }
+  }
+
+  return {
+    repeat_recommendation: 'adjust' as const,
+    reasoning: `Actual expected net was ${actualExpectedNetCents} cents against the original expected projection of ${expectedProjectionCents} cents, with margin_pct=${actuals.margin_pct}, refund_ratio=${roundNumber(refundRatio)}, and attendance_ratio=${roundNumber(attendanceRatio)}.`,
+  }
+}
+
+function roundNumber(value: number) {
+  return Math.round(value * 10000) / 10000
 }
 
 function formatCurrency(cents: number): string {

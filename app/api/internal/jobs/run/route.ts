@@ -5,10 +5,13 @@ import { getWorkerOrAdminContext } from '@/lib/server/admin-auth'
 import { claimJobs, completeJob, failJob, type AppJob } from '@/lib/server/job-queue'
 import { runOpportunityInviteJob } from '@/lib/server/opportunity-email-worker'
 import { runEventbriteImport } from '@/lib/server/eventbrite-import'
+import { runLiveEventRecompute } from '@/lib/finance/liveRecommendations'
+import { processQueuedEventbriteWebhook } from '@/lib/integrations/eventbrite/sync'
 import {
   processLumaWebhook,
   processPartifulWebhook,
   processPoshWebhook,
+  recordPoshWebhookHeartbeat,
   recordWebhookDelivery,
   resolveIntegrationContext,
   verifyLumaSignature,
@@ -46,6 +49,7 @@ async function processPoshWebhookJob(admin: ReturnType<typeof createServiceRoleC
     }
   }
 
+  await recordPoshWebhookHeartbeat(admin, context, payload)
   const result = await processPoshWebhook(admin, payload, context)
   await recordWebhookDelivery(
     admin,
@@ -131,11 +135,40 @@ async function processPartifulWebhookJob(admin: ReturnType<typeof createServiceR
   return result
 }
 
+async function processEventbriteWebhookJob(admin: ReturnType<typeof createServiceRoleClient>, job: AppJob) {
+  const connectionId = job.payload.connectionId
+  const deliveryId = job.payload.deliveryId
+  const payload = job.payload.payload
+
+  if (typeof connectionId !== 'string') throw new Error('Missing Eventbrite connectionId')
+  if (typeof deliveryId !== 'string') throw new Error('Missing Eventbrite deliveryId')
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Missing Eventbrite webhook payload')
+  }
+
+  return processQueuedEventbriteWebhook({
+    db: admin,
+    connectionId,
+    deliveryId,
+    payload: payload as Record<string, unknown>,
+  })
+}
+
 async function processJob(admin: ReturnType<typeof createServiceRoleClient>, job: AppJob) {
   if (job.job_type === 'eventbrite.import') {
     const integrationId = job.payload.integrationId
     if (typeof integrationId !== 'string') throw new Error('Missing integrationId')
     return runEventbriteImport(admin, integrationId)
+  }
+
+  if (job.job_type === 'live_event.recompute') {
+    const eventId = job.payload.eventId
+    if (typeof eventId !== 'string') throw new Error('Missing eventId')
+    return runLiveEventRecompute(admin, eventId)
+  }
+
+  if (job.job_type === 'webhook.eventbrite') {
+    return processEventbriteWebhookJob(admin, job)
   }
 
   if (job.job_type === 'webhook.posh') {

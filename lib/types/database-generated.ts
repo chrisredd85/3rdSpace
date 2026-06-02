@@ -1191,6 +1191,8 @@ export type Database = {
           id: string
           last_connected_at: string | null
           last_error: string | null
+          last_webhook_event_type: string | null
+          last_webhook_received_at: string | null
           platform: string
           refresh_token_encrypted: string | null
           status: string
@@ -1209,6 +1211,8 @@ export type Database = {
           id?: string
           last_connected_at?: string | null
           last_error?: string | null
+          last_webhook_event_type?: string | null
+          last_webhook_received_at?: string | null
           platform: string
           refresh_token_encrypted?: string | null
           status?: string
@@ -1227,6 +1231,8 @@ export type Database = {
           id?: string
           last_connected_at?: string | null
           last_error?: string | null
+          last_webhook_event_type?: string | null
+          last_webhook_received_at?: string | null
           platform?: string
           refresh_token_encrypted?: string | null
           status?: string
@@ -1545,6 +1551,100 @@ export type Database = {
           },
         ]
       }
+      event_cost_commitments: {
+        Row: {
+          amount_cents: number
+          category: string
+          committed_at: string | null
+          confidence: string
+          created_at: string
+          currency: string
+          description: string | null
+          event_id: string
+          evidence_type: string
+          evidence_url: string | null
+          id: string
+          metadata: Json
+          org_id: string
+          paid_at: string | null
+          party_id: string | null
+          party_name: string | null
+          plan_id: string | null
+          source: string
+          source_ref: string | null
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          amount_cents: number
+          category: string
+          committed_at?: string | null
+          confidence?: string
+          created_at?: string
+          currency?: string
+          description?: string | null
+          event_id: string
+          evidence_type?: string
+          evidence_url?: string | null
+          id?: string
+          metadata?: Json
+          org_id: string
+          paid_at?: string | null
+          party_id?: string | null
+          party_name?: string | null
+          plan_id?: string | null
+          source?: string
+          source_ref?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          amount_cents?: number
+          category?: string
+          committed_at?: string | null
+          confidence?: string
+          created_at?: string
+          currency?: string
+          description?: string | null
+          event_id?: string
+          evidence_type?: string
+          evidence_url?: string | null
+          id?: string
+          metadata?: Json
+          org_id?: string
+          paid_at?: string | null
+          party_id?: string | null
+          party_name?: string | null
+          plan_id?: string | null
+          source?: string
+          source_ref?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_cost_commitments_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_cost_commitments_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_cost_commitments_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_financial_summary: {
         Row: {
           average_ticket_price: number | null
@@ -1626,6 +1726,70 @@ export type Database = {
             foreignKeyName: "event_financial_summary_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: true
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_import_sessions: {
+        Row: {
+          builder_id: string
+          created_at: string
+          created_by: string | null
+          event_id: string | null
+          event_url: string | null
+          finalized_at: string | null
+          id: string
+          payload: Json
+          source: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          builder_id: string
+          created_at?: string
+          created_by?: string | null
+          event_id?: string | null
+          event_url?: string | null
+          finalized_at?: string | null
+          id?: string
+          payload?: Json
+          source: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          builder_id?: string
+          created_at?: string
+          created_by?: string | null
+          event_id?: string | null
+          event_url?: string | null
+          finalized_at?: string | null
+          id?: string
+          payload?: Json
+          source?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_import_sessions_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_import_sessions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_import_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -1854,6 +2018,72 @@ export type Database = {
           },
         ]
       }
+      event_revenue_terms: {
+        Row: {
+          applies_to: string
+          confidence: string
+          created_at: string
+          event_id: string
+          flat_cents: number | null
+          id: string
+          notes: string | null
+          org_id: string
+          party_id: string | null
+          party_name: string | null
+          rate: number | null
+          source: string
+          term_type: string
+          updated_at: string
+        }
+        Insert: {
+          applies_to: string
+          confidence?: string
+          created_at?: string
+          event_id: string
+          flat_cents?: number | null
+          id?: string
+          notes?: string | null
+          org_id: string
+          party_id?: string | null
+          party_name?: string | null
+          rate?: number | null
+          source?: string
+          term_type: string
+          updated_at?: string
+        }
+        Update: {
+          applies_to?: string
+          confidence?: string
+          created_at?: string
+          event_id?: string
+          flat_cents?: number | null
+          id?: string
+          notes?: string | null
+          org_id?: string
+          party_id?: string | null
+          party_name?: string | null
+          rate?: number | null
+          source?: string
+          term_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_revenue_terms_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_revenue_terms_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_sales_data: {
         Row: {
           agreement_id: string | null
@@ -1866,6 +2096,8 @@ export type Database = {
           event_id: string
           fees: number | null
           fees_cents: number | null
+          field_confidence: Json
+          gross_cents: number | null
           id: string
           integration_id: string | null
           is_refund: boolean | null
@@ -1877,8 +2109,10 @@ export type Database = {
           raw_data: Json
           raw_ticket_class_id: string | null
           receipt_urls: string[] | null
+          received_at: string | null
           sales_channel: string | null
           sales_lift: number | null
+          source: string | null
           submitted_at: string | null
           ticket_buyer_email: string | null
           ticket_buyer_name: string | null
@@ -1888,6 +2122,7 @@ export type Database = {
           ticket_tier_category: string
           ticket_tier_name: string | null
           ticket_type: string | null
+          tier_name: string | null
           total_amount: number | null
           total_amount_cents: number | null
           total_sales: number
@@ -1906,6 +2141,8 @@ export type Database = {
           event_id: string
           fees?: number | null
           fees_cents?: number | null
+          field_confidence?: Json
+          gross_cents?: number | null
           id?: string
           integration_id?: string | null
           is_refund?: boolean | null
@@ -1917,8 +2154,10 @@ export type Database = {
           raw_data?: Json
           raw_ticket_class_id?: string | null
           receipt_urls?: string[] | null
+          received_at?: string | null
           sales_channel?: string | null
           sales_lift?: number | null
+          source?: string | null
           submitted_at?: string | null
           ticket_buyer_email?: string | null
           ticket_buyer_name?: string | null
@@ -1928,6 +2167,7 @@ export type Database = {
           ticket_tier_category?: string
           ticket_tier_name?: string | null
           ticket_type?: string | null
+          tier_name?: string | null
           total_amount?: number | null
           total_amount_cents?: number | null
           total_sales: number
@@ -1946,6 +2186,8 @@ export type Database = {
           event_id?: string
           fees?: number | null
           fees_cents?: number | null
+          field_confidence?: Json
+          gross_cents?: number | null
           id?: string
           integration_id?: string | null
           is_refund?: boolean | null
@@ -1957,8 +2199,10 @@ export type Database = {
           raw_data?: Json
           raw_ticket_class_id?: string | null
           receipt_urls?: string[] | null
+          received_at?: string | null
           sales_channel?: string | null
           sales_lift?: number | null
+          source?: string | null
           submitted_at?: string | null
           ticket_buyer_email?: string | null
           ticket_buyer_name?: string | null
@@ -1968,6 +2212,7 @@ export type Database = {
           ticket_tier_category?: string
           ticket_tier_name?: string | null
           ticket_type?: string | null
+          tier_name?: string | null
           total_amount?: number | null
           total_amount_cents?: number | null
           total_sales?: number
@@ -2420,15 +2665,18 @@ export type Database = {
           event_name: string
           event_time: string | null
           event_type: string
+          eventbrite_event_id: string | null
           expected_attendance: number | null
           expected_attendance_max: number | null
           expected_attendance_min: number | null
+          field_confidence: Json
           id: string
           is_recurring: boolean | null
           kickback_agreement_id: string | null
           parent_event_id: string | null
           platform_fee_id: string | null
           platform_fee_paid: boolean | null
+          posh_event_id: string | null
           recurring_frequency: string | null
           recurring_occurrences: number | null
           start_time: string
@@ -2452,15 +2700,18 @@ export type Database = {
           event_name: string
           event_time?: string | null
           event_type: string
+          eventbrite_event_id?: string | null
           expected_attendance?: number | null
           expected_attendance_max?: number | null
           expected_attendance_min?: number | null
+          field_confidence?: Json
           id?: string
           is_recurring?: boolean | null
           kickback_agreement_id?: string | null
           parent_event_id?: string | null
           platform_fee_id?: string | null
           platform_fee_paid?: boolean | null
+          posh_event_id?: string | null
           recurring_frequency?: string | null
           recurring_occurrences?: number | null
           start_time: string
@@ -2484,15 +2735,18 @@ export type Database = {
           event_name?: string
           event_time?: string | null
           event_type?: string
+          eventbrite_event_id?: string | null
           expected_attendance?: number | null
           expected_attendance_max?: number | null
           expected_attendance_min?: number | null
+          field_confidence?: Json
           id?: string
           is_recurring?: boolean | null
           kickback_agreement_id?: string | null
           parent_event_id?: string | null
           platform_fee_id?: string | null
           platform_fee_paid?: boolean | null
+          posh_event_id?: string | null
           recurring_frequency?: string | null
           recurring_occurrences?: number | null
           start_time?: string
@@ -2727,6 +2981,7 @@ export type Database = {
           email: string | null
           event_id: string
           external_attendee_id: string
+          field_confidence: Json
           first_name: string | null
           id: string
           integration_id: string
@@ -2750,6 +3005,7 @@ export type Database = {
           email?: string | null
           event_id: string
           external_attendee_id: string
+          field_confidence?: Json
           first_name?: string | null
           id?: string
           integration_id: string
@@ -2773,6 +3029,7 @@ export type Database = {
           email?: string | null
           event_id?: string
           external_attendee_id?: string
+          field_confidence?: Json
           first_name?: string | null
           id?: string
           integration_id?: string
@@ -3220,6 +3477,63 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: true
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      live_recommendations: {
+        Row: {
+          agent_narrative: string
+          created_at: string
+          event_id: string
+          evidence: Json
+          id: string
+          org_id: string
+          severity: string
+          state: string
+          suggested_action: string
+          trigger_key: string
+          updated_at: string
+        }
+        Insert: {
+          agent_narrative?: string
+          created_at?: string
+          event_id: string
+          evidence?: Json
+          id?: string
+          org_id: string
+          severity: string
+          state?: string
+          suggested_action: string
+          trigger_key: string
+          updated_at?: string
+        }
+        Update: {
+          agent_narrative?: string
+          created_at?: string
+          event_id?: string
+          evidence?: Json
+          id?: string
+          org_id?: string
+          severity?: string
+          state?: string
+          suggested_action?: string
+          trigger_key?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "live_recommendations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "live_recommendations_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -4855,6 +5169,66 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      unlinked_ticket_events: {
+        Row: {
+          builder_id: string
+          created_at: string
+          external_event_id: string
+          id: string
+          linked_at: string | null
+          linked_event_id: string | null
+          payload: Json
+          platform: string
+          received_at: string
+          updated_at: string
+          webhook_event_id: string | null
+          webhook_type: string | null
+        }
+        Insert: {
+          builder_id: string
+          created_at?: string
+          external_event_id: string
+          id?: string
+          linked_at?: string | null
+          linked_event_id?: string | null
+          payload?: Json
+          platform: string
+          received_at?: string
+          updated_at?: string
+          webhook_event_id?: string | null
+          webhook_type?: string | null
+        }
+        Update: {
+          builder_id?: string
+          created_at?: string
+          external_event_id?: string
+          id?: string
+          linked_at?: string | null
+          linked_event_id?: string | null
+          payload?: Json
+          platform?: string
+          received_at?: string
+          updated_at?: string
+          webhook_event_id?: string | null
+          webhook_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unlinked_ticket_events_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unlinked_ticket_events_linked_event_id_fkey"
+            columns: ["linked_event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
@@ -7446,6 +7820,18 @@ export type Database = {
       }
     }
     Functions: {
+      can_manage_event_cost_commitment_org: {
+        Args: { p_org_id: string }
+        Returns: boolean
+      }
+      can_manage_event_revenue_term_org: {
+        Args: { p_org_id: string }
+        Returns: boolean
+      }
+      can_manage_live_recommendation_org: {
+        Args: { p_org_id: string }
+        Returns: boolean
+      }
       _postgis_deprecate: {
         Args: { newname: string; oldname: string; version: string }
         Returns: undefined

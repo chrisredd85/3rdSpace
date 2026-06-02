@@ -211,16 +211,16 @@ async function filterCompliantPublicVenues<T extends { id: string }>(
   return compliantVenues
 }
 
-function createVenueCatalogClient() {
+function createVenueCatalogClient(): ReturnType<typeof createServiceRoleClient> {
   try {
     return createServiceRoleClient()
   } catch {
-    return createClient()
+    return createClient() as unknown as ReturnType<typeof createServiceRoleClient>
   }
 }
 
 async function loadVenueAmenities(
-  supabase: ReturnType<typeof createServiceRoleClient> | ReturnType<typeof createClient>,
+  supabase: ReturnType<typeof createServiceRoleClient>,
   venueIds: string[]
 ) {
   const amenitiesByVenueId = new Map<string, string[]>()

@@ -1,5 +1,11 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 import { recalculateEventFinancials } from '@/lib/finance/calculate-event-financials'
+import { upsertCommitment } from '@/lib/finance/costCommitments'
+import {
+  markPoshHeartbeat,
+  quarantineUnlinkedPoshEvent,
+  resolvePoshEventLink,
+} from '@/lib/integrations/poshLink'
 import {
   centsFromMajorAmount,
   classifyTicketTier,
@@ -16,6 +22,8 @@ export type WebhookPlatform = 'posh' | 'luma' | 'partiful'
 type IntegrationContext = {
   integrationId: string | null
   eventId: string | null
+  builderId: string | null
+  builderConnectionId: string | null
   externalEventId: string | null
   config: JsonObject
 }
@@ -49,6 +57,10 @@ type SalesPayload = {
   purchase_timestamp: string | null
   raw_ticket_class_id: string | null
   sales_channel: string | null
+  source?: string
+  received_at?: string
+  gross_cents?: number
+  tier_name?: string
   raw_data: JsonObject
 }
 
@@ -327,6 +339,34 @@ export function verifyPoshSecret(expectedSecret: string, actualSecret: string | 
   return expectedBuffer.length === actualBuffer.length && timingSafeEqual(expectedBuffer, actualBuffer)
 }
 
+export function getConfiguredTicketWebhookSecret(context: IntegrationContext, fallbackSecret?: string) {
+  return typeof context.config?.webhook_secret === 'string'
+    ? context.config.webhook_secret
+    : fallbackSecret
+}
+
+export function verifyConfiguredTicketWebhook(
+  platform: WebhookPlatform,
+  configuredSecret: string | undefined,
+  headers: Headers,
+  rawBody: string
+) {
+  if (!configuredSecret) return true
+
+  if (platform === 'luma') {
+    return verifyLumaSignature(configuredSecret, headers.get('webhook-signature'), rawBody)
+  }
+
+  if (platform === 'partiful') {
+    return verifyPoshSecret(
+      configuredSecret,
+      headers.get('partiful-secret') ?? headers.get('x-partiful-secret')
+    )
+  }
+
+  return verifyPoshSecret(configuredSecret, headers.get('posh-secret'))
+}
+
 /**
  * Finds the 3rdSpace event/integration associated with a webhook.
  *
@@ -347,6 +387,7 @@ export async function resolveIntegrationContext(
 ): Promise<IntegrationContext> {
   const integrationId = searchParams.get('integrationId')
   const builderConnectionId = searchParams.get('builderConnectionId')
+  const builderOrgIntegrationId = searchParams.get('integration')
   const eventId = searchParams.get('eventId')
   const externalEventId =
     platform === 'posh'
@@ -355,24 +396,52 @@ export async function resolveIntegrationContext(
         ? extractPartifulExternalEventId(payload)
         : extractLumaExternalEventId(payload)
   let builderConnectionConfig: JsonObject = {}
+  let resolvedBuilderId: string | null = builderOrgIntegrationId
 
-  if (builderConnectionId) {
-    const { data, error } = await admin
+  if (builderConnectionId || builderOrgIntegrationId) {
+    let connectionQuery = admin
       .from('builder_ticketing_connections')
-      .select('id, config, webhook_secret_encrypted')
-      .eq('id', builderConnectionId)
+      .select('id, builder_id, config, webhook_secret_encrypted')
       .eq('platform', platform)
+
+    if (builderConnectionId) {
+      connectionQuery = connectionQuery.eq('id', builderConnectionId)
+    } else if (builderOrgIntegrationId) {
+      connectionQuery = connectionQuery.eq('builder_id', builderOrgIntegrationId)
+    }
+
+    const { data, error } = await connectionQuery
       .maybeSingle()
 
     if (error) throw error
-    const builderConnection = data as BuilderConnectionRow | null
+    const builderConnection = data as (BuilderConnectionRow & { builder_id?: string | null }) | null
     if (builderConnection) {
+      resolvedBuilderId = builderConnection.builder_id ?? resolvedBuilderId
       builderConnectionConfig = {
         ...(builderConnection.config ?? {}),
       }
 
       if (builderConnection.webhook_secret_encrypted) {
         builderConnectionConfig.webhook_secret = decryptSecret(builderConnection.webhook_secret_encrypted)
+      }
+    }
+  }
+
+  if (platform === 'posh' && externalEventId) {
+    const link = await resolvePoshEventLink({
+      db: admin,
+      builderId: resolvedBuilderId,
+      poshEventId: externalEventId,
+    })
+    resolvedBuilderId = link.builderId ?? resolvedBuilderId
+    if (link.eventId) {
+      return {
+        integrationId: link.integrationId,
+        eventId: link.eventId,
+        builderId: resolvedBuilderId,
+        builderConnectionId: builderConnectionId ?? null,
+        externalEventId,
+        config: builderConnectionConfig,
       }
     }
   }
@@ -390,6 +459,8 @@ export async function resolveIntegrationContext(
       return {
         integrationId: data.id,
         eventId: data.event_id,
+        builderId: resolvedBuilderId,
+        builderConnectionId: builderConnectionId ?? null,
         externalEventId: data.external_event_id ?? externalEventId,
         config: {
           ...builderConnectionConfig,
@@ -414,6 +485,8 @@ export async function resolveIntegrationContext(
       return {
         integrationId: data.id,
         eventId: data.event_id,
+        builderId: resolvedBuilderId,
+        builderConnectionId: builderConnectionId ?? null,
         externalEventId: data.external_event_id ?? externalEventId,
         config: {
           ...builderConnectionConfig,
@@ -426,6 +499,8 @@ export async function resolveIntegrationContext(
   return {
     integrationId: null,
     eventId,
+    builderId: resolvedBuilderId,
+    builderConnectionId: builderConnectionId ?? null,
     externalEventId,
     config: builderConnectionConfig,
   }
@@ -588,6 +663,7 @@ function mapPoshSale(context: IntegrationContext, payload: JsonObject): SalesPay
     .filter(Boolean)
     .join(' ')
     .trim()
+  const receivedAt = new Date().toISOString()
 
   return {
     event_id: context.eventId,
@@ -612,6 +688,10 @@ function mapPoshSale(context: IntegrationContext, payload: JsonObject): SalesPay
     purchase_timestamp: asString(payload.purchase_timestamp) ?? asString(payload.date_purchased) ?? asString(payload.update_date),
     raw_ticket_class_id: asString(items[0]?.ticket_id) ?? asString(items[0]?.item_id) ?? asString(payload.ticket_class_id),
     sales_channel: asString(payload.sales_channel) ?? asString(payload.source) ?? asString(payload.platform),
+    source: 'posh_webhook',
+    received_at: receivedAt,
+    gross_cents: Math.max(totalAmountCents, 0),
+    tier_name: ticketTierName,
     raw_data: payload,
   }
 }
@@ -1058,9 +1138,58 @@ async function upsertSales(admin: SupabaseAdminClient, sales: SalesPayload[]) {
 
   const { error } = await admin
     .from('event_sales_data')
-    .upsert(sales as never, { onConflict: 'platform,order_id' })
+    .upsert(sales as never, { onConflict: 'event_id,platform,order_id' })
 
   if (error) throw error
+}
+
+async function upsertPoshPlatformFeeCommitment(
+  admin: SupabaseAdminClient,
+  context: IntegrationContext,
+  sale: SalesPayload | null
+) {
+  if (!sale || sale.platform !== 'posh' || sale.is_refund || sale.fees_cents <= 0 || !context.eventId) return
+
+  const builderId = context.builderId ?? await loadEventBuilderId(admin, context.eventId)
+  if (!builderId) return
+
+  await upsertCommitment(admin, {
+    event_id: context.eventId,
+    plan_id: null,
+    org_id: builderId,
+    category: 'platform_fee',
+    party_id: null,
+    party_name: 'Posh',
+    description: `Posh platform fee for order ${sale.order_id}`,
+    amount_cents: sale.fees_cents,
+    state: 'paid',
+    confidence: 'high',
+    evidence_type: 'none',
+    source: 'webhook',
+    source_ref: `posh:${sale.order_id}:platform_fee`,
+    paid_at: sale.purchase_timestamp ?? sale.received_at,
+    metadata: {
+      platform: 'posh',
+      order_id: sale.order_id,
+      external_event_id: context.externalEventId,
+      integration_id: context.integrationId,
+      gross_cents: sale.gross_cents ?? null,
+      fees_cents: sale.fees_cents,
+      tier_name: sale.tier_name ?? null,
+      received_at: sale.received_at ?? null,
+    },
+  })
+}
+
+async function loadEventBuilderId(admin: SupabaseAdminClient, eventId: string) {
+  const { data, error } = await admin
+    .from('events')
+    .select('builder_id')
+    .eq('id', eventId)
+    .maybeSingle()
+
+  if (error) throw error
+  return typeof data?.builder_id === 'string' ? data.builder_id : null
 }
 
 /**
@@ -1096,6 +1225,15 @@ export async function processPoshWebhook(
   const attendees = mapPoshAttendees(context, payload)
 
   if (!context.eventId) {
+    await quarantineUnlinkedPoshEvent({
+      db: admin,
+      builderId: context.builderId,
+      poshEventId: context.externalEventId,
+      webhookEventId: getDeliveryId('posh', payload, new Headers()),
+      webhookType: getWebhookType(payload),
+      payload,
+    })
+
     return {
       processed: false,
       integrationId: context.integrationId,
@@ -1109,6 +1247,7 @@ export async function processPoshWebhook(
   }
 
   await upsertSales(admin, sale ? [sale] : [])
+  await upsertPoshPlatformFeeCommitment(admin, context, sale)
   await upsertAttendees(admin, attendees)
   await recalculateEventFinancials(admin, context.eventId)
 
@@ -1121,6 +1260,18 @@ export async function processPoshWebhook(
     salesUpserted: sale ? 1 : 0,
     attendeesUpserted: attendees.length,
   }
+}
+
+export async function recordPoshWebhookHeartbeat(
+  admin: SupabaseAdminClient,
+  context: IntegrationContext,
+  payload: JsonObject
+) {
+  await markPoshHeartbeat({
+    db: admin,
+    builderId: context.builderId,
+    webhookType: getWebhookType(payload),
+  })
 }
 
 /**
