@@ -57,6 +57,7 @@ export const agentNameSchema = z.enum([
   'intake',
   'economics',
   'venue_matching',
+  'venue_discovery',
   'outreach',
   'reply_classifier',
   'response_analysis',

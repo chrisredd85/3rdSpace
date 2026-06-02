@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, CheckCircle2, MapPin, Search, SlidersHorizontal, Users } from 'lucide-react'
+import { Building2, CheckCircle2, Compass, MapPin, Search, SlidersHorizontal, Users } from 'lucide-react'
 import { BookedPartnersWorkspace } from '@/components/planner/BookedPartnersWorkspace'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -144,6 +144,12 @@ export default function PlannerVenuesPage() {
             </div>
             <Button variant="hero" size="sm" asChild>
               <Link href="/planner">Plan with agent</Link>
+            </Button>
+            <Button variant="glass" size="sm" asChild>
+              <Link href="/planner/venues/discover">
+                <Compass className="h-4 w-4" />
+                Discover venues
+              </Link>
             </Button>
           </div>
 

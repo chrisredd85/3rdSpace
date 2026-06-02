@@ -12,6 +12,11 @@ import {
   type VenueMatchingAgentResult,
 } from '@/lib/ai/agents/venueMatchingAgent'
 import {
+  runVenueDiscoveryAgent,
+  venueDiscoveryAgentDefinition,
+  type VenueDiscoveryAgentResult,
+} from '@/lib/ai/agents/venueDiscoveryAgent'
+import {
   outreachAgentDefinition,
   runOutreachAgent,
   type OutreachAgentResult,
@@ -88,12 +93,13 @@ const AGENT_OUTPUT_CONTRACT = {
 
 type AgentDefinition = {
   agentName: AgentName
-  model: 'gpt-4o' | 'gpt-4o-mini'
+  model: 'gpt-4o' | 'gpt-4o-mini' | 'deterministic'
 } & (
   | { outputSchema: 'foundation'; systemPrompt: string }
   | { outputSchema: 'intake' }
   | { outputSchema: 'economics' }
   | { outputSchema: 'venue_matching' }
+  | { outputSchema: 'venue_discovery' }
   | { outputSchema: 'outreach' }
   | { outputSchema: 'reply_classifier' }
   | { outputSchema: 'response_analysis' }
@@ -132,6 +138,11 @@ export const AGENT_REGISTRY: Record<AgentName, AgentDefinition> = {
     agentName: venueMatchingAgentDefinition.agentName,
     model: venueMatchingAgentDefinition.model,
     outputSchema: 'venue_matching',
+  },
+  venue_discovery: {
+    agentName: venueDiscoveryAgentDefinition.agentName,
+    model: venueDiscoveryAgentDefinition.model,
+    outputSchema: 'venue_discovery',
   },
   outreach: {
     agentName: outreachAgentDefinition.agentName,
@@ -223,6 +234,7 @@ export async function runAgent(
   | IntakeAgentResult
   | EconomicsAgentResult
   | VenueMatchingAgentResult
+  | VenueDiscoveryAgentResult
   | OutreachAgentResult
   | ReplyClassifierResult
   | ResponseAnalysisAgentResult
@@ -245,6 +257,10 @@ export async function runAgent(
 
   if (agent.outputSchema === 'venue_matching') {
     return runVenueMatchingAgent(input.payload, client)
+  }
+
+  if (agent.outputSchema === 'venue_discovery') {
+    return runVenueDiscoveryAgent(input.payload)
   }
 
   if (agent.outputSchema === 'outreach') {

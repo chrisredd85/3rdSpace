@@ -5,6 +5,7 @@ import { getAdminContext } from '@/lib/server/admin-auth'
 export const dynamic = 'force-dynamic'
 
 const adminLinks = [
+  ['Supply Scout', '/admin/supply-scout', 'Capture, dedupe, and approve venue address leads for planner discovery.'],
   ['Catalog venues', '/admin/catalog/venues', 'Seed spaces, bars, rooftops, and claim-ready venue records.'],
   ['Catalog vendors', '/admin/catalog/vendors', 'Seed caterers, AV teams, photographers, DJs, and service partners.'],
   ['Claims', '/admin/claims', 'Review unclaimed catalog listings and pending approval work.'],
