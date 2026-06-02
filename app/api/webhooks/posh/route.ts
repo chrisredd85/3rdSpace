@@ -1,12 +1,20 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
-import { randomUUID } from 'crypto'
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { parseWebhookJson } from '@/lib/server/ticket-webhooks'
+import {
+  getConfiguredTicketWebhookSecret,
+  parseWebhookJson,
+  processPoshWebhook,
+  recordPoshWebhookHeartbeat,
+  recordWebhookDelivery,
+  resolveIntegrationContext,
+  verifyConfiguredTicketWebhook,
+} from '@/lib/server/ticket-webhooks'
 import { allowWebhookRequest, getWebhookRateLimitKey } from '@/lib/server/webhook-rate-limit'
-import { enqueueJob } from '@/lib/server/job-queue'
 
 export const runtime = 'nodejs'
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 /**
  * Receives Posh ticket sale/refund webhooks.
@@ -23,11 +31,6 @@ export async function POST(request: NextRequest) {
   const admin = createServiceRoleClient()
   const rawBody = await request.text()
 
-  if (!(await allowWebhookRequest(admin, getWebhookRateLimitKey('posh', request.headers)))) {
-    console.warn('[Posh Webhook] Rate limit exceeded')
-    return NextResponse.json({ received: true, ignored: true, reason: 'rate_limited' }, { status: 200 })
-  }
-
   let payload: Record<string, any>
 
   try {
@@ -37,30 +40,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 })
   }
 
+  const integrationId = request.nextUrl.searchParams.get('integration')
+  if (integrationId && !UUID_PATTERN.test(integrationId)) {
+    return NextResponse.json({ error: 'Invalid Posh integration id' }, { status: 400 })
+  }
+
+  const context = await resolveIntegrationContext(admin, 'posh', payload, request.nextUrl.searchParams)
+  const configuredSecret = getConfiguredTicketWebhookSecret(context, process.env.POSH_WEBHOOK_SECRET)
+  if (!verifyConfiguredTicketWebhook('posh', configuredSecret, request.headers, rawBody)) {
+    return NextResponse.json({ error: 'Invalid Posh webhook secret' }, { status: 401 })
+  }
+
+  if (!(await allowWebhookRequest(admin, getWebhookRateLimitKey('posh', request.headers)))) {
+    console.warn('[Posh Webhook] Rate limit exceeded')
+    return NextResponse.json({ received: true, ignored: true, reason: 'rate_limited' }, { status: 200 })
+  }
+
   try {
-    const headers = Object.fromEntries(request.headers.entries())
-    const searchParams = Object.fromEntries(request.nextUrl.searchParams.entries())
-    const eventKey =
-      request.headers.get('webhook-id') ||
-      payload.order_id ||
-      payload.order_number ||
-      payload.tracking_link ||
-      randomUUID()
+    await recordPoshWebhookHeartbeat(admin, context, payload)
+    const result = await processPoshWebhook(admin, payload, context)
+    await recordWebhookDelivery(
+      admin,
+      'posh',
+      payload,
+      request.headers,
+      context,
+      result.processed ? null : result.skippedReason
+    )
 
-    const job = await enqueueJob(admin, {
-      jobType: 'webhook.posh',
-      payload: {
-        payload,
-        headers,
-        searchParams,
-      },
-      uniqueKey: `webhook:posh:${eventKey}`,
-      maxAttempts: 5,
-    })
-
-    return NextResponse.json({ received: true, queued: true, jobId: job.id }, { status: 202 })
+    return NextResponse.json({ received: true, queued: false, ...result }, { status: 200 })
   } catch (error) {
-    console.error('[Posh Webhook] Queueing failed', error)
+    console.error('[Posh Webhook] Processing failed', error)
     return NextResponse.json(
       {
         received: true,

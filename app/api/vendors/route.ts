@@ -162,11 +162,11 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function createVendorCatalogClient() {
+function createVendorCatalogClient(): ReturnType<typeof createServiceRoleClient> {
   try {
     return createServiceRoleClient()
   } catch {
-    return createClient()
+    return createClient() as unknown as ReturnType<typeof createServiceRoleClient>
   }
 }
 

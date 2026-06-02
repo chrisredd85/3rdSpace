@@ -6,6 +6,8 @@ type SupabaseAdminClient = any
 
 export type AppJobType =
   | 'eventbrite.import'
+  | 'live_event.recompute'
+  | 'webhook.eventbrite'
   | 'webhook.posh'
   | 'webhook.luma'
   | 'webhook.partiful'

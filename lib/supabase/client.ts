@@ -1,5 +1,5 @@
 import { createBrowserClient } from '@supabase/ssr'
-import type { Database } from '@/lib/types/database'
+import type { Database } from '@/lib/types/database-generated'
 
 /**
  * CLIENT-ONLY Supabase Client
@@ -15,7 +15,7 @@ import type { Database } from '@/lib/types/database'
 
 /** Returns a typed Supabase browser client. Use in 'use client' components only. */
 export function createClient() {
-  return createBrowserClient<Database>(
+  return createBrowserClient<Database, 'public', Database['public']>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
@@ -27,7 +27,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
 export const supabase = supabaseUrl && supabaseAnonKey
-  ? createBrowserClient<Database>(supabaseUrl, supabaseAnonKey)
+  ? createBrowserClient<Database, 'public', Database['public']>(supabaseUrl, supabaseAnonKey)
   : (() => {
       if (typeof window !== 'undefined') {
         console.error('Missing Supabase environment variables')

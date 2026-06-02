@@ -9,7 +9,7 @@
 
 import { useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, ExternalLink, Link2, Loader2, Ticket, WifiOff } from 'lucide-react'
+import { CheckCircle2, ExternalLink, Link2, Loader2, Ticket, UploadCloud, WifiOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TICKET_PLATFORM_OPTIONS, type TicketPlatform } from '@/lib/constants/account-setup'
@@ -188,22 +188,7 @@ export function PlannerTicketingConnectPanel({
 
     try {
       if (platform === 'eventbrite') {
-        const response = await fetch('/api/integrations/eventbrite/connect', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        })
-        const payload = await response.json()
-        if (response.status === 401 || response.status === 403) {
-          throw new Error('Sign in as an event creator to connect Eventbrite.')
-        }
-        if (!response.ok) throw new Error(payload?.error ?? 'Unable to start Eventbrite OAuth')
-
-        if (typeof payload.authUrl === 'string') {
-          window.open(payload.authUrl, '_blank', 'noopener,noreferrer')
-        }
-
-        setSuccessMessage('Eventbrite OAuth opened in a new tab.')
+        window.location.href = '/planner/integrations/eventbrite'
         return
       }
 
@@ -358,6 +343,17 @@ export function PlannerTicketingConnectPanel({
               >
                 {pendingPlatform === activePlatform ? <Loader2 className="h-4 w-4 animate-spin" /> : activePlatform === 'eventbrite' ? <ExternalLink className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
                 {activePlatform === 'eventbrite' ? 'Connect Eventbrite' : activePlatform === 'partiful' ? 'Save Partiful link' : `Set up ${platformCopy[activePlatform].label}`}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size={mode === 'full' ? 'default' : 'sm'}
+                onClick={() => {
+                  window.location.href = '/planner/events/import'
+                }}
+              >
+                <UploadCloud className="h-4 w-4" />
+                Import data
               </Button>
               {selectedConnection?.last_error ? (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-semibold text-destructive">
