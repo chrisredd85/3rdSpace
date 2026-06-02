@@ -295,11 +295,33 @@ test.describe('Agent Planner chat', () => {
 
   test('New Plan clears the active mock conversation', async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 })
-    await page.goto('/planner?mock=1&draft=Plan%20a%20day%20party%20for%2090%20people%20in%20the%20Mission%20with%20a%20%249000%20budget', {
-      waitUntil: 'domcontentloaded',
+    await page.route('**/api/planner/public-intake', async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Public draft intake unavailable in this mock smoke' }),
+      })
     })
+    await page.route('**/api/planner/plans', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Planner API should not be called in mock mode' }),
+        })
+        return
+      }
+      await route.continue()
+    })
+    await resetMockPlanner(page)
+
+    const eventInput = page.getByRole('textbox', { name: /describe your event/i })
+    await expect(eventInput).toBeEnabled({ timeout: 15000 })
+    await eventInput.fill('Plan a day party for 90 people in the Mission with a $9000 budget')
+    await page.getByRole('button', { name: /send message/i }).click()
 
     await expect(page.getByText('Active planner workspace', { exact: true })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText(/select one answer/i).first()).toBeVisible()
     await page.getByRole('button', { name: /new plan/i }).click()
 
     await expect(page).toHaveURL(/\/planner(?:\?mock=1)?$/)
@@ -398,12 +420,14 @@ test.describe('Agent Planner chat', () => {
     })
 
     await expect(page.getByText('Active planner workspace', { exact: true })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole('button', { name: /event plan/i })).toBeEnabled({ timeout: 15000 })
 
     let livePlanPanel = page.locator('aside').filter({ hasText: 'Event Plan' }).first()
     if (!(await livePlanPanel.isVisible().catch(() => false))) {
       const eventPlanTab = page.getByRole('button', { name: /event plan/i })
       await expect(eventPlanTab).toBeVisible()
       await eventPlanTab.click()
+      await expect(page.getByText('Structured artifact')).toBeVisible({ timeout: 15000 })
       livePlanPanel = page.locator('aside, section').filter({ hasText: 'Structured artifact' }).first()
     }
 

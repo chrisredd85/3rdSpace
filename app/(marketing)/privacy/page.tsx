@@ -12,7 +12,7 @@ const sections = [
     title: 'Information we collect',
     body: [
       'Account information such as name, email, role, organization, venue, or vendor profile details.',
-      'Event planning details you provide to the planner, including dates, headcount, budget, neighborhoods, ticketing preferences, partner needs, and approval decisions.',
+      'Event execution details you provide to the system, including dates, headcount, budget, neighborhoods, ticketing preferences, partner needs, and approval decisions.',
       'Payment and payout metadata from Stripe, including transaction identifiers, status, and reconciliation details. Full payment credentials are handled by Stripe.',
       'Operational data such as product usage, error reports, logs, and support requests used to keep the service reliable.',
     ],
@@ -20,17 +20,17 @@ const sections = [
   {
     title: 'How we use information',
     body: [
-      'To create event plans, recommend venues and vendors, coordinate approvals, and show financial estimates.',
+      'To shape event runs, recommend venues and vendors, coordinate approvals, and show financial estimates.',
       'To process subscriptions, venue rental payments, vendor payments, and revenue-share settlement records through Stripe.',
       'To send transactional email through Resend, including account, payment, refund, and operational notifications.',
-      'To monitor reliability, debug errors, prevent abuse, and improve the planner experience.',
+      'To monitor reliability, debug errors, prevent abuse, and improve the event workspace.',
     ],
   },
   {
     title: 'Sharing',
     body: [
       'We share data with service providers required to operate 3rdPlace, including Supabase, Stripe, Resend, Sentry, Vercel, and AI model providers.',
-      'When you approve outreach, booking, payment, or refund workflows, we share the relevant event and transaction details with the counterparty needed to complete that workflow.',
+      'When you approve outreach, booking, payment, or refund flows, we share the relevant event and transaction details with the counterparty needed to complete that flow.',
       'We do not sell personal information.',
     ],
   },
@@ -53,17 +53,17 @@ const sections = [
 
 export default function PrivacyPage() {
   return (
-    <main className="min-h-screen bg-background px-6 py-16 text-foreground">
+    <main className="min-h-screen bg-background px-6 py-20 text-foreground">
       <div className="mx-auto max-w-4xl">
-        <p className="text-sm font-bold uppercase tracking-widest text-primary">Legal</p>
-        <h1 className="mt-4 font-display text-4xl font-bold sm:text-5xl">
-          <span className="text-gradient-brand">Privacy Policy</span>
+        <p className="label-caps text-clay-deep">Legal</p>
+        <h1 className="mt-4 font-display text-[44px] leading-[1.04] text-ink sm:text-[64px]">
+          Privacy Policy
         </h1>
-        <p className="mt-4 text-sm text-muted-foreground">Last updated: {LAST_UPDATED}</p>
+        <p className="mt-4 font-mono text-[12px] text-ink-faint">Last updated: {LAST_UPDATED}</p>
 
         {/* TODO: Replace this launch placeholder with lawyer-reviewed copy before public launch. */}
-        <div className="mt-8 rounded-3xl border border-border bg-gradient-card p-6 shadow-card">
-          <p className="text-sm leading-6 text-muted-foreground">
+        <div className="mt-8 rounded-md border border-tan bg-cream-deep p-6 shadow-sm">
+          <p className="text-[15px] leading-6 text-ink-soft">
             This page is a launch-readiness placeholder based on the preserved policy draft. It should be reviewed
             by counsel before public launch, especially for payment, payout, AI processing, and California privacy
             language.
@@ -72,9 +72,9 @@ export default function PrivacyPage() {
 
         <article className="mt-10 space-y-6">
           {sections.map((section) => (
-            <section key={section.title} className="rounded-3xl border border-border bg-card/60 p-6 shadow-card">
-              <h2 className="font-display text-xl font-bold text-foreground">{section.title}</h2>
-              <ul className="mt-4 list-disc space-y-2 pl-5 text-sm leading-6 text-muted-foreground">
+            <section key={section.title} className="rounded-md border border-tan bg-cream p-6 shadow-sm">
+              <h2 className="font-display text-[24px] leading-tight text-ink">{section.title}</h2>
+              <ul className="mt-4 list-disc space-y-2 pl-5 text-[15px] leading-6 text-ink-soft">
                 {section.body.map((item) => (
                   <li key={item}>{item}</li>
                 ))}
@@ -83,11 +83,11 @@ export default function PrivacyPage() {
           ))}
         </article>
 
-        <section className="mt-6 rounded-3xl border border-border bg-card/60 p-6 shadow-card">
-          <h2 className="font-display text-xl font-bold text-foreground">Contact</h2>
-          <p className="mt-4 text-sm leading-6 text-muted-foreground">
+        <section className="mt-6 rounded-md border border-tan bg-cream p-6 shadow-sm">
+          <h2 className="font-display text-[24px] leading-tight text-ink">Contact</h2>
+          <p className="mt-4 text-[15px] leading-6 text-ink-soft">
             Questions or privacy requests can be sent to{' '}
-            <a className="text-primary underline" href="mailto:privacy@3rdplace.io">
+            <a className="text-clay underline" href="mailto:privacy@3rdplace.io">
               privacy@3rdplace.io
             </a>
             .

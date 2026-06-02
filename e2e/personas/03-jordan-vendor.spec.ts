@@ -13,18 +13,12 @@ test.describe('Persona: Jordan — vendor wants to join', () => {
     await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
   })
 
-  test('"List as vendor" supply dropdown item reaches vendor signup', async ({ page }) => {
-    await page.goto('/', { waitUntil: 'domcontentloaded' })
-    await page.setViewportSize({ width: 1280, height: 800 })
-    await page.waitForLoadState('networkidle')
+  test('signup chooser vendor card reaches vendor signup', async ({ page }) => {
+    await page.goto('/signup', { waitUntil: 'domcontentloaded' })
 
-    const nav = page.locator('nav')
-    const supplyTrigger = nav.getByRole('button', { name: /list with us/i })
-    await supplyTrigger.click()
-    await expect(supplyTrigger).toHaveAttribute('aria-expanded', 'true')
-    const vendorNav = page.getByRole('menuitem', { name: /list as vendor/i })
+    const vendorNav = page.getByRole('link', { name: /vendor list my services/i })
     await expect(vendorNav).toHaveAttribute('href', '/signup/vendor')
-    await page.goto('/signup/vendor', { waitUntil: 'domcontentloaded' })
+    await vendorNav.click()
 
     await expect(page).toHaveURL('/signup/vendor')
     await expect(page.getByRole('heading', { name: /get booked on 3rdplace/i })).toBeVisible()

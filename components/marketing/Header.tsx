@@ -1,180 +1,103 @@
 'use client'
 
-import { useEffect, useRef, useState, type ComponentType } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, Building2, ChevronDown, Menu, Sparkles, Store, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { Menu, X } from 'lucide-react'
 
-const centerLinks = [
-  { label: "Who it's for", href: '#who' },
-  { label: 'Features', href: '#features' },
-]
-
-const supplyLinks = [
-  { label: 'List your venue', href: '/signup/venue', icon: Building2 },
-  { label: 'List as vendor', href: '/signup/vendor', icon: Store },
-]
-
-type MarketingNavLink = {
-  label: string
-  href: string
-  icon?: ComponentType<{ className?: string }>
-}
-
-const mobileLinks: MarketingNavLink[] = [
-  ...centerLinks,
-  ...supplyLinks,
+const navLinks = [
+  { label: 'Pricing', href: '/pricing' },
+  { label: 'FAQ', href: '/faq' },
   { label: 'Sign in', href: '/login' },
 ]
 
 export function Header() {
-  const [isSupplyOpen, setIsSupplyOpen] = useState(false)
   const [isMobileOpen, setIsMobileOpen] = useState(false)
-  const supplyRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    function handlePointerDown(event: PointerEvent) {
-      if (!supplyRef.current?.contains(event.target as Node)) {
-        setIsSupplyOpen(false)
-      }
-    }
-
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setIsSupplyOpen(false)
-        setIsMobileOpen(false)
-      }
+      if (event.key === 'Escape') setIsMobileOpen(false)
     }
 
-    document.addEventListener('pointerdown', handlePointerDown)
     document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
+    return () => document.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  function closeMenus() {
-    setIsSupplyOpen(false)
+  function closeMenu() {
     setIsMobileOpen(false)
   }
 
   return (
-    <header className="absolute inset-x-0 top-0 z-50 h-16 px-4 pt-3 sm:px-6 md:h-auto md:pt-4 lg:px-8">
-      <nav
-        className="mx-auto grid h-full max-w-7xl grid-cols-[auto_1fr_auto] items-center gap-3 md:h-16 md:rounded-full md:border md:border-border/70 md:bg-card/35 md:px-3 md:shadow-card md:backdrop-blur-xl"
-        aria-label="Primary navigation"
-      >
-        <Link
-          href="/"
-          className="flex min-w-0 shrink-0 items-center gap-3 rounded-full pr-2 transition-smooth focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 md:pl-1"
-          onClick={closeMenus}
-        >
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-brand shadow-glow md:h-11 md:w-11">
-            <Sparkles className="h-5 w-5 text-primary-foreground" />
-          </div>
-          <span className="font-display text-xl font-bold leading-none tracking-tight text-foreground sm:text-2xl">3rdPlace</span>
+    <header className="sticky top-0 z-50 border-b border-tan/70 bg-cream/90 backdrop-blur-md">
+      <nav className="mx-auto flex h-[74px] max-w-[1200px] items-center justify-between px-5 sm:px-6" aria-label="Primary navigation">
+        <Link href="/" className="font-display text-[28px] font-semibold tracking-tight text-clay" onClick={closeMenu}>
+          3rdPlace
         </Link>
 
-        <div className="hidden justify-center md:flex">
-          <div className="flex items-center gap-2 text-[15px] font-medium">
-            {centerLinks.map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                className="rounded-full px-4 py-2.5 text-muted-foreground transition-smooth hover:bg-background/45 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-              >
-                {link.label}
-              </a>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center justify-end gap-2 sm:gap-3">
-          <div ref={supplyRef} className="relative hidden md:block">
-            <Button
-              variant="glass"
-              size="sm"
-              type="button"
-              aria-expanded={isSupplyOpen}
-              aria-haspopup="menu"
-              onClick={() => setIsSupplyOpen((open) => !open)}
-              className="h-11 rounded-full border border-border/80 bg-background/35 px-5 text-[15px] font-semibold shadow-none hover:bg-background/50 focus-visible:ring-primary/30"
+        <div className="hidden items-center gap-8 md:flex">
+          {navLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="text-[16px] font-semibold text-ink-soft transition-colors hover:text-clay-deep hover:underline hover:decoration-clay hover:underline-offset-8"
             >
-              <Building2 className="h-4 w-4" />
-              List with us
-              <ChevronDown className={cn('h-4 w-4 transition-smooth', isSupplyOpen && 'rotate-180')} />
-            </Button>
-
-            {isSupplyOpen && (
-              <div
-                role="menu"
-                className="absolute right-0 top-full mt-3 w-60 overflow-hidden rounded-2xl border border-border bg-gradient-card p-2 shadow-card"
-              >
-                {supplyLinks.map(({ label, href, icon: Icon }) => (
-                  <Link
-                    key={href}
-                    href={href}
-                    role="menuitem"
-                    onClick={closeMenus}
-                    className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-foreground transition-smooth hover:bg-card/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-                  >
-                    <Icon className="h-4 w-4 text-primary" />
-                    {label}
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <Link
-            href="/login"
-            className="hidden rounded-full px-3 py-2.5 text-[15px] font-semibold text-muted-foreground transition-smooth hover:bg-background/45 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 md:inline-flex"
-            onClick={closeMenus}
-          >
-            Sign in
-          </Link>
-
-          <button
-            type="button"
-            aria-label={isMobileOpen ? 'Close menu' : 'Open menu'}
-            aria-expanded={isMobileOpen}
-            onClick={() => setIsMobileOpen((open) => !open)}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card/60 text-foreground transition-smooth hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 md:hidden"
-          >
-            {isMobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-          </button>
-
-          <Button variant="hero" size="sm" asChild className="h-10 rounded-full px-4 text-sm font-semibold sm:px-5 md:h-11 md:px-6 md:text-[15px]">
-            <Link href="/planner" onClick={closeMenus}>
-              <span className="hidden sm:inline">Start planning</span>
-              <span className="sm:hidden">Start</span>
-              <ArrowRight className="h-4 w-4" />
+              {link.label}
             </Link>
-          </Button>
+          ))}
+          <Link
+            href="/planner"
+            className="inline-flex items-center justify-center rounded-md bg-clay px-6 py-3 text-[16px] font-semibold text-primary-foreground transition-colors hover:bg-clay-deep"
+          >
+            Start running events
+          </Link>
         </div>
+
+        <button
+          type="button"
+          aria-label={isMobileOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={isMobileOpen}
+          onClick={() => setIsMobileOpen((open) => !open)}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-tan bg-cream text-ink transition-colors hover:bg-cream-deep md:hidden"
+        >
+          {isMobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+        </button>
       </nav>
 
-      {isMobileOpen && (
-        <div role="menu" className="mx-auto mt-2 max-w-7xl rounded-2xl border border-border bg-gradient-card p-2 shadow-card md:hidden">
-          {mobileLinks.map((link) => {
-            const Icon = link.icon
-            return (
-              <a
+      {isMobileOpen ? (
+        <div className="fixed inset-0 z-[60] bg-cream px-5 py-5 md:hidden">
+          <div className="flex items-center justify-between">
+            <Link href="/" onClick={closeMenu} className="font-display text-[24px] font-semibold text-clay">
+              3rdPlace
+            </Link>
+            <button
+              type="button"
+              onClick={closeMenu}
+              className="rounded-md border border-tan bg-cream-deep px-3 py-2 text-sm font-semibold text-ink"
+            >
+              Close
+            </button>
+          </div>
+
+          <nav className="mt-12 grid gap-3" aria-label="Mobile navigation">
+            {navLinks.map((link) => (
+              <Link
                 key={link.href}
                 href={link.href}
-                role="menuitem"
-                onClick={closeMenus}
-                className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-foreground transition-smooth hover:bg-card/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                onClick={closeMenu}
+                className="rounded-md border border-tan bg-cream-deep px-4 py-4 text-[20px] font-semibold text-ink"
               >
-                {Icon ? <Icon className="h-4 w-4 text-primary" /> : null}
                 {link.label}
-              </a>
-            )
-          })}
+              </Link>
+            ))}
+            <Link
+              href="/planner"
+              onClick={closeMenu}
+              className="rounded-md bg-clay px-4 py-4 text-center text-[20px] font-semibold text-primary-foreground"
+            >
+              Start running events
+            </Link>
+          </nav>
         </div>
-      )}
+      ) : null}
     </header>
   )
 }

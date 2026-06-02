@@ -2,16 +2,16 @@ import { expect, test } from '@playwright/test'
 
 const roleCards = [
   {
-    title: /community builder/i,
-    description: /create events, book venues and vendors/i,
+    title: /run events/i,
+    description: /execute them faster/i,
   },
   {
-    title: /venue owner/i,
-    description: /free to list/i,
+    title: /list my venue/i,
+    description: /room hosts can book/i,
   },
   {
-    title: /^vendor$/i,
-    description: /free to list/i,
+    title: /list my services/i,
+    description: /photo, catering, dj, av/i,
   },
 ]
 
@@ -37,10 +37,10 @@ test.describe('Signup flow', () => {
   test('signup chooser displays all role cards and routes', async ({ page }) => {
     await page.goto('/signup', { waitUntil: 'domcontentloaded' })
 
-    await expect(page.getByRole('heading', { name: /join 3rdplace/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /which one are you/i })).toBeVisible()
 
     for (const card of roleCards) {
-      const roleCard = page.locator('button').filter({
+      const roleCard = page.locator('a').filter({
         has: page.getByRole('heading', { name: card.title }),
       })
 
@@ -67,8 +67,8 @@ test.describe('Signup flow', () => {
     await page.goto('/signup/builder', { waitUntil: 'domcontentloaded' })
     await page.goto('/signup', { waitUntil: 'domcontentloaded' })
 
-    await expect(page.getByRole('heading', { name: /join 3rdplace/i })).toBeVisible()
-    await expect(page.getByRole('heading', { name: /^community builder$/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /which one are you/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /run events/i })).toBeVisible()
   })
 
   test('/signup/venue shows the venue signup form', async ({ page }) => {

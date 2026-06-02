@@ -1,188 +1,321 @@
 import type { Metadata } from 'next'
-import {
-  Zap,
-  ShieldCheck,
-  BarChart3,
-  ArrowRight,
-} from 'lucide-react'
+import Image from 'next/image'
+import Link from 'next/link'
+import type { ReactNode } from 'react'
 import { HomePlannerStart } from '@/components/planner/HomePlannerStart'
-import {
-  FloatingStartChip,
-  StartPlanningButton,
-} from '@/components/landing/StartPlanningActions'
 
 export const metadata: Metadata = {
-  title: '3rdPlace - The Repeat Event OS for Bay Area Creators',
+  title: '3rdPlace - Know what worked. Repeat what paid.',
   description:
-    "Stop planning the same event from scratch. 3rdPlace remembers your venues, vendors, and margins so every event runs faster than the last.",
+    '3rdPlace models event economics, executes event ops, and shows what every event returned.',
   openGraph: {
-    title: '3rdPlace - The Repeat Event OS for Bay Area Creators',
+    title: '3rdPlace - Know what worked. Repeat what paid.',
     description:
-      "3rdPlace is the operating system for Bay Area creators running 3+ events a month. The agent plans, sources, and tracks margins across your entire calendar.",
+      '3rdPlace models event economics, executes event ops, and shows what every event returned.',
   },
 }
 
-const personas = [
+const hostTags = [
+  'Founder dinners',
+  'Supper clubs',
+  'Salon nights',
+  'Monthly mixers',
+  'Recurring tastings',
+  'Community meetups',
+]
+
+const runSteps = [
   {
-    title: 'Monthly series hosts',
-    body: 'Founder dinners, supper clubs, tasting events — same vibe, different guests, every time.',
+    n: '01',
+    title: 'Propose',
+    body: 'The agent reads the event, pulls your best venues and vendors from history, and lays out the run with cost, margin, and a working timeline.',
   },
   {
-    title: 'Pop-up producers',
-    body: 'Markets, brand activations, and art shows that run on a calendar, not a whim.',
+    n: '02',
+    title: 'Approve',
+    body: 'You see every move before it ships. Holds, deposits, contracts, vendor dispatch: nothing moves until you authorize it.',
   },
   {
-    title: 'Community builders',
-    body: 'Weekly meetups, monthly socials, recurring mixers — your community is your calendar.',
+    n: '03',
+    title: 'Settle',
+    body: 'After the event, 3rdPlace closes the books. Refunds processed, kickbacks collected, margin recorded, next event pre-loaded.',
   },
 ]
 
-const features = [
+const featureCards = [
   {
-    icon: Zap,
-    title: 'Plan your next event in minutes',
-    body: 'Describe it in plain language. The agent pulls your best venues, matches vendors from your history, and builds a full plan — including the profit window.',
+    title: 'Venue holds, locked in writing',
+    body: 'The agent reaches your shortlist, negotiates terms, and locks holds with deposit windows you can authorize in one click.',
   },
   {
-    icon: ShieldCheck,
-    title: 'Nothing moves without your approval',
-    body: 'Review venue holds, vendor quotes, and contracts before a dollar commits. You stay in control across every event on your calendar.',
+    title: 'Vendors dispatched on your terms',
+    body: 'Photo, catering, bar, AV, DJ. The agent finds the right vendor for the budget, sends the brief, and gets the quote signed off. Your approval required at every step.',
   },
   {
-    icon: BarChart3,
-    title: 'Know your margins before you commit',
-    body: 'Track P&L across your full calendar, not just one event. See where you\'re making money and where you\'re leaving it on the table.',
+    title: 'Money settled, cents-accurate',
+    body: 'Deposits collected, vendor payments routed through Stripe Connect, refunds handled, kickbacks reconciled. Every dollar tagged to an event.',
+  },
+  {
+    title: 'Margin on every event',
+    body: 'A real P&L per event the moment it closes. Know which formats actually paid, which ones leaked, and which ones to run again.',
   },
 ]
+
+const faqs = [
+  {
+    q: 'Does the agent ever book or pay without me?',
+    a: 'No. Every booking, every payment, every contract waits on your approval. The agent proposes; you ship.',
+  },
+  {
+    q: "What if my venue or vendor isn't on the platform?",
+    a: 'Add them. The agent learns your roster and uses it first on future events.',
+  },
+  {
+    q: 'Where does the money actually move?',
+    a: 'Through Stripe Connect. Venues, vendors, and you each have their own connected account. 3rdPlace never holds funds.',
+  },
+]
+
+function Caps({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <span className={`label-caps text-clay-deep ${className}`}>{children}</span>
+}
+
+function PrimaryLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex items-center justify-center rounded-md bg-clay px-6 py-3 text-[15px] font-semibold text-primary-foreground transition-colors hover:bg-clay-deep"
+    >
+      {children}
+    </Link>
+  )
+}
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen overflow-x-hidden bg-background">
-      <FloatingStartChip />
-
-      {/* Hero */}
-      <section className="relative flex min-h-screen items-center overflow-hidden py-28 lg:py-32">
-        <div className="absolute inset-0 bg-gradient-mesh" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent via-background/20 to-background" />
-        <div className="container relative mx-auto max-w-7xl px-6 lg:px-12">
-          <div className="grid gap-14 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-bold uppercase tracking-widest text-primary">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
-                The repeat event OS · Bay Area
-              </div>
-              <h1 className="mt-8 font-display text-5xl font-bold leading-[1.0] tracking-tight md:text-6xl lg:text-7xl">
-                Stop planning{' '}
-                <span className="text-gradient-brand">the same event</span>{' '}
-                from scratch.
-              </h1>
-              <p className="mt-8 max-w-xl text-lg text-muted-foreground">
-                3rdPlace remembers your venues, vendors, and margins from every event you&apos;ve run.
-                Describe what&apos;s next — the agent builds the plan, pulls your best partners, and
-                shows you the profit window before you spend a dollar.
-              </p>
-            </div>
-
-            {/* Live chat composer (the hero's primary action) */}
-            <div id="hero-chat" className="relative scroll-mt-24">
-              <div className="absolute -inset-8 bg-gradient-brand opacity-25 blur-3xl" />
-              <div className="relative">
-                <span className="absolute -top-3 left-6 z-10 inline-flex items-center gap-1.5 rounded-full bg-gradient-brand px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-primary-foreground shadow-glow">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
-                  Try it now — free
-                </span>
-                <HomePlannerStart />
-              </div>
+    <main className="min-h-screen bg-background text-foreground">
+      <section className="relative">
+        <div className="mx-auto grid max-w-[1320px] items-start gap-8 px-6 py-8 sm:py-10 lg:grid-cols-12 lg:items-stretch lg:gap-8 lg:py-4 xl:py-5">
+          <div className="animate-entrance lg:col-span-7 lg:flex lg:h-full lg:flex-col">
+            <Caps className="text-[13px]">Bay Area · 2026</Caps>
+            <h1 className="mt-4 font-display text-[46px] font-medium leading-[0.98] tracking-normal text-ink sm:text-[62px] lg:text-[60px] xl:text-[68px]">
+              <span className="block sm:whitespace-nowrap">Know what worked.</span>
+              <span className="block text-clay sm:whitespace-nowrap">Repeat what paid.</span>
+            </h1>
+            <p className="mt-4 max-w-[720px] text-[18px] leading-[1.4] text-ink-soft lg:text-[19px]">
+              See what every event actually returned — then run the next one.
+            </p>
+            <div className="mt-3 max-w-[720px]">
+              <HomePlannerStart />
             </div>
           </div>
-        </div>
-      </section>
 
-      {/* Who it's for */}
-      <section id="who" className="relative pt-12 pb-20 lg:pt-14 lg:pb-28">
-        <div className="container mx-auto max-w-6xl px-6 lg:px-12">
-          <div className="text-center">
-            <p className="text-sm font-bold uppercase tracking-widest text-primary">
-              Who it&apos;s for
-            </p>
-            <h2 className="mt-3 font-display text-4xl font-bold lg:text-5xl">
-              For creators who never stop hosting
-            </h2>
-            <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
-              If you&apos;re running 3+ events a month and tired of rebuilding the same plan,
-              3rdPlace is your operating system. We handle sourcing, logistics, and vendor
-              coordination — so your tenth event runs faster than your first.
-            </p>
-          </div>
-          <div className="mt-14 grid gap-6 md:grid-cols-3">
-            {personas.map((p) => (
-              <div
-                key={p.title}
-                className="rounded-2xl border border-border bg-card/50 px-6 py-8 text-center transition-smooth hover:border-primary/40 hover:bg-card/70"
-              >
-                <p className="font-display text-xl font-bold text-foreground">{p.title}</p>
-                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{p.body}</p>
+          <div className="relative hidden animate-entrance md:block lg:col-span-5 lg:h-full" style={{ animationDelay: '120ms' }}>
+            <div className="relative h-[420px] overflow-hidden rounded-md border border-tan shadow-sm md:h-[500px] lg:h-[calc(100vh-116px)] lg:min-h-[560px] lg:max-h-[760px]">
+              <Image
+                src="/lovable/hero-venue.jpg"
+                alt="Private dining room in the Mission at golden hour"
+                fill
+                priority
+                sizes="(min-width: 1024px) 42vw, 100vw"
+                className="object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-ink/30 via-transparent to-transparent" />
+              <div className="absolute right-5 top-5 max-w-[82%] rounded-full border border-tan bg-cream/95 px-5 py-3 text-[17px] text-ink shadow-md backdrop-blur">
+                60 person dinner, Mission, June 12, $5,000 budget
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Features */}
-      <section id="features" className="py-20 lg:py-28">
-        <div className="container mx-auto max-w-6xl px-6 lg:px-12">
-          <div className="text-center">
-            <p className="text-sm font-bold uppercase tracking-widest text-primary">
-              Features
-            </p>
-            <h2 className="mt-3 font-display text-4xl font-bold lg:text-5xl">
-              Gets faster every time you host
-            </h2>
-          </div>
-          <div className="mt-14 grid gap-6 md:grid-cols-3">
-            {features.map((f) => (
-              <div
-                key={f.title}
-                className="rounded-2xl border border-border bg-card/50 p-7 transition-smooth hover:border-primary/40 hover:bg-card/70"
-              >
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-brand shadow-glow">
-                  <f.icon className="h-6 w-6 text-primary-foreground" />
+              <div className="absolute bottom-5 left-5 max-w-[88%]">
+                <div className="rounded-md border border-tan bg-cream/95 px-4 py-3 shadow-lg backdrop-blur">
+                  <div className="flex items-center justify-between gap-5">
+                    <Caps>Operator · 3rdPlace</Caps>
+                    <span className="font-mono text-[11px] text-ink-faint">14:02</span>
+                  </div>
+                  <p className="mt-3 text-[17px] leading-snug text-ink">
+                    Three venues fit. Holding The Valencia Room for 24 hours while you authorize.
+                  </p>
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="inline-flex items-center rounded-full bg-forest-tint px-2 py-0.5 text-[10.5px] font-medium tracking-wide text-forest">15% kickback</span>
+                    <span className="inline-flex items-center rounded-full bg-cream-deep px-2 py-0.5 text-[10.5px] font-medium tracking-wide text-ink-soft">$1,800 rental</span>
+                  </div>
                 </div>
-                <h3 className="mt-6 font-display text-xl font-bold text-foreground">{f.title}</h3>
-                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-tan/70">
+        <div className="mx-auto max-w-[1100px] px-6 py-24">
+          <Caps>Who it&apos;s for</Caps>
+          <h2 className="mt-4 max-w-3xl font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
+            Built for hosts who run events on repeat.
+          </h2>
+          <p className="mt-6 max-w-3xl text-[18px] leading-[1.65] text-ink-soft">
+            Founder dinners. Supper clubs. Salon nights. Monthly mixers. Recurring tasting events. If
+            your calendar has the same format on it again next month, 3rdPlace compounds. The agent
+            remembers your venues, your vendors, your margins, and starts the next event with
+            everything it already knows.
+          </p>
+          <div className="mt-8 flex flex-wrap gap-2">
+            {hostTags.map((tag) => (
+              <span key={tag} className="rounded-full border border-tan bg-cream-deep px-4 py-2 text-[13px] font-semibold text-ink-soft">
+                {tag}
+              </span>
             ))}
           </div>
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="pb-24 pt-12">
-        <div className="container mx-auto max-w-4xl px-6 lg:px-12 text-center">
-          <h2 className="font-display text-4xl font-bold lg:text-5xl">
-            Ready to plan profitably?
+      <section className="border-t border-tan/70 bg-cream-deep/40">
+        <div className="mx-auto max-w-[1200px] px-6 py-24">
+          <Caps>How it runs</Caps>
+          <h2 className="mt-4 max-w-3xl font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
+            Three moves. Every event.
           </h2>
-          <p className="mx-auto mt-5 max-w-xl text-lg text-muted-foreground">
-            No sign-up required. Describe your event and see what the agent builds.
-          </p>
-          <StartPlanningButton className="mt-10">
-            Start your first event <ArrowRight className="h-4 w-4" />
-          </StartPlanningButton>
+          <div className="mt-12 grid gap-5 md:grid-cols-3">
+            {runSteps.map((step) => (
+              <article key={step.n} className="rounded-md border border-tan bg-cream p-7 shadow-sm">
+                <span className="font-mono text-[12px] tracking-[0.18em] text-clay">{step.n}</span>
+                <h3 className="mt-5 font-display text-[30px] leading-tight text-ink">{step.title}</h3>
+                <p className="mt-4 text-[16px] leading-[1.6] text-ink-soft">{step.body}</p>
+              </article>
+            ))}
+          </div>
         </div>
       </section>
 
-      <footer className="border-t border-border py-8 text-center text-sm text-muted-foreground">
-        <p>© 2026 3rdPlace. Agent-first event planning for the Bay Area.</p>
-        <nav className="mt-3 flex flex-wrap items-center justify-center gap-4 text-xs">
-          <a href="/privacy" className="transition-smooth hover:text-foreground hover:underline">
-            Privacy
-          </a>
-          <span aria-hidden="true">/</span>
-          <a href="/terms" className="transition-smooth hover:text-foreground hover:underline">
-            Terms
-          </a>
-        </nav>
+      <section className="border-t border-tan/70">
+        <div className="mx-auto max-w-[1200px] px-6 py-24">
+          <Caps>What ships in the box</Caps>
+          <h2 className="mt-4 max-w-3xl font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
+            The operations work, handled.
+          </h2>
+          <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            {featureCards.map((item) => (
+              <article key={item.title} className="rounded-md border border-tan bg-cream p-7 shadow-sm">
+                <h3 className="font-display text-[24px] leading-tight text-ink">{item.title}</h3>
+                <p className="mt-4 text-[15.5px] leading-[1.65] text-ink-soft">{item.body}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-tan/70 bg-cream-deep/40">
+        <div className="mx-auto max-w-[1000px] px-6 py-24">
+          <Caps>From the calendar</Caps>
+          <blockquote className="mt-5 font-display text-[30px] leading-[1.15] text-ink sm:text-[42px]">
+            &ldquo;I used to spend a full day chasing vendors and reconciling receipts
+            after every dinner. Now I run the next one before the last one is fully settled,
+            and I actually know what I made.&rdquo;
+          </blockquote>
+          <p className="mt-7 font-mono text-[13px] tracking-[0.08em] text-ink-soft">
+            Founder dinner host · Mission · 14 events in 2025
+          </p>
+        </div>
+      </section>
+
+      <section id="pricing" className="border-t border-tan/70">
+        <div className="mx-auto max-w-[1000px] px-6 py-24">
+          <Caps>Pricing</Caps>
+          <h2 className="mt-4 font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
+            First two events on us.
+          </h2>
+          <p className="mt-5 max-w-3xl text-[18px] leading-[1.6] text-ink-soft">
+            Run two events end-to-end before you commit. No card required. After that, pay per event
+            or move to Pro for unlimited runs and the full margin history.
+          </p>
+          <div className="mt-10 grid gap-4 md:grid-cols-2">
+            <article className="rounded-md border border-tan bg-cream p-7 shadow-sm">
+              <Caps>Per event</Caps>
+              <h3 className="mt-3 font-display text-[30px] text-ink">Pay only when you ship.</h3>
+              <p className="mt-3 text-[16px] leading-[1.6] text-ink-soft">Pay only for events you actually ship.</p>
+            </article>
+            <article className="rounded-md border border-tan bg-cream p-7 shadow-sm">
+              <Caps>Pro</Caps>
+              <h3 className="mt-3 font-display text-[30px] text-ink">Run without the meter.</h3>
+              <p className="mt-3 text-[16px] leading-[1.6] text-ink-soft">Unlimited events, full historical margin, priority operator support.</p>
+            </article>
+          </div>
+          <Link href="/pricing" className="mt-8 inline-flex text-[15px] font-semibold text-ink transition-colors hover:text-clay">
+            See pricing -&gt;
+          </Link>
+        </div>
+      </section>
+
+      <section id="faq" className="border-t border-tan/70">
+        <div className="mx-auto max-w-[820px] px-6 py-24">
+          <Caps>Common questions</Caps>
+          <h2 className="mt-4 font-display text-[40px] leading-[1.05] text-ink sm:text-[52px]">
+            Clear answers. No fine print.
+          </h2>
+          <div className="mt-10 border-t border-tan">
+            {faqs.map((item) => (
+              <div key={item.q} className="border-b border-tan py-5">
+                <h3 className="font-display text-[20px] text-ink">{item.q}</h3>
+                <p className="mt-3 pr-10 text-[15.5px] leading-[1.65] text-ink-soft">{item.a}</p>
+              </div>
+            ))}
+          </div>
+          <Link href="/faq" className="mt-8 inline-flex text-[15px] font-semibold text-ink transition-colors hover:text-clay">
+            Read the full FAQ -&gt;
+          </Link>
+        </div>
+      </section>
+
+      <section className="border-t border-tan/70 bg-cream-deep/50">
+        <div className="mx-auto max-w-[900px] px-6 py-28 text-center">
+          <h2 className="font-display text-[46px] leading-[1.0] text-ink sm:text-[72px]">
+            Your next event is already on the calendar.
+          </h2>
+          <p className="mx-auto mt-6 max-w-2xl text-[18px] leading-[1.6] text-ink-soft">
+            Describe it. The agent lays out the run, locks the holds, and waits for your green light.
+          </p>
+          <div className="mt-10 flex flex-col items-center gap-4">
+            <PrimaryLink href="/planner">Start running events -&gt;</PrimaryLink>
+            <p className="font-mono text-[12px] text-ink-faint">
+              First two events free. Approval required before booking or payment.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <footer className="border-t border-tan/70">
+        <div className="mx-auto grid max-w-[1200px] gap-10 px-6 py-14 sm:grid-cols-4">
+          <div>
+            <Link href="/" className="font-display text-[24px] text-clay">3rdPlace</Link>
+            <p className="mt-3 text-[14px] leading-[1.6] text-ink-soft">The operations agent for Bay Area hosts.</p>
+          </div>
+          <div>
+            <Caps>Product</Caps>
+            <ul className="mt-4 space-y-2 text-[14px] text-ink-soft">
+              <li><Link href="/pricing" className="hover:text-ink">Pricing</Link></li>
+              <li><Link href="/faq" className="hover:text-ink">FAQ</Link></li>
+            </ul>
+          </div>
+          <div>
+            <Caps>Company</Caps>
+            <ul className="mt-4 space-y-2 text-[14px] text-ink-soft">
+              <li><a href="mailto:hello@3rdplace.io" className="hover:text-ink">Contact</a></li>
+              <li><a href="mailto:hello@3rdplace.io" className="hover:text-ink">Operator support</a></li>
+            </ul>
+          </div>
+          <div>
+            <Caps>Legal</Caps>
+            <ul className="mt-4 space-y-2 text-[14px] text-ink-soft">
+              <li><Link href="/terms" className="hover:text-ink">Terms</Link></li>
+              <li><Link href="/privacy" className="hover:text-ink">Privacy</Link></li>
+            </ul>
+          </div>
+        </div>
+        <div className="border-t border-tan/70">
+          <div className="mx-auto max-w-[1200px] px-6 py-5">
+            <p className="font-mono text-[11px] text-ink-faint">
+              &copy; 2026 3rdPlace · Built in the Bay Area for hosts who run events on repeat.
+            </p>
+          </div>
+        </div>
       </footer>
-    </div>
+    </main>
   )
 }

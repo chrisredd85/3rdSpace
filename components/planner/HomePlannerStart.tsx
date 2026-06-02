@@ -8,8 +8,7 @@
 
 import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, SendHorizontal, ShieldCheck, Sparkles } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface HomePlannerStartProps {
@@ -17,9 +16,18 @@ interface HomePlannerStartProps {
 }
 
 const samplePrompts = [
-  'Monthly founder dinner for 24 in Hayes Valley',
-  'Supper club for 18 in the Mission, cocktails and a photographer',
-  'Rebook my June rooftop mixer — same venue, new date',
+  {
+    label: 'Founder dinner, 24, Hayes Valley',
+    prompt: 'Monthly founder dinner for 24 in Hayes Valley',
+  },
+  {
+    label: 'Supper club, 18, Mission',
+    prompt: 'Supper club for 18 in the Mission, cocktails and a photographer',
+  },
+  {
+    label: 'Rebook June rooftop, new date',
+    prompt: 'Rebook my June rooftop mixer — same venue, new date',
+  },
 ]
 
 /**
@@ -62,19 +70,11 @@ export function HomePlannerStart({ className }: HomePlannerStartProps) {
   }
 
   return (
-    <div className={cn('rounded-3xl border border-border bg-card/80 p-4 shadow-glow backdrop-blur-xl', className)}>
-      <div className="mb-4 flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-brand shadow-glow">
-          <Sparkles className="h-5 w-5 text-primary-foreground" />
-        </div>
-        <div>
-          <p className="font-display text-lg font-bold text-foreground">What do you want to host?</p>
-          <p className="text-sm text-muted-foreground">Start planning now. Sign in when you save, book, or pay.</p>
-        </div>
-      </div>
+    <div className={cn('rounded-lg border border-tan bg-cream p-3 shadow-sm', className)}>
+      <h2 className="font-display text-[29px] font-semibold leading-tight text-ink sm:text-[31px]">What do you want to host?</h2>
 
-      <form onSubmit={handleSubmit} className="rounded-2xl border border-border bg-background/70 p-3">
-        <div className="flex items-end gap-2">
+      <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-tan bg-cream-deep p-2.5">
+        <div>
           <textarea
             id="hero-chat-input"
             ref={draftRef}
@@ -88,33 +88,37 @@ export function HomePlannerStart({ className }: HomePlannerStartProps) {
             onKeyDown={handleKeyDown}
             name="draft"
             rows={3}
-            className="max-h-48 min-w-0 flex-1 resize-none overflow-y-hidden border-0 bg-transparent px-2 py-3 text-base text-foreground outline-none placeholder:text-muted-foreground focus:ring-0"
+            className="max-h-36 min-h-[48px] w-full resize-none overflow-y-hidden border-0 bg-transparent text-[16px] leading-relaxed text-ink outline-none placeholder:text-ink-faint focus:ring-0"
             placeholder="Describe your next event..."
             aria-label="Describe the event you want to host"
             disabled={isSubmitting}
           />
-          <Button type="submit" size="icon" className="mb-1 rounded-xl" aria-label="Start planning" disabled={isSubmitting}>
-            {isSubmitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <SendHorizontal className="h-5 w-5" />}
-          </Button>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <p className="text-[12px] font-medium text-ink-soft">Approval required before booking.</p>
+            <button
+              type="submit"
+              className="inline-flex items-center justify-center rounded-md bg-clay px-5 py-2 text-[16px] font-semibold text-primary-foreground transition-colors hover:bg-clay-deep disabled:cursor-not-allowed disabled:opacity-60"
+              aria-label="Send event draft"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Send
+            </button>
+          </div>
         </div>
       </form>
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        {samplePrompts.map((prompt) => (
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {samplePrompts.map(({ label, prompt }) => (
           <button
             key={prompt}
             type="button"
             onClick={() => setDraft(prompt)}
-            className="rounded-full border border-border bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground transition-smooth hover:border-primary/40 hover:text-foreground"
+            className="rounded-full border border-tan bg-cream px-3.5 py-0.5 text-[13px] font-semibold text-ink-soft transition-colors hover:border-clay hover:text-clay-deep"
           >
-            {prompt}
+            {label}
           </button>
         ))}
-      </div>
-
-      <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
-        <ShieldCheck className="h-4 w-4 text-success" />
-        Approval required before booking or payment.
       </div>
     </div>
   )

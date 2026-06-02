@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { Inter } from "next/font/google"
+import { Fraunces, Inter, JetBrains_Mono } from "next/font/google"
 import "./globals.css"
 import { Providers } from "./providers"
 import { ErrorBoundary } from "@/components/shared/ErrorBoundary"
@@ -7,6 +7,19 @@ import { ErrorBoundary } from "@/components/shared/ErrorBoundary"
 const inter = Inter({ 
   subsets: ["latin"],
   variable: "--font-inter",
+  display: "swap",
+})
+
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-fraunces",
+  display: "swap",
+})
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains-mono",
+  display: "swap",
 })
 
 export const viewport = {
@@ -24,7 +37,7 @@ export const metadata: Metadata = {
   },
   description: "An agent-like planning workspace for Bay Area event creators to shape plans, compare options, and coordinate bookings.",
   keywords: [
-    "event marketplace",
+    "event operating system",
     "venue booking",
     "event vendors",
     "Bay Area events",
@@ -109,7 +122,7 @@ export default function RootLayout({
   }
 
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={`${inter.variable} ${fraunces.variable} ${jetbrainsMono.variable}`}>
       <head>
         <script
           type="application/ld+json"
