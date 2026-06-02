@@ -58,6 +58,9 @@ const patchPlanSchema = z.object({
   agent_action: z.string().trim().max(160).nullable().optional(),
   profit_goal_cents: z.number().int().nonnegative().nullable().optional(),
   notes: z.string().trim().max(4000).nullable().optional(),
+  outreach_sender_identity: z.string().trim().max(120).nullable().optional(),
+  outreach_creator_display_name: z.string().trim().max(120).nullable().optional(),
+  outreach_budget_signal_in_subject: z.boolean().optional(),
 })
 
 interface RouteContext {
@@ -297,6 +300,18 @@ function normalizePlanPatch(input: z.infer<typeof patchPlanSchema>, currentPlan:
     updates.ticketing_model = input.ticketing_model ?? 'rsvp'
   }
 
+  if (
+    input.outreach_sender_identity !== undefined ||
+    input.outreach_creator_display_name !== undefined ||
+    input.outreach_budget_signal_in_subject !== undefined
+  ) {
+    updates.metadata = mergeOutreachSenderMetadata(currentPlan.metadata, {
+      senderIdentity: input.outreach_sender_identity,
+      creatorDisplayName: input.outreach_creator_display_name,
+      budgetSignalInSubject: input.outreach_budget_signal_in_subject,
+    })
+  }
+
   if (input.date_window !== undefined && input.date_window !== null) {
     updates.notes = [typeof updates.notes === 'string' ? updates.notes : null, `Date window: ${input.date_window}`]
       .filter(Boolean)
@@ -304,6 +319,40 @@ function normalizePlanPatch(input: z.infer<typeof patchPlanSchema>, currentPlan:
   }
 
   return updates
+}
+
+function mergeOutreachSenderMetadata(
+  metadataValue: unknown,
+  patch: {
+    senderIdentity?: string | null
+    creatorDisplayName?: string | null
+    budgetSignalInSubject?: boolean
+  }
+) {
+  const metadata = { ...(readRecord(metadataValue) ?? {}) }
+
+  if (patch.senderIdentity !== undefined) {
+    setOrDeleteMetadataString(metadata, 'sender_identity', patch.senderIdentity)
+  }
+
+  if (patch.creatorDisplayName !== undefined) {
+    setOrDeleteMetadataString(metadata, 'creator_display_name', patch.creatorDisplayName)
+  }
+
+  if (patch.budgetSignalInSubject !== undefined) {
+    metadata.budget_signal_in_subject = patch.budgetSignalInSubject
+  }
+
+  return metadata
+}
+
+function setOrDeleteMetadataString(metadata: Record<string, unknown>, key: string, value: string | null | undefined) {
+  const trimmed = typeof value === 'string' ? value.trim() : ''
+  if (trimmed) {
+    metadata[key] = trimmed
+  } else {
+    delete metadata[key]
+  }
 }
 
 async function refreshRecommendationsAfterPlanChange(input: {

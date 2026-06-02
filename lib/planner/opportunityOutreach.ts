@@ -30,6 +30,7 @@ type OutreachTarget = {
   id: string
   name: string
   type: PartnerType
+  source?: 'onboarded' | 'discovery'
   contact_email: string | null
   phone: string | null
   website: string | null
@@ -50,6 +51,23 @@ const VENUE_OUTREACH_SELECT = `
   state,
   venue_type,
   standing_capacity
+`
+
+const DISCOVERY_VENUE_OUTREACH_SELECT = `
+  id,
+  name,
+  contact_email,
+  contact_phone,
+  website,
+  neighborhood,
+  city,
+  state,
+  capacity_seated,
+  capacity_standing,
+  capacity_cocktail,
+  vibe_tags,
+  price_hint_cents_low,
+  price_hint_cents_high
 `
 
 const VENDOR_OUTREACH_SELECT = `
@@ -77,24 +95,30 @@ export async function buildVenueOpportunityOutreach(input: {
   plan: Plan
   userId: string
   venueIds: string[]
+  discoveryVenueIds?: string[]
   summary: string
   requirements: Record<string, unknown>
   responseDeadline: string | null
 }): Promise<OpportunityOutreachBundle> {
+  const discoveryVenueIds = input.discoveryVenueIds ?? []
   await assertApprovedOutreachGate({
     db: input.db,
     planId: input.plan.id,
     venueIds: input.venueIds,
+    discoveryVenueIds,
     vendorIds: [],
   })
-  const targets = await loadVenueTargets(input.db, input.venueIds)
-  const compliantTargets = await filterCompliantVenueOutreachTargets(targets)
+  const [onboardedTargets, discoveryTargets] = await Promise.all([
+    loadVenueTargets(input.db, input.venueIds),
+    loadDiscoveryVenueTargets(input.db, discoveryVenueIds),
+  ])
+  const compliantTargets = await filterCompliantVenueOutreachTargets(onboardedTargets)
   return buildOpportunityOutreach({
     plan: input.plan,
     userId: input.userId,
     partnerType: 'venue',
     outreachType: 'venue_inquiry',
-    targets: compliantTargets,
+    targets: [...compliantTargets, ...discoveryTargets],
     summary: input.summary,
     requirements: input.requirements,
     responseDeadline: input.responseDeadline,
@@ -173,6 +197,7 @@ async function buildOpportunityOutreach(input: {
           guest_count: input.plan.guest_count,
           neighborhood: input.plan.neighborhood,
           response_deadline: input.responseDeadline,
+          ...readSenderPreferences(input.plan.metadata),
         },
         previous_thread_summary: input.summary,
       },
@@ -206,9 +231,11 @@ async function assertApprovedOutreachGate(input: {
   db: PlannerDb
   planId: string
   venueIds: string[]
+  discoveryVenueIds?: string[]
   vendorIds: string[]
 }) {
   const targetVenueIds = new Set(input.venueIds)
+  const targetDiscoveryVenueIds = new Set(input.discoveryVenueIds ?? [])
   const targetVendorIds = new Set(input.vendorIds)
   const { data: actionRows, error: actionError } = await input.db
     .from('agent_actions')
@@ -225,7 +252,7 @@ async function assertApprovedOutreachGate(input: {
     ? actionRows.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === 'object' && !Array.isArray(row)))
     : []
   const matchingActionIds = actions
-    .filter((action) => actionCoversTargets(action, targetVenueIds, targetVendorIds))
+    .filter((action) => actionCoversTargets(action, targetVenueIds, targetDiscoveryVenueIds, targetVendorIds))
     .map((action) => typeof action.id === 'string' ? action.id : null)
     .filter((id): id is string => Boolean(id))
 
@@ -250,16 +277,21 @@ async function assertApprovedOutreachGate(input: {
 function actionCoversTargets(
   action: Record<string, unknown>,
   venueIds: Set<string>,
+  discoveryVenueIds: Set<string>,
   vendorIds: Set<string>
 ): boolean {
   const payload = action.payload_json
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false
   const record = payload as Record<string, unknown>
   const actionVenueIds = new Set(readStringArray(record.venue_ids))
+  const actionDiscoveryVenueIds = new Set(readStringArray(record.discovery_venue_ids))
   const actionVendorIds = new Set(readStringArray(record.vendor_ids))
   const coversVenues = venueIds.size === 0 || Array.from(venueIds).every((id) => actionVenueIds.has(id))
+  const coversDiscoveryVenues =
+    discoveryVenueIds.size === 0 ||
+    Array.from(discoveryVenueIds).every((id) => actionDiscoveryVenueIds.has(id))
   const coversVendors = vendorIds.size === 0 || Array.from(vendorIds).every((id) => actionVendorIds.has(id))
-  return coversVenues && coversVendors
+  return coversVenues && coversDiscoveryVenues && coversVendors
 }
 
 async function runLoggedOutreachAgent(input: {
@@ -364,6 +396,7 @@ async function loadVenueTargets(db: PlannerDb, venueIds: string[]): Promise<Outr
     id: readString(row.id) ?? 'unknown-venue',
     name: readString(row.venue_name) ?? 'Selected venue',
     type: 'venue',
+    source: 'onboarded',
     contact_email: readString(row.contact_email),
     phone: null,
     website: null,
@@ -372,6 +405,50 @@ async function loadVenueTargets(db: PlannerDb, venueIds: string[]): Promise<Outr
       state: readString(row.state),
       venue_type: readString(row.venue_type),
       standing_capacity: readNumber(row.standing_capacity),
+    },
+  }))
+}
+
+async function loadDiscoveryVenueTargets(db: PlannerDb, discoveryVenueIds: string[]): Promise<OutreachTarget[]> {
+  const ids = Array.from(new Set(discoveryVenueIds))
+  if (ids.length === 0) return []
+
+  const { data, error } = await db
+    .from('discovery_venues')
+    .select(DISCOVERY_VENUE_OUTREACH_SELECT)
+    .in('id', ids)
+    .eq('is_claimed', false)
+
+  if (error) {
+    console.error('[agent.run] Discovery venue outreach target lookup failed', error)
+    return ids.map((id) => ({
+      ...buildFallbackTarget('venue'),
+      id,
+      source: 'discovery',
+      details: { target_source: 'discovery' },
+    }))
+  }
+
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+    id: readString(row.id) ?? 'unknown-discovery-venue',
+    name: readString(row.name) ?? 'Selected venue',
+    type: 'venue',
+    source: 'discovery',
+    contact_email: readString(row.contact_email),
+    phone: readString(row.contact_phone),
+    website: readString(row.website),
+    details: {
+      target_source: 'discovery',
+      discovery_venue_id: readString(row.id),
+      neighborhood: readString(row.neighborhood),
+      city: readString(row.city),
+      state: readString(row.state),
+      capacity_seated: readNumber(row.capacity_seated),
+      capacity_standing: readNumber(row.capacity_standing),
+      capacity_cocktail: readNumber(row.capacity_cocktail),
+      vibe_tags: readStringArray(row.vibe_tags),
+      price_hint_cents_low: readNumber(row.price_hint_cents_low),
+      price_hint_cents_high: readNumber(row.price_hint_cents_high),
     },
   }))
 }
@@ -394,6 +471,7 @@ async function loadVendorTargets(db: PlannerDb, vendorIds: string[]): Promise<Ou
     id: readString(row.id) ?? 'unknown-vendor',
     name: readString(row.name) ?? 'Selected vendor',
     type: 'vendor',
+    source: 'onboarded',
     contact_email: readString(row.contact_email),
     phone: readString(row.phone),
     website: readString(row.portfolio_url),
@@ -438,17 +516,31 @@ function buildDeterministicOutreachDraft(input: {
   requirements: Record<string, unknown>
   responseDeadline: string | null
 }): OutreachAgentOutput & { target_name: string; target_type: PartnerType } {
-  const eventDate = input.plan.date_window_start ?? input.plan.date_window_end ?? 'date to be confirmed'
+  const eventDateRaw = input.plan.date_window_start ?? input.plan.date_window_end
+  const eventDate = eventDateRaw ?? 'date to be confirmed'
   const headcount = input.plan.guest_count ? `${input.plan.guest_count} guests` : 'guest count to be confirmed'
   const budget = input.plan.budget_cap_cents ? `Budget target: ${formatCents(input.plan.budget_cap_cents)}.` : ''
   const ask = input.target.type === 'venue'
     ? 'availability, pricing, minimums, deposit terms, and what is included'
     : 'availability, quote, package details, deposit terms, and setup needs'
 
+  const senderPrefs = readSenderPreferences(input.plan.metadata)
+  const identity = senderPrefs.sender_identity ?? senderPrefs.creator_display_name ?? null
+  const signOffName = senderPrefs.creator_display_name ?? null
+
   return {
     target_name: input.target.name,
     target_type: input.target.type,
-    subject: `${input.plan.title} ${input.target.type === 'venue' ? 'availability inquiry' : 'vendor quote request'}`,
+    subject: buildDeterministicSubject({
+      eventDateIso: eventDateRaw,
+      guestCount: input.plan.guest_count,
+      eventType: input.plan.event_type,
+      planTitle: input.plan.title,
+      identity,
+      budgetCents: input.plan.budget_cap_cents,
+      budgetInSubject: Boolean(senderPrefs.budget_signal_in_subject),
+      targetType: input.target.type,
+    }),
     message_body: [
       `Hi ${input.target.name} team,`,
       `I am planning ${input.plan.title} for ${headcount} on ${eventDate}.`,
@@ -456,6 +548,7 @@ function buildDeterministicOutreachDraft(input: {
       budget,
       `Could you confirm ${ask}?`,
       'Nothing is booked or committed yet; this is an approval-pending inquiry draft.',
+      signOffName ? `Thanks,\n${signOffName}` : 'Thanks',
     ].filter(Boolean).join('\n\n'),
     requested_info: [
       'Availability for the requested date or window',
@@ -466,6 +559,72 @@ function buildDeterministicOutreachDraft(input: {
     tone: 'professional',
     approval_required: true,
   }
+}
+
+type SenderPreferences = {
+  sender_identity?: string
+  creator_display_name?: string
+  budget_signal_in_subject?: boolean
+}
+
+function readSenderPreferences(metadata: unknown): SenderPreferences {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return {}
+  const record = metadata as Record<string, unknown>
+  const prefs: SenderPreferences = {}
+  const senderIdentity = readString(record.sender_identity)
+  if (senderIdentity) prefs.sender_identity = senderIdentity
+  const creatorDisplayName = readString(record.creator_display_name)
+  if (creatorDisplayName) prefs.creator_display_name = creatorDisplayName
+  if (typeof record.budget_signal_in_subject === 'boolean') {
+    prefs.budget_signal_in_subject = record.budget_signal_in_subject
+  }
+  return prefs
+}
+
+const MONTH_ABBREVIATIONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function formatEventDateLabel(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim())
+  if (!match) return null
+  const month = Number(match[2])
+  const day = Number(match[3])
+  if (!Number.isFinite(month) || !Number.isFinite(day) || month < 1 || month > 12) return null
+  return `${MONTH_ABBREVIATIONS[month - 1]} ${day}`
+}
+
+function formatBudgetSegment(cents: number | null | undefined): string | null {
+  if (!cents || cents <= 0) return null
+  const thousands = Math.round(cents / 100000)
+  if (thousands <= 0) return null
+  return `$${thousands}K range`
+}
+
+function buildDeterministicSubject(input: {
+  eventDateIso: string | null | undefined
+  guestCount: number | null
+  eventType: string | null
+  planTitle: string
+  identity: string | null
+  budgetCents: number | null
+  budgetInSubject: boolean
+  targetType: PartnerType
+}): string {
+  const dateLabel = formatEventDateLabel(input.eventDateIso)
+  const headcountLabel = input.guestCount ? `${input.guestCount}-person` : null
+  const eventTypeLabel = input.eventType?.trim() || (input.targetType === 'venue' ? 'event' : 'vendor request')
+  const budgetSegment = input.budgetInSubject ? formatBudgetSegment(input.budgetCents) : null
+
+  if (dateLabel) {
+    const middle = [headcountLabel, eventTypeLabel].filter(Boolean).join(' ')
+    const middleWithBudget = budgetSegment ? `${middle}, ${budgetSegment}` : middle
+    const segments = [dateLabel, middleWithBudget, input.identity].filter((segment): segment is string => Boolean(segment && segment.trim().length > 0))
+    return segments.join(' — ')
+  }
+
+  const fallbackMiddle = [headcountLabel, eventTypeLabel].filter(Boolean).join(' ') || input.planTitle
+  const segments = [fallbackMiddle, input.identity].filter((segment): segment is string => Boolean(segment && segment.trim().length > 0))
+  return segments.join(' — ')
 }
 
 function buildFallbackTarget(type: PartnerType): OutreachTarget {

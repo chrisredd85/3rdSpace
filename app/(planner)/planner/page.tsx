@@ -15,6 +15,7 @@ import { CalendarDays, CheckCircle2, ChevronDown, Copy, ExternalLink, LayoutTemp
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
 import { PlannerDataConnectionPanel } from '@/components/planner/PlannerDataConnectionPanel'
 import { PlannerLivePlanPanel } from '@/components/planner/PlannerLivePlanPanel'
+import { OutreachSenderSettingsPanel } from '@/components/planner/OutreachSenderSettingsPanel'
 import { PostEventReportCard } from '@/components/planner/PostEventReportCard'
 import { PlannerSignupGate } from '@/components/planner/PlannerSignupGate'
 import { PlannerTimelineCountdown } from '@/components/planner/PlannerTimelineCountdown'
@@ -1556,7 +1557,18 @@ function PlannerPageContent() {
             ) : null}
 
             {activeTab === 'event_plan' ? (
-              <PlannerLivePlanPanel inline />
+              <>
+                <PlannerLivePlanPanel inline />
+                {persistenceMode === 'server' ? (
+                  <OutreachSenderSettingsPanel
+                    plan={activePlan}
+                    onPlanUpdated={(plan) => {
+                      setActivePlan(plan)
+                      publishLivePlan(plan, messages)
+                    }}
+                  />
+                ) : null}
+              </>
             ) : null}
 
             {activeTab === 'data' && persistenceMode === 'server' ? (
