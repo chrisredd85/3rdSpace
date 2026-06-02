@@ -6,15 +6,15 @@
     },
     {
       "path": "/api/internal/jobs/outreach-poll",
-      "schedule": "*/10 * * * *"
+      "schedule": "15 14 * * *"
     },
     {
       "path": "/api/internal/jobs/discovery-enrich",
-      "schedule": "0 */6 * * *"
+      "schedule": "30 14 * * *"
     },
     {
       "path": "/api/internal/jobs/outreach-scheduled-send",
-      "schedule": "*/1 * * * *"
+      "schedule": "45 14 * * *"
     },
     {
       "path": "/api/internal/jobs/outreach-trust-recompute",
