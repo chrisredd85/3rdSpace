@@ -7,5 +7,6 @@ npm run lint
 # Type check
 npm run type-check
 
-# Run tests (pass when no tests match — worktrees exclude .claude/ paths in jest config)
-npm run test -- --passWithNoTests
+# Run tests deterministically in pre-commit. The full Jest suite has known
+# timing flakes under parallel workers in local worktrees.
+npm run test -- --passWithNoTests --runInBand
