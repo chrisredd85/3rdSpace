@@ -1,37 +1,37 @@
 import { expect, test } from '@playwright/test'
 
 test.describe('Persona: Maya — SF host, first visit', () => {
-  test('homepage exposes venue and vendor signup links from the supply dropdown on desktop', async ({ page }) => {
+  test('homepage Sign up nav link routes to the role picker with venue and vendor options', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.waitForLoadState('networkidle')
 
-    const nav = page.locator('nav')
-    const supplyTrigger = nav.getByRole('button', { name: /list with us/i })
-    await supplyTrigger.click()
-    await expect(supplyTrigger).toHaveAttribute('aria-expanded', 'true')
-    await expect(page.getByRole('menuitem', { name: /list your venue/i })).toHaveAttribute('href', '/signup/venue')
-    await expect(page.getByRole('menuitem', { name: /list as vendor/i })).toHaveAttribute('href', '/signup/vendor')
+    const signupLink = page.locator('nav').getByRole('link', { name: /^sign up$/i }).first()
+    await expect(signupLink).toBeVisible()
+    await expect(signupLink).toHaveAttribute('href', '/signup')
+    await Promise.all([page.waitForURL('**/signup', { timeout: 15000 }), signupLink.click()])
+    await expect(page).toHaveURL(/\/signup$/)
+    await expect(page.getByRole('heading', { name: /which one are you\?/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /list my venue/i })).toHaveAttribute('href', '/signup/venue')
+    await expect(page.getByRole('link', { name: /list my services/i })).toHaveAttribute('href', '/signup/vendor')
   })
 
-  test('supply links move into the mobile menu', async ({ page }) => {
+  test('Sign up link is reachable from the mobile menu', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
     await page.setViewportSize({ width: 375, height: 812 })
     await page.waitForLoadState('networkidle')
 
     const nav = page.locator('nav')
-    await expect(nav.getByRole('button', { name: /list with us/i })).toBeHidden()
-    const menuTrigger = nav.getByRole('button', { name: /open menu/i })
+    const menuTrigger = page.getByRole('button', { name: /open menu/i })
     await menuTrigger.click()
-    await expect(nav.getByRole('button', { name: /close menu/i })).toBeVisible()
-    await expect(page.getByRole('menuitem', { name: /list your venue/i })).toBeVisible()
-    await expect(page.getByRole('menuitem', { name: /list as vendor/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /close menu/i })).toBeVisible()
+    await expect(nav.getByRole('link', { name: /^sign up$/i }).first()).toBeVisible()
   })
 
   test('homepage opens with public event creation input', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
 
-    await expect(page.getByRole('heading', { name: /stop planning the same event from scratch/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /know what worked/i })).toBeVisible()
     await expect(page.getByRole('textbox', { name: /describe the event you want to host/i })).toBeVisible()
   })
 
@@ -47,21 +47,17 @@ test.describe('Persona: Maya — SF host, first visit', () => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
 
     await expect(page.getByRole('textbox', { name: /describe the event you want to host/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /start planning/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /send event draft/i })).toBeVisible()
   })
 
   test('venue role card navigates to venue signup form', async ({ page }) => {
-    await page.goto('/', { waitUntil: 'domcontentloaded' })
+    await page.goto('/signup', { waitUntil: 'domcontentloaded' })
     await page.waitForLoadState('networkidle')
 
-    const supplyTrigger = page.locator('nav').getByRole('button', { name: /list with us/i })
-    await supplyTrigger.click()
-    await expect(supplyTrigger).toHaveAttribute('aria-expanded', 'true')
-    const venueCard = page.getByRole('menuitem', { name: /list your venue/i })
+    const venueCard = page.getByRole('link', { name: /list my venue/i })
     await expect(venueCard).toHaveAttribute('href', '/signup/venue')
-    await page.goto('/signup/venue')
-
-    await expect(page).toHaveURL('/signup/venue')
+    await Promise.all([page.waitForURL('**/signup/venue', { timeout: 15000 }), venueCard.click()])
+    await expect(page).toHaveURL(/\/signup\/venue$/)
     await expect(page.getByRole('heading', { name: /list your venue on 3rdplace/i })).toBeVisible()
     await expect(page.getByText(/booking email/i).first()).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
@@ -69,20 +65,28 @@ test.describe('Persona: Maya — SF host, first visit', () => {
   })
 
   test('vendor role card navigates to vendor signup form', async ({ page }) => {
-    await page.goto('/', { waitUntil: 'domcontentloaded' })
+    await page.goto('/signup', { waitUntil: 'domcontentloaded' })
     await page.waitForLoadState('networkidle')
 
-    const supplyTrigger = page.locator('nav').getByRole('button', { name: /list with us/i })
-    await supplyTrigger.click()
-    await expect(supplyTrigger).toHaveAttribute('aria-expanded', 'true')
-    const vendorCard = page.getByRole('menuitem', { name: /list as vendor/i })
+    const vendorCard = page.getByRole('link', { name: /list my services/i })
     await expect(vendorCard).toHaveAttribute('href', '/signup/vendor')
-    await page.goto('/signup/vendor')
-
-    await expect(page).toHaveURL('/signup/vendor')
+    await Promise.all([page.waitForURL('**/signup/vendor', { timeout: 15000 }), vendorCard.click()])
+    await expect(page).toHaveURL(/\/signup\/vendor$/)
     await expect(page.getByRole('heading', { name: /get booked on 3rdplace/i })).toBeVisible()
     await expect(page.getByText(/business \/ stage name/i).first()).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
+    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
+  })
+
+  test('creator role card navigates to builder signup form', async ({ page }) => {
+    await page.goto('/signup', { waitUntil: 'domcontentloaded' })
+    await page.waitForLoadState('networkidle')
+
+    const creatorCard = page.getByRole('link', { name: /run events/i })
+    await expect(creatorCard).toHaveAttribute('href', '/signup/builder')
+    await Promise.all([page.waitForURL('**/signup/builder', { timeout: 15000 }), creatorCard.click()])
+    await expect(page).toHaveURL(/\/signup\/builder$/)
+    await expect(page.getByRole('heading', { name: /set up your creator account/i })).toBeVisible()
     await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
   })
 
