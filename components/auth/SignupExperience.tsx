@@ -134,11 +134,24 @@ function Stepper({ step, total }: { step: number; total: number }) {
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  error,
+  children,
+}: {
+  label: string
+  error?: string
+  children: React.ReactNode
+}) {
   return (
     <div>
       <Label className="mb-1.5 block text-[13px] font-semibold leading-normal text-ink-soft">{label}</Label>
       {children}
+      {error ? (
+        <p className="mt-1.5 text-xs font-medium text-destructive" role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -158,6 +171,7 @@ function PasswordInput({
   return (
     <div className="relative">
       <Input
+        aria-label="Password"
         type={isVisible ? 'text' : 'password'}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -413,6 +427,37 @@ function getStripeLoginRedirect(userType: UserType) {
   return `${config.loginPath}?redirect=${encodeURIComponent(config.dashboardPath)}`
 }
 
+type FieldErrors = Record<string, string>
+
+function isBlank(value: string | null | undefined) {
+  return !value?.trim()
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+}
+
+function hasPositiveNumber(value: string) {
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) && parsed > 0
+}
+
+function firstError(errors: FieldErrors) {
+  return Object.values(errors)[0] ?? null
+}
+
+function getAccountStepErrors(form: { fullName: string; email: string; password: string }): FieldErrors {
+  const errors: FieldErrors = {}
+  if (isBlank(form.fullName)) errors.fullName = 'Name is required.'
+  if (isBlank(form.email)) {
+    errors.email = 'Email is required.'
+  } else if (!isValidEmail(form.email)) {
+    errors.email = 'Enter a valid email address.'
+  }
+  if (isBlank(form.password)) errors.password = 'Password is required.'
+  return errors
+}
+
 function BuilderSignupFlow({
   onBack,
   alreadySignedInWarning = false,
@@ -423,7 +468,8 @@ function BuilderSignupFlow({
   const router = useRouter()
   const { addToast } = useToast()
   const [step, setStep] = useState(1)
-  const total = 5
+  const total = 4
+  const activationStep = total + 1
   const [isLoading, setIsLoading] = useState(false)
   const [inlineError, setInlineError] = useState<string | null>(null)
   const [activationState, setActivationState] = useState<CreatorActivationState | null>(null)
@@ -455,8 +501,45 @@ function BuilderSignupFlow({
       [key]: f[key].includes(value) ? f[key].filter((v) => v !== value) : [...f[key], value],
     }))
   }
+  const selectedTicketPlatforms = form.platforms
+    .map((platform) => ticketPlatformIds[platform])
+    .filter((platform): platform is (typeof ticketPlatformIds)[keyof typeof ticketPlatformIds] => Boolean(platform))
+
+  const getStepErrors = (targetStep = step): FieldErrors => {
+    if (targetStep === 1) return getAccountStepErrors(form)
+    if (targetStep === 2) {
+      const errors: FieldErrors = {}
+      if (isBlank(form.orgName)) errors.orgName = 'Organization name is required.'
+      if (isBlank(form.orgType)) errors.orgType = 'Organization type is required.'
+      if (isBlank(form.bio)) errors.bio = 'Short bio is required.'
+      return errors
+    }
+    if (targetStep === 3) {
+      const errors: FieldErrors = {}
+      if (form.eventTypes.length === 0) errors.eventTypes = 'Select at least one event type.'
+      if (!hasPositiveNumber(form.avgAttendance)) errors.avgAttendance = 'Enter average attendance.'
+      if (form.amenities.length === 0) errors.amenities = 'Select at least one preferred amenity.'
+      return errors
+    }
+    if (targetStep === 4) {
+      const errors: FieldErrors = {}
+      if (selectedTicketPlatforms.length === 0) {
+        errors.platforms = 'Select at least one supported ticketing platform.'
+      }
+      return errors
+    }
+    return {}
+  }
+  const stepErrors = getStepErrors()
+  const isCurrentStepValid = Object.keys(stepErrors).length === 0
 
   const next = () => {
+    const errors = getStepErrors()
+    const message = firstError(errors)
+    if (message) {
+      setInlineError(message)
+      return
+    }
     setInlineError(null)
     setStep((s) => Math.min(total, s + 1))
   }
@@ -468,9 +551,6 @@ function BuilderSignupFlow({
     if (targetStep) setStep(targetStep)
     setInlineError(message)
   }
-  const selectedTicketPlatforms = form.platforms
-    .map((platform) => ticketPlatformIds[platform])
-    .filter((platform): platform is (typeof ticketPlatformIds)[keyof typeof ticketPlatformIds] => Boolean(platform))
 
   async function copyToClipboard(value: string, label: string) {
     try {
@@ -483,7 +563,14 @@ function BuilderSignupFlow({
 
   const createAccountForActivation = async () => {
     if (activationState) {
-      setStep(5)
+      setStep(activationStep)
+      return
+    }
+
+    const errors = getStepErrors(4)
+    const message = firstError(errors)
+    if (message) {
+      setInlineError(message)
       return
     }
 
@@ -566,7 +653,7 @@ function BuilderSignupFlow({
         migratedPlanId,
         migrationFailed,
       })
-      setStep(5)
+      setStep(activationStep)
       addToast({
         title: result.requiresEmailConfirmation ? 'Check your email' : 'Account created',
         description: result.requiresEmailConfirmation
@@ -602,24 +689,24 @@ function BuilderSignupFlow({
 
   return (
     <AuthShell
-      eyebrow={`Creator sign-up · Step ${step} of ${total}`}
+      eyebrow={step <= total ? `Creator sign-up · Step ${step} of ${total}` : 'Creator sign-up · Activation'}
       title="Set up your Creator account"
       subtitle="Tell us about your organization and the events you throw so we can match you to the right venues and vendors."
       alreadySignedInWarning={alreadySignedInWarning}
     >
-      <Stepper step={step} total={total} />
+      <Stepper step={Math.min(step, total)} total={total} />
 
       {step === 1 && (
         <div className="space-y-4 animate-fade-in">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Full name">
+            <Field label="Full name" error={stepErrors.fullName}>
               <Input value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} placeholder="Alex Rivera" />
             </Field>
-            <Field label="Work email">
+            <Field label="Work email" error={stepErrors.email}>
               <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="alex@brand.com" />
             </Field>
           </div>
-          <Field label="Password">
+          <Field label="Password" error={stepErrors.password}>
             <PasswordInput value={form.password} onChange={(password) => setForm({ ...form, password })} />
           </Field>
         </div>
@@ -628,10 +715,10 @@ function BuilderSignupFlow({
       {step === 2 && (
         <div className="space-y-4 animate-fade-in">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Organization / brand / collective">
+            <Field label="Organization / brand / collective" error={stepErrors.orgName}>
               <Input value={form.orgName} onChange={(e) => setForm({ ...form, orgName: e.target.value })} placeholder="Sunset Social Club" />
             </Field>
-            <Field label="Type of organization">
+            <Field label="Type of organization" error={stepErrors.orgType}>
               <select
                 value={form.orgType}
                 onChange={(e) => setForm({ ...form, orgType: e.target.value })}
@@ -650,7 +737,7 @@ function BuilderSignupFlow({
               <Input value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} placeholder="https://..." />
             </Field>
           </div>
-          <Field label="Short bio">
+          <Field label="Short bio" error={stepErrors.bio}>
             <Textarea rows={3} value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="What's your scene? Who do you throw events for?" />
           </Field>
         </div>
@@ -661,13 +748,23 @@ function BuilderSignupFlow({
           <div>
             <Label className="mb-2 block">What types of events do you host?</Label>
             <ChipGroup options={creatorEventTypes} selected={form.eventTypes} onToggle={(v) => toggle('eventTypes', v)} />
+            {stepErrors.eventTypes ? (
+              <p className="mt-1.5 text-xs font-medium text-destructive" role="alert">
+                {stepErrors.eventTypes}
+              </p>
+            ) : null}
           </div>
-          <Field label="Average attendance per event">
+          <Field label="Average attendance per event" error={stepErrors.avgAttendance}>
             <Input value={form.avgAttendance} onChange={(e) => setForm({ ...form, avgAttendance: e.target.value })} placeholder="e.g. 150" />
           </Field>
           <div>
             <Label className="mb-2 block">Amenities that matter most when picking a space</Label>
             <ChipGroup options={creatorAmenities} selected={form.amenities} onToggle={(v) => toggle('amenities', v)} />
+            {stepErrors.amenities ? (
+              <p className="mt-1.5 text-xs font-medium text-destructive" role="alert">
+                {stepErrors.amenities}
+              </p>
+            ) : null}
           </div>
         </div>
       )}
@@ -678,6 +775,11 @@ function BuilderSignupFlow({
             <Label className="mb-2 block text-[13px] font-semibold text-ink-soft">Connect your ticketing platforms</Label>
             <p className="mb-3 text-[13px] text-ink-soft">We&apos;ll auto-import sales totals and attendee counts.</p>
             <ChipGroup options={ticketPlatforms} selected={form.platforms} onToggle={(v) => toggle('platforms', v)} />
+            {stepErrors.platforms ? (
+              <p className="mt-1.5 text-xs font-medium text-destructive" role="alert">
+                {stepErrors.platforms}
+              </p>
+            ) : null}
           </div>
 
           <TicketingSetupGuide selectedPlatforms={form.platforms} compact />
@@ -798,7 +900,7 @@ function BuilderSignupFlow({
       <div className="mt-8 space-y-4 sm:mt-10">
         <InlineFormError message={inlineError} />
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-          {step < 5 ? (
+          {step <= total ? (
             <Button variant="glass" onClick={back} className="w-full sm:w-auto">
               <ArrowLeft className="h-4 w-4" /> Back
             </Button>
@@ -806,11 +908,11 @@ function BuilderSignupFlow({
             <div />
           )}
           {step < 4 ? (
-            <Button variant="hero" onClick={next} className="w-full sm:w-auto">
+            <Button variant="hero" onClick={next} disabled={!isCurrentStepValid} className="w-full sm:w-auto">
               Continue <ArrowRight className="h-4 w-4" />
             </Button>
           ) : step === 4 ? (
-            <Button variant="hero" onClick={createAccountForActivation} disabled={isLoading} className="w-full sm:w-auto">
+            <Button variant="hero" onClick={createAccountForActivation} disabled={isLoading || !isCurrentStepValid} className="w-full sm:w-auto">
               <Ticket className="h-4 w-4" />
               {isLoading ? 'Creating account...' : 'Create account & activate'}
             </Button>
@@ -894,7 +996,62 @@ function VenueSignupFlow({
     setForm((f) => ({ ...f, [key]: f[key].includes(v) ? f[key].filter((x) => x !== v) : [...f[key], v] }))
   }
 
+  const getStepErrors = (targetStep = step): FieldErrors => {
+    if (targetStep === 1) {
+      const errors: FieldErrors = {}
+      if (isBlank(form.contactName)) errors.contactName = 'Point-of-contact name is required.'
+      if (isBlank(form.contactRole)) errors.contactRole = 'Role is required.'
+      if (isBlank(form.email)) {
+        errors.email = 'Booking email is required.'
+      } else if (!isValidEmail(form.email)) {
+        errors.email = 'Enter a valid booking email.'
+      }
+      if (isBlank(form.phone)) errors.phone = 'Booking phone is required.'
+      if (isBlank(form.password)) errors.password = 'Password is required.'
+      return errors
+    }
+    if (targetStep === 2) {
+      const errors: FieldErrors = {}
+      if (isBlank(form.venueName)) errors.venueName = 'Venue name is required.'
+      if (isBlank(form.venueType)) errors.venueType = 'Venue type is required.'
+      if (isBlank(form.address)) errors.address = 'Main entrance address is required.'
+      if (isBlank(form.city)) errors.city = 'City is required.'
+      if (isBlank(form.state)) errors.state = 'State is required.'
+      if (isBlank(form.zipCode)) errors.zipCode = 'ZIP is required.'
+      if (!hasPositiveNumber(form.capacity)) errors.capacity = 'Maximum capacity is required.'
+      return errors
+    }
+    if (targetStep === 3) {
+      const errors: FieldErrors = {}
+      if (form.amenities.length === 0) errors.amenities = 'Select at least one venue amenity.'
+      if (isBlank(form.houseRules)) errors.houseRules = 'House rules are required.'
+      return errors
+    }
+    if (targetStep === 4) {
+      const errors: FieldErrors = {}
+      if (!hasPositiveNumber(form.pricePerNight)) errors.pricePerNight = 'Base price per night is required.'
+      if (!hasPositiveNumber(form.deposit)) errors.deposit = 'Deposit amount is required.'
+      if (isBlank(form.cancellationTerms)) errors.cancellationTerms = 'Cancellation terms are required.'
+      if (form.isBar && !hasPositiveNumber(form.minBarSpend)) errors.minBarSpend = 'Minimum bar spend is required when bar settings are enabled.'
+      return errors
+    }
+    if (targetStep === 5) {
+      const errors: FieldErrors = {}
+      if (form.openDays.length === 0) errors.openDays = 'Select at least one available booking day.'
+      return errors
+    }
+    return {}
+  }
+  const stepErrors = getStepErrors()
+  const isCurrentStepValid = Object.keys(stepErrors).length === 0
+
   const next = () => {
+    const errors = getStepErrors()
+    const message = firstError(errors)
+    if (message) {
+      setInlineError(message)
+      return
+    }
     setInlineError(null)
     setStep((s) => Math.min(total, s + 1))
   }
@@ -904,6 +1061,13 @@ function VenueSignupFlow({
   }
 
   const finish = async () => {
+    const errors = getStepErrors(total)
+    const message = firstError(errors)
+    if (message) {
+      setInlineError(message)
+      return
+    }
+
     setIsLoading(true)
     setInlineError(null)
     try {
@@ -973,22 +1137,22 @@ function VenueSignupFlow({
       {step === 1 && (
         <div className="space-y-4 animate-fade-in">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Point-of-contact name">
+            <Field label="Point-of-contact name" error={stepErrors.contactName}>
               <Input value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} placeholder="Jordan Lee" />
             </Field>
-            <Field label="Their role">
+            <Field label="Their role" error={stepErrors.contactRole}>
               <Input value={form.contactRole} onChange={(e) => setForm({ ...form, contactRole: e.target.value })} placeholder="GM / Owner / Booker" />
             </Field>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Booking email">
+            <Field label="Booking email" error={stepErrors.email}>
               <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="bookings@venue.com" />
             </Field>
-            <Field label="Booking phone">
+            <Field label="Booking phone" error={stepErrors.phone}>
               <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+1 (555) 555-5555" />
             </Field>
           </div>
-          <Field label="Password">
+          <Field label="Password" error={stepErrors.password}>
             <PasswordInput value={form.password} onChange={(password) => setForm({ ...form, password })} />
           </Field>
         </div>
@@ -997,10 +1161,10 @@ function VenueSignupFlow({
       {step === 2 && (
         <div className="space-y-4 animate-fade-in">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Venue name">
+            <Field label="Venue name" error={stepErrors.venueName}>
               <Input value={form.venueName} onChange={(e) => setForm({ ...form, venueName: e.target.value })} placeholder="The Foundry Loft" />
             </Field>
-            <Field label="Venue type">
+            <Field label="Venue type" error={stepErrors.venueType}>
               <select
                 value={form.venueType}
                 onChange={(e) => setForm({ ...form, venueType: e.target.value })}
@@ -1011,22 +1175,22 @@ function VenueSignupFlow({
               </select>
             </Field>
           </div>
-          <Field label="Main entrance address">
+          <Field label="Main entrance address" error={stepErrors.address}>
             <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="123 Industry Rd, Brooklyn NY" />
           </Field>
           <div className="grid gap-4 sm:grid-cols-3">
-            <Field label="City">
+            <Field label="City" error={stepErrors.city}>
               <Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Brooklyn" />
             </Field>
             <Field label="Neighborhood">
               <Input value={form.neighborhood} onChange={(e) => setForm({ ...form, neighborhood: e.target.value })} placeholder="SOMA" />
             </Field>
-            <Field label="State">
+            <Field label="State" error={stepErrors.state}>
               <Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} placeholder="NY" maxLength={2} />
             </Field>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="ZIP">
+            <Field label="ZIP" error={stepErrors.zipCode}>
               <Input value={form.zipCode} onChange={(e) => setForm({ ...form, zipCode: e.target.value })} placeholder="11201" />
             </Field>
             <Field label="Prep / load-in time allowed (hours)">
@@ -1037,7 +1201,7 @@ function VenueSignupFlow({
             <Input value={form.loadingAddress} onChange={(e) => setForm({ ...form, loadingAddress: e.target.value })} placeholder="Rear entrance — 124 Industry Rd" />
           </Field>
           <div className="grid gap-4 sm:grid-cols-1">
-            <Field label="Maximum capacity">
+            <Field label="Maximum capacity" error={stepErrors.capacity}>
               <Input type="number" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} placeholder="250" />
             </Field>
           </div>
@@ -1049,6 +1213,11 @@ function VenueSignupFlow({
           <div>
             <Label className="mb-2 block">Amenities & equipment</Label>
             <ChipGroup options={venueAmenities} selected={form.amenities} onToggle={(v) => toggle('amenities', v)} />
+            {stepErrors.amenities ? (
+              <p className="mt-1.5 text-xs font-medium text-destructive" role="alert">
+                {stepErrors.amenities}
+              </p>
+            ) : null}
           </div>
           <div>
             <Label className="mb-2 block">Photos of the space</Label>
@@ -1060,7 +1229,7 @@ function VenueSignupFlow({
               </div>
             </div>
           </div>
-          <Field label="House rules">
+          <Field label="House rules" error={stepErrors.houseRules}>
             <Textarea
               rows={4}
               value={form.houseRules}
@@ -1089,7 +1258,7 @@ function VenueSignupFlow({
                 <Field label="Per-head drink sales (%)">
                   <Input type="number" value={form.perHeadDrinkPct} onChange={(e) => setForm({ ...form, perHeadDrinkPct: e.target.value })} placeholder="15" />
                 </Field>
-                <Field label="Minimum bar spend ($)">
+                <Field label="Minimum bar spend ($)" error={stepErrors.minBarSpend}>
                   <Input type="number" value={form.minBarSpend} onChange={(e) => setForm({ ...form, minBarSpend: e.target.value })} placeholder="2000" />
                 </Field>
               </div>
@@ -1097,18 +1266,18 @@ function VenueSignupFlow({
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Base price per night ($)">
+            <Field label="Base price per night ($)" error={stepErrors.pricePerNight}>
               <Input type="number" value={form.pricePerNight} onChange={(e) => setForm({ ...form, pricePerNight: e.target.value })} placeholder="3500" />
             </Field>
           </div>
 
           <NestedReveal>
-            <Field label="Deposit required ($)">
+            <Field label="Deposit required ($)" error={stepErrors.deposit}>
               <Input type="number" value={form.deposit} onChange={(e) => setForm({ ...form, deposit: e.target.value })} placeholder="1500" />
             </Field>
           </NestedReveal>
 
-          <Field label="Cancellation terms">
+          <Field label="Cancellation terms" error={stepErrors.cancellationTerms}>
             <Textarea
               rows={3}
               value={form.cancellationTerms}
@@ -1124,6 +1293,11 @@ function VenueSignupFlow({
           <div>
             <Label className="mb-2 block text-[13px] font-semibold text-ink-soft">Available booking days</Label>
             <ChipGroup options={weekDays} selected={form.openDays} onToggle={(v) => toggle('openDays', v)} />
+            {stepErrors.openDays ? (
+              <p className="mt-1.5 text-xs font-medium text-destructive" role="alert">
+                {stepErrors.openDays}
+              </p>
+            ) : null}
           </div>
 
           {form.openDays.length > 0 ? (
@@ -1161,11 +1335,11 @@ function VenueSignupFlow({
             <ArrowLeft className="h-4 w-4" /> Back
           </Button>
           {step < total ? (
-            <Button variant="hero" onClick={next}>
+            <Button variant="hero" onClick={next} disabled={!isCurrentStepValid}>
               Continue <ArrowRight className="h-4 w-4" />
             </Button>
           ) : (
-            <Button variant="hero" onClick={finish} disabled={isLoading}>
+            <Button variant="hero" onClick={finish} disabled={isLoading || !isCurrentStepValid}>
               <Building2 className="h-4 w-4" />
               {isLoading ? 'Publishing...' : 'Publish my venue listing'}
             </Button>
@@ -1237,7 +1411,58 @@ function VendorSignupFlow({
     setForm((f) => ({ ...f, [key]: f[key].includes(v) ? f[key].filter((x) => x !== v) : [...f[key], v] }))
   }
 
+  const getStepErrors = (targetStep = step): FieldErrors => {
+    if (targetStep === 1) {
+      const errors: FieldErrors = {}
+      if (isBlank(form.fullName)) errors.fullName = 'Name is required.'
+      if (isBlank(form.businessName)) errors.businessName = 'Business or stage name is required.'
+      if (isBlank(form.email)) {
+        errors.email = 'Email is required.'
+      } else if (!isValidEmail(form.email)) {
+        errors.email = 'Enter a valid email address.'
+      }
+      if (isBlank(form.phone)) errors.phone = 'Phone is required.'
+      if (isBlank(form.password)) errors.password = 'Password is required.'
+      return errors
+    }
+    if (targetStep === 2) {
+      const errors: FieldErrors = {}
+      if (form.services.length === 0) errors.services = 'Select at least one service.'
+      if (isBlank(form.serviceArea)) errors.serviceArea = 'Service area is required.'
+      if (isBlank(form.portfolioUrl)) errors.portfolioUrl = 'Portfolio or social link is required.'
+      if (isBlank(form.bio)) errors.bio = 'Short bio is required.'
+      return errors
+    }
+    if (targetStep === 3) {
+      const errors: FieldErrors = {}
+      if (!hasPositiveNumber(form.basePrice)) errors.basePrice = 'Base price is required.'
+      if (isBlank(form.packageName)) errors.packageName = 'Starter package name is required.'
+      if (isBlank(form.packageDetails)) errors.packageDetails = 'Starter package details are required.'
+      if (!hasPositiveNumber(form.depositPct)) errors.depositPct = 'Deposit percentage is required.'
+      if (!hasPositiveNumber(form.leadTimeDays)) errors.leadTimeDays = 'Minimum lead time is required.'
+      if (isBlank(form.cancellationTerms)) errors.cancellationTerms = 'Cancellation terms are required.'
+      return errors
+    }
+    if (targetStep === 4) {
+      const errors: FieldErrors = {}
+      if (form.availableDays.length === 0) errors.availableDays = 'Select at least one available day.'
+      if (form.emergencyAvailable && !hasPositiveNumber(form.emergencyRate)) {
+        errors.emergencyRate = 'Emergency-rate uplift is required when emergency availability is enabled.'
+      }
+      return errors
+    }
+    return {}
+  }
+  const stepErrors = getStepErrors()
+  const isCurrentStepValid = Object.keys(stepErrors).length === 0
+
   const next = () => {
+    const errors = getStepErrors()
+    const message = firstError(errors)
+    if (message) {
+      setInlineError(message)
+      return
+    }
     setInlineError(null)
     setStep((s) => Math.min(total, s + 1))
   }
@@ -1247,6 +1472,13 @@ function VendorSignupFlow({
   }
 
   const finish = async () => {
+    const errors = getStepErrors(total)
+    const message = firstError(errors)
+    if (message) {
+      setInlineError(message)
+      return
+    }
+
     setIsLoading(true)
     setInlineError(null)
     try {
@@ -1309,22 +1541,22 @@ function VendorSignupFlow({
       {step === 1 && (
         <div className="space-y-4 animate-fade-in">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Your name">
+            <Field label="Your name" error={stepErrors.fullName}>
               <Input value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} placeholder="Sam Carter" />
             </Field>
-            <Field label="Business / stage name">
+            <Field label="Business / stage name" error={stepErrors.businessName}>
               <Input value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} placeholder="DJ Solstice" />
             </Field>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Email">
+            <Field label="Email" error={stepErrors.email}>
               <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="hello@vendor.com" />
             </Field>
-            <Field label="Phone">
+            <Field label="Phone" error={stepErrors.phone}>
               <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+1 (555) 555-5555" />
             </Field>
           </div>
-          <Field label="Password">
+          <Field label="Password" error={stepErrors.password}>
             <PasswordInput value={form.password} onChange={(password) => setForm({ ...form, password })} />
           </Field>
         </div>
@@ -1335,16 +1567,21 @@ function VendorSignupFlow({
           <div>
             <Label className="mb-2 block">What services do you provide?</Label>
             <ChipGroup options={vendorServices} selected={form.services} onToggle={(v) => toggle('services', v)} />
+            {stepErrors.services ? (
+              <p className="mt-1.5 text-xs font-medium text-destructive" role="alert">
+                {stepErrors.services}
+              </p>
+            ) : null}
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Service area">
+            <Field label="Service area" error={stepErrors.serviceArea}>
               <Input value={form.serviceArea} onChange={(e) => setForm({ ...form, serviceArea: e.target.value })} placeholder="NYC + tri-state, will travel" />
             </Field>
-            <Field label="Portfolio / IG link">
+            <Field label="Portfolio / IG link" error={stepErrors.portfolioUrl}>
               <Input value={form.portfolioUrl} onChange={(e) => setForm({ ...form, portfolioUrl: e.target.value })} placeholder="https://instagram.com/..." />
             </Field>
           </div>
-          <Field label="Short bio">
+          <Field label="Short bio" error={stepErrors.bio}>
             <Textarea
               rows={3}
               value={form.bio}
@@ -1360,7 +1597,7 @@ function VendorSignupFlow({
           <NestedReveal>
             <p className="label-caps text-clay-deep">Pricing model</p>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <Field label="Base / starting price ($)">
+              <Field label="Base / starting price ($)" error={stepErrors.basePrice}>
                 <Input type="number" value={form.basePrice} onChange={(e) => setForm({ ...form, basePrice: e.target.value })} placeholder="800" />
               </Field>
               <div className="rounded-md border border-tan bg-cream px-4 py-3">
@@ -1372,11 +1609,11 @@ function VendorSignupFlow({
 
           <NestedReveal>
             <p className="mb-4 font-display text-[22px] font-semibold text-ink">Starter package</p>
-            <Field label="Package name">
+            <Field label="Package name" error={stepErrors.packageName}>
               <Input value={form.packageName} onChange={(e) => setForm({ ...form, packageName: e.target.value })} placeholder="4-hour open format set" />
             </Field>
             <div className="mt-4">
-              <Field label="What's included">
+              <Field label="What's included" error={stepErrors.packageDetails}>
                 <Textarea
                   rows={3}
                   value={form.packageDetails}
@@ -1390,16 +1627,16 @@ function VendorSignupFlow({
           <NestedReveal>
             <p className="label-caps text-clay-deep">Deposit terms</p>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <Field label="Deposit required (%)">
+              <Field label="Deposit required (%)" error={stepErrors.depositPct}>
                 <Input type="number" value={form.depositPct} onChange={(e) => setForm({ ...form, depositPct: e.target.value })} placeholder="30" />
               </Field>
-              <Field label="Minimum lead time (days)">
+              <Field label="Minimum lead time (days)" error={stepErrors.leadTimeDays}>
                 <Input type="number" value={form.leadTimeDays} onChange={(e) => setForm({ ...form, leadTimeDays: e.target.value })} placeholder="7" />
               </Field>
             </div>
           </NestedReveal>
 
-          <Field label="Cancellation terms">
+          <Field label="Cancellation terms" error={stepErrors.cancellationTerms}>
             <Textarea
               rows={2}
               value={form.cancellationTerms}
@@ -1419,6 +1656,11 @@ function VendorSignupFlow({
             <Label className="mb-2 block text-[13px] font-semibold text-ink-soft">Days you&apos;re typically available</Label>
             <ChipGroup options={weekDays} selected={form.availableDays} onToggle={(v) => toggle('availableDays', v)} />
             <p className="mt-2 text-xs text-ink-soft">After signup, set specific blocked dates on your calendar.</p>
+            {stepErrors.availableDays ? (
+              <p className="mt-1.5 text-xs font-medium text-destructive" role="alert">
+                {stepErrors.availableDays}
+              </p>
+            ) : null}
           </div>
 
           <ToggleRow
@@ -1431,7 +1673,7 @@ function VendorSignupFlow({
 
           {form.emergencyAvailable && (
             <NestedReveal>
-              <Field label="Emergency-rate uplift (%)">
+              <Field label="Emergency-rate uplift (%)" error={stepErrors.emergencyRate}>
                 <Input type="number" value={form.emergencyRate} onChange={(e) => setForm({ ...form, emergencyRate: e.target.value })} placeholder="50" />
               </Field>
             </NestedReveal>
@@ -1446,11 +1688,11 @@ function VendorSignupFlow({
             <ArrowLeft className="h-4 w-4" /> Back
           </Button>
           {step < total ? (
-            <Button variant="hero" onClick={next}>
+            <Button variant="hero" onClick={next} disabled={!isCurrentStepValid}>
               Continue <ArrowRight className="h-4 w-4" />
             </Button>
           ) : (
-            <Button variant="hero" onClick={finish} disabled={isLoading}>
+            <Button variant="hero" onClick={finish} disabled={isLoading || !isCurrentStepValid}>
               <Music2 className="h-4 w-4" />
               {isLoading ? 'Publishing...' : 'Publish my vendor profile'}
             </Button>
