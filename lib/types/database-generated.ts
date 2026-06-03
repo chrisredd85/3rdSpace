@@ -39,6 +39,1040 @@ export type Database = {
   }
   public: {
     Tables: {
+      creator_email_accounts: {
+        Row: {
+          created_at: string
+          email_address: string
+          history_id: string | null
+          id: string
+          label_id: string | null
+          oauth_access_token: string
+          oauth_refresh_token: string
+          provider: string
+          revoked_at: string | null
+          token_expires_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email_address: string
+          history_id?: string | null
+          id?: string
+          label_id?: string | null
+          oauth_access_token: string
+          oauth_refresh_token: string
+          provider?: string
+          revoked_at?: string | null
+          token_expires_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email_address?: string
+          history_id?: string | null
+          id?: string
+          label_id?: string | null
+          oauth_access_token?: string
+          oauth_refresh_token?: string
+          provider?: string
+          revoked_at?: string | null
+          token_expires_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creator_email_accounts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creator_outreach_policies: {
+        Row: {
+          allowed_autonomous_actions: string[]
+          blacklisted_keywords: string[]
+          blacklisted_venue_ids: string[]
+          created_at: string
+          id: string
+          irreversible_autonomous_actions: string[]
+          max_followups_per_thread: number
+          max_inquiries_per_event: number
+          max_unattended_budget_cents: number
+          quiet_hours_end_local: string | null
+          quiet_hours_start_local: string | null
+          require_approval_for_first_contact: boolean
+          trust_level: number
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          allowed_autonomous_actions?: string[]
+          blacklisted_keywords?: string[]
+          blacklisted_venue_ids?: string[]
+          created_at?: string
+          id?: string
+          irreversible_autonomous_actions?: string[]
+          max_followups_per_thread?: number
+          max_inquiries_per_event?: number
+          max_unattended_budget_cents?: number
+          quiet_hours_end_local?: string | null
+          quiet_hours_start_local?: string | null
+          require_approval_for_first_contact?: boolean
+          trust_level?: number
+          updated_at?: string
+          user_id: string
+          version: number
+        }
+        Update: {
+          allowed_autonomous_actions?: string[]
+          blacklisted_keywords?: string[]
+          blacklisted_venue_ids?: string[]
+          created_at?: string
+          id?: string
+          irreversible_autonomous_actions?: string[]
+          max_followups_per_thread?: number
+          max_inquiries_per_event?: number
+          max_unattended_budget_cents?: number
+          quiet_hours_end_local?: string | null
+          quiet_hours_start_local?: string | null
+          require_approval_for_first_contact?: boolean
+          trust_level?: number
+          updated_at?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creator_outreach_policies_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creator_outreach_trust_history: {
+        Row: {
+          computed_at: string
+          id: string
+          metrics_json: Json
+          policy_id: string | null
+          policy_version: number | null
+          trust_level: number
+          user_id: string
+        }
+        Insert: {
+          computed_at?: string
+          id?: string
+          metrics_json?: Json
+          policy_id?: string | null
+          policy_version?: number | null
+          trust_level?: number
+          user_id: string
+        }
+        Update: {
+          computed_at?: string
+          id?: string
+          metrics_json?: Json
+          policy_id?: string | null
+          policy_version?: number | null
+          trust_level?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creator_outreach_trust_history_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "creator_outreach_policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creator_outreach_trust_history_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creator_phone_numbers: {
+        Row: {
+          a2p_registration_status: string
+          created_at: string
+          e164_number: string
+          id: string
+          twilio_sid: string | null
+          updated_at: string
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          a2p_registration_status?: string
+          created_at?: string
+          e164_number: string
+          id?: string
+          twilio_sid?: string | null
+          updated_at?: string
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          a2p_registration_status?: string
+          created_at?: string
+          e164_number?: string
+          id?: string
+          twilio_sid?: string | null
+          updated_at?: string
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creator_phone_numbers_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discovery_venue_events: {
+        Row: {
+          actor_user_id: string | null
+          created_at: string
+          discovery_venue_id: string
+          event_type: string
+          id: string
+          metadata: Json
+        }
+        Insert: {
+          actor_user_id?: string | null
+          created_at?: string
+          discovery_venue_id: string
+          event_type: string
+          id?: string
+          metadata?: Json
+        }
+        Update: {
+          actor_user_id?: string | null
+          created_at?: string
+          discovery_venue_id?: string
+          event_type?: string
+          id?: string
+          metadata?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_venue_events_actor_user_id_fkey"
+            columns: ["actor_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discovery_venue_events_discovery_venue_id_fkey"
+            columns: ["discovery_venue_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discovery_venue_signals: {
+        Row: {
+          created_at: string
+          discovery_venue_id: string | null
+          event_type: string
+          id: string
+          latency_seconds: number | null
+          thread_id: string | null
+          venue_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          discovery_venue_id?: string | null
+          event_type: string
+          id?: string
+          latency_seconds?: number | null
+          thread_id?: string | null
+          venue_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          discovery_venue_id?: string | null
+          event_type?: string
+          id?: string
+          latency_seconds?: number | null
+          thread_id?: string | null
+          venue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_venue_signals_discovery_venue_id_fkey"
+            columns: ["discovery_venue_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discovery_venue_signals_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_threads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discovery_venue_signals_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discovery_venues: {
+        Row: {
+          address: string | null
+          alcohol_policy: string | null
+          av_available: boolean | null
+          capacity_cocktail: number | null
+          capacity_seated: number | null
+          capacity_standing: number | null
+          city: string
+          claimed_venue_id: string | null
+          contact_email: string | null
+          contact_phone: string | null
+          created_at: string
+          google_photo_names: string[]
+          google_rating: number | null
+          google_user_ratings_total: number | null
+          id: string
+          instagram_handle: string | null
+          is_claimed: boolean
+          last_enriched_at: string | null
+          last_verified_at: string | null
+          lat: number | null
+          lng: number | null
+          metadata: Json
+          name: string
+          neighborhood: string | null
+          opening_hours_json: Json
+          parking_notes: string | null
+          price_hint_cents_high: number | null
+          price_hint_cents_low: number | null
+          price_hint_note: string | null
+          source: string
+          source_external_id: string | null
+          state: string
+          updated_at: string
+          vibe_tags: string[]
+          website: string | null
+        }
+        Insert: {
+          address?: string | null
+          alcohol_policy?: string | null
+          av_available?: boolean | null
+          capacity_cocktail?: number | null
+          capacity_seated?: number | null
+          capacity_standing?: number | null
+          city?: string
+          claimed_venue_id?: string | null
+          contact_email?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          google_photo_names?: string[]
+          google_rating?: number | null
+          google_user_ratings_total?: number | null
+          id?: string
+          instagram_handle?: string | null
+          is_claimed?: boolean
+          last_enriched_at?: string | null
+          last_verified_at?: string | null
+          lat?: number | null
+          lng?: number | null
+          metadata?: Json
+          name: string
+          neighborhood?: string | null
+          opening_hours_json?: Json
+          parking_notes?: string | null
+          price_hint_cents_high?: number | null
+          price_hint_cents_low?: number | null
+          price_hint_note?: string | null
+          source?: string
+          source_external_id?: string | null
+          state?: string
+          updated_at?: string
+          vibe_tags?: string[]
+          website?: string | null
+        }
+        Update: {
+          address?: string | null
+          alcohol_policy?: string | null
+          av_available?: boolean | null
+          capacity_cocktail?: number | null
+          capacity_seated?: number | null
+          capacity_standing?: number | null
+          city?: string
+          claimed_venue_id?: string | null
+          contact_email?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          google_photo_names?: string[]
+          google_rating?: number | null
+          google_user_ratings_total?: number | null
+          id?: string
+          instagram_handle?: string | null
+          is_claimed?: boolean
+          last_enriched_at?: string | null
+          last_verified_at?: string | null
+          lat?: number | null
+          lng?: number | null
+          metadata?: Json
+          name?: string
+          neighborhood?: string | null
+          opening_hours_json?: Json
+          parking_notes?: string | null
+          price_hint_cents_high?: number | null
+          price_hint_cents_low?: number | null
+          price_hint_note?: string | null
+          source?: string
+          source_external_id?: string | null
+          state?: string
+          updated_at?: string
+          vibe_tags?: string[]
+          website?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_venues_claimed_venue_id_fkey"
+            columns: ["claimed_venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outreach_compliance_events: {
+        Row: {
+          channel: string
+          created_at: string
+          event_type: string
+          id: string
+          message_id: string | null
+          metadata: Json
+          severity: string
+          thread_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          channel: string
+          created_at?: string
+          event_type: string
+          id?: string
+          message_id?: string | null
+          metadata?: Json
+          severity?: string
+          thread_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          channel?: string
+          created_at?: string
+          event_type?: string
+          id?: string
+          message_id?: string | null
+          metadata?: Json
+          severity?: string
+          thread_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_compliance_events_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_compliance_events_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_threads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_compliance_events_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outreach_messages: {
+        Row: {
+          agent_action_id: string | null
+          approval_id: string | null
+          attachments_json: Json
+          autonomous_send_after: string | null
+          autonomy_policy_id: string | null
+          autonomy_policy_version: number | null
+          autonomy_status: string
+          body_html: string | null
+          body_text: string
+          cancelled_at: string | null
+          channel_external_id: string | null
+          classification_json: Json | null
+          created_at: string
+          direction: string
+          gmail_message_id: string | null
+          gmail_thread_id: string | null
+          headers_json: Json
+          id: string
+          provider_cost_cents: number | null
+          provider_metadata_json: Json
+          received_at: string | null
+          recording_url: string | null
+          scheduled_send_at: string | null
+          sent_at: string | null
+          sent_manually: boolean
+          subject: string
+          thread_id: string
+          transcript_text: string | null
+          undo_expires_at: string | null
+        }
+        Insert: {
+          agent_action_id?: string | null
+          approval_id?: string | null
+          attachments_json?: Json
+          autonomous_send_after?: string | null
+          autonomy_policy_id?: string | null
+          autonomy_policy_version?: number | null
+          autonomy_status?: string
+          body_html?: string | null
+          body_text: string
+          cancelled_at?: string | null
+          channel_external_id?: string | null
+          classification_json?: Json | null
+          created_at?: string
+          direction: string
+          gmail_message_id?: string | null
+          gmail_thread_id?: string | null
+          headers_json?: Json
+          id?: string
+          provider_cost_cents?: number | null
+          provider_metadata_json?: Json
+          received_at?: string | null
+          recording_url?: string | null
+          scheduled_send_at?: string | null
+          sent_at?: string | null
+          sent_manually?: boolean
+          subject: string
+          thread_id: string
+          transcript_text?: string | null
+          undo_expires_at?: string | null
+        }
+        Update: {
+          agent_action_id?: string | null
+          approval_id?: string | null
+          attachments_json?: Json
+          autonomous_send_after?: string | null
+          autonomy_policy_id?: string | null
+          autonomy_policy_version?: number | null
+          autonomy_status?: string
+          body_html?: string | null
+          body_text?: string
+          cancelled_at?: string | null
+          channel_external_id?: string | null
+          classification_json?: Json | null
+          created_at?: string
+          direction?: string
+          gmail_message_id?: string | null
+          gmail_thread_id?: string | null
+          headers_json?: Json
+          id?: string
+          provider_cost_cents?: number | null
+          provider_metadata_json?: Json
+          received_at?: string | null
+          recording_url?: string | null
+          scheduled_send_at?: string | null
+          sent_at?: string | null
+          sent_manually?: boolean
+          subject?: string
+          thread_id?: string
+          transcript_text?: string | null
+          undo_expires_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_messages_agent_action_id_fkey"
+            columns: ["agent_action_id"]
+            isOneToOne: false
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_messages_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_messages_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outreach_notifications: {
+        Row: {
+          created_at: string
+          id: string
+          notification_type: string
+          payload_json: Json
+          read_at: string | null
+          thread_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          notification_type: string
+          payload_json?: Json
+          read_at?: string | null
+          thread_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          notification_type?: string
+          payload_json?: Json
+          read_at?: string | null
+          thread_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_notifications_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_threads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outreach_policy_audit_logs: {
+        Row: {
+          action: string
+          context_json: Json
+          created_at: string
+          decision: string
+          human_intervened: boolean
+          id: string
+          message_id: string | null
+          model_name: string | null
+          policy_id: string | null
+          policy_version: number | null
+          reason: string
+          required_approval_type: string | null
+          result_json: Json
+          retention_expires_at: string
+          reversible_until: string | null
+          thread_id: string | null
+          undone_at: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          context_json?: Json
+          created_at?: string
+          decision: string
+          human_intervened?: boolean
+          id?: string
+          message_id?: string | null
+          model_name?: string | null
+          policy_id?: string | null
+          policy_version?: number | null
+          reason: string
+          required_approval_type?: string | null
+          result_json?: Json
+          retention_expires_at?: string
+          reversible_until?: string | null
+          thread_id?: string | null
+          undone_at?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          context_json?: Json
+          created_at?: string
+          decision?: string
+          human_intervened?: boolean
+          id?: string
+          message_id?: string | null
+          model_name?: string | null
+          policy_id?: string | null
+          policy_version?: number | null
+          reason?: string
+          required_approval_type?: string | null
+          result_json?: Json
+          retention_expires_at?: string
+          reversible_until?: string | null
+          thread_id?: string | null
+          undone_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_policy_audit_logs_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_policy_audit_logs_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "creator_outreach_policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_policy_audit_logs_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_threads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_policy_audit_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outreach_threads: {
+        Row: {
+          channel: string
+          channel_strategy: Json
+          created_at: string
+          discovery_venue_id: string | null
+          follow_up_count: number
+          id: string
+          last_event_at: string
+          last_inbound_at: string | null
+          last_outbound_at: string | null
+          needs_attention: boolean
+          next_action_at: string | null
+          plan_id: string
+          source_agent_action_id: string | null
+          state: string
+          target_email: string | null
+          target_id: string | null
+          target_instagram_handle: string | null
+          target_name: string
+          target_phone: string | null
+          target_source: string
+          target_type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          channel?: string
+          channel_strategy?: Json
+          created_at?: string
+          discovery_venue_id?: string | null
+          follow_up_count?: number
+          id?: string
+          last_event_at?: string
+          last_inbound_at?: string | null
+          last_outbound_at?: string | null
+          needs_attention?: boolean
+          next_action_at?: string | null
+          plan_id: string
+          source_agent_action_id?: string | null
+          state?: string
+          target_email?: string | null
+          target_id?: string | null
+          target_instagram_handle?: string | null
+          target_name: string
+          target_phone?: string | null
+          target_source?: string
+          target_type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          channel?: string
+          channel_strategy?: Json
+          created_at?: string
+          discovery_venue_id?: string | null
+          follow_up_count?: number
+          id?: string
+          last_event_at?: string
+          last_inbound_at?: string | null
+          last_outbound_at?: string | null
+          needs_attention?: boolean
+          next_action_at?: string | null
+          plan_id?: string
+          source_agent_action_id?: string | null
+          state?: string
+          target_email?: string | null
+          target_id?: string | null
+          target_instagram_handle?: string | null
+          target_name?: string
+          target_phone?: string | null
+          target_source?: string
+          target_type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_threads_discovery_venue_id_fkey"
+            columns: ["discovery_venue_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_threads_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_threads_source_agent_action_id_fkey"
+            columns: ["source_agent_action_id"]
+            isOneToOne: false
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_threads_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supply_scout_venue_leads: {
+        Row: {
+          address: string
+          booking_likelihood: string
+          booking_signals: string[]
+          capacity_hint: number | null
+          captured_at: string
+          city: string
+          confidence: number
+          created_at: string
+          created_by: string | null
+          discovery_venue_id: string | null
+          disqualifiers: string[]
+          duplicate_of_lead_id: string | null
+          event_title: string | null
+          event_type: string | null
+          evidence_summary: string
+          id: string
+          metadata: Json
+          name: string
+          neighborhood: string | null
+          normalized_address: string
+          normalized_name: string
+          price_hint_cents_high: number | null
+          price_hint_cents_low: number | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          source_platform: string
+          source_url: string | null
+          state: string
+          updated_at: string
+          website: string | null
+        }
+        Insert: {
+          address: string
+          booking_likelihood?: string
+          booking_signals?: string[]
+          capacity_hint?: number | null
+          captured_at?: string
+          city?: string
+          confidence?: number
+          created_at?: string
+          created_by?: string | null
+          discovery_venue_id?: string | null
+          disqualifiers?: string[]
+          duplicate_of_lead_id?: string | null
+          event_title?: string | null
+          event_type?: string | null
+          evidence_summary: string
+          id?: string
+          metadata?: Json
+          name: string
+          neighborhood?: string | null
+          normalized_address: string
+          normalized_name: string
+          price_hint_cents_high?: number | null
+          price_hint_cents_low?: number | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source_platform: string
+          source_url?: string | null
+          state?: string
+          updated_at?: string
+          website?: string | null
+        }
+        Update: {
+          address?: string
+          booking_likelihood?: string
+          booking_signals?: string[]
+          capacity_hint?: number | null
+          captured_at?: string
+          city?: string
+          confidence?: number
+          created_at?: string
+          created_by?: string | null
+          discovery_venue_id?: string | null
+          disqualifiers?: string[]
+          duplicate_of_lead_id?: string | null
+          event_title?: string | null
+          event_type?: string | null
+          evidence_summary?: string
+          id?: string
+          metadata?: Json
+          name?: string
+          neighborhood?: string | null
+          normalized_address?: string
+          normalized_name?: string
+          price_hint_cents_high?: number | null
+          price_hint_cents_low?: number | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source_platform?: string
+          source_url?: string | null
+          state?: string
+          updated_at?: string
+          website?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supply_scout_venue_leads_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supply_scout_venue_leads_discovery_venue_id_fkey"
+            columns: ["discovery_venue_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supply_scout_venue_leads_duplicate_of_lead_id_fkey"
+            columns: ["duplicate_of_lead_id"]
+            isOneToOne: false
+            referencedRelation: "supply_scout_venue_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supply_scout_venue_leads_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      venue_contact_profiles: {
+        Row: {
+          contact_name: string | null
+          created_at: string
+          discovery_venue_id: string | null
+          email: string | null
+          id: string
+          instagram_handle: string | null
+          phone_e164: string | null
+          preferred_channel: string
+          sms_opted_out_at: string | null
+          source: string
+          updated_at: string
+          venue_id: string | null
+          verified_at: string | null
+          voice_allowed: boolean
+        }
+        Insert: {
+          contact_name?: string | null
+          created_at?: string
+          discovery_venue_id?: string | null
+          email?: string | null
+          id?: string
+          instagram_handle?: string | null
+          phone_e164?: string | null
+          preferred_channel?: string
+          sms_opted_out_at?: string | null
+          source?: string
+          updated_at?: string
+          venue_id?: string | null
+          verified_at?: string | null
+          voice_allowed?: boolean
+        }
+        Update: {
+          contact_name?: string | null
+          created_at?: string
+          discovery_venue_id?: string | null
+          email?: string | null
+          id?: string
+          instagram_handle?: string | null
+          phone_e164?: string | null
+          preferred_channel?: string
+          sms_opted_out_at?: string | null
+          source?: string
+          updated_at?: string
+          venue_id?: string | null
+          verified_at?: string | null
+          voice_allowed?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "venue_contact_profiles_discovery_venue_id_fkey"
+            columns: ["discovery_venue_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_contact_profiles_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       admin_audit_log: {
         Row: {
           action: string
