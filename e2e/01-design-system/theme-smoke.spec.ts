@@ -3,18 +3,16 @@ import { annotateFailure } from '../helpers/failure-taxonomy'
 import { attachPageHealth, collectPageHealth, expectNoPageHealthIssues } from '../helpers/page-health'
 
 test.describe('design system smoke', () => {
-  test('homepage uses the dark vibrant system and role CTAs remain reachable', async ({ page }, testInfo) => {
-    annotateFailure(testInfo, 'DESIGN_REGRESSION', 'Homepage shell should preserve the Lovable dark vibrant system')
+  test('homepage uses the Lovable cream theme and signup CTA remains reachable', async ({ page }, testInfo) => {
+    annotateFailure(testInfo, 'DESIGN_REGRESSION', 'Homepage shell should preserve the Lovable cream/clay theme and signup entry point')
     const issues = collectPageHealth(page)
 
     await page.goto('/', { waitUntil: 'domcontentloaded' })
     await page.waitForLoadState('networkidle')
-    await expect(page.getByRole('link', { name: /^sign in$/i }).first()).toBeVisible()
-    const supplyTrigger = page.getByRole('button', { name: /list with us/i })
-    await supplyTrigger.click()
-    await expect(supplyTrigger).toHaveAttribute('aria-expanded', 'true')
-    await expect(page.getByRole('menuitem', { name: /list your venue/i }).first()).toBeVisible()
-    await expect(page.getByRole('menuitem', { name: /list as vendor/i }).first()).toBeVisible()
+    await expect(page.getByRole('link', { name: /^log in$/i }).first()).toBeVisible()
+    const signupLink = page.locator('nav').getByRole('link', { name: /^sign up$/i }).first()
+    await expect(signupLink).toBeVisible()
+    await expect(signupLink).toHaveAttribute('href', '/signup')
     await expect(page.getByRole('textbox', { name: /describe the event you want to host/i })).toBeVisible()
 
     const bodyStyles = await page.locator('body').evaluate((body) => {

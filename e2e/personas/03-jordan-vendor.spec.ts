@@ -13,20 +13,19 @@ test.describe('Persona: Jordan — vendor wants to join', () => {
     await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
   })
 
-  test('"List as vendor" supply dropdown item reaches vendor signup', async ({ page }) => {
+  test('"List my services" role card reaches vendor signup', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.waitForLoadState('networkidle')
 
-    const nav = page.locator('nav')
-    const supplyTrigger = nav.getByRole('button', { name: /list with us/i })
-    await supplyTrigger.click()
-    await expect(supplyTrigger).toHaveAttribute('aria-expanded', 'true')
-    const vendorNav = page.getByRole('menuitem', { name: /list as vendor/i })
-    await expect(vendorNav).toHaveAttribute('href', '/signup/vendor')
-    await page.goto('/signup/vendor', { waitUntil: 'domcontentloaded' })
-
-    await expect(page).toHaveURL('/signup/vendor')
+    const signupLink = page.locator('nav').getByRole('link', { name: /^sign up$/i }).first()
+    await expect(signupLink).toHaveAttribute('href', '/signup')
+    await Promise.all([page.waitForURL('**/signup', { timeout: 15000 }), signupLink.click()])
+    await expect(page).toHaveURL(/\/signup$/)
+    const vendorCard = page.getByRole('link', { name: /list my services/i })
+    await expect(vendorCard).toHaveAttribute('href', '/signup/vendor')
+    await Promise.all([page.waitForURL('**/signup/vendor', { timeout: 15000 }), vendorCard.click()])
+    await expect(page).toHaveURL(/\/signup\/vendor$/)
     await expect(page.getByRole('heading', { name: /get booked on 3rdplace/i })).toBeVisible()
   })
 
