@@ -20,8 +20,12 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
+  /*
+   * Next dev can corrupt transient .next chunks when the full browser matrix
+   * cold-compiles routes in parallel. Keep the default deterministic; override
+   * locally with PLAYWRIGHT_WORKERS when intentionally stress-testing.
+   */
+  workers: Number(process.env.PLAYWRIGHT_WORKERS ?? 1),
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
@@ -63,8 +67,9 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: `npm run dev -- --hostname ${devServerUrl.hostname} --port ${devServerUrl.port || '3000'}`,
+    command: `node -e "require('fs').rmSync('.next',{recursive:true,force:true})" && PLAYWRIGHT_TEST=1 npm run build && PLAYWRIGHT_TEST=1 npm run start -- -H ${devServerUrl.hostname} -p ${devServerUrl.port || '3000'}`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
+    timeout: 300_000,
   },
 })

@@ -240,7 +240,7 @@ test.describe('Agent Planner chat', () => {
   })
 
   test('representative fake users can create and complete mock agent planner event drafts', async ({ page }) => {
-    test.setTimeout(90000)
+    test.setTimeout(180000)
     await page.setViewportSize({ width: 1600, height: 900 })
 
     let persistedPlannerApiCalls = 0
@@ -276,16 +276,16 @@ test.describe('Agent Planner chat', () => {
 
         await expect(page.getByText('Active planner workspace', { exact: true })).toBeVisible()
         await expect(page.getByRole('heading', { name: /plan/i }).first()).toBeVisible()
-        await expect(page.getByText(fakeUser.prompt)).toBeVisible()
-        await expect(page.getByText(/select one answer/i).first()).toBeVisible()
+        await expect(page.getByText(fakeUser.prompt)).toBeVisible({ timeout: 15000 })
+        await expectStructuredQuestion(page)
 
         const replyInput = page.locator('textarea[name="reply"]')
         await replyInput.fill(fakeUser.followUp)
         await expect(replyInput).toHaveValue(fakeUser.followUp)
         await page.getByRole('button', { name: /send planner reply/i }).click()
 
-        await expect(page.getByText(fakeUser.followUp)).toBeVisible()
-        await expect(page.getByText(/select one answer|i have the core context|three mock venue and vendor paths/i).first()).toBeVisible()
+        await expect(page.getByText(fakeUser.followUp)).toBeVisible({ timeout: 15000 })
+        await expect(page.getByText(/select one answer|i have the core context|three mock venue and vendor paths/i).first()).toBeVisible({ timeout: 15000 })
         await expect(page.getByText(/failed to create plan/i)).not.toBeVisible()
       })
     }
@@ -295,11 +295,33 @@ test.describe('Agent Planner chat', () => {
 
   test('New Plan clears the active mock conversation', async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 })
-    await page.goto('/planner?mock=1&draft=Plan%20a%20day%20party%20for%2090%20people%20in%20the%20Mission%20with%20a%20%249000%20budget', {
-      waitUntil: 'domcontentloaded',
+    await page.route('**/api/planner/public-intake', async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Public draft intake unavailable in this mock smoke' }),
+      })
     })
+    await page.route('**/api/planner/plans', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Planner API should not be called in mock mode' }),
+        })
+        return
+      }
+      await route.continue()
+    })
+    await resetMockPlanner(page)
+
+    const eventInput = page.getByRole('textbox', { name: /describe your event/i })
+    await expect(eventInput).toBeEnabled({ timeout: 15000 })
+    await eventInput.fill('Plan a day party for 90 people in the Mission with a $9000 budget')
+    await page.getByRole('button', { name: /send message/i }).click()
 
     await expect(page.getByText('Active planner workspace', { exact: true })).toBeVisible({ timeout: 15000 })
+    await expectStructuredQuestion(page)
     await page.getByRole('button', { name: /new plan/i }).click()
 
     await expect(page).toHaveURL(/\/planner(?:\?mock=1)?$/)
@@ -309,6 +331,7 @@ test.describe('Agent Planner chat', () => {
   })
 
   test('authenticated homepage drafts start server-backed plans instead of mock mode', async ({ page }) => {
+    test.setTimeout(60000)
     await page.setViewportSize({ width: 1600, height: 900 })
 
     let createPlanCalls = 0
@@ -375,16 +398,25 @@ test.describe('Agent Planner chat', () => {
       })
     })
 
+    const createPlanResponse = page.waitForResponse((response) =>
+      response.url().endsWith('/api/planner/plans') &&
+      response.request().method() === 'POST' &&
+      response.ok()
+    )
+
     await page.goto('/planner?draft=I%20want%20to%20host%20a%20women%20happy%20hour%20in%20the%20mission%20in%20SF', {
       waitUntil: 'domcontentloaded',
     })
+    await createPlanResponse
 
+    await expect(page.getByText('How many people are you planning for?')).toBeVisible({ timeout: 45000 })
+    await expect(page.getByText('Plan syncing')).toBeVisible({ timeout: 15000 })
     await expect(page).toHaveURL(/\/planner$/, { timeout: 15000 })
-    await expect(page.getByText('How many people are you planning for?')).toBeVisible()
     expect(createPlanCalls).toBe(1)
   })
 
   test('Event Plan side panel renders structured sections', async ({ page }) => {
+    test.setTimeout(90000)
     await page.setViewportSize({ width: 1600, height: 900 })
     await page.route('**/api/planner/public-intake', async (route) => {
       await route.fulfill({
@@ -393,20 +425,17 @@ test.describe('Agent Planner chat', () => {
         body: JSON.stringify({ error: 'Public draft intake unavailable in this mock smoke' }),
       })
     })
-    await page.goto('/planner?mock=1&draft=Plan%20a%20day%20party%20for%2090%20people%20in%20the%20Mission%20with%20a%20%249000%20budget', {
-      waitUntil: 'domcontentloaded',
-    })
+    await resetMockPlanner(page)
 
-    await expect(page.getByText('Active planner workspace', { exact: true })).toBeVisible({ timeout: 15000 })
+    const eventInput = page.locator('textarea[name="message"]')
+    await eventInput.fill('Plan a day party for 90 people in the Mission with a $9000 budget')
+    await page.getByRole('button', { name: /send message/i }).click()
 
-    let livePlanPanel = page.locator('aside').filter({ hasText: 'Event Plan' }).first()
-    if (!(await livePlanPanel.isVisible().catch(() => false))) {
-      const eventPlanTab = page.getByRole('button', { name: /event plan/i })
-      await expect(eventPlanTab).toBeVisible()
-      await eventPlanTab.click()
-      livePlanPanel = page.locator('aside, section').filter({ hasText: 'Structured artifact' }).first()
-    }
+    await expect(page.getByText('Active planner workspace', { exact: true })).toBeVisible({ timeout: 30000 })
+    await expect(page.getByRole('textbox', { name: /reply to planner agent/i })).toBeVisible({ timeout: 15000 })
+    await openPlannerTab(page, /^event plan$/i, /structured artifact/i)
 
+    const livePlanPanel = page.locator('aside').filter({ hasText: 'Structured artifact' }).first()
     await expect(livePlanPanel).toBeVisible()
     await expect(livePlanPanel.getByText('Guest Target').first()).toBeVisible()
     await expect(livePlanPanel.getByText('Neighborhood').first()).toBeVisible()
@@ -459,14 +488,19 @@ test.describe('Agent Planner chat', () => {
       })
     })
 
-    for (const eventCase of eventSpecificQuestionCases) {
+    await resetMockPlanner(page)
+
+    for (const [index, eventCase] of eventSpecificQuestionCases.entries()) {
       await test.step(`${eventCase.eventType} asks a structured next question`, async () => {
-        await resetMockPlanner(page)
-        await page.locator('form[data-planner-hydrated="true"]').waitFor({ state: 'visible' })
+        if (index > 0) {
+          await clearActiveMockConversation(page)
+        }
+
         await page.locator('textarea[name="message"]').fill(eventCase.prompt)
         await page.getByRole('button', { name: /send message/i }).click()
 
-        await expect(page.getByText(/select one answer/i).first()).toBeVisible()
+        await expect(page.getByText('Active planner workspace', { exact: true })).toBeVisible({ timeout: 15000 })
+        await expectStructuredQuestion(page)
       })
     }
   })
@@ -480,6 +514,32 @@ async function resetMockPlanner(page: Page) {
   })
   await page.goto('/planner?mock=1', { waitUntil: 'domcontentloaded' })
   await expect(page.getByRole('heading', { name: /what should we plan next/i })).toBeVisible({
-    timeout: 15000,
+    timeout: 30000,
   })
+  await page.locator('form[data-planner-hydrated="true"]').waitFor({ state: 'visible', timeout: 30000 })
+  await expect(page.locator('textarea[name="message"]')).toBeEnabled({ timeout: 30000 })
+}
+
+async function clearActiveMockConversation(page: Page) {
+  const newPlan = page.getByRole('button', { name: /new plan/i })
+  await expect(newPlan).toBeVisible({ timeout: 15000 })
+  await expect(newPlan).toBeEnabled({ timeout: 15000 })
+  await newPlan.click()
+
+  await expect(page.getByRole('heading', { name: /what should we plan next/i })).toBeVisible({ timeout: 30000 })
+  await page.locator('form[data-planner-hydrated="true"]').waitFor({ state: 'visible', timeout: 30000 })
+  await expect(page.locator('textarea[name="message"]')).toBeEnabled({ timeout: 30000 })
+}
+
+async function openPlannerTab(page: Page, tabName: RegExp, settledText: RegExp) {
+  const tab = page.getByRole('button', { name: tabName }).first()
+  await expect(tab).toBeVisible({ timeout: 15000 })
+  await expect(tab).toBeEnabled({ timeout: 15000 })
+  await tab.click()
+  await expect(page.getByText(settledText).first()).toBeVisible({ timeout: 15000 })
+}
+
+async function expectStructuredQuestion(page: Page) {
+  await expect(page.getByRole('textbox', { name: /reply to planner agent/i })).toBeVisible({ timeout: 15000 })
+  await expect(page.getByText(/select one answer/i).first()).toBeVisible({ timeout: 15000 })
 }

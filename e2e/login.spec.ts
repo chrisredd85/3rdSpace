@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { loginAsPersona } from './helpers/auth'
 import { getPersonaCredentials } from './helpers/env'
 
@@ -13,10 +13,14 @@ test.describe('Login portals', () => {
   })
 
   test('role portal validates email sign-in fields', async ({ page }) => {
+    test.setTimeout(60000)
     await page.goto('/login/builder', { waitUntil: 'networkidle' })
 
     await expect(page.getByRole('heading', { name: /event creator/i })).toBeVisible()
-    await page.getByRole('button', { name: /^sign in/i }).click()
+    await waitForLoginFormHydration(page)
+    const signIn = page.getByRole('button', { name: /^sign in/i })
+    await expect(signIn).toBeEnabled({ timeout: 15000 })
+    await signIn.click({ timeout: 15000 })
 
     await expect(page.getByText(/invalid email address/i)).toBeVisible({ timeout: 10000 })
     await expect(page.getByText(/password must be at least 6 characters/i)).toBeVisible({ timeout: 10000 })
@@ -32,3 +36,21 @@ test.describe('Login portals', () => {
     await loginAsPersona(page, 'builder', credentials)
   })
 })
+
+async function waitForLoginFormHydration(page: Page) {
+  const showPassword = page.getByRole('button', { name: /show password/i })
+  await expect(showPassword).toBeVisible({ timeout: 15000 })
+
+  await expect
+    .poll(
+      async () => {
+        await showPassword.click().catch(() => undefined)
+        return page.getByRole('button', { name: /hide password/i }).count().catch(() => 0)
+      },
+      { timeout: 30000, intervals: [250, 500, 1000] }
+    )
+    .toBeGreaterThan(0)
+
+  await page.getByRole('button', { name: /hide password/i }).click()
+  await expect(page.getByRole('button', { name: /show password/i })).toBeVisible({ timeout: 15000 })
+}
