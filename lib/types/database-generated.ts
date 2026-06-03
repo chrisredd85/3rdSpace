@@ -9055,6 +9055,14 @@ export type Database = {
           vendor_id: string
         }[]
       }
+      discovery_venues_search_document: {
+        Args: {
+          venue_name: string
+          venue_neighborhood: string
+          venue_vibe_tags: string[]
+        }
+        Returns: string
+      }
       disablelongtransactions: { Args: never; Returns: string }
       dropgeometrycolumn:
         | {
