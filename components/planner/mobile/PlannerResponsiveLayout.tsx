@@ -1,7 +1,7 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
-import { Suspense, type ReactNode } from 'react'
+import { Suspense, useEffect, useState, type ReactNode } from 'react'
 import { MobilePlanner, type MobileSection, type MobileView } from '@/components/planner/mobile/MobilePlanner'
 
 type MobileRouteConfig = {
@@ -26,15 +26,27 @@ const mobileRouteMap: Record<string, MobileRouteConfig> = {
 export function PlannerResponsiveLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const mobileConfig = mobileRouteMap[pathname]
+  const [shouldMountMobile, setShouldMountMobile] = useState(false)
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 1023px)')
+    const updateShouldMountMobile = () => setShouldMountMobile(mediaQuery.matches)
+
+    updateShouldMountMobile()
+    mediaQuery.addEventListener('change', updateShouldMountMobile)
+    return () => mediaQuery.removeEventListener('change', updateShouldMountMobile)
+  }, [])
 
   if (!mobileConfig) return <>{children}</>
 
   return (
     <>
       <div className="lg:hidden">
-        <Suspense fallback={<div className="min-h-screen bg-cream" />}>
-          <MobilePlanner activeSection={mobileConfig.activeSection} initialView={mobileConfig.initialView} />
-        </Suspense>
+        {shouldMountMobile ? (
+          <Suspense fallback={<div className="min-h-screen bg-cream" />}>
+            <MobilePlanner activeSection={mobileConfig.activeSection} initialView={mobileConfig.initialView} />
+          </Suspense>
+        ) : null}
       </div>
       <div className="hidden lg:block">{children}</div>
     </>
