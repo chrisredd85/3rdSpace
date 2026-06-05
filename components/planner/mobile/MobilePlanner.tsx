@@ -55,6 +55,7 @@ type LoadState = 'loading' | 'ready' | 'empty' | 'unauthenticated' | 'error'
 
 interface Plan {
   id: string
+  user_id?: string
   title: string
   event_type: string | null
   status: string
@@ -70,6 +71,7 @@ interface Plan {
   agent_action?: string | null
   profit_goal_cents: number | null
   notes: string | null
+  metadata?: unknown
   created_at: string
   updated_at: string
 }
@@ -79,6 +81,7 @@ interface PlanMessage {
   role: string
   content: string
   message_type: string
+  metadata?: unknown
   created_at: string
 }
 
@@ -443,6 +446,7 @@ export function MobilePlanner({
   }, [requestedDraft, startPlanFromMessage])
 
   const reviewCount = data.home?.pending_approval_count ?? data.planPayload?.approvals.filter((approval) => approval.status === 'pending').length ?? 0
+  const isLocalDraftPlan = Boolean(data.activePlanId?.startsWith('mock-plan-') || data.planPayload?.plan.user_id === 'mock-user')
 
   function navigate(nextView: MobileView) {
     setView(nextView)
@@ -451,13 +455,20 @@ export function MobilePlanner({
   }
 
   async function handleSendMessage() {
-    if (!messageDraft.trim() || !data.activePlanId) return
+    const trimmed = messageDraft.trim()
+    if (!trimmed || !data.activePlanId) return
     setIsSubmittingMessage(true)
     try {
+      if (isLocalDraftPlan) {
+        await saveLocalDraftInstruction(trimmed, data)
+        setMessageDraft('')
+        return
+      }
+
       const response = await fetch(`/api/planner/plans/${data.activePlanId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: messageDraft.trim() }),
+        body: JSON.stringify({ message: trimmed }),
       })
       if (!response.ok) throw new Error('Unable to save instruction')
       setMessageDraft('')
@@ -470,6 +481,49 @@ export function MobilePlanner({
     } finally {
       setIsSubmittingMessage(false)
     }
+  }
+
+  async function saveLocalDraftInstruction(trimmed: string, currentData: MobileData) {
+    const currentPlan = currentData.planPayload?.plan
+    if (!currentPlan) throw new Error('Unable to save instruction')
+
+    const currentMessages = currentData.planPayload?.messages ?? []
+    const userMessage = buildMockMessage(currentPlan.id, 'user', trimmed, 'text', {})
+    const publicIntake = await tryRunPublicDraftIntake(trimmed, currentPlan as Parameters<typeof tryRunPublicDraftIntake>[1])
+    const deterministicExchange = publicIntake
+      ? null
+      : await buildDeterministicDraftExchange(
+          trimmed,
+          currentPlan as Parameters<typeof buildDeterministicDraftExchange>[1],
+          [...currentMessages, userMessage] as Parameters<typeof buildDeterministicDraftExchange>[2]
+        )
+    const finalPlan = publicIntake
+      ? applyMockPlanPatch(currentPlan as Parameters<typeof applyMockPlanPatch>[0], publicIntake.plan_patch)
+      : deterministicExchange?.finalPlan ?? currentPlan
+    const agentMessages = publicIntake
+      ? [
+          buildMockMessage(
+            finalPlan.id,
+            'agent',
+            publicIntake.agent_draft.content,
+            publicIntake.agent_draft.message_type,
+            publicIntake.agent_draft.metadata
+          ),
+        ]
+      : deterministicExchange?.agentMessages ?? []
+    const draftMatchHandoff = buildDraftMatchHandoff(
+      finalPlan as Parameters<typeof buildDraftMatchHandoff>[0],
+      agentMessages,
+      currentMessages as Parameters<typeof buildDraftMatchHandoff>[2]
+    )
+    const nextPlan = draftMatchHandoff.plan
+    const nextMessages = [...currentMessages, userMessage, ...draftMatchHandoff.agentMessages]
+    const nextActivity = [
+      ...currentData.activity,
+      buildDraftInstructionActivity(nextPlan.id, trimmed),
+    ]
+
+    setData(buildDraftMobileData(nextPlan as Plan, nextMessages as PlanMessage[], nextActivity))
   }
 
   async function handleStartPlan(event: FormEvent<HTMLFormElement>) {
@@ -671,17 +725,7 @@ async function loadMobileData(): Promise<MobileData> {
   }
 }
 
-function buildDraftMobileData(plan: Plan, messages: PlanMessage[]): MobileData {
-  const now = new Date().toISOString()
-  const activity: ActivityItem[] = [
-    {
-      id: `draft-activity-${plan.id}`,
-      kind: 'draft_created',
-      summary: 'Draft started privately',
-      detail: 'No outreach, hold, booking, or payment has been sent.',
-      occurred_at: now,
-    },
-  ]
+function buildDraftMobileData(plan: Plan, messages: PlanMessage[], activity: ActivityItem[] = [buildDraftCreatedActivity(plan.id)]): MobileData {
 
   return {
     ...initialData,
@@ -704,6 +748,26 @@ function buildDraftMobileData(plan: Plan, messages: PlanMessage[]): MobileData {
     },
     budget: null,
     activity,
+  }
+}
+
+function buildDraftCreatedActivity(planId: string): ActivityItem {
+  return {
+    id: `draft-activity-${planId}`,
+    kind: 'draft_created',
+    summary: 'Draft started privately',
+    detail: 'No outreach, hold, booking, or payment has been sent.',
+    occurred_at: new Date().toISOString(),
+  }
+}
+
+function buildDraftInstructionActivity(planId: string, instruction: string): ActivityItem {
+  return {
+    id: `draft-instruction-${planId}-${Date.now()}`,
+    kind: 'draft_updated',
+    summary: 'Instruction saved privately',
+    detail: instruction,
+    occurred_at: new Date().toISOString(),
   }
 }
 
