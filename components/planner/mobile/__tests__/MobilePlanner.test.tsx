@@ -78,6 +78,10 @@ describe('MobilePlanner local draft flow', () => {
     render(<MobilePlanner />)
 
     await waitFor(() => expect(screen.getByText(/Dinner · Hayes Valley · 18 guests · \$4,500/i)).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Review next steps' })).toBeInTheDocument()
+    expect(screen.getByText('Next action steps')).toBeInTheDocument()
+    expect(screen.getByText('Confirm before outreach.')).toBeInTheDocument()
+    expect(screen.queryByText('Open review queue')).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByPlaceholderText('Add a constraint, preference, or correction...'), {
       target: { value: 'Change the total budget to $6500.' },
