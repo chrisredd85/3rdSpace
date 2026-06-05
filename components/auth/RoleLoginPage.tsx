@@ -171,7 +171,7 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
         <Link href="/" className="font-display text-[24px] font-semibold tracking-tight text-clay">
           3rdPlace
         </Link>
-        <Link href="/signup" className="text-[14px] font-semibold text-ink-soft transition-colors hover:text-clay">
+        <Link href={signupHref} className="hidden text-[14px] font-semibold text-ink-soft transition-colors hover:text-clay sm:inline-flex">
           Create account
         </Link>
       </header>
@@ -188,7 +188,7 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
             <div className="flex h-11 w-11 items-center justify-center rounded-md border border-tan bg-cream-deep text-clay">
               <Icon className="h-5 w-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="label-caps text-clay-deep">{portal === 'builder' ? 'Creator portal' : `${portal} portal`}</p>
               <p className="mt-1 text-[14px] text-ink-soft">Use the account tied to this role.</p>
             </div>
@@ -273,17 +273,18 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
 
             <InlineFormError message={loginError} />
 
-            <Button variant="hero" type="submit" className="w-full rounded-md" disabled={isLoading || isGoogleLoading}>
-              {isLoading ? 'Signing in...' : <>Sign in <ArrowRight className="h-4 w-4" /></>}
-            </Button>
+            <div role="group" aria-label="Login actions" className="grid grid-cols-2 gap-2">
+              <Button variant="hero" type="submit" className="w-full rounded-md" disabled={isLoading || isGoogleLoading}>
+                {isLoading ? 'Signing in...' : <>Sign in <ArrowRight className="h-4 w-4" /></>}
+              </Button>
+              <Link
+                href={signupHref}
+                className="inline-flex h-10 items-center justify-center rounded-md border border-tan bg-cream-deep px-4 text-[14px] font-semibold text-ink transition-colors hover:border-clay hover:bg-cream"
+              >
+                Create account
+              </Link>
+            </div>
           </form>
-
-          <p className="mt-5 text-center text-[14px] text-ink-soft">
-            Don&apos;t have an account?{' '}
-            <Link href={signupHref} className="font-semibold text-clay-deep hover:underline">
-              {config.signupLabel}
-            </Link>
-          </p>
 
           {portal === 'builder' && (
             <div className="mt-6 flex items-center justify-center gap-3 text-xs text-ink-faint">

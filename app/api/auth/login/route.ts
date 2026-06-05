@@ -42,11 +42,14 @@ export async function POST(request: NextRequest) {
     })
 
     if (error) {
-      console.error('Auth error:', error)
-      let errorMessage = 'Email or password incorrect'
-      
-      if (error.message.includes('Invalid login credentials')) {
-        errorMessage = 'Email or password incorrect'
+      const isInvalidCredentials = error.message.includes('Invalid login credentials')
+      if (!isInvalidCredentials) {
+        console.error('Auth error:', error)
+      }
+      let errorMessage = 'No account with that information has been found'
+
+      if (isInvalidCredentials) {
+        errorMessage = 'No account with that information has been found'
       } else if (error.message.includes('Email not confirmed')) {
         errorMessage = 'Please verify your email before signing in'
       } else if (error.message.includes('Too many requests')) {
