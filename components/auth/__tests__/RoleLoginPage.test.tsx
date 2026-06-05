@@ -47,8 +47,11 @@ describe('RoleLoginPage mobile account creation placement', () => {
     expect(screen.queryByText('New here?')).not.toBeInTheDocument()
 
     const loginActions = screen.getByRole('group', { name: 'Login actions' })
+    expect(loginActions).toHaveClass('sm:block')
     expect(within(loginActions).getByRole('button', { name: /Sign in/i })).toHaveAttribute('type', 'submit')
-    expect(within(loginActions).getByRole('link', { name: 'Create account' })).toHaveAttribute('href', '/signup/builder')
+    const mobileCreateAccount = within(loginActions).getByRole('link', { name: 'Create account' })
+    expect(mobileCreateAccount).toHaveAttribute('href', '/signup/builder')
+    expect(mobileCreateAccount).toHaveClass('sm:hidden')
 
     const createAccountLinks = screen.getAllByRole('link', { name: 'Create account' })
     expect(createAccountLinks[0]).toHaveAttribute('href', '/signup/builder')

@@ -273,13 +273,13 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
 
             <InlineFormError message={loginError} />
 
-            <div role="group" aria-label="Login actions" className="grid grid-cols-2 gap-2">
+            <div role="group" aria-label="Login actions" className="grid grid-cols-2 gap-2 sm:block">
               <Button variant="hero" type="submit" className="w-full rounded-md" disabled={isLoading || isGoogleLoading}>
                 {isLoading ? 'Signing in...' : <>Sign in <ArrowRight className="h-4 w-4" /></>}
               </Button>
               <Link
                 href={signupHref}
-                className="inline-flex h-10 items-center justify-center rounded-md border border-tan bg-cream-deep px-4 text-[14px] font-semibold text-ink transition-colors hover:border-clay hover:bg-cream"
+                className="inline-flex h-10 items-center justify-center rounded-md border border-tan bg-cream-deep px-4 text-[14px] font-semibold text-ink transition-colors hover:border-clay hover:bg-cream sm:hidden"
               >
                 Create account
               </Link>
