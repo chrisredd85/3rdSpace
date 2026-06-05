@@ -95,7 +95,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Public planner intake — creators can draft an event before account creation.
-  if (pathname === '/planner') {
+  if (pathname === '/planner' || pathname === '/planner/new-plan') {
     const { response } = await getAuthUser(request)
     return response
   }

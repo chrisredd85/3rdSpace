@@ -1,6 +1,7 @@
 'use client'
 
 import type { FormEvent, ReactNode } from 'react'
+import { useSearchParams } from 'next/navigation'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -18,11 +19,12 @@ import {
   X,
 } from 'lucide-react'
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
-import { mobileMockupSpacing as spacing } from './mobileMockupSpacing'
+import { applyMockPlanPatch, buildDeterministicDraftExchange, buildDraftMatchHandoff, buildMockMessage, buildMockPlan, tryRunPublicDraftIntake } from '../planner-page/draftMode'
+import { mobileSpacing as spacing } from './mobileSpacing'
 
-type MockupSection =
+export type MobileSection =
   | 'planner'
   | 'approvals'
   | 'messages'
@@ -33,7 +35,7 @@ type MockupSection =
   | 'billing'
   | 'settings'
 
-type MockupView =
+export type MobileView =
   | 'new-plan'
   | 'planner'
   | 'brief'
@@ -225,24 +227,24 @@ interface MobileData {
 }
 
 interface AppSectionLink {
-  id: MockupSection
+  id: MobileSection
   label: string
   href: string
 }
 
 const appSections: AppSectionLink[] = [
-  { id: 'planner', label: 'Plan', href: '/mobile-mockup/planner' },
-  { id: 'approvals', label: 'Review queue', href: '/mobile-mockup/approvals' },
-  { id: 'messages', label: 'Inbox', href: '/mobile-mockup/messages' },
-  { id: 'vendors', label: 'Vendors', href: '/mobile-mockup/vendors' },
-  { id: 'outreach', label: 'Outreach', href: '/mobile-mockup/outreach' },
-  { id: 'analytics', label: 'Analytics', href: '/mobile-mockup/analytics' },
-  { id: 'ticketing', label: 'Ticketing', href: '/mobile-mockup/ticketing' },
-  { id: 'billing', label: 'Billing', href: '/mobile-mockup/billing' },
-  { id: 'settings', label: 'Settings', href: '/mobile-mockup/settings' },
+  { id: 'planner', label: 'Plan', href: '/planner' },
+  { id: 'approvals', label: 'Review queue', href: '/planner/payments' },
+  { id: 'messages', label: 'Inbox', href: '/planner/messages' },
+  { id: 'vendors', label: 'Vendors', href: '/planner/vendors' },
+  { id: 'outreach', label: 'Outreach', href: '/planner/outreach' },
+  { id: 'analytics', label: 'Analytics', href: '/planner/analytics' },
+  { id: 'ticketing', label: 'Ticketing', href: '/planner/tickets' },
+  { id: 'billing', label: 'Billing', href: '/planner/billing' },
+  { id: 'settings', label: 'Settings', href: '/planner/settings' },
 ]
 
-const flowSteps: Array<{ id: MockupView; label: string }> = [
+const flowSteps: Array<{ id: MobileView; label: string }> = [
   { id: 'planner', label: 'Plan' },
   { id: 'brief', label: 'Brief' },
   { id: 'venues', label: 'Venues' },
@@ -284,7 +286,7 @@ const initialData: MobileData = {
   analytics: null,
 }
 
-function isMockupView(value: string | null): value is MockupView {
+function isMobileView(value: string | null): value is MobileView {
   return (
     value === 'new-plan' ||
     value === 'planner' ||
@@ -302,21 +304,41 @@ function isMockupView(value: string | null): value is MockupView {
   )
 }
 
-export function MobilePlannerMockup({
+function getInitialMobileEntry(initialView: MobileView) {
+  if (typeof window === 'undefined') return { view: initialView, draft: '', skipInitialLoad: initialView === 'new-plan' }
+
+  const params = new URLSearchParams(window.location.search)
+  const requestedDraft = params.get('draft')?.trim() ?? ''
+  const requestedView = params.get('view')
+  const startsInNewPlan = initialView === 'new-plan' || Boolean(requestedDraft)
+
+  return {
+    view: requestedDraft ? 'new-plan' : isMobileView(requestedView) ? requestedView : initialView,
+    draft: requestedDraft,
+    skipInitialLoad: startsInNewPlan,
+  }
+}
+
+export function MobilePlanner({
   activeSection = 'planner',
   initialView = 'planner',
 }: {
-  activeSection?: MockupSection
-  initialView?: MockupView
+  activeSection?: MobileSection
+  initialView?: MobileView
 }) {
-  const [view, setView] = useState<MockupView>(initialView)
+  const searchParams = useSearchParams()
+  const requestedDraft = searchParams.get('draft')?.trim() ?? ''
+  const requestedView = searchParams.get('view')
+  const [initialEntry] = useState(() => getInitialMobileEntry(initialView))
+  const [view, setView] = useState<MobileView>(initialEntry.view)
   const [data, setData] = useState<MobileData>(initialData)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [menuTouchStartX, setMenuTouchStartX] = useState<number | null>(null)
   const [messageDraft, setMessageDraft] = useState('')
-  const [newPlanDraft, setNewPlanDraft] = useState('')
+  const [newPlanDraft, setNewPlanDraft] = useState(initialEntry.draft)
   const [isSubmittingMessage, setIsSubmittingMessage] = useState(false)
   const [isCreatingPlan, setIsCreatingPlan] = useState(false)
+  const hasAutoStartedInitialDraftRef = useRef(false)
 
   const reload = useCallback(async () => {
     setData((current) => ({ ...current, state: 'loading', error: null }))
@@ -325,20 +347,104 @@ export function MobilePlannerMockup({
   }, [])
 
   useEffect(() => {
+    if (initialEntry.skipInitialLoad || requestedDraft) {
+      setData({ ...initialData, state: requestedDraft ? 'loading' : 'empty' })
+      return
+    }
     void reload()
-  }, [reload])
+  }, [initialEntry.skipInitialLoad, reload, requestedDraft])
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const requestedView = params.get('view')
-    if (isMockupView(requestedView)) {
+    if (requestedDraft) {
+      setNewPlanDraft(requestedDraft)
+      setView('new-plan')
+    } else if (isMobileView(requestedView)) {
       setView(requestedView)
     }
+  }, [requestedDraft, requestedView])
+
+  const createLocalDraftPlan = useCallback(async (message: string) => {
+    const plan = buildMockPlan(message)
+    const userMessage = buildMockMessage(plan.id, 'user', message, 'text', {})
+    const publicIntake = await tryRunPublicDraftIntake(message, plan)
+    const deterministicExchange = publicIntake
+      ? null
+      : await buildDeterministicDraftExchange(message, plan, [userMessage])
+    const finalPlan = publicIntake
+      ? applyMockPlanPatch(plan, publicIntake.plan_patch)
+      : deterministicExchange?.finalPlan ?? plan
+    const agentMessages = publicIntake
+      ? [
+          buildMockMessage(
+            finalPlan.id,
+            'agent',
+            publicIntake.agent_draft.content,
+            publicIntake.agent_draft.message_type,
+            publicIntake.agent_draft.metadata
+          ),
+        ]
+      : deterministicExchange?.agentMessages ?? []
+    const draftMatchHandoff = buildDraftMatchHandoff(finalPlan, agentMessages)
+    const nextPlan = draftMatchHandoff.plan
+    const nextMessages = [userMessage, ...draftMatchHandoff.agentMessages]
+
+    setData(buildDraftMobileData(nextPlan as Plan, nextMessages as PlanMessage[]))
+    setNewPlanDraft('')
+    setView('planner')
   }, [])
+
+  const startPlanFromMessage = useCallback(async (message: string) => {
+    const trimmed = message.trim()
+    if (!trimmed) return
+
+    try {
+      const response = await fetch('/api/planner/plans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: trimmed }),
+      })
+      const payload = await response.json().catch(() => null) as { plan?: Plan; error?: string } | null
+
+      if (response.status === 401 || response.status === 403) {
+        await createLocalDraftPlan(trimmed)
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Unable to start plan')
+      }
+
+      setNewPlanDraft('')
+      await reload()
+      window.history.replaceState(null, '', '/planner')
+      if (payload?.plan?.id) setView('planner')
+    } catch (error) {
+      console.warn('[mobile.planner] Falling back to local draft mode after create failed', error)
+      await createLocalDraftPlan(trimmed)
+    }
+  }, [createLocalDraftPlan, reload])
+
+  useEffect(() => {
+    if (!requestedDraft || hasAutoStartedInitialDraftRef.current) return
+
+    hasAutoStartedInitialDraftRef.current = true
+    setIsCreatingPlan(true)
+    setData({ ...initialData, state: 'loading', error: null })
+
+    startPlanFromMessage(requestedDraft)
+      .catch((error) => {
+        setData((current) => ({
+          ...current,
+          state: 'empty',
+          error: error instanceof Error ? error.message : 'Unable to start plan',
+        }))
+      })
+      .finally(() => setIsCreatingPlan(false))
+  }, [requestedDraft, startPlanFromMessage])
 
   const reviewCount = data.home?.pending_approval_count ?? data.planPayload?.approvals.filter((approval) => approval.status === 'pending').length ?? 0
 
-  function navigate(nextView: MockupView) {
+  function navigate(nextView: MobileView) {
     setView(nextView)
     setIsMenuOpen(false)
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
@@ -371,18 +477,7 @@ export function MobilePlannerMockup({
     if (!newPlanDraft.trim()) return
     setIsCreatingPlan(true)
     try {
-      const response = await fetch('/api/planner/plans', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: newPlanDraft.trim() }),
-      })
-      if (!response.ok) throw new Error('Unable to start plan')
-      const payload = (await response.json()) as { plan?: Plan }
-      setNewPlanDraft('')
-      await reload()
-      if (payload.plan?.id) {
-        setView('planner')
-      }
+      await startPlanFromMessage(newPlanDraft)
     } catch (error) {
       setData((current) => ({
         ...current,
@@ -394,9 +489,9 @@ export function MobilePlannerMockup({
   }
 
   return (
-    <main className="min-h-screen bg-cream text-ink lg:flex lg:justify-center">
-      <div className="min-h-screen w-full max-w-[430px] border-x border-transparent bg-cream shadow-none lg:border-tan lg:shadow-card">
-        <MockupHeader
+    <main className="min-h-screen bg-cream text-ink">
+      <div className="min-h-screen w-full bg-cream">
+        <MobileHeader
           isMenuOpen={isMenuOpen}
           reviewCount={reviewCount}
           onToggleMenu={() => setIsMenuOpen((value) => !value)}
@@ -441,30 +536,6 @@ export function MobilePlannerMockup({
           />
         </div>
       </div>
-
-      <aside className="hidden min-h-screen w-[340px] border-l border-tan bg-cream-deep p-8 lg:block">
-        <p className="label-caps text-clay">Mobile planner</p>
-        <h2 className="mt-3 font-display text-[32px] leading-tight text-ink">Real data branch.</h2>
-        <p className="mt-4 text-base leading-7 text-ink-soft">
-          This branch keeps the approved mobile shell while removing fictional operational data.
-        </p>
-        <div className="mt-8 space-y-2">
-          {flowSteps.map((step) => (
-            <button
-              key={step.id}
-              type="button"
-              onClick={() => navigate(step.id)}
-              className={cn(
-                'flex w-full items-center justify-between rounded-lg border px-4 py-3 text-left text-sm font-semibold transition-colors',
-                view === step.id ? 'border-clay bg-clay-tint text-clay-deep' : 'border-tan bg-cream text-ink-soft hover:bg-cream'
-              )}
-            >
-              {step.label}
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          ))}
-        </div>
-      </aside>
     </main>
   )
 }
@@ -483,8 +554,8 @@ function MobileContent({
   onStartPlan,
   onNavigate,
 }: {
-  activeSection: MockupSection
-  view: MockupView
+  activeSection: MobileSection
+  view: MobileView
   data: MobileData
   messageDraft: string
   newPlanDraft: string
@@ -494,10 +565,9 @@ function MobileContent({
   onNewPlanDraftChange: (value: string) => void
   onSendMessage: () => void
   onStartPlan: (event: FormEvent<HTMLFormElement>) => void
-  onNavigate: (view: MockupView) => void
+  onNavigate: (view: MobileView) => void
 }) {
   if (data.state === 'loading') return <LoadingView />
-  if (data.state === 'unauthenticated') return <AuthRequiredView />
   if (data.state === 'error') return <ErrorView onRetry={() => window.location.reload()} />
   if (data.state === 'empty' || view === 'new-plan') {
     return (
@@ -511,6 +581,7 @@ function MobileContent({
       />
     )
   }
+  if (data.state === 'unauthenticated') return <AuthRequiredView />
 
   if (!data.planPayload) return <EmptyState title="No active plan" description="Start a private plan to use the mobile planner." />
 
@@ -600,6 +671,42 @@ async function loadMobileData(): Promise<MobileData> {
   }
 }
 
+function buildDraftMobileData(plan: Plan, messages: PlanMessage[]): MobileData {
+  const now = new Date().toISOString()
+  const activity: ActivityItem[] = [
+    {
+      id: `draft-activity-${plan.id}`,
+      kind: 'draft_created',
+      summary: 'Draft started privately',
+      detail: 'No outreach, hold, booking, or payment has been sent.',
+      occurred_at: now,
+    },
+  ]
+
+  return {
+    ...initialData,
+    state: 'ready',
+    error: null,
+    activePlanId: plan.id,
+    planPayload: {
+      plan,
+      messages,
+      recommendations: [],
+      approvals: [],
+    },
+    home: {
+      plan,
+      pending_approvals: [],
+      pending_approval_count: 0,
+      problem: null,
+      progress: fallbackProgress(plan),
+      updates: activity,
+    },
+    budget: null,
+    activity,
+  }
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { cache: 'no-store' })
   if (!response.ok) {
@@ -608,7 +715,7 @@ async function fetchJson<T>(url: string): Promise<T> {
   return (await response.json()) as T
 }
 
-function MockupHeader({
+function MobileHeader({
   isMenuOpen,
   reviewCount,
   onToggleMenu,
@@ -625,7 +732,7 @@ function MockupHeader({
         </Link>
         <div className="flex items-center gap-2">
           <Link
-            href="/mobile-mockup/approvals"
+            href="/planner/payments"
             className="inline-flex h-10 items-center rounded-full border border-tan bg-cream-deep px-3 font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-ink-soft"
           >
             {reviewCount} review
@@ -654,14 +761,14 @@ function MobileNavigationPanel({
   onClose,
   onInternalNavigate,
 }: {
-  activeSection: MockupSection
-  activeView: MockupView
+  activeSection: MobileSection
+  activeView: MobileView
   planTitle: string | null
   menuTouchStartX: number | null
   onTouchStart: (value: number | null) => void
   onTouchEnd: (value: number) => void
   onClose: () => void
-  onInternalNavigate: (view: MockupView) => void
+  onInternalNavigate: (view: MobileView) => void
 }) {
   return (
     <div
@@ -719,7 +826,7 @@ function PlannerView({
   isSubmittingMessage: boolean
   onDraftChange: (value: string) => void
   onSendMessage: () => void
-  onNavigate: (view: MockupView) => void
+  onNavigate: (view: MobileView) => void
 }) {
   const plan = data.planPayload?.plan
   const home = data.home
@@ -740,7 +847,7 @@ function PlannerView({
       />
 
       <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
-        <PrimaryLink href="/mobile-mockup/approvals">
+        <PrimaryLink href="/planner/payments">
           {reviewCount > 0 ? `Review ${reviewCount} approval${reviewCount === 1 ? '' : 's'}` : 'Open review queue'}
         </PrimaryLink>
         <SecondaryButton onClick={() => onNavigate('brief')}>Open event brief</SecondaryButton>
@@ -838,7 +945,7 @@ function NewPlanView({
   hasExistingPlan: boolean
   onDraftChange: (value: string) => void
   onStart: (event: FormEvent<HTMLFormElement>) => void
-  onNavigate: (view: MockupView) => void
+  onNavigate: (view: MobileView) => void
 }) {
   return (
     <section>
@@ -887,7 +994,7 @@ function EventProgressCard({
 }: {
   progress: ProgressItem[]
   plan: Plan
-  onNavigate: (view: MockupView) => void
+  onNavigate: (view: MobileView) => void
 }) {
   const items = progress.length > 0 ? progress : fallbackProgress(plan)
 
@@ -919,7 +1026,7 @@ function EventProgressCard({
   )
 }
 
-function BriefView({ plan, onNavigate }: { plan: Plan; onNavigate: (view: MockupView) => void }) {
+function BriefView({ plan, onNavigate }: { plan: Plan; onNavigate: (view: MobileView) => void }) {
   const facts = [
     { icon: <Pencil className="h-5 w-5" />, label: 'Event', value: plan.title },
     { icon: <Users className="h-5 w-5" />, label: 'Guests', value: plan.guest_count ? String(plan.guest_count) : null },
@@ -981,7 +1088,7 @@ function VenuesView({
 }: {
   data: MobileData
   detail?: boolean
-  onNavigate: (view: MockupView) => void
+  onNavigate: (view: MobileView) => void
 }) {
   const venues = useMemo(() => venueRecommendations(data.planPayload?.recommendations ?? []), [data.planPayload?.recommendations])
   const selected = venues[0]
@@ -1050,7 +1157,7 @@ function VenuesView({
   )
 }
 
-function BudgetView({ budget, plan, onNavigate }: { budget: BudgetSummary | null; plan: Plan; onNavigate: (view: MockupView) => void }) {
+function BudgetView({ budget, plan, onNavigate }: { budget: BudgetSummary | null; plan: Plan; onNavigate: (view: MobileView) => void }) {
   const target = budget?.target_cents ?? plan.budget_cap_cents
   const highTotal = budget?.high_total_cents ?? 0
   const buffer = target == null ? null : target - highTotal
@@ -1093,7 +1200,7 @@ function BudgetView({ budget, plan, onNavigate }: { budget: BudgetSummary | null
   )
 }
 
-function ApprovalPolicyView({ onNavigate }: { onNavigate: (view: MockupView) => void }) {
+function ApprovalPolicyView({ onNavigate }: { onNavigate: (view: MobileView) => void }) {
   return (
     <section>
       <BackButton label="Back to plan" onClick={() => onNavigate('planner')} />
@@ -1118,7 +1225,7 @@ function ApprovalPolicyView({ onNavigate }: { onNavigate: (view: MockupView) => 
   )
 }
 
-function DepositApprovalView({ approvals, onNavigate }: { approvals: Approval[]; onNavigate: (view: MockupView) => void }) {
+function DepositApprovalView({ approvals, onNavigate }: { approvals: Approval[]; onNavigate: (view: MobileView) => void }) {
   const moneyApproval = approvals.find((approval) => (approval.price_cents ?? approval.requested_amount_cents ?? 0) > 0)
 
   return (
@@ -1163,7 +1270,7 @@ function DepositApprovalView({ approvals, onNavigate }: { approvals: Approval[];
   )
 }
 
-function ApprovalsSection({ approvals, onNavigate }: { approvals: Approval[]; onNavigate: (view: MockupView) => void }) {
+function ApprovalsSection({ approvals, onNavigate }: { approvals: Approval[]; onNavigate: (view: MobileView) => void }) {
   const pendingApprovals = approvals.filter((approval) => approval.status === 'pending')
 
   return (
@@ -1239,7 +1346,7 @@ function VendorsSection({
 }: {
   data: MobileData
   detail?: boolean
-  onNavigate: (view: MockupView) => void
+  onNavigate: (view: MobileView) => void
 }) {
   const vendors = vendorRecommendations(data.planPayload?.recommendations ?? [])
   const selected = vendors[0]
@@ -1307,7 +1414,7 @@ function VendorsSection({
   )
 }
 
-function OutreachSection({ onNavigate }: { onNavigate: (view: MockupView) => void }) {
+function OutreachSection({ onNavigate }: { onNavigate: (view: MobileView) => void }) {
   return <SkippedOutreachView title="Outreach" description={skippedSurfaceCopy.outreach} onNavigate={onNavigate} />
 }
 
@@ -1339,7 +1446,7 @@ function SettingsSection({ billing, connections }: { billing: BillingStatus | nu
       </Panel>
 
       <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
-        <PrimaryLink href="/mobile-mockup/approvals">Review approvals</PrimaryLink>
+        <PrimaryLink href="/planner/payments">Review approvals</PrimaryLink>
         <SecondaryLink href="/planner/settings">Edit on desktop</SecondaryLink>
       </div>
     </section>
@@ -1397,7 +1504,7 @@ function TicketingSection({
 }: {
   ticketing: TicketingSummary | null
   connections: TicketingConnection[]
-  onNavigate: (view: MockupView) => void
+  onNavigate: (view: MobileView) => void
 }) {
   const connected = connections.filter((connection) => connection.status !== 'disconnected')
   const summary = ticketing?.summary
@@ -1433,13 +1540,13 @@ function TicketingSection({
 
       <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
         <PrimaryButton onClick={() => onNavigate('planner')}>Use in planner</PrimaryButton>
-        <SecondaryLink href="/mobile-mockup/analytics">View event intelligence</SecondaryLink>
+        <SecondaryLink href="/planner/analytics">View event intelligence</SecondaryLink>
       </div>
     </section>
   )
 }
 
-function BillingSection({ billing, onNavigate }: { billing: BillingStatus | null; onNavigate: (view: MockupView) => void }) {
+function BillingSection({ billing, onNavigate }: { billing: BillingStatus | null; onNavigate: (view: MobileView) => void }) {
   return (
     <section>
       <SectionIntro
@@ -1464,7 +1571,7 @@ function BillingSection({ billing, onNavigate }: { billing: BillingStatus | null
 
       <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
         <PrimaryButton onClick={() => onNavigate('new-plan')}>Start next run</PrimaryButton>
-        <SecondaryLink href="/mobile-mockup/approvals">Review approvals</SecondaryLink>
+        <SecondaryLink href="/planner/payments">Review approvals</SecondaryLink>
       </div>
     </section>
   )
@@ -1477,7 +1584,7 @@ function SkippedOutreachView({
 }: {
   title: string
   description: string
-  onNavigate: (view: MockupView) => void
+  onNavigate: (view: MobileView) => void
 }) {
   return (
     <section>
@@ -2092,7 +2199,7 @@ function progressIcon(id: ProgressItem['id']) {
   return <Mail className="h-5 w-5" />
 }
 
-function progressView(id: ProgressItem['id']): MockupView {
+function progressView(id: ProgressItem['id']): MobileView {
   if (id === 'brief') return 'brief'
   if (id === 'venues') return 'venues'
   if (id === 'budget') return 'budget'

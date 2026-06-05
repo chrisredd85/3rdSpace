@@ -25,6 +25,17 @@ const nextConfig = {
   },
   async redirects() {
     return [
+      { source: '/mobile-mockup', destination: '/planner', statusCode: 308 },
+      { source: '/mobile-mockup/planner', destination: '/planner', statusCode: 308 },
+      { source: '/mobile-mockup/approvals', destination: '/planner/payments', statusCode: 308 },
+      { source: '/mobile-mockup/messages', destination: '/planner/messages', statusCode: 308 },
+      { source: '/mobile-mockup/vendors', destination: '/planner/vendors', statusCode: 308 },
+      { source: '/mobile-mockup/outreach', destination: '/planner/outreach', statusCode: 308 },
+      { source: '/mobile-mockup/settings', destination: '/planner/settings', statusCode: 308 },
+      { source: '/mobile-mockup/new-plan', destination: '/planner/new-plan', statusCode: 308 },
+      { source: '/mobile-mockup/ticketing', destination: '/planner/tickets', statusCode: 308 },
+      { source: '/mobile-mockup/analytics', destination: '/planner/analytics', statusCode: 308 },
+      { source: '/mobile-mockup/billing', destination: '/planner/billing', statusCode: 308 },
       { source: '/builder', destination: '/planner', statusCode: 301 },
       { source: '/builder/events', destination: '/planner/experiences', statusCode: 301 },
       { source: '/builder/upcoming', destination: '/planner/experiences', statusCode: 301 },
