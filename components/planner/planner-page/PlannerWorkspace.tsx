@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { CalendarDays, CheckCircle2, ChevronDown, LayoutTemplate, Loader2, MessageSquare, RefreshCw, SendHorizontal, Sparkles } from 'lucide-react'
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
 import { PlannerDataConnectionPanel } from '@/components/planner/PlannerDataConnectionPanel'
@@ -24,8 +24,27 @@ import { applyMockPlanPatch, buildDeterministicDraftExchange, buildDraftMatchHan
 import { buildEventPlanPayload, clearStoredPlannerConversation, getPendingActionSuccessMessage, getPlannerOrganizationName, getPlannerRoleLabel, getTabCount, getVisibleMessages, hasNewerConfirmationMessage, isApprovalMessage, isPendingConversionAction, isRecommendationMessage, isTimelineOutput, loadPlannerStateFromApiCached, persistStoredPlannerConversation, publishLivePlan, readStoredPlannerConversation, shouldStartNewPlanFromReply } from './plannerState'
 import { planTabs, quickActionChips, type ApprovalUiStatus, type PendingConversionAction, type PlannerAccountSummary, type PlannerAgentActionRequest, type PlannerPersistenceMode, type PlannerTab, type PlannerTemplateSummary, type ResponseAnalysisOutput, type TimelineOutput } from './types'
 
+function isDesktopPlannerViewport() {
+  return typeof window === 'undefined' || window.matchMedia('(min-width: 1024px)').matches
+}
+
+const mobilePromotedPlannerPaths = new Set([
+  '/planner',
+  '/planner/new-plan',
+  '/planner/venues',
+  '/planner/payments',
+  '/planner/messages',
+  '/planner/vendors',
+  '/planner/outreach',
+  '/planner/analytics',
+  '/planner/tickets',
+  '/planner/billing',
+  '/planner/settings',
+])
+
 export function PlannerWorkspace() {
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const { addToast } = useToast()
   const forceDraftMode = searchParams.get('mock') === '1'
@@ -222,7 +241,13 @@ export function PlannerWorkspace() {
     let isCancelled = false
 
     async function loadPersistedPlannerState() {
-      if (initialDraft) {
+      if (mobilePromotedPlannerPaths.has(pathname) && !isDesktopPlannerViewport()) {
+        setPersistenceMode('draft')
+        setHasLoadedStoredConversation(true)
+        return
+      }
+
+      if (initialDraft && isDesktopPlannerViewport()) {
         clearStoredPlannerConversation()
         hasStartedInitialDraftRef.current = false
         hasTriedDraftAutoMigrationRef.current = false
@@ -303,7 +328,7 @@ export function PlannerWorkspace() {
     return () => {
       isCancelled = true
     }
-  }, [forceDraftMode, initialDraft, requestedPlanId, shouldHardResetDemo])
+  }, [forceDraftMode, initialDraft, pathname, requestedPlanId, shouldHardResetDemo])
 
   useEffect(() => {
     if (!hasLoadedStoredConversation) return
@@ -322,6 +347,7 @@ export function PlannerWorkspace() {
 
   useEffect(() => {
     if (!hasLoadedStoredConversation) return
+    if (!isDesktopPlannerViewport()) return
     if (!initialDraft || hasStartedInitialDraftRef.current || ignoredDraftRef.current === initialDraft) return
 
     hasStartedInitialDraftRef.current = true

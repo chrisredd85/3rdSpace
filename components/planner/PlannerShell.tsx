@@ -9,6 +9,7 @@
 
 import { Suspense, useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type UIEvent } from 'react'
 import dynamic from 'next/dynamic'
+import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 
 interface PlannerShellProps {
@@ -18,6 +19,19 @@ interface PlannerShellProps {
 const sidePanelOpenWidth = 264
 const leftPanelCollapsedWidth = 72
 const leftMinimumOpenWidth = 220
+const mobilePromotedPlannerPaths = new Set([
+  '/planner',
+  '/planner/new-plan',
+  '/planner/venues',
+  '/planner/payments',
+  '/planner/messages',
+  '/planner/vendors',
+  '/planner/outreach',
+  '/planner/analytics',
+  '/planner/tickets',
+  '/planner/billing',
+  '/planner/settings',
+])
 
 const ActivePlanContextHeader = dynamic(
   () => import('@/components/planner/ActivePlanContextHeader').then((module) => module.ActivePlanContextHeader),
@@ -36,11 +50,13 @@ const PlannerSidebar = dynamic(
  * Light planner shell with ChatGPT-style draggable side panels.
  */
 export function PlannerShell({ children }: PlannerShellProps) {
+  const pathname = usePathname()
   const [leftWidth, setLeftWidth] = useState(sidePanelOpenWidth)
   const [hasLoadedLeftWidth, setHasLoadedLeftWidth] = useState(false)
   const sideScrollRafRef = useRef<number | null>(null)
   const isLeftOpen = leftWidth >= leftMinimumOpenWidth
   const isLeftCollapsed = !isLeftOpen
+  const isMobilePromotedPath = mobilePromotedPlannerPaths.has(pathname)
 
   useEffect(() => {
     const isNarrowViewport = window.innerWidth < 900
@@ -112,7 +128,10 @@ export function PlannerShell({ children }: PlannerShellProps) {
       className="planner-product-shell relative flex h-screen overflow-hidden bg-cream text-ink"
     >
       <div
-        className="h-screen shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
+        className={cn(
+          'h-screen shrink-0 overflow-hidden transition-[width] duration-200 ease-out',
+          isMobilePromotedPath && 'hidden lg:block'
+        )}
         style={{ width: leftWidth }}
         aria-label={isLeftCollapsed ? 'Collapsed planner navigation' : 'Planner navigation'}
       >
@@ -129,10 +148,13 @@ export function PlannerShell({ children }: PlannerShellProps) {
         isOpen={isLeftOpen}
         style={{ left: leftWidth }}
         onPointerDown={beginLeftDrag}
+        className={isMobilePromotedPath ? 'hidden lg:block' : undefined}
       />
 
       <main className="min-w-0 flex-1 overflow-y-auto" onScroll={syncSidePanelsToMainScroll}>
-        <ActivePlanContextHeader />
+        <div className={cn(isMobilePromotedPath && 'hidden lg:block')}>
+          <ActivePlanContextHeader />
+        </div>
         {children}
       </main>
     </div>

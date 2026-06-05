@@ -1,4 +1,4 @@
-export const mobileMockupSpacing = {
+export const mobileSpacing = {
   pagePaddingX: 'px-6',
   pagePaddingTop: 'pt-8',
   pagePaddingBottom: 'pb-12',
