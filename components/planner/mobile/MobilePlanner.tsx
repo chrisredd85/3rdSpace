@@ -237,7 +237,7 @@ interface AppSectionLink {
 
 const appSections: AppSectionLink[] = [
   { id: 'planner', label: 'Plan', href: '/planner' },
-  { id: 'approvals', label: 'Review queue', href: '/planner/payments' },
+  { id: 'approvals', label: 'Next steps', href: '/planner/payments' },
   { id: 'messages', label: 'Inbox', href: '/planner/messages' },
   { id: 'vendors', label: 'Vendors', href: '/planner/vendors' },
   { id: 'outreach', label: 'Outreach', href: '/planner/outreach' },
@@ -560,7 +560,7 @@ export function MobilePlanner({
             onTouchStart={setMenuTouchStartX}
             onTouchEnd={(endX) => {
               if (menuTouchStartX === null) return
-              if (menuTouchStartX - endX > 60) setIsMenuOpen(false)
+              if (endX - menuTouchStartX > 60) setIsMenuOpen(false)
               setMenuTouchStartX(null)
             }}
             onClose={() => setIsMenuOpen(false)}
@@ -796,10 +796,10 @@ function MobileHeader({
         </Link>
         <div className="flex items-center gap-2">
           <Link
-            href="/planner/payments"
+            href={reviewCount > 0 ? '/planner/payments' : '/planner?view=approval'}
             className="inline-flex h-10 items-center rounded-full border border-tan bg-cream-deep px-3 font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-ink-soft"
           >
-            {reviewCount} review
+            {reviewCount > 0 ? `${reviewCount} review` : 'Next step'}
           </Link>
           <button
             type="button"
@@ -836,14 +836,18 @@ function MobileNavigationPanel({
 }) {
   return (
     <div
-      className="fixed inset-0 z-30 bg-ink/20"
+      className="fixed inset-0 z-30 overflow-hidden bg-ink/20"
+      onClick={onClose}
       onTouchStart={(event) => onTouchStart(event.touches[0]?.clientX ?? null)}
       onTouchEnd={(event) => {
         const changed = event.changedTouches[0]
         if (menuTouchStartX !== null && changed) onTouchEnd(changed.clientX)
       }}
     >
-      <div className="min-h-screen w-[86%] max-w-[360px] border-r border-tan bg-cream pb-8 pt-20 shadow-card">
+      <div
+        className="ml-auto flex h-[100dvh] max-h-[100dvh] w-[86%] max-w-[360px] flex-col overflow-y-auto overscroll-contain border-l border-tan bg-cream pb-[calc(env(safe-area-inset-bottom)_+_2rem)] pt-20 shadow-card"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="px-5">
           <p className="label-caps text-clay">Plan workspace</p>
           <p className="mt-2 truncate font-display text-[26px] leading-tight text-ink">{planTitle ?? 'No active plan'}</p>
@@ -899,7 +903,7 @@ function PlannerView({
   const reviewCount = home?.pending_approval_count ?? 0
   const description = reviewCount > 0
     ? `${reviewCount} approval${reviewCount === 1 ? '' : 's'} waiting. Nothing sends, holds, books, or pays until you approve it.`
-    : 'No approvals are waiting. Nothing sends, holds, books, or pays without your approval.'
+    : 'Plan is ready for next steps. Confirm the brief and outreach message before 3rdPlace contacts anyone.'
 
   return (
     <section>
@@ -911,17 +915,21 @@ function PlannerView({
       />
 
       <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
-        <PrimaryLink href="/planner/payments">
-          {reviewCount > 0 ? `Review ${reviewCount} approval${reviewCount === 1 ? '' : 's'}` : 'Open review queue'}
-        </PrimaryLink>
+        {reviewCount > 0 ? (
+          <PrimaryLink href="/planner/payments">
+            {`Review ${reviewCount} approval${reviewCount === 1 ? '' : 's'}`}
+          </PrimaryLink>
+        ) : (
+          <PrimaryButton onClick={() => onNavigate('approval')}>Review next steps</PrimaryButton>
+        )}
         <SecondaryButton onClick={() => onNavigate('brief')}>Open event brief</SecondaryButton>
       </div>
 
       <Panel className={cn(spacing.sectionGap, spacing.cardPaddingNone)}>
         <div className={cn('border-b border-tan', spacing.panelHeaderPadding)}>
-          <p className="label-caps text-clay">Needs your review</p>
+          <p className="label-caps text-clay">Next action</p>
           <h2 className={cn(spacing.labelToHeadline, 'font-display text-[26px] leading-[1.08] text-ink')}>
-            {reviewCount > 0 ? 'Decisions ready.' : 'No decisions waiting.'}
+            {reviewCount > 0 ? 'Decisions ready.' : 'Confirm before outreach.'}
           </h2>
         </div>
         {home?.pending_approvals.length ? (
@@ -939,7 +947,7 @@ function PlannerView({
             ))}
           </div>
         ) : (
-          <EmptyPanelMessage description="Approvals will appear here after the planner creates a reviewed action." />
+          <EmptyPanelMessage description="The plan can move toward venue and vendor outreach after you confirm the facts and approve the message. Nothing sends from this draft." />
         )}
       </Panel>
 
@@ -1068,6 +1076,7 @@ function EventProgressCard({
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="label-caps text-clay">Event status</p>
+            <h2 className={cn(spacing.labelToHeadline, 'font-display text-[24px] leading-tight text-ink')}>Next action steps</h2>
             <p className={cn(spacing.headlineToBody, 'text-sm leading-6 text-ink-soft')}>{eventSummary(plan)}</p>
           </div>
           <ShieldCheck className="h-6 w-6 text-forest" />
@@ -2227,31 +2236,31 @@ function fallbackProgress(plan: Plan): ProgressItem[] {
   return [
     {
       id: 'brief',
-      label: 'Brief',
-      detail: plan.title ? 'Plan exists' : 'Needs event facts',
+      label: 'Confirm brief',
+      detail: plan.title ? 'Update facts before they are used externally' : 'Add event facts',
       status: plan.title ? 'Ready' : 'Draft',
       tone: plan.title ? 'forest' : 'ochre',
     },
     {
       id: 'venues',
-      label: 'Venues',
-      detail: 'No venue recommendations yet',
-      status: 'Empty',
-      tone: 'muted',
+      label: 'Venue outreach',
+      detail: 'Ready to prepare outreach once the message is confirmed',
+      status: 'Ready',
+      tone: 'forest',
     },
     {
       id: 'budget',
       label: 'Budget',
-      detail: plan.budget_cap_cents == null ? 'No budget target yet' : 'Target set on plan',
-      status: plan.budget_cap_cents == null ? 'Missing' : 'Watch',
+      detail: plan.budget_cap_cents == null ? 'Add budget before outreach' : 'Target set. Update if this changes',
+      status: plan.budget_cap_cents == null ? 'Missing' : 'Set',
       tone: plan.budget_cap_cents == null ? 'ochre' : 'forest',
     },
     {
       id: 'outreach',
-      label: 'Outreach',
-      detail: 'Gmail outreach in development',
-      status: 'Gated',
-      tone: 'muted',
+      label: 'Message approval',
+      detail: 'Review the outreach message before anyone is contacted',
+      status: 'Confirm',
+      tone: 'ochre',
     },
   ]
 }
@@ -2267,7 +2276,7 @@ function progressView(id: ProgressItem['id']): MobileView {
   if (id === 'brief') return 'brief'
   if (id === 'venues') return 'venues'
   if (id === 'budget') return 'budget'
-  return 'draft'
+  return 'approval'
 }
 
 function money(cents: number | null | undefined): string | null {
