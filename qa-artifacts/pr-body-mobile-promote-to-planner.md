@@ -34,6 +34,8 @@ Promotes the wired mobile planner shell from PR #33 into the canonical `/planner
 - Promoted routes render the mobile tree below `lg` and existing desktop tree at `lg+`.
 - `PlannerShell` hides its desktop navigation chrome below `lg` only for promoted mobile routes.
 - Hidden desktop `PlannerWorkspace` skips draft/server-loading side effects below `lg`, so mobile owns `/planner?draft=...`.
+- Homepage `/planner?draft=...` handoff auto-starts the mobile planner draft; users do not have to press a second "Start private plan" button.
+- Unauthenticated/public intake falls back to a local draft instead of surfacing the private-plan API error.
 - `/planner/new-plan` is allowed through middleware like `/planner`, so public planner intake does not redirect unauthenticated users to login.
 - Protected subroutes still require a signed-in community builder session before route content renders.
 
@@ -65,7 +67,7 @@ Saved under `qa-artifacts/mobile-promote-screenshots/`:
 - `boundary-1024.png`
 - `splash-mobile-draft-flow.png`
 
-The public splash flow was verified at 390x844: homepage textarea submit lands on `/planner?draft=Founder%20dinner%20for%2024`, renders the mobile planner, and pre-fills the mobile event request textarea with `Founder dinner for 24`.
+The public splash flow was verified at 390x844: homepage textarea submit lands on `/planner?draft=Founder%20dinner%20for%2024...`, auto-starts the mobile planner draft, renders the loaded planner view, and does not show the second "Start private plan" step.
 
 Breakpoint check:
 
@@ -83,7 +85,7 @@ Note: protected planner subroutes require an authenticated builder session. Loca
 - `npm run security:rls` passed
 - `npm test -- --runInBand` passed, 96 suites passed / 1 skipped, 575 tests passed / 9 skipped
 - `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321 NEXT_PUBLIC_SUPABASE_ANON_KEY=local-anon-key npm run build` passed
-- Browser smoke: `/planner?draft=Founder%20dinner%20for%2024` at mobile viewport kept the canonical URL, removed desktop rail, showed `Start your next event`, and prefilled the draft textarea
+- Browser smoke: homepage submit at mobile viewport landed on `/planner?draft=Founder%20dinner%20for%2024...`, removed desktop rail, auto-loaded the planner, and did not show "Start private plan" or "Unable to start plan"
 
 ## Rollback
 

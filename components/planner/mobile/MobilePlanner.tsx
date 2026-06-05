@@ -1,6 +1,7 @@
 'use client'
 
 import type { FormEvent, ReactNode } from 'react'
+import { useSearchParams } from 'next/navigation'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -18,8 +19,9 @@ import {
   X,
 } from 'lucide-react'
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { applyMockPlanPatch, buildDeterministicDraftExchange, buildDraftMatchHandoff, buildMockMessage, buildMockPlan, tryRunPublicDraftIntake } from '../planner-page/draftMode'
 import { mobileSpacing as spacing } from './mobileSpacing'
 
 export type MobileSection =
@@ -324,6 +326,9 @@ export function MobilePlanner({
   activeSection?: MobileSection
   initialView?: MobileView
 }) {
+  const searchParams = useSearchParams()
+  const requestedDraft = searchParams.get('draft')?.trim() ?? ''
+  const requestedView = searchParams.get('view')
   const [initialEntry] = useState(() => getInitialMobileEntry(initialView))
   const [view, setView] = useState<MobileView>(initialEntry.view)
   const [data, setData] = useState<MobileData>(initialData)
@@ -333,6 +338,7 @@ export function MobilePlanner({
   const [newPlanDraft, setNewPlanDraft] = useState(initialEntry.draft)
   const [isSubmittingMessage, setIsSubmittingMessage] = useState(false)
   const [isCreatingPlan, setIsCreatingPlan] = useState(false)
+  const hasAutoStartedInitialDraftRef = useRef(false)
 
   const reload = useCallback(async () => {
     setData((current) => ({ ...current, state: 'loading', error: null }))
@@ -341,24 +347,100 @@ export function MobilePlanner({
   }, [])
 
   useEffect(() => {
-    if (initialEntry.skipInitialLoad) {
-      setData({ ...initialData, state: 'empty' })
+    if (initialEntry.skipInitialLoad || requestedDraft) {
+      setData({ ...initialData, state: requestedDraft ? 'loading' : 'empty' })
       return
     }
     void reload()
-  }, [initialEntry.skipInitialLoad, reload])
+  }, [initialEntry.skipInitialLoad, reload, requestedDraft])
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const requestedDraft = params.get('draft')?.trim()
-    const requestedView = params.get('view')
     if (requestedDraft) {
       setNewPlanDraft(requestedDraft)
       setView('new-plan')
     } else if (isMobileView(requestedView)) {
       setView(requestedView)
     }
+  }, [requestedDraft, requestedView])
+
+  const createLocalDraftPlan = useCallback(async (message: string) => {
+    const plan = buildMockPlan(message)
+    const userMessage = buildMockMessage(plan.id, 'user', message, 'text', {})
+    const publicIntake = await tryRunPublicDraftIntake(message, plan)
+    const deterministicExchange = publicIntake
+      ? null
+      : await buildDeterministicDraftExchange(message, plan, [userMessage])
+    const finalPlan = publicIntake
+      ? applyMockPlanPatch(plan, publicIntake.plan_patch)
+      : deterministicExchange?.finalPlan ?? plan
+    const agentMessages = publicIntake
+      ? [
+          buildMockMessage(
+            finalPlan.id,
+            'agent',
+            publicIntake.agent_draft.content,
+            publicIntake.agent_draft.message_type,
+            publicIntake.agent_draft.metadata
+          ),
+        ]
+      : deterministicExchange?.agentMessages ?? []
+    const draftMatchHandoff = buildDraftMatchHandoff(finalPlan, agentMessages)
+    const nextPlan = draftMatchHandoff.plan
+    const nextMessages = [userMessage, ...draftMatchHandoff.agentMessages]
+
+    setData(buildDraftMobileData(nextPlan as Plan, nextMessages as PlanMessage[]))
+    setNewPlanDraft('')
+    setView('planner')
   }, [])
+
+  const startPlanFromMessage = useCallback(async (message: string) => {
+    const trimmed = message.trim()
+    if (!trimmed) return
+
+    try {
+      const response = await fetch('/api/planner/plans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: trimmed }),
+      })
+      const payload = await response.json().catch(() => null) as { plan?: Plan; error?: string } | null
+
+      if (response.status === 401 || response.status === 403) {
+        await createLocalDraftPlan(trimmed)
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Unable to start plan')
+      }
+
+      setNewPlanDraft('')
+      await reload()
+      window.history.replaceState(null, '', '/planner')
+      if (payload?.plan?.id) setView('planner')
+    } catch (error) {
+      console.warn('[mobile.planner] Falling back to local draft mode after create failed', error)
+      await createLocalDraftPlan(trimmed)
+    }
+  }, [createLocalDraftPlan, reload])
+
+  useEffect(() => {
+    if (!requestedDraft || hasAutoStartedInitialDraftRef.current) return
+
+    hasAutoStartedInitialDraftRef.current = true
+    setIsCreatingPlan(true)
+    setData({ ...initialData, state: 'loading', error: null })
+
+    startPlanFromMessage(requestedDraft)
+      .catch((error) => {
+        setData((current) => ({
+          ...current,
+          state: 'empty',
+          error: error instanceof Error ? error.message : 'Unable to start plan',
+        }))
+      })
+      .finally(() => setIsCreatingPlan(false))
+  }, [requestedDraft, startPlanFromMessage])
 
   const reviewCount = data.home?.pending_approval_count ?? data.planPayload?.approvals.filter((approval) => approval.status === 'pending').length ?? 0
 
@@ -395,18 +477,7 @@ export function MobilePlanner({
     if (!newPlanDraft.trim()) return
     setIsCreatingPlan(true)
     try {
-      const response = await fetch('/api/planner/plans', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: newPlanDraft.trim() }),
-      })
-      if (!response.ok) throw new Error('Unable to start plan')
-      const payload = (await response.json()) as { plan?: Plan }
-      setNewPlanDraft('')
-      await reload()
-      if (payload.plan?.id) {
-        setView('planner')
-      }
+      await startPlanFromMessage(newPlanDraft)
     } catch (error) {
       setData((current) => ({
         ...current,
@@ -597,6 +668,42 @@ async function loadMobileData(): Promise<MobileData> {
       state: 'error',
       error: error instanceof Error ? error.message : 'Unable to load mobile planner',
     }
+  }
+}
+
+function buildDraftMobileData(plan: Plan, messages: PlanMessage[]): MobileData {
+  const now = new Date().toISOString()
+  const activity: ActivityItem[] = [
+    {
+      id: `draft-activity-${plan.id}`,
+      kind: 'draft_created',
+      summary: 'Draft started privately',
+      detail: 'No outreach, hold, booking, or payment has been sent.',
+      occurred_at: now,
+    },
+  ]
+
+  return {
+    ...initialData,
+    state: 'ready',
+    error: null,
+    activePlanId: plan.id,
+    planPayload: {
+      plan,
+      messages,
+      recommendations: [],
+      approvals: [],
+    },
+    home: {
+      plan,
+      pending_approvals: [],
+      pending_approval_count: 0,
+      problem: null,
+      progress: fallbackProgress(plan),
+      updates: activity,
+    },
+    budget: null,
+    activity,
   }
 }
 

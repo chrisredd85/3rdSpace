@@ -1,7 +1,7 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
-import type { ReactNode } from 'react'
+import { Suspense, type ReactNode } from 'react'
 import { MobilePlanner, type MobileSection, type MobileView } from '@/components/planner/mobile/MobilePlanner'
 
 type MobileRouteConfig = {
@@ -32,7 +32,9 @@ export function PlannerResponsiveLayout({ children }: { children: ReactNode }) {
   return (
     <>
       <div className="lg:hidden">
-        <MobilePlanner activeSection={mobileConfig.activeSection} initialView={mobileConfig.initialView} />
+        <Suspense fallback={<div className="min-h-screen bg-cream" />}>
+          <MobilePlanner activeSection={mobileConfig.activeSection} initialView={mobileConfig.initialView} />
+        </Suspense>
       </div>
       <div className="hidden lg:block">{children}</div>
     </>
