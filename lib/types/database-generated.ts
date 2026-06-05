@@ -7,11 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.1"
-  }
   graphql_public: {
     Tables: {
       [_ in never]: never
@@ -39,1040 +34,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      creator_email_accounts: {
-        Row: {
-          created_at: string
-          email_address: string
-          history_id: string | null
-          id: string
-          label_id: string | null
-          oauth_access_token: string
-          oauth_refresh_token: string
-          provider: string
-          revoked_at: string | null
-          token_expires_at: string | null
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          email_address: string
-          history_id?: string | null
-          id?: string
-          label_id?: string | null
-          oauth_access_token: string
-          oauth_refresh_token: string
-          provider?: string
-          revoked_at?: string | null
-          token_expires_at?: string | null
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          email_address?: string
-          history_id?: string | null
-          id?: string
-          label_id?: string | null
-          oauth_access_token?: string
-          oauth_refresh_token?: string
-          provider?: string
-          revoked_at?: string | null
-          token_expires_at?: string | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "creator_email_accounts_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      creator_outreach_policies: {
-        Row: {
-          allowed_autonomous_actions: string[]
-          blacklisted_keywords: string[]
-          blacklisted_venue_ids: string[]
-          created_at: string
-          id: string
-          irreversible_autonomous_actions: string[]
-          max_followups_per_thread: number
-          max_inquiries_per_event: number
-          max_unattended_budget_cents: number
-          quiet_hours_end_local: string | null
-          quiet_hours_start_local: string | null
-          require_approval_for_first_contact: boolean
-          trust_level: number
-          updated_at: string
-          user_id: string
-          version: number
-        }
-        Insert: {
-          allowed_autonomous_actions?: string[]
-          blacklisted_keywords?: string[]
-          blacklisted_venue_ids?: string[]
-          created_at?: string
-          id?: string
-          irreversible_autonomous_actions?: string[]
-          max_followups_per_thread?: number
-          max_inquiries_per_event?: number
-          max_unattended_budget_cents?: number
-          quiet_hours_end_local?: string | null
-          quiet_hours_start_local?: string | null
-          require_approval_for_first_contact?: boolean
-          trust_level?: number
-          updated_at?: string
-          user_id: string
-          version: number
-        }
-        Update: {
-          allowed_autonomous_actions?: string[]
-          blacklisted_keywords?: string[]
-          blacklisted_venue_ids?: string[]
-          created_at?: string
-          id?: string
-          irreversible_autonomous_actions?: string[]
-          max_followups_per_thread?: number
-          max_inquiries_per_event?: number
-          max_unattended_budget_cents?: number
-          quiet_hours_end_local?: string | null
-          quiet_hours_start_local?: string | null
-          require_approval_for_first_contact?: boolean
-          trust_level?: number
-          updated_at?: string
-          user_id?: string
-          version?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "creator_outreach_policies_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      creator_outreach_trust_history: {
-        Row: {
-          computed_at: string
-          id: string
-          metrics_json: Json
-          policy_id: string | null
-          policy_version: number | null
-          trust_level: number
-          user_id: string
-        }
-        Insert: {
-          computed_at?: string
-          id?: string
-          metrics_json?: Json
-          policy_id?: string | null
-          policy_version?: number | null
-          trust_level?: number
-          user_id: string
-        }
-        Update: {
-          computed_at?: string
-          id?: string
-          metrics_json?: Json
-          policy_id?: string | null
-          policy_version?: number | null
-          trust_level?: number
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "creator_outreach_trust_history_policy_id_fkey"
-            columns: ["policy_id"]
-            isOneToOne: false
-            referencedRelation: "creator_outreach_policies"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "creator_outreach_trust_history_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      creator_phone_numbers: {
-        Row: {
-          a2p_registration_status: string
-          created_at: string
-          e164_number: string
-          id: string
-          twilio_sid: string | null
-          updated_at: string
-          user_id: string
-          verified_at: string | null
-        }
-        Insert: {
-          a2p_registration_status?: string
-          created_at?: string
-          e164_number: string
-          id?: string
-          twilio_sid?: string | null
-          updated_at?: string
-          user_id: string
-          verified_at?: string | null
-        }
-        Update: {
-          a2p_registration_status?: string
-          created_at?: string
-          e164_number?: string
-          id?: string
-          twilio_sid?: string | null
-          updated_at?: string
-          user_id?: string
-          verified_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "creator_phone_numbers_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      discovery_venue_events: {
-        Row: {
-          actor_user_id: string | null
-          created_at: string
-          discovery_venue_id: string
-          event_type: string
-          id: string
-          metadata: Json
-        }
-        Insert: {
-          actor_user_id?: string | null
-          created_at?: string
-          discovery_venue_id: string
-          event_type: string
-          id?: string
-          metadata?: Json
-        }
-        Update: {
-          actor_user_id?: string | null
-          created_at?: string
-          discovery_venue_id?: string
-          event_type?: string
-          id?: string
-          metadata?: Json
-        }
-        Relationships: [
-          {
-            foreignKeyName: "discovery_venue_events_actor_user_id_fkey"
-            columns: ["actor_user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "discovery_venue_events_discovery_venue_id_fkey"
-            columns: ["discovery_venue_id"]
-            isOneToOne: false
-            referencedRelation: "discovery_venues"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      discovery_venue_signals: {
-        Row: {
-          created_at: string
-          discovery_venue_id: string | null
-          event_type: string
-          id: string
-          latency_seconds: number | null
-          thread_id: string | null
-          venue_id: string | null
-        }
-        Insert: {
-          created_at?: string
-          discovery_venue_id?: string | null
-          event_type: string
-          id?: string
-          latency_seconds?: number | null
-          thread_id?: string | null
-          venue_id?: string | null
-        }
-        Update: {
-          created_at?: string
-          discovery_venue_id?: string | null
-          event_type?: string
-          id?: string
-          latency_seconds?: number | null
-          thread_id?: string | null
-          venue_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "discovery_venue_signals_discovery_venue_id_fkey"
-            columns: ["discovery_venue_id"]
-            isOneToOne: false
-            referencedRelation: "discovery_venues"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "discovery_venue_signals_thread_id_fkey"
-            columns: ["thread_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_threads"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "discovery_venue_signals_venue_id_fkey"
-            columns: ["venue_id"]
-            isOneToOne: false
-            referencedRelation: "venues"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      discovery_venues: {
-        Row: {
-          address: string | null
-          alcohol_policy: string | null
-          av_available: boolean | null
-          capacity_cocktail: number | null
-          capacity_seated: number | null
-          capacity_standing: number | null
-          city: string
-          claimed_venue_id: string | null
-          contact_email: string | null
-          contact_phone: string | null
-          created_at: string
-          google_photo_names: string[]
-          google_rating: number | null
-          google_user_ratings_total: number | null
-          id: string
-          instagram_handle: string | null
-          is_claimed: boolean
-          last_enriched_at: string | null
-          last_verified_at: string | null
-          lat: number | null
-          lng: number | null
-          metadata: Json
-          name: string
-          neighborhood: string | null
-          opening_hours_json: Json
-          parking_notes: string | null
-          price_hint_cents_high: number | null
-          price_hint_cents_low: number | null
-          price_hint_note: string | null
-          source: string
-          source_external_id: string | null
-          state: string
-          updated_at: string
-          vibe_tags: string[]
-          website: string | null
-        }
-        Insert: {
-          address?: string | null
-          alcohol_policy?: string | null
-          av_available?: boolean | null
-          capacity_cocktail?: number | null
-          capacity_seated?: number | null
-          capacity_standing?: number | null
-          city?: string
-          claimed_venue_id?: string | null
-          contact_email?: string | null
-          contact_phone?: string | null
-          created_at?: string
-          google_photo_names?: string[]
-          google_rating?: number | null
-          google_user_ratings_total?: number | null
-          id?: string
-          instagram_handle?: string | null
-          is_claimed?: boolean
-          last_enriched_at?: string | null
-          last_verified_at?: string | null
-          lat?: number | null
-          lng?: number | null
-          metadata?: Json
-          name: string
-          neighborhood?: string | null
-          opening_hours_json?: Json
-          parking_notes?: string | null
-          price_hint_cents_high?: number | null
-          price_hint_cents_low?: number | null
-          price_hint_note?: string | null
-          source?: string
-          source_external_id?: string | null
-          state?: string
-          updated_at?: string
-          vibe_tags?: string[]
-          website?: string | null
-        }
-        Update: {
-          address?: string | null
-          alcohol_policy?: string | null
-          av_available?: boolean | null
-          capacity_cocktail?: number | null
-          capacity_seated?: number | null
-          capacity_standing?: number | null
-          city?: string
-          claimed_venue_id?: string | null
-          contact_email?: string | null
-          contact_phone?: string | null
-          created_at?: string
-          google_photo_names?: string[]
-          google_rating?: number | null
-          google_user_ratings_total?: number | null
-          id?: string
-          instagram_handle?: string | null
-          is_claimed?: boolean
-          last_enriched_at?: string | null
-          last_verified_at?: string | null
-          lat?: number | null
-          lng?: number | null
-          metadata?: Json
-          name?: string
-          neighborhood?: string | null
-          opening_hours_json?: Json
-          parking_notes?: string | null
-          price_hint_cents_high?: number | null
-          price_hint_cents_low?: number | null
-          price_hint_note?: string | null
-          source?: string
-          source_external_id?: string | null
-          state?: string
-          updated_at?: string
-          vibe_tags?: string[]
-          website?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "discovery_venues_claimed_venue_id_fkey"
-            columns: ["claimed_venue_id"]
-            isOneToOne: false
-            referencedRelation: "venues"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      outreach_compliance_events: {
-        Row: {
-          channel: string
-          created_at: string
-          event_type: string
-          id: string
-          message_id: string | null
-          metadata: Json
-          severity: string
-          thread_id: string | null
-          user_id: string | null
-        }
-        Insert: {
-          channel: string
-          created_at?: string
-          event_type: string
-          id?: string
-          message_id?: string | null
-          metadata?: Json
-          severity?: string
-          thread_id?: string | null
-          user_id?: string | null
-        }
-        Update: {
-          channel?: string
-          created_at?: string
-          event_type?: string
-          id?: string
-          message_id?: string | null
-          metadata?: Json
-          severity?: string
-          thread_id?: string | null
-          user_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "outreach_compliance_events_message_id_fkey"
-            columns: ["message_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_messages"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_compliance_events_thread_id_fkey"
-            columns: ["thread_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_threads"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_compliance_events_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      outreach_messages: {
-        Row: {
-          agent_action_id: string | null
-          approval_id: string | null
-          attachments_json: Json
-          autonomous_send_after: string | null
-          autonomy_policy_id: string | null
-          autonomy_policy_version: number | null
-          autonomy_status: string
-          body_html: string | null
-          body_text: string
-          cancelled_at: string | null
-          channel_external_id: string | null
-          classification_json: Json | null
-          created_at: string
-          direction: string
-          gmail_message_id: string | null
-          gmail_thread_id: string | null
-          headers_json: Json
-          id: string
-          provider_cost_cents: number | null
-          provider_metadata_json: Json
-          received_at: string | null
-          recording_url: string | null
-          scheduled_send_at: string | null
-          sent_at: string | null
-          sent_manually: boolean
-          subject: string
-          thread_id: string
-          transcript_text: string | null
-          undo_expires_at: string | null
-        }
-        Insert: {
-          agent_action_id?: string | null
-          approval_id?: string | null
-          attachments_json?: Json
-          autonomous_send_after?: string | null
-          autonomy_policy_id?: string | null
-          autonomy_policy_version?: number | null
-          autonomy_status?: string
-          body_html?: string | null
-          body_text: string
-          cancelled_at?: string | null
-          channel_external_id?: string | null
-          classification_json?: Json | null
-          created_at?: string
-          direction: string
-          gmail_message_id?: string | null
-          gmail_thread_id?: string | null
-          headers_json?: Json
-          id?: string
-          provider_cost_cents?: number | null
-          provider_metadata_json?: Json
-          received_at?: string | null
-          recording_url?: string | null
-          scheduled_send_at?: string | null
-          sent_at?: string | null
-          sent_manually?: boolean
-          subject: string
-          thread_id: string
-          transcript_text?: string | null
-          undo_expires_at?: string | null
-        }
-        Update: {
-          agent_action_id?: string | null
-          approval_id?: string | null
-          attachments_json?: Json
-          autonomous_send_after?: string | null
-          autonomy_policy_id?: string | null
-          autonomy_policy_version?: number | null
-          autonomy_status?: string
-          body_html?: string | null
-          body_text?: string
-          cancelled_at?: string | null
-          channel_external_id?: string | null
-          classification_json?: Json | null
-          created_at?: string
-          direction?: string
-          gmail_message_id?: string | null
-          gmail_thread_id?: string | null
-          headers_json?: Json
-          id?: string
-          provider_cost_cents?: number | null
-          provider_metadata_json?: Json
-          received_at?: string | null
-          recording_url?: string | null
-          scheduled_send_at?: string | null
-          sent_at?: string | null
-          sent_manually?: boolean
-          subject?: string
-          thread_id?: string
-          transcript_text?: string | null
-          undo_expires_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "outreach_messages_agent_action_id_fkey"
-            columns: ["agent_action_id"]
-            isOneToOne: false
-            referencedRelation: "agent_actions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_messages_approval_id_fkey"
-            columns: ["approval_id"]
-            isOneToOne: false
-            referencedRelation: "approvals"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_messages_thread_id_fkey"
-            columns: ["thread_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_threads"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      outreach_notifications: {
-        Row: {
-          created_at: string
-          id: string
-          notification_type: string
-          payload_json: Json
-          read_at: string | null
-          thread_id: string | null
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          notification_type: string
-          payload_json?: Json
-          read_at?: string | null
-          thread_id?: string | null
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          notification_type?: string
-          payload_json?: Json
-          read_at?: string | null
-          thread_id?: string | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "outreach_notifications_thread_id_fkey"
-            columns: ["thread_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_threads"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_notifications_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      outreach_policy_audit_logs: {
-        Row: {
-          action: string
-          context_json: Json
-          created_at: string
-          decision: string
-          human_intervened: boolean
-          id: string
-          message_id: string | null
-          model_name: string | null
-          policy_id: string | null
-          policy_version: number | null
-          reason: string
-          required_approval_type: string | null
-          result_json: Json
-          retention_expires_at: string
-          reversible_until: string | null
-          thread_id: string | null
-          undone_at: string | null
-          user_id: string
-        }
-        Insert: {
-          action: string
-          context_json?: Json
-          created_at?: string
-          decision: string
-          human_intervened?: boolean
-          id?: string
-          message_id?: string | null
-          model_name?: string | null
-          policy_id?: string | null
-          policy_version?: number | null
-          reason: string
-          required_approval_type?: string | null
-          result_json?: Json
-          retention_expires_at?: string
-          reversible_until?: string | null
-          thread_id?: string | null
-          undone_at?: string | null
-          user_id: string
-        }
-        Update: {
-          action?: string
-          context_json?: Json
-          created_at?: string
-          decision?: string
-          human_intervened?: boolean
-          id?: string
-          message_id?: string | null
-          model_name?: string | null
-          policy_id?: string | null
-          policy_version?: number | null
-          reason?: string
-          required_approval_type?: string | null
-          result_json?: Json
-          retention_expires_at?: string
-          reversible_until?: string | null
-          thread_id?: string | null
-          undone_at?: string | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "outreach_policy_audit_logs_message_id_fkey"
-            columns: ["message_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_messages"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_policy_audit_logs_policy_id_fkey"
-            columns: ["policy_id"]
-            isOneToOne: false
-            referencedRelation: "creator_outreach_policies"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_policy_audit_logs_thread_id_fkey"
-            columns: ["thread_id"]
-            isOneToOne: false
-            referencedRelation: "outreach_threads"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_policy_audit_logs_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      outreach_threads: {
-        Row: {
-          channel: string
-          channel_strategy: Json
-          created_at: string
-          discovery_venue_id: string | null
-          follow_up_count: number
-          id: string
-          last_event_at: string
-          last_inbound_at: string | null
-          last_outbound_at: string | null
-          needs_attention: boolean
-          next_action_at: string | null
-          plan_id: string
-          source_agent_action_id: string | null
-          state: string
-          target_email: string | null
-          target_id: string | null
-          target_instagram_handle: string | null
-          target_name: string
-          target_phone: string | null
-          target_source: string
-          target_type: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          channel?: string
-          channel_strategy?: Json
-          created_at?: string
-          discovery_venue_id?: string | null
-          follow_up_count?: number
-          id?: string
-          last_event_at?: string
-          last_inbound_at?: string | null
-          last_outbound_at?: string | null
-          needs_attention?: boolean
-          next_action_at?: string | null
-          plan_id: string
-          source_agent_action_id?: string | null
-          state?: string
-          target_email?: string | null
-          target_id?: string | null
-          target_instagram_handle?: string | null
-          target_name: string
-          target_phone?: string | null
-          target_source?: string
-          target_type: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          channel?: string
-          channel_strategy?: Json
-          created_at?: string
-          discovery_venue_id?: string | null
-          follow_up_count?: number
-          id?: string
-          last_event_at?: string
-          last_inbound_at?: string | null
-          last_outbound_at?: string | null
-          needs_attention?: boolean
-          next_action_at?: string | null
-          plan_id?: string
-          source_agent_action_id?: string | null
-          state?: string
-          target_email?: string | null
-          target_id?: string | null
-          target_instagram_handle?: string | null
-          target_name?: string
-          target_phone?: string | null
-          target_source?: string
-          target_type?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "outreach_threads_discovery_venue_id_fkey"
-            columns: ["discovery_venue_id"]
-            isOneToOne: false
-            referencedRelation: "discovery_venues"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_threads_plan_id_fkey"
-            columns: ["plan_id"]
-            isOneToOne: false
-            referencedRelation: "plans"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_threads_source_agent_action_id_fkey"
-            columns: ["source_agent_action_id"]
-            isOneToOne: false
-            referencedRelation: "agent_actions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "outreach_threads_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      supply_scout_venue_leads: {
-        Row: {
-          address: string
-          booking_likelihood: string
-          booking_signals: string[]
-          capacity_hint: number | null
-          captured_at: string
-          city: string
-          confidence: number
-          created_at: string
-          created_by: string | null
-          discovery_venue_id: string | null
-          disqualifiers: string[]
-          duplicate_of_lead_id: string | null
-          event_title: string | null
-          event_type: string | null
-          evidence_summary: string
-          id: string
-          metadata: Json
-          name: string
-          neighborhood: string | null
-          normalized_address: string
-          normalized_name: string
-          price_hint_cents_high: number | null
-          price_hint_cents_low: number | null
-          review_status: string
-          reviewed_at: string | null
-          reviewed_by: string | null
-          source_platform: string
-          source_url: string | null
-          state: string
-          updated_at: string
-          website: string | null
-        }
-        Insert: {
-          address: string
-          booking_likelihood?: string
-          booking_signals?: string[]
-          capacity_hint?: number | null
-          captured_at?: string
-          city?: string
-          confidence?: number
-          created_at?: string
-          created_by?: string | null
-          discovery_venue_id?: string | null
-          disqualifiers?: string[]
-          duplicate_of_lead_id?: string | null
-          event_title?: string | null
-          event_type?: string | null
-          evidence_summary: string
-          id?: string
-          metadata?: Json
-          name: string
-          neighborhood?: string | null
-          normalized_address: string
-          normalized_name: string
-          price_hint_cents_high?: number | null
-          price_hint_cents_low?: number | null
-          review_status?: string
-          reviewed_at?: string | null
-          reviewed_by?: string | null
-          source_platform: string
-          source_url?: string | null
-          state?: string
-          updated_at?: string
-          website?: string | null
-        }
-        Update: {
-          address?: string
-          booking_likelihood?: string
-          booking_signals?: string[]
-          capacity_hint?: number | null
-          captured_at?: string
-          city?: string
-          confidence?: number
-          created_at?: string
-          created_by?: string | null
-          discovery_venue_id?: string | null
-          disqualifiers?: string[]
-          duplicate_of_lead_id?: string | null
-          event_title?: string | null
-          event_type?: string | null
-          evidence_summary?: string
-          id?: string
-          metadata?: Json
-          name?: string
-          neighborhood?: string | null
-          normalized_address?: string
-          normalized_name?: string
-          price_hint_cents_high?: number | null
-          price_hint_cents_low?: number | null
-          review_status?: string
-          reviewed_at?: string | null
-          reviewed_by?: string | null
-          source_platform?: string
-          source_url?: string | null
-          state?: string
-          updated_at?: string
-          website?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "supply_scout_venue_leads_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "supply_scout_venue_leads_discovery_venue_id_fkey"
-            columns: ["discovery_venue_id"]
-            isOneToOne: false
-            referencedRelation: "discovery_venues"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "supply_scout_venue_leads_duplicate_of_lead_id_fkey"
-            columns: ["duplicate_of_lead_id"]
-            isOneToOne: false
-            referencedRelation: "supply_scout_venue_leads"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "supply_scout_venue_leads_reviewed_by_fkey"
-            columns: ["reviewed_by"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      venue_contact_profiles: {
-        Row: {
-          contact_name: string | null
-          created_at: string
-          discovery_venue_id: string | null
-          email: string | null
-          id: string
-          instagram_handle: string | null
-          phone_e164: string | null
-          preferred_channel: string
-          sms_opted_out_at: string | null
-          source: string
-          updated_at: string
-          venue_id: string | null
-          verified_at: string | null
-          voice_allowed: boolean
-        }
-        Insert: {
-          contact_name?: string | null
-          created_at?: string
-          discovery_venue_id?: string | null
-          email?: string | null
-          id?: string
-          instagram_handle?: string | null
-          phone_e164?: string | null
-          preferred_channel?: string
-          sms_opted_out_at?: string | null
-          source?: string
-          updated_at?: string
-          venue_id?: string | null
-          verified_at?: string | null
-          voice_allowed?: boolean
-        }
-        Update: {
-          contact_name?: string | null
-          created_at?: string
-          discovery_venue_id?: string | null
-          email?: string | null
-          id?: string
-          instagram_handle?: string | null
-          phone_e164?: string | null
-          preferred_channel?: string
-          sms_opted_out_at?: string | null
-          source?: string
-          updated_at?: string
-          venue_id?: string | null
-          verified_at?: string | null
-          voice_allowed?: boolean
-        }
-        Relationships: [
-          {
-            foreignKeyName: "venue_contact_profiles_discovery_venue_id_fkey"
-            columns: ["discovery_venue_id"]
-            isOneToOne: false
-            referencedRelation: "discovery_venues"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "venue_contact_profiles_venue_id_fkey"
-            columns: ["venue_id"]
-            isOneToOne: false
-            referencedRelation: "venues"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       admin_audit_log: {
         Row: {
           action: string
@@ -2374,6 +1335,423 @@ export type Database = {
             columns: ["invite_id"]
             isOneToOne: false
             referencedRelation: "venue_opportunity_invites"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creator_email_accounts: {
+        Row: {
+          created_at: string
+          email_address: string
+          history_id: string | null
+          id: string
+          label_id: string | null
+          oauth_access_token: string
+          oauth_refresh_token: string
+          provider: string
+          revoked_at: string | null
+          token_expires_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email_address: string
+          history_id?: string | null
+          id?: string
+          label_id?: string | null
+          oauth_access_token: string
+          oauth_refresh_token: string
+          provider?: string
+          revoked_at?: string | null
+          token_expires_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email_address?: string
+          history_id?: string | null
+          id?: string
+          label_id?: string | null
+          oauth_access_token?: string
+          oauth_refresh_token?: string
+          provider?: string
+          revoked_at?: string | null
+          token_expires_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creator_email_accounts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creator_outreach_policies: {
+        Row: {
+          allowed_autonomous_actions: string[]
+          blacklisted_keywords: string[]
+          blacklisted_venue_ids: string[]
+          created_at: string
+          id: string
+          irreversible_autonomous_actions: string[]
+          max_followups_per_thread: number
+          max_inquiries_per_event: number
+          max_unattended_budget_cents: number
+          quiet_hours_end_local: string | null
+          quiet_hours_start_local: string | null
+          require_approval_for_first_contact: boolean
+          trust_level: number
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          allowed_autonomous_actions?: string[]
+          blacklisted_keywords?: string[]
+          blacklisted_venue_ids?: string[]
+          created_at?: string
+          id?: string
+          irreversible_autonomous_actions?: string[]
+          max_followups_per_thread?: number
+          max_inquiries_per_event?: number
+          max_unattended_budget_cents?: number
+          quiet_hours_end_local?: string | null
+          quiet_hours_start_local?: string | null
+          require_approval_for_first_contact?: boolean
+          trust_level?: number
+          updated_at?: string
+          user_id: string
+          version: number
+        }
+        Update: {
+          allowed_autonomous_actions?: string[]
+          blacklisted_keywords?: string[]
+          blacklisted_venue_ids?: string[]
+          created_at?: string
+          id?: string
+          irreversible_autonomous_actions?: string[]
+          max_followups_per_thread?: number
+          max_inquiries_per_event?: number
+          max_unattended_budget_cents?: number
+          quiet_hours_end_local?: string | null
+          quiet_hours_start_local?: string | null
+          require_approval_for_first_contact?: boolean
+          trust_level?: number
+          updated_at?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creator_outreach_policies_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creator_outreach_trust_history: {
+        Row: {
+          computed_at: string
+          id: string
+          metrics_json: Json
+          policy_id: string | null
+          policy_version: number | null
+          trust_level: number
+          user_id: string
+        }
+        Insert: {
+          computed_at?: string
+          id?: string
+          metrics_json?: Json
+          policy_id?: string | null
+          policy_version?: number | null
+          trust_level?: number
+          user_id: string
+        }
+        Update: {
+          computed_at?: string
+          id?: string
+          metrics_json?: Json
+          policy_id?: string | null
+          policy_version?: number | null
+          trust_level?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creator_outreach_trust_history_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "creator_outreach_policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creator_outreach_trust_history_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creator_phone_numbers: {
+        Row: {
+          a2p_registration_status: string
+          created_at: string
+          e164_number: string
+          id: string
+          twilio_sid: string | null
+          updated_at: string
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          a2p_registration_status?: string
+          created_at?: string
+          e164_number: string
+          id?: string
+          twilio_sid?: string | null
+          updated_at?: string
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          a2p_registration_status?: string
+          created_at?: string
+          e164_number?: string
+          id?: string
+          twilio_sid?: string | null
+          updated_at?: string
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creator_phone_numbers_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discovery_venue_events: {
+        Row: {
+          actor_user_id: string | null
+          created_at: string
+          discovery_venue_id: string
+          event_type: string
+          id: string
+          metadata: Json
+        }
+        Insert: {
+          actor_user_id?: string | null
+          created_at?: string
+          discovery_venue_id: string
+          event_type: string
+          id?: string
+          metadata?: Json
+        }
+        Update: {
+          actor_user_id?: string | null
+          created_at?: string
+          discovery_venue_id?: string
+          event_type?: string
+          id?: string
+          metadata?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_venue_events_actor_user_id_fkey"
+            columns: ["actor_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discovery_venue_events_discovery_venue_id_fkey"
+            columns: ["discovery_venue_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discovery_venue_signals: {
+        Row: {
+          created_at: string
+          discovery_venue_id: string | null
+          event_type: string
+          id: string
+          latency_seconds: number | null
+          thread_id: string | null
+          venue_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          discovery_venue_id?: string | null
+          event_type: string
+          id?: string
+          latency_seconds?: number | null
+          thread_id?: string | null
+          venue_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          discovery_venue_id?: string | null
+          event_type?: string
+          id?: string
+          latency_seconds?: number | null
+          thread_id?: string | null
+          venue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_venue_signals_discovery_venue_id_fkey"
+            columns: ["discovery_venue_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discovery_venue_signals_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_threads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discovery_venue_signals_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discovery_venues: {
+        Row: {
+          address: string | null
+          alcohol_policy: string | null
+          av_available: boolean | null
+          capacity_cocktail: number | null
+          capacity_seated: number | null
+          capacity_standing: number | null
+          city: string
+          claimed_venue_id: string | null
+          contact_email: string | null
+          contact_phone: string | null
+          created_at: string
+          google_photo_names: string[]
+          google_rating: number | null
+          google_user_ratings_total: number | null
+          id: string
+          instagram_handle: string | null
+          is_claimed: boolean
+          last_enriched_at: string | null
+          last_verified_at: string | null
+          lat: number | null
+          lng: number | null
+          metadata: Json
+          name: string
+          neighborhood: string | null
+          opening_hours_json: Json
+          parking_notes: string | null
+          price_hint_cents_high: number | null
+          price_hint_cents_low: number | null
+          price_hint_note: string | null
+          source: string
+          source_external_id: string | null
+          state: string
+          updated_at: string
+          vibe_tags: string[]
+          website: string | null
+        }
+        Insert: {
+          address?: string | null
+          alcohol_policy?: string | null
+          av_available?: boolean | null
+          capacity_cocktail?: number | null
+          capacity_seated?: number | null
+          capacity_standing?: number | null
+          city?: string
+          claimed_venue_id?: string | null
+          contact_email?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          google_photo_names?: string[]
+          google_rating?: number | null
+          google_user_ratings_total?: number | null
+          id?: string
+          instagram_handle?: string | null
+          is_claimed?: boolean
+          last_enriched_at?: string | null
+          last_verified_at?: string | null
+          lat?: number | null
+          lng?: number | null
+          metadata?: Json
+          name: string
+          neighborhood?: string | null
+          opening_hours_json?: Json
+          parking_notes?: string | null
+          price_hint_cents_high?: number | null
+          price_hint_cents_low?: number | null
+          price_hint_note?: string | null
+          source?: string
+          source_external_id?: string | null
+          state?: string
+          updated_at?: string
+          vibe_tags?: string[]
+          website?: string | null
+        }
+        Update: {
+          address?: string | null
+          alcohol_policy?: string | null
+          av_available?: boolean | null
+          capacity_cocktail?: number | null
+          capacity_seated?: number | null
+          capacity_standing?: number | null
+          city?: string
+          claimed_venue_id?: string | null
+          contact_email?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          google_photo_names?: string[]
+          google_rating?: number | null
+          google_user_ratings_total?: number | null
+          id?: string
+          instagram_handle?: string | null
+          is_claimed?: boolean
+          last_enriched_at?: string | null
+          last_verified_at?: string | null
+          lat?: number | null
+          lng?: number | null
+          metadata?: Json
+          name?: string
+          neighborhood?: string | null
+          opening_hours_json?: Json
+          parking_notes?: string | null
+          price_hint_cents_high?: number | null
+          price_hint_cents_low?: number | null
+          price_hint_note?: string | null
+          source?: string
+          source_external_id?: string | null
+          state?: string
+          updated_at?: string
+          vibe_tags?: string[]
+          website?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_venues_claimed_venue_id_fkey"
+            columns: ["claimed_venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
             referencedColumns: ["id"]
           },
         ]
@@ -4332,6 +3710,63 @@ export type Database = {
           },
         ]
       }
+      live_recommendations: {
+        Row: {
+          agent_narrative: string
+          created_at: string
+          event_id: string
+          evidence: Json
+          id: string
+          org_id: string
+          severity: string
+          state: string
+          suggested_action: string
+          trigger_key: string
+          updated_at: string
+        }
+        Insert: {
+          agent_narrative?: string
+          created_at?: string
+          event_id: string
+          evidence?: Json
+          id?: string
+          org_id: string
+          severity: string
+          state?: string
+          suggested_action: string
+          trigger_key: string
+          updated_at?: string
+        }
+        Update: {
+          agent_narrative?: string
+          created_at?: string
+          event_id?: string
+          evidence?: Json
+          id?: string
+          org_id?: string
+          severity?: string
+          state?: string
+          suggested_action?: string
+          trigger_key?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "live_recommendations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "live_recommendations_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       message_threads: {
         Row: {
           booking_id: string | null
@@ -4515,63 +3950,6 @@ export type Database = {
           },
         ]
       }
-      live_recommendations: {
-        Row: {
-          agent_narrative: string
-          created_at: string
-          event_id: string
-          evidence: Json
-          id: string
-          org_id: string
-          severity: string
-          state: string
-          suggested_action: string
-          trigger_key: string
-          updated_at: string
-        }
-        Insert: {
-          agent_narrative?: string
-          created_at?: string
-          event_id: string
-          evidence?: Json
-          id?: string
-          org_id: string
-          severity: string
-          state?: string
-          suggested_action: string
-          trigger_key: string
-          updated_at?: string
-        }
-        Update: {
-          agent_narrative?: string
-          created_at?: string
-          event_id?: string
-          evidence?: Json
-          id?: string
-          org_id?: string
-          severity?: string
-          state?: string
-          suggested_action?: string
-          trigger_key?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "live_recommendations_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "live_recommendations_org_id_fkey"
-            columns: ["org_id"]
-            isOneToOne: false
-            referencedRelation: "builder_profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       notifications: {
         Row: {
           action_url: string | null
@@ -4719,6 +4097,426 @@ export type Database = {
             columns: ["vendor_id"]
             isOneToOne: false
             referencedRelation: "vendor_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outreach_compliance_events: {
+        Row: {
+          channel: string
+          created_at: string
+          event_type: string
+          id: string
+          message_id: string | null
+          metadata: Json
+          severity: string
+          thread_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          channel: string
+          created_at?: string
+          event_type: string
+          id?: string
+          message_id?: string | null
+          metadata?: Json
+          severity?: string
+          thread_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          channel?: string
+          created_at?: string
+          event_type?: string
+          id?: string
+          message_id?: string | null
+          metadata?: Json
+          severity?: string
+          thread_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_compliance_events_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_compliance_events_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_threads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_compliance_events_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outreach_messages: {
+        Row: {
+          agent_action_id: string | null
+          approval_id: string | null
+          attachments_json: Json
+          autonomous_send_after: string | null
+          autonomy_policy_id: string | null
+          autonomy_policy_version: number | null
+          autonomy_status: string
+          body_html: string | null
+          body_text: string
+          cancelled_at: string | null
+          channel_external_id: string | null
+          classification_json: Json | null
+          created_at: string
+          direction: string
+          gmail_message_id: string | null
+          gmail_thread_id: string | null
+          headers_json: Json
+          id: string
+          provider_cost_cents: number | null
+          provider_metadata_json: Json
+          received_at: string | null
+          recording_url: string | null
+          scheduled_send_at: string | null
+          sent_at: string | null
+          sent_manually: boolean
+          subject: string
+          thread_id: string
+          transcript_text: string | null
+          undo_expires_at: string | null
+        }
+        Insert: {
+          agent_action_id?: string | null
+          approval_id?: string | null
+          attachments_json?: Json
+          autonomous_send_after?: string | null
+          autonomy_policy_id?: string | null
+          autonomy_policy_version?: number | null
+          autonomy_status?: string
+          body_html?: string | null
+          body_text: string
+          cancelled_at?: string | null
+          channel_external_id?: string | null
+          classification_json?: Json | null
+          created_at?: string
+          direction: string
+          gmail_message_id?: string | null
+          gmail_thread_id?: string | null
+          headers_json?: Json
+          id?: string
+          provider_cost_cents?: number | null
+          provider_metadata_json?: Json
+          received_at?: string | null
+          recording_url?: string | null
+          scheduled_send_at?: string | null
+          sent_at?: string | null
+          sent_manually?: boolean
+          subject: string
+          thread_id: string
+          transcript_text?: string | null
+          undo_expires_at?: string | null
+        }
+        Update: {
+          agent_action_id?: string | null
+          approval_id?: string | null
+          attachments_json?: Json
+          autonomous_send_after?: string | null
+          autonomy_policy_id?: string | null
+          autonomy_policy_version?: number | null
+          autonomy_status?: string
+          body_html?: string | null
+          body_text?: string
+          cancelled_at?: string | null
+          channel_external_id?: string | null
+          classification_json?: Json | null
+          created_at?: string
+          direction?: string
+          gmail_message_id?: string | null
+          gmail_thread_id?: string | null
+          headers_json?: Json
+          id?: string
+          provider_cost_cents?: number | null
+          provider_metadata_json?: Json
+          received_at?: string | null
+          recording_url?: string | null
+          scheduled_send_at?: string | null
+          sent_at?: string | null
+          sent_manually?: boolean
+          subject?: string
+          thread_id?: string
+          transcript_text?: string | null
+          undo_expires_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_messages_agent_action_id_fkey"
+            columns: ["agent_action_id"]
+            isOneToOne: false
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_messages_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_messages_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outreach_notifications: {
+        Row: {
+          created_at: string
+          id: string
+          notification_type: string
+          payload_json: Json
+          read_at: string | null
+          thread_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          notification_type: string
+          payload_json?: Json
+          read_at?: string | null
+          thread_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          notification_type?: string
+          payload_json?: Json
+          read_at?: string | null
+          thread_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_notifications_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_threads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outreach_policy_audit_logs: {
+        Row: {
+          action: string
+          context_json: Json
+          created_at: string
+          decision: string
+          human_intervened: boolean
+          id: string
+          message_id: string | null
+          model_name: string | null
+          policy_id: string | null
+          policy_version: number | null
+          reason: string
+          required_approval_type: string | null
+          result_json: Json
+          retention_expires_at: string
+          reversible_until: string | null
+          thread_id: string | null
+          undone_at: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          context_json?: Json
+          created_at?: string
+          decision: string
+          human_intervened?: boolean
+          id?: string
+          message_id?: string | null
+          model_name?: string | null
+          policy_id?: string | null
+          policy_version?: number | null
+          reason: string
+          required_approval_type?: string | null
+          result_json?: Json
+          retention_expires_at?: string
+          reversible_until?: string | null
+          thread_id?: string | null
+          undone_at?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          context_json?: Json
+          created_at?: string
+          decision?: string
+          human_intervened?: boolean
+          id?: string
+          message_id?: string | null
+          model_name?: string | null
+          policy_id?: string | null
+          policy_version?: number | null
+          reason?: string
+          required_approval_type?: string | null
+          result_json?: Json
+          retention_expires_at?: string
+          reversible_until?: string | null
+          thread_id?: string | null
+          undone_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_policy_audit_logs_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_policy_audit_logs_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "creator_outreach_policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_policy_audit_logs_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "outreach_threads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_policy_audit_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outreach_threads: {
+        Row: {
+          channel: string
+          channel_strategy: Json
+          created_at: string
+          discovery_venue_id: string | null
+          follow_up_count: number
+          id: string
+          last_event_at: string
+          last_inbound_at: string | null
+          last_outbound_at: string | null
+          needs_attention: boolean
+          next_action_at: string | null
+          plan_id: string
+          source_agent_action_id: string | null
+          state: string
+          target_email: string | null
+          target_id: string | null
+          target_instagram_handle: string | null
+          target_name: string
+          target_phone: string | null
+          target_source: string
+          target_type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          channel?: string
+          channel_strategy?: Json
+          created_at?: string
+          discovery_venue_id?: string | null
+          follow_up_count?: number
+          id?: string
+          last_event_at?: string
+          last_inbound_at?: string | null
+          last_outbound_at?: string | null
+          needs_attention?: boolean
+          next_action_at?: string | null
+          plan_id: string
+          source_agent_action_id?: string | null
+          state?: string
+          target_email?: string | null
+          target_id?: string | null
+          target_instagram_handle?: string | null
+          target_name: string
+          target_phone?: string | null
+          target_source?: string
+          target_type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          channel?: string
+          channel_strategy?: Json
+          created_at?: string
+          discovery_venue_id?: string | null
+          follow_up_count?: number
+          id?: string
+          last_event_at?: string
+          last_inbound_at?: string | null
+          last_outbound_at?: string | null
+          needs_attention?: boolean
+          next_action_at?: string | null
+          plan_id?: string
+          source_agent_action_id?: string | null
+          state?: string
+          target_email?: string | null
+          target_id?: string | null
+          target_instagram_handle?: string | null
+          target_name?: string
+          target_phone?: string | null
+          target_source?: string
+          target_type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outreach_threads_discovery_venue_id_fkey"
+            columns: ["discovery_venue_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_threads_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_threads_source_agent_action_id_fkey"
+            columns: ["source_agent_action_id"]
+            isOneToOne: false
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outreach_threads_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -5040,6 +4838,135 @@ export type Database = {
             columns: ["payment_intent_id"]
             isOneToOne: false
             referencedRelation: "payment_intents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_activity: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          occurred_at: string
+          payload: Json
+          plan_id: string
+          summary: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind: string
+          occurred_at?: string
+          payload?: Json
+          plan_id: string
+          summary: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          occurred_at?: string
+          payload?: Json
+          plan_id?: string
+          summary?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_activity_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_budget: {
+        Row: {
+          buffer_target_cents: number | null
+          created_at: string
+          metadata: Json
+          notes: string | null
+          plan_id: string
+          target_cents: number | null
+          updated_at: string
+        }
+        Insert: {
+          buffer_target_cents?: number | null
+          created_at?: string
+          metadata?: Json
+          notes?: string | null
+          plan_id: string
+          target_cents?: number | null
+          updated_at?: string
+        }
+        Update: {
+          buffer_target_cents?: number | null
+          created_at?: string
+          metadata?: Json
+          notes?: string | null
+          plan_id?: string
+          target_cents?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_budget_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: true
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_budget_lines: {
+        Row: {
+          category: string
+          created_at: string
+          high_cents: number
+          id: string
+          label: string
+          low_cents: number
+          metadata: Json
+          plan_id: string
+          source: string
+          source_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          high_cents?: number
+          id?: string
+          label: string
+          low_cents?: number
+          metadata?: Json
+          plan_id: string
+          source?: string
+          source_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          high_cents?: number
+          id?: string
+          label?: string
+          low_cents?: number
+          metadata?: Json
+          plan_id?: string
+          source?: string
+          source_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_budget_lines_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
             referencedColumns: ["id"]
           },
         ]
@@ -5828,30 +5755,6 @@ export type Database = {
           },
         ]
       }
-      spatial_ref_sys: {
-        Row: {
-          auth_name: string | null
-          auth_srid: number | null
-          proj4text: string | null
-          srid: number
-          srtext: string | null
-        }
-        Insert: {
-          auth_name?: string | null
-          auth_srid?: number | null
-          proj4text?: string | null
-          srid: number
-          srtext?: string | null
-        }
-        Update: {
-          auth_name?: string | null
-          auth_srid?: number | null
-          proj4text?: string | null
-          srid?: number
-          srtext?: string | null
-        }
-        Relationships: []
-      }
       stripe_accounts: {
         Row: {
           account_type: string
@@ -6015,6 +5918,137 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      supply_scout_venue_leads: {
+        Row: {
+          address: string
+          booking_likelihood: string
+          booking_signals: string[]
+          capacity_hint: number | null
+          captured_at: string
+          city: string
+          confidence: number
+          created_at: string
+          created_by: string | null
+          discovery_venue_id: string | null
+          disqualifiers: string[]
+          duplicate_of_lead_id: string | null
+          event_title: string | null
+          event_type: string | null
+          evidence_summary: string
+          id: string
+          metadata: Json
+          name: string
+          neighborhood: string | null
+          normalized_address: string
+          normalized_name: string
+          price_hint_cents_high: number | null
+          price_hint_cents_low: number | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          source_platform: string
+          source_url: string | null
+          state: string
+          updated_at: string
+          website: string | null
+        }
+        Insert: {
+          address: string
+          booking_likelihood?: string
+          booking_signals?: string[]
+          capacity_hint?: number | null
+          captured_at?: string
+          city?: string
+          confidence?: number
+          created_at?: string
+          created_by?: string | null
+          discovery_venue_id?: string | null
+          disqualifiers?: string[]
+          duplicate_of_lead_id?: string | null
+          event_title?: string | null
+          event_type?: string | null
+          evidence_summary: string
+          id?: string
+          metadata?: Json
+          name: string
+          neighborhood?: string | null
+          normalized_address: string
+          normalized_name: string
+          price_hint_cents_high?: number | null
+          price_hint_cents_low?: number | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source_platform: string
+          source_url?: string | null
+          state?: string
+          updated_at?: string
+          website?: string | null
+        }
+        Update: {
+          address?: string
+          booking_likelihood?: string
+          booking_signals?: string[]
+          capacity_hint?: number | null
+          captured_at?: string
+          city?: string
+          confidence?: number
+          created_at?: string
+          created_by?: string | null
+          discovery_venue_id?: string | null
+          disqualifiers?: string[]
+          duplicate_of_lead_id?: string | null
+          event_title?: string | null
+          event_type?: string | null
+          evidence_summary?: string
+          id?: string
+          metadata?: Json
+          name?: string
+          neighborhood?: string | null
+          normalized_address?: string
+          normalized_name?: string
+          price_hint_cents_high?: number | null
+          price_hint_cents_low?: number | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source_platform?: string
+          source_url?: string | null
+          state?: string
+          updated_at?: string
+          website?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supply_scout_venue_leads_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supply_scout_venue_leads_discovery_venue_id_fkey"
+            columns: ["discovery_venue_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supply_scout_venue_leads_duplicate_of_lead_id_fkey"
+            columns: ["duplicate_of_lead_id"]
+            isOneToOne: false
+            referencedRelation: "supply_scout_venue_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supply_scout_venue_leads_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       sync_logs: {
         Row: {
@@ -7804,6 +7838,72 @@ export type Database = {
           },
         ]
       }
+      venue_contact_profiles: {
+        Row: {
+          contact_name: string | null
+          created_at: string
+          discovery_venue_id: string | null
+          email: string | null
+          id: string
+          instagram_handle: string | null
+          phone_e164: string | null
+          preferred_channel: string
+          sms_opted_out_at: string | null
+          source: string
+          updated_at: string
+          venue_id: string | null
+          verified_at: string | null
+          voice_allowed: boolean
+        }
+        Insert: {
+          contact_name?: string | null
+          created_at?: string
+          discovery_venue_id?: string | null
+          email?: string | null
+          id?: string
+          instagram_handle?: string | null
+          phone_e164?: string | null
+          preferred_channel?: string
+          sms_opted_out_at?: string | null
+          source?: string
+          updated_at?: string
+          venue_id?: string | null
+          verified_at?: string | null
+          voice_allowed?: boolean
+        }
+        Update: {
+          contact_name?: string | null
+          created_at?: string
+          discovery_venue_id?: string | null
+          email?: string | null
+          id?: string
+          instagram_handle?: string | null
+          phone_e164?: string | null
+          preferred_channel?: string
+          sms_opted_out_at?: string | null
+          source?: string
+          updated_at?: string
+          venue_id?: string | null
+          verified_at?: string | null
+          voice_allowed?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "venue_contact_profiles_discovery_venue_id_fkey"
+            columns: ["discovery_venue_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_contact_profiles_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       venue_kickback_configs: {
         Row: {
           active: boolean | null
@@ -8189,7 +8289,7 @@ export type Database = {
           failure_reason?: string | null
           id?: string
           paid_at?: string | null
-          payment_method_type?: string | null
+          payment_method_type?: string
           plan_id?: string
           processing_fee_cents?: number
           refund_amount_cents?: number | null
@@ -8496,7 +8596,7 @@ export type Database = {
           state: string | null
           stripe_account_id: string | null
           stripe_customer_id: string | null
-          ticket_sales_share_enabled: boolean
+          ticket_sales_share_enabled: boolean | null
           ticket_sales_share_pct: number
           ticket_sales_share_percent: number | null
           total_bookings: number | null
@@ -8565,7 +8665,7 @@ export type Database = {
           state?: string | null
           stripe_account_id?: string | null
           stripe_customer_id?: string | null
-          ticket_sales_share_enabled?: boolean
+          ticket_sales_share_enabled?: boolean | null
           ticket_sales_share_pct?: number
           ticket_sales_share_percent?: number | null
           total_bookings?: number | null
@@ -8634,7 +8734,7 @@ export type Database = {
           state?: string | null
           stripe_account_id?: string | null
           stripe_customer_id?: string | null
-          ticket_sales_share_enabled?: boolean
+          ticket_sales_share_enabled?: boolean | null
           ticket_sales_share_pct?: number
           ticket_sales_share_percent?: number | null
           total_bookings?: number | null
@@ -8746,48 +8846,6 @@ export type Database = {
           },
         ]
       }
-      geography_columns: {
-        Row: {
-          coord_dimension: number | null
-          f_geography_column: unknown
-          f_table_catalog: unknown
-          f_table_name: unknown
-          f_table_schema: unknown
-          srid: number | null
-          type: string | null
-        }
-        Relationships: []
-      }
-      geometry_columns: {
-        Row: {
-          coord_dimension: number | null
-          f_geometry_column: unknown
-          f_table_catalog: string | null
-          f_table_name: unknown
-          f_table_schema: unknown
-          srid: number | null
-          type: string | null
-        }
-        Insert: {
-          coord_dimension?: number | null
-          f_geometry_column?: unknown
-          f_table_catalog?: string | null
-          f_table_name?: unknown
-          f_table_schema?: unknown
-          srid?: number | null
-          type?: string | null
-        }
-        Update: {
-          coord_dimension?: number | null
-          f_geometry_column?: unknown
-          f_table_catalog?: string | null
-          f_table_name?: unknown
-          f_table_schema?: unknown
-          srid?: number | null
-          type?: string | null
-        }
-        Relationships: []
-      }
       organizer_vendor_relationships_vendor_view: {
         Row: {
           created_at: string | null
@@ -8854,145 +8912,6 @@ export type Database = {
       }
     }
     Functions: {
-      can_manage_event_cost_commitment_org: {
-        Args: { p_org_id: string }
-        Returns: boolean
-      }
-      can_manage_event_revenue_term_org: {
-        Args: { p_org_id: string }
-        Returns: boolean
-      }
-      can_manage_live_recommendation_org: {
-        Args: { p_org_id: string }
-        Returns: boolean
-      }
-      _postgis_deprecate: {
-        Args: { newname: string; oldname: string; version: string }
-        Returns: undefined
-      }
-      _postgis_index_extent: {
-        Args: { col: string; tbl: unknown }
-        Returns: unknown
-      }
-      _postgis_pgsql_version: { Args: never; Returns: string }
-      _postgis_scripts_pgsql_version: { Args: never; Returns: string }
-      _postgis_selectivity: {
-        Args: { att_name: string; geom: unknown; mode?: string; tbl: unknown }
-        Returns: number
-      }
-      _postgis_stats: {
-        Args: { ""?: string; att_name: string; tbl: unknown }
-        Returns: string
-      }
-      _st_3dintersects: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      _st_contains: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      _st_containsproperly: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      _st_coveredby:
-        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
-        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
-      _st_covers:
-        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
-        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
-      _st_crosses: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      _st_dwithin: {
-        Args: {
-          geog1: unknown
-          geog2: unknown
-          tolerance: number
-          use_spheroid?: boolean
-        }
-        Returns: boolean
-      }
-      _st_equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
-      _st_intersects: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      _st_linecrossingdirection: {
-        Args: { line1: unknown; line2: unknown }
-        Returns: number
-      }
-      _st_longestline: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: unknown
-      }
-      _st_maxdistance: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: number
-      }
-      _st_orderingequals: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      _st_overlaps: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      _st_sortablehash: { Args: { geom: unknown }; Returns: number }
-      _st_touches: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      _st_voronoi: {
-        Args: {
-          clip?: unknown
-          g1: unknown
-          return_polygons?: boolean
-          tolerance?: number
-        }
-        Returns: unknown
-      }
-      _st_within: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
-      addauth: { Args: { "": string }; Returns: boolean }
-      addgeometrycolumn:
-        | {
-            Args: {
-              catalog_name: string
-              column_name: string
-              new_dim: number
-              new_srid_in: number
-              new_type: string
-              schema_name: string
-              table_name: string
-              use_typmod?: boolean
-            }
-            Returns: string
-          }
-        | {
-            Args: {
-              column_name: string
-              new_dim: number
-              new_srid: number
-              new_type: string
-              schema_name: string
-              table_name: string
-              use_typmod?: boolean
-            }
-            Returns: string
-          }
-        | {
-            Args: {
-              column_name: string
-              new_dim: number
-              new_srid: number
-              new_type: string
-              table_name: string
-              use_typmod?: boolean
-            }
-            Returns: string
-          }
       calculate_builder_savings: {
         Args: { p_builder_id: string; p_month: string }
         Returns: number
@@ -9005,6 +8924,22 @@ export type Database = {
           fee_percentage: number
           total_amount: number
         }[]
+      }
+      can_manage_event_cost_commitment_org: {
+        Args: { p_org_id: string }
+        Returns: boolean
+      }
+      can_manage_event_revenue_term_org: {
+        Args: { p_org_id: string }
+        Returns: boolean
+      }
+      can_manage_live_recommendation_org: {
+        Args: { p_org_id: string }
+        Returns: boolean
+      }
+      can_manage_plan_read_model: {
+        Args: { p_plan_id: string }
+        Returns: boolean
       }
       claim_app_jobs: {
         Args: { p_limit?: number; p_worker_id?: string }
@@ -9063,138 +8998,6 @@ export type Database = {
         }
         Returns: string
       }
-      disablelongtransactions: { Args: never; Returns: string }
-      dropgeometrycolumn:
-        | {
-            Args: {
-              catalog_name: string
-              column_name: string
-              schema_name: string
-              table_name: string
-            }
-            Returns: string
-          }
-        | {
-            Args: {
-              column_name: string
-              schema_name: string
-              table_name: string
-            }
-            Returns: string
-          }
-        | { Args: { column_name: string; table_name: string }; Returns: string }
-      dropgeometrytable:
-        | {
-            Args: {
-              catalog_name: string
-              schema_name: string
-              table_name: string
-            }
-            Returns: string
-          }
-        | { Args: { schema_name: string; table_name: string }; Returns: string }
-        | { Args: { table_name: string }; Returns: string }
-      earth: { Args: never; Returns: number }
-      enablelongtransactions: { Args: never; Returns: string }
-      equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
-      geometry: { Args: { "": string }; Returns: unknown }
-      geometry_above: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_below: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_cmp: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: number
-      }
-      geometry_contained_3d: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_contains: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_contains_3d: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_distance_box: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: number
-      }
-      geometry_distance_centroid: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: number
-      }
-      geometry_eq: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_ge: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_gt: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_le: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_left: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_lt: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_overabove: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_overbelow: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_overlaps: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_overlaps_3d: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_overleft: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_overright: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_right: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_same: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_same_3d: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_within: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geomfromewkt: { Args: { "": string }; Returns: unknown }
       get_event_kickback_summary: {
         Args: { p_event_id: string }
         Returns: Json
@@ -9247,7 +9050,6 @@ export type Database = {
           revenue: number
         }[]
       }
-      gettransactionid: { Args: never; Returns: unknown }
       increment_event_usage: {
         Args: { p_builder_id: string; p_fee_paid: number; p_month: string }
         Returns: undefined
@@ -9265,48 +9067,9 @@ export type Database = {
         }
         Returns: string
       }
-      longtransactionsenabled: { Args: never; Returns: boolean }
+      is_event_builder: { Args: { p_event_id: string }; Returns: boolean }
+      is_event_collaborator: { Args: { p_event_id: string }; Returns: boolean }
       next_vendor_invoice_number: { Args: { p_year: number }; Returns: string }
-      populate_geometry_columns:
-        | { Args: { tbl_oid: unknown; use_typmod?: boolean }; Returns: number }
-        | { Args: { use_typmod?: boolean }; Returns: string }
-      postgis_constraint_dims: {
-        Args: { geomcolumn: string; geomschema: string; geomtable: string }
-        Returns: number
-      }
-      postgis_constraint_srid: {
-        Args: { geomcolumn: string; geomschema: string; geomtable: string }
-        Returns: number
-      }
-      postgis_constraint_type: {
-        Args: { geomcolumn: string; geomschema: string; geomtable: string }
-        Returns: string
-      }
-      postgis_extensions_upgrade: { Args: never; Returns: string }
-      postgis_full_version: { Args: never; Returns: string }
-      postgis_geos_version: { Args: never; Returns: string }
-      postgis_lib_build_date: { Args: never; Returns: string }
-      postgis_lib_revision: { Args: never; Returns: string }
-      postgis_lib_version: { Args: never; Returns: string }
-      postgis_libjson_version: { Args: never; Returns: string }
-      postgis_liblwgeom_version: { Args: never; Returns: string }
-      postgis_libprotobuf_version: { Args: never; Returns: string }
-      postgis_libxml_version: { Args: never; Returns: string }
-      postgis_proj_version: { Args: never; Returns: string }
-      postgis_scripts_build_date: { Args: never; Returns: string }
-      postgis_scripts_installed: { Args: never; Returns: string }
-      postgis_scripts_released: { Args: never; Returns: string }
-      postgis_svn_version: { Args: never; Returns: string }
-      postgis_type_name: {
-        Args: {
-          coord_dimension: number
-          geomname: string
-          use_new_name?: boolean
-        }
-        Returns: string
-      }
-      postgis_version: { Args: never; Returns: string }
-      postgis_wagyu_version: { Args: never; Returns: string }
       recalculate_vendor_review_stats: {
         Args: { p_vendor_id: string }
         Returns: undefined
@@ -9336,598 +9099,6 @@ export type Database = {
           isSetofReturn: true
         }
       }
-      st_3dclosestpoint: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: unknown
-      }
-      st_3ddistance: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: number
-      }
-      st_3dintersects: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      st_3dlongestline: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: unknown
-      }
-      st_3dmakebox: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: unknown
-      }
-      st_3dmaxdistance: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: number
-      }
-      st_3dshortestline: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: unknown
-      }
-      st_addpoint: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: unknown
-      }
-      st_angle:
-        | { Args: { line1: unknown; line2: unknown }; Returns: number }
-        | {
-            Args: { pt1: unknown; pt2: unknown; pt3: unknown; pt4?: unknown }
-            Returns: number
-          }
-      st_area:
-        | { Args: { geog: unknown; use_spheroid?: boolean }; Returns: number }
-        | { Args: { "": string }; Returns: number }
-      st_asencodedpolyline: {
-        Args: { geom: unknown; nprecision?: number }
-        Returns: string
-      }
-      st_asewkt: { Args: { "": string }; Returns: string }
-      st_asgeojson:
-        | {
-            Args: { geog: unknown; maxdecimaldigits?: number; options?: number }
-            Returns: string
-          }
-        | {
-            Args: { geom: unknown; maxdecimaldigits?: number; options?: number }
-            Returns: string
-          }
-        | {
-            Args: {
-              geom_column?: string
-              maxdecimaldigits?: number
-              pretty_bool?: boolean
-              r: Record<string, unknown>
-            }
-            Returns: string
-          }
-        | { Args: { "": string }; Returns: string }
-      st_asgml:
-        | {
-            Args: {
-              geog: unknown
-              id?: string
-              maxdecimaldigits?: number
-              nprefix?: string
-              options?: number
-            }
-            Returns: string
-          }
-        | {
-            Args: { geom: unknown; maxdecimaldigits?: number; options?: number }
-            Returns: string
-          }
-        | { Args: { "": string }; Returns: string }
-        | {
-            Args: {
-              geog: unknown
-              id?: string
-              maxdecimaldigits?: number
-              nprefix?: string
-              options?: number
-              version: number
-            }
-            Returns: string
-          }
-        | {
-            Args: {
-              geom: unknown
-              id?: string
-              maxdecimaldigits?: number
-              nprefix?: string
-              options?: number
-              version: number
-            }
-            Returns: string
-          }
-      st_askml:
-        | {
-            Args: { geog: unknown; maxdecimaldigits?: number; nprefix?: string }
-            Returns: string
-          }
-        | {
-            Args: { geom: unknown; maxdecimaldigits?: number; nprefix?: string }
-            Returns: string
-          }
-        | { Args: { "": string }; Returns: string }
-      st_aslatlontext: {
-        Args: { geom: unknown; tmpl?: string }
-        Returns: string
-      }
-      st_asmarc21: { Args: { format?: string; geom: unknown }; Returns: string }
-      st_asmvtgeom: {
-        Args: {
-          bounds: unknown
-          buffer?: number
-          clip_geom?: boolean
-          extent?: number
-          geom: unknown
-        }
-        Returns: unknown
-      }
-      st_assvg:
-        | {
-            Args: { geog: unknown; maxdecimaldigits?: number; rel?: number }
-            Returns: string
-          }
-        | {
-            Args: { geom: unknown; maxdecimaldigits?: number; rel?: number }
-            Returns: string
-          }
-        | { Args: { "": string }; Returns: string }
-      st_astext: { Args: { "": string }; Returns: string }
-      st_astwkb:
-        | {
-            Args: {
-              geom: unknown
-              prec?: number
-              prec_m?: number
-              prec_z?: number
-              with_boxes?: boolean
-              with_sizes?: boolean
-            }
-            Returns: string
-          }
-        | {
-            Args: {
-              geom: unknown[]
-              ids: number[]
-              prec?: number
-              prec_m?: number
-              prec_z?: number
-              with_boxes?: boolean
-              with_sizes?: boolean
-            }
-            Returns: string
-          }
-      st_asx3d: {
-        Args: { geom: unknown; maxdecimaldigits?: number; options?: number }
-        Returns: string
-      }
-      st_azimuth:
-        | { Args: { geog1: unknown; geog2: unknown }; Returns: number }
-        | { Args: { geom1: unknown; geom2: unknown }; Returns: number }
-      st_boundingdiagonal: {
-        Args: { fits?: boolean; geom: unknown }
-        Returns: unknown
-      }
-      st_buffer:
-        | {
-            Args: { geom: unknown; options?: string; radius: number }
-            Returns: unknown
-          }
-        | {
-            Args: { geom: unknown; quadsegs: number; radius: number }
-            Returns: unknown
-          }
-      st_centroid: { Args: { "": string }; Returns: unknown }
-      st_clipbybox2d: {
-        Args: { box: unknown; geom: unknown }
-        Returns: unknown
-      }
-      st_closestpoint: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: unknown
-      }
-      st_collect: { Args: { geom1: unknown; geom2: unknown }; Returns: unknown }
-      st_concavehull: {
-        Args: {
-          param_allow_holes?: boolean
-          param_geom: unknown
-          param_pctconvex: number
-        }
-        Returns: unknown
-      }
-      st_contains: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      st_containsproperly: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      st_coorddim: { Args: { geometry: unknown }; Returns: number }
-      st_coveredby:
-        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
-        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
-      st_covers:
-        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
-        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
-      st_crosses: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
-      st_curvetoline: {
-        Args: { flags?: number; geom: unknown; tol?: number; toltype?: number }
-        Returns: unknown
-      }
-      st_delaunaytriangles: {
-        Args: { flags?: number; g1: unknown; tolerance?: number }
-        Returns: unknown
-      }
-      st_difference: {
-        Args: { geom1: unknown; geom2: unknown; gridsize?: number }
-        Returns: unknown
-      }
-      st_disjoint: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      st_distance:
-        | {
-            Args: { geog1: unknown; geog2: unknown; use_spheroid?: boolean }
-            Returns: number
-          }
-        | { Args: { geom1: unknown; geom2: unknown }; Returns: number }
-      st_distancesphere:
-        | { Args: { geom1: unknown; geom2: unknown }; Returns: number }
-        | {
-            Args: { geom1: unknown; geom2: unknown; radius: number }
-            Returns: number
-          }
-      st_distancespheroid: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: number
-      }
-      st_dwithin: {
-        Args: {
-          geog1: unknown
-          geog2: unknown
-          tolerance: number
-          use_spheroid?: boolean
-        }
-        Returns: boolean
-      }
-      st_equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
-      st_expand:
-        | { Args: { box: unknown; dx: number; dy: number }; Returns: unknown }
-        | {
-            Args: { box: unknown; dx: number; dy: number; dz?: number }
-            Returns: unknown
-          }
-        | {
-            Args: {
-              dm?: number
-              dx: number
-              dy: number
-              dz?: number
-              geom: unknown
-            }
-            Returns: unknown
-          }
-      st_force3d: { Args: { geom: unknown; zvalue?: number }; Returns: unknown }
-      st_force3dm: {
-        Args: { geom: unknown; mvalue?: number }
-        Returns: unknown
-      }
-      st_force3dz: {
-        Args: { geom: unknown; zvalue?: number }
-        Returns: unknown
-      }
-      st_force4d: {
-        Args: { geom: unknown; mvalue?: number; zvalue?: number }
-        Returns: unknown
-      }
-      st_generatepoints:
-        | { Args: { area: unknown; npoints: number }; Returns: unknown }
-        | {
-            Args: { area: unknown; npoints: number; seed: number }
-            Returns: unknown
-          }
-      st_geogfromtext: { Args: { "": string }; Returns: unknown }
-      st_geographyfromtext: { Args: { "": string }; Returns: unknown }
-      st_geohash:
-        | { Args: { geog: unknown; maxchars?: number }; Returns: string }
-        | { Args: { geom: unknown; maxchars?: number }; Returns: string }
-      st_geomcollfromtext: { Args: { "": string }; Returns: unknown }
-      st_geometricmedian: {
-        Args: {
-          fail_if_not_converged?: boolean
-          g: unknown
-          max_iter?: number
-          tolerance?: number
-        }
-        Returns: unknown
-      }
-      st_geometryfromtext: { Args: { "": string }; Returns: unknown }
-      st_geomfromewkt: { Args: { "": string }; Returns: unknown }
-      st_geomfromgeojson:
-        | { Args: { "": Json }; Returns: unknown }
-        | { Args: { "": Json }; Returns: unknown }
-        | { Args: { "": string }; Returns: unknown }
-      st_geomfromgml: { Args: { "": string }; Returns: unknown }
-      st_geomfromkml: { Args: { "": string }; Returns: unknown }
-      st_geomfrommarc21: { Args: { marc21xml: string }; Returns: unknown }
-      st_geomfromtext: { Args: { "": string }; Returns: unknown }
-      st_gmltosql: { Args: { "": string }; Returns: unknown }
-      st_hasarc: { Args: { geometry: unknown }; Returns: boolean }
-      st_hausdorffdistance: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: number
-      }
-      st_hexagon: {
-        Args: { cell_i: number; cell_j: number; origin?: unknown; size: number }
-        Returns: unknown
-      }
-      st_hexagongrid: {
-        Args: { bounds: unknown; size: number }
-        Returns: Record<string, unknown>[]
-      }
-      st_interpolatepoint: {
-        Args: { line: unknown; point: unknown }
-        Returns: number
-      }
-      st_intersection: {
-        Args: { geom1: unknown; geom2: unknown; gridsize?: number }
-        Returns: unknown
-      }
-      st_intersects:
-        | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
-        | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
-      st_isvaliddetail: {
-        Args: { flags?: number; geom: unknown }
-        Returns: Database["public"]["CompositeTypes"]["valid_detail"]
-        SetofOptions: {
-          from: "*"
-          to: "valid_detail"
-          isOneToOne: true
-          isSetofReturn: false
-        }
-      }
-      st_length:
-        | { Args: { geog: unknown; use_spheroid?: boolean }; Returns: number }
-        | { Args: { "": string }; Returns: number }
-      st_letters: { Args: { font?: Json; letters: string }; Returns: unknown }
-      st_linecrossingdirection: {
-        Args: { line1: unknown; line2: unknown }
-        Returns: number
-      }
-      st_linefromencodedpolyline: {
-        Args: { nprecision?: number; txtin: string }
-        Returns: unknown
-      }
-      st_linefromtext: { Args: { "": string }; Returns: unknown }
-      st_linelocatepoint: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: number
-      }
-      st_linetocurve: { Args: { geometry: unknown }; Returns: unknown }
-      st_locatealong: {
-        Args: { geometry: unknown; leftrightoffset?: number; measure: number }
-        Returns: unknown
-      }
-      st_locatebetween: {
-        Args: {
-          frommeasure: number
-          geometry: unknown
-          leftrightoffset?: number
-          tomeasure: number
-        }
-        Returns: unknown
-      }
-      st_locatebetweenelevations: {
-        Args: { fromelevation: number; geometry: unknown; toelevation: number }
-        Returns: unknown
-      }
-      st_longestline: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: unknown
-      }
-      st_makebox2d: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: unknown
-      }
-      st_makeline: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: unknown
-      }
-      st_makevalid: {
-        Args: { geom: unknown; params: string }
-        Returns: unknown
-      }
-      st_maxdistance: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: number
-      }
-      st_minimumboundingcircle: {
-        Args: { inputgeom: unknown; segs_per_quarter?: number }
-        Returns: unknown
-      }
-      st_mlinefromtext: { Args: { "": string }; Returns: unknown }
-      st_mpointfromtext: { Args: { "": string }; Returns: unknown }
-      st_mpolyfromtext: { Args: { "": string }; Returns: unknown }
-      st_multilinestringfromtext: { Args: { "": string }; Returns: unknown }
-      st_multipointfromtext: { Args: { "": string }; Returns: unknown }
-      st_multipolygonfromtext: { Args: { "": string }; Returns: unknown }
-      st_node: { Args: { g: unknown }; Returns: unknown }
-      st_normalize: { Args: { geom: unknown }; Returns: unknown }
-      st_offsetcurve: {
-        Args: { distance: number; line: unknown; params?: string }
-        Returns: unknown
-      }
-      st_orderingequals: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      st_overlaps: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      st_perimeter: {
-        Args: { geog: unknown; use_spheroid?: boolean }
-        Returns: number
-      }
-      st_pointfromtext: { Args: { "": string }; Returns: unknown }
-      st_pointm: {
-        Args: {
-          mcoordinate: number
-          srid?: number
-          xcoordinate: number
-          ycoordinate: number
-        }
-        Returns: unknown
-      }
-      st_pointz: {
-        Args: {
-          srid?: number
-          xcoordinate: number
-          ycoordinate: number
-          zcoordinate: number
-        }
-        Returns: unknown
-      }
-      st_pointzm: {
-        Args: {
-          mcoordinate: number
-          srid?: number
-          xcoordinate: number
-          ycoordinate: number
-          zcoordinate: number
-        }
-        Returns: unknown
-      }
-      st_polyfromtext: { Args: { "": string }; Returns: unknown }
-      st_polygonfromtext: { Args: { "": string }; Returns: unknown }
-      st_project: {
-        Args: { azimuth: number; distance: number; geog: unknown }
-        Returns: unknown
-      }
-      st_quantizecoordinates: {
-        Args: {
-          g: unknown
-          prec_m?: number
-          prec_x: number
-          prec_y?: number
-          prec_z?: number
-        }
-        Returns: unknown
-      }
-      st_reduceprecision: {
-        Args: { geom: unknown; gridsize: number }
-        Returns: unknown
-      }
-      st_relate: { Args: { geom1: unknown; geom2: unknown }; Returns: string }
-      st_removerepeatedpoints: {
-        Args: { geom: unknown; tolerance?: number }
-        Returns: unknown
-      }
-      st_segmentize: {
-        Args: { geog: unknown; max_segment_length: number }
-        Returns: unknown
-      }
-      st_setsrid:
-        | { Args: { geog: unknown; srid: number }; Returns: unknown }
-        | { Args: { geom: unknown; srid: number }; Returns: unknown }
-      st_sharedpaths: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: unknown
-      }
-      st_shortestline: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: unknown
-      }
-      st_simplifypolygonhull: {
-        Args: { geom: unknown; is_outer?: boolean; vertex_fraction: number }
-        Returns: unknown
-      }
-      st_split: { Args: { geom1: unknown; geom2: unknown }; Returns: unknown }
-      st_square: {
-        Args: { cell_i: number; cell_j: number; origin?: unknown; size: number }
-        Returns: unknown
-      }
-      st_squaregrid: {
-        Args: { bounds: unknown; size: number }
-        Returns: Record<string, unknown>[]
-      }
-      st_srid:
-        | { Args: { geog: unknown }; Returns: number }
-        | { Args: { geom: unknown }; Returns: number }
-      st_subdivide: {
-        Args: { geom: unknown; gridsize?: number; maxvertices?: number }
-        Returns: unknown[]
-      }
-      st_swapordinates: {
-        Args: { geom: unknown; ords: unknown }
-        Returns: unknown
-      }
-      st_symdifference: {
-        Args: { geom1: unknown; geom2: unknown; gridsize?: number }
-        Returns: unknown
-      }
-      st_symmetricdifference: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: unknown
-      }
-      st_tileenvelope: {
-        Args: {
-          bounds?: unknown
-          margin?: number
-          x: number
-          y: number
-          zoom: number
-        }
-        Returns: unknown
-      }
-      st_touches: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
-      st_transform:
-        | {
-            Args: { from_proj: string; geom: unknown; to_proj: string }
-            Returns: unknown
-          }
-        | {
-            Args: { from_proj: string; geom: unknown; to_srid: number }
-            Returns: unknown
-          }
-        | { Args: { geom: unknown; to_proj: string }; Returns: unknown }
-      st_triangulatepolygon: { Args: { g1: unknown }; Returns: unknown }
-      st_union:
-        | { Args: { geom1: unknown; geom2: unknown }; Returns: unknown }
-        | {
-            Args: { geom1: unknown; geom2: unknown; gridsize: number }
-            Returns: unknown
-          }
-      st_voronoilines: {
-        Args: { extend_to?: unknown; g1: unknown; tolerance?: number }
-        Returns: unknown
-      }
-      st_voronoipolygons: {
-        Args: { extend_to?: unknown; g1: unknown; tolerance?: number }
-        Returns: unknown
-      }
-      st_within: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
-      st_wkbtosql: { Args: { wkb: string }; Returns: unknown }
-      st_wkttosql: { Args: { "": string }; Returns: unknown }
-      st_wrapx: {
-        Args: { geom: unknown; move: number; wrap: number }
-        Returns: unknown
-      }
-      unlockrows: { Args: { "": string }; Returns: number }
-      updategeometrysrid: {
-        Args: {
-          catalogn_name: string
-          column_name: string
-          new_srid_in: number
-          schema_name: string
-          table_name: string
-        }
-        Returns: string
-      }
     }
     Enums: {
       planner_plan_status:
@@ -9939,15 +9110,7 @@ export type Database = {
         | "archived"
     }
     CompositeTypes: {
-      geometry_dump: {
-        path: number[] | null
-        geom: unknown
-      }
-      valid_detail: {
-        valid: boolean | null
-        reason: string | null
-        location: unknown
-      }
+      [_ in never]: never
     }
   }
 }
