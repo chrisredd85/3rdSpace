@@ -68,6 +68,7 @@ export function PlannerWorkspace() {
   const [persistenceMode, setPersistenceMode] = useState<PlannerPersistenceMode>('loading')
   const [hasLoadedStoredConversation, setHasLoadedStoredConversation] = useState(false)
   const [isCreatingPlan, setIsCreatingPlan] = useState(false)
+  const [isStartingInitialDraft, setIsStartingInitialDraft] = useState(() => Boolean(initialDraft))
   const [isSendingReply, setIsSendingReply] = useState(false)
   const [isAwaitingRecommendations, setIsAwaitingRecommendations] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -242,12 +243,14 @@ export function PlannerWorkspace() {
 
     async function loadPersistedPlannerState() {
       if (mobilePromotedPlannerPaths.has(pathname) && !isDesktopPlannerViewport()) {
+        setIsStartingInitialDraft(false)
         setPersistenceMode('draft')
         setHasLoadedStoredConversation(true)
         return
       }
 
       if (initialDraft && isDesktopPlannerViewport()) {
+        setIsStartingInitialDraft(true)
         clearStoredPlannerConversation()
         hasStartedInitialDraftRef.current = false
         hasTriedDraftAutoMigrationRef.current = false
@@ -260,6 +263,7 @@ export function PlannerWorkspace() {
       }
 
       if (forceDraftMode) {
+        setIsStartingInitialDraft(false)
         restoreDraftConversation()
         setPersistenceMode('draft')
         setHasLoadedStoredConversation(true)
@@ -273,6 +277,7 @@ export function PlannerWorkspace() {
             const migratedPlan = await migratePlannerDraftToServer()
             if (migratedPlan?.plan?.id) {
               if (!isCancelled) {
+                setIsStartingInitialDraft(false)
                 setActivePlan(migratedPlan.plan)
                 setMessages(migratedPlan.messages)
                 setActiveTab('chat')
@@ -291,6 +296,7 @@ export function PlannerWorkspace() {
 
         if (plannerState.status === 'unauthorized') {
           if (!isCancelled) {
+            setIsStartingInitialDraft(false)
             restoreDraftConversation()
             setPersistenceMode('draft')
           }
@@ -298,6 +304,7 @@ export function PlannerWorkspace() {
         }
 
         if (!isCancelled) {
+          setIsStartingInitialDraft(false)
           setActivePlan(plannerState.plan)
           setMessages(plannerState.messages)
           // Preserve the deep-link tab if one was supplied; otherwise default to Chat.
@@ -309,6 +316,7 @@ export function PlannerWorkspace() {
         }
       } catch (error) {
         if (!isCancelled) {
+          setIsStartingInitialDraft(false)
           const didRestoreDraft = restoreDraftConversation()
           if (didRestoreDraft) {
             setPersistenceMode('draft')
@@ -351,6 +359,7 @@ export function PlannerWorkspace() {
     if (!initialDraft || hasStartedInitialDraftRef.current || ignoredDraftRef.current === initialDraft) return
 
     hasStartedInitialDraftRef.current = true
+    setIsStartingInitialDraft(true)
     setActivePlan(null)
     setMessages([])
     void startInitialDraftPlan(initialDraft)
@@ -378,10 +387,16 @@ export function PlannerWorkspace() {
    * refreshes do not create duplicate plans.
    */
   async function startInitialDraftPlan(message: string) {
-    const createdMode = await handleCreatePlan(message)
+    setIsStartingInitialDraft(true)
 
-    if (createdMode && window.location.search.includes('draft=')) {
-      router.replace(createdMode === 'draft' ? '/planner?mock=1' : '/planner')
+    try {
+      const createdMode = await handleCreatePlan(message)
+
+      if (createdMode && window.location.search.includes('draft=')) {
+        router.replace(createdMode === 'draft' ? '/planner?mock=1' : '/planner')
+      }
+    } finally {
+      setIsStartingInitialDraft(false)
     }
   }
 
@@ -1173,6 +1188,7 @@ export function PlannerWorkspace() {
 
   const organizationName = getPlannerOrganizationName(plannerAccount)
   const plannerRoleLabel = getPlannerRoleLabel(plannerAccount)
+  const shouldShowInitialDraftLoading = isStartingInitialDraft && !activePlan
 
   if (shouldHardResetDemo) {
     return (
@@ -1205,19 +1221,25 @@ export function PlannerWorkspace() {
       <div className="min-h-screen">
         <PlannerTopBar userName={organizationName} userRole={plannerRoleLabel} />
         <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6">
-          {errorMessage ? (
-            <div className="mx-auto mb-4 max-w-3xl rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {errorMessage}
-            </div>
-          ) : null}
-          <PlannerEmptyState
-            onSubmit={handleCreatePlan}
-            isSubmitting={isCreatingPlan || persistenceMode === 'loading' || !hasLoadedStoredConversation}
-            className="min-h-[calc(100vh-8rem)] py-8"
-            title="What should we plan next?"
-            description={`Describe the next event for ${organizationName}. I'll start a new plan without booking, paying, or sending anything until you approve it.`}
-            showTrustSignals={false}
-          />
+          {shouldShowInitialDraftLoading ? (
+            <PlannerInitialDraftLoading />
+          ) : (
+            <>
+              {errorMessage ? (
+                <div className="mx-auto mb-4 max-w-3xl rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                  {errorMessage}
+                </div>
+              ) : null}
+              <PlannerEmptyState
+                onSubmit={handleCreatePlan}
+                isSubmitting={isCreatingPlan || persistenceMode === 'loading' || !hasLoadedStoredConversation}
+                className="min-h-[calc(100vh-8rem)] py-8"
+                title="What should we plan next?"
+                description={`Describe the next event for ${organizationName}. I'll start a new plan without booking, paying, or sending anything until you approve it.`}
+                showTrustSignals={false}
+              />
+            </>
+          )}
         </div>
         <PlannerSignupGate
           isOpen={isSignupGateOpen}
@@ -1566,6 +1588,30 @@ export function PlannerWorkspace() {
         onSaveCurrentPlan={() => void saveActivePlanAsTemplate()}
       />
       {billingGate.modal}
+    </div>
+  )
+}
+
+function PlannerInitialDraftLoading() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="planner-initial-draft-loading"
+      className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-8"
+    >
+      <div className="mx-auto max-w-2xl text-center">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-clay text-cream shadow-card">
+          <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
+        </div>
+        <p className="mt-6 text-xs font-bold uppercase tracking-[0.18em] text-clay-deep">Starting plan</p>
+        <h1 className="mt-3 text-balance font-display text-3xl font-bold leading-tight text-ink sm:text-4xl">
+          Building your event plan.
+        </h1>
+        <p className="mx-auto mt-3 max-w-xl text-balance text-base leading-relaxed text-ink-soft">
+          Using the event you just described. Nothing books, pays, or sends until you approve it.
+        </p>
+      </div>
     </div>
   )
 }
