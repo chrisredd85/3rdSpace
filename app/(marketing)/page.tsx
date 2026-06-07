@@ -309,7 +309,19 @@ export default function HomePage() {
           </div>
         </div>
         <div className="border-t border-tan/70">
-          <div className="mx-auto max-w-[1200px] px-6 py-5">
+          <div className="mx-auto max-w-[1200px] space-y-3 px-6 py-5">
+            <p className="font-mono text-[11px] leading-[1.6] text-ink-faint">
+              <span className="font-semibold text-ink-soft">3rdPlace Outreach SMS:</span> messages
+              are sent on behalf of verified event hosts to coordinate venue and vendor bookings.
+              Reply <span className="font-semibold">STOP</span> to opt out at any time, or{' '}
+              <span className="font-semibold">HELP</span> for help. Message and data rates may
+              apply. Message frequency varies per inquiry. For support, email{' '}
+              <a href="mailto:hello@3rdplace.io" className="underline hover:text-ink">hello@3rdplace.io</a>.
+              See our{' '}
+              <Link href="/terms" className="underline hover:text-ink">Terms</Link>
+              {' '}and{' '}
+              <Link href="/privacy" className="underline hover:text-ink">Privacy</Link>.
+            </p>
             <p className="font-mono text-[11px] text-ink-faint">
               &copy; 2026 3rdPlace · Built in the Bay Area for hosts who run events on repeat.
             </p>
