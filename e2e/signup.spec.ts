@@ -61,7 +61,7 @@ test.describe('Signup flow', () => {
       await page.goto(portal.path, { waitUntil: 'domcontentloaded' })
 
       await expect(page.getByRole('heading', { name: portal.heading })).toBeVisible()
-      await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
+      await expect(page.getByRole('button', { name: /^continue$/i })).toBeVisible()
 
       for (const field of portal.fields) {
         await expect(page.getByText(field).first()).toBeVisible()
@@ -82,7 +82,7 @@ test.describe('Signup flow', () => {
 
     await expect(page.getByRole('heading', { name: /list your venue on 3rdplace/i })).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
-    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^continue$/i })).toBeVisible()
   })
 
   test('/signup/vendor shows the vendor signup form', async ({ page }) => {
@@ -90,14 +90,14 @@ test.describe('Signup flow', () => {
 
     await expect(page.getByRole('heading', { name: /get booked on 3rdplace/i })).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
-    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^continue$/i })).toBeVisible()
   })
 
   test('direct venue portal opens the venue signup flow', async ({ page }) => {
     await page.goto('/signup', { waitUntil: 'domcontentloaded' })
     await page.goto('/signup/venue', { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('heading', { name: /list your venue on 3rdplace/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^continue$/i })).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
   })
 
@@ -105,7 +105,7 @@ test.describe('Signup flow', () => {
     await page.goto('/signup', { waitUntil: 'domcontentloaded' })
     await page.goto('/signup/vendor', { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('heading', { name: /get booked on 3rdplace/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^continue$/i })).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
   })
 })

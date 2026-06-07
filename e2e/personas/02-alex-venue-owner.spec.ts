@@ -9,7 +9,7 @@ test.describe('Persona: Alex — venue owner wants to list', () => {
     await expect(page.getByText(/booking email/i).first()).toBeVisible()
     await expect(page.getByText(/booking phone/i).first()).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
-    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^continue$/i })).toBeVisible()
   })
 
   test('homepage Sign up link reaches /signup/venue via the role picker', async ({ page }) => {
