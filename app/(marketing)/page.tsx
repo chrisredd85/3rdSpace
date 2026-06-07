@@ -308,7 +308,7 @@ export default function HomePage() {
             </ul>
           </div>
           <div className="rounded-card border border-tan/70 bg-cream-deep/60 p-5 sm:col-span-4">
-            <Caps>SMS disclosures</Caps>
+            <Caps>3rdPlace Outreach SMS</Caps>
             <p className="mt-3 max-w-4xl text-[13px] leading-[1.7] text-ink-soft">
               3rdPlace may send event operations texts to hosts, venues, and vendors who opt in, including
               planning updates, booking coordination, payment reminders, and support messages. Message frequency
