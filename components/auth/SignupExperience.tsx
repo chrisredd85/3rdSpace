@@ -434,6 +434,9 @@ const stripeOnboardingConfig: Record<
   },
 }
 
+const creatorGoogleSignupNext =
+  '/api/integrations/gmail/connect?returnTo=/planner/settings/integrations%3Fonboarding%3Dcreator_google_signup'
+
 function getStripeLoginRedirect(userType: UserType) {
   const config = stripeOnboardingConfig[userType]
   return `${config.loginPath}?redirect=${encodeURIComponent(config.dashboardPath)}`
@@ -583,7 +586,7 @@ function BuilderSignupFlow({
       const callbackUrl = new URL('/auth/callback', window.location.origin)
       callbackUrl.searchParams.set('expected_user_type', 'community_builder')
       callbackUrl.searchParams.set('auth_flow', 'signup')
-      callbackUrl.searchParams.set('next', '/planner')
+      callbackUrl.searchParams.set('next', creatorGoogleSignupNext)
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -749,7 +752,7 @@ function BuilderSignupFlow({
               {isGoogleLoading ? 'Connecting...' : 'Continue with Google'}
             </Button>
             <p className="text-center text-xs leading-relaxed text-ink-soft">
-              Google creates your 3rdPlace creator account. Gmail outreach send/read permissions are connected later from Integrations.
+              Google creates your 3rdPlace creator account, then continues into Gmail outreach permissions for approved sends and replies.
             </p>
           </div>
 

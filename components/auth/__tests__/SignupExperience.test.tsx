@@ -96,7 +96,9 @@ describe('SignupExperience step validation', () => {
     const callbackUrl = new URL(redirectTo)
     expect(callbackUrl.searchParams.get('expected_user_type')).toBe('community_builder')
     expect(callbackUrl.searchParams.get('auth_flow')).toBe('signup')
-    expect(callbackUrl.searchParams.get('next')).toBe('/planner')
+    expect(callbackUrl.searchParams.get('next')).toBe(
+      '/api/integrations/gmail/connect?returnTo=/planner/settings/integrations%3Fonboarding%3Dcreator_google_signup'
+    )
   })
 
   it('does not show Google signup on venue or vendor signup forms', () => {
