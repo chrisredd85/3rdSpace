@@ -307,6 +307,31 @@ export default function HomePage() {
               <li><Link href="/privacy" className="hover:text-ink">Privacy</Link></li>
             </ul>
           </div>
+          <div className="rounded-card border border-tan/70 bg-cream-deep/60 p-5 sm:col-span-4">
+            <Caps>SMS disclosures</Caps>
+            <p className="mt-3 max-w-4xl text-[13px] leading-[1.7] text-ink-soft">
+              3rdPlace may send event operations texts to hosts, venues, and vendors who opt in, including
+              planning updates, booking coordination, payment reminders, and support messages. Message frequency
+              varies by event activity. Message and data rates may apply. Reply STOP to unsubscribe or HELP for
+              support. SMS consent is not a condition of purchase.
+            </p>
+            <p className="mt-3 max-w-4xl text-[13px] leading-[1.7] text-ink-soft">
+              We do not sell, rent, or share mobile opt-in data or SMS consent with third parties for their
+              marketing or promotional purposes. For help, email{' '}
+              <a className="font-semibold text-clay underline-offset-4 hover:underline" href="mailto:hello@3rdplace.io">
+                hello@3rdplace.io
+              </a>
+              . See our{' '}
+              <Link className="font-semibold text-clay underline-offset-4 hover:underline" href="/terms">
+                Terms
+              </Link>{' '}
+              and{' '}
+              <Link className="font-semibold text-clay underline-offset-4 hover:underline" href="/privacy">
+                Privacy Policy
+              </Link>
+              .
+            </p>
+          </div>
         </div>
         <div className="border-t border-tan/70">
           <div className="mx-auto max-w-[1200px] px-6 py-5">
