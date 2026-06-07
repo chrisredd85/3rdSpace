@@ -31,10 +31,10 @@ test.describe('auth: role signup portals', () => {
 
       await expect(page.getByRole('heading', { name: portal.heading })).toBeVisible()
       if (portal.hasSignupForm) {
-        await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
+        await expect(page.getByRole('button', { name: /^continue$/i })).toBeVisible()
         await expect(page.getByRole('link', { name: /^sign in$/i })).toHaveAttribute('href', '/login')
       } else {
-        await expect(page.getByRole('button', { name: /continue/i })).not.toBeVisible()
+        await expect(page.getByRole('button', { name: /^continue$/i })).not.toBeVisible()
         await expect(page.locator('input[type="password"]')).not.toBeVisible()
       }
 

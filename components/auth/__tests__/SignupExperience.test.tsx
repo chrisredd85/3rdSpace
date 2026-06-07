@@ -1,10 +1,18 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SignupExperience } from '@/components/auth/SignupExperience'
 import { ToastProvider } from '@/components/ui/toast'
+import { createClient } from '@/lib/supabase/client'
 
 jest.mock('@/lib/planner/migrateDraft', () => ({
   migratePlannerDraftToServer: jest.fn(),
 }))
+
+jest.mock('@/lib/supabase/client', () => ({
+  createClient: jest.fn(),
+}))
+
+const mockCreateClient = createClient as jest.Mock
+const mockSignInWithOAuth = jest.fn()
 
 function renderSignup(initialUserType: 'community_builder' | 'venue_owner' | 'vendor') {
   return render(
@@ -15,10 +23,19 @@ function renderSignup(initialUserType: 'community_builder' | 'venue_owner' | 've
 }
 
 function continueButton() {
-  return screen.getByRole('button', { name: /continue/i })
+  return screen.getByRole('button', { name: /^continue$/i })
 }
 
 describe('SignupExperience step validation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockCreateClient.mockReturnValue({
+      auth: {
+        signInWithOAuth: mockSignInWithOAuth.mockResolvedValue({ error: null }),
+      },
+    })
+  })
+
   it('shows creator as a 4-step flow and gates each signup step', async () => {
     renderSignup('community_builder')
 
@@ -59,6 +76,36 @@ describe('SignupExperience step validation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Eventbrite/i }))
     expect(screen.getByRole('button', { name: /Create account & activate/i })).toBeEnabled()
+  })
+
+  it('starts creator Google signup with the signup callback flags', async () => {
+    renderSignup('community_builder')
+
+    fireEvent.click(screen.getByRole('button', { name: /Continue with Google/i }))
+
+    await waitFor(() => {
+      expect(mockSignInWithOAuth).toHaveBeenCalledWith({
+        provider: 'google',
+        options: {
+          redirectTo: expect.stringContaining('/auth/callback'),
+        },
+      })
+    })
+
+    const redirectTo = mockSignInWithOAuth.mock.calls[0][0].options.redirectTo as string
+    const callbackUrl = new URL(redirectTo)
+    expect(callbackUrl.searchParams.get('expected_user_type')).toBe('community_builder')
+    expect(callbackUrl.searchParams.get('auth_flow')).toBe('signup')
+    expect(callbackUrl.searchParams.get('next')).toBe('/planner')
+  })
+
+  it('does not show Google signup on venue or vendor signup forms', () => {
+    const { unmount } = renderSignup('venue_owner')
+    expect(screen.queryByRole('button', { name: /Continue with Google/i })).not.toBeInTheDocument()
+    unmount()
+
+    renderSignup('vendor')
+    expect(screen.queryByRole('button', { name: /Continue with Google/i })).not.toBeInTheDocument()
   })
 
   it('gates venue signup contact and listing-detail steps', async () => {

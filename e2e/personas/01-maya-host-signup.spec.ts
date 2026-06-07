@@ -61,7 +61,7 @@ test.describe('Persona: Maya — SF host, first visit', () => {
     await expect(page.getByRole('heading', { name: /list your venue on 3rdplace/i })).toBeVisible()
     await expect(page.getByText(/booking email/i).first()).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
-    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^continue$/i })).toBeVisible()
   })
 
   test('vendor role card navigates to vendor signup form', async ({ page }) => {
@@ -75,7 +75,7 @@ test.describe('Persona: Maya — SF host, first visit', () => {
     await expect(page.getByRole('heading', { name: /get booked on 3rdplace/i })).toBeVisible()
     await expect(page.getByText(/business \/ stage name/i).first()).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
-    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^continue$/i })).toBeVisible()
   })
 
   test('creator role card navigates to builder signup form', async ({ page }) => {
@@ -87,13 +87,13 @@ test.describe('Persona: Maya — SF host, first visit', () => {
     await Promise.all([page.waitForURL('**/signup/builder', { timeout: 15000 }), creatorCard.click()])
     await expect(page).toHaveURL(/\/signup\/builder$/)
     await expect(page.getByRole('heading', { name: /set up your creator account/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^continue$/i })).toBeVisible()
   })
 
   test('/signup/builder still renders the builder signup form', async ({ page }) => {
     await page.goto('/signup/builder', { waitUntil: 'domcontentloaded' })
 
-    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^continue$/i })).toBeVisible()
     await expect(page.getByRole('heading', { name: /set up your creator account/i })).toBeVisible()
     await expect(page.getByRole('heading', { name: /list your venue on 3rdplace/i })).not.toBeVisible()
     await expect(page.getByRole('heading', { name: /get booked on 3rdplace/i })).not.toBeVisible()

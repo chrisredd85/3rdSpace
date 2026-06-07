@@ -10,7 +10,7 @@ test.describe('Persona: Jordan — vendor wants to join', () => {
     await expect(page.getByText(/business \/ stage name/i).first()).toBeVisible()
     await expect(page.getByText(/phone/i).first()).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
-    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^continue$/i })).toBeVisible()
   })
 
   test('"List my services" role card reaches vendor signup', async ({ page }) => {
