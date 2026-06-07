@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   description: 'The terms governing use of 3rdPlace.',
 }
 
-const LAST_UPDATED = 'May 30, 2026'
+const LAST_UPDATED = 'June 7, 2026'
 
 const sections = [
   {
@@ -25,8 +25,20 @@ const sections = [
     body: 'The system may recommend venues, vendors, budgets, contracts, messages, or payment actions. You are responsible for reviewing and approving terms before execution. Venues, vendors, ticketing platforms, and payment processors remain separate third parties.',
   },
   {
+    title: 'Google sign-in and Gmail outreach',
+    body: 'You may choose to sign in with Google or connect Gmail for outreach. Google sign-in authenticates your account. Gmail connection authorizes 3rdPlace to prepare, send, and monitor outreach messages only for product features you approve or explicitly configure. You remain responsible for the content, recipients, timing, and legality of outreach sent from your Gmail account.',
+  },
+  {
+    title: 'No automatic outreach without permission',
+    body: '3rdPlace does not send outbound messages from Gmail unless you approve a specific message or configure an outreach autonomy policy. You can disconnect Gmail from the integrations settings page or revoke access from your Google Account at any time.',
+  },
+  {
+    title: 'Google API data use',
+    body: 'Use of Google user data is governed by our Privacy Policy. 3rdPlace does not sell Google user data, use it for advertising, or transfer it to advertising platforms or data brokers. Gmail data is used only to provide user-facing outreach, reply tracking, support, security, and compliance features.',
+  },
+  {
     title: 'Acceptable use',
-    body: 'Do not misrepresent your events, abuse outreach workflows, scrape catalog data, bypass payment flows, interfere with service reliability, or use the product for unlawful activity.',
+    body: 'Do not misrepresent your events, abuse outreach workflows, send spam, violate email or communications laws, scrape catalog data, bypass payment flows, interfere with service reliability, or use the product for unlawful activity.',
   },
   {
     title: 'Availability and warranty disclaimer',
@@ -48,12 +60,11 @@ export default function TermsPage() {
         </h1>
         <p className="mt-4 font-mono text-[12px] text-ink-faint">Last updated: {LAST_UPDATED}</p>
 
-        {/* TODO: Replace this launch placeholder with lawyer-reviewed copy before public launch. */}
         <div className="mt-8 rounded-md border border-tan bg-cream-deep p-6 shadow-sm">
           <p className="text-[15px] leading-6 text-ink-soft">
-            This page is a launch-readiness placeholder. The preserved terms draft predated current in-product
-            payment and refund flows, so this copy intentionally stays high-level until counsel reviews the final
-            commercial terms, refund language, payout obligations, and AI recommendation disclaimers.
+            These terms describe how hosts, venues, vendors, and connected services use 3rdPlace. The agent can
+            propose actions, but users stay responsible for approvals, outreach, bookings, payments, and compliance
+            with applicable laws and third-party platform rules.
           </p>
         </div>
 
