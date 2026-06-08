@@ -1291,7 +1291,7 @@ function buildCatalogGapNotice(plan: Plan, adminTaskCreated: boolean): VenueMatc
     searched_neighborhood: plan.neighborhood ?? null,
     fallback_venues: [],
     message:
-      "Our Bay Area catalog doesn't have a strong match yet. I can flag this for our concierge team to source manually - want me to do that?",
+      "Our Bay Area catalog doesn't have a strong match yet. I can flag this for the 3rdPlace team to source manually - want me to do that?",
     admin_task_created: adminTaskCreated,
   }
 }
@@ -1312,7 +1312,6 @@ async function insertCatalogGapAdminTask(input: {
     requested_at: requestedAt,
     sample_search_count: input.sampleSearchCount,
   }
-  // TODO(admin-ui): Surface catalog_gap admin_tasks in an admin catalog-quality queue.
   const { error } = await input.db.from('admin_tasks').insert({
     plan_id: input.plan.id,
     task_type: 'catalog_gap',
