@@ -205,7 +205,7 @@ export function UniqueFeaturesEditor({ venueId, onSave }: UniqueFeaturesEditorPr
               </span>
             ))}
           </div>
-          <p className="text-xs text-ink-soft">These tags help builders find your venue in marketplace search.</p>
+          <p className="text-xs text-ink-soft">These tags help hosts find your venue in planner search.</p>
         </div>
       ) : null}
 

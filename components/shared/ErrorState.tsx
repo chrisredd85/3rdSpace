@@ -169,7 +169,7 @@ export function ErrorState({
 
           {(showSupport || supportLink) && (
             <a
-              href={supportLink || 'mailto:support@3rdspace.com?subject=Error Report'}
+              href={supportLink || 'mailto:hello@3rdplace.io?subject=Error Report'}
               className="inline-flex min-h-[44px] items-center justify-center rounded-lg border-2 border-tan bg-cream/40 px-6 py-3 text-base font-semibold text-ink transition-all duration-200 hover:border-tan hover:bg-cream"
             >
               <Mail className="mr-2 h-4 w-4" />

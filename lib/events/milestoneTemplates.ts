@@ -226,7 +226,7 @@ function buildReminders(
   }
 
   if (impossibleTimeline) {
-    reminders.push('Escalate to concierge/admin support because the event is inside the 7-day planning window.')
+    reminders.push('Escalate to 3rdPlace team/admin support because the event is inside the 7-day planning window.')
   }
 
   return reminders

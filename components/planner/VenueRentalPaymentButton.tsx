@@ -155,12 +155,12 @@ export function VenueRentalPaymentButton({
 
 function getCheckoutErrorMessage(status: number, payload: CheckoutResponse) {
   if (payload.concierge_required) {
-    return 'Contact concierge to complete this booking: hello@3rdplace.io'
+    return 'Contact the 3rdPlace team to complete this booking: hello@3rdplace.io'
   }
 
   if (payload.concierge_review_required || payload.error === 'amount_exceeds_max') {
     const limit = payload.max_amount_cents ? ` Self-serve limit: ${formatCents(payload.max_amount_cents)}.` : ''
-    return `This booking exceeds the self-serve limit. Contact concierge.${limit}`
+    return `This booking exceeds the self-serve limit. Contact the 3rdPlace team.${limit}`
   }
 
   if (status >= 500) {

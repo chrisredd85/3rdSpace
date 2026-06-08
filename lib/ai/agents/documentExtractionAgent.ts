@@ -351,7 +351,7 @@ function getInputBuffer(input: DocumentExtractionInput): Buffer | null {
 
 function getSystemPrompt(mode: DocumentExtractionMode) {
   return [
-    'You are the 3rdSpace Document Extraction Agent.',
+    'You are the 3rdPlace Document Extraction Agent.',
     'Extract only the requested operational metric from the provided document.',
     mode === 'headcount'
       ? 'The requested metric is event attendance/headcount.'

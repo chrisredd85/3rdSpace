@@ -812,7 +812,7 @@ async function sendOpportunityEmail(
     process.env.RESEND_FROM_EMAIL ||
     process.env.OPPORTUNITY_FROM_EMAIL ||
     process.env.NOTIFICATIONS_FROM_EMAIL ||
-    '3rdSpace <concierge@3rdspace.com>'
+    '3rdPlace <hello@3rdplace.io>'
 
   if (!apiKey) {
     const invalidEmail = !looksLikeEmail(to)
@@ -869,35 +869,35 @@ function buildVenueInviteEmail(context: InviteContext) {
   const responseUrl = buildResponseUrl(context.invite.magic_link_token, null)
   const declineUrl = buildResponseUrl(context.invite.magic_link_token, 'decline')
   const body = [
-    context.brief.summary || context.brief.title || 'A 3rdSpace organizer wants to host an event at your venue.',
+    context.brief.summary || context.brief.title || 'A 3rdPlace organizer wants to host an event at your venue.',
     `Capacity ask: ${context.brief.guest_count ?? 'TBD'} guests.`,
     `Budget range: ${formatBudget(context.brief.budget_cents)}.`,
     `Review/respond: ${responseUrl}`,
     `Decline: ${declineUrl}`,
-    `Sent by 3rdSpace on behalf of ${getOrganizerFirstName(context)}.`,
+    `Sent by 3rdPlace on behalf of ${getOrganizerFirstName(context)}.`,
   ].join('\n\n')
 
   return {
     subject,
     text: body,
-    html: `<p>${escapeHtml(context.brief.summary || context.brief.title || 'A 3rdSpace organizer wants to host an event at your venue.')}</p>
+    html: `<p>${escapeHtml(context.brief.summary || context.brief.title || 'A 3rdPlace organizer wants to host an event at your venue.')}</p>
 <p><strong>Capacity ask:</strong> ${escapeHtml(context.brief.guest_count ?? 'TBD')} guests</p>
 <p><strong>Budget range:</strong> ${escapeHtml(formatBudget(context.brief.budget_cents))}</p>
 <p><a href="${escapeHtml(responseUrl)}">Review the opportunity</a></p>
 <p><a href="${escapeHtml(declineUrl)}">Decline this opportunity</a></p>
-<p style="color:#64748b;font-size:12px;">Sent by 3rdSpace on behalf of ${escapeHtml(getOrganizerFirstName(context))}.</p>`,
+<p style="color:#64748b;font-size:12px;">Sent by 3rdPlace on behalf of ${escapeHtml(getOrganizerFirstName(context))}.</p>`,
   }
 }
 
 function buildVenueReminderEmail(context: InviteContext, reminderLabel: string) {
   const subject = `Reminder: ${buildSubject(context)}`
   const responseUrl = buildResponseUrl(context.invite.magic_link_token, null)
-  const body = `Quick reminder: this 3rdSpace hosting opportunity is waiting for your response (${reminderLabel} reminder).\n\nReview/respond: ${responseUrl}`
+  const body = `Quick reminder: this 3rdPlace hosting opportunity is waiting for your response (${reminderLabel} reminder).\n\nReview/respond: ${responseUrl}`
 
   return {
     subject,
     text: body,
-    html: `<p>Quick reminder: this 3rdSpace hosting opportunity is waiting for your response.</p>
+    html: `<p>Quick reminder: this 3rdPlace hosting opportunity is waiting for your response.</p>
 <p><a href="${escapeHtml(responseUrl)}">Review the opportunity</a></p>`,
   }
 }
@@ -910,37 +910,37 @@ function buildVendorInviteEmail(context: VendorInviteContext) {
     ? 'Please include quote amount, scope, and availability holds in your response.'
     : 'Please confirm availability and any scope notes.'
   const body = [
-    context.brief.summary || 'A 3rdSpace organizer wants a vendor quote for an upcoming event.',
+    context.brief.summary || 'A 3rdPlace organizer wants a vendor quote for an upcoming event.',
     `Package type: ${context.brief.package_type}.`,
     `Budget range: ${formatBudgetRangeText(context.brief.budget_range_cents)}.`,
     quoteLine,
     `Review/respond: ${responseUrl}`,
     `Decline: ${declineUrl}`,
-    `Sent by 3rdSpace on behalf of ${getVendorOrganizerFirstName(context)}.`,
+    `Sent by 3rdPlace on behalf of ${getVendorOrganizerFirstName(context)}.`,
   ].join('\n\n')
 
   return {
     subject,
     text: body,
-    html: `<p>${escapeHtml(context.brief.summary || 'A 3rdSpace organizer wants a vendor quote for an upcoming event.')}</p>
+    html: `<p>${escapeHtml(context.brief.summary || 'A 3rdPlace organizer wants a vendor quote for an upcoming event.')}</p>
 <p><strong>Package type:</strong> ${escapeHtml(context.brief.package_type)}</p>
 <p><strong>Budget range:</strong> ${escapeHtml(formatBudgetRangeText(context.brief.budget_range_cents))}</p>
 <p>${escapeHtml(quoteLine)}</p>
 <p><a href="${escapeHtml(responseUrl)}">Review the request</a></p>
 <p><a href="${escapeHtml(declineUrl)}">Decline this request</a></p>
-<p style="color:#64748b;font-size:12px;">Sent by 3rdSpace on behalf of ${escapeHtml(getVendorOrganizerFirstName(context))}.</p>`,
+<p style="color:#64748b;font-size:12px;">Sent by 3rdPlace on behalf of ${escapeHtml(getVendorOrganizerFirstName(context))}.</p>`,
   }
 }
 
 function buildVendorReminderEmail(context: VendorInviteContext, reminderLabel: string) {
   const subject = `Reminder: ${buildVendorSubject(context)}`
   const responseUrl = buildResponseUrl(context.invite.magic_link_token, null)
-  const body = `Quick reminder: this 3rdSpace vendor request is waiting for your response (${reminderLabel} reminder).\n\nReview/respond: ${responseUrl}`
+  const body = `Quick reminder: this 3rdPlace vendor request is waiting for your response (${reminderLabel} reminder).\n\nReview/respond: ${responseUrl}`
 
   return {
     subject,
     text: body,
-    html: `<p>Quick reminder: this 3rdSpace vendor request is waiting for your response.</p>
+    html: `<p>Quick reminder: this 3rdPlace vendor request is waiting for your response.</p>
 <p><a href="${escapeHtml(responseUrl)}">Review the request</a></p>`,
   }
 }

@@ -47,7 +47,7 @@ function mapPaymentIntentStatus(status: string): VendorTransactionStatus {
 }
 
 /**
- * Processes a direct vendor service payment with zero 3rdPlaces application fee.
+ * Processes a direct vendor service payment with zero 3rdPlace application fee.
  *
  * @route POST /api/payments/vendor
  * @auth Required - builder owner of the booking's event.

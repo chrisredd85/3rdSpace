@@ -1351,7 +1351,7 @@ export function normalizeRecommendationTargetType(
  */
 export function getRecommendationSuccessMessage(actionKind: RecommendationActionKind) {
   if (actionKind === 'hold') return '✓ Hold requested — approval card created'
-  if (actionKind === 'vendor') return "✓ Added to concierge queue — we'll reach out"
+  if (actionKind === 'vendor') return "✓ Added to 3rdPlace team queue — we'll reach out"
   return '✓ External booking flagged for approval'
 }
 
@@ -2144,7 +2144,7 @@ export function PlannerApprovalCard({
                   </p>
                   {conciergeFollowupCount > 0 ? (
                     <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-xs font-bold text-warning">
-                      {conciergeFollowupCount} venue{conciergeFollowupCount === 1 ? '' : 's'} need concierge outreach
+                      {conciergeFollowupCount} venue{conciergeFollowupCount === 1 ? '' : 's'} need 3rdPlace team outreach
                     </span>
                   ) : null}
                 </div>

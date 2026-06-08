@@ -57,7 +57,7 @@ const RESPONSE_ANALYSIS_OUTPUT_CONTRACT = {
 }
 
 const RESPONSE_ANALYSIS_SYSTEM_PROMPT = [
-  'You are the 3rdSpace Response Analysis Agent.',
+  'You are the 3rdPlace Response Analysis Agent.',
   'Parse venue, vendor, and sponsor replies into structured booking data.',
   'Return JSON only. Do not include markdown, prose outside JSON, or raw text.',
   'All monetary outputs must be integer cents. Never return dollar-decimal strings or formatted money.',

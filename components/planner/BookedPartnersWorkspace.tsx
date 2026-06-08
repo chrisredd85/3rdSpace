@@ -707,7 +707,7 @@ function VenueRentalWorkspacePayment({
           Refund of {formatCents(transaction.refund_amount_cents ?? 0)} requested
         </p>
         <p className="mt-1 text-xs text-muted-foreground">Awaiting venue response.</p>
-        <span className="mt-3 inline-flex cursor-not-allowed items-center gap-2 rounded-full border border-border bg-background/40 px-3 py-1 text-xs text-muted-foreground" title="Cancel not yet supported - contact concierge">
+        <span className="mt-3 inline-flex cursor-not-allowed items-center gap-2 rounded-full border border-border bg-background/40 px-3 py-1 text-xs text-muted-foreground" title="Cancel not yet supported - contact the 3rdPlace team">
           <AlertTriangle className="h-3.5 w-3.5" />
           Cancel not yet supported
         </span>
@@ -907,7 +907,7 @@ function readLivePlanId() {
 function getAuthorLabel(sender: BookedPartnerMessage['sender']) {
   if (sender === 'host' || sender === 'organizer') return 'You'
   if (sender === 'agent') return '3rdPlace Agent'
-  if (sender === 'concierge') return 'Concierge'
+  if (sender === 'concierge') return '3rdPlace team'
   return 'Partner'
 }
 

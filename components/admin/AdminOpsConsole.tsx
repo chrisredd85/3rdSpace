@@ -159,7 +159,7 @@ export function AdminOpsConsole({ initialData }: { initialData: OpsData }) {
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-primary">Internal admin</p>
             <h1 className="font-display text-4xl font-bold">Operations console</h1>
-            <p className="mt-2 text-sm text-muted-foreground">Disputes, refunds, integration health, jobs, and marketplace queues.</p>
+            <p className="mt-2 text-sm text-muted-foreground">Disputes, refunds, integration health, jobs, and catalog queues.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={refresh} disabled={isRefreshing}>

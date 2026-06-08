@@ -66,7 +66,7 @@ describe('VenueRentalPaymentButton', () => {
     expect(redirectTo).not.toHaveBeenCalled()
   })
 
-  it('shows concierge errors without redirecting', async () => {
+  it('shows team-handoff errors without redirecting', async () => {
     ;(global.fetch as jest.Mock).mockResolvedValueOnce(jsonResponse({
       error: 'venue_concierge_required',
       concierge_required: true,
@@ -78,16 +78,16 @@ describe('VenueRentalPaymentButton', () => {
       <VenueRentalPaymentButton
         planId="plan-1"
         venueBookingId="booking-1"
-        venueName="Concierge Venue"
+        venueName="Team Venue"
         amountCents={120000}
         redirectTo={redirectTo}
       />
     )
 
-    await user.click(screen.getByRole('button', { name: /Pay \$1,200.00 to Concierge Venue/i }))
+    await user.click(screen.getByRole('button', { name: /Pay \$1,200.00 to Team Venue/i }))
     await user.click(screen.getByRole('button', { name: /Pay by card/i }))
 
-    expect(await screen.findByText(/Contact concierge to complete this booking/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Contact the 3rdPlace team to complete this booking/i)).toBeInTheDocument()
     expect(redirectTo).not.toHaveBeenCalled()
   })
 })

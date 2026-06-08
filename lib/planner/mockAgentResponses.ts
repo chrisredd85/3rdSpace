@@ -146,7 +146,7 @@ const operationWindows = {
     key: 'lightweight_scope_only',
     label: 'Lightweight scope only',
     posture: 'constrained',
-    summary: '3rdSpace can help reduce this into a small side-event format, but not a full-service production.',
+    summary: '3rdPlace can help reduce this into a small side-event format, but not a full-service production.',
     mapsToEventType: 'Mixer',
   },
   unsupportedHighTouch: {
@@ -530,7 +530,7 @@ export function getMockAgentResponse(
           role: 'agent',
           message_type: 'approval_request',
           content:
-            'I can send this event brief to matched venues and vendors. Approve this outreach and I will route unclaimed listings through concierge.',
+            'I can send this event brief to matched venues and vendors. Approve this outreach and I will route unclaimed listings through the 3rdPlace team.',
           metadata: buildMockOpportunityApprovalMetadata(context),
         },
       ],
@@ -944,11 +944,11 @@ function hasAcceptedLightweightScope(context: MockIntakeContext) {
 }
 
 function buildConstrainedScopePrompt(context: MockIntakeContext) {
-  return `This sounds like ${context.operation_window.label.toLowerCase()}. 3rdSpace is optimized for small one-off events, not full-service conferences, retreats, or multi-day productions. Should I scope this as a smaller ${context.operation_window.mapsToEventType.toLowerCase()} that we can launch and track?`
+  return `This sounds like ${context.operation_window.label.toLowerCase()}. 3rdPlace is optimized for small one-off events, not full-service conferences, retreats, or multi-day productions. Should I scope this as a smaller ${context.operation_window.mapsToEventType.toLowerCase()} that we can launch and track?`
 }
 
 function buildUnsupportedScopeResponse(context: MockIntakeContext) {
-  return `This is outside the current 3rdSpace launch scope. ${context.operation_window.summary} I can help reframe it as a small community event, but I should not create booking recommendations for the original format yet.`
+  return `This is outside the current 3rdPlace launch scope. ${context.operation_window.summary} I can help reframe it as a small community event, but I should not create booking recommendations for the original format yet.`
 }
 
 function buildSummaryMetadata(context: MockIntakeContext) {
@@ -1336,7 +1336,7 @@ function detectActionPermission(text: string): string | null {
   if (/\b(show options only|only show|recommendations only|do not contact|don't contact)\b/i.test(text)) return 'Show options only'
   if (/\b(send (?:the )?(?:brief|event) to venues|send to venues|contact venues|outreach)\b/i.test(text)) return 'Send brief after approval'
   if (/\b(request holds?|soft holds?|place holds?|hold request)\b/i.test(text)) return 'Request soft holds after approval'
-  if (/\b(concierge|human review|check first|manual review)\b/i.test(text)) return 'Concierge review first'
+  if (/\b(concierge|human review|check first|manual review)\b/i.test(text)) return 'Team review first'
 
   return null
 }
@@ -1577,7 +1577,7 @@ function buildStructuredQuestion(context: MockIntakeContext, nextQuestion: MockN
         {
           label: 'Scope as small event',
           value: 'Yes, scope this as a lightweight small event',
-          description: 'Keep this inside the current 3rdSpace launch scope',
+          description: 'Keep this inside the current 3rdPlace launch scope',
         },
         {
           label: 'One-day only',
@@ -1978,8 +1978,8 @@ function buildStructuredQuestion(context: MockIntakeContext, nextQuestion: MockN
           description: 'Ask matched venues for temporary availability holds',
         },
         {
-          label: 'Concierge review',
-          value: 'Concierge review first',
+          label: 'Team review',
+          value: 'Team review first',
           description: 'Human review before any venue or vendor sees it',
         },
       ],
@@ -2113,7 +2113,7 @@ function buildTailoredRecommendations(context: MockIntakeContext) {
         package_summary: vendorSummary && !avoidPaidVendors
           ? `Ask one provider if ${vendorSummary.toLowerCase()} can fit under ${formatCents(budget)}`
           : 'No vendor outreach unless you choose to add a paid service',
-        tags: vendorSummary && !avoidPaidVendors ? ['Quote only', 'Budget cap', 'Concierge fallback'] : ['DIY', 'No vendors', 'Free'],
+        tags: vendorSummary && !avoidPaidVendors ? ['Quote only', 'Budget cap', 'Team fallback'] : ['DIY', 'No vendors', 'Free'],
         note: vendorSummary && !avoidPaidVendors
           ? 'The agent should only collect options that stay inside the stated cap.'
           : buildNoVendorNote(context),
@@ -2496,7 +2496,7 @@ function buildMockOpportunityApprovalMetadata(context: MockIntakeContext) {
       id: `mock-approval-${opportunityId}`,
       action_label: 'Send to venues',
       label: context.operation_window.posture === 'constrained' ? 'Send lightweight event brief' : 'Send to venues',
-      provider: '3rdSpace venue + vendor network',
+      provider: '3rdPlace venue + vendor network',
       requested_amount_cents: approvalAmount,
       amount_cents: approvalAmount,
       price_cents: approvalAmount,
@@ -2514,7 +2514,7 @@ function buildMockOpportunityApprovalMetadata(context: MockIntakeContext) {
           context.venue_terms,
           context.revenue_share,
           context.action_permission,
-        ].filter(Boolean).join(' · ') || 'TBD'}. Unclaimed listings route to concierge fallback.`,
+        ].filter(Boolean).join(' · ') || 'TBD'}. Unclaimed listings route to 3rdPlace team fallback.`,
       status: 'pending',
     },
   }

@@ -48,7 +48,7 @@ describe('vendor invoice helpers', () => {
         isPro: false,
       })
     ).toContainEqual({
-      description: '3rdSpace Booking Fee',
+      description: '3rdPlace Booking Fee',
       quantity: 1,
       unit_price: 30,
       total: 30,
@@ -61,7 +61,7 @@ describe('vendor invoice helpers', () => {
         isPro: true,
       })
     ).toContainEqual({
-      description: '3rdSpace Booking Fee (Pro - Free)',
+      description: '3rdPlace Booking Fee (Pro - Free)',
       quantity: 1,
       unit_price: 0,
       total: 0,

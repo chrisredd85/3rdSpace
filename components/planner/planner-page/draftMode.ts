@@ -247,7 +247,7 @@ export function buildMockAgentReply(
           id: `mock-approval-${plan.id}`,
           label: 'Request venue hold + vendor availability',
           amount_cents: plan.budget_cap_cents ? Math.round(plan.budget_cap_cents * 0.55) : 0,
-          provider: '3rdPlace concierge',
+          provider: '3rdPlace team',
           event_date: plan.date_window_start ?? '',
           delivery_email: 'you@example.com',
           terms: 'No payment is made in mock mode. User approval required before real booking.',
@@ -261,7 +261,7 @@ export function buildMockAgentReply(
     return {
       messageType: 'recommendation',
       content:
-        'Here are three mock venue and vendor paths. In production these would be real catalog matches, external booking links, or concierge hold requests.',
+        'Here are three mock venue and vendor paths. In production these would be real catalog matches, external booking links, or team-handled hold requests.',
       metadata: {
         state: 'recommendations_shown',
         recommendation_type: 'venue_vendor',

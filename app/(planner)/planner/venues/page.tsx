@@ -112,7 +112,7 @@ export default function PlannerVenuesPage() {
       { label: 'Catalog spaces', value: venues.length.toLocaleString() },
       { label: 'Capacity-ready', value: capacityReady.toLocaleString() },
       { label: 'Flexible terms', value: revShareReady.toLocaleString() },
-      { label: 'Concierge fallback', value: unclaimed.toLocaleString() },
+      { label: 'Team fallback', value: unclaimed.toLocaleString() },
     ]
   }, [venues])
 
@@ -257,7 +257,7 @@ function VenueCard({ venue }: VenueCardProps) {
   const hourlyRate = formatVenueHourlyRate(venue.hourly_rate)
   const venueType = formatVenueType(venue.venue_type)
   const terms = getVenueTerms(venue)
-  const description = venue.description ? truncateText(venue.description, 118) : 'Details will fill in as this venue claims the listing or the concierge team verifies terms.'
+  const description = venue.description ? truncateText(venue.description, 118) : 'Details will fill in as this venue claims the listing or the 3rdPlace team verifies terms.'
   const tags = (venue.unique_features_tags || []).slice(0, 3)
 
   return (

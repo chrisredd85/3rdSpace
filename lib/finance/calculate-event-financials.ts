@@ -117,7 +117,7 @@ function createEmptyMetrics(venueCost = 0, vendorCost = 0): FinancialMetrics {
  * the financial model uses final price first and quoted price as the fallback.
  *
  * @param supabase - Supabase client with permission to read bookings.
- * @param eventId - Internal 3rdSpace event id.
+ * @param eventId - Internal event id.
  * @returns Venue cost, vendor cost, and total cost.
  */
 async function loadEventCosts(supabase: SupabaseClient, eventId: string) {
@@ -159,7 +159,7 @@ async function loadEventCosts(supabase: SupabaseClient, eventId: string) {
  * calculated later by the database function from verified check-ins.
  *
  * @param supabase - Supabase client with permission to read kickback agreements.
- * @param eventId - Internal 3rdSpace event id.
+ * @param eventId - Internal event id.
  * @returns Per-attendee kickback amount, or 0 when no agreement exists.
  */
 async function loadKickbackRate(supabase: SupabaseClient, eventId: string) {
@@ -211,7 +211,7 @@ async function loadVenueTicketSalesShare(supabase: SupabaseClient, venueId: stri
  * Persists the current financial metrics into the cached summary table.
  *
  * @param supabase - Supabase client with write access to event_financial_summary.
- * @param eventId - Internal 3rdSpace event id.
+ * @param eventId - Internal event id.
  * @param metrics - Calculated financial metrics.
  * @returns The same metrics after a successful upsert.
  */
@@ -249,7 +249,7 @@ async function saveFinancialSummary(
  *   is only paid later from verified CSV check-ins.
  *
  * @param supabase - Supabase client with access to sales, bookings, events, and summaries.
- * @param eventId - Internal 3rdSpace event id.
+ * @param eventId - Internal event id.
  * @returns Calculated and persisted financial metrics.
  */
 export async function recalculateEventFinancials(

@@ -81,7 +81,7 @@ const OUTPUT_CONTRACT = {
 }
 
 const SYSTEM_PROMPT = [
-  'You are the 3rdSpace Data Connection Agent.',
+  'You are the 3rdPlace Data Connection Agent.',
   'Your job is to help an event organizer set up the data sources needed to measure actual attendance and venue foot traffic signals.',
   'Use AI only for setup guidance and missing-data questions. Raw ticket, RSVP, refund, and check-in metrics are calculated by deterministic backend queries from event_sales_data and imported_attendees.',
   'Return JSON only. Do not include markdown or prose outside JSON.',

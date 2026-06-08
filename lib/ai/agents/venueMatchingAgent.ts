@@ -115,7 +115,7 @@ const VENUE_MATCHING_OUTPUT_CONTRACT = {
 }
 
 const VENUE_MATCHING_SYSTEM_PROMPT = [
-  'You are the 3rdSpace Venue Matching Agent.',
+  'You are the 3rdPlace Venue Matching Agent.',
   'Rank pre-filtered venues against an event plan and explain tradeoffs.',
   'Return JSON only. Do not include markdown, prose outside JSON, or raw text.',
   'The application has already filtered by is_published, city, and capacity before this model call.',
