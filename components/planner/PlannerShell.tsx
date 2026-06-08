@@ -22,6 +22,7 @@ const leftMinimumOpenWidth = 220
 const mobilePromotedPlannerPaths = new Set([
   '/planner',
   '/planner/new-plan',
+  '/planner/experiences/mockup',
   '/planner/venues',
   '/planner/payments',
   '/planner/messages',
