@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { loginAsPersona } from './helpers/auth'
+import { hasSupabaseAdminEnv } from './helpers/env'
 
 test.describe('Planner tickets Eventbrite import', () => {
   test.beforeEach(({ browserName }) => {
@@ -8,6 +9,8 @@ test.describe('Planner tickets Eventbrite import', () => {
 
   test('selects, verifies, and queues an Eventbrite import from planner tickets', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
+
+    test.skip(!hasSupabaseAdminEnv(), 'Set Supabase admin env to create a builder for planner tickets.')
 
     const credentials = {
       email: `test-builder-${Date.now()}-${Math.floor(Math.random() * 10000)}@example.com`,
