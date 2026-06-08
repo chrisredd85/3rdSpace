@@ -486,7 +486,7 @@ function getLatestTransferReversalId(transfer: Stripe.Transfer) {
 }
 
 /**
- * Receives Stripe webhooks for builder billing and connected vendor/venue/builder accounts.
+ * Receives Stripe platform webhooks for builder billing, venue rentals, and platform payments.
  */
 export async function POST(request: NextRequest) {
   const admin = createServiceRoleClient()
@@ -497,10 +497,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true, ignored: true, reason: 'rate_limited' }, { status: 200 })
   }
 
-  const webhookSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
 
   if (!webhookSecret) {
-    console.error('[Stripe Webhook] Missing webhook secret')
+    console.error('[Stripe Webhook] Missing platform webhook secret')
     return NextResponse.json({ error: 'Stripe webhook secret is not configured' }, { status: 500 })
   }
 
