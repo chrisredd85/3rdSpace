@@ -5,7 +5,10 @@ import { getWorkerOrAdminContext } from '@/lib/server/admin-auth'
 import { claimJobs, completeJob, failJob, type AppJob, type SupabaseJobClaimClient } from '@/lib/server/job-queue'
 import { runOpportunityInviteJob } from '@/lib/server/opportunity-email-worker'
 import { runEventbriteImport } from '@/lib/server/eventbrite-import'
-import { runLiveEventRecompute } from '@/lib/finance/liveRecommendations'
+import {
+  runLiveEventRecompute,
+  type SupabaseAdminClient as LiveEventRecomputeClient,
+} from '@/lib/live-events/recommendations'
 import { toJsonObject } from '@/lib/types/databaseRows'
 import { processQueuedEventbriteWebhook, runQueuedEventbriteBackfillImport } from '@/lib/integrations/eventbrite/sync'
 import {
@@ -182,7 +185,7 @@ async function processJob(admin: ReturnType<typeof createServiceRoleClient>, job
   if (job.job_type === 'live_event.recompute') {
     const eventId = job.payload.eventId
     if (typeof eventId !== 'string') throw new Error('Missing eventId')
-    return runLiveEventRecompute(admin, eventId)
+    return runLiveEventRecompute(admin as unknown as LiveEventRecomputeClient, eventId)
   }
 
   if (job.job_type === 'webhook.eventbrite') {

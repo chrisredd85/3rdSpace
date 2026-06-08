@@ -9,7 +9,9 @@ import {
   listRevenueTerms,
   summarizeRevenueTermImpacts,
 } from '@/lib/finance/revenueTerms'
-import { enqueueJob } from '@/lib/server/job-queue'
+import { normalizeLiveRecommendationRow } from '@/lib/live-events/recommendations'
+import { buildLiveEventOperatingSignals } from '@/lib/live-events/triggers'
+import { enqueueJob, type SupabaseJobClient } from '@/lib/server/job-queue'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 
@@ -27,7 +29,23 @@ const patchSchema = z.object({
   message: 'Recommendation id is required',
 })
 
-type PlannerDb = { from: (table: string) => any }
+type PlannerDb = {
+  from: (table: string) => PlannerQueryBuilder
+}
+
+type PlannerQueryBuilder = PromiseLike<{ data: unknown; error: PlannerQueryError | null }> & {
+  select: (columns?: string) => PlannerQueryBuilder
+  update: (values: unknown) => PlannerQueryBuilder
+  eq: (column: string, value: unknown) => PlannerQueryBuilder
+  in: (column: string, values: readonly unknown[]) => PlannerQueryBuilder
+  order: (column: string, options?: Record<string, unknown>) => PlannerQueryBuilder
+  limit: (count: number) => PlannerQueryBuilder
+  maybeSingle: () => Promise<{ data: unknown; error: PlannerQueryError | null }>
+}
+
+type PlannerQueryError = {
+  message?: string
+}
 
 type EventAccess =
   | {
@@ -74,14 +92,15 @@ export async function GET(
 
     const [pnl, recommendations, velocity_points, connectionSummary, terms] = await Promise.all([
       computeEventPnL(access.admin, access.event.id),
-      loadRecommendations(access.admin, access.event.id),
+      loadRecommendations(access.admin, access.event.id, access.builderProfileId),
       loadVelocityPoints(access.admin, access.event.id),
       loadTicketingConnectionSummary(access.admin, access.builderProfileId),
       listRevenueTerms(access.admin, access.event.id),
     ])
+    const signals = buildLiveEventOperatingSignals(pnl)
     const termBasis = buildRevenueTermBasisFromActuals(pnl.revenue)
     const termSummary = summarizeRevenueTermImpacts(terms, termBasis)
-    const activeTickets = Math.max(pnl.revenue.tickets_sold - pnl.revenue.tickets_refunded, 0)
+    const activeTickets = signals.attendance.active_tickets
     const capacity =
       readInteger(access.event.expected_attendance) ??
       readInteger(access.event.expected_attendance_max) ??
@@ -105,16 +124,19 @@ export async function GET(
         },
         pnl,
         kpis: {
+          tickets_sold: pnl.revenue.tickets_sold,
           active_tickets: activeTickets,
           capacity,
+          gross_revenue_cents: pnl.revenue.gross_revenue_cents,
           net_revenue_cents: pnl.revenue.net_revenue_cents,
           breakeven_progress_pct: breakevenPct,
+          refund_risk_level: signals.refund_risk.level,
+          no_show_rate: signals.attendance.no_show_rate,
+          profit_target_gap_cents: signals.profit_target.gap_cents,
         },
         velocity_points,
-        costs: {
-          ...pnl.costs,
-          total_expected_cents: pnl.costs.paid_cents + pnl.costs.committed_cents + pnl.costs.estimated_cents,
-        },
+        signals,
+        costs: signals.cost_commitments,
         revenue_terms: {
           terms,
           impacts: termSummary.impacts,
@@ -151,7 +173,7 @@ export async function POST(
     const access = await resolveEventAccess(context.params)
     if ('response' in access) return access.response
 
-    const job = await enqueueJob(access.admin, {
+    const job = await enqueueJob(access.admin as unknown as SupabaseJobClient, {
       jobType: 'live_event.recompute',
       payload: { eventId: access.event.id },
       uniqueKey: `live-event-recompute:${access.event.id}`,
@@ -204,7 +226,9 @@ export async function PATCH(
       return NextResponse.json({ error: 'Recommendation not found' }, { status: 404 })
     }
 
-    return NextResponse.json({ recommendation: data })
+    return NextResponse.json({
+      recommendation: normalizeLiveRecommendationRow(data as Record<string, unknown>),
+    })
   } catch (error) {
     console.error('[planner.event.live] Failed to update live recommendation', error)
     return NextResponse.json(
@@ -270,15 +294,16 @@ async function resolveEventAccess(params: { eventId: string }): Promise<EventAcc
   }
 }
 
-async function loadRecommendations(admin: PlannerDb, eventId: string) {
+async function loadRecommendations(admin: PlannerDb, eventId: string, builderProfileId: string) {
   const { data, error } = await admin
     .from('live_recommendations')
     .select('*')
     .eq('event_id', eventId)
+    .eq('org_id', builderProfileId)
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(error.message ?? 'Failed to load live recommendations')
-  return data ?? []
+  return ((data ?? []) as Array<Record<string, unknown>>).map(normalizeLiveRecommendationRow)
 }
 
 async function loadVelocityPoints(admin: PlannerDb, eventId: string) {

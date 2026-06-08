@@ -17,6 +17,12 @@ export type LiveRecommendation = {
   evidence: Record<string, number | string>
   agent_narrative: string
   state: LiveRecommendationState
+  action_contract?: {
+    execution_mode: 'analysis_only' | 'approval_linked'
+    requires_approval_before_execution: true
+    approval_id: string | null
+    note: string
+  }
   created_at: string
   updated_at: string
 }
@@ -105,6 +111,13 @@ export function LiveAgentFeed({
                   <p className="mt-3 text-sm leading-6 text-foreground">
                     {recommendation.agent_narrative || recommendation.suggested_action}
                   </p>
+                  {recommendation.action_contract ? (
+                    <p className="mt-3 rounded-md border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground">
+                      {recommendation.action_contract.approval_id
+                        ? 'Approval linked for any execution step.'
+                        : 'Analysis only. Approval is required before anything sends, pays, books, refunds, or changes terms.'}
+                    </p>
+                  ) : null}
                 </div>
                 <p className="whitespace-nowrap text-xs text-muted-foreground">
                   {formatRelativeTime(recommendation.created_at)}
@@ -143,7 +156,7 @@ export function LiveAgentFeed({
                   onClick={() => onStateChange(recommendation.id, 'acted_on')}
                 >
                   <ClipboardCheck className="mr-2 h-4 w-4" aria-hidden="true" />
-                  Mark acted on
+                  Mark reviewed
                 </Button>
                 <Button
                   type="button"

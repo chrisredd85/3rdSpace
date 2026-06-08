@@ -3,7 +3,10 @@ export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { runLiveEventRecompute } from '@/lib/finance/liveRecommendations'
+import {
+  runLiveEventRecompute,
+  type SupabaseAdminClient as LiveEventRecomputeClient,
+} from '@/lib/live-events/recommendations'
 import { getWorkerOrAdminContext } from '@/lib/server/admin-auth'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 
@@ -24,7 +27,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const admin = createServiceRoleClient()
-    const result = await runLiveEventRecompute(admin, parsed.data.eventId)
+    const result = await runLiveEventRecompute(admin as unknown as LiveEventRecomputeClient, parsed.data.eventId)
     return NextResponse.json(result)
   } catch (error) {
     console.error('[live-event-recompute] Failed to recompute live event', error)

@@ -15,7 +15,7 @@ import {
   pnlSnapshotSchema,
   type LiveTrigger,
   type PnLSnapshot,
-} from '@/lib/finance/liveTriggers'
+} from '@/lib/live-events/triggers'
 
 const elasticitySignalSchema = z.object({
   archetype_key: z.string().trim().min(1).nullable(),

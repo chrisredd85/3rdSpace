@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Ticket,
   TrendingUp,
+  WalletCards,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
@@ -83,16 +84,49 @@ type LiveEventSnapshot = {
     terms_conflict?: boolean
   }
   kpis: {
+    tickets_sold: number
     active_tickets: number
     capacity: number | null
+    gross_revenue_cents: number
     net_revenue_cents: number
     breakeven_progress_pct: number
+    refund_risk_level: 'low' | 'watch' | 'high' | 'urgent'
+    no_show_rate: number | null
+    profit_target_gap_cents: number | null
   }
   velocity_points: Array<{
     bucket_start: string
     gross_cents: number
     orders: number
   }>
+  signals: {
+    refund_risk: {
+      level: 'low' | 'watch' | 'high' | 'urgent'
+      refund_ratio: number
+      refunds_cents: number
+      tickets_refunded: number
+      tickets_sold: number
+    }
+    attendance: {
+      status: 'unknown' | 'on_track' | 'watch' | 'high_no_show'
+      active_tickets: number
+      checked_in: number | null
+      no_show_count: number | null
+      no_show_rate: number | null
+      confidence: 'low' | 'medium' | 'high'
+    }
+    cost_commitments: {
+      estimated_cents: number
+      committed_cents: number
+      paid_cents: number
+      total_expected_cents: number
+    }
+    profit_target: {
+      target_cents: number | null
+      current_expected_net_cents: number
+      gap_cents: number | null
+    }
+  }
   costs: {
     estimated_cents: number
     committed_cents: number
@@ -293,17 +327,23 @@ export function LiveEventDashboard({ eventId }: LiveEventDashboardProps) {
         <EmptyState />
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <KpiTile
-          label="Tickets"
-          value={`${snapshot.kpis.active_tickets}${snapshot.kpis.capacity ? ` / ${snapshot.kpis.capacity}` : ''}`}
-          sublabel={snapshot.pnl.revenue.tickets_refunded > 0 ? `${snapshot.pnl.revenue.tickets_refunded} refunded` : 'Active sold'}
+          label="Tickets sold"
+          value={`${snapshot.kpis.tickets_sold}${snapshot.kpis.capacity ? ` / ${snapshot.kpis.capacity}` : ''}`}
+          sublabel={snapshot.pnl.revenue.tickets_refunded > 0 ? `${snapshot.kpis.active_tickets} active after refunds` : 'Active sold'}
           icon={<Ticket className="h-4 w-4" aria-hidden="true" />}
+        />
+        <KpiTile
+          label="Gross revenue"
+          value={formatCents(snapshot.kpis.gross_revenue_cents)}
+          sublabel={`${formatCents(snapshot.pnl.revenue.refunds_cents)} refund exposure`}
+          icon={<WalletCards className="h-4 w-4" aria-hidden="true" />}
         />
         <KpiTile
           label="Net revenue"
           value={formatCents(snapshot.kpis.net_revenue_cents)}
-          sublabel={`${formatCents(snapshot.pnl.revenue.gross_revenue_cents)} gross sold`}
+          sublabel={`${formatCents(snapshot.pnl.revenue.platform_fees_cents + snapshot.pnl.revenue.taxes_collected_cents)} fees and taxes`}
           icon={<TrendingUp className="h-4 w-4" aria-hidden="true" />}
           tone={snapshot.kpis.net_revenue_cents >= 0 ? 'positive' : 'negative'}
         />
@@ -314,6 +354,47 @@ export function LiveEventDashboard({ eventId }: LiveEventDashboardProps) {
           icon={<DatabaseZap className="h-4 w-4" aria-hidden="true" />}
         />
       </div>
+
+      <section className="grid gap-4 lg:grid-cols-3">
+        <div className="rounded-md border border-border bg-card p-4">
+          <h2 className="font-display text-xl font-semibold text-foreground">Refund risk</h2>
+          <div className="mt-4 space-y-3">
+            <MiniMetric label="Risk" value={formatRiskLabel(snapshot.signals.refund_risk.level)} />
+            <MiniMetric label="Refund ratio" value={formatPercent(snapshot.signals.refund_risk.refund_ratio)} />
+            <MiniMetric label="Refunded" value={formatCents(snapshot.signals.refund_risk.refunds_cents)} />
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-card p-4">
+          <h2 className="font-display text-xl font-semibold text-foreground">Attendance signal</h2>
+          <div className="mt-4 space-y-3">
+            <MiniMetric label="Status" value={formatAttendanceStatus(snapshot.signals.attendance.status)} />
+            <MiniMetric
+              label="Checked in"
+              value={snapshot.signals.attendance.checked_in === null ? 'Needs check-ins' : String(snapshot.signals.attendance.checked_in)}
+            />
+            <MiniMetric
+              label="No-show rate"
+              value={snapshot.signals.attendance.no_show_rate === null ? 'Needs check-ins' : formatPercent(snapshot.signals.attendance.no_show_rate)}
+            />
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-card p-4">
+          <h2 className="font-display text-xl font-semibold text-foreground">Profit target gap</h2>
+          <div className="mt-4 space-y-3">
+            <MiniMetric
+              label="Target"
+              value={snapshot.signals.profit_target.target_cents === null ? 'No target set' : formatCents(snapshot.signals.profit_target.target_cents)}
+            />
+            <MiniMetric label="Expected net" value={formatCents(snapshot.signals.profit_target.current_expected_net_cents)} />
+            <MiniMetric
+              label="Gap"
+              value={snapshot.signals.profit_target.gap_cents === null ? 'No target set' : formatCents(snapshot.signals.profit_target.gap_cents)}
+            />
+          </div>
+        </div>
+      </section>
 
       <section className="rounded-md border border-border bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -369,6 +450,7 @@ export function LiveEventDashboard({ eventId }: LiveEventDashboardProps) {
         <section className="rounded-md border border-border bg-card p-4">
           <h2 className="font-display text-xl font-semibold text-foreground">Cost commitments</h2>
           <div className="mt-4 space-y-3">
+            <MiniMetric label="Total expected" value={formatCents(snapshot.costs.total_expected_cents)} />
             <MiniMetric label="Estimated" value={formatCents(snapshot.costs.estimated_cents)} />
             <MiniMetric label="Committed" value={formatCents(snapshot.costs.committed_cents)} />
             <MiniMetric label="Paid" value={formatCents(snapshot.costs.paid_cents)} />
@@ -560,6 +642,30 @@ function formatRelativeTime(value: string) {
   if (diffHours < 24) return `${diffHours}h ago`
   const diffDays = Math.floor(diffHours / 24)
   return `${diffDays}d ago`
+}
+
+function formatRiskLabel(value: LiveEventSnapshot['signals']['refund_risk']['level']) {
+  const labels: Record<typeof value, string> = {
+    low: 'Low',
+    watch: 'Watch',
+    high: 'High',
+    urgent: 'Urgent',
+  }
+  return labels[value]
+}
+
+function formatAttendanceStatus(value: LiveEventSnapshot['signals']['attendance']['status']) {
+  const labels: Record<typeof value, string> = {
+    unknown: 'Needs check-ins',
+    on_track: 'On track',
+    watch: 'Watch',
+    high_no_show: 'High no-show',
+  }
+  return labels[value]
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 1000) / 10}%`
 }
 
 function formatCents(value: number) {

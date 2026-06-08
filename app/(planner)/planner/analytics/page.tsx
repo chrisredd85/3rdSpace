@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Activity,
@@ -284,6 +285,19 @@ export default function PlannerAnalyticsPage() {
                 </option>
               ))}
             </select>
+            {selectedEventId ? (
+              <Button type="button" variant="outline" asChild>
+                <Link href={`/planner/events/${selectedEventId}/live`}>
+                  <Activity className="mr-2 h-4 w-4" />
+                  Live view
+                </Link>
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" disabled>
+                <Activity className="mr-2 h-4 w-4" />
+                Live view
+              </Button>
+            )}
             <Button type="button" variant="glass" onClick={() => void refreshFinancials()} disabled={!selectedEventId || loadState.isLoading}>
               <RefreshCw className={cn('mr-2 h-4 w-4', loadState.isLoading && 'animate-spin')} />
               Refresh
