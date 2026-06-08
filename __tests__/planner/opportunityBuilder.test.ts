@@ -109,7 +109,7 @@ describe('opportunityBuilder', () => {
     expect(targets.find((target) => target.name === 'Unclaimed Loft')?.route_to_concierge).toBe(true)
   })
 
-  it('creates a Send to venues approval draft with proposed deposit exposure', () => {
+  it('creates a venue outreach preparation approval draft with proposed deposit exposure', () => {
     const brief = buildOpportunityBriefDraft(basePlan, [summaryMessage], 'user-1')
     const targets = rankOpportunityTargets({
       brief,
@@ -142,7 +142,7 @@ describe('opportunityBuilder', () => {
     })
     const approval = buildSendToVenuesApprovalDraft(targets, brief)
 
-    expect(approval.action_label).toBe('Send to venues')
+    expect(approval.action_label).toBe('Prepare venue outreach')
     expect(approval.venue_count).toBe(1)
     expect(approval.vendor_count).toBe(1)
     expect(approval.concierge_count).toBe(1)

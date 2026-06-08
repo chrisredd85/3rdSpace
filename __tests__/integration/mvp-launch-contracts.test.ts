@@ -6,6 +6,7 @@ import { PATCH as updateApproval } from '@/app/api/planner/plans/[planId]/approv
 import { POST as createVenueOpportunity } from '@/app/api/planner/plans/[planId]/opportunities/venues/route'
 import { GET as listPublicVendors } from '@/app/api/vendors/route'
 import { GET as listAdminVendors } from '@/app/api/admin/catalog/vendors/route'
+import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
 import { buildTicketTierRollups, classifyTicketTier } from '@/lib/server/ticket-normalization'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { enqueueOpportunityInviteSendJobs } from '@/lib/server/opportunity-email-worker'
@@ -350,7 +351,7 @@ describe('MVP launch API contracts', () => {
     expect(db.rows.approvals).toHaveLength(1)
   })
 
-  it('PATCH planner approvals authorizes send-to-venues and enqueues invite jobs', async () => {
+  it('PATCH planner approvals prepares outreach drafts without sending outbound jobs', async () => {
     db.rows.venues.push(
       { id: VENUE_ID_1, venue_name: 'Foundry Rooftop', city: 'San Francisco', state: 'CA', standing_capacity: 160, is_claimed: true },
       { id: VENUE_ID_2, venue_name: 'Mission Social Hall', city: 'San Francisco', state: 'CA', standing_capacity: 120, is_claimed: false }
@@ -391,6 +392,11 @@ describe('MVP launch API contracts', () => {
     expect(response.status).toBe(200)
     expect(db.rows.approvals[0].status).toBe('authorized')
     expect(db.rows.agent_actions[0].status).toBe('complete')
+    expect(db.rows.agent_actions[0].result_metadata).toEqual(expect.objectContaining({
+      outbound_message_sent: false,
+      send_requires_explicit_flow: true,
+      venue_invite_count: 2,
+    }))
     expect(db.rows.builder_profiles[0].free_events_used).toBe(1)
     expect(db.rows.plans[0].metadata.product_gate.event_access_source).toBe('free_trial')
     expect(db.rows.venue_opportunity_briefs).toHaveLength(1)
@@ -401,13 +407,104 @@ describe('MVP launch API contracts', () => {
       expect(invite.magic_link_token).toMatch(/^[a-f0-9]{64}$/)
       expect(new Date(invite.magic_link_expires_at).getTime()).toBeGreaterThan(Date.now())
     })
-    expect(mockEnqueueOpportunityInviteSendJobs).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.arrayContaining([
-        expect.objectContaining({ venue_id: VENUE_ID_1 }),
-        expect.objectContaining({ venue_id: VENUE_ID_2 }),
-      ])
+    expect(mockEnqueueOpportunityInviteSendJobs).not.toHaveBeenCalled()
+    expect(db.rows.plan_messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        message_type: 'status_update',
+        metadata: expect.objectContaining({
+          status: 'drafts_prepared',
+          approval_id: APPROVAL_ID,
+        }),
+      }),
+    ]))
+  })
+
+  it('PATCH planner approvals requires re-approval when approval-sensitive fields changed', async () => {
+    db.rows.agent_actions.push({
+      id: ACTION_ID,
+      plan_id: PLAN_ID,
+      action_type: 'hold_request',
+      payload_json: {
+        venue_ids: [VENUE_ID_1],
+        seats: 80,
+      },
+      result_metadata: {},
+      status: 'pending',
+    })
+    const staleSnapshotHash = buildApprovalSnapshotHash({
+      plan: { ...db.rows.plans[0], guest_count: 70 } as any,
+      approval: {
+        event_date: '2026-08-01',
+        price_cents: 50_000,
+        fees_cents: 0,
+        requested_amount_cents: 50_000,
+        provider: 'Foundry Rooftop',
+      },
+      action: db.rows.agent_actions[0] as any,
+    })
+    db.rows.approvals.push({
+      id: APPROVAL_ID,
+      plan_id: PLAN_ID,
+      agent_action_id: ACTION_ID,
+      action_label: 'Request hold',
+      status: 'pending',
+      price_cents: 50_000,
+      fees_cents: 0,
+      requested_amount_cents: 50_000,
+      provider: 'Foundry Rooftop',
+      event_date: '2026-08-01',
+      snapshot_hash: staleSnapshotHash,
+    })
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        action: 'authorize',
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } }
     )
+
+    expect(response.status).toBe(409)
+    expect(db.rows.approvals[0].status).toBe('re_approval_required')
+    expect(db.rows.agent_actions[0].status).toBe('pending')
+  })
+
+  it('PATCH planner approvals cancels rejected actions without preparing outreach', async () => {
+    db.rows.agent_actions.push({
+      id: ACTION_ID,
+      plan_id: PLAN_ID,
+      action_type: 'email',
+      payload_json: {
+        kind: 'venue_outreach',
+        venue_ids: [VENUE_ID_1],
+      },
+      result_metadata: {
+        action_type_fallback: 'opportunity_send_venues',
+      },
+      status: 'pending',
+    })
+    db.rows.approvals.push({
+      id: APPROVAL_ID,
+      plan_id: PLAN_ID,
+      agent_action_id: ACTION_ID,
+      action_label: 'Prepare venue outreach',
+      status: 'pending',
+      price_cents: 0,
+    })
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        action: 'reject',
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(response.status).toBe(200)
+    expect(db.rows.approvals[0].status).toBe('rejected')
+    expect(db.rows.agent_actions[0].status).toBe('cancelled')
+    expect(db.rows.venue_opportunity_briefs).toHaveLength(0)
+    expect(mockEnqueueOpportunityInviteSendJobs).not.toHaveBeenCalled()
   })
 
   it('PATCH planner approvals blocks execution when builder has no product access', async () => {

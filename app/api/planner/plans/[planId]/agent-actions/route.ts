@@ -9,7 +9,9 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { readIntegerCents } from '@/lib/planner/execution/approvalState'
 import { classifyExecutionMode, requiresApprovalForAgentAction } from '@/lib/planner/executionModes'
+import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
 import { checkRateLimit, rateLimitHeaders } from '@/lib/server/rate-limit'
 import { createClient } from '@/lib/supabase/server'
 import type { AgentAction, Approval, Json, PlannerApiErrorResponse, Plan } from '@/lib/types'
@@ -58,7 +60,7 @@ const createAgentActionSchema = z.object({
   targetType: z.string().trim().min(1).max(80).nullable().optional(),
   targetId: z.string().uuid().nullable().optional(),
   payloadJson: z.record(z.unknown()).nullable().optional(),
-  requestedAmountCents: z.number().int().nonnegative().nullable().optional(),
+  requestedAmountCents: z.number().int().nonnegative().refine(Number.isSafeInteger).nullable().optional(),
 })
 
 const PLAN_SELECT_COLUMNS = `
@@ -209,7 +211,13 @@ export async function POST(
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const payload = (parsed.data.payloadJson ?? {}) as JsonObject
-    const requestedAmountCents = parsed.data.requestedAmountCents ?? readNumber(payload.requestedAmountCents) ?? 0
+    const cents = readActionCents(payload, parsed.data.requestedAmountCents)
+    if ('error' in cents) {
+      return NextResponse.json({ error: cents.error }, { status: 400 })
+    }
+
+    const requestedAmountCents = cents.requestedAmountCents
+    const feesCents = cents.feesCents
     const actionLabel = readString(payload.action_label) ?? readDefaultActionLabel(parsed.data.actionType)
     const provider = readString(payload.provider)
     const targetType = parsed.data.targetType ?? readString(payload.target_type)
@@ -280,7 +288,7 @@ export async function POST(
       provider,
       event_date: normalizeDate(readString(payload.event_date)),
       price_cents: requestedAmountCents,
-      fees_cents: readNumber(payload.fees_cents) ?? 0,
+      fees_cents: feesCents,
       package_details: readString(payload.package_details),
       refund_terms: readString(payload.refund_terms),
       cancellation_terms: readString(payload.cancellation_terms),
@@ -288,6 +296,27 @@ export async function POST(
       payment_method_id: readString(payload.payment_method_id),
       requested_amount_cents: requestedAmountCents,
       status: 'pending',
+      snapshot_hash: buildApprovalSnapshotHash({
+        plan,
+        approval: {
+          event_date: normalizeDate(readString(payload.event_date)),
+          price_cents: requestedAmountCents,
+          fees_cents: feesCents,
+          requested_amount_cents: requestedAmountCents,
+          provider,
+          refund_terms: readString(payload.refund_terms),
+          cancellation_terms: readString(payload.cancellation_terms),
+          package_details: readString(payload.package_details),
+        },
+        action: {
+          action_type: parsed.data.actionType,
+          target_type: targetType,
+          target_id: targetId,
+          amount_cents: requestedAmountCents,
+          payload_json: payload,
+        },
+        payload,
+      }),
     }
 
     const { data: approvalData, error: approvalError } = await auth.db
@@ -382,12 +411,25 @@ function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
-function readNumber(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
 function readBoolean(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null
+}
+
+function readActionCents(
+  payload: JsonObject,
+  requestedAmountCents: number | null | undefined
+): { requestedAmountCents: number; feesCents: number } | { error: string } {
+  try {
+    return {
+      requestedAmountCents:
+        readIntegerCents(requestedAmountCents, 'requestedAmountCents') ??
+        readIntegerCents(payload.requestedAmountCents, 'payloadJson.requestedAmountCents') ??
+        0,
+      feesCents: readIntegerCents(payload.fees_cents, 'payloadJson.fees_cents') ?? 0,
+    }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Money values must be integer cents' }
+  }
 }
 
 function readUuid(value: unknown): string | null {
@@ -405,8 +447,8 @@ function normalizeDate(value: string | null): string | null {
 function readDefaultActionLabel(actionType: z.infer<typeof createAgentActionSchema>['actionType']): string {
   if (actionType === 'hold_request') return 'Request venue hold'
   if (actionType === 'vendor_contact') return 'Contact vendor'
-  if (actionType === 'opportunity_send_venues') return 'Send to venues'
-  if (actionType === 'opportunity_send_vendors') return 'Request vendor quotes'
+  if (actionType === 'opportunity_send_venues') return 'Prepare venue outreach'
+  if (actionType === 'opportunity_send_vendors') return 'Prepare vendor outreach'
   if (actionType === 'external_checkout') return 'External checkout'
   if (actionType === 'ai_query') return 'Agent research'
   return 'Export plan'

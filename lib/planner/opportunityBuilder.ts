@@ -234,7 +234,7 @@ export function rankOpportunityTargets(input: {
     {
       target_type: 'concierge',
       target_id: null,
-      name: '3rdSpace concierge queue',
+      name: '3rdPlace concierge queue',
       area: input.brief.neighborhood,
       is_claimed: false,
       route_to_concierge: true,
@@ -254,11 +254,11 @@ export function rankOpportunityTargets(input: {
 }
 
 /**
- * Builds the approval-card copy for sending a brief to venue/vendor targets.
+ * Builds approval-card copy for preparing venue/vendor outreach drafts.
  *
  * @param matches - Ranked targets that will receive the opportunity.
  * @param brief - Opportunity brief draft.
- * @returns Approval payload for a `Send to venues` card.
+ * @returns Approval payload for a venue outreach preparation card.
  */
 export function buildSendToVenuesApprovalDraft(
   matches: PlannerOpportunityMatchTarget[],
@@ -273,15 +273,15 @@ export function buildSendToVenuesApprovalDraft(
   )
 
   return {
-    action_label: 'Send to venues',
-    provider: '3rdSpace venue + vendor network',
+    action_label: 'Prepare venue outreach',
+    provider: '3rdPlace venue + vendor network',
     requested_amount_cents: requestedAmountCents,
     package_details:
-      `Send this ${brief.event_type ?? 'event'} brief to ${venueCount} venue${venueCount === 1 ? '' : 's'}` +
+      `Prepare this ${brief.event_type ?? 'event'} brief for ${venueCount} venue${venueCount === 1 ? '' : 's'}` +
       `${vendorCount > 0 ? ` and ${vendorCount} vendor${vendorCount === 1 ? '' : 's'}` : ''}. ` +
-      'No charge is made now; this only authorizes outreach and proposed deposit terms.',
-    refund_terms: 'No payment is collected by sending the brief.',
-    cancellation_terms: 'You can cancel before a venue or vendor accepts terms.',
+      'No charge is made now; this only authorizes outreach draft preparation and proposed deposit terms.',
+    refund_terms: 'No payment is collected by preparing the brief.',
+    cancellation_terms: 'You can cancel before any message is sent or a venue/vendor accepts terms.',
     delivery_email: null,
     venue_count: venueCount,
     vendor_count: vendorCount,
@@ -486,7 +486,7 @@ export async function createVenueOpportunityBundle(
       plan_id: input.plan.id,
       role: 'agent',
       content:
-        'I can send this event brief to matched venues and vendors now. Approve the outreach card and I will route unclaimed listings through concierge.',
+        'I can prepare this event brief for matched venues and vendors now. Approve the outreach card and I will route unclaimed listings through concierge.',
       message_type: 'approval_request',
       metadata: {
         state: 'opportunity_approval_requested',

@@ -8,8 +8,18 @@ import {
   PAYMENT_INTENT_SELECT_COLUMNS,
   type PlannerPaymentIntentRow,
 } from '@/lib/planner/depositPayments'
+import { PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import {
+  type AgentActionTransitionEvent,
+} from '@/lib/planner/execution/approvalState'
+import {
+  AGENT_ACTION_EXECUTION_SELECT_COLUMNS,
+  paymentCaptureTransitionEvents,
+  persistAgentActionTransitionEvents,
+} from '@/lib/planner/execution/executeApprovedAction'
+import { approvalRequiresReapproval } from '@/lib/planner/execution/reapproval'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
-import type { Approval, Json, PlannerApiErrorResponse } from '@/lib/types'
+import type { AgentAction, Approval, Json, Plan, PlannerApiErrorResponse } from '@/lib/types'
 
 type PlannerDb = { from: (table: string) => any }
 
@@ -85,11 +95,53 @@ export async function POST(
       return NextResponse.json({ error: 'Approval must be authorized before capture' }, { status: 422 })
     }
 
+    const plan = await loadPlan(admin, paymentIntent.plan_id)
+    if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+
+    const action = await loadAgentAction(admin, approval.agent_action_id)
+    if (!action) return NextResponse.json({ error: 'Linked approval action not found' }, { status: 422 })
+    let actionTransitionEvents: AgentActionTransitionEvent[] = []
+    try {
+      actionTransitionEvents = paymentCaptureTransitionEvents(action.status)
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : 'Payment action cannot be captured' },
+        { status: 422 }
+      )
+    }
+
+    if (approvalRequiresReapproval({ plan, approval, action, storedSnapshotHash: approval.snapshot_hash })) {
+      return NextResponse.json(
+        { error: 'Approval details changed. Review the latest payment terms and approve again.' },
+        { status: 409 }
+      )
+    }
+
+    const approvedAmountCents = approval.authorized_amount_cents ?? approval.requested_amount_cents ?? approval.price_cents ?? 0
+    if (paymentIntent.amount_cents !== approvedAmountCents) {
+      return NextResponse.json(
+        { error: 'Payment amount changed after approval. Review and approve the updated amount before capture.' },
+        { status: 409 }
+      )
+    }
+
     const captured = await capturePlannerDeposit({
       db: admin,
       paymentIntent,
       approval,
       explicitUserConfirmation: parsed.data.explicitUserConfirmation,
+    })
+
+    await persistAgentActionTransitionEvents(admin, {
+      action,
+      actorId: user.id,
+      events: actionTransitionEvents,
+      reason: 'payment.capture_completed',
+      metadata: {
+        payment_intent_id: captured.id,
+        payment_status: captured.status,
+        explicit_user_confirmation: true,
+      },
     })
 
     return NextResponse.json({ paymentIntent: captured })
@@ -128,4 +180,26 @@ async function loadApproval(db: PlannerDb, approvalId: string, planId: string): 
 
   if (error) throw new Error(error.message)
   return (data as Approval | null) ?? null
+}
+
+async function loadPlan(db: PlannerDb, planId: string): Promise<Plan | null> {
+  const { data, error } = await db
+    .from('plans')
+    .select(PLAN_SELECT_COLUMNS)
+    .eq('id', planId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return (data as Plan | null) ?? null
+}
+
+async function loadAgentAction(db: PlannerDb, actionId: string): Promise<AgentAction | null> {
+  const { data, error } = await db
+    .from('agent_actions')
+    .select(AGENT_ACTION_EXECUTION_SELECT_COLUMNS)
+    .eq('id', actionId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return (data as AgentAction | null) ?? null
 }

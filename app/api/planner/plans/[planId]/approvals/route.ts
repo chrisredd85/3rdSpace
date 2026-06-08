@@ -8,7 +8,6 @@
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import {
   createVenueOpportunityBrief,
@@ -19,9 +18,15 @@ import {
   ensureVendorOpportunityInviteTokens,
 } from '@/lib/planner/vendorOpportunityBriefs'
 import {
-  enqueueOpportunityInviteSendJobs,
-  enqueueVendorOpportunityInviteSendJobs,
-} from '@/lib/server/opportunity-email-worker'
+  agentActionStatusForApprovalStatus,
+  assertIntegerCents,
+  isApprovalExecutable,
+  transitionAgentActionStatus,
+  transitionApprovalStatus,
+  type AgentActionTransitionEvent,
+} from '@/lib/planner/execution/approvalState'
+import { planApprovedActionExecution } from '@/lib/planner/execution/executeApprovedAction'
+import { approvalRequiresReapproval } from '@/lib/planner/execution/reapproval'
 import {
   BuilderBillingRequiredError,
   consumeBuilderEventAccess,
@@ -29,7 +34,15 @@ import {
   loadBuilderBillingProfileByUserId,
 } from '@/lib/billing/builder-billing'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
-import type { Approval, Json, PlannerApiErrorResponse, PlannerApprovalsResponse, Plan } from '@/lib/types'
+import type {
+  AgentAction,
+  Approval,
+  ApprovalStatus,
+  Json,
+  PlannerApiErrorResponse,
+  PlannerApprovalsResponse,
+  Plan,
+} from '@/lib/types'
 
 type PlannerDb = { from: (table: string) => any }
 type PlannerAuth =
@@ -39,7 +52,7 @@ type PlannerAuth =
 const patchApprovalSchema = z.object({
   approvalId: z.string().uuid(),
   action: z.enum(['authorize', 'approve', 'reject', 'cancel']),
-  authorizedAmountCents: z.number().int().nonnegative().nullable().optional(),
+  authorizedAmountCents: z.number().int().nonnegative().refine(Number.isSafeInteger).nullable().optional(),
 })
 
 const PLAN_SELECT_COLUMNS = `
@@ -92,7 +105,24 @@ const APPROVAL_SELECT_COLUMNS = `
   updated_at
 `
 
-const AGENT_ACTION_STATUS_SELECT_COLUMNS = 'id, status, action_type, payload_json, result_metadata'
+const AGENT_ACTION_STATUS_SELECT_COLUMNS = `
+  id,
+  plan_id,
+  action_type,
+  description,
+  provider,
+  target_type,
+  target_id,
+  payload_json,
+  amount_cents,
+  currency,
+  status,
+  approval_id,
+  executed_at,
+  result_metadata,
+  created_at,
+  updated_at
+`
 
 const AGENT_ACTION_OPPORTUNITY_SELECT_COLUMNS = 'id, action_type, payload_json, result_metadata'
 
@@ -170,9 +200,14 @@ export async function PATCH(
     const existingApproval = await loadApproval(auth.db, context.params.planId, parsed.data.approvalId)
     if (!existingApproval) return NextResponse.json({ error: 'Approval not found' }, { status: 404 })
 
+    const approvalTransition = transitionApprovalStatus(existingApproval.status, parsed.data.action)
+    if (!approvalTransition.ok) {
+      return NextResponse.json({ error: approvalTransition.reason }, { status: 409 })
+    }
+
     if (
       (parsed.data.action === 'authorize' || parsed.data.action === 'approve') &&
-      approvalRequiresFreshReview(plan, existingApproval)
+      await approvalRequiresFreshReview(auth.db, plan, existingApproval)
     ) {
       const staleApproval = await markApprovalReapprovalRequired(auth.db, context.params.planId, existingApproval.id)
       if (staleApproval) {
@@ -190,7 +225,7 @@ export async function PATCH(
       plan = access.plan
     }
 
-    const updates = buildApprovalUpdates(parsed.data.action, auth.userId, parsed.data.authorizedAmountCents)
+    const updates = buildApprovalUpdates(approvalTransition.to, auth.userId, parsed.data.authorizedAmountCents)
     const { data, error } = await auth.db
       .from('approvals')
       .update(updates)
@@ -205,19 +240,22 @@ export async function PATCH(
     }
 
     const approval = data as Approval
-    await syncAgentActionStatus(auth.db, {
+    await syncAgentActionStatusForApproval(auth.db, {
       actionId: approval.agent_action_id,
       planId: context.params.planId,
       actorId: auth.userId,
       approvalStatus: approval.status,
     })
-    await syncOpportunityInviteStatuses(auth.db, plan, auth.userId, approval)
-    if (approval.status === 'authorized' || approval.status === 'approved') {
-      await markAgentActionExecuted(auth.db, {
+    if (isApprovalExecutable(approval.status)) {
+      await executeApprovedAction(auth.db, {
         actionId: approval.agent_action_id,
         planId: context.params.planId,
         actorId: auth.userId,
+        plan,
+        approval,
       })
+    } else if (approval.status === 'cancelled' || approval.status === 'rejected') {
+      await syncOpportunityInviteStatuses(auth.db, plan, auth.userId, approval)
     }
     await syncApprovalMessageMetadata(auth.db, context.params.planId, approval)
 
@@ -371,32 +409,36 @@ async function loadApproval(db: PlannerDb, planId: string, approvalId: string): 
 }
 
 function buildApprovalUpdates(
-  action: z.infer<typeof patchApprovalSchema>['action'],
+  status: ApprovalStatus,
   userId: string,
   authorizedAmountCents: number | null | undefined
 ) {
-  if (action === 'authorize' || action === 'approve') {
+  if (status === 'authorized' || status === 'approved') {
     const authorizedAt = new Date().toISOString()
     return {
-      status: action === 'approve' ? 'approved' : 'authorized',
+      status,
       authorized_by: userId,
       authorized_at: authorizedAt,
-      authorized_amount_cents: authorizedAmountCents ?? null,
+      authorized_amount_cents: authorizedAmountCents == null
+        ? null
+        : assertIntegerCents(authorizedAmountCents, 'authorizedAmountCents'),
       approved_by: userId,
       approved_at: authorizedAt,
     }
   }
 
-  if (action === 'cancel') {
-    return { status: 'cancelled' }
-  }
-
-  return { status: 'rejected' }
+  return { status }
 }
 
-function approvalRequiresFreshReview(plan: Plan, approval: Approval): boolean {
+async function approvalRequiresFreshReview(db: PlannerDb, plan: Plan, approval: Approval): Promise<boolean> {
   if (!approval.snapshot_hash) return false
-  return approval.snapshot_hash !== buildPlanApprovalSnapshotHash(plan)
+  const action = await loadAgentAction(db, approval.agent_action_id)
+  return approvalRequiresReapproval({
+    plan,
+    approval,
+    action,
+    storedSnapshotHash: approval.snapshot_hash,
+  })
 }
 
 async function markApprovalReapprovalRequired(
@@ -420,113 +462,184 @@ async function markApprovalReapprovalRequired(
   return data as Approval
 }
 
-function buildPlanApprovalSnapshotHash(plan: Plan): string {
-  const snapshot = {
-    event_type: plan.event_type,
-    guest_count: plan.guest_count,
-    budget_cap_cents: plan.budget_cap_cents,
-    neighborhood: plan.neighborhood,
-    date_window_start: plan.date_window_start,
-    date_window_end: plan.date_window_end,
-    ticketed: plan.ticketed,
-    ticketing_model: plan.ticketing_model,
-    food_responsibility: plan.food_responsibility,
-    profit_goal_cents: plan.profit_goal_cents,
-  }
-
-  return createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')
-}
-
-async function syncAgentActionStatus(
+async function syncAgentActionStatusForApproval(
   db: PlannerDb,
   payload: {
     actionId: string
     planId: string
     actorId: string
-    approvalStatus: string
+    approvalStatus: ApprovalStatus
   }
 ) {
-  const status =
-    payload.approvalStatus === 'authorized'
-      ? 'approved'
-      : payload.approvalStatus === 'cancelled' || payload.approvalStatus === 'rejected'
-        ? 'cancelled'
-        : null
+  const action = await loadAgentAction(db, payload.actionId)
+  if (!action) return
 
-  if (!status) return
-
-  const { data: currentAction, error: currentActionError } = await db
-    .from('agent_actions')
-    .select(AGENT_ACTION_STATUS_SELECT_COLUMNS)
-    .eq('id', payload.actionId)
-    .maybeSingle()
-
-  if (currentActionError) {
-    console.error('Planner agent action status lookup error:', currentActionError)
+  const transition = agentActionStatusForApprovalStatus(payload.approvalStatus, action.status)
+  if (!transition) return
+  if (!transition.ok) {
+    throw new Error(transition.reason)
   }
+  if (!transition.changed) return
 
-  const fromStatus = typeof currentAction?.status === 'string' ? currentAction.status : null
-  if (fromStatus === status) return
-
-  const { error } = await db.from('agent_actions').update({ status }).eq('id', payload.actionId)
-  if (error) console.error('Planner agent action status sync error:', error)
-  if (error) return
-
-  await insertAgentActionAuditLog(db, {
-    actionId: payload.actionId,
+  await persistAgentActionTransition(db, {
+    action,
     planId: payload.planId,
-    fromStatus,
-    toStatus: status,
     actorId: payload.actorId,
     reason: 'approval.status_changed',
+    event: payload.approvalStatus === 'cancelled' || payload.approvalStatus === 'rejected'
+      ? 'cancelled'
+      : 'approval_granted',
     metadata: { approval_status: payload.approvalStatus },
   })
 }
 
-async function markAgentActionExecuted(
+async function executeApprovedAction(
   db: PlannerDb,
   payload: {
     actionId: string
     planId: string
     actorId: string
+    plan: Plan
+    approval: Approval
   }
 ) {
-  const { data: currentAction, error: currentActionError } = await db
-    .from('agent_actions')
-    .select(AGENT_ACTION_STATUS_SELECT_COLUMNS)
-    .eq('id', payload.actionId)
-    .maybeSingle()
+  let action = await loadAgentAction(db, payload.actionId)
+  if (!action) return
 
-  if (currentActionError) {
-    console.error('Planner agent action executed status lookup error:', currentActionError)
-  }
+  const executionPlan = planApprovedActionExecution({ action, approval: payload.approval })
+  if (!executionPlan.canStart) return
 
-  const fromStatus = typeof currentAction?.status === 'string' ? currentAction.status : null
-  if (!isExecutableOutreachAction(currentAction)) return
-  if (fromStatus === 'complete') return
-
-  const { error } = await db
-    .from('agent_actions')
-    .update({ status: 'complete', executed_at: new Date().toISOString() })
-    .eq('id', payload.actionId)
-
-  if (error) {
-    console.error('Planner agent action executed status sync error:', error)
-    return
-  }
-
-  await insertAgentActionAuditLog(db, {
-    actionId: payload.actionId,
+  action = await persistAgentActionTransition(db, {
+    action,
     planId: payload.planId,
-    fromStatus,
-    toStatus: 'complete',
     actorId: payload.actorId,
-    reason: 'approval.executed',
-    metadata: { execution: 'outreach_jobs_enqueued' },
+    reason: 'approval.execution_started',
+    event: 'execution_started',
+    metadata: {
+      execution_kind: executionPlan.kind,
+      outbound_message_sent: false,
+    },
   })
+
+  try {
+    const preparation = await syncOpportunityInviteStatuses(db, payload.plan, payload.actorId, payload.approval)
+
+    if (!preparation.prepared) {
+      throw new Error(preparation.reason ?? 'Outreach drafts were not prepared')
+    }
+
+    await persistAgentActionTransition(db, {
+      action,
+      planId: payload.planId,
+      actorId: payload.actorId,
+      reason: 'approval.outreach_drafts_prepared',
+      event: 'execution_completed',
+      metadata: {
+        execution_kind: executionPlan.kind,
+        outbound_message_sent: false,
+        send_requires_explicit_flow: true,
+        ...preparation,
+      },
+    })
+  } catch (error) {
+    await persistAgentActionTransition(db, {
+      action,
+      planId: payload.planId,
+      actorId: payload.actorId,
+      reason: 'approval.execution_failed',
+      event: 'execution_failed',
+      metadata: {
+        execution_kind: executionPlan.kind,
+        error: error instanceof Error ? error.message : 'Unknown execution error',
+      },
+    })
+    throw error
+  }
 }
 
-async function syncOpportunityInviteStatuses(db: PlannerDb, plan: Plan, userId: string, approval: Approval) {
+async function loadAgentAction(db: PlannerDb, actionId: string): Promise<AgentAction | null> {
+  const { data, error } = await db
+    .from('agent_actions')
+    .select(AGENT_ACTION_STATUS_SELECT_COLUMNS)
+    .eq('id', actionId)
+    .maybeSingle()
+
+  if (error) {
+    console.error('Planner agent action lookup error:', error)
+    return null
+  }
+
+  return (data as AgentAction | null) ?? null
+}
+
+async function persistAgentActionTransition(
+  db: PlannerDb,
+  input: {
+    action: AgentAction
+    planId: string
+    actorId: string
+    reason: string
+    event: AgentActionTransitionEvent
+    metadata?: Record<string, unknown>
+  }
+): Promise<AgentAction> {
+  const transition = transitionAgentActionStatus(input.action.status, input.event)
+  if (!transition.ok) throw new Error(transition.reason)
+
+  const nextMetadata = {
+    ...(readRecord(input.action.result_metadata) ?? {}),
+    ...(input.metadata ?? {}),
+  } as Json
+  const updates: Record<string, unknown> = {
+    status: transition.to,
+    result_metadata: nextMetadata,
+  }
+  if (transition.to === 'complete') {
+    updates.executed_at = new Date().toISOString()
+  }
+
+  const { data, error } = await db
+    .from('agent_actions')
+    .update(updates)
+    .eq('id', input.action.id)
+    .select(AGENT_ACTION_STATUS_SELECT_COLUMNS)
+    .single()
+
+  if (error || !data) {
+    console.error('Planner agent action transition update error:', error)
+    throw new Error(error?.message ?? 'Failed to update agent action status')
+  }
+
+  if (transition.changed) {
+    await insertAgentActionAuditLog(db, {
+      actionId: input.action.id,
+      planId: input.planId,
+      fromStatus: transition.from,
+      toStatus: transition.to,
+      actorId: input.actorId,
+      reason: input.reason,
+      metadata: input.metadata,
+    })
+  }
+
+  return data as AgentAction
+}
+
+type OutreachPreparationSummary = {
+  prepared: boolean
+  reason?: string
+  venue_invite_count?: number
+  vendor_invite_count?: number
+  opportunity_brief_id?: string | null
+  vendor_opportunity_brief_id?: string | null
+}
+
+async function syncOpportunityInviteStatuses(
+  db: PlannerDb,
+  plan: Plan,
+  userId: string,
+  approval: Approval
+): Promise<OutreachPreparationSummary> {
   const { data, error } = await db
     .from('agent_actions')
     .select(AGENT_ACTION_OPPORTUNITY_SELECT_COLUMNS)
@@ -535,31 +648,30 @@ async function syncOpportunityInviteStatuses(db: PlannerDb, plan: Plan, userId: 
 
   if (error || !data) {
     if (error) console.error('Planner opportunity action lookup error:', error)
-    return
+    return { prepared: false, reason: 'action_not_found' }
   }
 
   const payload = data.payload_json
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { prepared: false, reason: 'missing_action_payload' }
+  }
 
   const action = data as { id: string; action_type?: string | null; payload_json?: unknown; result_metadata?: unknown }
   const payloadRecord = payload as Record<string, unknown>
   const opportunityBriefId = readString(payloadRecord.opportunity_brief_id)
 
   if (isVenueOutreachAction(action)) {
-    await syncVenueOpportunitySendApproval(db, plan, userId, approval, payloadRecord, opportunityBriefId)
-    return
+    return syncVenueOpportunitySendApproval(db, plan, userId, approval, payloadRecord, opportunityBriefId)
   }
 
   if (isVendorOutreachAction(action)) {
-    await syncVendorOpportunitySendApproval(db, plan, userId, approval, payloadRecord)
-    return
+    return syncVendorOpportunitySendApproval(db, plan, userId, approval, payloadRecord)
   }
 
-  if (!opportunityBriefId) return
+  if (!opportunityBriefId) return { prepared: false, reason: 'not_outreach_action' }
 
   if (approval.status === 'authorized' || approval.status === 'approved') {
     const invites = await ensureVenueOpportunityInviteTokens(db, opportunityBriefId)
-    await enqueueVenueInviteSendJobs(invites)
 
     const { error: briefUpdateError } = await db
       .from('venue_opportunity_briefs')
@@ -574,10 +686,14 @@ async function syncOpportunityInviteStatuses(db: PlannerDb, plan: Plan, userId: 
     await insertOpportunityStatusMessage(db, plan.id, {
       opportunity_brief_id: opportunityBriefId,
       approval_id: approval.id,
-      status: 'queued',
-      content: `Queued — ${invites.length} invite${invites.length === 1 ? '' : 's'} ready to send.`,
+      status: 'drafts_prepared',
+      content: `Prepared ${invites.length} outreach draft${invites.length === 1 ? '' : 's'} for review.`,
     })
-    return
+    return {
+      prepared: true,
+      venue_invite_count: invites.length,
+      opportunity_brief_id: opportunityBriefId,
+    }
   }
 
   if (approval.status === 'cancelled' || approval.status === 'rejected') {
@@ -600,6 +716,8 @@ async function syncOpportunityInviteStatuses(db: PlannerDb, plan: Plan, userId: 
       console.error('Planner opportunity brief cancelled status update error:', briefUpdateError)
     }
   }
+
+  return { prepared: false, reason: `approval_${approval.status}` }
 }
 
 async function syncVendorOpportunitySendApproval(
@@ -608,11 +726,11 @@ async function syncVendorOpportunitySendApproval(
   userId: string,
   approval: Approval,
   payload: Record<string, unknown>
-) {
+): Promise<OutreachPreparationSummary> {
   const vendorBriefId = readString(payload.vendor_opportunity_brief_id) ?? readString(payload.opportunity_brief_id)
 
   if (approval.status === 'cancelled' || approval.status === 'rejected') {
-    if (!vendorBriefId) return
+    if (!vendorBriefId) return { prepared: false, reason: `approval_${approval.status}` }
 
     const { error: inviteUpdateError } = await db
       .from('vendor_opportunity_invites')
@@ -622,14 +740,15 @@ async function syncVendorOpportunitySendApproval(
     if (inviteUpdateError) {
       console.error('Planner vendor opportunity cancel invite update error:', inviteUpdateError)
     }
-    return
+    return { prepared: false, reason: `approval_${approval.status}` }
   }
 
-  if (approval.status !== 'authorized' && approval.status !== 'approved') return
+  if (approval.status !== 'authorized' && approval.status !== 'approved') {
+    return { prepared: false, reason: `approval_${approval.status}` }
+  }
 
   if (vendorBriefId) {
     const invites = await ensureVendorOpportunityInviteTokens(db, vendorBriefId)
-    await enqueueVendorInviteSendJobs(invites)
     await updateActionPayload(db, approval.agent_action_id, {
       ...payload,
       vendor_opportunity_brief_id: vendorBriefId,
@@ -639,16 +758,20 @@ async function syncVendorOpportunitySendApproval(
     await insertOpportunityStatusMessage(db, plan.id, {
       opportunity_brief_id: vendorBriefId,
       approval_id: approval.id,
-      status: 'queued',
-      content: `Sent inquiries to ${invites.length} vendor${invites.length === 1 ? '' : 's'} — I'll ping you when they reply.`,
+      status: 'drafts_prepared',
+      content: `Prepared ${invites.length} vendor outreach draft${invites.length === 1 ? '' : 's'} for review.`,
     })
-    return
+    return {
+      prepared: true,
+      vendor_invite_count: invites.length,
+      vendor_opportunity_brief_id: vendorBriefId,
+    }
   }
 
   const vendorIds = readStringArray(payload.vendor_ids).filter(isUuid)
   if (vendorIds.length === 0) {
     console.error('Planner vendor opportunity send approval missing vendor_ids')
-    return
+    return { prepared: false, reason: 'missing_vendor_ids' }
   }
 
   const result = await createVendorOpportunityBrief({
@@ -663,7 +786,6 @@ async function syncVendorOpportunitySendApproval(
     quoteRequested: typeof payload.quote_requested === 'boolean' ? payload.quote_requested : true,
     issueTokens: true,
   })
-  await enqueueVendorInviteSendJobs(result.invites)
 
   await updateActionPayload(db, approval.agent_action_id, {
     ...payload,
@@ -675,9 +797,15 @@ async function syncVendorOpportunitySendApproval(
   await insertOpportunityStatusMessage(db, plan.id, {
     opportunity_brief_id: String(result.brief.id),
     approval_id: approval.id,
-    status: 'queued',
-    content: `Sent inquiries to ${result.invites.length} vendor${result.invites.length === 1 ? '' : 's'} — I'll ping you when they reply.`,
+    status: 'drafts_prepared',
+    content: `Prepared ${result.invites.length} vendor outreach draft${result.invites.length === 1 ? '' : 's'} for review.`,
   })
+
+  return {
+    prepared: true,
+    vendor_invite_count: result.invites.length,
+    vendor_opportunity_brief_id: String(result.brief.id),
+  }
 }
 
 async function syncVenueOpportunitySendApproval(
@@ -687,9 +815,9 @@ async function syncVenueOpportunitySendApproval(
   approval: Approval,
   payload: Record<string, unknown>,
   opportunityBriefId: string | null
-) {
+): Promise<OutreachPreparationSummary> {
   if (approval.status === 'cancelled' || approval.status === 'rejected') {
-    if (!opportunityBriefId) return
+    if (!opportunityBriefId) return { prepared: false, reason: `approval_${approval.status}` }
 
     const { error: inviteUpdateError } = await db
       .from('venue_opportunity_invites')
@@ -699,14 +827,15 @@ async function syncVenueOpportunitySendApproval(
     if (inviteUpdateError) {
       console.error('Planner venue opportunity cancel invite update error:', inviteUpdateError)
     }
-    return
+    return { prepared: false, reason: `approval_${approval.status}` }
   }
 
-  if (approval.status !== 'authorized' && approval.status !== 'approved') return
+  if (approval.status !== 'authorized' && approval.status !== 'approved') {
+    return { prepared: false, reason: `approval_${approval.status}` }
+  }
 
   if (opportunityBriefId) {
     const invites = await ensureVenueOpportunityInviteTokens(db, opportunityBriefId)
-    await enqueueVenueInviteSendJobs(invites)
     await updateActionPayload(db, approval.agent_action_id, {
       ...payload,
       opportunity_brief_id: opportunityBriefId,
@@ -716,23 +845,29 @@ async function syncVenueOpportunitySendApproval(
     await insertOpportunityStatusMessage(db, plan.id, {
       opportunity_brief_id: opportunityBriefId,
       approval_id: approval.id,
-      status: 'queued',
-      content: `Sent inquiries to ${invites.length} venue${invites.length === 1 ? '' : 's'} — I'll ping you when they reply.`,
+      status: 'drafts_prepared',
+      content: `Prepared ${invites.length} venue outreach draft${invites.length === 1 ? '' : 's'} for review.`,
     })
+    let vendorSummary: OutreachPreparationSummary = { prepared: false }
     if (hasVendorOutreachPayload(payload)) {
-      await syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
+      vendorSummary = await syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
     }
-    return
+    return {
+      prepared: true,
+      venue_invite_count: invites.length,
+      vendor_invite_count: vendorSummary.vendor_invite_count,
+      opportunity_brief_id: opportunityBriefId,
+      vendor_opportunity_brief_id: vendorSummary.vendor_opportunity_brief_id,
+    }
   }
 
   const venueIds = readStringArray(payload.venue_ids).filter(isUuid)
   if (venueIds.length === 0) {
     if (hasVendorOutreachPayload(payload)) {
-      await syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
-      return
+      return syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
     }
     console.error('Planner venue opportunity send approval missing venue_ids')
-    return
+    return { prepared: false, reason: 'missing_venue_ids' }
   }
 
   const result = await createVenueOpportunityBrief({
@@ -745,7 +880,6 @@ async function syncVenueOpportunitySendApproval(
     responseDeadline: readString(payload.response_deadline),
     issueTokens: true,
   })
-  await enqueueVenueInviteSendJobs(result.invites)
 
   await updateActionPayload(db, approval.agent_action_id, {
     ...payload,
@@ -757,22 +891,27 @@ async function syncVenueOpportunitySendApproval(
   await insertOpportunityStatusMessage(db, plan.id, {
     opportunity_brief_id: String(result.brief.id),
     approval_id: approval.id,
-    status: 'queued',
-    content: `Sent inquiries to ${result.invites.length} venue${result.invites.length === 1 ? '' : 's'} — I'll ping you when they reply.`,
+    status: 'drafts_prepared',
+    content: `Prepared ${result.invites.length} venue outreach draft${result.invites.length === 1 ? '' : 's'} for review.`,
   })
 
+  let vendorSummary: OutreachPreparationSummary = { prepared: false }
   if (hasVendorOutreachPayload(payload)) {
-    await syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
+    vendorSummary = await syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
+  }
+
+  return {
+    prepared: true,
+    venue_invite_count: result.invites.length,
+    vendor_invite_count: vendorSummary.vendor_invite_count,
+    opportunity_brief_id: String(result.brief.id),
+    vendor_opportunity_brief_id: vendorSummary.vendor_opportunity_brief_id,
   }
 }
 
 function hasVendorOutreachPayload(payload: Record<string, unknown>): boolean {
   return Boolean(readString(payload.vendor_opportunity_brief_id)) ||
     readStringArray(payload.vendor_ids).length > 0
-}
-
-function isExecutableOutreachAction(action: unknown): boolean {
-  return isVenueOutreachAction(action) || isVendorOutreachAction(action)
 }
 
 function isVenueOutreachAction(action: unknown): boolean {
@@ -797,18 +936,6 @@ function isVendorOutreachAction(action: unknown): boolean {
   return actionType === 'email' &&
     readString(payload?.kind) === 'vendor_outreach' &&
     readString(metadata?.action_type_fallback) === 'opportunity_send_vendors'
-}
-
-async function enqueueVenueInviteSendJobs(invites: Array<Record<string, unknown>>) {
-  if (invites.length === 0) return
-  const admin = createServiceRoleClient()
-  await enqueueOpportunityInviteSendJobs(admin, invites)
-}
-
-async function enqueueVendorInviteSendJobs(invites: Array<Record<string, unknown>>) {
-  if (invites.length === 0) return
-  const admin = createServiceRoleClient()
-  await enqueueVendorOpportunityInviteSendJobs(admin, invites)
 }
 
 async function updateActionPayload(db: PlannerDb, actionId: string, payload: Record<string, unknown>) {
