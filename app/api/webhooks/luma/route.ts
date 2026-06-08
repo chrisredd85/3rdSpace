@@ -4,7 +4,8 @@ import { randomUUID } from 'crypto'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { parseWebhookJson } from '@/lib/server/ticket-webhooks'
 import { allowWebhookRequest, getWebhookRateLimitKey } from '@/lib/server/webhook-rate-limit'
-import { enqueueJob } from '@/lib/server/job-queue'
+import { enqueueJob, type SupabaseJobClient } from '@/lib/server/job-queue'
+import { toJsonObject } from '@/lib/types/databaseRows'
 
 export const runtime = 'nodejs'
 
@@ -28,7 +29,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true, ignored: true, reason: 'rate_limited' }, { status: 200 })
   }
 
-  let payload: Record<string, any>
+  let payload: Record<string, unknown>
 
   try {
     payload = parseWebhookJson(rawBody)
@@ -42,15 +43,15 @@ export async function POST(request: NextRequest) {
     const searchParams = Object.fromEntries(request.nextUrl.searchParams.entries())
     const eventKey =
       request.headers.get('webhook-id') ||
-      payload.webhook_id ||
-      payload.id ||
+      readString(payload.webhook_id) ||
+      readString(payload.id) ||
       randomUUID()
 
-    const job = await enqueueJob(admin, {
+    const job = await enqueueJob(admin as unknown as SupabaseJobClient, {
       jobType: 'webhook.luma',
       payload: {
         rawBody,
-        payload,
+        payload: toJsonObject(payload),
         headers,
         searchParams,
       },
@@ -70,4 +71,8 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     )
   }
+}
+
+function readString(value: unknown) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }

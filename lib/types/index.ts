@@ -51,6 +51,19 @@ export type {
   Json,
 } from './database'
 
+export type {
+  FunctionArgs,
+  FunctionReturns,
+  JsonObject,
+  PublicFunctionName,
+  PublicSchema,
+  PublicSupabaseClient,
+  PublicTableName,
+  TableInsert,
+  TableRow,
+  TableUpdate,
+} from './databaseRows'
+
 // Export helper utilities
 export * from './helpers'
 export * from './planner'

@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
-import { enqueueJob } from '@/lib/server/job-queue'
+import { enqueueJob, type SupabaseJobClient } from '@/lib/server/job-queue'
 
 interface ImportRequestBody {
   integrationId?: string
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'An Eventbrite import is already running for this event.' }, { status: 409 })
     }
 
-    const job = await enqueueJob(admin, {
+    const job = await enqueueJob(admin as unknown as SupabaseJobClient, {
       jobType: 'eventbrite.import',
       payload: {
         integrationId: typedIntegration.id,

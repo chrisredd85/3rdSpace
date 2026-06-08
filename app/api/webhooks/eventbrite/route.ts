@@ -9,10 +9,11 @@ import {
   recordEventbriteWebhookReceipt,
   resolveEventbriteWebhookConnection,
 } from '@/lib/integrations/eventbrite/sync'
-import { enqueueJob } from '@/lib/server/job-queue'
+import { enqueueJob, type SupabaseJobClient } from '@/lib/server/job-queue'
 import { parseWebhookJson } from '@/lib/server/ticket-webhooks'
 import { allowWebhookRequest, getWebhookRateLimitKey } from '@/lib/server/webhook-rate-limit'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { toJsonObject } from '@/lib/types/databaseRows'
 
 export async function POST(request: NextRequest) {
   const admin = createServiceRoleClient()
@@ -66,12 +67,12 @@ export async function POST(request: NextRequest) {
 
     const headers = normalizeHeaders(request.headers)
     const searchParams = Object.fromEntries(request.nextUrl.searchParams.entries())
-    const job = await enqueueJob(admin, {
+    const job = await enqueueJob(admin as unknown as SupabaseJobClient, {
       jobType: 'webhook.eventbrite',
       payload: {
         connectionId: connection.id,
         deliveryId,
-        payload,
+        payload: toJsonObject(payload),
         rawBody,
         headers,
         searchParams,

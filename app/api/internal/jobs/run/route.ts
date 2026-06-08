@@ -2,10 +2,11 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getWorkerOrAdminContext } from '@/lib/server/admin-auth'
-import { claimJobs, completeJob, failJob, type AppJob } from '@/lib/server/job-queue'
+import { claimJobs, completeJob, failJob, type AppJob, type SupabaseJobClaimClient } from '@/lib/server/job-queue'
 import { runOpportunityInviteJob } from '@/lib/server/opportunity-email-worker'
 import { runEventbriteImport } from '@/lib/server/eventbrite-import'
 import { runLiveEventRecompute } from '@/lib/finance/liveRecommendations'
+import { toJsonObject } from '@/lib/types/databaseRows'
 import { processQueuedEventbriteWebhook } from '@/lib/integrations/eventbrite/sync'
 import {
   processLumaWebhook,
@@ -20,16 +21,16 @@ import {
 
 export const runtime = 'nodejs'
 
-function headersFromPayload(headers: Record<string, string> | undefined) {
-  return new Headers(headers ?? {})
+function headersFromPayload(headers: unknown) {
+  return new Headers(readStringRecord(headers))
 }
 
-function searchParamsFromPayload(searchParams: Record<string, string> | undefined) {
-  return new URLSearchParams(searchParams ?? {})
+function searchParamsFromPayload(searchParams: unknown) {
+  return new URLSearchParams(readStringRecord(searchParams))
 }
 
 async function processPoshWebhookJob(admin: ReturnType<typeof createServiceRoleClient>, job: AppJob) {
-  const payload = job.payload.payload as Record<string, any>
+  const payload = toJsonObject(job.payload.payload)
   const headers = headersFromPayload(job.payload.headers)
   const searchParams = searchParamsFromPayload(job.payload.searchParams)
   const context = await resolveIntegrationContext(admin, 'posh', payload, searchParams)
@@ -63,7 +64,7 @@ async function processPoshWebhookJob(admin: ReturnType<typeof createServiceRoleC
 }
 
 async function processLumaWebhookJob(admin: ReturnType<typeof createServiceRoleClient>, job: AppJob) {
-  const payload = job.payload.payload as Record<string, any>
+  const payload = toJsonObject(job.payload.payload)
   const rawBody = typeof job.payload.rawBody === 'string' ? job.payload.rawBody : JSON.stringify(payload)
   const headers = headersFromPayload(job.payload.headers)
   const searchParams = searchParamsFromPayload(job.payload.searchParams)
@@ -97,7 +98,7 @@ async function processLumaWebhookJob(admin: ReturnType<typeof createServiceRoleC
 }
 
 async function processPartifulWebhookJob(admin: ReturnType<typeof createServiceRoleClient>, job: AppJob) {
-  const payload = job.payload.payload as Record<string, any>
+  const payload = toJsonObject(job.payload.payload)
   const headers = headersFromPayload(job.payload.headers)
   const searchParams = searchParamsFromPayload(job.payload.searchParams)
   const context = await resolveIntegrationContext(admin, 'partiful', payload, searchParams)
@@ -150,7 +151,7 @@ async function processEventbriteWebhookJob(admin: ReturnType<typeof createServic
     db: admin,
     connectionId,
     deliveryId,
-    payload: payload as Record<string, unknown>,
+    payload: toJsonObject(payload),
   })
 }
 
@@ -209,18 +210,19 @@ export async function POST(request: NextRequest) {
   }
 
   const admin = createServiceRoleClient()
+  const jobClient = admin as unknown as SupabaseJobClaimClient
   const limitParam = request.nextUrl.searchParams.get('limit')
   const limit = Math.min(Math.max(Number(limitParam || 5) || 5, 1), 25)
-  const jobs = await claimJobs(admin, limit)
+  const jobs = await claimJobs(jobClient, limit)
   const results = []
 
   for (const job of jobs) {
     try {
       const result = await processJob(admin, job)
-      await completeJob(admin, job.id, result)
+      await completeJob(jobClient, job.id, toJsonObject(result))
       results.push({ id: job.id, jobType: job.job_type, status: 'succeeded', result })
     } catch (error) {
-      await failJob(admin, job, error)
+      await failJob(jobClient, job, error)
       results.push({
         id: job.id,
         jobType: job.job_type,
@@ -234,4 +236,12 @@ export async function POST(request: NextRequest) {
     claimed: jobs.length,
     results,
   })
+}
+
+function readStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  )
 }

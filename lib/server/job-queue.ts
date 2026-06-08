@@ -1,8 +1,45 @@
 import 'server-only'
 
 import { randomUUID } from 'crypto'
+import { toJsonObject } from '@/lib/types/databaseRows'
+import type {
+  FunctionArgs,
+  FunctionReturns,
+  JsonObject,
+  TableInsert,
+  TableRow,
+  TableUpdate,
+} from '@/lib/types/databaseRows'
 
-type SupabaseAdminClient = any
+type AppJobRow = TableRow<'app_jobs'>
+type AppJobInsert = TableInsert<'app_jobs'>
+type AppJobUpdate = TableUpdate<'app_jobs'>
+type DbError = { code?: string; message: string }
+type DbResult<T> = { data: T | null; error: DbError | null }
+type DbMutationResult = { error: DbError | null }
+type SingleBuilder<T> = { single(): PromiseLike<DbResult<T>> }
+type AppJobInsertBuilder = { select(columns: string): SingleBuilder<AppJobRow> }
+type AppJobSelectBuilder = {
+  eq(column: string, value: unknown): AppJobSelectBuilder
+  in(column: string, values: readonly unknown[]): AppJobSelectBuilder
+  order(column: string, options?: { ascending?: boolean }): AppJobSelectBuilder
+  limit(count: number): AppJobSelectBuilder
+  maybeSingle(): PromiseLike<DbResult<AppJobRow>>
+}
+type AppJobUpdateBuilder = { eq(column: string, value: unknown): PromiseLike<DbMutationResult> }
+type AppJobTable = {
+  insert(values: AppJobInsert): AppJobInsertBuilder
+  select(columns: string): AppJobSelectBuilder
+  update(values: AppJobUpdate): AppJobUpdateBuilder
+}
+type AppJobRpcClient = {
+  rpc(
+    fn: 'claim_app_jobs',
+    args: FunctionArgs<'claim_app_jobs'>
+  ): PromiseLike<{ data: FunctionReturns<'claim_app_jobs'> | null; error: DbError | null }>
+}
+export type SupabaseJobClient = { from(table: 'app_jobs'): AppJobTable }
+export type SupabaseJobClaimClient = SupabaseJobClient & AppJobRpcClient
 
 export type AppJobType =
   | 'eventbrite.import'
@@ -18,41 +55,41 @@ export type AppJobType =
   | 'opportunity_remind_vendor_invite'
   | 'opportunity_expire_vendor_invite'
 
-export type AppJob = {
-  id: string
+export type AppJobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'dead'
+
+export type AppJob = Omit<AppJobRow, 'job_type' | 'payload' | 'result' | 'status'> & {
   job_type: AppJobType
-  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'dead'
-  payload: Record<string, any>
-  result: Record<string, any> | null
-  error: string | null
-  attempts: number
-  max_attempts: number
-  unique_key: string | null
+  status: AppJobStatus
+  payload: JsonObject
+  result: JsonObject | null
 }
 
 export async function enqueueJob(
-  admin: SupabaseAdminClient,
+  admin: SupabaseJobClient,
   params: {
     jobType: AppJobType
-    payload: Record<string, any>
+    payload: JsonObject
     uniqueKey?: string
     scheduledAt?: string
     maxAttempts?: number
   }
 ) {
+  const insert: AppJobInsert = {
+    job_type: params.jobType,
+    payload: params.payload,
+    unique_key: params.uniqueKey ?? null,
+    scheduled_at: params.scheduledAt ?? new Date().toISOString(),
+    max_attempts: params.maxAttempts ?? 5,
+  }
+
   const { data, error } = await admin
     .from('app_jobs')
-    .insert({
-      job_type: params.jobType,
-      payload: params.payload,
-      unique_key: params.uniqueKey ?? null,
-      scheduled_at: params.scheduledAt ?? new Date().toISOString(),
-      max_attempts: params.maxAttempts ?? 5,
-    })
+    .insert(insert)
     .select('*')
     .single()
 
-  if (!error) return data as AppJob
+  if (!error && data) return normalizeAppJobRow(data)
+  if (!error) throw new Error('Failed to enqueue job: no job returned')
 
   const isConflict =
     error.code === '23505' ||
@@ -75,10 +112,10 @@ export async function enqueueJob(
     throw new Error(existingError?.message || 'Job is already queued')
   }
 
-  return existing as AppJob
+  return normalizeAppJobRow(existing)
 }
 
-export async function claimJobs(admin: SupabaseAdminClient, limit = 5) {
+export async function claimJobs(admin: SupabaseJobClaimClient, limit = 5) {
   const workerId = `${process.env.VERCEL_REGION || 'local'}-${randomUUID()}`
   const { data, error } = await admin.rpc('claim_app_jobs', {
     p_limit: limit,
@@ -89,31 +126,33 @@ export async function claimJobs(admin: SupabaseAdminClient, limit = 5) {
     throw new Error(`Failed to claim jobs: ${error.message}`)
   }
 
-  return ((data as AppJob[] | null) ?? []).filter(Boolean)
+  return ((data as AppJobRow[] | null) ?? []).filter(Boolean).map(normalizeAppJobRow)
 }
 
 export async function completeJob(
-  admin: SupabaseAdminClient,
+  admin: SupabaseJobClient,
   jobId: string,
-  result: Record<string, any>
+  result: JsonObject
 ) {
+  const update: AppJobUpdate = {
+    status: 'succeeded',
+    result,
+    error: null,
+    completed_at: new Date().toISOString(),
+    locked_at: null,
+    locked_by: null,
+  }
+
   const { error } = await admin
     .from('app_jobs')
-    .update({
-      status: 'succeeded',
-      result,
-      error: null,
-      completed_at: new Date().toISOString(),
-      locked_at: null,
-      locked_by: null,
-    })
+    .update(update)
     .eq('id', jobId)
 
   if (error) throw new Error(`Failed to complete job: ${error.message}`)
 }
 
 export async function failJob(
-  admin: SupabaseAdminClient,
+  admin: SupabaseJobClient,
   job: AppJob,
   error: unknown
 ) {
@@ -121,22 +160,33 @@ export async function failJob(
   const shouldRetry = job.attempts < job.max_attempts
   const nextStatus = shouldRetry ? 'pending' : 'dead'
   const retryDelayMs = Math.min(60_000 * Math.max(job.attempts, 1), 10 * 60_000)
+  const update: AppJobUpdate = {
+    status: nextStatus,
+    error: message,
+    scheduled_at: shouldRetry
+      ? new Date(Date.now() + retryDelayMs).toISOString()
+      : new Date().toISOString(),
+    completed_at: shouldRetry ? null : new Date().toISOString(),
+    locked_at: null,
+    locked_by: null,
+  }
 
   const { error: updateError } = await admin
     .from('app_jobs')
-    .update({
-      status: nextStatus,
-      error: message,
-      scheduled_at: shouldRetry
-        ? new Date(Date.now() + retryDelayMs).toISOString()
-        : new Date().toISOString(),
-      completed_at: shouldRetry ? null : new Date().toISOString(),
-      locked_at: null,
-      locked_by: null,
-    })
+    .update(update)
     .eq('id', job.id)
 
   if (updateError) {
     throw new Error(`Failed to mark job failed: ${updateError.message}`)
+  }
+}
+
+export function normalizeAppJobRow(row: AppJobRow): AppJob {
+  return {
+    ...row,
+    job_type: row.job_type as AppJobType,
+    status: row.status as AppJobStatus,
+    payload: toJsonObject(row.payload),
+    result: row.result === null ? null : toJsonObject(row.result),
   }
 }
