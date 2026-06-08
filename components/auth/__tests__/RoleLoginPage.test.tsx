@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { RoleLoginPage } from '@/components/auth/RoleLoginPage'
 import { ToastProvider } from '@/components/ui/toast'
 
@@ -27,6 +28,8 @@ jest.mock('@/lib/supabase/client', () => ({
   },
 }))
 
+const originalFetch = global.fetch
+
 function renderRoleLoginPage() {
   const queryClient = new QueryClient()
 
@@ -39,7 +42,16 @@ function renderRoleLoginPage() {
   )
 }
 
-describe('RoleLoginPage mobile account creation placement', () => {
+describe('RoleLoginPage account creation placement', () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = jest.fn()
+  })
+
+  afterEach(() => {
+    global.fetch = originalFetch
+    jest.restoreAllMocks()
+  })
+
   it('places account creation next to the form sign-in action', () => {
     renderRoleLoginPage()
 
@@ -47,15 +59,39 @@ describe('RoleLoginPage mobile account creation placement', () => {
     expect(screen.queryByText('New here?')).not.toBeInTheDocument()
 
     const loginActions = screen.getByRole('group', { name: 'Login actions' })
-    expect(loginActions).toHaveClass('sm:block')
+    expect(loginActions).toHaveClass('sm:grid-cols-2')
     expect(within(loginActions).getByRole('button', { name: /Sign in/i })).toHaveAttribute('type', 'submit')
-    const mobileCreateAccount = within(loginActions).getByRole('link', { name: 'Create account' })
-    expect(mobileCreateAccount).toHaveAttribute('href', '/signup/builder')
-    expect(mobileCreateAccount).toHaveClass('sm:hidden')
+    const formCreateAccount = within(loginActions).getByRole('link', { name: 'Create account' })
+    expect(formCreateAccount).toHaveAttribute('href', '/signup/builder')
+    expect(formCreateAccount).toHaveClass('w-full')
 
     const createAccountLinks = screen.getAllByRole('link', { name: 'Create account' })
     expect(createAccountLinks[0]).toHaveAttribute('href', '/signup/builder')
     expect(createAccountLinks[0]).toHaveClass('hidden')
     expect(createAccountLinks[0]).toHaveClass('sm:inline-flex')
+  })
+
+  it('shows a credentials error when email and password do not match an account', async () => {
+    const user = userEvent.setup()
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: 'We could not find an account matching that email and password.',
+    }), { status: 401 })) as typeof fetch
+
+    renderRoleLoginPage()
+
+    await user.type(screen.getByLabelText('Email'), 'missing@example.com')
+    await user.type(screen.getByLabelText('Password'), 'not-the-password')
+    await user.click(screen.getByRole('button', { name: /Sign in/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('We could not find an account matching that email and password.')
+    expect(global.fetch).toHaveBeenCalledWith('/api/auth/login', expect.objectContaining({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'missing@example.com',
+        password: 'not-the-password',
+        expectedUserType: 'community_builder',
+      }),
+    }))
   })
 })

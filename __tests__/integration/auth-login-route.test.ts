@@ -45,7 +45,7 @@ describe('POST /api/auth/login', () => {
     consoleErrorSpy.mockRestore()
   })
 
-  it('returns the account-not-found copy for invalid credentials', async () => {
+  it('returns credentials copy for invalid email and password combinations', async () => {
     mockSignInWithPassword.mockResolvedValue({
       data: { user: null, session: null },
       error: { message: 'Invalid login credentials' },
@@ -59,7 +59,7 @@ describe('POST /api/auth/login', () => {
     const json = await response.json()
 
     expect(response.status).toBe(401)
-    expect(json).toEqual({ error: 'No account with that information has been found' })
+    expect(json).toEqual({ error: 'We could not find an account matching that email and password.' })
     expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 })
