@@ -25,8 +25,57 @@ describe('venue payouts rental refund UI', () => {
       }
       if (url === '/api/venue/kickbacks/summary') {
         return Promise.resolve(jsonResponse({
-          summary: { pending: 0, processing: 0, completed: 0, refunded: 0, count: 0 },
-          payments: [],
+          summary: { pending: 0, processing: 0, completed: 0, refunded: 0, count: 1 },
+          payments: [{
+            id: 'agreement:agreement-pos',
+            agreement_id: 'agreement-pos',
+            payment_id: null,
+            amount: null,
+            amount_cents: 0,
+            principal_cents: 0,
+            payout_cents: 0,
+            processing_fee_cents: 0,
+            invoice_hosted_url: null,
+            refund_amount_cents: null,
+            refund_reason: null,
+            refund_requested_at: null,
+            currency: 'usd',
+            status: 'revenue_report_needed',
+            proof_status: 'needed',
+            event_name: 'Founder dinner',
+            event_date: '2026-06-19T00:00:00.000Z',
+            builder_name: 'Chris Builder',
+            actual_attendance: 90,
+            per_head_amount: null,
+            reported_revenue_cents: null,
+            revenue_extracted_value_cents: null,
+            revenue_extraction_confidence: null,
+            revenue_proof_url: null,
+            revenue_submitted_at: null,
+            revenue_share_percent: 12,
+            agreement_status: 'attendance_locked',
+            requires_manual_review: false,
+            initiated_at: null,
+            completed_at: null,
+            failure_reason: null,
+          }],
+        }))
+      }
+      if (url === '/api/venue/kickbacks/agreement-pos/spend-report') {
+        return Promise.resolve(jsonResponse({
+          extracted_value: 428000,
+          confidence: 'high',
+          reasoning: 'Net sales was clearly labeled.',
+          calculated_owed_cents: 51360,
+          payment_id: 'payment-pos',
+          extraction_status: 'extracted',
+          review_status: 'ready_for_invoice_review',
+          uploaded_proof: {
+            filename: 'square.csv',
+            mime_type: 'text/csv',
+            size_bytes: 18,
+            path: 'agreement-pos/square.csv',
+          },
         }))
       }
       if (url === '/api/venue/rentals/summary') {
@@ -90,6 +139,34 @@ describe('venue payouts rental refund UI', () => {
         }),
       }))
     })
+  })
+
+  it('uploads POS proof from the venue settlement ledger', async () => {
+    const user = userEvent.setup()
+
+    render(<VenuePayoutsPage />)
+
+    expect(await screen.findByText('Settlement ledger')).toBeInTheDocument()
+    expect(await screen.findByText('POS proof needed')).toBeInTheDocument()
+
+    await user.upload(
+      screen.getByLabelText(/Upload POS proof/i),
+      new File(['Net sales,4280.00'], 'square.csv', { type: 'text/csv' })
+    )
+    await user.type(screen.getByLabelText(/Verified revenue/i), '4280.00')
+    await user.click(screen.getByRole('button', { name: /Submit proof/i }))
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith('/api/venue/kickbacks/agreement-pos/spend-report', expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+      }))
+    })
+    const spendReportCall = (global.fetch as jest.Mock).mock.calls.find(([url]) => url === '/api/venue/kickbacks/agreement-pos/spend-report')
+    const formData = spendReportCall?.[1].body as FormData
+    expect(formData.get('reported_revenue_cents_override')).toBe('428000')
+    expect(formData.get('image')).toBeInstanceOf(File)
+    expect(await screen.findByText(/Revenue extracted/i)).toBeInTheDocument()
   })
 })
 

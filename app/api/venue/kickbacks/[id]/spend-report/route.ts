@@ -59,6 +59,7 @@ type UploadedProof = {
   buffer: Buffer
   mimeType: string
   filename: string
+  sizeBytes: number
 }
 
 type ExtractionSummary = Pick<DocumentExtractionOutput, 'extracted_value' | 'confidence' | 'reasoning'>
@@ -156,6 +157,16 @@ export async function POST(
       reasoning: extraction.reasoning,
       calculated_owed_cents: calculatedOwedCents,
       payment_id: payment.id,
+      extraction_status: extraction.extracted_value === null ? 'needs_review' : 'extracted',
+      review_status: extraction.confidence === 'low' || reportedRevenueCents === null ? 'manual_review_needed' : 'ready_for_invoice_review',
+      uploaded_proof: uploadedProof
+        ? {
+            filename: uploadedProof.filename,
+            mime_type: uploadedProof.mimeType,
+            size_bytes: uploadedProof.sizeBytes,
+            path: uploadedProof.path,
+          }
+        : null,
     })
   } catch (error) {
     console.error('[venue.kickbacks.spend-report] Failed to submit spend report', error)
@@ -317,7 +328,8 @@ async function loadTicketRevenueCents(admin: any, eventId: string | null) {
 }
 
 async function uploadProofFile(admin: any, agreementId: string, file: File): Promise<UploadedProof> {
-  if (!isAllowedMimeType(file.type)) {
+  const mimeType = getSupportedUploadMimeType(file)
+  if (!mimeType) {
     throw new RouteError('Unsupported file type. Upload a screenshot, PDF, CSV, or Excel file.', 400)
   }
 
@@ -332,7 +344,7 @@ async function uploadProofFile(admin: any, agreementId: string, file: File): Pro
   const { error: uploadError } = await admin.storage
     .from(SPEND_REPORT_BUCKET)
     .upload(path, buffer, {
-      contentType: file.type || undefined,
+      contentType: mimeType,
       upsert: false,
     })
 
@@ -352,8 +364,9 @@ async function uploadProofFile(admin: any, agreementId: string, file: File): Pro
     path,
     signedUrl: signed.signedUrl,
     buffer,
-    mimeType: file.type,
+    mimeType,
     filename,
+    sizeBytes: file.size,
   }
 }
 
@@ -393,6 +406,23 @@ function isUploadFile(value: FormDataEntryValue | null): value is File {
 
 function isAllowedMimeType(mimeType: string) {
   return (DOCUMENT_EXTRACTION_ALLOWED_MIME_TYPES as readonly string[]).includes(mimeType)
+}
+
+function getSupportedUploadMimeType(file: File) {
+  const declaredType = file.type?.split(';')[0]?.trim().toLowerCase() ?? ''
+  if (declaredType && isAllowedMimeType(declaredType)) return declaredType
+
+  const lowerName = file.name.toLowerCase()
+  if (lowerName.endsWith('.csv')) return 'text/csv'
+  if (lowerName.endsWith('.tsv')) return 'text/tab-separated-values'
+  if (lowerName.endsWith('.pdf')) return 'application/pdf'
+  if (lowerName.endsWith('.xlsx')) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  if (lowerName.endsWith('.xls')) return 'application/vnd.ms-excel'
+  if (lowerName.endsWith('.png')) return 'image/png'
+  if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) return 'image/jpeg'
+  if (lowerName.endsWith('.heic')) return 'image/heic'
+
+  return null
 }
 
 function sanitizeFilename(filename: string) {
