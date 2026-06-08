@@ -748,16 +748,22 @@ async function createConciergeFallbackTask(
   const conciergeInvites = invites.filter((invite) => invite.route_to_concierge)
   if (conciergeInvites.length === 0) return
 
+  const metadata = {
+    type: 'concierge_booking',
+    opportunity_id: opportunity.id,
+    invite_ids: conciergeInvites.map((invite) => invite.id),
+    route_to_concierge_count: conciergeInvites.length,
+    reason: 'Unclaimed venue/vendor listing or no direct owner response UI yet.',
+  }
+
   const { error } = await db.from('admin_tasks').insert({
     plan_id: plan.id,
     task_type: 'concierge_booking',
-    description: `Route ${conciergeInvites.length} opportunity target${conciergeInvites.length === 1 ? '' : 's'} through concierge fallback.`,
+    description: `Route ${conciergeInvites.length} opportunity target${conciergeInvites.length === 1 ? '' : 's'} through 3rdPlace admin fallback.`,
     status: 'open',
-    notes: JSON.stringify({
-      opportunity_id: opportunity.id,
-      invite_ids: conciergeInvites.map((invite) => invite.id),
-      reason: 'Unclaimed venue/vendor listing or no direct owner response UI yet.',
-    }),
+    priority: 'high',
+    metadata,
+    notes: JSON.stringify(metadata),
   })
 
   if (error) console.error('Planner opportunity concierge task insert error:', error)

@@ -8,6 +8,7 @@ const adminLinks = [
   ['Catalog venues', '/admin/catalog/venues', 'Seed spaces, bars, rooftops, and claim-ready venue records.'],
   ['Catalog vendors', '/admin/catalog/vendors', 'Seed caterers, AV teams, photographers, DJs, and service partners.'],
   ['Claims', '/admin/claims', 'Review unclaimed catalog listings and pending approval work.'],
+  ['Tasks', '/admin/tasks', 'Work general planner handoffs, catalog gaps, confirmations, receipts, and compliance tasks.'],
   ['Concierge', '/admin/concierge', 'Handle opportunity invites that need manual outreach.'],
   ['Overrides', '/admin/overrides', 'Review recommendation pin/exclude candidates for plans.'],
   ['Failures', '/admin/failures', 'Failed sends, payments, dead jobs, and webhook issues.'],
