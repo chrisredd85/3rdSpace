@@ -34,6 +34,28 @@ type KickbackPaymentRow = {
   created_at: string | null
 }
 
+type KickbackAgreementRow = {
+  id: string
+  event_id: string | null
+  plan_id: string | null
+  venue_id: string
+  builder_id: string
+  actual_attendance: number | null
+  per_head_amount: number | null
+  minimum_attendees: number | null
+  maximum_payout: number | null
+  actual_kickback_amount: number | null
+  reported_revenue_cents: number | null
+  revenue_proof_url: string | null
+  revenue_extracted_value_cents: number | null
+  revenue_extraction_confidence: string | null
+  revenue_submitted_at: string | null
+  bar_revenue_share_percent: number | null
+  ticket_revenue_share_percent: number | null
+  lift_share_percentage: number | null
+  status: string
+}
+
 function getPaymentPrincipalCents(payment: Pick<KickbackPaymentRow, 'amount_cents' | 'amount'>) {
   return readCents(payment.amount_cents, payment.amount) ?? 0
 }
@@ -69,11 +91,50 @@ export async function GET() {
     if (paymentsError) throw new Error(paymentsError.message)
 
     const payments = ((paymentRows || []) as KickbackPaymentRow[])
+    const { data: agreementRows, error: agreementsError } = await (admin as any)
+      .from('event_kickback_agreements')
+      .select(
+        [
+          'id',
+          'event_id',
+          'plan_id',
+          'venue_id',
+          'builder_id',
+          'actual_attendance',
+          'per_head_amount',
+          'minimum_attendees',
+          'maximum_payout',
+          'actual_kickback_amount',
+          'reported_revenue_cents',
+          'revenue_proof_url',
+          'revenue_extracted_value_cents',
+          'revenue_extraction_confidence',
+          'revenue_submitted_at',
+          'bar_revenue_share_percent',
+          'ticket_revenue_share_percent',
+          'lift_share_percentage',
+          'status',
+        ].join(', ')
+      )
+      .eq('venue_owner_id', auth.owner.id)
+
+    if (agreementsError) throw new Error(agreementsError.message)
+
+    const ownedAgreements = ((agreementRows || []) as KickbackAgreementRow[])
     const eventIds = [
-      ...new Set(payments.map((payment) => payment.event_id).filter((id): id is string => Boolean(id))),
+      ...new Set([
+        ...payments.map((payment) => payment.event_id),
+        ...ownedAgreements.map((agreement) => agreement.event_id),
+      ].filter((id): id is string => Boolean(id))),
     ]
-    const agreementIds = [...new Set(payments.map((payment) => payment.agreement_id))]
-    const recipientIds = [...new Set(payments.map((payment) => payment.recipient_id))]
+    const agreementIds = [...new Set([
+      ...payments.map((payment) => payment.agreement_id),
+      ...ownedAgreements.map((agreement) => agreement.id),
+    ])]
+    const recipientIds = [...new Set([
+      ...payments.map((payment) => payment.recipient_id),
+      ...ownedAgreements.map((agreement) => agreement.builder_id),
+    ])]
 
     const [{ data: events }, { data: agreements }, { data: builders }] = await Promise.all([
       eventIds.length
@@ -85,7 +146,7 @@ export async function GET() {
       agreementIds.length
         ? (admin as any)
             .from('event_kickback_agreements')
-            .select('id, event_id, plan_id, venue_id, per_head_amount, minimum_attendees, maximum_payout, actual_attendance, actual_kickback_amount, reported_revenue_cents, bar_revenue_share_percent, ticket_revenue_share_percent, lift_share_percentage, status')
+            .select('id, event_id, plan_id, venue_id, builder_id, per_head_amount, minimum_attendees, maximum_payout, actual_attendance, actual_kickback_amount, reported_revenue_cents, revenue_proof_url, revenue_extracted_value_cents, revenue_extraction_confidence, revenue_submitted_at, bar_revenue_share_percent, ticket_revenue_share_percent, lift_share_percentage, status')
             .in('id', agreementIds)
         : { data: [] },
       recipientIds.length
@@ -111,21 +172,33 @@ export async function GET() {
     const agreementById = new Map<string, any>((agreements || []).map((agreement: any) => [agreement.id, agreement]))
     const builderByUserId = new Map<string, any>((builders || []).map((builder: any) => [builder.user_id, builder]))
     const planById = new Map<string, any>((plans || []).map((plan: any) => [plan.id, plan]))
+    const paymentByAgreementId = new Map<string, KickbackPaymentRow>(
+      payments.map((payment) => [payment.agreement_id, payment])
+    )
+    const displayAgreementIds = new Set<string>([
+      ...ownedAgreements
+        .filter((agreement) => shouldSurfaceAgreementForSpendReport(agreement))
+        .map((agreement) => agreement.id),
+      ...payments.map((payment) => payment.agreement_id),
+    ])
 
-    const enrichedPayments = payments.map((payment) => {
-      const agreement = agreementById.get(payment.agreement_id)
-      const event = payment.event_id ? eventById.get(payment.event_id) : null
+    const enrichedPayments = Array.from(displayAgreementIds).map((agreementId) => {
+      const payment = paymentByAgreementId.get(agreementId) ?? null
+      const agreement = agreementById.get(agreementId)
+      const eventId = payment?.event_id ?? agreement?.event_id ?? null
+      const event = eventId ? eventById.get(eventId) : null
       const plan = agreement?.plan_id ? planById.get(agreement.plan_id) : null
-      const builder = builderByUserId.get(payment.recipient_id)
-      const principalCents = getPaymentPrincipalCents(payment)
-      const payoutCents = readCents(payment.builder_payout_cents, null) ?? principalCents
+      const builderId = payment?.recipient_id ?? agreement?.builder_id ?? null
+      const builder = builderId ? builderByUserId.get(builderId) : null
+      const principalCents = payment ? getPaymentPrincipalCents(payment) : 0
+      const payoutCents = readCents(payment?.builder_payout_cents, null) ?? principalCents
 
       return {
-        ...payment,
+        ...(payment ?? buildAgreementPlaceholderPayment(agreement, auth.owner.id)),
         amount_cents: principalCents,
         principal_cents: principalCents,
         payout_cents: payoutCents,
-        processing_fee_cents: payment.processing_fee_cents ?? 0,
+        processing_fee_cents: payment?.processing_fee_cents ?? 0,
         event_name: event?.event_name ?? plan?.title ?? 'Untitled event',
         event_date: event?.event_date ?? plan?.date_window_start ?? null,
         builder_name: builder?.name ?? 'Event builder',
@@ -140,6 +213,17 @@ export async function GET() {
           agreement?.lift_share_percentage ??
           null,
         agreement_status: agreement?.status ?? null,
+        agreement_id: agreement?.id ?? payment?.agreement_id ?? null,
+        payment_id: payment?.id ?? null,
+        proof_status: getRevenueProofStatus(agreement, payment),
+        revenue_proof_url: agreement?.revenue_proof_url ?? null,
+        revenue_submitted_at: agreement?.revenue_submitted_at ?? null,
+        revenue_extracted_value_cents: agreement?.revenue_extracted_value_cents ?? null,
+        revenue_extraction_confidence: agreement?.revenue_extraction_confidence ?? null,
+        requires_manual_review: Boolean(
+          agreement?.revenue_extraction_confidence === 'low' ||
+          (agreement?.revenue_submitted_at && agreement?.reported_revenue_cents == null)
+        ),
       }
     })
 
@@ -160,4 +244,61 @@ export async function GET() {
       { status: 500 }
     )
   }
+}
+
+function shouldSurfaceAgreementForSpendReport(agreement: KickbackAgreementRow) {
+  if (agreement.status === 'cancelled') return false
+  if (agreement.actual_attendance == null && !agreement.revenue_submitted_at && agreement.reported_revenue_cents == null) {
+    return false
+  }
+  return true
+}
+
+function buildAgreementPlaceholderPayment(
+  agreement: KickbackAgreementRow | undefined,
+  venueOwnerId: string
+): KickbackPaymentRow {
+  const agreementId = agreement?.id ?? 'unknown'
+  return {
+    id: `agreement:${agreementId}`,
+    agreement_id: agreementId,
+    event_id: agreement?.event_id ?? null,
+    payer_id: venueOwnerId,
+    recipient_id: agreement?.builder_id ?? '',
+    amount: null,
+    amount_cents: null,
+    currency: 'usd',
+    status: agreement?.revenue_submitted_at ? 'pending_venue_approval' : 'revenue_report_needed',
+    failure_reason: null,
+    notes: null,
+    settlement_method: 'invoice',
+    invoice_hosted_url: null,
+    stripe_invoice_id: null,
+    processing_fee_cents: null,
+    builder_payout_cents: null,
+    refund_amount_cents: null,
+    refund_reason: null,
+    refund_requested_at: null,
+    due_date: null,
+    paid_at: null,
+    initiated_at: null,
+    completed_at: null,
+    failed_at: null,
+    created_at: null,
+  }
+}
+
+function getRevenueProofStatus(
+  agreement: KickbackAgreementRow | null | undefined,
+  payment: KickbackPaymentRow | null
+) {
+  if (!agreement) return 'unavailable'
+  if (agreement.actual_attendance == null && !agreement.revenue_submitted_at) return 'waiting_for_attendance'
+  if (agreement.revenue_extraction_confidence === 'low' || (agreement.revenue_submitted_at && agreement.reported_revenue_cents == null)) {
+    return 'manual_review'
+  }
+  if (agreement.revenue_submitted_at || agreement.reported_revenue_cents != null || agreement.revenue_proof_url) {
+    return payment ? 'submitted' : 'ready_for_invoice_review'
+  }
+  return 'needed'
 }

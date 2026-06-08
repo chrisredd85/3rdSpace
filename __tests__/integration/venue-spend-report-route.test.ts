@@ -240,6 +240,13 @@ describe('venue spend report route', () => {
       confidence: 'high',
       calculated_owed_cents: 51360,
       payment_id: 'kickback_payments-1',
+      extraction_status: 'extracted',
+      review_status: 'ready_for_invoice_review',
+      uploaded_proof: {
+        filename: 'square.csv',
+        mime_type: 'text/csv',
+        path: expect.stringContaining('square.csv'),
+      },
     })
     expect(db.storage.from).toHaveBeenCalledWith('venue-spend-reports')
     expect(runDocumentExtractionAgent).toHaveBeenCalledWith(expect.objectContaining({
@@ -310,6 +317,19 @@ describe('venue spend report route', () => {
 
     expect(response.status).toBe(400)
     expect(json.error).toContain('under 10 MB')
+    expect(db.storageBucket.upload).not.toHaveBeenCalled()
+    expect(runDocumentExtractionAgent).not.toHaveBeenCalled()
+  })
+
+  it('rejects unsupported venue spend report file types clearly', async () => {
+    const formData = new FormData()
+    formData.set('image', makeUploadFile('plain notes', 'notes.txt', 'text/plain'))
+
+    const response = await POST(makeRequest(formData), { params: { id: AGREEMENT_ID } })
+    const json = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(json.error).toContain('Unsupported file type')
     expect(db.storageBucket.upload).not.toHaveBeenCalled()
     expect(runDocumentExtractionAgent).not.toHaveBeenCalled()
   })

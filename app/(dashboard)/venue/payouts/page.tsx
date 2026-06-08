@@ -18,6 +18,7 @@ import {
   RefreshCw,
   RotateCcw,
   ShieldCheck,
+  UploadCloud,
   UsersRound,
   WalletCards,
   XCircle,
@@ -28,6 +29,10 @@ import { StripeAccountStatus } from '@/components/vendor/StripeAccountStatus'
 import { StripeConnectButton } from '@/components/vendor/StripeConnectButton'
 import { StripeDashboardLink } from '@/components/vendor/StripeDashboardLink'
 import { StripeOnboardingModal } from '@/components/vendor/StripeOnboardingModal'
+import {
+  VenueSpendReportUpload,
+  type VenueSpendReportSettlement,
+} from '@/components/venue/VenueSpendReportUpload'
 import { centsToDollars, dollarsToCents } from '@/lib/money'
 import { cn } from '@/lib/utils'
 import type { Json } from '@/lib/types/database'
@@ -56,6 +61,8 @@ type StripeStatusResponse = {
 
 type VenueKickbackPayment = {
   id: string
+  agreement_id: string | null
+  payment_id?: string | null
   amount: number | null
   amount_cents: number
   principal_cents?: number | null
@@ -67,11 +74,20 @@ type VenueKickbackPayment = {
   refund_requested_at?: string | null
   currency: string | null
   status: string
+  proof_status?: string | null
   event_name: string
   event_date: string | null
   builder_name: string
   actual_attendance: number | null
   per_head_amount: number | null
+  reported_revenue_cents?: number | null
+  revenue_extracted_value_cents?: number | null
+  revenue_extraction_confidence?: string | null
+  revenue_proof_url?: string | null
+  revenue_submitted_at?: string | null
+  revenue_share_percent?: number | null
+  agreement_status?: string | null
+  requires_manual_review?: boolean | null
   initiated_at: string | null
   completed_at: string | null
   failure_reason: string | null
@@ -176,6 +192,7 @@ function maskStripeAccountId(accountId: string | null | undefined) {
 }
 
 function statusLabel(status: string) {
+  if (status === 'revenue_report_needed') return 'Proof needed'
   if (status === 'completed' || status === 'paid') return 'Paid'
   if (status === 'processing' || status === 'invoice_sent') return 'Processing'
   if (status === 'refund_requested') return 'Refund requested'
@@ -198,6 +215,7 @@ function statusTone(status: string): StatusTone {
 }
 
 function statusIcon(status: string) {
+  if (status === 'revenue_report_needed') return UploadCloud
   const tone = statusTone(status)
   if (tone === 'paid') return CheckCircle2
   if (tone === 'failed') return XCircle
@@ -547,6 +565,11 @@ export default function VenuePayoutsPage() {
     }
   }
 
+  const handleSpendReportUploaded = useCallback(async () => {
+    setIsLoadingKickbacks(true)
+    await loadKickbacks()
+  }, [loadKickbacks])
+
   const openRentalRefundDecision = (payment: VenueRentalPayment) => {
     setRentalRefundPayment(payment)
     setRentalRefundDecision('approve')
@@ -847,6 +870,7 @@ export default function VenuePayoutsPage() {
                 checkoutLoading={checkoutLoading}
                 onPay={payKickback}
                 onRefund={openRefundRequest}
+                onSpendReportUploaded={handleSpendReportUploaded}
               />
             ))}
           </div>
@@ -1014,20 +1038,28 @@ function SettlementRow({
   checkoutLoading,
   onPay,
   onRefund,
+  onSpendReportUploaded,
 }: {
   payment: VenueKickbackPayment
   checkoutLoading: string | null
   onPay: (paymentId: string) => void
   onRefund: (payment: VenueKickbackPayment) => void
+  onSpendReportUploaded: () => void | Promise<void>
 }) {
   const tone = statusTone(payment.status)
   const styles = statusStyles[tone]
   const StatusIcon = statusIcon(payment.status)
-  const canCreateInvoice = payment.status === 'pending' || payment.status === 'failed' || payment.status === 'pending_venue_approval' || payment.status === 'invoice_failed'
+  const paymentId = payment.payment_id ?? payment.id
+  const canCreateInvoice = Boolean(payment.payment_id) && (
+    payment.status === 'pending' ||
+    payment.status === 'failed' ||
+    payment.status === 'pending_venue_approval' ||
+    payment.status === 'invoice_failed'
+  )
   const canPayInvoice = payment.status === 'invoice_sent' && payment.invoice_hosted_url
   const canRequestRefund = payment.status === 'paid' || payment.status === 'completed'
   const amountCents = paymentSettlementCents(payment)
-  const isStarting = checkoutLoading === payment.id
+  const isStarting = checkoutLoading === paymentId
 
   return (
     <article className={cn('group relative overflow-hidden rounded-lg border border-tan bg-cream p-5 shadow-card transition-smooth sm:p-6', styles.row)}>
@@ -1078,6 +1110,11 @@ function SettlementRow({
               <span className="min-w-0">{payment.failure_reason}</span>
             </div>
           ) : null}
+
+          <VenueSpendReportUpload
+            settlement={payment as VenueSpendReportSettlement}
+            onUploaded={onSpendReportUploaded}
+          />
         </div>
 
         <div className="flex flex-col gap-3 rounded-lg border border-tan bg-cream/50 p-4 sm:min-w-64 lg:items-end">
@@ -1103,7 +1140,7 @@ function SettlementRow({
                 variant={payment.status === 'invoice_failed' || payment.status === 'failed' ? 'hero' : 'accent'}
                 className="w-full sm:w-auto"
                 disabled={Boolean(checkoutLoading)}
-                onClick={() => onPay(payment.id)}
+                onClick={() => onPay(paymentId)}
               >
                 {isStarting ? (
                   <>
