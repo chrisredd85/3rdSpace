@@ -188,7 +188,14 @@ export function PlannerTicketingConnectPanel({
 
     try {
       if (platform === 'eventbrite') {
-        window.location.href = '/planner/integrations/eventbrite'
+        const target = document.getElementById('eventbrite-import')
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          window.history.replaceState(null, '', '/planner/tickets#eventbrite-import')
+        } else {
+          window.location.href = '/planner/tickets#eventbrite-import'
+        }
+        setPendingPlatform(null)
         return
       }
 
@@ -342,7 +349,7 @@ export function PlannerTicketingConnectPanel({
                 disabled={pendingPlatform !== null}
               >
                 {pendingPlatform === activePlatform ? <Loader2 className="h-4 w-4 animate-spin" /> : activePlatform === 'eventbrite' ? <ExternalLink className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
-                {activePlatform === 'eventbrite' ? 'Connect Eventbrite' : activePlatform === 'partiful' ? 'Save Partiful link' : `Set up ${platformCopy[activePlatform].label}`}
+                {activePlatform === 'eventbrite' ? 'Open Eventbrite import' : activePlatform === 'partiful' ? 'Save Partiful link' : `Set up ${platformCopy[activePlatform].label}`}
               </Button>
               <Button
                 type="button"

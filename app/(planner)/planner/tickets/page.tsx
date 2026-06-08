@@ -1,4 +1,5 @@
 import { BarChart3, Link2, Ticket } from 'lucide-react'
+import { EventbriteEventImportWizard } from '@/components/planner/EventbriteEventImportWizard'
 import { PlannerTicketingConnectPanel } from '@/components/planner/PlannerTicketingConnectPanel'
 
 /**
@@ -41,6 +42,8 @@ export default function TicketsPage() {
             </div>
           </div>
         </div>
+
+        <EventbriteEventImportWizard className="mt-6" />
       </div>
     </div>
   )

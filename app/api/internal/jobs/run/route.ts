@@ -7,7 +7,7 @@ import { runOpportunityInviteJob } from '@/lib/server/opportunity-email-worker'
 import { runEventbriteImport } from '@/lib/server/eventbrite-import'
 import { runLiveEventRecompute } from '@/lib/finance/liveRecommendations'
 import { toJsonObject } from '@/lib/types/databaseRows'
-import { processQueuedEventbriteWebhook } from '@/lib/integrations/eventbrite/sync'
+import { processQueuedEventbriteWebhook, runQueuedEventbriteBackfillImport } from '@/lib/integrations/eventbrite/sync'
 import {
   processLumaWebhook,
   processPartifulWebhook,
@@ -160,6 +160,23 @@ async function processJob(admin: ReturnType<typeof createServiceRoleClient>, job
     const integrationId = job.payload.integrationId
     if (typeof integrationId !== 'string') throw new Error('Missing integrationId')
     return runEventbriteImport(admin, integrationId)
+  }
+
+  if (job.job_type === 'eventbrite.backfill.import') {
+    const builderId = job.payload.builderId
+    const userId = job.payload.userId
+    const eventbriteEventIds = job.payload.eventbriteEventIds
+    if (typeof builderId !== 'string') throw new Error('Missing builderId')
+    if (typeof userId !== 'string') throw new Error('Missing userId')
+    if (!Array.isArray(eventbriteEventIds) || !eventbriteEventIds.every((id) => typeof id === 'string')) {
+      throw new Error('Missing Eventbrite event ids')
+    }
+    return runQueuedEventbriteBackfillImport({
+      db: admin,
+      builderId,
+      userId,
+      eventbriteEventIds,
+    })
   }
 
   if (job.job_type === 'live_event.recompute') {

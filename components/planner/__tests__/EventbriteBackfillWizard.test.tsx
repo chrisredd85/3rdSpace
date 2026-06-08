@@ -1,13 +1,13 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { EventbriteBackfillWizard } from '@/components/planner/EventbriteBackfillWizard'
+import { EventbriteEventImportWizard } from '@/components/planner/EventbriteEventImportWizard'
 
-describe('EventbriteBackfillWizard', () => {
+describe('EventbriteEventImportWizard', () => {
   beforeEach(() => {
     jest.restoreAllMocks()
   })
 
-  it('requires host verification before importing a selected Eventbrite event', async () => {
+  it('requires host verification before queueing a selected Eventbrite event import', async () => {
     const fetchMock = jest
       .spyOn(global, 'fetch')
       .mockResolvedValueOnce(jsonResponse({
@@ -24,21 +24,21 @@ describe('EventbriteBackfillWizard', () => {
             status: 'live',
             url: 'https://eventbrite.com/e/backfill-night-123',
             imported: false,
+            importStatus: 'ready',
+            importStatusMessage: null,
+            preview: null,
           },
         ],
       }))
       .mockResolvedValueOnce(jsonResponse({
-        imported: 1,
-        results: [{
-          eventId: 'event-1',
-          externalEventId: 'eventbrite-event-1',
-          ordersImported: 4,
-          attendeesImported: 12,
-          salesImported: 4,
-          feeCommitmentsImported: 4,
+        queued: 1,
+        jobs: [{
+          id: 'job-1',
+          status: 'pending',
+          scheduled_at: '2026-06-02T12:01:00.000Z',
         }],
         connection: connectedEventbriteConnection(),
-      }))
+      }, 202))
       .mockResolvedValueOnce(jsonResponse({
         connection: connectedEventbriteConnection(),
         events: [
@@ -50,15 +50,30 @@ describe('EventbriteBackfillWizard', () => {
             status: 'live',
             url: 'https://eventbrite.com/e/backfill-night-123',
             imported: true,
+            importStatus: 'imported',
+            importStatusMessage: 'Imported data is available for planner analytics.',
+            preview: {
+              eventId: 'event-1',
+              integrationId: 'integration-1',
+              syncStatus: 'completed',
+              lastSyncAt: '2026-06-02T12:02:00.000Z',
+              ticketsSold: 12,
+              ticketsRefunded: 0,
+              grossRevenueCents: 36000,
+              netRevenueCents: 32000,
+              attendeesImported: 12,
+              checkedIn: 9,
+              attendees: [],
+            },
           },
         ],
       }))
 
     const user = userEvent.setup()
-    render(<EventbriteBackfillWizard />)
+    render(<EventbriteEventImportWizard />)
 
     expect(await screen.findByText('Backfill Night')).toBeInTheDocument()
-    const importButton = screen.getByRole('button', { name: /Import verified event/i })
+    const importButton = screen.getByRole('button', { name: /Queue import/i })
     expect(importButton).toBeDisabled()
 
     await user.click(screen.getByRole('radio', { name: /Backfill Night/i }))
@@ -77,6 +92,7 @@ describe('EventbriteBackfillWizard', () => {
         body: JSON.stringify({ eventbrite_event_ids: ['eventbrite-event-1'] }),
       }))
     })
+    expect(await screen.findByText(/import queued for 3rdPlace analytics/i)).toBeInTheDocument()
   })
 })
 
