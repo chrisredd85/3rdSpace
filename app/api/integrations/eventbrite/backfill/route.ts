@@ -4,10 +4,10 @@ export const runtime = 'nodejs'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import {
-  importSelectedEventbriteEvents,
   listEventbriteBackfillEvents,
   loadEventbriteConnection,
   publicEventbriteConnectionState,
+  queueSelectedEventbriteEventImports,
 } from '@/lib/integrations/eventbrite/sync'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
@@ -53,18 +53,29 @@ export async function POST(request: NextRequest) {
     const importBody = importSchema.safeParse(body)
 
     if (importBody.success) {
-      const result = await importSelectedEventbriteEvents({
+      const result = await queueSelectedEventbriteEventImports({
         db: admin,
         builderId: auth.builderProfileId,
         userId: auth.userId,
         eventbriteEventIds: importBody.data.eventbrite_event_ids,
       })
       const connection = await loadEventbriteConnection(admin, auth.builderProfileId)
-      return NextResponse.json({
-        imported: result.imported,
-        results: result.results,
-        connection: publicEventbriteConnectionState(connection),
-      })
+      return NextResponse.json(
+        {
+          queued: result.queued,
+          jobs: result.jobs.map((job) => ({
+            id: job.id,
+            status: job.status,
+            scheduled_at: job.scheduled_at,
+          })),
+          connection: publicEventbriteConnectionState(connection),
+        },
+        { status: 202 }
+      )
+    }
+
+    if (body && typeof body === 'object' && 'eventbrite_event_ids' in body) {
+      return NextResponse.json({ error: 'Invalid Eventbrite import request' }, { status: 400 })
     }
 
     const listBody = listSchema.safeParse(body)

@@ -18,7 +18,14 @@ import {
   majorAmountFromCents,
   normalizeCurrency,
 } from '@/lib/server/ticket-normalization'
+import { enqueueJob, type SupabaseJobClient } from '@/lib/server/job-queue'
 import { decryptSecret, encryptSecret } from '@/lib/server/token-crypto'
+import {
+  deriveEventbritePlannerImportStatus,
+  eventbriteBackfillUniqueKey,
+  type EventbriteImportJobStatus,
+  type EventbritePlannerImportStatus,
+} from './importState'
 
 type SupabaseAdminClient = any
 
@@ -50,6 +57,33 @@ export type EventbriteBackfillEventOption = {
   status: string
   url: string | null
   imported: boolean
+  importStatus: EventbritePlannerImportStatus
+  importStatusMessage: string | null
+  preview: EventbriteImportedEventPreview | null
+}
+
+export type EventbriteImportedAttendeePreview = {
+  id: string
+  firstName: string | null
+  lastName: string | null
+  email: string | null
+  ticketType: string | null
+  checkedIn: boolean
+  checkInTime: string | null
+}
+
+export type EventbriteImportedEventPreview = {
+  eventId: string
+  integrationId: string
+  syncStatus: string | null
+  lastSyncAt: string | null
+  ticketsSold: number
+  ticketsRefunded: number
+  grossRevenueCents: number
+  netRevenueCents: number
+  attendeesImported: number | null
+  checkedIn: number | null
+  attendees: EventbriteImportedAttendeePreview[]
 }
 
 type EventbriteIntegrationRow = {
@@ -127,7 +161,11 @@ export async function listEventbriteBackfillEvents(db: SupabaseAdminClient, buil
   const client = createEventbriteClientForConnection(db, connection)
   const response = await client.listOwnedEvents()
   const eventIds = (response.events ?? []).map((event) => event.id).filter(Boolean)
-  const importedIds = await loadImportedEventbriteEventIds(db, builderId, eventIds)
+  const [importedIds, jobStatuses, previews] = await Promise.all([
+    loadImportedEventbriteEventIds(db, builderId, eventIds),
+    loadLatestEventbriteBackfillJobStatuses(db, builderId, eventIds),
+    loadEventbriteImportedEventPreviews(db, builderId, eventIds),
+  ])
 
   return {
     connection: publicEventbriteConnectionState(connection),
@@ -139,8 +177,58 @@ export async function listEventbriteBackfillEvents(db: SupabaseAdminClient, buil
       status: event.status ?? 'unknown',
       url: event.url ?? null,
       imported: importedIds.has(event.id),
+      importStatus: deriveEventbritePlannerImportStatus({
+        imported: importedIds.has(event.id),
+        latestJobStatus: jobStatuses.get(event.id) ?? null,
+      }),
+      importStatusMessage: importStatusMessage({
+        imported: importedIds.has(event.id),
+        latestJobStatus: jobStatuses.get(event.id) ?? null,
+      }),
+      preview: previews.get(event.id) ?? null,
     } satisfies EventbriteBackfillEventOption)),
   }
+}
+
+export async function queueSelectedEventbriteEventImports(input: {
+  db: SupabaseAdminClient
+  builderId: string
+  userId: string
+  eventbriteEventIds: string[]
+}) {
+  await requireConnectedEventbriteConnection(input.db, input.builderId)
+
+  const uniqueIds = [...new Set(input.eventbriteEventIds.map((id) => id.trim()).filter(Boolean))].slice(0, 10)
+  if (!uniqueIds.length) throw new Error('Select an Eventbrite event before importing')
+
+  const jobs = []
+  for (const eventbriteEventId of uniqueIds) {
+    const job = await enqueueJob(input.db as unknown as SupabaseJobClient, {
+      jobType: 'eventbrite.backfill.import',
+      payload: {
+        builderId: input.builderId,
+        userId: input.userId,
+        eventbriteEventIds: [eventbriteEventId],
+      },
+      uniqueKey: eventbriteBackfillUniqueKey(input.builderId, eventbriteEventId),
+      maxAttempts: 3,
+    })
+    jobs.push(job)
+  }
+
+  return {
+    queued: jobs.length,
+    jobs,
+  }
+}
+
+export async function runQueuedEventbriteBackfillImport(input: {
+  db: SupabaseAdminClient
+  builderId: string
+  userId: string
+  eventbriteEventIds: string[]
+}) {
+  return importSelectedEventbriteEvents(input)
 }
 
 export async function importSelectedEventbriteEvents(input: {
@@ -483,6 +571,228 @@ async function loadImportedEventbriteEventIds(db: SupabaseAdminClient, builderId
       .map((row) => row.eventbrite_event_id)
       .filter((id): id is string => Boolean(id))
   )
+}
+
+async function loadLatestEventbriteBackfillJobStatuses(
+  db: SupabaseAdminClient,
+  builderId: string,
+  eventbriteEventIds: string[]
+) {
+  const keyToEventId = new Map(eventbriteEventIds.map((id) => [eventbriteBackfillUniqueKey(builderId, id), id]))
+  if (!keyToEventId.size) return new Map<string, EventbriteImportJobStatus>()
+
+  const { data, error } = await db
+    .from('app_jobs')
+    .select('unique_key, status, created_at')
+    .in('unique_key', [...keyToEventId.keys()])
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(error.message ?? 'Failed to load Eventbrite import jobs')
+
+  const statuses = new Map<string, EventbriteImportJobStatus>()
+  for (const row of ((data ?? []) as Array<{ unique_key: string | null; status: string | null }>)) {
+    const eventbriteEventId = row.unique_key ? keyToEventId.get(row.unique_key) : null
+    const status = normalizeImportJobStatus(row.status)
+    if (eventbriteEventId && status && !statuses.has(eventbriteEventId)) {
+      statuses.set(eventbriteEventId, status)
+    }
+  }
+
+  return statuses
+}
+
+async function loadEventbriteImportedEventPreviews(
+  db: SupabaseAdminClient,
+  builderId: string,
+  eventbriteEventIds: string[]
+) {
+  const previews = new Map<string, EventbriteImportedEventPreview>()
+  if (!eventbriteEventIds.length) return previews
+
+  const { data: eventRows, error: eventsError } = await db
+    .from('events')
+    .select('id, eventbrite_event_id')
+    .eq('builder_id', builderId)
+    .in('eventbrite_event_id', eventbriteEventIds)
+
+  if (eventsError) throw new Error(eventsError.message ?? 'Failed to load imported Eventbrite event previews')
+
+  const events = ((eventRows ?? []) as Array<{ id: string; eventbrite_event_id: string | null }>)
+    .filter((event): event is { id: string; eventbrite_event_id: string } => Boolean(event.eventbrite_event_id))
+  const eventIds = events.map((event) => event.id)
+  if (!eventIds.length) return previews
+
+  const [{ data: integrationRows, error: integrationsError }, { data: salesRows, error: salesError }] = await Promise.all([
+    db
+      .from('external_event_integrations')
+      .select('id, event_id, external_event_id, sync_status, last_sync_at, last_attendance_count, total_checked_in')
+      .eq('platform', EVENTBRITE_PLATFORM)
+      .in('event_id', eventIds),
+    db
+      .from('event_sales_data')
+      .select('event_id, ticket_quantity, total_amount_cents, fees_cents, is_refund')
+      .in('event_id', eventIds),
+  ])
+
+  if (integrationsError) throw new Error(integrationsError.message ?? 'Failed to load Eventbrite integration previews')
+  if (salesError) throw new Error(salesError.message ?? 'Failed to load Eventbrite sales previews')
+
+  const integrations = ((integrationRows ?? []) as Array<{
+    id: string
+    event_id: string
+    external_event_id: string | null
+    sync_status: string | null
+    last_sync_at: string | null
+    last_attendance_count: number | null
+    total_checked_in: number | null
+  }>).filter((integration) => integration.external_event_id)
+  const integrationIds = integrations.map((integration) => integration.id)
+  const attendeesByIntegration = await loadAttendeePreviewsByIntegration(db, integrationIds)
+  const salesByEventId = summarizeSalesByEventId(salesRows)
+  const eventbriteIdByEventId = new Map(events.map((event) => [event.id, event.eventbrite_event_id]))
+
+  for (const integration of integrations) {
+    if (!integration.external_event_id) continue
+    const sales = salesByEventId.get(integration.event_id) ?? emptyPreviewSales()
+    const attendees = attendeesByIntegration.get(integration.id) ?? []
+    previews.set(integration.external_event_id, {
+      eventId: integration.event_id,
+      integrationId: integration.id,
+      syncStatus: integration.sync_status,
+      lastSyncAt: integration.last_sync_at,
+      ticketsSold: sales.ticketsSold,
+      ticketsRefunded: sales.ticketsRefunded,
+      grossRevenueCents: sales.grossRevenueCents,
+      netRevenueCents: sales.netRevenueCents,
+      attendeesImported: readInteger(integration.last_attendance_count) ?? attendees.length,
+      checkedIn: readInteger(integration.total_checked_in) ?? attendees.filter((attendee) => attendee.checkedIn).length,
+      attendees,
+    })
+  }
+
+  for (const [eventId, eventbriteEventId] of eventbriteIdByEventId) {
+    if (!previews.has(eventbriteEventId)) {
+      const sales = salesByEventId.get(eventId) ?? emptyPreviewSales()
+      previews.set(eventbriteEventId, {
+        eventId,
+        integrationId: '',
+        syncStatus: null,
+        lastSyncAt: null,
+        ticketsSold: sales.ticketsSold,
+        ticketsRefunded: sales.ticketsRefunded,
+        grossRevenueCents: sales.grossRevenueCents,
+        netRevenueCents: sales.netRevenueCents,
+        attendeesImported: null,
+        checkedIn: null,
+        attendees: [],
+      })
+    }
+  }
+
+  return previews
+}
+
+async function loadAttendeePreviewsByIntegration(db: SupabaseAdminClient, integrationIds: string[]) {
+  const attendeesByIntegration = new Map<string, EventbriteImportedAttendeePreview[]>()
+  if (!integrationIds.length) return attendeesByIntegration
+
+  const { data, error } = await db
+    .from('imported_attendees')
+    .select('id, integration_id, first_name, last_name, email, ticket_type, checked_in, check_in_time, created_at')
+    .in('integration_id', integrationIds)
+    .order('check_in_time', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+    .limit(50)
+
+  if (error) throw new Error(error.message ?? 'Failed to load Eventbrite attendee preview')
+
+  for (const attendee of ((data ?? []) as Array<{
+    id: string
+    integration_id: string
+    first_name: string | null
+    last_name: string | null
+    email: string | null
+    ticket_type: string | null
+    checked_in: boolean | null
+    check_in_time: string | null
+  }>)) {
+    const current = attendeesByIntegration.get(attendee.integration_id) ?? []
+    if (current.length >= 5) continue
+    current.push({
+      id: attendee.id,
+      firstName: attendee.first_name,
+      lastName: attendee.last_name,
+      email: attendee.email,
+      ticketType: attendee.ticket_type,
+      checkedIn: Boolean(attendee.checked_in),
+      checkInTime: attendee.check_in_time,
+    })
+    attendeesByIntegration.set(attendee.integration_id, current)
+  }
+
+  return attendeesByIntegration
+}
+
+function summarizeSalesByEventId(salesRows: unknown) {
+  const salesByEventId = new Map<string, ReturnType<typeof emptyPreviewSales>>()
+
+  for (const row of ((salesRows ?? []) as Array<{
+    event_id: string | null
+    ticket_quantity: number | null
+    total_amount_cents: number | null
+    fees_cents: number | null
+    is_refund: boolean | null
+  }>)) {
+    if (!row.event_id) continue
+    const current = salesByEventId.get(row.event_id) ?? emptyPreviewSales()
+    const quantity = readInteger(row.ticket_quantity) ?? 0
+    const totalCents = readInteger(row.total_amount_cents) ?? 0
+    const feesCents = readInteger(row.fees_cents) ?? 0
+    if (row.is_refund || quantity < 0) {
+      current.ticketsRefunded += Math.abs(quantity)
+    } else {
+      current.ticketsSold += quantity
+    }
+    current.grossRevenueCents += totalCents
+    current.netRevenueCents += totalCents - feesCents
+    salesByEventId.set(row.event_id, current)
+  }
+
+  return salesByEventId
+}
+
+function emptyPreviewSales() {
+  return {
+    ticketsSold: 0,
+    ticketsRefunded: 0,
+    grossRevenueCents: 0,
+    netRevenueCents: 0,
+  }
+}
+
+function importStatusMessage(input: {
+  imported: boolean
+  latestJobStatus?: EventbriteImportJobStatus | null
+}) {
+  const status = deriveEventbritePlannerImportStatus(input)
+  if (status === 'imported') return 'Imported data is available for planner analytics.'
+  if (status === 'queued') return 'Import is queued and will run in the background.'
+  if (status === 'running') return 'Import is running now.'
+  if (status === 'failed') return 'Latest import attempt failed. Verify the event and queue it again.'
+  return null
+}
+
+function normalizeImportJobStatus(value: string | null): EventbriteImportJobStatus | null {
+  if (
+    value === 'pending' ||
+    value === 'running' ||
+    value === 'succeeded' ||
+    value === 'failed' ||
+    value === 'dead'
+  ) {
+    return value
+  }
+  return null
 }
 
 async function upsertEventFromEventbrite(db: SupabaseAdminClient, builderId: string, eventbriteEvent: EventbriteEvent) {
@@ -1026,4 +1336,9 @@ function readString(value: unknown) {
   if (typeof value === 'string' && value.trim()) return value.trim()
   if (typeof value === 'number' && Number.isFinite(value)) return String(value)
   return null
+}
+
+function readInteger(value: unknown) {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return null
+  return value
 }

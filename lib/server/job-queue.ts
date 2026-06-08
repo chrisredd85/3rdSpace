@@ -43,6 +43,7 @@ export type SupabaseJobClaimClient = SupabaseJobClient & AppJobRpcClient
 
 export type AppJobType =
   | 'eventbrite.import'
+  | 'eventbrite.backfill.import'
   | 'live_event.recompute'
   | 'webhook.eventbrite'
   | 'webhook.posh'
