@@ -1,4 +1,8 @@
-import { evaluateLiveTriggers, type PnLSnapshot } from '@/lib/finance/liveTriggers'
+import {
+  buildLiveEventOperatingSignals,
+  evaluateLiveTriggers,
+  type PnLSnapshot,
+} from '@/lib/live-events/triggers'
 
 describe('evaluateLiveTriggers', () => {
   it('fires breakeven and velocity-drop triggers with verbatim evidence numbers', () => {
@@ -163,6 +167,53 @@ describe('evaluateLiveTriggers', () => {
       'sellout_imminent',
       'margin_room_for_upgrade',
     ]))
+  })
+
+  it('calculates refund, no-show, cost, and profit target signals from deterministic P&L facts', () => {
+    const signals = buildLiveEventOperatingSignals(makePnl({
+      revenue: {
+        refunds_cents: 25_000,
+        tickets_sold: 100,
+        tickets_refunded: 20,
+        tickets_checked_in: 60,
+      },
+      costs: {
+        estimated_cents: 30_000,
+        committed_cents: 70_000,
+        paid_cents: 20_000,
+      },
+      net: {
+        conservative_cents: 40_000,
+        expected_cents: 80_000,
+        optimistic_cents: 120_000,
+      },
+    }), { profitTargetCents: 150_000 })
+
+    expect(signals.refund_risk).toMatchObject({
+      level: 'high',
+      refund_ratio: 0.2,
+      refunds_cents: 25_000,
+      tickets_refunded: 20,
+      tickets_sold: 100,
+    })
+    expect(signals.attendance).toMatchObject({
+      status: 'high_no_show',
+      active_tickets: 80,
+      checked_in: 60,
+      no_show_count: 20,
+      no_show_rate: 0.25,
+    })
+    expect(signals.cost_commitments).toMatchObject({
+      estimated_cents: 30_000,
+      committed_cents: 70_000,
+      paid_cents: 20_000,
+      total_expected_cents: 120_000,
+    })
+    expect(signals.profit_target).toMatchObject({
+      target_cents: 150_000,
+      current_expected_net_cents: 80_000,
+      gap_cents: 70_000,
+    })
   })
 })
 
