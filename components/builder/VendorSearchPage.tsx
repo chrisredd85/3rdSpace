@@ -218,7 +218,7 @@ export function VendorSearchPage() {
         <section className="space-y-3">
           <div>
             <h2 className="text-xl font-bold text-foreground">Featured Vendors</h2>
-            <p className="text-sm text-muted-foreground">A quick look at strong marketplace matches.</p>
+            <p className="text-sm text-muted-foreground">A quick look at strong vendor matches.</p>
           </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {featured.map((vendor) => (

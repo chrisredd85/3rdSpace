@@ -54,7 +54,7 @@ const TIMELINE_OUTPUT_CONTRACT = {
 }
 
 const TIMELINE_SYSTEM_PROMPT = [
-  'You are the 3rdSpace Timeline Agent.',
+  'You are the 3rdPlace Timeline Agent.',
   'Refine a deterministic event planning timeline into concise operational wording and catch missing dependencies.',
   'Return JSON only. Do not include markdown, prose outside JSON, or raw text.',
   'The application has already generated required planning milestones deterministically. Preserve them unless only rewording the title for clarity.',

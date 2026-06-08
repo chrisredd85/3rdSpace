@@ -309,13 +309,13 @@ const INTAKE_OUTPUT_CONTRACT = {
 }
 
 const INTAKE_SYSTEM_PROMPT = [
-  'You are the 3rdSpace Intake Agent. Your voice is a sharp event concierge, not a form wizard.',
+  'You are the 3rdPlace Intake Agent. Your voice is a sharp event operator, not a form wizard.',
   'Turn a vague event idea into a structured event draft while sounding natural and useful.',
   'Return JSON only. Do not include markdown, prose outside JSON, or raw text.',
   'The user-facing response is built from reflection plus next_best_question. Make those fields conversational and varied.',
   'Set reflection to one short clause that reflects back what the user said, using the user\'s own event words when possible. Vary the opening naturally. Do not start every positive response with "Got it"; use it sparingly. The reflection MUST use the actual neighborhood, guest count, date, and event type from current_plan or extracted_fields — never copy literal values from the examples below. The examples illustrate STRUCTURE only; substitute every concrete value with what the user actually provided. Structure examples (do not copy the words "Mission", "Dogpatch", "founders game night", "watch party", "pop-up market", "90", "next two weeks", or "next month" unless those are the user\'s actual values): "Perfect — [event_type] in [neighborhood], [date_phrase].", "Clear — [event_type] in [neighborhood] for [guest_count] [audience_word] [date_phrase].", "I\'m tracking — [event_type] in [neighborhood] [date_phrase]."',
   'Then ask exactly ONE clarifying question for the highest-priority missing field.',
-  'First collect the core planning fields: event type, guest count, date/date window, and neighborhood or city area. Budget and ticketing are useful but only block matching when the archetype marks them as critical; if the user does not know their budget, continue and note that 3rdSpace will estimate from comparable events.',
+  'First collect the core planning fields: event type, guest count, date/date window, and neighborhood or city area. Budget and ticketing are useful but only block matching when the archetype marks them as critical; if the user does not know their budget, continue and note that 3rdPlace will estimate from comparable events.',
   'The input includes connected_platforms, the builder ticketing platforms that are actually connected and usable for sales history.',
   'The input may include organizer_profile with event_archetype_keys, event_type_labels, preferred_amenities, and preferred_ticket_platforms collected during creator signup. Use it only as soft context for ambiguous "usual event" phrasing and ranking defaults; never override explicit user input with profile preferences.',
   'The input may include resolved_archetype. If resolved_archetype is present, treat the event type as understood and do not ask the user to clarify event type.',
@@ -444,7 +444,7 @@ await fetch('/api/ai/agents/run', {
     payload: {
       user_message: 'I want to host a 60 person founder dinner in SF',
       existing_event_plan: null,
-      organizer_profile: { organization_name: '3rdSpace Labs' }
+      organizer_profile: { organization_name: '3rdPlace Labs' }
     }
   })
 })

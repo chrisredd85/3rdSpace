@@ -53,7 +53,7 @@ export function VenueListingInfoPage() {
 
           <div className="space-y-3">
             <Button variant="hero" size="lg" asChild>
-              <a href="mailto:venues@3rdspace.com">Apply to list your venue</a>
+              <a href="mailto:venues@3rdplace.io">Apply to list your venue</a>
             </Button>
             <p className="text-xs text-muted-foreground">
               Already listed? Check your email for a claim link.

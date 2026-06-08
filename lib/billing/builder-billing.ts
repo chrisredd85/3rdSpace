@@ -410,7 +410,7 @@ export async function createBuilderCheckoutSession(params: {
               currency: 'usd',
               unit_amount: Math.round(BUILDER_BILLING_PRICES.payPerEventAmount * 100),
               product_data: {
-                name: '3rdSpace Pay-Per-Event Access',
+                name: '3rdPlace Pay-Per-Event Access',
                 metadata: {
                   billing_type: 'pay_per_event',
                 },
@@ -854,10 +854,10 @@ async function sendSubscriptionPaymentFailedEmail(params: {
     const result = await sendResendEmail({
       from,
       to: userRow.email,
-      subject: '3rdSpace subscription payment needs attention',
+      subject: '3rdPlace subscription payment needs attention',
       html: `
             <p>Hello${params.builder.name ? ` ${params.builder.name}` : ''},</p>
-            <p>Your 3rdSpace Pro subscription payment of $${params.amountDue.toFixed(2)} did not go through.</p>
+            <p>Your 3rdPlace Pro subscription payment of $${params.amountDue.toFixed(2)} did not go through.</p>
             <p>Please update your billing details to keep Pro booking-fee access active.</p>
           `,
     })

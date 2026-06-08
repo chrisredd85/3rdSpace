@@ -38,7 +38,7 @@ const runSteps = [
   {
     n: '03',
     title: 'Settle',
-    body: 'After the event, 3rdPlace closes the books. Refunds processed, kickbacks collected, margin recorded, next event pre-loaded.',
+    body: 'After the event, 3rdPlace closes the books. Refunds reviewed, kickbacks reconciled, margin recorded, next event pre-loaded.',
   },
 ]
 
@@ -64,7 +64,7 @@ const featureCards = [
 const faqs = [
   {
     q: 'Does the agent ever book or pay without me?',
-    a: 'No. Every booking, every payment, every contract waits on your approval. The agent proposes; you ship.',
+    a: 'No. Every booking, every payment, every contract waits on your approval. The agent proposes; you approve.',
   },
   {
     q: "What if my venue or vendor isn't on the platform?",
@@ -234,7 +234,7 @@ export default function HomePage() {
             <article className="rounded-md border border-tan bg-cream p-7 shadow-sm">
               <Caps>Pro</Caps>
               <h3 className="mt-3 font-display text-[30px] text-ink">Run without the meter.</h3>
-              <p className="mt-3 text-[16px] leading-[1.6] text-ink-soft">Unlimited events, full historical margin, priority concierge.</p>
+              <p className="mt-3 text-[16px] leading-[1.6] text-ink-soft">Unlimited events, full historical margin, priority 3rdPlace team support.</p>
             </article>
           </div>
           <Link href="/pricing" className="mt-8 inline-flex text-[15px] font-semibold text-ink transition-colors hover:text-clay">
@@ -297,7 +297,7 @@ export default function HomePage() {
             <Caps>Company</Caps>
             <ul className="mt-4 space-y-2 text-[14px] text-ink-soft">
               <li><a href="mailto:hello@3rdplace.io" className="hover:text-ink">Contact</a></li>
-              <li><a href="mailto:hello@3rdplace.io" className="hover:text-ink">Concierge support</a></li>
+              <li><a href="mailto:hello@3rdplace.io" className="hover:text-ink">3rdPlace support</a></li>
             </ul>
           </div>
           <div>

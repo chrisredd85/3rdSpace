@@ -781,7 +781,7 @@ export function buildNotificationEmailHtml(params: EmailNotificationParams) {
         ${params.actionUrl ? `<a href="${escapeHtml(params.actionUrl)}" style="display:inline-block;background:#047857;color:#ffffff;text-decoration:none;border-radius:8px;padding:12px 16px;font-weight:700;">View details</a>` : ''}
       </div>
     </div>
-    <p style="margin:16px 0 0;text-align:center;color:#94a3b8;font-size:12px;">You can update notification preferences in your 3rdSpace account.</p>
+    <p style="margin:16px 0 0;text-align:center;color:#94a3b8;font-size:12px;">You can update notification preferences in your 3rdPlace account.</p>
   </div>
 </body>
 </html>`

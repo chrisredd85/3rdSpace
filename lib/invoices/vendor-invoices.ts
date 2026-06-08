@@ -201,7 +201,7 @@ export function buildInvoiceLineItemsWithPlatformFee(params: {
   return [
     ...buildDefaultLineItems(params.booking, params.service, params.pkg),
     {
-      description: params.isPro ? '3rdSpace Booking Fee (Pro - Free)' : '3rdSpace Booking Fee',
+      description: params.isPro ? '3rdPlace Booking Fee (Pro - Free)' : '3rdPlace Booking Fee',
       quantity: 1,
       unit_price: roundMoney(params.platformFee),
       total: roundMoney(params.platformFee),
@@ -360,7 +360,7 @@ export function renderInvoiceHtml(context: InvoiceContext) {
       </div>
       <div style="text-align:right">
         <p class="status">${escapeHtml(invoice.status)}</p>
-        <p style="margin-top:12px">${escapeHtml(vendor.name || '3rdSpace Vendor')}</p>
+        <p style="margin-top:12px">${escapeHtml(vendor.name || '3rdPlace Vendor')}</p>
         <p>${escapeHtml(vendor.phone || '')}</p>
       </div>
     </div>

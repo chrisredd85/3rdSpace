@@ -132,7 +132,7 @@ export default function PlannerVendorsPage() {
       { label: 'Catalog vendors', value: vendors.length.toLocaleString() },
       { label: 'Service types', value: serviceCount.toLocaleString() },
       { label: 'Deposit-ready', value: depositReady.toLocaleString() },
-      { label: 'Concierge fallback', value: unclaimed.toLocaleString() },
+      { label: 'Team fallback', value: unclaimed.toLocaleString() },
     ]
   }, [vendors])
 

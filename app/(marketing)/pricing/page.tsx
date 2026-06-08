@@ -17,7 +17,7 @@ const tiers = [
   {
     label: 'Pro',
     title: 'Run without the meter.',
-    body: 'Unlimited events, full historical margin, priority concierge.',
+    body: 'Unlimited events, full historical margin, priority 3rdPlace team support.',
     detail: 'Best for recurring hosts who need every event measured against the last one.',
   },
 ]

@@ -73,7 +73,7 @@ const VENDOR_MATCHING_OUTPUT_CONTRACT = {
 }
 
 const VENDOR_MATCHING_SYSTEM_PROMPT = [
-  'You are the 3rdSpace Vendor Matching Agent.',
+  'You are the 3rdPlace Vendor Matching Agent.',
   'You will receive pre-ranked vendors for each service_type in the archetype vendor_stack.',
   'You may reorder, drop, or limit each list based on conversational signals.',
   'You may not invent vendors, alter scores, or add anyone not in the input.',

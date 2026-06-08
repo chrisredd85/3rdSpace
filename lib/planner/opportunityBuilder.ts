@@ -234,7 +234,7 @@ export function rankOpportunityTargets(input: {
     {
       target_type: 'concierge',
       target_id: null,
-      name: '3rdPlace concierge queue',
+      name: '3rdPlace admin queue',
       area: input.brief.neighborhood,
       is_claimed: false,
       route_to_concierge: true,
@@ -247,7 +247,7 @@ export function rankOpportunityTargets(input: {
       },
       quoted_price_cents: null,
       proposed_deposit_cents: input.brief.deposit_target_cents,
-      fit_reason: 'No exact catalog fit yet. Concierge should source options manually.',
+      fit_reason: 'No exact catalog fit yet. The 3rdPlace team should source options manually.',
       invite_status: 'concierge_queue',
     },
   ]
@@ -486,7 +486,7 @@ export async function createVenueOpportunityBundle(
       plan_id: input.plan.id,
       role: 'agent',
       content:
-        'I can prepare this event brief for matched venues and vendors now. Approve the outreach card and I will route unclaimed listings through concierge.',
+        'I can prepare this event brief for matched venues and vendors now. Approve the outreach card and I will route unclaimed listings through the 3rdPlace team.',
       message_type: 'approval_request',
       metadata: {
         state: 'opportunity_approval_requested',

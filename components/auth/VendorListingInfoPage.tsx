@@ -53,7 +53,7 @@ export function VendorListingInfoPage() {
 
           <div className="space-y-3">
             <Button variant="hero" size="lg" asChild>
-              <a href="mailto:vendors@3rdspace.com">Apply to list as a vendor</a>
+              <a href="mailto:vendors@3rdplace.io">Apply to list as a vendor</a>
             </Button>
             <p className="text-xs text-muted-foreground">
               Already listed? Check your email for a claim link.

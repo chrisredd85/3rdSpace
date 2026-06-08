@@ -30,21 +30,21 @@ export const viewport = {
 }
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://3rdspace.com'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://www.3rdplace.io'),
   title: {
     default: "3rdPlace · Agent Planner",
     template: "%s | 3rdPlace",
   },
-  description: "An agent-like planning workspace for Bay Area event creators to shape plans, compare options, and coordinate bookings.",
+  description: "An approval-gated event operating workspace for Bay Area hosts to plan, approve, and track profitable events.",
   keywords: [
-    "event marketplace",
-    "venue booking",
-    "event vendors",
+    "event operating system",
+    "approval-gated event planning",
+    "event financial planning",
     "Bay Area events",
     "community events",
     "event planning",
-    "venue rental",
-    "event services",
+    "venue coordination",
+    "vendor coordination",
   ],
   authors: [{ name: "3rdPlace" }],
   creator: "3rdPlace",
@@ -57,10 +57,10 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: process.env.NEXT_PUBLIC_SITE_URL || "https://3rdspace.com",
+    url: process.env.NEXT_PUBLIC_SITE_URL || "https://www.3rdplace.io",
     siteName: "3rdPlace",
     title: "3rdPlace · Agent Planner",
-    description: "An agent-like planning workspace for Bay Area event creators.",
+    description: "An approval-gated event operating workspace for Bay Area hosts.",
     images: [
       {
         url: "/og-default.png",
@@ -73,9 +73,8 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "3rdPlace · Agent Planner",
-    description: "An agent-like planning workspace for Bay Area event creators.",
+    description: "An approval-gated event operating workspace for Bay Area hosts.",
     images: ["/og-default.png"],
-    creator: "@3rdspace",
   },
   robots: {
     index: true,
@@ -100,7 +99,7 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://3rdspace.com'
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.3rdplace.io'
 
   // Organization structured data
   const organizationSchema = {
@@ -109,16 +108,12 @@ export default function RootLayout({
     name: '3rdPlace',
     url: baseUrl,
     logo: `${baseUrl}/logo.png`,
-    description: "An agent-like planning workspace for Bay Area event creators.",
+    description: "An approval-gated event operating workspace for Bay Area hosts.",
     contactPoint: {
       '@type': 'ContactPoint',
       contactType: 'Customer Service',
-      email: 'support@3rdspace.com',
+      email: 'hello@3rdplace.io',
     },
-    sameAs: [
-      'https://twitter.com/3rdspace',
-      'https://linkedin.com/company/3rdspace',
-    ],
   }
 
   return (

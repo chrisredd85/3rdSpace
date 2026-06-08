@@ -53,14 +53,13 @@
     --ring: 15 65% 55%;
     --radius: 0.5rem;
 
-    --gradient-brand: linear-gradient(135deg, hsl(var(--clay)) 0%, hsl(var(--clay-deep)) 100%);
-    --gradient-glow: radial-gradient(circle at 32% 18%, hsl(var(--clay) / 0.10), transparent 48%),
-                     radial-gradient(circle at 80% 10%, hsl(var(--ochre) / 0.08), transparent 42%);
-    --gradient-card: linear-gradient(160deg, hsl(var(--cream)) 0%, hsl(var(--cream-deep)) 100%);
-    --gradient-mesh: linear-gradient(135deg, hsl(var(--clay-tint) / 0.85), hsl(var(--cream) / 0.75));
+    --gradient-brand: hsl(var(--clay));
+    --gradient-glow: hsl(var(--cream));
+    --gradient-card: hsl(var(--cream));
+    --gradient-mesh: hsl(var(--cream-deep));
 
-    --shadow-glow: 0 18px 48px -28px hsl(var(--clay) / 0.7);
-    --shadow-coral: 0 18px 48px -28px hsl(var(--clay-deep) / 0.7);
+    --shadow-glow: 0 10px 24px -22px hsl(var(--ink) / 0.32);
+    --shadow-coral: 0 10px 24px -22px hsl(var(--ink) / 0.32);
     --shadow-card: 0 18px 42px -32px hsl(var(--ink) / 0.28);
     --transition-smooth: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -143,23 +142,23 @@
 }
 
 @layer utilities {
+  /* Compatibility aliases for deprecated visual names; render them as warm editorial surfaces. */
   .bg-gradient-brand { background: var(--gradient-brand); }
   .bg-gradient-card { background: var(--gradient-card); }
   .bg-gradient-mesh { background: var(--gradient-mesh); }
   .text-gradient-brand {
-    background: var(--gradient-brand);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    background: none;
+    -webkit-background-clip: initial;
+    background-clip: initial;
+    color: hsl(var(--clay));
   }
   .shadow-glow { box-shadow: var(--shadow-glow); }
   .shadow-coral { box-shadow: var(--shadow-coral); }
   .shadow-card { box-shadow: var(--shadow-card); }
   .transition-smooth { transition: var(--transition-smooth); }
   .glass {
-    background: hsl(var(--cream) / 0.82);
-    backdrop-filter: blur(18px);
-    border: 1px solid hsl(var(--border) / 0.82);
+    background: hsl(var(--cream));
+    border: 1px solid hsl(var(--border));
   }
   .font-display {
     font-family: var(--font-display);

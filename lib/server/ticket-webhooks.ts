@@ -368,7 +368,7 @@ export function verifyConfiguredTicketWebhook(
 }
 
 /**
- * Finds the 3rdSpace event/integration associated with a webhook.
+ * Finds the internal 3rdPlace event/integration associated with a webhook.
  *
  * Lookup priority is explicit `integrationId`, then provider event id, then
  * optional direct `eventId` query param for testing.
@@ -1242,7 +1242,7 @@ export async function processPoshWebhook(
       webhookType: getWebhookType(payload),
       salesUpserted: 0,
       attendeesUpserted: 0,
-      skippedReason: 'No linked 3rdSpace event found',
+      skippedReason: 'No linked 3rdPlace event found',
     }
   }
 
@@ -1301,7 +1301,7 @@ export async function processLumaWebhook(
       webhookType: getWebhookType(payload),
       salesUpserted: 0,
       attendeesUpserted: 0,
-      skippedReason: 'No linked 3rdSpace event found',
+      skippedReason: 'No linked 3rdPlace event found',
     }
   }
 
@@ -1347,7 +1347,7 @@ export async function processPartifulWebhook(
       webhookType: getWebhookType(payload),
       salesUpserted: 0,
       attendeesUpserted: 0,
-      skippedReason: 'No linked 3rdSpace event found',
+      skippedReason: 'No linked 3rdPlace event found',
     }
   }
 
