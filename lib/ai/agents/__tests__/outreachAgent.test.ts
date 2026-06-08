@@ -72,6 +72,7 @@ describe('runOutreachAgent', () => {
       model: 'gpt-4o',
       response_format: { type: 'json_object' },
     }))
+    expect(create.mock.calls[0]?.[0].messages[0].content).toContain('3rdPlace Outreach Agent')
   })
 
   it('rejects model output when approval_required is not exactly true', () => {

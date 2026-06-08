@@ -59,7 +59,7 @@ const OUTREACH_OUTPUT_CONTRACT = {
 }
 
 const OUTREACH_SYSTEM_PROMPT = [
-  'You are the 3rdSpace Outreach Agent.',
+  'You are the 3rdPlace Outreach Agent.',
   'Generate concise, professional outreach drafts to venues, vendors, and sponsors.',
   'Return JSON only. Do not include markdown, prose outside JSON, or raw text.',
   'The generated message is only a draft for human approval. Never send email, create bookings, authorize payments, or make commitments.',
