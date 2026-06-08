@@ -126,11 +126,14 @@ export async function enqueueOpportunityInviteSendJobs(
 
   const jobs = []
   for (const invite of venueInvites) {
+    const inviteId = typeof invite.id === 'string' ? invite.id : null
+    if (!inviteId) continue
+
     jobs.push(
       await enqueueJob(admin, {
         jobType: 'opportunity_send_venue_invite',
-        payload: { inviteId: invite.id },
-        uniqueKey: `opportunity_send_venue_invite:${invite.id}`,
+        payload: { inviteId },
+        uniqueKey: `opportunity_send_venue_invite:${inviteId}`,
         maxAttempts: 3,
       })
     )
@@ -153,11 +156,14 @@ export async function enqueueVendorOpportunityInviteSendJobs(
 
   const jobs = []
   for (const invite of vendorInvites) {
+    const inviteId = typeof invite.id === 'string' ? invite.id : null
+    if (!inviteId) continue
+
     jobs.push(
       await enqueueJob(admin, {
         jobType: 'opportunity_send_vendor_invite',
-        payload: { inviteId: invite.id },
-        uniqueKey: `opportunity_send_vendor_invite:${invite.id}`,
+        payload: { inviteId },
+        uniqueKey: `opportunity_send_vendor_invite:${inviteId}`,
         maxAttempts: 3,
       })
     )

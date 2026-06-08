@@ -9,11 +9,38 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { classifyExecutionMode, requiresApprovalForAgentAction } from '@/lib/planner/executionModes'
 import { checkRateLimit, rateLimitHeaders } from '@/lib/server/rate-limit'
 import { createClient } from '@/lib/supabase/server'
 import type { AgentAction, Approval, Json, PlannerApiErrorResponse, Plan } from '@/lib/types'
+import type { JsonObject, TableInsert, TableUpdate } from '@/lib/types'
 
-type PlannerDb = { from: (table: string) => any }
+type DbError = { message: string; code?: string }
+type DbResult<T> = { data: T | null; error: DbError | null }
+type DbListResult<T> = { data: T[] | null; error: DbError | null }
+type DbMutationResult = { error: DbError | null }
+type SelectBuilder<T> = PromiseLike<DbListResult<T>> & {
+  eq(column: string, value: unknown): SelectBuilder<T>
+  order(column: string, options?: { ascending?: boolean }): SelectBuilder<T>
+  limit(count: number): SelectBuilder<T>
+  maybeSingle(): PromiseLike<DbResult<T>>
+  single(): PromiseLike<DbResult<T>>
+}
+type InsertBuilder<T> = PromiseLike<DbListResult<T>> & { select(columns: string): { single(): PromiseLike<DbResult<T>> } }
+type UpdateBuilder = { eq(column: string, value: unknown): PromiseLike<DbMutationResult> }
+type PlannerTable<Row, Insert, Update> = {
+  select(columns: string): SelectBuilder<Row>
+  insert(values: Insert): InsertBuilder<Row>
+  update(values: Update): UpdateBuilder
+}
+type PlannerDb = {
+  from(table: 'plans'): PlannerTable<Plan, TableInsert<'plans'>, TableUpdate<'plans'>>
+  from(table: 'agent_actions'): PlannerTable<AgentAction, TableInsert<'agent_actions'>, TableUpdate<'agent_actions'>>
+  from(table: 'approvals'): PlannerTable<Approval, TableInsert<'approvals'>, TableUpdate<'approvals'>>
+  from(
+    table: 'agent_action_audit_log'
+  ): PlannerTable<unknown, TableInsert<'agent_action_audit_log'>, TableUpdate<'agent_action_audit_log'>>
+}
 type PlannerAuth =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
@@ -181,29 +208,48 @@ export async function POST(
     const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const payload = (parsed.data.payloadJson ?? {}) as Record<string, unknown>
+    const payload = (parsed.data.payloadJson ?? {}) as JsonObject
     const requestedAmountCents = parsed.data.requestedAmountCents ?? readNumber(payload.requestedAmountCents) ?? 0
     const actionLabel = readString(payload.action_label) ?? readDefaultActionLabel(parsed.data.actionType)
     const provider = readString(payload.provider)
+    const targetType = parsed.data.targetType ?? readString(payload.target_type)
+    const targetId = parsed.data.targetId ?? readUuid(payload.target_id)
+    const executionMode = classifyExecutionMode({
+      actionType: parsed.data.actionType,
+      provider,
+      targetType,
+      externalUrl: readString(payload.external_url) ?? readString(payload.checkout_url),
+      hasControlledPaymentAccount:
+        readBoolean(payload.has_controlled_payment_account) ??
+        readBoolean(payload.hasControlledPaymentAccount) ??
+        readBoolean(payload.has_stripe_account),
+      routeToAdminQueue:
+        readBoolean(payload.route_to_admin_queue) ??
+        readBoolean(payload.routeToAdminQueue) ??
+        readBoolean(payload.route_to_concierge),
+    })
+
+    const agentActionInsert: TableInsert<'agent_actions'> = {
+      plan_id: context.params.planId,
+      action_type: parsed.data.actionType,
+      target_type: targetType,
+      target_id: targetId,
+      payload_json: payload,
+      description: actionLabel,
+      provider,
+      amount_cents: requestedAmountCents,
+      currency: 'usd',
+      status: 'pending',
+      result_metadata: {
+        source: 'planner_recommendation',
+        execution_mode: executionMode,
+        payload,
+      },
+    }
 
     const { data: actionData, error: actionError } = await auth.db
       .from('agent_actions')
-      .insert({
-        plan_id: context.params.planId,
-        action_type: parsed.data.actionType,
-        target_type: parsed.data.targetType ?? readString(payload.target_type),
-        target_id: parsed.data.targetId ?? readUuid(payload.target_id),
-        payload_json: payload as Json,
-        description: actionLabel,
-        provider,
-        amount_cents: requestedAmountCents,
-        currency: 'usd',
-        status: 'pending',
-        result_metadata: {
-          source: 'planner_recommendation',
-          payload,
-        },
-      })
+      .insert(agentActionInsert)
       .select(AGENT_ACTION_SELECT_COLUMNS)
       .single()
 
@@ -223,34 +269,30 @@ export async function POST(
       metadata: { action_type: agentAction.action_type },
     })
 
-    if (
-      parsed.data.actionType !== 'hold_request' &&
-      parsed.data.actionType !== 'vendor_contact' &&
-      parsed.data.actionType !== 'external_checkout' &&
-      parsed.data.actionType !== 'opportunity_send_venues' &&
-      parsed.data.actionType !== 'opportunity_send_vendors'
-    ) {
+    if (!requiresApprovalForAgentAction(parsed.data.actionType)) {
       return NextResponse.json({ agentAction })
+    }
+
+    const approvalInsert: TableInsert<'approvals'> = {
+      plan_id: context.params.planId,
+      agent_action_id: agentAction.id,
+      action_label: actionLabel,
+      provider,
+      event_date: normalizeDate(readString(payload.event_date)),
+      price_cents: requestedAmountCents,
+      fees_cents: readNumber(payload.fees_cents) ?? 0,
+      package_details: readString(payload.package_details),
+      refund_terms: readString(payload.refund_terms),
+      cancellation_terms: readString(payload.cancellation_terms),
+      delivery_email: readString(payload.delivery_email),
+      payment_method_id: readString(payload.payment_method_id),
+      requested_amount_cents: requestedAmountCents,
+      status: 'pending',
     }
 
     const { data: approvalData, error: approvalError } = await auth.db
       .from('approvals')
-      .insert({
-        plan_id: context.params.planId,
-        agent_action_id: agentAction.id,
-        action_label: actionLabel,
-        provider,
-        event_date: normalizeDate(readString(payload.event_date)),
-        price_cents: requestedAmountCents,
-        fees_cents: readNumber(payload.fees_cents) ?? 0,
-        package_details: readString(payload.package_details),
-        refund_terms: readString(payload.refund_terms),
-        cancellation_terms: readString(payload.cancellation_terms),
-        delivery_email: readString(payload.delivery_email),
-        payment_method_id: readString(payload.payment_method_id),
-        requested_amount_cents: requestedAmountCents,
-        status: 'pending',
-      })
+      .insert(approvalInsert)
       .select(APPROVAL_SELECT_COLUMNS)
       .single()
 
@@ -317,10 +359,10 @@ async function insertAgentActionAuditLog(
     toStatus: string
     actorId: string
     reason: string
-    metadata?: Record<string, unknown>
+    metadata?: JsonObject
   }
 ) {
-  const { error } = await db.from('agent_action_audit_log').insert({
+  const auditInsert: TableInsert<'agent_action_audit_log'> = {
     action_id: payload.actionId,
     plan_id: payload.planId,
     from_status: payload.fromStatus,
@@ -328,8 +370,10 @@ async function insertAgentActionAuditLog(
     actor_id: payload.actorId,
     actor_role: 'user',
     reason: payload.reason,
-    metadata: (payload.metadata ?? {}) as Json,
-  })
+    metadata: payload.metadata ?? {},
+  }
+
+  const { error } = await db.from('agent_action_audit_log').insert(auditInsert)
 
   if (error) console.error('Planner agent action audit insert error:', error)
 }
@@ -340,6 +384,10 @@ function readString(value: unknown): string | null {
 
 function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function readBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null
 }
 
 function readUuid(value: unknown): string | null {
