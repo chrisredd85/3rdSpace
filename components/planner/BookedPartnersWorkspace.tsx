@@ -13,7 +13,6 @@ import {
   MessageSquare,
   RotateCcw,
   Send,
-  UploadCloud,
   UserRound,
   X,
 } from 'lucide-react'
@@ -341,14 +340,11 @@ export function BookedPartnersWorkspace({
     )))
   }
 
-  async function uploadContract() {
+  async function markContractReceived() {
     if (!selectedPartner?.threadId) return
     await mutateRemoteWorkspace({
-      action: 'upload_document',
+      action: 'mark_contract_received',
       threadId: selectedPartner.threadId,
-      kind: 'contract',
-      url: `simulated://contracts/${selectedPartner.threadId}.pdf`,
-      signedAt: new Date().toISOString(),
     })
   }
 
@@ -535,11 +531,11 @@ export function BookedPartnersWorkspace({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={uploadContract}
-                    disabled={!canPersist || isMutating || selectedPartner.nextStep !== 'Upload contract'}
+                    onClick={markContractReceived}
+                    disabled={!canPersist || isMutating || selectedPartner.nextStep !== 'Mark contract received'}
                   >
-                    <UploadCloud className="mr-2 h-4 w-4" />
-                    Upload contract
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    Mark contract received
                   </Button>
                 </div>
               </div>
@@ -831,12 +827,12 @@ function DocumentsCard({ documents }: { documents: BookedPartnerDocument[] }) {
       </div>
       <div className="mt-3 space-y-2">
         {documents.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No documents uploaded yet.</p>
+          <p className="text-sm text-muted-foreground">No document links stored yet.</p>
         ) : (
           documents.map((document) => (
             <a
               key={document.id}
-              href={document.url.startsWith('simulated://') ? undefined : document.url}
+              href={document.url.startsWith('simulated://') || document.url.startsWith('internal://') ? undefined : document.url}
               className="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2 text-sm"
             >
               <span className="font-semibold text-foreground">{document.label}</span>
@@ -869,7 +865,7 @@ function mapWorkspaceToPartner(workspace: PartnershipWorkspacePayload): BookedPa
     })),
     timeline: workspace.milestones.map((milestone) => ({
       id: milestone.id,
-      label: milestone.label,
+      label: formatMilestoneDisplayLabel(milestone.label),
       date: milestone.completed_at ? 'Done' : milestone.due_date ?? 'TBD',
       status: milestone.completed_at ? 'done' : isNextMilestone(milestone.label, workspace.next_required_action) ? 'due' : 'upcoming',
       detail: getMilestoneDetail(milestone.label, Boolean(milestone.completed_at)),
@@ -914,17 +910,23 @@ function getAuthorLabel(sender: BookedPartnerMessage['sender']) {
 function isNextMilestone(label: string, nextAction: string) {
   return (
     (label === 'Deposit placed' && nextAction === 'Place deposit') ||
-    (label === 'Contract uploaded' && nextAction === 'Upload contract') ||
+    (label === 'Contract uploaded' && nextAction === 'Mark contract received') ||
     (label === 'Day-of logistics confirmed' && nextAction === 'Confirm day-of logistics')
   )
 }
 
 function getMilestoneDetail(label: string, completed: boolean) {
+  if (completed && label === 'Contract uploaded') return 'Contract received is complete.'
   if (completed) return `${label} is complete.`
   if (label === 'Deposit placed') return 'Record the deposit once payment is authorized or collected.'
-  if (label === 'Contract uploaded') return 'Attach the signed agreement before final logistics.'
+  if (label === 'Contract uploaded') return 'Record that signed terms are received before final logistics.'
   if (label === 'Day-of logistics confirmed') return 'Confirm load-in, contact, address, parking, and timing.'
   return 'Waiting on partner workspace progress.'
+}
+
+function formatMilestoneDisplayLabel(label: string) {
+  if (label === 'Contract uploaded') return 'Contract received'
+  return label
 }
 
 function formatLabel(value: string) {

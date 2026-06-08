@@ -90,6 +90,7 @@ export interface PartnershipWorkspace {
 type PartnershipActionInput =
   | { action: 'send_message'; threadId: string; body: string }
   | { action: 'mark_deposit_placed'; threadId: string }
+  | { action: 'mark_contract_received'; threadId: string }
   | { action: 'upload_document'; threadId: string; kind: PartnershipDocumentKind; url: string; signedAt?: string | null }
   | { action: 'complete_milestone'; threadId: string; milestoneId: string }
 
@@ -152,7 +153,12 @@ export async function mutatePartnershipWorkspace(
   if (input.action === 'mark_deposit_placed') {
     await completeMilestoneByLabel(db, thread.id, 'Deposit placed')
     await updateThreadStatus(db, thread.id, 'active')
-    await addAgentMessage(db, thread.id, 'Deposit marked as placed. Next step: collect or upload the signed agreement.')
+    await addAgentMessage(db, thread.id, 'Deposit marked as placed. Next step: record that the signed agreement is received.')
+  }
+
+  if (input.action === 'mark_contract_received') {
+    await completeMilestoneByLabel(db, thread.id, 'Contract uploaded')
+    await addAgentMessage(db, thread.id, 'Contract receipt recorded. Day-of logistics are now the next required action.')
   }
 
   if (input.action === 'upload_document') {
@@ -211,7 +217,7 @@ export function isBookedPartnerInviteEligible(invite: {
  */
 export function applyPartnershipProgressionSnapshot(
   workspace: Pick<PartnershipWorkspace, 'payment_status' | 'milestones' | 'documents' | 'next_required_action'>,
-  action: 'mark_deposit_placed' | 'upload_contract'
+  action: 'mark_deposit_placed' | 'mark_contract_received'
 ) {
   const next: Pick<PartnershipWorkspace, 'payment_status' | 'milestones' | 'documents' | 'next_required_action'> = {
     payment_status: { ...workspace.payment_status },
@@ -228,18 +234,7 @@ export function applyPartnershipProgressionSnapshot(
     )
   }
 
-  if (action === 'upload_contract') {
-    next.documents = [
-      ...next.documents,
-      {
-        id: 'contract-1',
-        thread_id: 'thread-1',
-        kind: 'contract',
-        url: 'simulated://contract.pdf',
-        signed_at: now,
-        created_at: now,
-      },
-    ]
+  if (action === 'mark_contract_received') {
     next.milestones = next.milestones.map((milestone) =>
       milestone.label === 'Contract uploaded' ? { ...milestone, completed_at: now } : milestone
     )
@@ -652,7 +647,10 @@ function getNextRequiredAction(milestones: PartnershipMilestone[], documents: Pa
   if (!depositDone) return 'Place deposit'
 
   const hasContract = documents.some((document) => document.kind === 'contract')
-  if (!hasContract) return 'Upload contract'
+  const contractMarkedReceived = milestones.some(
+    (milestone) => milestone.label === 'Contract uploaded' && Boolean(milestone.completed_at)
+  )
+  if (!hasContract && !contractMarkedReceived) return 'Mark contract received'
 
   const logisticsDone = milestones.some(
     (milestone) => milestone.label === 'Day-of logistics confirmed' && Boolean(milestone.completed_at)

@@ -21,6 +21,10 @@ const createImportSchema = z.object({
     expected_attendance: z.number().int().nonnegative().optional().nullable(),
     description: z.string().trim().optional(),
     venue_name: z.string().trim().optional(),
+    is_recurring: z.boolean().optional().nullable(),
+    recurring_frequency: z.string().trim().optional().nullable(),
+    recurring_occurrences: z.number().int().positive().optional().nullable(),
+    parent_event_id: z.string().uuid().optional().nullable(),
   }).optional(),
 })
 
@@ -57,7 +61,10 @@ export async function POST(request: NextRequest) {
         end_time: shell.end_time,
         duration_hours: shell.duration_hours,
         status: 'draft',
-        is_recurring: false,
+        is_recurring: shell.is_recurring,
+        recurring_frequency: shell.recurring_frequency,
+        recurring_occurrences: shell.recurring_occurrences,
+        parent_event_id: shell.parent_event_id,
         budget: 0,
         field_confidence: shell.field_confidence,
         created_at: now,
@@ -158,6 +165,10 @@ function buildEventShell(input: {
   const manualEnd = normalizeTime(readString(input.manualEvent.end_time))
   const manualDescription = readString(input.manualEvent.description)
   const expectedAttendance = readNumber(input.manualEvent.expected_attendance)
+  const recurringFrequency = readString(input.manualEvent.recurring_frequency)
+  const recurringOccurrences = readNumber(input.manualEvent.recurring_occurrences)
+  const parentEventId = readString(input.manualEvent.parent_event_id)
+  const isRecurring = readBoolean(input.manualEvent.is_recurring) ?? Boolean(recurringFrequency || parentEventId)
   const startTime = manualStart ?? input.scraped?.start_time ?? '18:00:00'
   const endTime = manualEnd ?? input.scraped?.end_time ?? '21:00:00'
 
@@ -170,6 +181,10 @@ function buildEventShell(input: {
     expected_attendance: expectedAttendance,
     description: manualDescription ?? input.scraped?.description ?? null,
     venue_name: readString(input.manualEvent.venue_name) ?? input.scraped?.venue_name ?? null,
+    is_recurring: isRecurring,
+    recurring_frequency: recurringFrequency,
+    recurring_occurrences: recurringOccurrences,
+    parent_event_id: parentEventId,
     cover_image_url: input.scraped?.cover_image_url ?? null,
     field_confidence: {
       ...(input.scraped?.field_confidence ?? {}),
@@ -180,6 +195,10 @@ function buildEventShell(input: {
           ...(manualStart ? ['start_time'] : []),
           ...(manualEnd ? ['end_time'] : []),
           ...(expectedAttendance !== null ? ['expected_attendance'] : []),
+          ...(input.manualEvent.is_recurring !== undefined ? ['is_recurring'] : []),
+          ...(recurringFrequency ? ['recurring_frequency'] : []),
+          ...(recurringOccurrences !== null ? ['recurring_occurrences'] : []),
+          ...(parentEventId ? ['parent_event_id'] : []),
         ],
         'high',
         'manual'
@@ -223,5 +242,15 @@ function readString(value: unknown) {
 function readNumber(value: unknown) {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value)
+  return null
+}
+
+function readBoolean(value: unknown) {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (['true', 'yes', '1'].includes(normalized)) return true
+    if (['false', 'no', '0'].includes(normalized)) return false
+  }
   return null
 }

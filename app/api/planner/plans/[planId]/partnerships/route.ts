@@ -4,8 +4,8 @@
  * Purpose:
  * - GET creates/loads partner workspaces from accepted opportunity invites whose
  *   deposit step is unblocked.
- * - POST records MVP workspace actions: messages, deposit placed, document upload,
- *   and milestone completion.
+ * - POST records MVP workspace actions: messages, deposit placed, contract received,
+ *   document links, and milestone completion.
  */
 export const dynamic = 'force-dynamic'
 
@@ -34,6 +34,10 @@ const actionSchema = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('mark_deposit_placed'),
+    threadId: z.string().uuid(),
+  }),
+  z.object({
+    action: z.literal('mark_contract_received'),
     threadId: z.string().uuid(),
   }),
   z.object({

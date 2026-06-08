@@ -1,12 +1,9 @@
-'use client'
+import { redirect } from 'next/navigation'
 
-import { Suspense } from 'react'
-import { PlannerWorkspace } from '@/components/planner/planner-page/PlannerWorkspace'
-
+/**
+ * Outreach sends and replies are not a standalone product surface yet.
+ * Keep inbound links on a real inbox instead of rendering placeholder outreach UI.
+ */
 export default function PlannerOutreachPage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen bg-background" />}>
-      <PlannerWorkspace />
-    </Suspense>
-  )
+  redirect('/planner/messages')
 }

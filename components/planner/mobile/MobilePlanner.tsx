@@ -240,7 +240,6 @@ const appSections: AppSectionLink[] = [
   { id: 'approvals', label: 'Next steps', href: '/planner/payments' },
   { id: 'messages', label: 'Inbox', href: '/planner/messages' },
   { id: 'vendors', label: 'Vendors', href: '/planner/vendors' },
-  { id: 'outreach', label: 'Outreach', href: '/planner/outreach' },
   { id: 'analytics', label: 'Analytics', href: '/planner/analytics' },
   { id: 'ticketing', label: 'Ticketing', href: '/planner/tickets' },
   { id: 'billing', label: 'Billing', href: '/planner/billing' },
@@ -1539,7 +1538,7 @@ function AnalyticsSection({ analytics }: { analytics: AnalyticsSummary | null })
         <div className="grid grid-cols-2 gap-3">
           <Metric label={`${new Date().getFullYear()} events`} value={String(analytics?.events_per_year ?? 0)} />
           <Metric label="Avg margin" value={analytics?.average_margin_percent == null ? 'No data' : `${analytics.average_margin_percent}%`} />
-          <Metric label="Rebook rate" value={analytics?.rebook_rate_percent == null ? 'No data' : `${analytics.rebook_rate_percent}%`} />
+          <Metric label="Repeat-ready" value={analytics?.rebook_rate_percent == null ? 'No data' : `${analytics.rebook_rate_percent}%`} />
           <Metric label="Best format" value={analytics?.best_format ? titleize(analytics.best_format) : 'No data'} />
         </div>
 

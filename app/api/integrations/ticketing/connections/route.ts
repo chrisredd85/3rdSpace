@@ -52,7 +52,7 @@ export async function GET() {
 
   const { data, error: queryError } = await supabase
     .from('builder_ticketing_connections')
-    .select('id, platform, status, external_account_id, account_label, webhook_url, last_connected_at, last_error, config')
+    .select('id, platform, status, external_account_id, account_label, webhook_url, last_connected_at, last_webhook_received_at, last_error, config')
     .eq('builder_id', builderProfileId)
     .order('created_at', { ascending: true })
 

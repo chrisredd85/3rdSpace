@@ -25,6 +25,7 @@ interface TicketingConnection {
   external_account_id: string | null
   webhook_url: string | null
   last_connected_at: string | null
+  last_webhook_received_at?: string | null
   last_error: string | null
   config?: Record<string, unknown> | null
 }
@@ -67,6 +68,8 @@ interface TicketAnalyticsQueryResult {
   analytics: TicketAnalyticsPayload | null
   emptyMessage: string | null
 }
+
+const emptyConnections: TicketingConnection[] = []
 
 const platformCopy: Record<TicketPlatform, { label: string; description: string; mode: string }> = {
   eventbrite: {
@@ -162,7 +165,7 @@ export function PlannerTicketingConnectPanel({
     staleTime: 60_000,
   })
 
-  const connections = connectionsQuery.data?.connections ?? []
+  const connections = connectionsQuery.data?.connections ?? emptyConnections
   const isLoading = connectionsQuery.isLoading
   const connectionLoadMessage =
     connectionsQuery.data?.emptyMessage ??
@@ -176,7 +179,7 @@ export function PlannerTicketingConnectPanel({
     (analyticsQuery.isError ? 'Ticket analytics appear after sales or RSVP data is imported.' : null)
 
   const connectedCount = useMemo(
-    () => connections.filter((connection) => isConnectedStatus(connection.status)).length,
+    () => connections.filter((connection) => isUsableConnection(connection)).length,
     [connections]
   )
   const selectedConnection = connections.find((connection) => connection.platform === activePlatform) ?? null
@@ -226,8 +229,8 @@ export function PlannerTicketingConnectPanel({
       }))
       setSuccessMessage(
         platform === 'partiful'
-          ? 'Partiful link saved for import tracking.'
-          : `${platformCopy[platform].label} webhook endpoint created.`
+          ? 'Partiful link saved. It stays setup pending until event data is imported.'
+          : `${platformCopy[platform].label} webhook endpoint saved. It becomes connected after verified webhook data arrives.`
       )
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to save ticketing connection')
@@ -249,7 +252,7 @@ export function PlannerTicketingConnectPanel({
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Ticketing & RSVP</p>
           <h3 className={cn('font-display font-bold text-foreground', mode === 'full' ? 'mt-1 text-xl' : 'mt-1 text-base')}>
-            {connectedCount > 0 ? `${connectedCount} platform${connectedCount === 1 ? '' : 's'} connected` : 'Connect a ticketing platform'}
+            {connectedCount > 0 ? `${connectedCount} platform${connectedCount === 1 ? '' : 's'} connected` : 'Set up a ticketing source'}
           </h3>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             {ticketed
@@ -258,7 +261,7 @@ export function PlannerTicketingConnectPanel({
           </p>
         </div>
         <span className="inline-flex shrink-0 items-center rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
-          {connectedCount > 0 ? 'Connected' : 'Not connected'}
+          {connectedCount > 0 ? 'Connected' : connections.length > 0 ? 'Setup pending' : 'Not connected'}
         </span>
       </div>
 
@@ -276,6 +279,7 @@ export function PlannerTicketingConnectPanel({
           <div className={cn('mt-4 grid gap-2', mode === 'full' ? 'md:grid-cols-4' : 'grid-cols-2')}>
             {TICKET_PLATFORM_OPTIONS.map((platform) => {
               const connection = connections.find((item) => item.platform === platform.id)
+              const connectionReady = connection ? isUsableConnection(connection) : false
               const selected = activePlatform === platform.id
               return (
                 <button
@@ -289,9 +293,9 @@ export function PlannerTicketingConnectPanel({
                 >
                   <span className="flex items-center justify-between gap-2">
                     <span className="text-sm font-bold">{platform.label}</span>
-                    {connection ? <CheckCircle2 className="h-4 w-4 text-success" /> : null}
+                    {connectionReady ? <CheckCircle2 className="h-4 w-4 text-success" /> : null}
                   </span>
-                  <span className="mt-1 block text-[11px]">{connection ? formatStatus(connection.status) : platformCopy[platform.id].mode}</span>
+                  <span className="mt-1 block text-[11px]">{connection ? formatConnectionStatus(connection) : platformCopy[platform.id].mode}</span>
                 </button>
               )
             })}
@@ -304,8 +308,13 @@ export function PlannerTicketingConnectPanel({
                 <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{platformCopy[activePlatform].description}</p>
               </div>
               {selectedConnection ? (
-                <span className="shrink-0 rounded-full bg-success/10 px-2 py-1 text-[11px] font-bold text-success">
-                  {formatStatus(selectedConnection.status)}
+                <span className={cn(
+                  'shrink-0 rounded-full px-2 py-1 text-[11px] font-bold',
+                  isUsableConnection(selectedConnection)
+                    ? 'bg-success/10 text-success'
+                    : 'bg-ochre-tint text-ochre'
+                )}>
+                  {formatConnectionStatus(selectedConnection)}
                 </span>
               ) : null}
             </div>
@@ -337,13 +346,16 @@ export function PlannerTicketingConnectPanel({
               <div className="mt-4 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 <p className="font-semibold text-foreground">Webhook URL</p>
                 <p className="mt-1 break-all">{selectedConnection.webhook_url}</p>
+                {!isUsableConnection(selectedConnection) ? (
+                  <p className="mt-2 text-ochre">Setup is saved, but this is not counted as connected until a verified webhook or import is received.</p>
+                ) : null}
               </div>
             ) : null}
 
             <div className="mt-4 flex flex-wrap gap-2">
               <Button
                 type="button"
-                variant={activePlatform === 'eventbrite' ? 'hero' : 'glass'}
+                variant={activePlatform === 'eventbrite' ? 'default' : 'outline'}
                 size={mode === 'full' ? 'default' : 'sm'}
                 onClick={() => handleConnect(activePlatform)}
                 disabled={pendingPlatform !== null}
@@ -384,7 +396,7 @@ export function PlannerTicketingConnectPanel({
           <div className="mt-5 grid gap-3 text-sm md:grid-cols-3">
             <InfoTile icon={<Ticket className="h-4 w-4" />} title="Live metrics" body="RSVPs, sales, check-ins, refunds, and attendee counts." />
             <InfoTile icon={<CheckCircle2 className="h-4 w-4" />} title="Agent context" body="Planner can use your past show-up rates and conversion benchmarks." />
-            <InfoTile icon={<Link2 className="h-4 w-4" />} title="Flexible import" body="OAuth where possible, webhook setup for Luma/Posh, link import for Partiful." />
+            <InfoTile icon={<Link2 className="h-4 w-4" />} title="Flexible import" body="OAuth where available; Luma/Posh/Partiful stay setup pending until real import or webhook data arrives." />
           </div>
           <TicketAnalyticsPreview analytics={analytics} error={analyticsError} />
         </>
@@ -478,8 +490,14 @@ function isConnectedStatus(status: string) {
   return status === 'connected' || status === 'linked' || status === 'completed'
 }
 
-function formatStatus(status: string) {
-  return status.replaceAll('_', ' ')
+function isUsableConnection(connection: TicketingConnection) {
+  return isConnectedStatus(connection.status) || Boolean(connection.last_webhook_received_at)
+}
+
+function formatConnectionStatus(connection: TicketingConnection) {
+  if (isUsableConnection(connection)) return 'connected'
+  if (connection.status === 'setup_required') return 'setup pending'
+  return connection.status.replaceAll('_', ' ')
 }
 
 function formatTicketCents(value: number) {

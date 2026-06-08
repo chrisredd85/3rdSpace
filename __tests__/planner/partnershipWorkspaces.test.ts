@@ -23,7 +23,7 @@ describe('partnershipWorkspaces', () => {
     ).toBe(true)
   })
 
-  it('simulates accept to deposit to contract upload progression', () => {
+  it('simulates accept to deposit to contract receipt progression', () => {
     const workspace: Pick<
       PartnershipWorkspace,
       'payment_status' | 'milestones' | 'documents' | 'next_required_action'
@@ -65,16 +65,10 @@ describe('partnershipWorkspaces', () => {
 
     const afterDeposit = applyPartnershipProgressionSnapshot(workspace, 'mark_deposit_placed')
     expect(afterDeposit.payment_status.label).toBe('Deposit placed')
-    expect(afterDeposit.next_required_action).toBe('Upload contract')
+    expect(afterDeposit.next_required_action).toBe('Mark contract received')
 
-    const afterContract = applyPartnershipProgressionSnapshot(afterDeposit, 'upload_contract')
-    expect(afterContract.documents).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: 'contract',
-        }),
-      ])
-    )
+    const afterContract = applyPartnershipProgressionSnapshot(afterDeposit, 'mark_contract_received')
+    expect(afterContract.documents).toEqual([])
     expect(afterContract.next_required_action).toBe('Confirm day-of logistics')
   })
 })

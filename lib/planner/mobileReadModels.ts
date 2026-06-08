@@ -100,6 +100,9 @@ type EventRow = {
   event_type: string | null
   event_date: string | null
   status: string | null
+  is_recurring?: boolean | null
+  parent_event_id?: string | null
+  recurring_frequency?: string | null
 }
 
 type FinancialSummaryRow = {
@@ -210,7 +213,7 @@ export async function buildMobileActivityReadModel(db: PlannerDb, plan: Plan): P
 export async function buildMobileAnalyticsReadModel(db: PlannerDb, builderProfileId: string): Promise<MobileAnalyticsReadModel> {
   const { data: eventData, error: eventsError } = await db
     .from('events')
-    .select('id, event_name, event_type, event_date, status')
+    .select('id, event_name, event_type, event_date, status, is_recurring, parent_event_id, recurring_frequency')
     .eq('builder_id', builderProfileId)
     .order('event_date', { ascending: false })
     .limit(100)
@@ -243,6 +246,14 @@ export async function buildMobileAnalyticsReadModel(db: PlannerDb, builderProfil
     return new Date(event.event_date).getFullYear() === currentYear
   })
   const completedEvents = events.filter((event) => event.status === 'completed')
+  const repeatReadyEvents = completedEvents.filter((event) => (
+    Boolean(event.is_recurring) ||
+    Boolean(event.parent_event_id) ||
+    Boolean(event.recurring_frequency)
+  ))
+  const repeatReadyRate = completedEvents.length === 0
+    ? null
+    : Math.round((repeatReadyEvents.length / completedEvents.length) * 100)
   const enriched = events.map((event) => eventToAnalyticsEvent(event, summaries.get(event.id)))
   const eventsWithMargin = enriched.filter((event) => event.margin_percent !== null)
   const averageMargin = eventsWithMargin.length === 0
@@ -253,7 +264,7 @@ export async function buildMobileAnalyticsReadModel(db: PlannerDb, builderProfil
   return {
     events_per_year: currentYearEvents.length,
     average_margin_percent: averageMargin,
-    rebook_rate_percent: null,
+    rebook_rate_percent: repeatReadyRate,
     best_format: bestFormat,
     recommendation: buildAnalyticsRecommendation({ averageMargin, bestFormat, completedCount: completedEvents.length }),
     recent_events: enriched.slice(0, 5),
