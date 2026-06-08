@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { assertIntegerCents } from '@/lib/planner/execution/approvalState'
 import { getStripeClient } from '@/lib/stripe/connect'
 import type { Approval, Json, Plan } from '@/lib/types'
 
@@ -63,19 +64,19 @@ export async function authorizePlannerDeposit(input: {
   if (input.approval.status !== 'authorized' && input.approval.status !== 'approved') {
     throw new Error('Approval must be authorized before deposit authorization')
   }
-  if (input.amountCents < 50) throw new Error('Deposit amount must be at least 50 cents')
+  const amountCents = assertIntegerCents(input.amountCents, 'amountCents', 50)
 
   const existing = await loadExistingActivePaymentIntent(input.db, input.approval.id)
   if (existing) return existing
 
-  const platformFeeCents = Math.max(0, Math.round(input.platformFeeCents ?? 0))
+  const platformFeeCents = assertIntegerCents(input.platformFeeCents ?? 0, 'platformFeeCents')
   const stripePaymentIntent = await maybeCreateStripeManualPaymentIntent({
     plan: input.plan,
     approval: input.approval,
     userId: input.userId,
     partnerKind: input.partnerKind,
     partnerId: input.partnerId,
-    amountCents: input.amountCents,
+    amountCents,
     paymentMethodId: input.paymentMethodId ?? null,
     platformFeeCents,
   })
@@ -89,7 +90,7 @@ export async function authorizePlannerDeposit(input: {
       approval_id: input.approval.id,
       partner_kind: input.partnerKind,
       partner_id: input.partnerId,
-      amount_cents: input.amountCents,
+      amount_cents: amountCents,
       currency: 'usd',
       status,
       stripe_payment_intent_id: stripePaymentIntent?.id ?? null,

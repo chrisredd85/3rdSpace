@@ -2,7 +2,6 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import {
   economicsAgentDefinition,
@@ -32,6 +31,10 @@ import {
   type RankedCatalogRecommendation,
 } from '@/lib/planner/catalogRanker'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS, RECOMMENDATION_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import {
+  buildApprovalSnapshotHash,
+  buildLegacyPlanApprovalSnapshotHash,
+} from '@/lib/planner/execution/reapproval'
 import { getVenueComplianceStatus } from '@/lib/planner/venueComplianceGate'
 import {
   applyArchetypeDefaultFills,
@@ -884,7 +887,7 @@ async function ensureOutreachApprovalRequest(input: {
 
   const responseDeadline = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
   const projectedCostsCents = Math.max(Math.round(input.projectedCostsCents), 0)
-  const snapshotHash = buildPlanApprovalSnapshotHash(input.plan)
+  const planSnapshotHash = buildLegacyPlanApprovalSnapshotHash({ plan: input.plan })
   const actionPayload = {
     kind: 'venue_outreach',
     venue_ids: venueIds,
@@ -894,9 +897,30 @@ async function ensureOutreachApprovalRequest(input: {
     summary: input.summary,
     requirements: input.requirements,
     response_deadline: responseDeadline,
-    plan_snapshot_hash: snapshotHash,
+    plan_snapshot_hash: planSnapshotHash,
     source: 'planner_recommendations',
   }
+  const snapshotHash = buildApprovalSnapshotHash({
+    plan: input.plan,
+    approval: {
+      event_date: input.plan.date_window_start,
+      price_cents: projectedCostsCents,
+      fees_cents: 0,
+      requested_amount_cents: projectedCostsCents,
+      provider: '3rdPlace partners',
+      refund_terms: 'No charge is made now. This only approves outreach and quote requests.',
+      cancellation_terms: 'You can cancel before outreach drafts are sent; changed plan details require fresh approval.',
+      package_details: buildOutreachApprovalPackageDetails(venueIds.length, vendorIds.length),
+    },
+    action: {
+      action_type: 'email',
+      target_type: 'outreach',
+      target_id: null,
+      amount_cents: projectedCostsCents,
+      payload_json: actionPayload as Json,
+    },
+    payload: actionPayload,
+  })
   let { data: actionRows, error: actionError } = await input.db
     .from('agent_actions')
     .insert({
@@ -965,7 +989,7 @@ async function ensureOutreachApprovalRequest(input: {
       fees_cents: 0,
       package_details: buildOutreachApprovalPackageDetails(venueIds.length, vendorIds.length),
       refund_terms: 'No charge is made now. This only approves outreach and quote requests.',
-      cancellation_terms: 'You can cancel before outreach executes; changed plan details require fresh approval.',
+      cancellation_terms: 'You can cancel before outreach drafts are sent; changed plan details require fresh approval.',
       delivery_email: contactEmail,
       payment_method_id: null,
       requested_amount_cents: projectedCostsCents,
@@ -997,7 +1021,7 @@ async function ensureOutreachApprovalRequest(input: {
     .insert({
       plan_id: input.plan.id,
       role: 'agent',
-      content: `I found the best-fit partners. Approve outreach and I will send inquiries to ${formatOutreachTargetCounts(venueIds.length, vendorIds.length)}.`,
+      content: `I found the best-fit partners. Approve outreach and I will prepare drafts for ${formatOutreachTargetCounts(venueIds.length, vendorIds.length)}.`,
       message_type: 'approval_request',
       metadata: metadata as Json,
     })
@@ -3290,23 +3314,6 @@ function formatOutreachTargetCounts(venueCount: number, vendorCount: number): st
   if (parts.length === 0) return 'selected partners'
   if (parts.length === 1) return parts[0] ?? 'selected partners'
   return `${parts[0]}, ${parts[1]}`
-}
-
-function buildPlanApprovalSnapshotHash(plan: Plan): string {
-  const snapshot = {
-    event_type: plan.event_type,
-    guest_count: plan.guest_count,
-    budget_cap_cents: plan.budget_cap_cents,
-    neighborhood: plan.neighborhood,
-    date_window_start: plan.date_window_start,
-    date_window_end: plan.date_window_end,
-    ticketed: plan.ticketed,
-    ticketing_model: plan.ticketing_model,
-    food_responsibility: plan.food_responsibility,
-    profit_goal_cents: plan.profit_goal_cents,
-  }
-
-  return createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')
 }
 
 function uniqueUuidList(values: string[]): string[] {
