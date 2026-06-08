@@ -287,9 +287,11 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
           </form>
 
           {portal === 'builder' && (
-            <div className="mt-6 flex items-center justify-center gap-3 text-xs text-ink-faint">
+            <div
+              aria-label="Partner login links"
+              className="mt-6 flex flex-col items-center justify-center gap-1 text-center text-xs text-ink-faint"
+            >
               <Link href="/login/venue" className="transition-colors hover:text-clay">Venue partner login</Link>
-              <span>·</span>
               <Link href="/login/vendor" className="transition-colors hover:text-clay">Vendor login</Link>
             </div>
           )}

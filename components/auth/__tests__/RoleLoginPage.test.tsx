@@ -71,6 +71,18 @@ describe('RoleLoginPage account creation placement', () => {
     expect(createAccountLinks[0]).toHaveClass('sm:inline-flex')
   })
 
+  it('stacks partner login links centered underneath the form actions', () => {
+    renderRoleLoginPage()
+
+    const partnerLinks = screen.getByLabelText('Partner login links')
+    expect(partnerLinks).toHaveClass('flex-col')
+    expect(partnerLinks).toHaveClass('items-center')
+    expect(partnerLinks).toHaveClass('text-center')
+    expect(within(partnerLinks).getByRole('link', { name: 'Venue partner login' })).toHaveAttribute('href', '/login/venue')
+    expect(within(partnerLinks).getByRole('link', { name: 'Vendor login' })).toHaveAttribute('href', '/login/vendor')
+    expect(within(partnerLinks).queryByText('·')).not.toBeInTheDocument()
+  })
+
   it('shows a credentials error when email and password do not match an account', async () => {
     const user = userEvent.setup()
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
