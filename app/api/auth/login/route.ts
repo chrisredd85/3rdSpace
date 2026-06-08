@@ -46,10 +46,10 @@ export async function POST(request: NextRequest) {
       if (!isInvalidCredentials) {
         console.error('Auth error:', error)
       }
-      let errorMessage = 'No account with that information has been found'
+      let errorMessage = 'We could not find an account matching that email and password.'
 
       if (isInvalidCredentials) {
-        errorMessage = 'No account with that information has been found'
+        errorMessage = 'We could not find an account matching that email and password.'
       } else if (error.message.includes('Email not confirmed')) {
         errorMessage = 'Please verify your email before signing in'
       } else if (error.message.includes('Too many requests')) {
