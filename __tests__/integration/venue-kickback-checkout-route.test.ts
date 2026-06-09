@@ -37,6 +37,9 @@ jest.mock('@/lib/stripe/connect', () => ({
   getAppBaseUrl: jest.fn(),
   getAuthenticatedVenueOwner: jest.fn(),
   getStripeClient: jest.fn(),
+  isConnectedStripeAccountBlocked: jest.fn((status: string | null | undefined) =>
+    status === 'restricted' || status === 'disabled'
+  ),
 }))
 
 type Row = Record<string, unknown>
@@ -244,27 +247,44 @@ describe('venue kickback checkout route', () => {
       email: 'venue@example.com',
       name: 'The Roof',
     }))
-    expect(stripe.invoiceItems.create).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      customer: 'cus_venue',
-      amount: 51360,
-      description: 'Revenue share for "Tech Mixer" - 12% bar revenue share of $4280.00',
-      metadata: expect.objectContaining({ settlement_method: 'invoice', item_type: 'principal' }),
-    }))
-    expect(stripe.invoiceItems.create).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      amount: 411,
-      description: 'Payment processing fee (ACH)',
-    }))
-    expect(stripe.invoices.create).toHaveBeenCalledWith(expect.objectContaining({
-      collection_method: 'send_invoice',
-      pending_invoice_items_behavior: 'include',
-      days_until_due: 7,
-      metadata: expect.objectContaining({
-        kickback_payment_id: PAYMENT_ID,
-        settlement_method: 'invoice',
-        builder_stripe_account_id: 'acct_builder',
-        principal_cents: '51360',
+    expect(stripe.invoiceItems.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        customer: 'cus_venue',
+        amount: 51360,
+        description: 'Revenue share for "Tech Mixer" - 12% bar revenue share of $4280.00',
+        metadata: expect.objectContaining({ settlement_method: 'invoice', item_type: 'principal' }),
       }),
-    }))
+      expect.objectContaining({
+        idempotencyKey: `kickback_invoice_item_${PAYMENT_ID}_principal_51360`,
+      })
+    )
+    expect(stripe.invoiceItems.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        amount: 411,
+        description: 'Payment processing fee (ACH)',
+      }),
+      expect.objectContaining({
+        idempotencyKey: `kickback_invoice_item_${PAYMENT_ID}_processing_411`,
+      })
+    )
+    expect(stripe.invoices.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        collection_method: 'send_invoice',
+        pending_invoice_items_behavior: 'include',
+        days_until_due: 7,
+        metadata: expect.objectContaining({
+          kickback_payment_id: PAYMENT_ID,
+          settlement_method: 'invoice',
+          builder_stripe_account_id: 'acct_builder',
+          principal_cents: '51360',
+        }),
+      }),
+      expect.objectContaining({
+        idempotencyKey: `kickback_invoice_${PAYMENT_ID}_51360_411`,
+      })
+    )
     expect(db.rows.venues[0]).toMatchObject({ stripe_customer_id: 'cus_venue' })
     expect(db.rows.kickback_payments[0]).toMatchObject({
       status: 'invoice_sent',
@@ -296,13 +316,24 @@ describe('venue kickback checkout route', () => {
       email: 'venue@example.com',
       name: 'The Roof',
     }))
-    expect(stripe.invoiceItems.create).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      customer: 'cus_live_replacement',
-      amount: 51360,
-    }))
-    expect(stripe.invoices.create).toHaveBeenCalledWith(expect.objectContaining({
-      customer: 'cus_live_replacement',
-    }))
+    expect(stripe.invoiceItems.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        customer: 'cus_live_replacement',
+        amount: 51360,
+      }),
+      expect.objectContaining({
+        idempotencyKey: `kickback_invoice_item_${PAYMENT_ID}_principal_51360`,
+      })
+    )
+    expect(stripe.invoices.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customer: 'cus_live_replacement',
+      }),
+      expect.objectContaining({
+        idempotencyKey: `kickback_invoice_${PAYMENT_ID}_51360_411`,
+      })
+    )
     expect(db.rows.venues[0]).toMatchObject({ stripe_customer_id: 'cus_live_replacement' })
   })
 

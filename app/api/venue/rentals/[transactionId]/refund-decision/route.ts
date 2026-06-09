@@ -235,15 +235,22 @@ async function approveRefund(
     venue_payment_transaction_id: transaction.id,
   }
   const stripe = getStripeClient()
-  await (stripe.transfers as any).createReversal(transaction.stripe_transfer_id, {
-    amount: refundAmountCents,
-    metadata,
-  })
-  await stripe.refunds.create({
-    payment_intent: transaction.stripe_payment_intent_id,
-    amount: refundAmountCents,
-    metadata,
-  })
+  await (stripe.transfers as any).createReversal(
+    transaction.stripe_transfer_id,
+    {
+      amount: refundAmountCents,
+      metadata,
+    },
+    { idempotencyKey: `venue_rental_refund_reversal_${transaction.id}_${refundAmountCents}` }
+  )
+  await stripe.refunds.create(
+    {
+      payment_intent: transaction.stripe_payment_intent_id,
+      amount: refundAmountCents,
+      metadata,
+    },
+    { idempotencyKey: `venue_rental_refund_${transaction.id}_${refundAmountCents}` }
+  )
 
   return approved
 }

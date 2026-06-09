@@ -7,8 +7,13 @@ import { z } from 'zod'
 import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
 import { dollarsToCents, toFiniteNumber } from '@/lib/money'
 import { calculateVenueRentalProcessingFeeCents } from '@/lib/payments/venue-rental'
+import {
+  PAYMENT_APPROVAL_SELECT_COLUMNS,
+  validatePaymentApprovalForExecution,
+  type PaymentApprovalRow,
+} from '@/lib/planner/execution/paymentApproval'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
-import { getAppBaseUrl, getStripeClient } from '@/lib/stripe/connect'
+import { getAppBaseUrl, getStripeClient, isConnectedStripeAccountBlocked } from '@/lib/stripe/connect'
 
 const PAYMENT_NAMESPACE = 'venue_rental'
 const MIN_AMOUNT_CENTS = 50
@@ -21,6 +26,7 @@ const paramsSchema = z.object({
 
 const checkoutSchema = z.object({
   venue_booking_id: z.string().uuid(),
+  approval_id: z.string().uuid(),
   payment_method_type: z.enum(['card', 'us_bank_account']),
 }).strict()
 
@@ -56,6 +62,7 @@ type VenueStripeAccountRow = {
 type VenuePaymentTransactionRow = {
   id: string
   plan_id: string
+  approval_id: string | null
   venue_booking_id: string | null
   builder_id: string
   venue_id: string
@@ -159,6 +166,17 @@ export async function POST(
       )
     }
 
+    const approval = await loadPaymentApproval(admin, parsedBody.data.approval_id)
+    const approvalValidation = validatePaymentApprovalForExecution({
+      approval,
+      expectedAmountCents: amountCents,
+      expectedPlanId: plan.id,
+    })
+    if (!approvalValidation.ok) {
+      return NextResponse.json({ error: approvalValidation.error }, { status: approvalValidation.status })
+    }
+    const approvedApproval = approval as PaymentApprovalRow
+
     const venue = await loadVenue(admin, booking.venue_id)
     if (!venue) return NextResponse.json({ error: 'Venue not found' }, { status: 404 })
     if (!venue.owner_id) return venueConciergeResponse()
@@ -184,11 +202,13 @@ export async function POST(
       amountCents,
       processingFeeCents,
       paymentMethodType,
+      approvalId: approvedApproval.id,
     })
 
     const canReuseExistingSession =
       transaction.stripe_checkout_session_id &&
       transaction.amount_cents === amountCents &&
+      transaction.approval_id === approvedApproval.id &&
       transaction.processing_fee_cents === processingFeeCents &&
       transaction.payment_method_type === paymentMethodType
 
@@ -205,6 +225,7 @@ export async function POST(
 
     if (
       transaction.amount_cents !== amountCents ||
+      transaction.approval_id !== approvedApproval.id ||
       transaction.processing_fee_cents !== processingFeeCents ||
       transaction.payment_method_type !== paymentMethodType ||
       transaction.stripe_checkout_session_id
@@ -213,6 +234,7 @@ export async function POST(
         amountCents,
         processingFeeCents,
         paymentMethodType,
+        approvalId: approvedApproval.id,
       })
     }
 
@@ -292,6 +314,17 @@ async function loadVenueStripeAccount(db: PlannerDb, ownerId: string): Promise<V
   return (data as VenueStripeAccountRow | null) ?? null
 }
 
+async function loadPaymentApproval(db: PlannerDb, approvalId: string): Promise<PaymentApprovalRow | null> {
+  const { data, error } = await db
+    .from('approvals')
+    .select(PAYMENT_APPROVAL_SELECT_COLUMNS)
+    .eq('id', approvalId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return data as PaymentApprovalRow | null
+}
+
 async function resolveVenueStripeAccount({
   admin,
   stripe,
@@ -303,7 +336,7 @@ async function resolveVenueStripeAccount({
   ownerId: string
   account: VenueStripeAccountRow | null
 }) {
-  if (!account?.stripe_account_id || !account.payouts_enabled || account.account_status === 'restricted') {
+  if (!account?.stripe_account_id || !account.payouts_enabled || isConnectedStripeAccountBlocked(account.account_status)) {
     return null
   }
 
@@ -378,12 +411,14 @@ async function insertVenuePaymentTransaction(
     amountCents: number
     processingFeeCents: number
     paymentMethodType: PaymentMethodType
+    approvalId: string
   }
 ): Promise<VenuePaymentTransactionRow> {
   const { data, error } = await db
     .from('venue_payment_transactions')
     .insert({
       plan_id: input.planId,
+      approval_id: input.approvalId,
       venue_booking_id: input.booking.id,
       builder_id: input.builderId,
       venue_id: input.booking.venue_id,
@@ -409,7 +444,7 @@ async function insertVenuePaymentTransaction(
     throw error
   }
 
-  return data as VenuePaymentTransactionRow
+  return data as unknown as VenuePaymentTransactionRow
 }
 
 async function updateTransactionForSelectedMethod(
@@ -419,12 +454,14 @@ async function updateTransactionForSelectedMethod(
     amountCents: number
     processingFeeCents: number
     paymentMethodType: PaymentMethodType
+    approvalId: string
   }
 ): Promise<VenuePaymentTransactionRow> {
   const { data, error } = await db
     .from('venue_payment_transactions')
     .update({
       amount_cents: input.amountCents,
+      approval_id: input.approvalId,
       processing_fee_cents: input.processingFeeCents,
       venue_payout_cents: input.amountCents,
       application_fee_cents: 0,
@@ -437,7 +474,7 @@ async function updateTransactionForSelectedMethod(
     .single()
 
   if (error) throw new Error(error.message)
-  return data as VenuePaymentTransactionRow
+  return data as unknown as VenuePaymentTransactionRow
 }
 
 async function getReusableCheckoutSession(stripe: ReturnType<typeof getStripeClient>, sessionId: string) {
@@ -494,6 +531,7 @@ async function createCheckoutSession({
   const metadata = {
     payment_kind_namespace: PAYMENT_NAMESPACE,
     venue_payment_transaction_id: transaction.id,
+    approval_id: transaction.approval_id ?? '',
     plan_id: planId,
     venue_booking_id: bookingId,
     venue_id: venue.id,
@@ -568,7 +606,7 @@ async function updateTransactionWithCheckout(
     .single()
 
   if (error) throw new Error(error.message)
-  return data as VenuePaymentTransactionRow
+  return data as unknown as VenuePaymentTransactionRow
 }
 
 function checkoutResponse(url: string, transaction: VenuePaymentTransactionRow) {

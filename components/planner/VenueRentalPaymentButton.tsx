@@ -11,6 +11,7 @@ import type { VenueRentalPaymentMethodType } from '@/lib/payments/venue-rental'
 interface VenueRentalPaymentButtonProps {
   planId: string
   venueBookingId: string
+  approvalId?: string | null
   venueName: string
   amountCents: number
   venuePaymentTransactionId?: string | null
@@ -32,6 +33,7 @@ type CheckoutResponse = {
 export function VenueRentalPaymentButton({
   planId,
   venueBookingId,
+  approvalId = null,
   venueName,
   amountCents,
   venuePaymentTransactionId = null,
@@ -62,6 +64,7 @@ export function VenueRentalPaymentButton({
         credentials: 'include',
         body: JSON.stringify({
           venue_booking_id: venueBookingId,
+          approval_id: approvalId,
           payment_method_type: paymentMethodType,
         }),
       })
@@ -165,6 +168,10 @@ function getCheckoutErrorMessage(status: number, payload: CheckoutResponse) {
 
   if (status >= 500) {
     return payload.error || 'Something went wrong starting Checkout. Try again.'
+  }
+
+  if (payload.error === 'Approval is required before executing this payment action.') {
+    return 'Approve the venue rental terms before opening Checkout.'
   }
 
   return payload.error || payload.message || 'Unable to start venue rental checkout.'

@@ -21,6 +21,7 @@ describe('VenueRentalPaymentButton', () => {
       <VenueRentalPaymentButton
         planId="plan-1"
         venueBookingId="booking-1"
+        approvalId="approval-1"
         venueName="The Roof"
         amountCents={120000}
         redirectTo={redirectTo}
@@ -35,6 +36,7 @@ describe('VenueRentalPaymentButton', () => {
       method: 'POST',
       body: JSON.stringify({
         venue_booking_id: 'booking-1',
+        approval_id: 'approval-1',
         payment_method_type: 'card',
       }),
     }))
@@ -52,6 +54,7 @@ describe('VenueRentalPaymentButton', () => {
       <VenueRentalPaymentButton
         planId="plan-1"
         venueBookingId="booking-1"
+        approvalId="approval-1"
         venueName="The Roof"
         amountCents={120000}
         redirectTo={redirectTo}
@@ -78,6 +81,7 @@ describe('VenueRentalPaymentButton', () => {
       <VenueRentalPaymentButton
         planId="plan-1"
         venueBookingId="booking-1"
+        approvalId="approval-1"
         venueName="Team Venue"
         amountCents={120000}
         redirectTo={redirectTo}

@@ -71,16 +71,19 @@ export async function POST(request: NextRequest) {
     const refundCents = Math.min(requestedRefundCents, transactionCents)
     const refundAmount = centsToDollars(refundCents)
     const stripe = getStripeClient()
-    const refund = await stripe.refunds.create({
-      payment_intent: tx.stripe_payment_intent_id || undefined,
-      amount: refundCents,
-      reason: 'requested_by_customer',
-      metadata: {
-        booking_id: tx.booking_id,
-        original_transaction_id: tx.id,
-        reason: parsedBody.data.reason || '',
+    const refund = await stripe.refunds.create(
+      {
+        payment_intent: tx.stripe_payment_intent_id || undefined,
+        amount: refundCents,
+        reason: 'requested_by_customer',
+        metadata: {
+          booking_id: tx.booking_id,
+          original_transaction_id: tx.id,
+          reason: parsedBody.data.reason || '',
+        },
       },
-    })
+      { idempotencyKey: `vendor_refund_${tx.id}_${refundCents}` }
+    )
 
     let reversedPayout = 0
 
@@ -90,13 +93,17 @@ export async function POST(request: NextRequest) {
       const reversalAmount = Math.min(vendorPayoutCents, Math.round(vendorPayoutCents * payoutRatio))
 
       if (reversalAmount > 0) {
-        await stripe.transfers.createReversal(tx.stripe_transfer_id, {
-          amount: reversalAmount,
-          metadata: {
-            booking_id: tx.booking_id,
-            refund_id: refund.id,
+        await stripe.transfers.createReversal(
+          tx.stripe_transfer_id,
+          {
+            amount: reversalAmount,
+            metadata: {
+              booking_id: tx.booking_id,
+              refund_id: refund.id,
+            },
           },
-        })
+          { idempotencyKey: `vendor_refund_reversal_${tx.id}_${refund.id}_${reversalAmount}` }
+        )
         reversedPayout = centsToDollars(reversalAmount)
       }
     }

@@ -83,6 +83,7 @@ class MemoryDb {
       },
     ],
     venue_payment_transactions: [],
+    stripe_webhook_events: [],
   }
 
   from(table: string) {
@@ -93,7 +94,7 @@ class MemoryDb {
 
 class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
   private filters: Array<(row: Row) => boolean> = []
-  private operation: 'select' | 'update' = 'select'
+  private operation: 'select' | 'insert' | 'update' = 'select'
   private payload: Row | null = null
   private selectedColumns: string | null = null
 
@@ -106,6 +107,12 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
 
   update(payload: Row) {
     this.operation = 'update'
+    this.payload = payload
+    return this
+  }
+
+  insert(payload: Row) {
+    this.operation = 'insert'
     this.payload = payload
     return this
   }
@@ -130,6 +137,12 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
   }
 
   private execute() {
+    if (this.operation === 'insert') {
+      const row = { id: `${this.table}-${this.db.rows[this.table].length + 1}`, ...this.payload }
+      this.db.rows[this.table].push(row)
+      return { data: this.projectRows([row]), error: null }
+    }
+
     if (this.operation === 'update') {
       const rows = this.applyFilters()
       rows.forEach((row) => Object.assign(row, this.payload))
@@ -206,7 +219,7 @@ describe('Stripe kickback invoice webhook routing', () => {
     db = new MemoryDb()
     stripe = {
       webhooks: {
-        constructEvent: jest.fn(() => event),
+        constructEvent: jest.fn(() => ({ id: 'evt_test', livemode: false, ...event })),
       },
       transfers: {
         create: jest.fn().mockResolvedValue({ id: 'tr_builder' }),
@@ -251,17 +264,20 @@ describe('Stripe kickback invoice webhook routing', () => {
     const response = await POST(makeWebhookRequest())
 
     expect(response.status).toBe(200)
-    expect(stripe.transfers.create).toHaveBeenCalledWith({
-      amount: 51360,
-      currency: 'usd',
-      destination: 'acct_builder',
-      transfer_group: `kickback_${PAYMENT_ID}`,
-      metadata: {
-        payment_kind_namespace: 'venue_builder_kickback',
-        kickback_payment_id: PAYMENT_ID,
-        settlement_method: 'invoice',
+    expect(stripe.transfers.create).toHaveBeenCalledWith(
+      {
+        amount: 51360,
+        currency: 'usd',
+        destination: 'acct_builder',
+        transfer_group: `kickback_${PAYMENT_ID}`,
+        metadata: {
+          payment_kind_namespace: 'venue_builder_kickback',
+          kickback_payment_id: PAYMENT_ID,
+          settlement_method: 'invoice',
+        },
       },
-    })
+      { idempotencyKey: `kickback_invoice_transfer_${PAYMENT_ID}_in_kickback_51360` }
+    )
     expect(applyInvoicePayment).not.toHaveBeenCalled()
     expect(sendBuilderPaidEmail).toHaveBeenCalledWith({ paymentId: PAYMENT_ID })
     expect(db.rows.kickback_payments[0]).toMatchObject({

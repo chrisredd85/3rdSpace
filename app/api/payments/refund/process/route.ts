@@ -56,14 +56,18 @@ async function reverseVendorTransfer(params: {
 
   if (reversalCents <= 0) return 0
 
-  await stripe.transfers.createReversal(params.transaction.stripe_transfer_id, {
-    amount: reversalCents,
-    metadata: {
-      booking_id: params.transaction.booking_id,
-      refund_id: params.stripeRefundId,
-      original_transaction_id: params.transaction.id,
+  await stripe.transfers.createReversal(
+    params.transaction.stripe_transfer_id,
+    {
+      amount: reversalCents,
+      metadata: {
+        booking_id: params.transaction.booking_id,
+        refund_id: params.stripeRefundId,
+        original_transaction_id: params.transaction.id,
+      },
     },
-  })
+    { idempotencyKey: `vendor_cancel_reversal_${params.transaction.id}_${params.stripeRefundId}_${reversalCents}` }
+  )
 
   return centsToDollars(reversalCents)
 }
@@ -103,16 +107,19 @@ async function refundPlatformFee(params: {
       refundCents,
     })
 
-    const refund = await stripe.refunds.create({
-      payment_intent: transaction.stripe_payment_intent_id,
-      amount: refundCents,
-      reason: 'requested_by_customer',
-      metadata: {
-        booking_id: params.bookingId,
-        refund_type: 'platform_fee',
-        platform_fee_transaction_id: transaction.id,
+    const refund = await stripe.refunds.create(
+      {
+        payment_intent: transaction.stripe_payment_intent_id,
+        amount: refundCents,
+        reason: 'requested_by_customer',
+        metadata: {
+          booking_id: params.bookingId,
+          refund_type: 'platform_fee',
+          platform_fee_transaction_id: transaction.id,
+        },
       },
-    })
+      { idempotencyKey: `platform_fee_refund_${transaction.id}_${refundCents}` }
+    )
 
     refunds.push({
       type: 'platform_fee',
@@ -173,18 +180,21 @@ async function refundVendorService(params: {
     })
 
     const refundAmount = centsToDollars(refundCents)
-    const refund = await stripe.refunds.create({
-      payment_intent: transaction.stripe_payment_intent_id,
-      amount: refundCents,
-      reason: 'requested_by_customer',
-      reverse_transfer: transaction.stripe_transfer_id ? undefined : true,
-      metadata: {
-        booking_id: params.bookingId,
-        refund_type: 'vendor_service',
-        original_transaction_id: transaction.id,
-        cancellation_reason: params.reason,
+    const refund = await stripe.refunds.create(
+      {
+        payment_intent: transaction.stripe_payment_intent_id,
+        amount: refundCents,
+        reason: 'requested_by_customer',
+        reverse_transfer: transaction.stripe_transfer_id ? undefined : true,
+        metadata: {
+          booking_id: params.bookingId,
+          refund_type: 'vendor_service',
+          original_transaction_id: transaction.id,
+          cancellation_reason: params.reason,
+        },
       },
-    })
+      { idempotencyKey: `vendor_cancel_refund_${transaction.id}_${refundCents}` }
+    )
     const reversedPayout = await reverseVendorTransfer({
       transaction,
       refundAmount,

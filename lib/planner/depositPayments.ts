@@ -14,7 +14,7 @@ export interface PlannerPaymentIntentRow {
   partner_id: string
   amount_cents: number
   currency: string
-  status: 'requested' | 'authorized' | 'captured' | 'refunded' | 'failed'
+  status: 'requested' | 'authorized' | 'captured' | 'refunded' | 'failed' | 'blocked_by_account_state'
   stripe_payment_intent_id: string | null
   authorized_at: string | null
   captured_at: string | null
@@ -45,9 +45,9 @@ export const PAYMENT_INTENT_SELECT_COLUMNS = `
 /**
  * Creates or returns a planner deposit payment authorization record.
  *
- * When Stripe and a payment method are present, this creates a manual-capture
- * PaymentIntent and stores the authorization. Without Stripe credentials, it
- * creates a requested local record only; capture still requires a separate call.
+ * Creates an approval-backed authorization record. When the caller supplies a
+ * payment method, Stripe receives a manual-capture PaymentIntent; otherwise the
+ * local record remains requested until the explicit payment step supplies one.
  */
 export async function authorizePlannerDeposit(input: {
   db: PlannerDb
@@ -82,7 +82,7 @@ export async function authorizePlannerDeposit(input: {
   })
 
   const now = new Date().toISOString()
-  const status = stripePaymentIntent?.status === 'requires_capture' ? 'authorized' : 'requested'
+  const status = stripePaymentIntent.status === 'requires_capture' ? 'authorized' : 'requested'
   const { data, error } = await input.db
     .from('payment_intents')
     .insert({
@@ -93,7 +93,7 @@ export async function authorizePlannerDeposit(input: {
       amount_cents: amountCents,
       currency: 'usd',
       status,
-      stripe_payment_intent_id: stripePaymentIntent?.id ?? null,
+      stripe_payment_intent_id: stripePaymentIntent.id,
       authorized_at: status === 'authorized' ? now : null,
       refund_terms: input.refundTerms ?? 'Refundable up to 7 days before the event unless partner terms override.',
       platform_fee_cents: platformFeeCents,
@@ -230,7 +230,9 @@ async function maybeCreateStripeManualPaymentIntent(input: {
   paymentMethodId: string | null
   platformFeeCents: number
 }) {
-  if (!process.env.STRIPE_SECRET_KEY || !input.paymentMethodId) return null
+  if (!input.paymentMethodId) {
+    return { id: null, status: 'requires_payment_method' }
+  }
 
   const stripe = getStripeClient()
   return stripe.paymentIntents.create(

@@ -48,6 +48,7 @@ const userId = '11111111-1111-4111-8111-111111111111'
 const builderProfileId = '22222222-2222-4222-8222-222222222222'
 const bookingId = '33333333-3333-4333-8333-333333333333'
 const vendorId = '44444444-4444-4444-8444-444444444444'
+const approvalId = '66666666-6666-4666-8666-666666666666'
 
 describe('POST /api/payments/vendor', () => {
   let consoleInfoSpy: jest.SpyInstance
@@ -76,6 +77,7 @@ describe('POST /api/payments/vendor', () => {
   it('returns 409 vendor_requires_reconnect when a stored Connect account was cleared', async () => {
     const response = await postVendorPayment(makeRequest({
       bookingId,
+      approvalId,
       paymentMethodId: 'pm_card_visa',
       amount: 450,
     }))
@@ -124,6 +126,18 @@ function makeAdminClient() {
           stripe_account_id: 'acct_stale',
           charges_enabled: true,
           payouts_enabled: true,
+        })
+      }
+
+      if (table === 'approvals') {
+        return makeMaybeSingleQuery({
+          id: approvalId,
+          plan_id: null,
+          status: 'approved',
+          requested_amount_cents: 45000,
+          authorized_amount_cents: null,
+          price_cents: null,
+          expires_at: null,
         })
       }
 

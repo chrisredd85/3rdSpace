@@ -4,15 +4,24 @@ import { z } from 'zod'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getStripeClient } from '@/lib/stripe/connect'
 import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
-import { dollarsToCents, getFriendlyStripeError, type VendorTransactionStatus } from '@/lib/payments/vendor-payments'
+import { centsToDollars, dollarsToCents, getFriendlyStripeError, type VendorTransactionStatus } from '@/lib/payments/vendor-payments'
+import {
+  PAYMENT_APPROVAL_SELECT_COLUMNS,
+  validatePaymentApprovalForExecution,
+  type PaymentApprovalRow,
+} from '@/lib/planner/execution/paymentApproval'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 
 export const runtime = 'nodejs'
 
 const vendorPaymentSchema = z.object({
   bookingId: z.string().uuid(),
+  approvalId: z.string().uuid(),
   paymentMethodId: z.string().min(1),
-  amount: z.coerce.number().positive(),
+  amount_cents: z.number().int().positive().refine(Number.isSafeInteger).optional(),
+  amount: z.coerce.number().positive().optional(),
+}).refine((body) => body.amount_cents !== undefined || body.amount !== undefined, {
+  message: 'amount_cents is required',
 })
 
 type VendorPaymentBooking = {
@@ -30,8 +39,8 @@ type VendorPaymentBooking = {
  * @param amount - Dollar amount charged to the builder.
  * @returns Estimated processing fee in dollars.
  */
-function estimateStripeFee(amount: number) {
-  return Math.round((amount * 0.029 + 0.3) * 100) / 100
+function estimateStripeFeeCents(amountCents: number) {
+  return Math.round(amountCents * 0.029 + 30)
 }
 
 /**
@@ -68,11 +77,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { bookingId, paymentMethodId, amount } = parsedBody.data
+    const { bookingId, approvalId, paymentMethodId } = parsedBody.data
     bookingIdForLog = bookingId
+    const amountCents = readRequestAmountCents(parsedBody.data)
+    if (amountCents === null) {
+      return NextResponse.json({ error: 'amount_cents must be a safe integer number of cents.' }, { status: 422 })
+    }
     console.info('[payments.vendor] Attempt started', {
       bookingId,
-      amount,
+      amountCents,
       requestStartedAt,
     })
 
@@ -145,9 +158,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const amountCents = dollarsToCents(amount)
-    const stripeFee = estimateStripeFee(amount)
-    const stripeFeeCents = dollarsToCents(stripeFee)
+    const approval = await loadPaymentApproval(admin as any, approvalId)
+    const approvalValidation = validatePaymentApprovalForExecution({
+      approval,
+      expectedAmountCents: amountCents,
+    })
+    if (!approvalValidation.ok) {
+      return NextResponse.json({ error: approvalValidation.error }, { status: approvalValidation.status })
+    }
+
+    const stripeFeeCents = estimateStripeFeeCents(amountCents)
     const stripe = getStripeClient()
     const validation = await validateStripeConnectAccount({
       stripe,
@@ -176,24 +196,28 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: amountCents,
-      currency: 'usd',
-      payment_method: paymentMethodId,
-      confirm: true,
-      application_fee_amount: 0,
-      transfer_data: {
-        destination: validation.accountId,
+    const paymentIntent = await stripe.paymentIntents.create(
+      {
+        amount: amountCents,
+        currency: 'usd',
+        payment_method: paymentMethodId,
+        confirm: true,
+        application_fee_amount: 0,
+        transfer_data: {
+          destination: validation.accountId,
+        },
+        metadata: {
+          booking_id: booking.id,
+          vendor_id: booking.vendor_id,
+          builder_id: builderProfileId,
+          approval_id: approvalId,
+          platform_fee: '0',
+          payment_type: 'service_payment',
+        },
+        description: `3rdPlace vendor payment: ${booking.vendor_profiles?.business_name || booking.vendor_profiles?.name || 'service'}`,
       },
-      metadata: {
-        booking_id: booking.id,
-        vendor_id: booking.vendor_id,
-        builder_id: builderProfileId,
-        platform_fee: '0',
-        payment_type: 'service_payment',
-      },
-      description: `3rdPlace vendor payment: ${booking.vendor_profiles?.business_name || booking.vendor_profiles?.name || 'service'}`,
-    })
+      { idempotencyKey: `vendor_service_payment_${approvalId}_${booking.id}_${amountCents}` }
+    )
     const status = mapPaymentIntentStatus(paymentIntent.status)
     const paidAt = paymentIntent.status === 'succeeded' ? new Date().toISOString() : null
 
@@ -230,7 +254,7 @@ export async function POST(request: NextRequest) {
           payment_status: 'succeeded',
           platform_fee_percentage: 0,
           platform_fee_amount: 0,
-          total_amount: amount,
+          total_amount: centsToDollars(amountCents),
           paid_at: paidAt,
           updated_at: paidAt,
         })
@@ -257,4 +281,25 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ error: getFriendlyStripeError(error) }, { status: 500 })
   }
+}
+
+async function loadPaymentApproval(admin: any, approvalId: string): Promise<PaymentApprovalRow | null> {
+  const { data, error } = await admin
+    .from('approvals')
+    .select(PAYMENT_APPROVAL_SELECT_COLUMNS)
+    .eq('id', approvalId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to load payment approval')
+  return data as PaymentApprovalRow | null
+}
+
+function readRequestAmountCents(body: z.infer<typeof vendorPaymentSchema>) {
+  if (body.amount_cents !== undefined) return body.amount_cents
+  const value = body.amount
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  const cents = value * 100
+  if (Math.abs(cents - Math.round(cents)) > 0.000001) return null
+  const amountCents = dollarsToCents(value)
+  return Number.isSafeInteger(amountCents) ? amountCents : null
 }

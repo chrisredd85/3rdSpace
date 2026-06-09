@@ -13,7 +13,15 @@ import type { Json } from '@/lib/types/database'
 
 type StripeAccount = {
   stripe_account_id?: string | null
-  account_status: 'pending' | 'active' | 'restricted'
+  account_status:
+    | 'pending'
+    | 'pending_onboarding'
+    | 'onboarding_started'
+    | 'capabilities_pending'
+    | 'active'
+    | 'complete'
+    | 'restricted'
+    | 'disabled'
   charges_enabled: boolean
   payouts_enabled: boolean
   requirements_due: Json
@@ -22,7 +30,16 @@ type StripeAccount = {
 
 type StripeStatusResponse = {
   connected?: boolean
-  status?: 'not_connected' | 'pending' | 'active' | 'restricted'
+  status?:
+    | 'not_connected'
+    | 'pending'
+    | 'pending_onboarding'
+    | 'onboarding_started'
+    | 'capabilities_pending'
+    | 'active'
+    | 'complete'
+    | 'restricted'
+    | 'disabled'
   charges_enabled?: boolean
   payouts_enabled?: boolean
   details_submitted?: boolean

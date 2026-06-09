@@ -46,6 +46,7 @@ interface VenueRentalBookingContext {
 
 interface VenueRentalTransactionContext {
   id: string
+  approval_id: string | null
   status: string
   amount_cents: number
   processing_fee_cents: number
@@ -488,7 +489,7 @@ async function loadVenueRentalContext(
 
   const { data: transactionData, error: transactionError } = await db
     .from('venue_payment_transactions')
-    .select('id, status, amount_cents, processing_fee_cents, refund_amount_cents, refund_reason, paid_at, refund_requested_at, refund_approved_at, stripe_transfer_id')
+    .select('id, approval_id, status, amount_cents, processing_fee_cents, refund_amount_cents, refund_reason, paid_at, refund_requested_at, refund_approved_at, stripe_transfer_id')
     .eq('plan_id', input.planId)
     .eq('venue_booking_id', booking.id)
     .order('created_at', { ascending: false })
@@ -503,6 +504,7 @@ async function loadVenueRentalContext(
     transaction: transactionRow
       ? {
           id: readString(transactionRow.id) ?? '',
+          approval_id: readString(transactionRow.approval_id),
           status: readString(transactionRow.status) ?? 'pending_builder_payment',
           amount_cents: readNumber(transactionRow.amount_cents) ?? booking.amount_cents,
           processing_fee_cents: readNumber(transactionRow.processing_fee_cents) ?? 0,

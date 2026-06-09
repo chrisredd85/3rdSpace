@@ -17,7 +17,15 @@ import Stripe from 'stripe'
 type AnySupabaseClient = import('@supabase/supabase-js').SupabaseClient<any, any, any>
 import type { Json } from '@/lib/types/database'
 
-export type ConnectedStripeAccountStatus = 'pending' | 'active' | 'restricted'
+export type ConnectedStripeAccountStatus =
+  | 'pending'
+  | 'pending_onboarding'
+  | 'onboarding_started'
+  | 'capabilities_pending'
+  | 'active'
+  | 'complete'
+  | 'restricted'
+  | 'disabled'
 export type VendorStripeAccountStatus = ConnectedStripeAccountStatus
 
 export type VendorStripeAccountRecord = {
@@ -86,11 +94,25 @@ export function getAppBaseUrl(request: Request) {
 
 export function getStripeAccountStatus(account: Stripe.Account): ConnectedStripeAccountStatus {
   if (account.charges_enabled && account.payouts_enabled) return 'active'
-  if (account.requirements?.disabled_reason || (account.requirements?.past_due?.length ?? 0) > 0) {
+  if (account.requirements?.disabled_reason) return 'disabled'
+  if ((account.requirements?.past_due?.length ?? 0) > 0) {
     return 'restricted'
   }
 
-  return 'pending'
+  if (!account.details_submitted) return 'pending_onboarding'
+  if (
+    (account.requirements?.currently_due?.length ?? 0) > 0 ||
+    (account.requirements?.eventually_due?.length ?? 0) > 0 ||
+    (account.requirements?.pending_verification?.length ?? 0) > 0
+  ) {
+    return 'capabilities_pending'
+  }
+
+  return 'onboarding_started'
+}
+
+export function isConnectedStripeAccountBlocked(status: string | null | undefined) {
+  return status === 'restricted' || status === 'disabled'
 }
 
 export function getStripeRequirementsDue(account: Stripe.Account): Json {
@@ -185,7 +207,7 @@ export async function saveVendorStripeAccount(
     throw new Error(`Failed to save Stripe account: ${error.message}`)
   }
 
-  await supabase
+  const { error: mirrorError } = await supabase
     .from('vendor_profiles')
     .update({
       stripe_account_id: account.id,
@@ -193,6 +215,10 @@ export async function saveVendorStripeAccount(
       updated_at: new Date().toISOString(),
     })
     .eq('id', vendorId)
+
+  if (mirrorError) {
+    throw new Error(`Failed to update vendor Stripe account mirror: ${mirrorError.message}`)
+  }
 
   return data as VendorStripeAccountRecord
 }
@@ -220,7 +246,7 @@ export async function saveVenueStripeAccount(
     throw new Error(`Failed to save Stripe account: ${error.message}`)
   }
 
-  await supabase
+  const { error: mirrorError } = await supabase
     .from('owner_profiles')
     .update({
       stripe_account_id: account.id,
@@ -228,6 +254,10 @@ export async function saveVenueStripeAccount(
       updated_at: new Date().toISOString(),
     })
     .eq('user_id', ownerId)
+
+  if (mirrorError) {
+    throw new Error(`Failed to update venue Stripe account mirror: ${mirrorError.message}`)
+  }
 
   return data as VenueStripeAccountRecord
 }

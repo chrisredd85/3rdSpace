@@ -74,6 +74,7 @@ class MemoryDb {
         stripe_account_id: 'acct_builder',
       },
     ],
+    stripe_webhook_events: [],
   }
 
   from(table: string) {
@@ -84,7 +85,7 @@ class MemoryDb {
 
 class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
   private filters: Array<(row: Row) => boolean> = []
-  private operation: 'select' | 'update' = 'select'
+  private operation: 'select' | 'insert' | 'update' = 'select'
   private payload: Row | null = null
   private selectedColumns: string | null = null
 
@@ -97,6 +98,12 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
 
   update(payload: Row) {
     this.operation = 'update'
+    this.payload = payload
+    return this
+  }
+
+  insert(payload: Row) {
+    this.operation = 'insert'
     this.payload = payload
     return this
   }
@@ -121,6 +128,12 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
   }
 
   private execute() {
+    if (this.operation === 'insert') {
+      const row = { id: `${this.table}-${this.db.rows[this.table].length + 1}`, ...this.payload }
+      this.db.rows[this.table].push(row)
+      return { data: this.projectRows([row]), error: null }
+    }
+
     if (this.operation === 'update') {
       const rows = this.applyFilters()
       rows.forEach((row) => Object.assign(row, this.payload))
@@ -186,7 +199,9 @@ describe('Stripe platform and Connect webhook routes', () => {
 
   it('verifies platform webhooks with the platform signing secret when both secrets are present', async () => {
     event = {
+      id: 'evt_platform_payout',
       type: 'payout.paid',
+      livemode: false,
       data: { object: { id: 'po_platform' } },
     }
 
@@ -216,7 +231,9 @@ describe('Stripe platform and Connect webhook routes', () => {
       },
     }
     event = {
+      id: 'evt_connect_account_updated',
       type: 'account.updated',
+      livemode: false,
       data: { object: account },
     }
 
@@ -232,7 +249,9 @@ describe('Stripe platform and Connect webhook routes', () => {
 
   it('rejects Connect webhook requests without a Stripe signature', async () => {
     event = {
+      id: 'evt_missing_signature',
       type: 'account.updated',
+      livemode: false,
       data: { object: { id: 'acct_builder' } },
     }
 
@@ -242,5 +261,6 @@ describe('Stripe platform and Connect webhook routes', () => {
     expect(response.status).toBe(400)
     expect(body).toEqual({ error: 'Missing Stripe signature' })
     expect(stripe.webhooks.constructEvent).not.toHaveBeenCalled()
+    expect(allowWebhookRequest).not.toHaveBeenCalled()
   })
 })

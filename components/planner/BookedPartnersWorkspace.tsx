@@ -54,6 +54,7 @@ export interface BookedPartnerVenueRental {
   } | null
   transaction: {
     id: string
+    approval_id?: string | null
     status: string
     amount_cents: number
     processing_fee_cents: number
@@ -661,6 +662,7 @@ function VenueRentalWorkspacePayment({
             <VenueRentalPaymentButton
               planId={planId}
               venueBookingId={booking.id}
+              approvalId={transaction?.approval_id ?? null}
               venueName={partner.name}
               amountCents={amountCents}
               venuePaymentTransactionId={transaction?.id ?? null}

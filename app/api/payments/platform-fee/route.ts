@@ -105,6 +105,7 @@ export async function POST(request: NextRequest) {
           builder_id: auth.builder.id,
           booking_id: parsedBody.data.bookingId,
           amount: 0,
+          amount_cents: 0,
           fee_type: 'pro_subscriber_free',
           status: 'succeeded',
           paid_at: paidAt,
@@ -128,6 +129,7 @@ export async function POST(request: NextRequest) {
     }
 
     const amount = BUILDER_BILLING_PRICES.payPerEventAmount
+    const amountCents = dollarsToCents(amount)
     const stripe = getStripeClient()
     const existingCustomerId = subscription?.stripe_customer_id || auth.builder.stripe_customer_id || null
     const customerId = await ensureStripeCustomerForBuilder({
@@ -163,19 +165,22 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: dollarsToCents(amount),
-      currency: 'usd',
-      customer: customerId,
-      payment_method: parsedBody.data.paymentMethodId,
-      confirm: true,
-      description: '3rdPlace booking fee - Event booking',
-      metadata: {
-        booking_id: parsedBody.data.bookingId,
-        builder_id: auth.builder.id,
-        fee_type: 'per_event',
+    const paymentIntent = await stripe.paymentIntents.create(
+      {
+        amount: amountCents,
+        currency: 'usd',
+        customer: customerId,
+        payment_method: parsedBody.data.paymentMethodId,
+        confirm: true,
+        description: '3rdPlace booking fee - Event booking',
+        metadata: {
+          booking_id: parsedBody.data.bookingId,
+          builder_id: auth.builder.id,
+          fee_type: 'per_event',
+        },
       },
-    })
+      { idempotencyKey: `platform_fee_${auth.builder.id}_${parsedBody.data.bookingId}_${amountCents}` }
+    )
     const status = mapPaymentIntentStatus(paymentIntent.status)
     const paidAt = paymentIntent.status === 'succeeded' ? new Date().toISOString() : null
 
@@ -186,6 +191,7 @@ export async function POST(request: NextRequest) {
         booking_id: parsedBody.data.bookingId,
         stripe_payment_intent_id: paymentIntent.id,
         amount,
+        amount_cents: amountCents,
         fee_type: 'per_event',
         status,
         paid_at: paidAt,

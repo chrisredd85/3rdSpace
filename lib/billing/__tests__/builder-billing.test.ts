@@ -149,6 +149,9 @@ describe('builder billing Stripe customer resolution', () => {
       expect.objectContaining({
         customer: 'cus_replacement',
         mode: 'payment',
+      }),
+      expect.objectContaining({
+        idempotencyKey: `builder_checkout_${builder.id}_pay_per_event`,
       })
     )
   })

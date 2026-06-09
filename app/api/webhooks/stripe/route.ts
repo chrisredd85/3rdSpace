@@ -5,10 +5,8 @@ import { sendBuilderPaidEmail, sendRefundCompletedEmail, sendVenuePaymentFailedE
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import {
   getStripeClient,
-  saveBuilderStripeAccount,
-  saveVendorStripeAccount,
-  saveVenueStripeAccount,
 } from '@/lib/stripe/connect'
+import { processStripeConnectWebhookEvent } from '@/lib/stripe/connect-webhook'
 import { allowWebhookRequest, getWebhookRateLimitKey } from '@/lib/server/webhook-rate-limit'
 import {
   applyInvoicePaymentFailed,
@@ -31,6 +29,12 @@ import {
   markVenueRentalTransferReversed,
   VENUE_RENTAL_PAYMENT_NAMESPACE,
 } from '@/lib/payments/venue-rental'
+import {
+  beginStripeWebhookProcessing,
+  completeStripeWebhookProcessing,
+  failStripeWebhookProcessing,
+  type StripeWebhookProcessingOutcome,
+} from '@/lib/stripe/webhookLedger'
 
 export const runtime = 'nodejs'
 
@@ -228,17 +232,22 @@ async function applyKickbackInvoicePaid(admin: any, invoice: Stripe.Invoice) {
   if (payment.status === 'paid' || payment.stripe_transfer_id) return true
 
   const stripe = getStripeClient()
-  const transfer = await stripe.transfers.create({
-    amount: principalCents,
-    currency: 'usd',
-    destination: builderStripeAccountId,
-    transfer_group: `kickback_${paymentId}`,
-    metadata: {
-      payment_kind_namespace: KICKBACK_TRANSFER_NAMESPACE,
-      kickback_payment_id: paymentId,
-      settlement_method: 'invoice',
+  const transfer = await stripe.transfers.create(
+    {
+      amount: principalCents,
+      currency: 'usd',
+      destination: builderStripeAccountId,
+      transfer_group: `kickback_${paymentId}`,
+      metadata: {
+        payment_kind_namespace: KICKBACK_TRANSFER_NAMESPACE,
+        kickback_payment_id: paymentId,
+        settlement_method: 'invoice',
+      },
     },
-  })
+    {
+      idempotencyKey: `kickback_invoice_transfer_${paymentId}_${invoice.id}_${principalCents}`,
+    }
+  )
 
   const now = new Date().toISOString()
   await admin
@@ -491,12 +500,6 @@ function getLatestTransferReversalId(transfer: Stripe.Transfer) {
 export async function POST(request: NextRequest) {
   const admin = createServiceRoleClient()
   const rawBody = await request.text()
-
-  if (!(await allowWebhookRequest(admin, getWebhookRateLimitKey('stripe', request.headers)))) {
-    console.warn('[Stripe Webhook] Rate limit exceeded')
-    return NextResponse.json({ received: true, ignored: true, reason: 'rate_limited' }, { status: 200 })
-  }
-
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
 
   if (!webhookSecret) {
@@ -519,7 +522,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid Stripe signature' }, { status: 400 })
   }
 
+  const reservation = await beginStripeWebhookProcessing(admin as any, {
+    event,
+    source: 'platform',
+    endpointPath: '/api/webhooks/stripe',
+  })
+  if (reservation.duplicate) {
+    console.info('[stripe.webhook] Duplicate delivery skipped', {
+      eventId: event.id,
+      eventType: event.type,
+      processedAt: reservation.processedAt,
+    })
+    return NextResponse.json({ received: true, duplicate: true })
+  }
+
+  if (!(await allowWebhookRequest(admin, getWebhookRateLimitKey('stripe', request.headers)))) {
+    console.warn('[Stripe Webhook] Rate limit exceeded', { eventId: event.id, eventType: event.type })
+    await completeStripeWebhookProcessing(admin as any, { eventId: event.id, outcome: 'rate_limited' })
+    return NextResponse.json({ received: true, ignored: true, reason: 'rate_limited' }, { status: 200 })
+  }
+
   try {
+    let outcome: StripeWebhookProcessingOutcome = 'processed'
+    let responseBody: Record<string, unknown> = { received: true }
+
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session
       const handledVenueRental = await applyVenueRentalCheckoutSessionCompleted(admin as any, session)
@@ -561,40 +587,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (event.type === 'account.updated') {
-      const account = event.data.object as Stripe.Account
-      const { data: existingVendor } = await (admin as any)
-        .from('vendor_stripe_accounts')
-        .select('vendor_id')
-        .eq('stripe_account_id', account.id)
-        .maybeSingle()
-
-      if (existingVendor?.vendor_id) {
-        await saveVendorStripeAccount(admin as any, existingVendor.vendor_id, account)
-        return NextResponse.json({ received: true })
-      }
-
-      const { data: existingVenue } = await (admin as any)
-        .from('venue_stripe_accounts')
-        .select('owner_id')
-        .eq('stripe_account_id', account.id)
-        .maybeSingle()
-
-      if (existingVenue?.owner_id) {
-        await saveVenueStripeAccount(admin as any, existingVenue.owner_id, account)
-        return NextResponse.json({ received: true })
-      }
-
-      const { data: existingBuilder } = await (admin as any)
-        .from('builder_stripe_accounts')
-        .select('user_id, builder_id')
-        .eq('stripe_account_id', account.id)
-        .maybeSingle()
-
-      if (!existingBuilder?.user_id) {
-        return NextResponse.json({ received: true, ignored: true, reason: 'unknown_account' })
-      }
-
-      await saveBuilderStripeAccount(admin as any, existingBuilder.user_id, existingBuilder.builder_id ?? null, account)
+      responseBody = await processStripeConnectWebhookEvent(admin as any, event)
+      if (responseBody.ignored) outcome = 'ignored'
     }
 
     if (event.type === 'payment_intent.succeeded' || event.type === 'payment_intent.payment_failed') {
@@ -639,51 +633,22 @@ export async function POST(request: NextRequest) {
     }
 
     if (event.type === 'payout.paid' || event.type === 'payout.failed') {
-      return NextResponse.json({ received: true, observed: event.type })
+      responseBody = { received: true, observed: event.type }
+      outcome = 'observed'
     }
 
     if (event.type === 'account.application.deauthorized') {
-      const accountId = event.account || (event.data.object as { id?: string }).id
-
-      if (accountId) {
-        await (admin as any)
-          .from('vendor_stripe_accounts')
-          .update({
-            account_status: 'restricted',
-            charges_enabled: false,
-            payouts_enabled: false,
-            requirements_due: { disabled_reason: 'application_deauthorized' },
-            updated_at: new Date().toISOString(),
-          })
-          .eq('stripe_account_id', accountId)
-
-        await (admin as any)
-          .from('venue_stripe_accounts')
-          .update({
-            account_status: 'restricted',
-            charges_enabled: false,
-            payouts_enabled: false,
-            requirements_due: { disabled_reason: 'application_deauthorized' },
-            updated_at: new Date().toISOString(),
-          })
-          .eq('stripe_account_id', accountId)
-
-        await (admin as any)
-          .from('builder_stripe_accounts')
-          .update({
-            account_status: 'restricted',
-            charges_enabled: false,
-            payouts_enabled: false,
-            requirements_due: { disabled_reason: 'application_deauthorized' },
-            updated_at: new Date().toISOString(),
-          })
-          .eq('stripe_account_id', accountId)
-      }
+      responseBody = await processStripeConnectWebhookEvent(admin as any, event)
     }
 
-    return NextResponse.json({ received: true })
+    await completeStripeWebhookProcessing(admin as any, { eventId: event.id, outcome })
+    console.info('[stripe.webhook] Processed event', { eventId: event.id, eventType: event.type, outcome })
+    return NextResponse.json(responseBody)
   } catch (error) {
     console.error('[Stripe Webhook] Processing failed', error)
+    await failStripeWebhookProcessing(admin as any, { eventId: event.id, error }).catch((ledgerError) => {
+      console.error('[Stripe Webhook] Failed to save webhook failure state', ledgerError)
+    })
     return NextResponse.json({ received: true, processed: false }, { status: 500 })
   }
 }

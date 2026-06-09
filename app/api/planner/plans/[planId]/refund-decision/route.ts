@@ -197,23 +197,30 @@ async function approveRefund(
 
   if (approvalError) throw new Error(approvalError.message ?? 'Failed to save refund approval state')
 
-  const reversal = await (stripe.transfers as any).createReversal(payment.stripe_transfer_id, {
-    amount: refundAmountCents,
-    metadata: {
-      kickback_payment_id: payment.id,
-      settlement_method: 'invoice',
-      refund_reason: payment.refund_reason ?? '',
+  const reversal = await (stripe.transfers as any).createReversal(
+    payment.stripe_transfer_id,
+    {
+      amount: refundAmountCents,
+      metadata: {
+        kickback_payment_id: payment.id,
+        settlement_method: 'invoice',
+        refund_reason: payment.refund_reason ?? '',
+      },
     },
-  })
-  const refund = await stripe.refunds.create({
-    charge: chargeId,
-    amount: refundAmountCents,
-    reason: 'requested_by_customer',
-    metadata: {
-      kickback_payment_id: payment.id,
-      settlement_method: 'invoice',
+    { idempotencyKey: `kickback_refund_reversal_${payment.id}_${refundAmountCents}` }
+  )
+  const refund = await stripe.refunds.create(
+    {
+      charge: chargeId,
+      amount: refundAmountCents,
+      reason: 'requested_by_customer',
+      metadata: {
+        kickback_payment_id: payment.id,
+        settlement_method: 'invoice',
+      },
     },
-  })
+    { idempotencyKey: `kickback_refund_${payment.id}_${chargeId}_${refundAmountCents}` }
+  )
 
   const { data: latestPayment, error: latestPaymentError } = await admin
     .from('kickback_payments')
