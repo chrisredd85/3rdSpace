@@ -131,7 +131,8 @@ ALTER TABLE public.vendor_transactions
   ADD COLUMN IF NOT EXISTS account_state_block_reason text;
 
 ALTER TABLE public.platform_fee_transactions
-  ADD COLUMN IF NOT EXISTS amount_cents integer;
+  ADD COLUMN IF NOT EXISTS amount_cents integer,
+  ADD COLUMN IF NOT EXISTS approval_id uuid REFERENCES public.approvals(id) ON DELETE SET NULL;
 
 UPDATE public.platform_fee_transactions
 SET amount_cents = COALESCE(amount_cents, ROUND(amount * 100)::integer)
@@ -144,6 +145,17 @@ ALTER TABLE public.platform_fee_transactions
 ALTER TABLE public.platform_fee_transactions
   ADD CONSTRAINT platform_fee_transactions_amount_cents_check
     CHECK (amount_cents >= 0);
+
+CREATE INDEX IF NOT EXISTS idx_platform_fee_transactions_approval_id
+  ON public.platform_fee_transactions(approval_id)
+  WHERE approval_id IS NOT NULL;
+
+ALTER TABLE public.vendor_transactions
+  ADD COLUMN IF NOT EXISTS approval_id uuid REFERENCES public.approvals(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_vendor_transactions_approval_id
+  ON public.vendor_transactions(approval_id)
+  WHERE approval_id IS NOT NULL;
 
 ALTER TABLE public.venue_payment_transactions
   DROP CONSTRAINT IF EXISTS venue_payment_transactions_status_check;
@@ -206,6 +218,86 @@ AS $$
 $$;
 
 GRANT EXECUTE ON FUNCTION public.increment_stripe_webhook_duplicate_count(text) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.record_stripe_webhook_event_result(
+  p_stripe_event_id text,
+  p_event_type text,
+  p_payload jsonb,
+  p_source text,
+  p_endpoint_path text,
+  p_livemode boolean,
+  p_processing_outcome text,
+  p_processed boolean,
+  p_error text DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_now timestamptz := now();
+  v_processed_at timestamptz := CASE WHEN p_processed THEN v_now ELSE NULL END;
+BEGIN
+  INSERT INTO public.stripe_webhook_events (
+    stripe_event_id,
+    event_type,
+    payload,
+    source,
+    endpoint_path,
+    livemode,
+    processed,
+    processed_at,
+    processing_outcome,
+    last_error,
+    error,
+    received_at
+  )
+  VALUES (
+    p_stripe_event_id,
+    p_event_type,
+    p_payload,
+    p_source,
+    p_endpoint_path,
+    COALESCE(p_livemode, false),
+    COALESCE(p_processed, false),
+    v_processed_at,
+    p_processing_outcome,
+    LEFT(p_error, 1000),
+    LEFT(p_error, 1000),
+    v_now
+  )
+  ON CONFLICT (stripe_event_id) DO UPDATE
+  SET
+    event_type = EXCLUDED.event_type,
+    payload = EXCLUDED.payload,
+    source = EXCLUDED.source,
+    endpoint_path = EXCLUDED.endpoint_path,
+    livemode = EXCLUDED.livemode,
+    processed = EXCLUDED.processed,
+    processed_at = EXCLUDED.processed_at,
+    processing_outcome = EXCLUDED.processing_outcome,
+    last_error = EXCLUDED.last_error,
+    error = EXCLUDED.error;
+
+  RETURN jsonb_build_object(
+    'stripe_event_id', p_stripe_event_id,
+    'processed', COALESCE(p_processed, false),
+    'processing_outcome', p_processing_outcome
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.record_stripe_webhook_event_result(
+  text,
+  text,
+  jsonb,
+  text,
+  text,
+  boolean,
+  text,
+  boolean,
+  text
+) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.block_inflight_stripe_account_payments(
   p_stripe_account_id text,

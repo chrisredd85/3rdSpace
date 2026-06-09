@@ -1,0 +1,5 @@
+{
+  "timestamp": 1800000000,
+  "signature": "t=1800000000,v1=9998713ff68a6dfe3c07a5b0f46cf13347c429e8086c602039108d4a59d6b957",
+  "body": "{\"id\":\"evt_fixture_account_restricted\",\"object\":\"event\",\"api_version\":\"2025-09-30.clover\",\"created\":1800000000,\"livemode\":false,\"type\":\"account.updated\",\"data\":{\"object\":{\"id\":\"acct_builder\",\"object\":\"account\",\"charges_enabled\":true,\"payouts_enabled\":true,\"requirements\":{\"currently_due\":[\"business_profile.url\"],\"eventually_due\":[],\"past_due\":[],\"pending_verification\":[\"business_profile.url\"],\"disabled_reason\":null}}}}"
+}

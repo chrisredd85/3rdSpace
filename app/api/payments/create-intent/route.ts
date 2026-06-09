@@ -140,6 +140,7 @@ export async function POST(request: NextRequest) {
         booking_id: booking.id,
         vendor_id: booking.vendor_id,
         builder_id: auth.builderProfileId,
+        approval_id: parsedBody.data.approvalId,
         stripe_payment_intent_id: paymentIntent.id,
         amount_cents: amounts.amountCents,
         platform_fee_cents: amounts.platformFeeCents,

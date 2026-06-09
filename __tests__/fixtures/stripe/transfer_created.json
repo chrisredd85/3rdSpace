@@ -1,0 +1,5 @@
+{
+  "timestamp": 1800000000,
+  "signature": "t=1800000000,v1=3b531f4e0bf56832ff37e929aae3b67e2731069d5603b7b339afe0be39829792",
+  "body": "{\"id\":\"evt_fixture_transfer_created\",\"object\":\"event\",\"api_version\":\"2025-09-30.clover\",\"created\":1800000000,\"livemode\":false,\"type\":\"transfer.created\",\"data\":{\"object\":{\"id\":\"tr_fixture_venue\",\"object\":\"transfer\",\"metadata\":{\"payment_kind_namespace\":\"venue_rental\",\"venue_payment_transaction_id\":\"venue-payment-1\"}}}}"
+}

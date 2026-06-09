@@ -10,11 +10,19 @@ import {
   upsertBuilderSubscription,
 } from '@/lib/billing/builder-billing'
 import { dollarsToCents, getFriendlyStripeError } from '@/lib/payments/vendor-payments'
+import {
+  PAYMENT_APPROVAL_SELECT_COLUMNS,
+  validatePaymentApprovalForExecution,
+  type PaymentApprovalRow,
+} from '@/lib/planner/execution/paymentApproval'
+import { writePaymentExecutionAudit } from '@/lib/planner/execution/paymentExecutionAudit'
 
 export const runtime = 'nodejs'
 
 const platformFeeSchema = z.object({
   bookingId: z.string().uuid(),
+  approval_id: z.string().uuid().optional(),
+  approvalId: z.string().uuid().optional(),
   paymentMethodId: z.string().min(1).optional(),
 })
 
@@ -130,6 +138,37 @@ export async function POST(request: NextRequest) {
 
     const amount = BUILDER_BILLING_PRICES.payPerEventAmount
     const amountCents = dollarsToCents(amount)
+    const approvalId = parsedBody.data.approval_id ?? parsedBody.data.approvalId
+    if (!approvalId) {
+      return NextResponse.json(
+        { error: 'Approval is required before executing this payment action.', code: 'APPROVAL_MISSING' },
+        { status: 422 }
+      )
+    }
+
+    const approval = await loadPaymentApproval(admin as any, approvalId)
+    const approvalValidation = validatePaymentApprovalForExecution({
+      approval,
+      expectedAmountCents: amountCents,
+      expectedCounterparty: {
+        targetType: 'vendor_booking',
+        targetId: parsedBody.data.bookingId,
+        payloadKeys: ['booking_id', 'bookingId', 'vendor_booking_id'],
+      },
+    })
+    if (!approvalValidation.ok) {
+      return NextResponse.json(
+        { error: approvalValidation.error, code: approvalValidation.code },
+        { status: approvalValidation.status }
+      )
+    }
+    if (!approval) {
+      return NextResponse.json(
+        { error: 'Approval is required before executing this payment action.', code: 'APPROVAL_MISSING' },
+        { status: 422 }
+      )
+    }
+
     const stripe = getStripeClient()
     const existingCustomerId = subscription?.stripe_customer_id || auth.builder.stripe_customer_id || null
     const customerId = await ensureStripeCustomerForBuilder({
@@ -176,10 +215,11 @@ export async function POST(request: NextRequest) {
         metadata: {
           booking_id: parsedBody.data.bookingId,
           builder_id: auth.builder.id,
+          approval_id: approvalId,
           fee_type: 'per_event',
         },
       },
-      { idempotencyKey: `platform_fee_${auth.builder.id}_${parsedBody.data.bookingId}_${amountCents}` }
+      { idempotencyKey: `platform_fee_${approvalId}_${auth.builder.id}_${parsedBody.data.bookingId}_${amountCents}` }
     )
     const status = mapPaymentIntentStatus(paymentIntent.status)
     const paidAt = paymentIntent.status === 'succeeded' ? new Date().toISOString() : null
@@ -189,6 +229,7 @@ export async function POST(request: NextRequest) {
       .insert({
         builder_id: auth.builder.id,
         booking_id: parsedBody.data.bookingId,
+        approval_id: approvalId,
         stripe_payment_intent_id: paymentIntent.id,
         amount,
         amount_cents: amountCents,
@@ -206,6 +247,22 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    await writePaymentExecutionAudit(admin as any, {
+      approval,
+      userId: auth.user.id,
+      role: 'community_builder',
+      action: 'payment.platform_fee.executed',
+      amountCents,
+      stripeObjectId: paymentIntent.id,
+      outcome: status === 'succeeded' ? 'succeeded' : 'failed',
+      entityId: parsedBody.data.bookingId,
+      metadata: {
+        booking_id: parsedBody.data.bookingId,
+        stripe_status: paymentIntent.status,
+        fee_type: 'per_event',
+      },
+    })
+
     return NextResponse.json({
       success: paymentIntent.status === 'succeeded',
       charged: true,
@@ -217,4 +274,18 @@ export async function POST(request: NextRequest) {
     console.error('[payments.platform-fee] Failed to process platform fee', error)
     return NextResponse.json({ error: getFriendlyStripeError(error) }, { status: 500 })
   }
+}
+
+async function loadPaymentApproval(admin: any, approvalId: string): Promise<PaymentApprovalRow | null> {
+  const { data, error } = await admin
+    .from('approvals')
+    .select(`
+      ${PAYMENT_APPROVAL_SELECT_COLUMNS},
+      agent_action:agent_actions(id, target_type, target_id, amount_cents, payload_json)
+    `)
+    .eq('id', approvalId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to load payment approval')
+  return data as PaymentApprovalRow | null
 }

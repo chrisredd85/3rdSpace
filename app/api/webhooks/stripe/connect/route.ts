@@ -7,9 +7,9 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getStripeClient } from '@/lib/stripe/connect'
 import { processStripeConnectWebhookEvent } from '@/lib/stripe/connect-webhook'
 import {
-  beginStripeWebhookProcessing,
-  completeStripeWebhookProcessing,
+  checkStripeWebhookLedger,
   failStripeWebhookProcessing,
+  recordStripeWebhookProcessingResult,
 } from '@/lib/stripe/webhookLedger'
 
 export const runtime = 'nodejs'
@@ -44,11 +44,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid Stripe signature' }, { status: 400 })
   }
 
-  const reservation = await beginStripeWebhookProcessing(admin as any, {
-    event,
-    source: 'connect',
-    endpointPath: '/api/webhooks/stripe/connect',
-  })
+  const reservation = await checkStripeWebhookLedger(admin as any, { eventId: event.id })
   if (reservation.duplicate) {
     console.info('[stripe.connect.webhook] Duplicate delivery skipped', {
       eventId: event.id,
@@ -60,20 +56,32 @@ export async function POST(request: NextRequest) {
 
   if (!(await allowWebhookRequest(admin, getWebhookRateLimitKey('stripe-connect', request.headers)))) {
     console.warn('[Stripe Connect Webhook] Rate limit exceeded', { eventId: event.id, eventType: event.type })
-    await completeStripeWebhookProcessing(admin as any, { eventId: event.id, outcome: 'rate_limited' })
+    await recordStripeWebhookProcessingResult(admin as any, {
+      event,
+      source: 'connect',
+      endpointPath: '/api/webhooks/stripe/connect',
+      outcome: 'rate_limited',
+    })
     return NextResponse.json({ received: true, ignored: true, reason: 'rate_limited' }, { status: 200 })
   }
 
   try {
     const result = await processStripeConnectWebhookEvent(admin as any, event)
-    await completeStripeWebhookProcessing(admin as any, {
-      eventId: event.id,
+    await recordStripeWebhookProcessingResult(admin as any, {
+      event,
+      source: 'connect',
+      endpointPath: '/api/webhooks/stripe/connect',
       outcome: result.observed ? 'observed' : result.ignored ? 'ignored' : 'processed',
     })
     return NextResponse.json(result)
   } catch (error) {
     console.error('[Stripe Connect Webhook] Processing failed', error)
-    await failStripeWebhookProcessing(admin as any, { eventId: event.id, error }).catch((ledgerError) => {
+    await failStripeWebhookProcessing(admin as any, {
+      event,
+      source: 'connect',
+      endpointPath: '/api/webhooks/stripe/connect',
+      error,
+    }).catch((ledgerError) => {
       console.error('[Stripe Connect Webhook] Failed to save webhook failure state', ledgerError)
     })
     return NextResponse.json({ received: true, processed: false }, { status: 500 })

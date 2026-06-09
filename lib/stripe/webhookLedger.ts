@@ -24,23 +24,65 @@ export interface StripeWebhookLedgerEvent {
   livemode?: boolean
 }
 
-export async function beginStripeWebhookProcessing(
+export async function checkStripeWebhookLedger(
+  db: WebhookLedgerDb,
+  input: {
+    eventId: string
+  }
+): Promise<StripeWebhookLedgerReservation> {
+  const existing = await loadLedgerRow(db, input.eventId)
+  if (existing) {
+    if (existing.processed) {
+      await incrementDuplicateCount(db, input.eventId)
+      return { duplicate: true, processedAt: existing.processed_at ?? null }
+    }
+
+    return { duplicate: false }
+  }
+
+  return { duplicate: false }
+}
+
+export async function recordStripeWebhookProcessingResult(
   db: WebhookLedgerDb,
   input: {
     event: StripeWebhookLedgerEvent
     source: StripeWebhookSource
     endpointPath: string
+    outcome: StripeWebhookProcessingOutcome
+    processed?: boolean
+    error?: unknown
   }
-): Promise<StripeWebhookLedgerReservation> {
-  const existing = await loadLedgerRow(db, input.event.id)
-  if (existing) {
-    await incrementDuplicateCount(db, input.event.id)
-    if (existing.processed) {
-      return { duplicate: true, processedAt: existing.processed_at ?? null }
-    }
-    return { duplicate: false }
+) {
+  const processed = input.processed ?? input.outcome !== 'failed'
+  const errorMessage = input.error instanceof Error
+    ? input.error.message
+    : input.error == null
+      ? null
+      : String(input.error)
+
+  if (typeof db.rpc === 'function') {
+    const { error } = await db.rpc('record_stripe_webhook_event_result', {
+      p_stripe_event_id: input.event.id,
+      p_event_type: input.event.type,
+      p_payload: input.event,
+      p_source: input.source,
+      p_endpoint_path: input.endpointPath,
+      p_livemode: Boolean(input.event.livemode),
+      p_processing_outcome: input.outcome,
+      p_processed: processed,
+      p_error: errorMessage,
+    })
+
+    if (!error) return
+    console.warn('[stripe.webhook] Failed to record webhook result through RPC', {
+      eventId: input.event.id,
+      eventType: input.event.type,
+      error: error.message,
+    })
   }
 
+  const now = new Date().toISOString()
   const { error } = await db
     .from('stripe_webhook_events')
     .insert({
@@ -50,67 +92,51 @@ export async function beginStripeWebhookProcessing(
       endpoint_path: input.endpointPath,
       livemode: Boolean(input.event.livemode),
       payload: input.event,
-      processed: false,
-      processing_outcome: 'received',
-      received_at: new Date().toISOString(),
+      processed,
+      processed_at: processed ? now : null,
+      processing_outcome: input.outcome,
+      received_at: now,
+      last_error: errorMessage ? errorMessage.slice(0, 1000) : null,
+      error: errorMessage ? errorMessage.slice(0, 1000) : null,
     })
 
-  if (error) {
-    if (isUniqueViolation(error)) {
-      await incrementDuplicateCount(db, input.event.id)
-      const raced = await loadLedgerRow(db, input.event.id)
-      if (raced?.processed) {
-        return { duplicate: true, processedAt: raced.processed_at ?? null }
-      }
-      return { duplicate: false }
-    }
-    throw new Error(error.message ?? 'Failed to reserve Stripe webhook event')
+  if (!error) return
+
+  if (!isUniqueViolation(error)) {
+    throw new Error(error.message ?? 'Failed to record Stripe webhook result')
   }
 
-  return { duplicate: false }
-}
-
-export async function completeStripeWebhookProcessing(
-  db: WebhookLedgerDb,
-  input: {
-    eventId: string
-    outcome: StripeWebhookProcessingOutcome
-  }
-) {
-  const now = new Date().toISOString()
-  const { error } = await db
+  const { error: updateError } = await db
     .from('stripe_webhook_events')
     .update({
-      processed: true,
-      processed_at: now,
+      processed,
+      processed_at: processed ? now : null,
       processing_outcome: input.outcome,
-      last_error: null,
-      error: null,
+      last_error: errorMessage ? errorMessage.slice(0, 1000) : null,
+      error: errorMessage ? errorMessage.slice(0, 1000) : null,
     })
-    .eq('stripe_event_id', input.eventId)
+    .eq('stripe_event_id', input.event.id)
 
-  if (error) throw new Error(error.message ?? 'Failed to mark Stripe webhook event processed')
+  if (updateError) throw new Error(updateError.message ?? 'Failed to update Stripe webhook result')
 }
 
 export async function failStripeWebhookProcessing(
   db: WebhookLedgerDb,
   input: {
-    eventId: string
+    event: StripeWebhookLedgerEvent
+    source: StripeWebhookSource
+    endpointPath: string
     error: unknown
   }
 ) {
-  const message = input.error instanceof Error ? input.error.message : String(input.error)
-  const { error } = await db
-    .from('stripe_webhook_events')
-    .update({
-      processed: false,
-      processing_outcome: 'failed',
-      last_error: message.slice(0, 1000),
-      error: message.slice(0, 1000),
-    })
-    .eq('stripe_event_id', input.eventId)
-
-  if (error) throw new Error(error.message ?? 'Failed to mark Stripe webhook event failed')
+  await recordStripeWebhookProcessingResult(db, {
+    event: input.event,
+    source: input.source,
+    endpointPath: input.endpointPath,
+    outcome: 'failed',
+    processed: false,
+    error: input.error,
+  })
 }
 
 async function loadLedgerRow(db: WebhookLedgerDb, eventId: string): Promise<{

@@ -1,0 +1,5 @@
+{
+  "timestamp": 1800000000,
+  "signature": "t=1800000000,v1=e1dc454aaebba6d8ce0898bbbe4d4907d0f431e2fcb2ea56158fe883d1bee38f",
+  "body": "{\"id\":\"evt_fixture_charge_refunded\",\"object\":\"event\",\"api_version\":\"2025-09-30.clover\",\"created\":1800000000,\"livemode\":false,\"type\":\"charge.refunded\",\"data\":{\"object\":{\"id\":\"ch_fixture_refunded\",\"object\":\"charge\",\"payment_intent\":\"pi_venue_refund\",\"amount_refunded\":120000,\"metadata\":{\"payment_kind_namespace\":\"venue_rental\",\"venue_payment_transaction_id\":\"venue-payment-1\"},\"refunds\":{\"object\":\"list\",\"data\":[{\"id\":\"re_fixture_venue\",\"object\":\"refund\",\"metadata\":{}}]}}}}"
+}

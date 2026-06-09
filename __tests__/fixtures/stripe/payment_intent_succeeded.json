@@ -1,0 +1,5 @@
+{
+  "timestamp": 1800000000,
+  "signature": "t=1800000000,v1=e9597c596a0fe3aa8a5d82cc817d94c68344d89bd94b32efb5203484a0960668",
+  "body": "{\"id\":\"evt_fixture_payment_intent_succeeded\",\"object\":\"event\",\"api_version\":\"2025-09-30.clover\",\"created\":1800000000,\"livemode\":false,\"type\":\"payment_intent.succeeded\",\"data\":{\"object\":{\"id\":\"pi_fixture_venue\",\"object\":\"payment_intent\",\"status\":\"succeeded\",\"metadata\":{\"payment_kind_namespace\":\"venue_rental\",\"venue_payment_transaction_id\":\"venue-payment-1\"},\"latest_charge\":{\"id\":\"ch_fixture_venue\",\"object\":\"charge\",\"transfer\":\"tr_fixture_venue\",\"receipt_url\":\"https://stripe.test/receipt\"}}}}"
+}

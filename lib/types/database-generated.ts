@@ -5194,6 +5194,7 @@ export type Database = {
         Row: {
           amount: number
           amount_cents: number
+          approval_id: string | null
           billing_period_end: string | null
           billing_period_start: string | null
           booking_id: string | null
@@ -5213,6 +5214,7 @@ export type Database = {
         Insert: {
           amount: number
           amount_cents?: number
+          approval_id?: string | null
           billing_period_end?: string | null
           billing_period_start?: string | null
           booking_id?: string | null
@@ -5232,6 +5234,7 @@ export type Database = {
         Update: {
           amount?: number
           amount_cents?: number
+          approval_id?: string | null
           billing_period_end?: string | null
           billing_period_start?: string | null
           booking_id?: string | null
@@ -5249,6 +5252,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "platform_fee_transactions_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "platform_fee_transactions_booking_id_fkey"
             columns: ["booking_id"]
@@ -7562,6 +7572,7 @@ export type Database = {
           account_state_blocked_at: string | null
           amount: number
           amount_cents: number
+          approval_id: string | null
           booking_id: string
           builder_id: string
           created_at: string
@@ -7585,6 +7596,7 @@ export type Database = {
           account_state_blocked_at?: string | null
           amount: number
           amount_cents: number
+          approval_id?: string | null
           booking_id: string
           builder_id: string
           created_at?: string
@@ -7608,6 +7620,7 @@ export type Database = {
           account_state_blocked_at?: string | null
           amount?: number
           amount_cents?: number
+          approval_id?: string | null
           booking_id?: string
           builder_id?: string
           created_at?: string
@@ -7627,6 +7640,13 @@ export type Database = {
           vendor_payout_cents?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "vendor_transactions_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "vendor_transactions_booking_id_fkey"
             columns: ["booking_id"]
@@ -9024,6 +9044,20 @@ export type Database = {
           p_event_id: string
           p_reason: string
           p_stripe_account_id: string
+        }
+        Returns: Json
+      }
+      record_stripe_webhook_event_result: {
+        Args: {
+          p_endpoint_path: string
+          p_error?: string | null
+          p_event_type: string
+          p_livemode: boolean
+          p_payload: Json
+          p_processed: boolean
+          p_processing_outcome: string
+          p_source: string
+          p_stripe_event_id: string
         }
         Returns: Json
       }
