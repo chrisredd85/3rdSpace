@@ -216,26 +216,12 @@ async function approveRefund(
     throw new RouteError('Missing Stripe PaymentIntent for venue rental refund', 409)
   }
 
-  const now = new Date().toISOString()
-  const { data: approved, error: approvalError } = await admin
-    .from('venue_payment_transactions')
-    .update({
-      status: 'refund_approved',
-      refund_approved_by: venueOwnerId,
-      refund_approved_at: now,
-    } as never)
-    .eq('id', transaction.id)
-    .select('*')
-    .maybeSingle()
-
-  if (approvalError) throw new Error(approvalError.message ?? 'Failed to save venue rental refund approval')
-
   const metadata = {
     payment_kind_namespace: VENUE_RENTAL_PAYMENT_NAMESPACE,
     venue_payment_transaction_id: transaction.id,
   }
   const stripe = getStripeClient()
-  await (stripe.transfers as any).createReversal(
+  const reversal = await (stripe.transfers as any).createReversal(
     transaction.stripe_transfer_id,
     {
       amount: refundAmountCents,
@@ -243,7 +229,7 @@ async function approveRefund(
     },
     { idempotencyKey: `venue_rental_refund_reversal_${transaction.id}_${refundAmountCents}` }
   )
-  await stripe.refunds.create(
+  const refund = await stripe.refunds.create(
     {
       payment_intent: transaction.stripe_payment_intent_id,
       amount: refundAmountCents,
@@ -251,6 +237,22 @@ async function approveRefund(
     },
     { idempotencyKey: `venue_rental_refund_${transaction.id}_${refundAmountCents}` }
   )
+
+  const now = new Date().toISOString()
+  const { data: approved, error: approvalError } = await admin
+    .from('venue_payment_transactions')
+    .update({
+      status: 'refund_approved',
+      refund_approved_by: venueOwnerId,
+      refund_approved_at: now,
+      stripe_transfer_reversal_id: reversal?.id ?? null,
+      stripe_refund_id: refund.id,
+    } as never)
+    .eq('id', transaction.id)
+    .select('*')
+    .maybeSingle()
+
+  if (approvalError) throw new Error(approvalError.message ?? 'Failed to save venue rental refund approval')
 
   return approved
 }

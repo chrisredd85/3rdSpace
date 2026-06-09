@@ -547,6 +547,29 @@ describe('venue rental refund routes', () => {
       expect(sendBuilderRefundApprovedEmail).toHaveBeenCalledWith({ transactionId: TRANSACTION_ID })
     })
 
+    it('keeps a refund request pending when Stripe reversal fails', async () => {
+      stripe.transfers.createReversal.mockRejectedValueOnce(new Error('Stripe reversal unavailable'))
+
+      const response = await refundDecisionPost(
+        makeJsonRequest(`http://localhost/api/venue/rentals/${TRANSACTION_ID}/refund-decision`, {
+          decision: 'approve',
+        }),
+        { params: { transactionId: TRANSACTION_ID } }
+      )
+      const json = await response.json()
+
+      expect(response.status).toBe(500)
+      expect(json.error).toBe('Stripe reversal unavailable')
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        status: 'refund_requested',
+        refund_amount_cents: 50000,
+        refund_approved_by: null,
+        refund_approved_at: null,
+      })
+      expect(stripe.refunds.create).not.toHaveBeenCalled()
+      expect(sendBuilderRefundApprovedEmail).not.toHaveBeenCalled()
+    })
+
     it('transitions to refunded_partial after the resulting charge.refunded webhook', async () => {
       await refundDecisionPost(
         makeJsonRequest(`http://localhost/api/venue/rentals/${TRANSACTION_ID}/refund-decision`, {
