@@ -111,6 +111,23 @@ export function getStripeAccountStatus(account: Stripe.Account): ConnectedStripe
   return 'onboarding_started'
 }
 
+export function getLegacyStripeAccountStatus(status: ConnectedStripeAccountStatus): 'pending' | 'active' | 'restricted' {
+  // During schema rollout, preview/prod can briefly run against the older DB constraint.
+  // These legacy values preserve money-movement safety: not-ready stays pending and blocked stays restricted.
+  if (status === 'active' || status === 'complete') return 'active'
+  if (status === 'restricted' || status === 'disabled') return 'restricted'
+
+  return 'pending'
+}
+
+function isStripeAccountStatusConstraintError(error: { message?: string } | null) {
+  return Boolean(
+    error?.message &&
+      /violates check constraint/i.test(error.message) &&
+      /stripe_accounts_status_check/i.test(error.message)
+  )
+}
+
 export function isConnectedStripeAccountBlocked(status: string | null | undefined) {
   return status === 'restricted' || status === 'disabled'
 }
@@ -190,18 +207,34 @@ export async function saveVendorStripeAccount(
   account: Stripe.Account
 ) {
   const payload = mapStripeAccount(vendorId, account)
+  const updatedAt = new Date().toISOString()
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('vendor_stripe_accounts')
     .upsert(
       {
         ...payload,
-        updated_at: new Date().toISOString(),
+        updated_at: updatedAt,
       },
       { onConflict: 'vendor_id' }
     )
     .select('*')
     .single()
+
+  if (isStripeAccountStatusConstraintError(error)) {
+    ;({ data, error } = await supabase
+      .from('vendor_stripe_accounts')
+      .upsert(
+        {
+          ...payload,
+          account_status: getLegacyStripeAccountStatus(payload.account_status),
+          updated_at: updatedAt,
+        },
+        { onConflict: 'vendor_id' }
+      )
+      .select('*')
+      .single())
+  }
 
   if (error) {
     throw new Error(`Failed to save Stripe account: ${error.message}`)
@@ -229,18 +262,34 @@ export async function saveVenueStripeAccount(
   account: Stripe.Account
 ) {
   const payload = mapVenueStripeAccount(ownerId, account)
+  const updatedAt = new Date().toISOString()
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('venue_stripe_accounts')
     .upsert(
       {
         ...payload,
-        updated_at: new Date().toISOString(),
+        updated_at: updatedAt,
       },
       { onConflict: 'owner_id' }
     )
     .select('*')
     .single()
+
+  if (isStripeAccountStatusConstraintError(error)) {
+    ;({ data, error } = await supabase
+      .from('venue_stripe_accounts')
+      .upsert(
+        {
+          ...payload,
+          account_status: getLegacyStripeAccountStatus(payload.account_status),
+          updated_at: updatedAt,
+        },
+        { onConflict: 'owner_id' }
+      )
+      .select('*')
+      .single())
+  }
 
   if (error) {
     throw new Error(`Failed to save Stripe account: ${error.message}`)
@@ -269,18 +318,34 @@ export async function saveBuilderStripeAccount(
   account: Stripe.Account
 ) {
   const payload = mapBuilderStripeAccount(userId, builderId, account)
+  const updatedAt = new Date().toISOString()
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('builder_stripe_accounts')
     .upsert(
       {
         ...payload,
-        updated_at: new Date().toISOString(),
+        updated_at: updatedAt,
       },
       { onConflict: 'user_id' }
     )
     .select('*')
     .single()
+
+  if (isStripeAccountStatusConstraintError(error)) {
+    ;({ data, error } = await supabase
+      .from('builder_stripe_accounts')
+      .upsert(
+        {
+          ...payload,
+          account_status: getLegacyStripeAccountStatus(payload.account_status),
+          updated_at: updatedAt,
+        },
+        { onConflict: 'user_id' }
+      )
+      .select('*')
+      .single())
+  }
 
   if (error) {
     throw new Error(`Failed to save Stripe account: ${error.message}`)
