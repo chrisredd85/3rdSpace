@@ -17,7 +17,15 @@ import Stripe from 'stripe'
 type AnySupabaseClient = import('@supabase/supabase-js').SupabaseClient<any, any, any>
 import type { Json } from '@/lib/types/database'
 
-export type ConnectedStripeAccountStatus = 'pending' | 'active' | 'restricted'
+export type ConnectedStripeAccountStatus =
+  | 'pending'
+  | 'pending_onboarding'
+  | 'onboarding_started'
+  | 'capabilities_pending'
+  | 'active'
+  | 'complete'
+  | 'restricted'
+  | 'disabled'
 export type VendorStripeAccountStatus = ConnectedStripeAccountStatus
 
 export type VendorStripeAccountRecord = {
@@ -86,11 +94,42 @@ export function getAppBaseUrl(request: Request) {
 
 export function getStripeAccountStatus(account: Stripe.Account): ConnectedStripeAccountStatus {
   if (account.charges_enabled && account.payouts_enabled) return 'active'
-  if (account.requirements?.disabled_reason || (account.requirements?.past_due?.length ?? 0) > 0) {
+  if (account.requirements?.disabled_reason) return 'disabled'
+  if ((account.requirements?.past_due?.length ?? 0) > 0) {
     return 'restricted'
   }
 
+  if (!account.details_submitted) return 'pending_onboarding'
+  if (
+    (account.requirements?.currently_due?.length ?? 0) > 0 ||
+    (account.requirements?.eventually_due?.length ?? 0) > 0 ||
+    (account.requirements?.pending_verification?.length ?? 0) > 0
+  ) {
+    return 'capabilities_pending'
+  }
+
+  return 'onboarding_started'
+}
+
+export function getLegacyStripeAccountStatus(status: ConnectedStripeAccountStatus): 'pending' | 'active' | 'restricted' {
+  // During schema rollout, preview/prod can briefly run against the older DB constraint.
+  // These legacy values preserve money-movement safety: not-ready stays pending and blocked stays restricted.
+  if (status === 'active' || status === 'complete') return 'active'
+  if (status === 'restricted' || status === 'disabled') return 'restricted'
+
   return 'pending'
+}
+
+function isStripeAccountStatusConstraintError(error: { message?: string } | null) {
+  return Boolean(
+    error?.message &&
+      /violates check constraint/i.test(error.message) &&
+      /stripe_accounts_status_check/i.test(error.message)
+  )
+}
+
+export function isConnectedStripeAccountBlocked(status: string | null | undefined) {
+  return status === 'restricted' || status === 'disabled'
 }
 
 export function getStripeRequirementsDue(account: Stripe.Account): Json {
@@ -168,24 +207,40 @@ export async function saveVendorStripeAccount(
   account: Stripe.Account
 ) {
   const payload = mapStripeAccount(vendorId, account)
+  const updatedAt = new Date().toISOString()
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('vendor_stripe_accounts')
     .upsert(
       {
         ...payload,
-        updated_at: new Date().toISOString(),
+        updated_at: updatedAt,
       },
       { onConflict: 'vendor_id' }
     )
     .select('*')
     .single()
 
+  if (isStripeAccountStatusConstraintError(error)) {
+    ;({ data, error } = await supabase
+      .from('vendor_stripe_accounts')
+      .upsert(
+        {
+          ...payload,
+          account_status: getLegacyStripeAccountStatus(payload.account_status),
+          updated_at: updatedAt,
+        },
+        { onConflict: 'vendor_id' }
+      )
+      .select('*')
+      .single())
+  }
+
   if (error) {
     throw new Error(`Failed to save Stripe account: ${error.message}`)
   }
 
-  await supabase
+  const { error: mirrorError } = await supabase
     .from('vendor_profiles')
     .update({
       stripe_account_id: account.id,
@@ -193,6 +248,10 @@ export async function saveVendorStripeAccount(
       updated_at: new Date().toISOString(),
     })
     .eq('id', vendorId)
+
+  if (mirrorError) {
+    throw new Error(`Failed to update vendor Stripe account mirror: ${mirrorError.message}`)
+  }
 
   return data as VendorStripeAccountRecord
 }
@@ -203,24 +262,40 @@ export async function saveVenueStripeAccount(
   account: Stripe.Account
 ) {
   const payload = mapVenueStripeAccount(ownerId, account)
+  const updatedAt = new Date().toISOString()
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('venue_stripe_accounts')
     .upsert(
       {
         ...payload,
-        updated_at: new Date().toISOString(),
+        updated_at: updatedAt,
       },
       { onConflict: 'owner_id' }
     )
     .select('*')
     .single()
 
+  if (isStripeAccountStatusConstraintError(error)) {
+    ;({ data, error } = await supabase
+      .from('venue_stripe_accounts')
+      .upsert(
+        {
+          ...payload,
+          account_status: getLegacyStripeAccountStatus(payload.account_status),
+          updated_at: updatedAt,
+        },
+        { onConflict: 'owner_id' }
+      )
+      .select('*')
+      .single())
+  }
+
   if (error) {
     throw new Error(`Failed to save Stripe account: ${error.message}`)
   }
 
-  await supabase
+  const { error: mirrorError } = await supabase
     .from('owner_profiles')
     .update({
       stripe_account_id: account.id,
@@ -228,6 +303,10 @@ export async function saveVenueStripeAccount(
       updated_at: new Date().toISOString(),
     })
     .eq('user_id', ownerId)
+
+  if (mirrorError) {
+    throw new Error(`Failed to update venue Stripe account mirror: ${mirrorError.message}`)
+  }
 
   return data as VenueStripeAccountRecord
 }
@@ -239,18 +318,34 @@ export async function saveBuilderStripeAccount(
   account: Stripe.Account
 ) {
   const payload = mapBuilderStripeAccount(userId, builderId, account)
+  const updatedAt = new Date().toISOString()
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('builder_stripe_accounts')
     .upsert(
       {
         ...payload,
-        updated_at: new Date().toISOString(),
+        updated_at: updatedAt,
       },
       { onConflict: 'user_id' }
     )
     .select('*')
     .single()
+
+  if (isStripeAccountStatusConstraintError(error)) {
+    ;({ data, error } = await supabase
+      .from('builder_stripe_accounts')
+      .upsert(
+        {
+          ...payload,
+          account_status: getLegacyStripeAccountStatus(payload.account_status),
+          updated_at: updatedAt,
+        },
+        { onConflict: 'user_id' }
+      )
+      .select('*')
+      .single())
+  }
 
   if (error) {
     throw new Error(`Failed to save Stripe account: ${error.message}`)

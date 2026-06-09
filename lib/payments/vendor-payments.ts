@@ -9,10 +9,16 @@ import {
   toFiniteNumber,
 } from '@/lib/money'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
-import { getStripeClient } from '@/lib/stripe/connect'
+import { getStripeClient, isConnectedStripeAccountBlocked } from '@/lib/stripe/connect'
 
 export type VendorPaymentType = 'deposit' | 'final_payment'
-export type VendorTransactionStatus = 'pending' | 'processing' | 'succeeded' | 'failed' | 'refunded'
+export type VendorTransactionStatus =
+  | 'pending'
+  | 'processing'
+  | 'succeeded'
+  | 'failed'
+  | 'refunded'
+  | 'blocked_by_account_state'
 
 export type VendorTransaction = {
   id: string
@@ -207,7 +213,7 @@ export async function ensureVendorCanReceivePayments(admin: any, vendorId: strin
     throw new VendorRequiresReconnectError('This vendor needs to reconnect Stripe before receiving payouts.')
   }
 
-  if (!account.payouts_enabled || account.account_status === 'restricted') {
+  if (!account.payouts_enabled || isConnectedStripeAccountBlocked(account.account_status)) {
     throw new Error('This vendor cannot receive payouts right now. We have notified the team to review the account.')
   }
 

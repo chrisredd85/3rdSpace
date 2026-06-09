@@ -31,6 +31,9 @@ jest.mock('@/lib/supabase/server', () => ({
 jest.mock('@/lib/stripe/connect', () => ({
   getAppBaseUrl: jest.fn(),
   getStripeClient: jest.fn(),
+  isConnectedStripeAccountBlocked: jest.fn((status: string | null | undefined) =>
+    status === 'restricted' || status === 'disabled'
+  ),
 }))
 
 type Row = Record<string, unknown>
@@ -42,6 +45,7 @@ const BUILDER_ID = '44444444-4444-4444-8444-444444444444'
 const OTHER_BUILDER_ID = '55555555-5555-4555-8555-555555555555'
 const VENUE_OWNER_ID = '66666666-6666-4666-8666-666666666666'
 const TRANSACTION_ID = '77777777-7777-4777-8777-777777777777'
+const APPROVAL_ID = '88888888-8888-4888-8888-888888888888'
 
 class MemoryDb {
   rows: Record<string, Row[]> = {
@@ -58,6 +62,17 @@ class MemoryDb {
       },
     ],
     venues: [{ id: VENUE_ID, venue_name: 'The Roof', owner_id: VENUE_OWNER_ID }],
+    approvals: [
+      {
+        id: APPROVAL_ID,
+        plan_id: PLAN_ID,
+        status: 'authorized',
+        requested_amount_cents: 120000,
+        authorized_amount_cents: null,
+        price_cents: null,
+        expires_at: null,
+      },
+    ],
     venue_stripe_accounts: [
       {
         owner_id: VENUE_OWNER_ID,
@@ -199,7 +214,7 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null | { code?:
   }
 }
 
-function makeRequest(body: unknown = { venue_booking_id: BOOKING_ID, payment_method_type: 'card' }) {
+function makeRequest(body: unknown = { venue_booking_id: BOOKING_ID, approval_id: APPROVAL_ID, payment_method_type: 'card' }) {
   return new Request(`http://localhost/api/planner/plans/${PLAN_ID}/venue-payment/checkout`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -276,6 +291,7 @@ describe('venue rental checkout route', () => {
     })
     expect(db.rows.venue_payment_transactions[0]).toMatchObject({
       plan_id: PLAN_ID,
+      approval_id: APPROVAL_ID,
       venue_booking_id: BOOKING_ID,
       builder_id: BUILDER_ID,
       venue_id: VENUE_ID,
@@ -312,6 +328,7 @@ describe('venue rental checkout route', () => {
         metadata: expect.objectContaining({
           payment_kind_namespace: 'venue_rental',
           venue_payment_transaction_id: TRANSACTION_ID,
+          approval_id: APPROVAL_ID,
           plan_id: PLAN_ID,
           venue_booking_id: BOOKING_ID,
           venue_id: VENUE_ID,
@@ -329,6 +346,7 @@ describe('venue rental checkout route', () => {
           metadata: expect.objectContaining({
             payment_kind_namespace: 'venue_rental',
             venue_payment_transaction_id: TRANSACTION_ID,
+            approval_id: APPROVAL_ID,
             payment_method_type: 'card',
             processing_fee_cents: '3510',
           }),
@@ -342,7 +360,7 @@ describe('venue rental checkout route', () => {
 
   it('creates ACH-only Checkout with the exact ACH capped fee', async () => {
     const response = await POST(
-      makeRequest({ venue_booking_id: BOOKING_ID, payment_method_type: 'us_bank_account' }),
+      makeRequest({ venue_booking_id: BOOKING_ID, approval_id: APPROVAL_ID, payment_method_type: 'us_bank_account' }),
       { params: { planId: PLAN_ID } }
     )
     const json = await response.json()
@@ -447,6 +465,7 @@ describe('venue rental checkout route', () => {
     db.rows.venue_payment_transactions.push({
       id: TRANSACTION_ID,
       plan_id: PLAN_ID,
+      approval_id: APPROVAL_ID,
       venue_booking_id: BOOKING_ID,
       builder_id: BUILDER_ID,
       venue_id: VENUE_ID,
@@ -474,6 +493,7 @@ describe('venue rental checkout route', () => {
     db.rows.venue_payment_transactions.push({
       id: TRANSACTION_ID,
       plan_id: PLAN_ID,
+      approval_id: APPROVAL_ID,
       venue_booking_id: BOOKING_ID,
       builder_id: BUILDER_ID,
       venue_id: VENUE_ID,
@@ -489,7 +509,7 @@ describe('venue rental checkout route', () => {
     })
 
     const response = await POST(
-      makeRequest({ venue_booking_id: BOOKING_ID, payment_method_type: 'us_bank_account' }),
+      makeRequest({ venue_booking_id: BOOKING_ID, approval_id: APPROVAL_ID, payment_method_type: 'us_bank_account' }),
       { params: { planId: PLAN_ID } }
     )
     const json = await response.json()

@@ -280,23 +280,30 @@ describe('kickback refund routes', () => {
     )
 
     expect(response.status).toBe(200)
-    expect(stripe.transfers.createReversal).toHaveBeenCalledWith('tr_builder', {
-      amount: 18000,
-      metadata: {
-        kickback_payment_id: PAYMENT_ID,
-        settlement_method: 'invoice',
-        refund_reason: 'Venue request',
+    expect(stripe.transfers.createReversal).toHaveBeenCalledWith(
+      'tr_builder',
+      {
+        amount: 18000,
+        metadata: {
+          kickback_payment_id: PAYMENT_ID,
+          settlement_method: 'invoice',
+          refund_reason: 'Venue request',
+        },
       },
-    })
-    expect(stripe.refunds.create).toHaveBeenCalledWith({
-      charge: 'ch_kickback',
-      amount: 18000,
-      reason: 'requested_by_customer',
-      metadata: {
-        kickback_payment_id: PAYMENT_ID,
-        settlement_method: 'invoice',
+      { idempotencyKey: `kickback_refund_reversal_${PAYMENT_ID}_18000` }
+    )
+    expect(stripe.refunds.create).toHaveBeenCalledWith(
+      {
+        charge: 'ch_kickback',
+        amount: 18000,
+        reason: 'requested_by_customer',
+        metadata: {
+          kickback_payment_id: PAYMENT_ID,
+          settlement_method: 'invoice',
+        },
       },
-    })
+      { idempotencyKey: `kickback_refund_${PAYMENT_ID}_ch_kickback_18000` }
+    )
     expect(db.rows.kickback_payments[0]).toMatchObject({
       status: 'refund_processing',
       refund_amount_cents: 18000,

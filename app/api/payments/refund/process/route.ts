@@ -6,13 +6,24 @@ import { sendEmailNotification } from '@/lib/email'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 import { getStripeClient } from '@/lib/stripe/connect'
-import { centsToDollars, dollarsToCents, getFriendlyStripeError, readCents, toMoney } from '@/lib/payments/vendor-payments'
+import { centsToDollars, dollarsToCents, getFriendlyStripeError, readCents } from '@/lib/payments/vendor-payments'
+import {
+  PAYMENT_APPROVAL_SELECT_COLUMNS,
+  validatePaymentApprovalForExecution,
+  type PaymentApprovalRow,
+} from '@/lib/planner/execution/paymentApproval'
+import { writePaymentExecutionAudit } from '@/lib/planner/execution/paymentExecutionAudit'
 
 export const runtime = 'nodejs'
 
 const refundProcessSchema = z.object({
   bookingId: z.string().uuid(),
   reason: z.string().trim().min(1, 'Cancellation reason is required').max(1000),
+  refund_approvals: z.array(z.object({
+    type: z.enum(['platform_fee', 'vendor_service']),
+    transaction_id: z.string().uuid(),
+    approval_id: z.string().uuid(),
+  })).default([]),
 })
 
 type RefundableVendorTransaction = {
@@ -33,6 +44,20 @@ type RefundablePlatformTransaction = {
   id: string
   stripe_payment_intent_id: string | null
   amount: number | string
+  amount_cents?: number | string | null
+}
+
+type RefundApprovalInput = z.infer<typeof refundProcessSchema>['refund_approvals'][number]
+
+class PaymentApprovalRouteError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string
+  ) {
+    super(message)
+    this.name = 'PaymentApprovalRouteError'
+  }
 }
 
 function getRefundFailureStatus(error: unknown) {
@@ -56,14 +81,18 @@ async function reverseVendorTransfer(params: {
 
   if (reversalCents <= 0) return 0
 
-  await stripe.transfers.createReversal(params.transaction.stripe_transfer_id, {
-    amount: reversalCents,
-    metadata: {
-      booking_id: params.transaction.booking_id,
-      refund_id: params.stripeRefundId,
-      original_transaction_id: params.transaction.id,
+  await stripe.transfers.createReversal(
+    params.transaction.stripe_transfer_id,
+    {
+      amount: reversalCents,
+      metadata: {
+        booking_id: params.transaction.booking_id,
+        refund_id: params.stripeRefundId,
+        original_transaction_id: params.transaction.id,
+      },
     },
-  })
+    { idempotencyKey: `vendor_cancel_reversal_${params.transaction.id}_${params.stripeRefundId}_${reversalCents}` }
+  )
 
   return centsToDollars(reversalCents)
 }
@@ -72,12 +101,14 @@ async function refundPlatformFee(params: {
   admin: any
   bookingId: string
   refundAmount: number
+  userId: string
+  approvals: RefundApprovalInput[]
 }) {
   if (params.refundAmount <= 0) return []
 
   const { data, error } = await params.admin
     .from('platform_fee_transactions')
-    .select('id, stripe_payment_intent_id, amount')
+    .select('id, stripe_payment_intent_id, amount, amount_cents')
     .eq('booking_id', params.bookingId)
     .eq('status', 'succeeded')
     .gt('amount', 0)
@@ -89,13 +120,23 @@ async function refundPlatformFee(params: {
   const stripe = getStripeClient()
   const refunds: Array<{ type: 'platform_fee'; amount: number; refund_id: string }> = []
   let remainingCents = dollarsToCents(params.refundAmount)
+  const approvalByTransactionId = buildApprovalLookup(params.approvals, 'platform_fee')
 
   for (const transaction of transactions) {
     if (remainingCents <= 0) break
     if (!transaction.stripe_payment_intent_id) continue
 
-    const refundCents = Math.min(remainingCents, dollarsToCents(toMoney(transaction.amount)))
+    const transactionCents = readCents(transaction.amount_cents, transaction.amount) ?? 0
+    const refundCents = Math.min(remainingCents, transactionCents)
     if (refundCents <= 0) continue
+    const approval = await validateRefundApprovalForTransaction({
+      admin: params.admin,
+      approvalId: approvalByTransactionId.get(transaction.id),
+      expectedAmountCents: refundCents,
+      targetType: 'platform_fee_transaction',
+      targetId: transaction.id,
+      payloadKeys: ['transaction_id', 'transactionId', 'platform_fee_transaction_id'],
+    })
 
     console.info('[payments.refund.process] Refunding platform fee', {
       bookingId: params.bookingId,
@@ -103,16 +144,20 @@ async function refundPlatformFee(params: {
       refundCents,
     })
 
-    const refund = await stripe.refunds.create({
-      payment_intent: transaction.stripe_payment_intent_id,
-      amount: refundCents,
-      reason: 'requested_by_customer',
-      metadata: {
-        booking_id: params.bookingId,
-        refund_type: 'platform_fee',
-        platform_fee_transaction_id: transaction.id,
+    const refund = await stripe.refunds.create(
+      {
+        payment_intent: transaction.stripe_payment_intent_id,
+        amount: refundCents,
+        reason: 'requested_by_customer',
+        metadata: {
+          booking_id: params.bookingId,
+          refund_type: 'platform_fee',
+          platform_fee_transaction_id: transaction.id,
+          approval_id: approval.id,
+        },
       },
-    })
+      { idempotencyKey: `platform_fee_refund_${approval.id}_${transaction.id}_${refundCents}` }
+    )
 
     refunds.push({
       type: 'platform_fee',
@@ -123,11 +168,26 @@ async function refundPlatformFee(params: {
     await params.admin
       .from('platform_fee_transactions')
       .update({
-        status: refundCents >= dollarsToCents(toMoney(transaction.amount)) ? 'refunded' : 'succeeded',
+        status: refundCents >= transactionCents ? 'refunded' : 'succeeded',
         refunded_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', transaction.id)
+
+    await writePaymentExecutionAudit(params.admin, {
+      approval,
+      userId: params.userId,
+      role: 'community_builder',
+      action: 'payment.platform_fee_refund.executed',
+      amountCents: refundCents,
+      stripeObjectId: refund.id,
+      outcome: 'refunded',
+      entityId: transaction.id,
+      metadata: {
+        booking_id: params.bookingId,
+        platform_fee_transaction_id: transaction.id,
+      },
+    })
 
     remainingCents -= refundCents
   }
@@ -140,6 +200,8 @@ async function refundVendorService(params: {
   bookingId: string
   refundAmount: number
   reason: string
+  userId: string
+  approvals: RefundApprovalInput[]
 }) {
   if (params.refundAmount <= 0) return []
 
@@ -157,6 +219,7 @@ async function refundVendorService(params: {
   const stripe = getStripeClient()
   const refunds: Array<{ type: 'vendor_service'; amount: number; refund_id: string; transaction_id: string }> = []
   let remainingCents = dollarsToCents(params.refundAmount)
+  const approvalByTransactionId = buildApprovalLookup(params.approvals, 'vendor_service')
 
   for (const transaction of transactions) {
     if (remainingCents <= 0) break
@@ -165,6 +228,14 @@ async function refundVendorService(params: {
     const transactionCents = readCents(transaction.amount_cents, transaction.amount) ?? 0
     const refundCents = Math.min(remainingCents, transactionCents)
     if (refundCents <= 0) continue
+    const approval = await validateRefundApprovalForTransaction({
+      admin: params.admin,
+      approvalId: approvalByTransactionId.get(transaction.id),
+      expectedAmountCents: refundCents,
+      targetType: 'vendor_transaction',
+      targetId: transaction.id,
+      payloadKeys: ['transaction_id', 'transactionId', 'vendor_transaction_id', 'original_transaction_id'],
+    })
 
     console.info('[payments.refund.process] Refunding vendor payment', {
       bookingId: params.bookingId,
@@ -173,18 +244,22 @@ async function refundVendorService(params: {
     })
 
     const refundAmount = centsToDollars(refundCents)
-    const refund = await stripe.refunds.create({
-      payment_intent: transaction.stripe_payment_intent_id,
-      amount: refundCents,
-      reason: 'requested_by_customer',
-      reverse_transfer: transaction.stripe_transfer_id ? undefined : true,
-      metadata: {
-        booking_id: params.bookingId,
-        refund_type: 'vendor_service',
-        original_transaction_id: transaction.id,
-        cancellation_reason: params.reason,
+    const refund = await stripe.refunds.create(
+      {
+        payment_intent: transaction.stripe_payment_intent_id,
+        amount: refundCents,
+        reason: 'requested_by_customer',
+        reverse_transfer: transaction.stripe_transfer_id ? undefined : true,
+        metadata: {
+          booking_id: params.bookingId,
+          refund_type: 'vendor_service',
+          original_transaction_id: transaction.id,
+          approval_id: approval.id,
+          cancellation_reason: params.reason,
+        },
       },
-    })
+      { idempotencyKey: `vendor_cancel_refund_${approval.id}_${transaction.id}_${refundCents}` }
+    )
     const reversedPayout = await reverseVendorTransfer({
       transaction,
       refundAmount,
@@ -198,6 +273,7 @@ async function refundVendorService(params: {
         booking_id: transaction.booking_id,
         vendor_id: transaction.vendor_id,
         builder_id: transaction.builder_id,
+        approval_id: approval.id,
         stripe_payment_intent_id: transaction.stripe_payment_intent_id,
         stripe_charge_id: refund.id,
         stripe_transfer_id: transaction.stripe_transfer_id,
@@ -220,6 +296,21 @@ async function refundVendorService(params: {
       amount: refundAmount,
       refund_id: refund.id,
       transaction_id: transaction.id,
+    })
+
+    await writePaymentExecutionAudit(params.admin, {
+      approval,
+      userId: params.userId,
+      role: 'community_builder',
+      action: 'payment.vendor_refund.executed',
+      amountCents: refundCents,
+      stripeObjectId: refund.id,
+      outcome: 'refunded',
+      entityId: transaction.id,
+      metadata: {
+        booking_id: params.bookingId,
+        original_transaction_id: transaction.id,
+      },
     })
 
     remainingCents -= refundCents
@@ -309,7 +400,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { bookingId, reason } = parsedBody.data
+    const { bookingId, reason, refund_approvals } = parsedBody.data
     bookingIdForLog = bookingId
     console.info('[payments.refund.process] Cancellation refund started', { bookingId })
 
@@ -353,12 +444,16 @@ export async function POST(request: NextRequest) {
       admin,
       bookingId,
       refundAmount: calculation.platform_fee_refund,
+      userId: user.id,
+      approvals: refund_approvals,
     })
     const vendorRefunds = await refundVendorService({
       admin,
       bookingId,
       refundAmount: calculation.vendor_service_refund,
       reason,
+      userId: user.id,
+      approvals: refund_approvals,
     })
     const processedRefunds = [...platformRefunds, ...vendorRefunds]
     const refundedTotal = processedRefunds.reduce((sum, refund) => sum + refund.amount, 0)
@@ -404,10 +499,70 @@ export async function POST(request: NextRequest) {
       refunds: processedRefunds,
     })
   } catch (error) {
+    if (error instanceof PaymentApprovalRouteError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status })
+    }
+
     console.error('[payments.refund.process] Failed to process cancellation refund', {
       bookingId: bookingIdForLog,
       error,
     })
     return NextResponse.json({ error: getFriendlyStripeError(error) }, { status: getRefundFailureStatus(error) })
   }
+}
+
+function buildApprovalLookup(approvals: RefundApprovalInput[], type: RefundApprovalInput['type']) {
+  return new Map(
+    approvals
+      .filter((approval) => approval.type === type)
+      .map((approval) => [approval.transaction_id, approval.approval_id])
+  )
+}
+
+async function validateRefundApprovalForTransaction(input: {
+  admin: any
+  approvalId: string | undefined
+  expectedAmountCents: number
+  targetType: string
+  targetId: string
+  payloadKeys: string[]
+}) {
+  if (!input.approvalId) {
+    throw new PaymentApprovalRouteError(
+      'Approval is required before executing this refund action.',
+      422,
+      'APPROVAL_MISSING'
+    )
+  }
+
+  const approval = await loadPaymentApproval(input.admin, input.approvalId)
+  const validation = validatePaymentApprovalForExecution({
+    approval,
+    expectedAmountCents: input.expectedAmountCents,
+    expectedCounterparty: {
+      targetType: input.targetType,
+      targetId: input.targetId,
+      payloadKeys: input.payloadKeys,
+    },
+  })
+
+  if (!validation.ok) {
+    throw new PaymentApprovalRouteError(validation.error, validation.status, validation.code)
+  }
+
+  return approval as PaymentApprovalRow
+}
+
+async function loadPaymentApproval(admin: any, approvalId: string): Promise<PaymentApprovalRow | null> {
+  const { data, error } = await admin
+    .from('approvals')
+    .select(`
+      ${PAYMENT_APPROVAL_SELECT_COLUMNS},
+      agent_action:agent_actions(id, target_type, target_id, amount_cents, payload_json)
+    `)
+    .eq('id', approvalId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to load refund approval')
+  return data as PaymentApprovalRow | null
 }

@@ -7,7 +7,15 @@ import type { Json } from '@/lib/types/database'
 
 type StripeAccount = {
   stripe_account_id?: string | null
-  account_status: 'pending' | 'active' | 'restricted'
+  account_status:
+    | 'pending'
+    | 'pending_onboarding'
+    | 'onboarding_started'
+    | 'capabilities_pending'
+    | 'active'
+    | 'complete'
+    | 'restricted'
+    | 'disabled'
   charges_enabled: boolean
   payouts_enabled: boolean
   requirements_due: Json
@@ -36,7 +44,7 @@ function flattenRequirements(requirements: Json): string[] {
 }
 
 function getStatusMeta(status: StripeAccount['account_status'] | 'not_connected') {
-  if (status === 'active') {
+  if (status === 'active' || status === 'complete') {
     return {
       icon: CheckCircle2,
       label: 'Ready for payouts',
@@ -44,7 +52,7 @@ function getStatusMeta(status: StripeAccount['account_status'] | 'not_connected'
     }
   }
 
-  if (status === 'restricted') {
+  if (status === 'restricted' || status === 'disabled') {
     return {
       icon: AlertCircle,
       label: 'Action required',

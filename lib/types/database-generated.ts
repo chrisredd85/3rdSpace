@@ -1039,7 +1039,11 @@ export type Database = {
           builder_id: string | null
           charges_enabled: boolean
           created_at: string
+          disabled_reason: string | null
           id: string
+          last_webhook_at: string | null
+          last_webhook_event_id: string | null
+          last_webhook_event_type: string | null
           payouts_enabled: boolean
           requirements_due: Json
           stripe_account_id: string | null
@@ -1051,7 +1055,11 @@ export type Database = {
           builder_id?: string | null
           charges_enabled?: boolean
           created_at?: string
+          disabled_reason?: string | null
           id?: string
+          last_webhook_at?: string | null
+          last_webhook_event_id?: string | null
+          last_webhook_event_type?: string | null
           payouts_enabled?: boolean
           requirements_due?: Json
           stripe_account_id?: string | null
@@ -1063,7 +1071,11 @@ export type Database = {
           builder_id?: string | null
           charges_enabled?: boolean
           created_at?: string
+          disabled_reason?: string | null
           id?: string
+          last_webhook_at?: string | null
+          last_webhook_event_id?: string | null
+          last_webhook_event_type?: string | null
           payouts_enabled?: boolean
           requirements_due?: Json
           stripe_account_id?: string | null
@@ -3552,6 +3564,8 @@ export type Database = {
       }
       kickback_payments: {
         Row: {
+          account_state_block_reason: string | null
+          account_state_blocked_at: string | null
           agreement_id: string
           amount: number | null
           amount_cents: number | null
@@ -3590,6 +3604,8 @@ export type Database = {
           stripe_transfer_reversal_id: string | null
         }
         Insert: {
+          account_state_block_reason?: string | null
+          account_state_blocked_at?: string | null
           agreement_id: string
           amount?: number | null
           amount_cents?: number | null
@@ -3628,6 +3644,8 @@ export type Database = {
           stripe_transfer_reversal_id?: string | null
         }
         Update: {
+          account_state_block_reason?: string | null
+          account_state_blocked_at?: string | null
           agreement_id?: string
           amount?: number | null
           amount_cents?: number | null
@@ -4728,6 +4746,8 @@ export type Database = {
       }
       payment_intents: {
         Row: {
+          account_state_block_reason: string | null
+          account_state_blocked_at: string | null
           amount_cents: number
           approval_id: string
           authorized_at: string | null
@@ -4745,6 +4765,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          account_state_block_reason?: string | null
+          account_state_blocked_at?: string | null
           amount_cents: number
           approval_id: string
           authorized_at?: string | null
@@ -4762,6 +4784,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          account_state_block_reason?: string | null
+          account_state_blocked_at?: string | null
           amount_cents?: number
           approval_id?: string
           authorized_at?: string | null
@@ -5169,6 +5193,8 @@ export type Database = {
       platform_fee_transactions: {
         Row: {
           amount: number
+          amount_cents: number
+          approval_id: string | null
           billing_period_end: string | null
           billing_period_start: string | null
           booking_id: string | null
@@ -5187,6 +5213,8 @@ export type Database = {
         }
         Insert: {
           amount: number
+          amount_cents?: number
+          approval_id?: string | null
           billing_period_end?: string | null
           billing_period_start?: string | null
           booking_id?: string | null
@@ -5205,6 +5233,8 @@ export type Database = {
         }
         Update: {
           amount?: number
+          amount_cents?: number
+          approval_id?: string | null
           billing_period_end?: string | null
           billing_period_start?: string | null
           booking_id?: string | null
@@ -5222,6 +5252,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "platform_fee_transactions_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "platform_fee_transactions_booking_id_fkey"
             columns: ["booking_id"]
@@ -5814,32 +5851,53 @@ export type Database = {
       stripe_webhook_events: {
         Row: {
           created_at: string | null
+          duplicate_count: number
+          endpoint_path: string | null
           error: string | null
           event_type: string
           id: string
+          last_error: string | null
+          livemode: boolean | null
           payload: Json
           processed: boolean | null
           processed_at: string | null
+          processing_outcome: string | null
+          received_at: string
+          source: string
           stripe_event_id: string
         }
         Insert: {
           created_at?: string | null
+          duplicate_count?: number
+          endpoint_path?: string | null
           error?: string | null
           event_type: string
           id?: string
+          last_error?: string | null
+          livemode?: boolean | null
           payload: Json
           processed?: boolean | null
           processed_at?: string | null
+          processing_outcome?: string | null
+          received_at?: string
+          source?: string
           stripe_event_id: string
         }
         Update: {
           created_at?: string | null
+          duplicate_count?: number
+          endpoint_path?: string | null
           error?: string | null
           event_type?: string
           id?: string
+          last_error?: string | null
+          livemode?: boolean | null
           payload?: Json
           processed?: boolean | null
           processed_at?: string | null
+          processing_outcome?: string | null
+          received_at?: string
+          source?: string
           stripe_event_id?: string
         }
         Relationships: []
@@ -7450,7 +7508,11 @@ export type Database = {
           account_status: string
           charges_enabled: boolean
           created_at: string
+          disabled_reason: string | null
           id: string
+          last_webhook_at: string | null
+          last_webhook_event_id: string | null
+          last_webhook_event_type: string | null
           payouts_enabled: boolean
           requirements_due: Json
           stripe_account_id: string | null
@@ -7461,7 +7523,11 @@ export type Database = {
           account_status?: string
           charges_enabled?: boolean
           created_at?: string
+          disabled_reason?: string | null
           id?: string
+          last_webhook_at?: string | null
+          last_webhook_event_id?: string | null
+          last_webhook_event_type?: string | null
           payouts_enabled?: boolean
           requirements_due?: Json
           stripe_account_id?: string | null
@@ -7472,7 +7538,11 @@ export type Database = {
           account_status?: string
           charges_enabled?: boolean
           created_at?: string
+          disabled_reason?: string | null
           id?: string
+          last_webhook_at?: string | null
+          last_webhook_event_id?: string | null
+          last_webhook_event_type?: string | null
           payouts_enabled?: boolean
           requirements_due?: Json
           stripe_account_id?: string | null
@@ -7498,8 +7568,11 @@ export type Database = {
       }
       vendor_transactions: {
         Row: {
+          account_state_block_reason: string | null
+          account_state_blocked_at: string | null
           amount: number
           amount_cents: number
+          approval_id: string | null
           booking_id: string
           builder_id: string
           created_at: string
@@ -7519,8 +7592,11 @@ export type Database = {
           vendor_payout_cents: number
         }
         Insert: {
+          account_state_block_reason?: string | null
+          account_state_blocked_at?: string | null
           amount: number
           amount_cents: number
+          approval_id?: string | null
           booking_id: string
           builder_id: string
           created_at?: string
@@ -7540,8 +7616,11 @@ export type Database = {
           vendor_payout_cents?: number
         }
         Update: {
+          account_state_block_reason?: string | null
+          account_state_blocked_at?: string | null
           amount?: number
           amount_cents?: number
+          approval_id?: string | null
           booking_id?: string
           builder_id?: string
           created_at?: string
@@ -7561,6 +7640,13 @@ export type Database = {
           vendor_payout_cents?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "vendor_transactions_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "vendor_transactions_booking_id_fkey"
             columns: ["booking_id"]
@@ -8214,8 +8300,11 @@ export type Database = {
       }
       venue_payment_transactions: {
         Row: {
+          account_state_block_reason: string | null
+          account_state_blocked_at: string | null
           amount_cents: number
           application_fee_cents: number
+          approval_id: string | null
           builder_id: string
           created_at: string
           currency: string
@@ -8247,8 +8336,11 @@ export type Database = {
           venue_payout_cents: number
         }
         Insert: {
+          account_state_block_reason?: string | null
+          account_state_blocked_at?: string | null
           amount_cents: number
           application_fee_cents?: number
+          approval_id?: string | null
           builder_id: string
           created_at?: string
           currency?: string
@@ -8280,8 +8372,11 @@ export type Database = {
           venue_payout_cents: number
         }
         Update: {
+          account_state_block_reason?: string | null
+          account_state_blocked_at?: string | null
           amount_cents?: number
           application_fee_cents?: number
+          approval_id?: string | null
           builder_id?: string
           created_at?: string
           currency?: string
@@ -8313,6 +8408,13 @@ export type Database = {
           venue_payout_cents?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "venue_payment_transactions_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "venue_payment_transactions_builder_id_fkey"
             columns: ["builder_id"]
@@ -8498,7 +8600,11 @@ export type Database = {
           account_status: string
           charges_enabled: boolean
           created_at: string
+          disabled_reason: string | null
           id: string
+          last_webhook_at: string | null
+          last_webhook_event_id: string | null
+          last_webhook_event_type: string | null
           owner_id: string
           payouts_enabled: boolean
           requirements_due: Json
@@ -8509,7 +8615,11 @@ export type Database = {
           account_status?: string
           charges_enabled?: boolean
           created_at?: string
+          disabled_reason?: string | null
           id?: string
+          last_webhook_at?: string | null
+          last_webhook_event_id?: string | null
+          last_webhook_event_type?: string | null
           owner_id: string
           payouts_enabled?: boolean
           requirements_due?: Json
@@ -8520,7 +8630,11 @@ export type Database = {
           account_status?: string
           charges_enabled?: boolean
           created_at?: string
+          disabled_reason?: string | null
           id?: string
+          last_webhook_at?: string | null
+          last_webhook_event_id?: string | null
+          last_webhook_event_type?: string | null
           owner_id?: string
           payouts_enabled?: boolean
           requirements_due?: Json
@@ -8925,6 +9039,28 @@ export type Database = {
           total_amount: number
         }[]
       }
+      block_inflight_stripe_account_payments: {
+        Args: {
+          p_event_id: string
+          p_reason: string
+          p_stripe_account_id: string
+        }
+        Returns: Json
+      }
+      record_stripe_webhook_event_result: {
+        Args: {
+          p_endpoint_path: string
+          p_error?: string | null
+          p_event_type: string
+          p_livemode: boolean
+          p_payload: Json
+          p_processed: boolean
+          p_processing_outcome: string
+          p_source: string
+          p_stripe_event_id: string
+        }
+        Returns: Json
+      }
       can_manage_event_cost_commitment_org: {
         Args: { p_org_id: string }
         Returns: boolean
@@ -8971,6 +9107,10 @@ export type Database = {
       consume_webhook_rate_limit: {
         Args: { p_key: string; p_limit?: number; p_window_seconds?: number }
         Returns: boolean
+      }
+      increment_stripe_webhook_duplicate_count: {
+        Args: { p_stripe_event_id: string }
+        Returns: undefined
       }
       create_vendor_invite: {
         Args: {

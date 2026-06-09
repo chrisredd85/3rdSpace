@@ -216,7 +216,15 @@ export interface Vendor {
   updated_at: string
 }
 
-export type VendorStripeAccountStatus = 'pending' | 'active' | 'restricted'
+export type VendorStripeAccountStatus =
+  | 'pending'
+  | 'pending_onboarding'
+  | 'onboarding_started'
+  | 'capabilities_pending'
+  | 'active'
+  | 'complete'
+  | 'restricted'
+  | 'disabled'
 
 /**
  * Vendor Stripe Connect account table row
@@ -235,7 +243,13 @@ export interface VendorStripeAccount {
 
 export type VendorPaymentStatus = 'pending' | 'processing' | 'succeeded' | 'fully_paid' | 'failed' | 'refunded'
 export type VendorTransactionPaymentType = 'deposit' | 'final_payment' | 'refund'
-export type VendorTransactionStatus = 'pending' | 'processing' | 'succeeded' | 'failed' | 'refunded'
+export type VendorTransactionStatus =
+  | 'pending'
+  | 'processing'
+  | 'succeeded'
+  | 'failed'
+  | 'refunded'
+  | 'blocked_by_account_state'
 export type VenuePaymentMethodType = 'card' | 'us_bank_account'
 export type VenuePaymentTransactionStatus =
   | 'pending_builder_payment'
@@ -247,6 +261,7 @@ export type VenuePaymentTransactionStatus =
   | 'refunded_full'
   | 'cancelled'
   | 'failed'
+  | 'blocked_by_account_state'
 
 /**
  * Vendor payment transaction table row

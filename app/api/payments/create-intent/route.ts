@@ -15,11 +15,17 @@ import {
   VendorRequiresReconnectError,
   type VendorPaymentType,
 } from '@/lib/payments/vendor-payments'
+import {
+  PAYMENT_APPROVAL_SELECT_COLUMNS,
+  validatePaymentApprovalForExecution,
+  type PaymentApprovalRow,
+} from '@/lib/planner/execution/paymentApproval'
 
 export const runtime = 'nodejs'
 
 const createIntentSchema = z.object({
   bookingId: z.string().uuid(),
+  approvalId: z.string().uuid(),
   paymentType: z.enum(['deposit', 'final_payment']).default('deposit'),
 })
 
@@ -61,6 +67,15 @@ export async function POST(request: NextRequest) {
     const amounts = calculatePaymentAmounts(paymentAmount)
     if (amounts.amountCents < 50) {
       return NextResponse.json({ error: 'Stripe requires payments to be at least $0.50.' }, { status: 400 })
+    }
+
+    const approval = await loadPaymentApproval(admin as any, parsedBody.data.approvalId)
+    const approvalValidation = validatePaymentApprovalForExecution({
+      approval,
+      expectedAmountCents: amounts.amountCents,
+    })
+    if (!approvalValidation.ok) {
+      return NextResponse.json({ error: approvalValidation.error }, { status: approvalValidation.status })
     }
 
     const stripe = getStripeClient()
@@ -109,12 +124,13 @@ export async function POST(request: NextRequest) {
           booking_id: booking.id,
           vendor_id: booking.vendor_id,
           builder_id: auth.builderProfileId,
+          approval_id: parsedBody.data.approvalId,
           payment_type: paymentType,
           platform_fee_percentage: String(getPlatformFeePercentage()),
         },
       },
       {
-        idempotencyKey: `vendor_booking_${booking.id}_${paymentType}_${amounts.amountCents}`,
+        idempotencyKey: `vendor_booking_${parsedBody.data.approvalId}_${booking.id}_${paymentType}_${amounts.amountCents}`,
       }
     )
 
@@ -124,6 +140,7 @@ export async function POST(request: NextRequest) {
         booking_id: booking.id,
         vendor_id: booking.vendor_id,
         builder_id: auth.builderProfileId,
+        approval_id: parsedBody.data.approvalId,
         stripe_payment_intent_id: paymentIntent.id,
         amount_cents: amounts.amountCents,
         platform_fee_cents: amounts.platformFeeCents,
@@ -201,4 +218,15 @@ export async function POST(request: NextRequest) {
     console.error('[payments.create-intent] Failed to create PaymentIntent', error)
     return NextResponse.json({ error: getFriendlyStripeError(error) }, { status: 500 })
   }
+}
+
+async function loadPaymentApproval(admin: any, approvalId: string): Promise<PaymentApprovalRow | null> {
+  const { data, error } = await admin
+    .from('approvals')
+    .select(PAYMENT_APPROVAL_SELECT_COLUMNS)
+    .eq('id', approvalId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to load payment approval')
+  return data as PaymentApprovalRow | null
 }

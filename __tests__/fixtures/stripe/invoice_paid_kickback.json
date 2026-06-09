@@ -1,0 +1,5 @@
+{
+  "timestamp": 1800000000,
+  "signature": "t=1800000000,v1=ce9ab10a97f01b365ac225811e6504c2745f25d87a21c086fbc5a6c0cdd3e32f",
+  "body": "{\"id\":\"evt_fixture_invoice_paid_kickback\",\"object\":\"event\",\"api_version\":\"2025-09-30.clover\",\"created\":1800000000,\"livemode\":false,\"type\":\"invoice.paid\",\"data\":{\"object\":{\"id\":\"in_fixture_kickback\",\"object\":\"invoice\",\"amount_paid\":51360,\"metadata\":{\"kickback_payment_id\":\"payment-1\",\"settlement_method\":\"invoice\",\"principal_cents\":\"51360\",\"builder_stripe_account_id\":\"acct_builder\"}}}}"
+}

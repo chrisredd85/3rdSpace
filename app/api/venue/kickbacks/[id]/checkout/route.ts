@@ -6,7 +6,12 @@ import { centsToDollars } from '@/lib/money'
 import { dollarsToCents } from '@/lib/payments/vendor-payments'
 import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
-import { getAppBaseUrl, getAuthenticatedVenueOwner, getStripeClient } from '@/lib/stripe/connect'
+import {
+  getAppBaseUrl,
+  getAuthenticatedVenueOwner,
+  getStripeClient,
+  isConnectedStripeAccountBlocked,
+} from '@/lib/stripe/connect'
 
 export const runtime = 'nodejs'
 
@@ -97,7 +102,8 @@ export async function POST(
       return NextResponse.json({ error: 'This kickback payment is not payable right now' }, { status: 400 })
     }
 
-    if (Number(payment.amount || 0) <= 0) {
+    const paymentAmountCents = resolveKickbackPaymentAmountCents(payment)
+    if (paymentAmountCents <= 0) {
       return NextResponse.json({ error: 'Kickback amount must be greater than zero' }, { status: 400 })
     }
 
@@ -141,7 +147,7 @@ export async function POST(
       )
     }
 
-    if (!builderAccount.payouts_enabled || builderAccount.account_status === 'restricted') {
+    if (!builderAccount.payouts_enabled || isConnectedStripeAccountBlocked(builderAccount.account_status)) {
       return NextResponse.json(
         { error: 'The event builder has not finished payout setup yet.' },
         { status: 400 }
@@ -167,7 +173,7 @@ export async function POST(
           {
             price_data: {
               currency: payment.currency || 'usd',
-              unit_amount: dollarsToCents(Number(payment.amount)),
+              unit_amount: paymentAmountCents,
               product_data: {
                 name: `3rdPlace kickback: ${eventName}`,
                 metadata,
@@ -187,7 +193,7 @@ export async function POST(
         cancel_url: `${baseUrl}/venue/payouts?kickback=cancelled&payment=${payment.id}`,
       },
       {
-        idempotencyKey: `kickback_checkout_${payment.id}_${payment.amount}`,
+        idempotencyKey: `kickback_checkout_${payment.id}_${paymentAmountCents}`,
       }
     )
 
@@ -278,34 +284,51 @@ async function createInvoiceForKickback({
     principal_cents: String(principalCents),
   }
 
-  await stripe.invoiceItems.create({
-    customer: customerId,
-    amount: principalCents,
-    currency: payment.currency || 'usd',
-    description: `Revenue share for "${eventLabel.title}" - ${percentLabel} of ${formatCents(reportedRevenueCents)}`,
-    metadata: { kickback_payment_id: payment.id, settlement_method: 'invoice', item_type: 'principal' },
-  })
-
-  await stripe.invoiceItems.create({
-    customer: customerId,
-    amount: achFeeCents,
-    currency: payment.currency || 'usd',
-    description: 'Payment processing fee (ACH)',
-    metadata: { kickback_payment_id: payment.id, settlement_method: 'invoice', item_type: 'processing_fee' },
-  })
-
-  const invoice = await stripe.invoices.create({
-    customer: customerId,
-    collection_method: 'send_invoice',
-    pending_invoice_items_behavior: 'include',
-    days_until_due: 7,
-    payment_settings: {
-      payment_method_types: ['us_bank_account', 'card'],
+  await stripe.invoiceItems.create(
+    {
+      customer: customerId,
+      amount: principalCents,
+      currency: payment.currency || 'usd',
+      description: `Revenue share for "${eventLabel.title}" - ${percentLabel} of ${formatCents(reportedRevenueCents)}`,
+      metadata: { kickback_payment_id: payment.id, settlement_method: 'invoice', item_type: 'principal' },
     },
-    metadata,
-  } as any)
-  const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id)
-  const sentInvoice = await stripe.invoices.sendInvoice(finalizedInvoice.id)
+    { idempotencyKey: `kickback_invoice_item_${payment.id}_principal_${principalCents}` }
+  )
+
+  await stripe.invoiceItems.create(
+    {
+      customer: customerId,
+      amount: achFeeCents,
+      currency: payment.currency || 'usd',
+      description: 'Payment processing fee (ACH)',
+      metadata: { kickback_payment_id: payment.id, settlement_method: 'invoice', item_type: 'processing_fee' },
+    },
+    { idempotencyKey: `kickback_invoice_item_${payment.id}_processing_${achFeeCents}` }
+  )
+
+  const invoice = await stripe.invoices.create(
+    {
+      customer: customerId,
+      collection_method: 'send_invoice',
+      pending_invoice_items_behavior: 'include',
+      days_until_due: 7,
+      payment_settings: {
+        payment_method_types: ['us_bank_account', 'card'],
+      },
+      metadata,
+    } as any,
+    { idempotencyKey: `kickback_invoice_${payment.id}_${principalCents}_${achFeeCents}` }
+  )
+  const finalizedInvoice = await stripe.invoices.finalizeInvoice(
+    invoice.id,
+    {},
+    { idempotencyKey: `kickback_invoice_finalize_${payment.id}_${invoice.id}` }
+  )
+  const sentInvoice = await stripe.invoices.sendInvoice(
+    finalizedInvoice.id,
+    {},
+    { idempotencyKey: `kickback_invoice_send_${payment.id}_${finalizedInvoice.id}` }
+  )
   const dueDate = sentInvoice.due_date ?? finalizedInvoice.due_date ?? null
   const hostedInvoiceUrl = sentInvoice.hosted_invoice_url ?? finalizedInvoice.hosted_invoice_url ?? null
   const now = new Date().toISOString()
@@ -351,6 +374,11 @@ async function createInvoiceForKickback({
     processing_fee_cents: achFeeCents,
     total_due_cents: principalCents + achFeeCents,
   })
+}
+
+function resolveKickbackPaymentAmountCents(payment: KickbackPaymentForCheckout) {
+  const cents = typeof payment.amount_cents === 'number' ? Math.round(payment.amount_cents) : null
+  return cents && cents > 0 ? cents : dollarsToCents(Number(payment.amount ?? 0))
 }
 
 async function loadAgreementForInvoice(admin: any, agreementId: string): Promise<KickbackAgreementForInvoice | null> {
@@ -434,7 +462,7 @@ async function loadValidatedBuilderStripeAccount(admin: any, builderUserId: stri
     }
   }
 
-  if (!builderAccount.payouts_enabled || builderAccount.account_status === 'restricted') {
+  if (!builderAccount.payouts_enabled || isConnectedStripeAccountBlocked(builderAccount.account_status)) {
     return {
       accountId: null,
       errorResponse: NextResponse.json(

@@ -39,7 +39,15 @@ import type { Json } from '@/lib/types/database'
 
 type StripeAccount = {
   stripe_account_id?: string | null
-  account_status: 'pending' | 'active' | 'restricted'
+  account_status:
+    | 'pending'
+    | 'pending_onboarding'
+    | 'onboarding_started'
+    | 'capabilities_pending'
+    | 'active'
+    | 'complete'
+    | 'restricted'
+    | 'disabled'
   charges_enabled: boolean
   payouts_enabled: boolean
   requirements_due: Json
@@ -48,7 +56,16 @@ type StripeAccount = {
 
 type StripeStatusResponse = {
   connected?: boolean
-  status?: 'not_connected' | 'pending' | 'active' | 'restricted'
+  status?:
+    | 'not_connected'
+    | 'pending'
+    | 'pending_onboarding'
+    | 'onboarding_started'
+    | 'capabilities_pending'
+    | 'active'
+    | 'complete'
+    | 'restricted'
+    | 'disabled'
   charges_enabled?: boolean
   payouts_enabled?: boolean
   details_submitted?: boolean
@@ -312,7 +329,7 @@ function stripeReadinessMeta(status: StripeStatusResponse, isLoadingStatus: bool
     }
   }
 
-  if (status.account.account_status === 'active') {
+  if (status.account.account_status === 'active' || status.account.account_status === 'complete') {
     return {
       label: 'Verified for payouts',
       detail: 'Stripe returned an account with charges and payouts enabled.',
@@ -321,7 +338,7 @@ function stripeReadinessMeta(status: StripeStatusResponse, isLoadingStatus: bool
     }
   }
 
-  if (status.account.account_status === 'restricted') {
+  if (status.account.account_status === 'restricted' || status.account.account_status === 'disabled') {
     return {
       label: 'Stripe action required',
       detail: 'Stripe returned requirements that must be completed before payout routing.',
@@ -740,7 +757,9 @@ export default function VenuePayoutsPage() {
               </CardHeader>
               <CardContent>
                 <div className="rounded-md bg-cream px-3 py-2 text-xs font-medium text-ink-soft">
-                  {status.account?.account_status === 'active' ? 'Ready for payment activity' : 'Available after onboarding'}
+                  {status.account?.account_status === 'active' || status.account?.account_status === 'complete'
+                    ? 'Ready for payment activity'
+                    : 'Available after onboarding'}
                 </div>
               </CardContent>
             </Card>

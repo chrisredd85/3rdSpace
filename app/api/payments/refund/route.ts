@@ -12,12 +12,20 @@ import {
   readCents,
   type VendorTransaction,
 } from '@/lib/payments/vendor-payments'
+import {
+  PAYMENT_APPROVAL_SELECT_COLUMNS,
+  validatePaymentApprovalForExecution,
+  type PaymentApprovalRow,
+} from '@/lib/planner/execution/paymentApproval'
+import { writePaymentExecutionAudit } from '@/lib/planner/execution/paymentExecutionAudit'
 
 export const runtime = 'nodejs'
 
 const refundSchema = z.object({
   transactionId: z.string().uuid().optional(),
   bookingId: z.string().uuid().optional(),
+  approval_id: z.string().uuid().optional(),
+  approvalId: z.string().uuid().optional(),
   amount: z.number().positive().optional(),
   reason: z.string().max(500).optional(),
 }).refine((body) => body.transactionId || body.bookingId, {
@@ -70,17 +78,52 @@ export async function POST(request: NextRequest) {
       : dollarsToCents(parsedBody.data.amount)
     const refundCents = Math.min(requestedRefundCents, transactionCents)
     const refundAmount = centsToDollars(refundCents)
-    const stripe = getStripeClient()
-    const refund = await stripe.refunds.create({
-      payment_intent: tx.stripe_payment_intent_id || undefined,
-      amount: refundCents,
-      reason: 'requested_by_customer',
-      metadata: {
-        booking_id: tx.booking_id,
-        original_transaction_id: tx.id,
-        reason: parsedBody.data.reason || '',
+    const approvalId = parsedBody.data.approval_id ?? parsedBody.data.approvalId
+    if (!approvalId) {
+      return NextResponse.json(
+        { error: 'Approval is required before executing this refund action.', code: 'APPROVAL_MISSING' },
+        { status: 422 }
+      )
+    }
+
+    const approval = await loadPaymentApproval(admin as any, approvalId)
+    const approvalValidation = validatePaymentApprovalForExecution({
+      approval,
+      expectedAmountCents: refundCents,
+      expectedCounterparty: {
+        targetType: 'vendor_transaction',
+        targetId: tx.id,
+        payloadKeys: ['transaction_id', 'transactionId', 'vendor_transaction_id', 'original_transaction_id'],
       },
     })
+    if (!approvalValidation.ok) {
+      return NextResponse.json(
+        { error: approvalValidation.error, code: approvalValidation.code },
+        { status: approvalValidation.status }
+      )
+    }
+    if (!approval) {
+      return NextResponse.json(
+        { error: 'Approval is required before executing this refund action.', code: 'APPROVAL_MISSING' },
+        { status: 422 }
+      )
+    }
+
+    const stripe = getStripeClient()
+    const refund = await stripe.refunds.create(
+      {
+        payment_intent: tx.stripe_payment_intent_id || undefined,
+        amount: refundCents,
+        reason: 'requested_by_customer',
+        metadata: {
+          booking_id: tx.booking_id,
+          original_transaction_id: tx.id,
+          approval_id: approvalId,
+          reason: parsedBody.data.reason || '',
+        },
+      },
+      { idempotencyKey: `vendor_refund_${approvalId}_${tx.id}_${refundCents}` }
+    )
 
     let reversedPayout = 0
 
@@ -90,13 +133,18 @@ export async function POST(request: NextRequest) {
       const reversalAmount = Math.min(vendorPayoutCents, Math.round(vendorPayoutCents * payoutRatio))
 
       if (reversalAmount > 0) {
-        await stripe.transfers.createReversal(tx.stripe_transfer_id, {
-          amount: reversalAmount,
-          metadata: {
-            booking_id: tx.booking_id,
-            refund_id: refund.id,
+        await stripe.transfers.createReversal(
+          tx.stripe_transfer_id,
+          {
+            amount: reversalAmount,
+            metadata: {
+              booking_id: tx.booking_id,
+              refund_id: refund.id,
+              approval_id: approvalId,
+            },
           },
-        })
+          { idempotencyKey: `vendor_refund_reversal_${approvalId}_${tx.id}_${refund.id}_${reversalAmount}` }
+        )
         reversedPayout = centsToDollars(reversalAmount)
       }
     }
@@ -108,6 +156,7 @@ export async function POST(request: NextRequest) {
         booking_id: tx.booking_id,
         vendor_id: tx.vendor_id,
         builder_id: tx.builder_id,
+        approval_id: approvalId,
         stripe_payment_intent_id: tx.stripe_payment_intent_id,
         stripe_charge_id: refund.id,
         stripe_transfer_id: tx.stripe_transfer_id,
@@ -123,6 +172,22 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (insertError) throw new Error(insertError.message)
+
+    await writePaymentExecutionAudit(admin as any, {
+      approval,
+      userId: auth.user.id,
+      role: 'community_builder',
+      action: 'payment.vendor_refund.executed',
+      amountCents: refundCents,
+      stripeObjectId: refund.id,
+      outcome: 'refunded',
+      entityId: tx.id,
+      metadata: {
+        booking_id: tx.booking_id,
+        original_transaction_id: tx.id,
+        reversal_amount_cents: dollarsToCents(reversedPayout),
+      },
+    })
 
     await (admin as any)
       .from('vendor_transactions')
@@ -148,4 +213,18 @@ export async function POST(request: NextRequest) {
     console.error('[payments.refund] Failed to process refund', error)
     return NextResponse.json({ error: getFriendlyStripeError(error) }, { status: 500 })
   }
+}
+
+async function loadPaymentApproval(admin: any, approvalId: string): Promise<PaymentApprovalRow | null> {
+  const { data, error } = await admin
+    .from('approvals')
+    .select(`
+      ${PAYMENT_APPROVAL_SELECT_COLUMNS},
+      agent_action:agent_actions(id, target_type, target_id, amount_cents, payload_json)
+    `)
+    .eq('id', approvalId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to load refund approval')
+  return data as PaymentApprovalRow | null
 }

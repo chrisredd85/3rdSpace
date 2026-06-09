@@ -399,36 +399,49 @@ export async function createBuilderCheckoutSession(params: {
     user_id: params.builder.user_id,
   }
 
-  return stripe.checkout.sessions.create({
-    mode: isSubscription ? 'subscription' : 'payment',
-    customer: customerId,
-    line_items: priceId
-      ? [{ price: priceId, quantity: 1 }]
-      : [
-          {
-            price_data: {
-              currency: 'usd',
-              unit_amount: Math.round(BUILDER_BILLING_PRICES.payPerEventAmount * 100),
-              product_data: {
-                name: '3rdPlace Pay-Per-Event Access',
-                metadata: {
-                  billing_type: 'pay_per_event',
+  return stripe.checkout.sessions.create(
+    {
+      mode: isSubscription ? 'subscription' : 'payment',
+      customer: customerId,
+      line_items: priceId
+        ? [{ price: priceId, quantity: 1 }]
+        : [
+            {
+              price_data: {
+                currency: 'usd',
+                unit_amount: toIntegerCents(BUILDER_BILLING_PRICES.payPerEventAmount),
+                product_data: {
+                  name: '3rdPlace Pay-Per-Event Access',
+                  metadata: {
+                    billing_type: 'pay_per_event',
+                  },
                 },
               },
+              quantity: 1,
             },
-            quantity: 1,
-          },
-        ],
-    client_reference_id: params.builder.id,
-    metadata,
-    success_url: `${baseUrl}/planner/billing?checkout=success`,
-    cancel_url: `${baseUrl}/planner/billing?checkout=cancelled`,
-    subscription_data: isSubscription
-      ? {
-          metadata,
-        }
-      : undefined,
-  })
+          ],
+      client_reference_id: params.builder.id,
+      metadata,
+      success_url: `${baseUrl}/planner/billing?checkout=success`,
+      cancel_url: `${baseUrl}/planner/billing?checkout=cancelled`,
+      subscription_data: isSubscription
+        ? {
+            metadata,
+          }
+        : undefined,
+    },
+    {
+      idempotencyKey: `builder_checkout_${params.builder.id}_${params.type}`,
+    }
+  )
+}
+
+function toIntegerCents(amount: number) {
+  const cents = Math.round(amount * 100)
+  if (!Number.isSafeInteger(cents) || cents < 0) {
+    throw new Error('Billing amount must resolve to safe integer cents')
+  }
+  return cents
 }
 
 function getMonthStart(value = new Date()) {
@@ -444,7 +457,6 @@ async function getSubscriptionPlanId(admin: any, type: BuilderCheckoutType) {
 
   return data?.id || null
 }
-
 export async function upsertBuilderSubscription(params: {
   admin: any
   builderId: string
@@ -537,6 +549,7 @@ async function insertPlatformFeeTransaction(params: {
       stripe_payment_intent_id: params.stripePaymentIntentId || null,
       stripe_invoice_id: params.stripeInvoiceId || null,
       amount: params.amount,
+      amount_cents: toIntegerCents(params.amount),
       fee_type: getFeeType(params.type),
       billing_period_start: params.billingPeriodStart || null,
       billing_period_end: params.billingPeriodEnd || null,

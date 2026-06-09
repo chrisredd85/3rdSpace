@@ -10,6 +10,7 @@ type PaymentType = 'deposit' | 'final_payment'
 
 type PaymentFormProps = {
   bookingId: string
+  approvalId: string
   paymentType?: PaymentType
   onPaymentSucceeded?: (transaction: unknown) => void
 }
@@ -99,6 +100,7 @@ function InnerPaymentForm({
  */
 export function PaymentForm({
   bookingId,
+  approvalId,
   paymentType = 'deposit',
   onPaymentSucceeded,
 }: PaymentFormProps) {
@@ -124,7 +126,7 @@ export function PaymentForm({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ bookingId, paymentType }),
+          body: JSON.stringify({ bookingId, approvalId, paymentType }),
         })
         const data = await response.json()
 
@@ -142,7 +144,7 @@ export function PaymentForm({
     return () => {
       isMounted = false
     }
-  }, [bookingId, paymentType])
+  }, [approvalId, bookingId, paymentType])
 
   const options = useMemo<StripeElementsOptions | undefined>(() => {
     if (!intent?.clientSecret) return undefined

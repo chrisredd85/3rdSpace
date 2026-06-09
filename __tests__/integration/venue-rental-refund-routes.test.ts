@@ -94,7 +94,7 @@ class MemoryDb {
 
 class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
   private filters: Array<(row: Row) => boolean> = []
-  private operation: 'select' | 'update' = 'select'
+  private operation: 'select' | 'insert' | 'update' = 'select'
   private payload: Row | null = null
   private selectedColumns: string | null = null
 
@@ -107,6 +107,12 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
 
   update(payload: Row) {
     this.operation = 'update'
+    this.payload = payload
+    return this
+  }
+
+  insert(payload: Row) {
+    this.operation = 'insert'
     this.payload = payload
     return this
   }
@@ -131,6 +137,16 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
   }
 
   private execute() {
+    if (this.operation === 'insert') {
+      const row = {
+        id: `${this.table}_${this.db.rows[this.table].length + 1}`,
+        created_at: new Date().toISOString(),
+        ...this.payload,
+      }
+      this.db.rows[this.table].push(row)
+      return { data: this.projectRows([row]), error: null }
+    }
+
     if (this.operation === 'update') {
       const rows = this.applyFilters()
       rows.forEach((row) => Object.assign(row, this.payload))
@@ -502,26 +518,56 @@ describe('venue rental refund routes', () => {
         status: 'refund_approved',
         refund_approved_by: VENUE_OWNER_ID,
       })
-      expect(stripe.transfers.createReversal).toHaveBeenCalledWith('tr_venue', {
-        amount: 50000,
-        metadata: {
-          payment_kind_namespace: 'venue_rental',
-          venue_payment_transaction_id: TRANSACTION_ID,
+      expect(stripe.transfers.createReversal).toHaveBeenCalledWith(
+        'tr_venue',
+        {
+          amount: 50000,
+          metadata: {
+            payment_kind_namespace: 'venue_rental',
+            venue_payment_transaction_id: TRANSACTION_ID,
+          },
         },
-      })
-      expect(stripe.refunds.create).toHaveBeenCalledWith({
-        payment_intent: 'pi_venue',
-        amount: 50000,
-        metadata: {
-          payment_kind_namespace: 'venue_rental',
-          venue_payment_transaction_id: TRANSACTION_ID,
+        { idempotencyKey: `venue_rental_refund_reversal_${TRANSACTION_ID}_50000` }
+      )
+      expect(stripe.refunds.create).toHaveBeenCalledWith(
+        {
+          payment_intent: 'pi_venue',
+          amount: 50000,
+          metadata: {
+            payment_kind_namespace: 'venue_rental',
+            venue_payment_transaction_id: TRANSACTION_ID,
+          },
         },
-      })
+        { idempotencyKey: `venue_rental_refund_${TRANSACTION_ID}_50000` }
+      )
       expect(stripe.refunds.create.mock.calls[0][0].amount).not.toBe(53510)
       expect(stripe.transfers.createReversal.mock.invocationCallOrder[0]).toBeLessThan(
         stripe.refunds.create.mock.invocationCallOrder[0]
       )
       expect(sendBuilderRefundApprovedEmail).toHaveBeenCalledWith({ transactionId: TRANSACTION_ID })
+    })
+
+    it('keeps a refund request pending when Stripe reversal fails', async () => {
+      stripe.transfers.createReversal.mockRejectedValueOnce(new Error('Stripe reversal unavailable'))
+
+      const response = await refundDecisionPost(
+        makeJsonRequest(`http://localhost/api/venue/rentals/${TRANSACTION_ID}/refund-decision`, {
+          decision: 'approve',
+        }),
+        { params: { transactionId: TRANSACTION_ID } }
+      )
+      const json = await response.json()
+
+      expect(response.status).toBe(500)
+      expect(json.error).toBe('Stripe reversal unavailable')
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        status: 'refund_requested',
+        refund_amount_cents: 50000,
+        refund_approved_by: null,
+        refund_approved_at: null,
+      })
+      expect(stripe.refunds.create).not.toHaveBeenCalled()
+      expect(sendBuilderRefundApprovedEmail).not.toHaveBeenCalled()
     })
 
     it('transitions to refunded_partial after the resulting charge.refunded webhook', async () => {
@@ -532,6 +578,8 @@ describe('venue rental refund routes', () => {
         { params: { transactionId: TRANSACTION_ID } }
       )
       webhookEvent = {
+        id: 'evt_venue_refund_partial',
+        livemode: false,
         type: 'charge.refunded',
         data: {
           object: {
@@ -574,6 +622,8 @@ describe('venue rental refund routes', () => {
         { params: { transactionId: TRANSACTION_ID } }
       )
       webhookEvent = {
+        id: 'evt_venue_refund_full',
+        livemode: false,
         type: 'charge.refunded',
         data: {
           object: {
