@@ -15,7 +15,7 @@ type CreatorEmailAccount = Database['public']['Tables']['creator_email_accounts'
 type PlannerDb = { from: (table: string) => any }
 
 export const GMAIL_APPROVED_OUTREACH_KIND = 'gmail_approved_outreach'
-export const GMAIL_APPROVAL_DEMO_TARGET_SOURCE = 'google_verification'
+export const GMAIL_APPROVAL_DEMO_TARGET_SOURCE = 'discovery'
 
 const AGENT_ACTION_SELECT_COLUMNS = `
   id,
@@ -633,7 +633,7 @@ async function loadGmailOutreachThreads(
 ): Promise<GmailOutreachThreadSummary[]> {
   let query = db
     .from('outreach_threads')
-    .select('id, plan_id, target_name, target_email, state, needs_attention, last_event_at, last_inbound_at, last_outbound_at, updated_at')
+    .select('id, plan_id, target_name, target_email, state, needs_attention, last_event_at, last_inbound_at, last_outbound_at, updated_at, channel_strategy')
     .eq('user_id', userId)
     .eq('target_source', GMAIL_APPROVAL_DEMO_TARGET_SOURCE)
     .order('updated_at', { ascending: false })
@@ -644,7 +644,8 @@ async function loadGmailOutreachThreads(
   const { data, error } = await query
   if (error) throw new Error(error.message)
 
-  const threads = (Array.isArray(data) ? data : []) as Array<Record<string, unknown>>
+  const threads = (Array.isArray(data) ? data : [])
+    .filter((thread) => isGmailApprovedOutreachThread(thread as Record<string, unknown>)) as Array<Record<string, unknown>>
   const ids = threads.map((thread) => String(thread.id))
   if (ids.length === 0) return []
 
@@ -736,7 +737,13 @@ async function loadOwnedThread(db: PlannerDb, userId: string, threadId: string):
     .maybeSingle()
 
   if (error) throw new Error(error.message)
-  return data ?? null
+  if (!data) return null
+  return isGmailApprovedOutreachThread(data as Record<string, unknown>) ? data : null
+}
+
+function isGmailApprovedOutreachThread(thread: Record<string, unknown>): boolean {
+  const strategy = readRecord(thread.channel_strategy)
+  return readString(strategy?.source) === GMAIL_APPROVED_OUTREACH_KIND
 }
 
 async function loadGmailThreadIdForThread(db: PlannerDb, threadId: string): Promise<string | null> {
