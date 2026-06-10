@@ -1887,6 +1887,7 @@ export type Database = {
           contact_email: string | null
           contact_phone: string | null
           created_at: string
+          extracted_emails: Json
           google_photo_names: string[]
           google_rating: number | null
           google_user_ratings_total: number | null
@@ -1911,6 +1912,10 @@ export type Database = {
           updated_at: string
           vibe_tags: string[]
           website: string | null
+          website_extraction_attempted_at: string | null
+          website_extraction_attempts: number | null
+          website_extraction_metadata: Json
+          website_extraction_status: string | null
         }
         Insert: {
           address?: string | null
@@ -1924,6 +1929,7 @@ export type Database = {
           contact_email?: string | null
           contact_phone?: string | null
           created_at?: string
+          extracted_emails?: Json
           google_photo_names?: string[]
           google_rating?: number | null
           google_user_ratings_total?: number | null
@@ -1948,6 +1954,10 @@ export type Database = {
           updated_at?: string
           vibe_tags?: string[]
           website?: string | null
+          website_extraction_attempted_at?: string | null
+          website_extraction_attempts?: number | null
+          website_extraction_metadata?: Json
+          website_extraction_status?: string | null
         }
         Update: {
           address?: string | null
@@ -1961,6 +1971,7 @@ export type Database = {
           contact_email?: string | null
           contact_phone?: string | null
           created_at?: string
+          extracted_emails?: Json
           google_photo_names?: string[]
           google_rating?: number | null
           google_user_ratings_total?: number | null
@@ -1985,6 +1996,10 @@ export type Database = {
           updated_at?: string
           vibe_tags?: string[]
           website?: string | null
+          website_extraction_attempted_at?: string | null
+          website_extraction_attempts?: number | null
+          website_extraction_metadata?: Json
+          website_extraction_status?: string | null
         }
         Relationships: [
           {
