@@ -3,6 +3,7 @@ import {
   encryptGmailTokenSet,
   getUsableGmailAccessToken,
   listGmailThreadMessages,
+  modifyGmailThreadLabels,
   parseGmailOAuthState,
   sendGmailMessage,
 } from '@/lib/outreach/gmail'
@@ -183,5 +184,33 @@ describe('Gmail outreach helpers', () => {
         bodyText: 'Yes, we can host that date.',
       }),
     ])
+  })
+
+  it('modifies a Gmail thread for handled/read state', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: 'gmail-thread-id',
+      labelIds: ['SENT'],
+    }), { status: 200 })) as jest.Mock
+
+    await expect(modifyGmailThreadLabels({
+      accessToken: 'access-token',
+      gmailThreadId: 'gmail-thread-id',
+      removeLabelIds: ['UNREAD', 'INBOX'],
+    })).resolves.toEqual(expect.objectContaining({
+      id: 'gmail-thread-id',
+    }))
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://gmail.googleapis.com/gmail/v1/users/me/threads/gmail-thread-id/modify',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer access-token' }),
+      })
+    )
+    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
+    expect(body).toEqual({
+      addLabelIds: [],
+      removeLabelIds: ['UNREAD', 'INBOX'],
+    })
   })
 })

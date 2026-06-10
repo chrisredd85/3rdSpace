@@ -435,7 +435,7 @@ const stripeOnboardingConfig: Record<
 }
 
 const creatorGoogleSignupNext =
-  '/api/integrations/gmail/connect?returnTo=/planner/settings/integrations%3Fonboarding%3Dcreator_google_signup'
+  '/api/integrations/gmail/connect?returnTo=/planner/outreach%3Fonboarding%3Dcreator_google_signup'
 
 function getStripeLoginRedirect(userType: UserType) {
   const config = stripeOnboardingConfig[userType]

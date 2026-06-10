@@ -23,6 +23,24 @@ describe('approved action execution planning', () => {
     })
   })
 
+  it('classifies explicitly approved Gmail outreach as outbound send', () => {
+    const plan = planApprovedActionExecution({
+      approval: { status: 'approved' },
+      action: {
+        action_type: 'email',
+        payload_json: { kind: 'gmail_approved_outreach' },
+        result_metadata: {},
+      },
+    })
+
+    expect(plan).toEqual({
+      kind: 'send_gmail_outreach',
+      canStart: true,
+      terminalActionStatus: 'complete',
+      reason: 'Approval sends reviewed outreach through the connected Gmail account',
+    })
+  })
+
   it('keeps payment execution behind explicit payment confirmation', () => {
     expect(planApprovedActionExecution({
       approval: { status: 'authorized' },

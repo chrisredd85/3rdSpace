@@ -103,10 +103,18 @@ export default function PlannerIntegrationsPage() {
                     Connected {formatDate(account.created_at)}
                   </p>
                 </div>
-                <Button type="button" variant="outline" onClick={disconnect} disabled={isDisconnecting}>
-                  {isDisconnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />}
-                  Disconnect
-                </Button>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button asChild>
+                    <Link href="/planner/outreach">
+                      <Mail className="h-4 w-4" />
+                      Review outreach approvals
+                    </Link>
+                  </Button>
+                  <Button type="button" variant="outline" onClick={disconnect} disabled={isDisconnecting}>
+                    {isDisconnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />}
+                    Disconnect
+                  </Button>
+                </div>
               </div>
             ) : (
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -114,7 +122,7 @@ export default function PlannerIntegrationsPage() {
                   Connect Gmail before sending approved outreach drafts or reading partner replies.
                 </p>
                 <Button asChild>
-                  <Link href="/api/integrations/gmail/connect?returnTo=/planner/settings/integrations">
+                  <Link href="/api/integrations/gmail/connect?returnTo=/planner/outreach">
                     <ExternalLink className="h-4 w-4" />
                     Connect Gmail
                   </Link>
