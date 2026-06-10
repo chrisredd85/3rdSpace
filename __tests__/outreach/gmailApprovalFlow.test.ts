@@ -271,7 +271,7 @@ describe('Gmail approval flow', () => {
       target_email: 'stable@example.com',
       target_source: 'google_verification',
       target_type: 'venue',
-      state: 'sent',
+      state: 'awaiting_reply',
       needs_attention: false,
       last_event_at: '2026-06-10T00:00:00.000Z',
       last_outbound_at: '2026-06-10T00:00:00.000Z',
@@ -307,7 +307,7 @@ describe('Gmail approval flow', () => {
     const syncResult = await syncGmailOutreachThread(db, { userId: 'user-1', threadId: 'thread-1' })
     expect(syncResult.inserted_count).toBe(1)
     expect(db.rows.outreach_threads[0]).toEqual(expect.objectContaining({
-      state: 'reply_received',
+      state: 'in_negotiation',
       needs_attention: true,
     }))
 
@@ -317,7 +317,7 @@ describe('Gmail approval flow', () => {
       removeLabelIds: ['UNREAD', 'INBOX'],
     }))
     expect(db.rows.outreach_threads[0]).toEqual(expect.objectContaining({
-      state: 'handled',
+      state: 'confirmed',
       needs_attention: false,
     }))
   })

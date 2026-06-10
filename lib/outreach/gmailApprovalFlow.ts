@@ -399,7 +399,7 @@ export async function markGmailOutreachThreadHandled(
   await db
     .from('outreach_threads')
     .update({
-      state: 'handled',
+      state: 'confirmed',
       needs_attention: false,
       updated_at: now,
     })
@@ -709,12 +709,12 @@ async function insertOutreachThread(
       target_type: 'venue',
       target_source: GMAIL_APPROVAL_DEMO_TARGET_SOURCE,
       target_email: input.target.email,
-      channel: 'gmail',
+      channel: 'email',
       channel_strategy: {
         source: GMAIL_APPROVED_OUTREACH_KIND,
         approval_required: true,
       } as Json,
-      state: 'sent',
+      state: 'awaiting_reply',
       needs_attention: false,
       last_event_at: input.now,
       last_outbound_at: input.now,
@@ -793,7 +793,7 @@ async function insertMissingGmailMessages(
       await db
         .from('outreach_threads')
         .update({
-          state: 'reply_received',
+          state: 'in_negotiation',
           needs_attention: true,
           last_inbound_at: message.receivedAt,
           last_event_at: message.receivedAt,
