@@ -74,11 +74,22 @@ class MemoryDb {
         event_id: null,
         plan_id: PLAN_ID,
         venue_id: VENUE_ID,
+        builder_id: BUILDER_ID,
+        venue_owner_id: VENUE_OWNER_ID,
+        actual_attendance: null,
+        actual_qualified_attendance: null,
+        attendance_extracted_value: null,
+        attendance_proof_url: null,
         reported_revenue_cents: 428000,
         bar_revenue_share_percent: 12,
         ticket_revenue_share_percent: null,
         lift_share_percentage: null,
         per_head_amount: null,
+        minimum_attendees: null,
+        maximum_payout: null,
+        venue_approved: null,
+        venue_approved_at: null,
+        disputed_at: null,
         status: 'sales_submitted',
       },
     ],
@@ -86,6 +97,7 @@ class MemoryDb {
       {
         id: VENUE_ID,
         venue_name: 'The Roof',
+        venue_type: 'restaurant',
         contact_email: 'venue@example.com',
         owner_id: VENUE_OWNER_ID,
         stripe_customer_id: null,
@@ -99,6 +111,8 @@ class MemoryDb {
         payouts_enabled: true,
       },
     ],
+    community_host_incentive_agreements: [],
+    community_host_incentive_settlements: [],
     plans: [{ id: PLAN_ID, title: 'Tech Mixer', date_window_start: '2026-05-12' }],
     events: [{ id: EVENT_ID, event_name: 'Legacy Event', event_date: '2026-05-12' }],
   }
@@ -111,7 +125,7 @@ class MemoryDb {
 
 class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
   private filters: Array<(row: Row) => boolean> = []
-  private operation: 'select' | 'update' = 'select'
+  private operation: 'select' | 'insert' | 'update' = 'select'
   private payload: Row | null = null
   private selectedColumns: string | null = null
 
@@ -124,6 +138,12 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
 
   update(payload: Row) {
     this.operation = 'update'
+    this.payload = payload
+    return this
+  }
+
+  insert(payload: Row) {
+    this.operation = 'insert'
     this.payload = payload
     return this
   }
@@ -148,6 +168,12 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
   }
 
   private execute() {
+    if (this.operation === 'insert') {
+      const row = { id: `${this.table}-${this.db.rows[this.table].length + 1}`, ...this.payload }
+      this.db.rows[this.table].push(row)
+      return { data: this.projectRows([row]), error: null }
+    }
+
     if (this.operation === 'update') {
       const rows = this.applyFilters()
       rows.forEach((row) => Object.assign(row, this.payload))
@@ -184,9 +210,11 @@ function makeRequest() {
 describe('venue kickback checkout route', () => {
   let db: MemoryDb
   let stripe: any
+  const originalCHIFlag = process.env.CHI_NEW_ENGINE_ENABLED
 
   beforeEach(() => {
     jest.clearAllMocks()
+    delete process.env.CHI_NEW_ENGINE_ENABLED
     db = new MemoryDb()
     stripe = {
       customers: {
@@ -229,6 +257,14 @@ describe('venue kickback checkout route', () => {
       accountId: 'acct_builder',
       mismatchCleared: false,
     })
+  })
+
+  afterAll(() => {
+    if (originalCHIFlag === undefined) {
+      delete process.env.CHI_NEW_ENGINE_ENABLED
+    } else {
+      process.env.CHI_NEW_ENGINE_ENABLED = originalCHIFlag
+    }
   })
 
   it('sends a Stripe invoice for invoice-settlement kickback payments', async () => {
@@ -366,5 +402,128 @@ describe('venue kickback checkout route', () => {
       status: 'processing',
       stripe_checkout_session_id: 'cs_1',
     })
+  })
+
+  it('routes eligible venues through the flagged Community Host Incentive invoice path', async () => {
+    process.env.CHI_NEW_ENGINE_ENABLED = 'true'
+    Object.assign(db.rows.venues[0], { venue_type: 'bar' })
+    Object.assign(db.rows.event_kickback_agreements[0], {
+      per_head_amount: 10,
+      bar_revenue_share_percent: null,
+      actual_qualified_attendance: 200,
+      attendance_proof_url: 'https://storage.test/attendance.csv',
+      venue_approved: true,
+      venue_approved_at: '2026-06-09T12:00:00.000Z',
+    })
+
+    const response = await POST(makeRequest(), { params: { id: PAYMENT_ID } })
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json).toMatchObject({
+      hosted_invoice_url: 'https://invoice.test/in_1',
+      principal_cents: 200000,
+      processing_fee_cents: 500,
+      total_due_cents: 200500,
+      chi_agreement_id: 'community_host_incentive_agreements-1',
+      chi_settlement_id: 'community_host_incentive_settlements-1',
+    })
+    expect(stripe.customers.create).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: {
+        venue_id: VENUE_ID,
+        payment_type: 'community_host_incentive',
+      },
+    }))
+    expect(stripe.invoiceItems.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        amount: 200000,
+        description: 'Community Host Incentive - 200 verified attendees x $10.00 = $2,000.00',
+        metadata: expect.objectContaining({
+          payment_type: 'community_host_incentive',
+          incentive_type: 'per_verified_attendee',
+          calculation_basis: 'verified_attendance',
+          verified_attendees: '200',
+          per_head_rate_cents: '1000',
+          applied_floor: 'false',
+          applied_cap: 'false',
+          is_revenue_share: 'false',
+          is_percentage_of_alcohol: 'false',
+          is_percentage_of_pos: 'false',
+          event_id: '',
+          venue_id: VENUE_ID,
+          organizer_id: BUILDER_ID,
+          chi_agreement_id: 'community_host_incentive_agreements-1',
+          chi_settlement_id: 'community_host_incentive_settlements-1',
+          legacy_payment_id: PAYMENT_ID,
+          builder_stripe_account_id: 'acct_builder',
+          principal_cents: '200000',
+          settlement_method: 'invoice',
+          item_type: 'principal',
+        }),
+      }),
+      expect.objectContaining({
+        idempotencyKey: 'community_host_incentive_invoice_item_community_host_incentive_settlements-1_principal_200000',
+      })
+    )
+    expect(stripe.invoices.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          payment_type: 'community_host_incentive',
+          legacy_payment_id: PAYMENT_ID,
+          chi_settlement_id: 'community_host_incentive_settlements-1',
+        }),
+      }),
+      expect.objectContaining({
+        idempotencyKey: 'community_host_incentive_invoice_community_host_incentive_settlements-1_200000_500',
+      })
+    )
+    expect(db.rows.community_host_incentive_agreements[0]).toMatchObject({
+      venue_id: VENUE_ID,
+      organizer_user_id: BUILDER_ID,
+      agreement_type: 'per_verified_attendee',
+      per_head_rate_cents: 1000,
+      settlement_mode: 'community_host_incentive',
+      status: 'active',
+      venue_approved: true,
+      is_legacy_revenue_share: false,
+    })
+    expect(db.rows.community_host_incentive_settlements[0]).toMatchObject({
+      agreement_id: 'community_host_incentive_agreements-1',
+      verified_attendees: 200,
+      verification_source: 'csv_upload',
+      organizer_payout_cents: 200000,
+      calculation_basis: 'verified_attendance',
+      status: 'invoice_sent',
+      stripe_invoice_id: 'in_1',
+      is_legacy_revenue_share: false,
+    })
+    expect(db.rows.kickback_payments[0]).toMatchObject({
+      status: 'invoice_sent',
+      builder_payout_cents: 200000,
+      processing_fee_cents: 500,
+    })
+    expect(sendVenueInvoiceEmail).not.toHaveBeenCalled()
+  })
+
+  it('keeps rental-only venues on the legacy invoice path when the CHI flag is on', async () => {
+    process.env.CHI_NEW_ENGINE_ENABLED = 'true'
+    Object.assign(db.rows.venues[0], { venue_type: 'event_space' })
+
+    const response = await POST(makeRequest(), { params: { id: PAYMENT_ID } })
+
+    expect(response.status).toBe(200)
+    expect(stripe.invoiceItems.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        description: 'Revenue share for "Tech Mixer" - 12% bar revenue share of $4280.00',
+      }),
+      expect.objectContaining({
+        idempotencyKey: `kickback_invoice_item_${PAYMENT_ID}_principal_51360`,
+      })
+    )
+    expect(db.rows.community_host_incentive_agreements).toEqual([])
+    expect(db.rows.community_host_incentive_settlements).toEqual([])
+    expect(sendVenueInvoiceEmail).toHaveBeenCalledWith({ paymentId: PAYMENT_ID })
   })
 })

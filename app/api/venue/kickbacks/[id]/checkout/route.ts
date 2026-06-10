@@ -2,6 +2,16 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { sendVenueInvoiceEmail } from '@/lib/email'
+import {
+  buildCHIStripeMetadata,
+  calculateCHI,
+  isCHINewEngineEnabled,
+  isCHIVenueTypeEligible,
+  renderCHIInvoiceLine,
+  type CHIAgreementInput,
+  type CHISettlementResult,
+  type CHIVerificationSource,
+} from '@/lib/finance/community-host-incentive'
 import { centsToDollars } from '@/lib/money'
 import { dollarsToCents } from '@/lib/payments/vendor-payments'
 import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
@@ -38,20 +48,88 @@ type KickbackAgreementForInvoice = {
   event_id: string | null
   plan_id: string | null
   venue_id: string
+  builder_id: string
+  venue_owner_id: string
+  actual_attendance: number | null
+  actual_qualified_attendance: number | null
+  attendance_extracted_value: number | null
+  attendance_proof_url: string | null
   reported_revenue_cents: number | null
   bar_revenue_share_percent: number | string | null
   ticket_revenue_share_percent: number | string | null
   lift_share_percentage: number | string | null
   per_head_amount: number | string | null
+  minimum_attendees: number | null
+  maximum_payout: number | null
+  venue_approved: boolean | null
+  venue_approved_at: string | null
+  disputed_at: string | null
 }
 
 type VenueForInvoice = {
   id: string
   venue_name: string | null
+  venue_type: string | null
   contact_email: string | null
   owner_id: string | null
   stripe_customer_id?: string | null
 }
+
+type CHIAgreementRowForInvoice = {
+  id: string
+  event_id: string | null
+  plan_id: string | null
+  venue_id: string
+  organizer_user_id: string
+  venue_owner_user_id: string
+  agreement_type: CHIAgreementInput['agreementType']
+  per_head_rate_cents: number | null
+  fixed_amount_cents: number | null
+  threshold_attendees: number | null
+  base_amount_cents: number | null
+  payout_floor_cents: number | null
+  payout_cap_cents: number | null
+  venue_approved: boolean
+  approved_at: string | null
+  approved_by_venue_user_id: string | null
+}
+
+type CHISettlementRowForInvoice = {
+  id: string
+  agreement_id: string
+  event_id: string | null
+  status: string
+  stripe_invoice_id: string | null
+  stripe_transfer_id: string | null
+}
+
+const CHI_AGREEMENT_SELECT = [
+  'id',
+  'event_id',
+  'plan_id',
+  'venue_id',
+  'organizer_user_id',
+  'venue_owner_user_id',
+  'agreement_type',
+  'per_head_rate_cents',
+  'fixed_amount_cents',
+  'threshold_attendees',
+  'base_amount_cents',
+  'payout_floor_cents',
+  'payout_cap_cents',
+  'venue_approved',
+  'approved_at',
+  'approved_by_venue_user_id',
+].join(', ')
+
+const CHI_SETTLEMENT_SELECT = [
+  'id',
+  'agreement_id',
+  'event_id',
+  'status',
+  'stripe_invoice_id',
+  'stripe_transfer_id',
+].join(', ')
 
 /**
  * Creates a Stripe Checkout session for a venue-to-builder kickback payment.
@@ -264,14 +342,44 @@ async function createInvoiceForKickback({
 
   const { accountId, errorResponse } = await loadValidatedBuilderStripeAccount(admin, payment.recipient_id)
   if (errorResponse) return errorResponse
+  if (!accountId) {
+    return NextResponse.json(
+      {
+        error: 'The event builder needs to reconnect Stripe before receiving payouts.',
+        code: 'builder_requires_reconnect',
+        onboarding_required: true,
+      },
+      { status: 409 }
+    )
+  }
 
   const stripe = getStripeClient()
+  const useCommunityHostIncentive = isCHINewEngineEnabled() && isCHIVenueTypeEligible(venue.venue_type)
   const customerId = await getOrCreateVenueCustomer({
     admin,
     stripe,
     venue,
     fallbackEmail: venueOwnerEmail,
+    metadata: useCommunityHostIncentive
+      ? { venue_id: venue.id, payment_type: 'community_host_incentive' }
+      : undefined,
   })
+
+  // Business invariant: legacy rows are not silently converted; CHI only runs
+  // when the launch flag is on and the venue type is explicitly eligible.
+  if (useCommunityHostIncentive) {
+    return createInvoiceForCommunityHostIncentive({
+      admin,
+      payment,
+      agreement,
+      venue,
+      customerId,
+      builderStripeAccountId: accountId,
+      principalCents,
+      currency: payment.currency || 'usd',
+    })
+  }
+
   const eventLabel = await loadInvoiceEventLabel(admin, agreement)
   const reportedRevenueCents = agreement.reported_revenue_cents ?? 0
   const achFeeCents = Math.min(Math.round(principalCents * 0.008), 500)
@@ -376,6 +484,464 @@ async function createInvoiceForKickback({
   })
 }
 
+async function createInvoiceForCommunityHostIncentive({
+  admin,
+  payment,
+  agreement,
+  venue,
+  customerId,
+  builderStripeAccountId,
+  principalCents,
+  currency,
+}: {
+  admin: any
+  payment: KickbackPaymentForCheckout
+  agreement: KickbackAgreementForInvoice
+  venue: VenueForInvoice
+  customerId: string
+  builderStripeAccountId: string
+  principalCents: number
+  currency: string
+}) {
+  if (agreement.disputed_at) {
+    return NextResponse.json(
+      { error: 'This Community Host Incentive needs admin review before invoicing.' },
+      { status: 409 }
+    )
+  }
+
+  const now = new Date().toISOString()
+  const dueDateIso = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  const attendance = resolveVerifiedAttendance(agreement)
+  const chiAgreementInput = buildCHIAgreementInput({
+    agreement,
+    principalCents,
+    approvedAt: agreement.venue_approved_at ?? now,
+    approvedByVenueUserId: payment.payer_id,
+  })
+  const chiResult = calculateCHI({
+    agreement: chiAgreementInput,
+    verifiedAttendees: attendance.verifiedAttendees,
+    verificationSource: attendance.verificationSource,
+    verificationSourceId: attendance.verificationSourceId,
+  })
+
+  if (chiResult.organizerPayoutCents <= 0) {
+    return NextResponse.json(
+      { error: 'Community Host Incentive payout must be greater than zero before invoicing.' },
+      { status: 400 }
+    )
+  }
+
+  const chiAgreement = await upsertCHIAgreementForInvoice(admin, {
+    sourceAgreement: agreement,
+    chiAgreementInput,
+    organizerUserId: payment.recipient_id,
+    venueOwnerUserId: payment.payer_id,
+    now,
+    dueDateIso,
+    legacyPaymentId: payment.id,
+  })
+  const chiSettlement = await upsertCHISettlementForInvoice(admin, {
+    sourceAgreement: agreement,
+    chiAgreement,
+    attendance,
+    chiResult,
+    now,
+    legacyPaymentId: payment.id,
+  })
+  const achFeeCents = Math.min(Math.round(chiResult.organizerPayoutCents * 0.008), 500)
+  const stripeMetadata = buildCHIStripeMetadata({
+    chiAgreementId: chiAgreement.id,
+    chiSettlementId: chiSettlement.id,
+    agreement: chiAgreementInput,
+    settlement: chiResult,
+    verifiedAttendees: attendance.verifiedAttendees,
+    eventId: agreement.event_id,
+    venueId: venue.id,
+    organizerId: payment.recipient_id,
+    legacyPaymentId: payment.id,
+    builderStripeAccountId,
+  })
+  const stripe = getStripeClient()
+
+  await stripe.invoiceItems.create(
+    {
+      customer: customerId,
+      amount: chiResult.organizerPayoutCents,
+      currency,
+      description: renderCHIInvoiceLine({
+        agreement: chiAgreementInput,
+        settlement: chiResult,
+        verifiedAttendees: attendance.verifiedAttendees,
+      }),
+      metadata: { ...stripeMetadata, item_type: 'principal' },
+    },
+    {
+      idempotencyKey: `community_host_incentive_invoice_item_${chiSettlement.id}_principal_${chiResult.organizerPayoutCents}`,
+    }
+  )
+
+  await stripe.invoiceItems.create(
+    {
+      customer: customerId,
+      amount: achFeeCents,
+      currency,
+      description: 'Payment processing fee (ACH)',
+      metadata: { ...stripeMetadata, item_type: 'processing_fee' },
+    },
+    {
+      idempotencyKey: `community_host_incentive_invoice_item_${chiSettlement.id}_processing_${achFeeCents}`,
+    }
+  )
+
+  const invoice = await stripe.invoices.create(
+    {
+      customer: customerId,
+      collection_method: 'send_invoice',
+      pending_invoice_items_behavior: 'include',
+      days_until_due: 7,
+      payment_settings: {
+        payment_method_types: ['us_bank_account', 'card'],
+      },
+      metadata: stripeMetadata,
+    } as any,
+    {
+      idempotencyKey: `community_host_incentive_invoice_${chiSettlement.id}_${chiResult.organizerPayoutCents}_${achFeeCents}`,
+    }
+  )
+  const finalizedInvoice = await stripe.invoices.finalizeInvoice(
+    invoice.id,
+    {},
+    { idempotencyKey: `community_host_incentive_invoice_finalize_${chiSettlement.id}_${invoice.id}` }
+  )
+  const sentInvoice = await stripe.invoices.sendInvoice(
+    finalizedInvoice.id,
+    {},
+    { idempotencyKey: `community_host_incentive_invoice_send_${chiSettlement.id}_${finalizedInvoice.id}` }
+  )
+  const dueDate = sentInvoice.due_date ?? finalizedInvoice.due_date ?? null
+  const hostedInvoiceUrl = sentInvoice.hosted_invoice_url ?? finalizedInvoice.hosted_invoice_url ?? null
+  const savedDueDate = dueDate ? new Date(dueDate * 1000).toISOString() : dueDateIso
+
+  await updateOrThrow(
+    admin
+      .from('community_host_incentive_settlements')
+      .update({
+        status: 'invoice_sent',
+        stripe_invoice_id: sentInvoice.id,
+        due_at: savedDueDate,
+        metadata: {
+          legacy_payment_id: payment.id,
+          stripe_invoice_id: sentInvoice.id,
+          hosted_invoice_url: hostedInvoiceUrl,
+        },
+        updated_at: now,
+      })
+      .eq('id', chiSettlement.id),
+    'Failed to save CHI invoice state'
+  )
+
+  await updateOrThrow(
+    admin
+      .from('community_host_incentive_agreements')
+      .update({
+        status: 'active',
+        settlement_due_at: savedDueDate,
+        updated_at: now,
+      })
+      .eq('id', chiAgreement.id),
+    'Failed to save CHI agreement invoice state'
+  )
+
+  await updateOrThrow(
+    admin
+      .from('kickback_payments')
+      .update({
+        status: 'invoice_sent',
+        stripe_invoice_id: sentInvoice.id,
+        invoice_hosted_url: hostedInvoiceUrl,
+        processing_fee_cents: achFeeCents,
+        builder_payout_cents: chiResult.organizerPayoutCents,
+        due_date: savedDueDate,
+        initiated_at: now,
+        failure_reason: null,
+      })
+      .eq('id', payment.id),
+    'Failed to save legacy payment compatibility state'
+  )
+
+  await updateOrThrow(
+    admin
+      .from('event_kickback_agreements')
+      .update({
+        status: 'payment_pending',
+        updated_at: now,
+      })
+      .eq('id', payment.agreement_id),
+    'Failed to save legacy agreement compatibility state'
+  )
+
+  return NextResponse.json({
+    hosted_invoice_url: hostedInvoiceUrl,
+    checkoutUrl: hostedInvoiceUrl,
+    due_date: dueDate,
+    principal_cents: chiResult.organizerPayoutCents,
+    processing_fee_cents: achFeeCents,
+    total_due_cents: chiResult.organizerPayoutCents + achFeeCents,
+    chi_agreement_id: chiAgreement.id,
+    chi_settlement_id: chiSettlement.id,
+  })
+}
+
+function resolveVerifiedAttendance(agreement: KickbackAgreementForInvoice): {
+  verifiedAttendees: number
+  verificationSource: CHIVerificationSource
+  verificationSourceId?: string
+} {
+  const checkedInAttendance = readNonNegativeInteger(agreement.actual_qualified_attendance)
+    ?? readNonNegativeInteger(agreement.actual_attendance)
+  if (checkedInAttendance !== null) {
+    return {
+      verifiedAttendees: checkedInAttendance,
+      verificationSource: 'csv_upload',
+      verificationSourceId: agreement.attendance_proof_url ?? undefined,
+    }
+  }
+
+  const extractedAttendance = readNonNegativeInteger(agreement.attendance_extracted_value)
+  return {
+    verifiedAttendees: extractedAttendance ?? 0,
+    verificationSource: extractedAttendance === null ? 'ticketing_api' : 'screenshot_ocr',
+    verificationSourceId: agreement.attendance_proof_url ?? undefined,
+  }
+}
+
+function buildCHIAgreementInput({
+  agreement,
+  principalCents,
+  approvedAt,
+  approvedByVenueUserId,
+}: {
+  agreement: KickbackAgreementForInvoice
+  principalCents: number
+  approvedAt: string
+  approvedByVenueUserId: string
+}): CHIAgreementInput {
+  const perHeadRateCents = dollarsToCents(agreement.per_head_amount)
+  const payoutCapCents = dollarsToCents(agreement.maximum_payout)
+  const common = {
+    venueApproved: true,
+    approvedAt,
+    approvedByVenueUserId,
+    payoutCapCents: payoutCapCents > 0 ? payoutCapCents : undefined,
+  }
+
+  if (perHeadRateCents > 0) {
+    return {
+      ...common,
+      agreementType: 'per_verified_attendee',
+      perHeadRateCents,
+    }
+  }
+
+  if (readNonNegativeInteger(agreement.minimum_attendees) !== null) {
+    return {
+      ...common,
+      agreementType: 'fixed_threshold',
+      fixedAmountCents: principalCents,
+      thresholdAttendees: agreement.minimum_attendees ?? 0,
+    }
+  }
+
+  return {
+    ...common,
+    agreementType: 'manual_venue_approved',
+    fixedAmountCents: principalCents,
+  }
+}
+
+async function upsertCHIAgreementForInvoice(
+  admin: any,
+  input: {
+    sourceAgreement: KickbackAgreementForInvoice
+    chiAgreementInput: CHIAgreementInput
+    organizerUserId: string
+    venueOwnerUserId: string
+    now: string
+    dueDateIso: string
+    legacyPaymentId: string
+  }
+): Promise<CHIAgreementRowForInvoice> {
+  const existing = await loadExistingCHIAgreementForInvoice(admin, input.sourceAgreement, input.organizerUserId)
+  const payload = {
+    agreement_type: input.chiAgreementInput.agreementType,
+    per_head_rate_cents: input.chiAgreementInput.perHeadRateCents ?? null,
+    fixed_amount_cents: input.chiAgreementInput.fixedAmountCents ?? null,
+    threshold_attendees: input.chiAgreementInput.thresholdAttendees ?? null,
+    base_amount_cents: input.chiAgreementInput.baseAmountCents ?? null,
+    payout_floor_cents: input.chiAgreementInput.payoutFloorCents ?? null,
+    payout_cap_cents: input.chiAgreementInput.payoutCapCents ?? null,
+    settlement_mode: 'community_host_incentive',
+    status: 'approved',
+    venue_approved: true,
+    approved_at: input.chiAgreementInput.approvedAt,
+    approved_by_venue_user_id: input.chiAgreementInput.approvedByVenueUserId,
+    settlement_due_at: input.dueDateIso,
+    is_legacy_revenue_share: false,
+    metadata: {
+      source_table: 'event_kickback_agreements',
+      source_agreement_id: input.sourceAgreement.id,
+      legacy_payment_id: input.legacyPaymentId,
+    },
+    updated_at: input.now,
+  }
+
+  if (existing?.id) {
+    await updateOrThrow(
+      admin
+        .from('community_host_incentive_agreements')
+        .update(payload)
+        .eq('id', existing.id),
+      'Failed to update CHI agreement'
+    )
+
+    return {
+      ...existing,
+      ...payload,
+      agreement_type: payload.agreement_type,
+      venue_approved: true,
+      approved_at: payload.approved_at,
+      approved_by_venue_user_id: payload.approved_by_venue_user_id,
+    }
+  }
+
+  const { data, error } = await admin
+    .from('community_host_incentive_agreements')
+    .insert({
+      event_id: input.sourceAgreement.event_id,
+      plan_id: input.sourceAgreement.plan_id,
+      venue_id: input.sourceAgreement.venue_id,
+      organizer_user_id: input.organizerUserId,
+      venue_owner_user_id: input.venueOwnerUserId,
+      created_at: input.now,
+      ...payload,
+    })
+    .select(CHI_AGREEMENT_SELECT)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to create CHI agreement')
+  if (!data) throw new Error('Failed to create CHI agreement')
+  return data as CHIAgreementRowForInvoice
+}
+
+async function loadExistingCHIAgreementForInvoice(
+  admin: any,
+  agreement: KickbackAgreementForInvoice,
+  organizerUserId: string
+): Promise<CHIAgreementRowForInvoice | null> {
+  let query = admin
+    .from('community_host_incentive_agreements')
+    .select(CHI_AGREEMENT_SELECT)
+    .eq('venue_id', agreement.venue_id)
+    .eq('organizer_user_id', organizerUserId)
+
+  query = agreement.event_id
+    ? query.eq('event_id', agreement.event_id)
+    : query.eq('plan_id', agreement.plan_id)
+
+  const { data, error } = await query.maybeSingle()
+  if (error) throw new Error(error.message ?? 'Failed to load CHI agreement')
+  return (data as CHIAgreementRowForInvoice | null) ?? null
+}
+
+async function upsertCHISettlementForInvoice(
+  admin: any,
+  input: {
+    sourceAgreement: KickbackAgreementForInvoice
+    chiAgreement: CHIAgreementRowForInvoice
+    attendance: {
+      verifiedAttendees: number
+      verificationSource: CHIVerificationSource
+      verificationSourceId?: string
+    }
+    chiResult: CHISettlementResult
+    now: string
+    legacyPaymentId: string
+  }
+): Promise<CHISettlementRowForInvoice> {
+  const { data: existing, error: existingError } = await admin
+    .from('community_host_incentive_settlements')
+    .select(CHI_SETTLEMENT_SELECT)
+    .eq('agreement_id', input.chiAgreement.id)
+    .maybeSingle()
+
+  if (existingError) throw new Error(existingError.message ?? 'Failed to load CHI settlement')
+
+  const payload = {
+    event_id: input.sourceAgreement.event_id,
+    verified_attendees: input.attendance.verifiedAttendees,
+    verification_source: input.attendance.verificationSource,
+    verification_source_id: input.attendance.verificationSourceId ?? null,
+    organizer_payout_cents: input.chiResult.organizerPayoutCents,
+    calculation_basis: input.chiResult.calculationBasis,
+    applied_floor: input.chiResult.appliedFloor,
+    applied_cap: input.chiResult.appliedCap,
+    status: 'pending',
+    is_legacy_revenue_share: false,
+    metadata: {
+      source_table: 'event_kickback_agreements',
+      source_agreement_id: input.sourceAgreement.id,
+      legacy_payment_id: input.legacyPaymentId,
+    },
+    updated_at: input.now,
+  }
+
+  if ((existing as CHISettlementRowForInvoice | null)?.id) {
+    const settlement = existing as CHISettlementRowForInvoice
+    await updateOrThrow(
+      admin
+        .from('community_host_incentive_settlements')
+        .update(payload)
+        .eq('id', settlement.id),
+      'Failed to update CHI settlement'
+    )
+
+    return {
+      ...settlement,
+      ...payload,
+      status: payload.status,
+      stripe_invoice_id: settlement.stripe_invoice_id,
+      stripe_transfer_id: settlement.stripe_transfer_id,
+    }
+  }
+
+  const { data, error } = await admin
+    .from('community_host_incentive_settlements')
+    .insert({
+      agreement_id: input.chiAgreement.id,
+      created_at: input.now,
+      ...payload,
+    })
+    .select(CHI_SETTLEMENT_SELECT)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to create CHI settlement')
+  if (!data) throw new Error('Failed to create CHI settlement')
+  return data as CHISettlementRowForInvoice
+}
+
+async function updateOrThrow(query: PromiseLike<{ error?: { message?: string } | null }>, fallback: string) {
+  const { error } = await query
+  if (error) throw new Error(error.message ?? fallback)
+}
+
+function readNonNegativeInteger(value: number | string | null | undefined) {
+  const numeric = typeof value === 'string' ? Number(value) : value
+  if (typeof numeric !== 'number' || !Number.isSafeInteger(numeric) || numeric < 0) return null
+  return numeric
+}
+
 function resolveKickbackPaymentAmountCents(payment: KickbackPaymentForCheckout) {
   const cents = typeof payment.amount_cents === 'number' ? Math.round(payment.amount_cents) : null
   return cents && cents > 0 ? cents : dollarsToCents(Number(payment.amount ?? 0))
@@ -390,11 +956,22 @@ async function loadAgreementForInvoice(admin: any, agreementId: string): Promise
         'event_id',
         'plan_id',
         'venue_id',
+        'builder_id',
+        'venue_owner_id',
+        'actual_attendance',
+        'actual_qualified_attendance',
+        'attendance_extracted_value',
+        'attendance_proof_url',
         'reported_revenue_cents',
         'bar_revenue_share_percent',
         'ticket_revenue_share_percent',
         'lift_share_percentage',
         'per_head_amount',
+        'minimum_attendees',
+        'maximum_payout',
+        'venue_approved',
+        'venue_approved_at',
+        'disputed_at',
       ].join(', ')
     )
     .eq('id', agreementId)
@@ -407,7 +984,7 @@ async function loadAgreementForInvoice(admin: any, agreementId: string): Promise
 async function loadVenueForInvoice(admin: any, venueId: string): Promise<VenueForInvoice | null> {
   const { data, error } = await admin
     .from('venues')
-    .select('id, venue_name, contact_email, owner_id, stripe_customer_id')
+    .select('id, venue_name, venue_type, contact_email, owner_id, stripe_customer_id')
     .eq('id', venueId)
     .maybeSingle()
 
@@ -480,11 +1057,13 @@ async function getOrCreateVenueCustomer({
   stripe,
   venue,
   fallbackEmail,
+  metadata,
 }: {
   admin: any
   stripe: ReturnType<typeof getStripeClient>
   venue: VenueForInvoice
   fallbackEmail: string | null
+  metadata?: Record<string, string>
 }) {
   if (venue.stripe_customer_id) {
     try {
@@ -503,7 +1082,7 @@ async function getOrCreateVenueCustomer({
   const customer = await stripe.customers.create({
     email: venue.contact_email || fallbackEmail || undefined,
     name: venue.venue_name || undefined,
-    metadata: {
+    metadata: metadata ?? {
       venue_id: venue.id,
       payment_kind_namespace: 'venue_builder_kickback',
     },

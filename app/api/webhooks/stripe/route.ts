@@ -39,6 +39,7 @@ import {
 export const runtime = 'nodejs'
 
 const KICKBACK_TRANSFER_NAMESPACE = 'venue_builder_kickback'
+const CHI_PAYMENT_TYPE = 'community_host_incentive'
 
 function getPaymentIntentId(value: Stripe.PaymentIntent | string | null) {
   if (!value) return null
@@ -75,6 +76,14 @@ function isKickbackTransferEvent(transfer: Stripe.Transfer) {
   )
 }
 
+function isCommunityHostIncentiveInvoice(invoice: Stripe.Invoice) {
+  return invoice.metadata?.payment_type === CHI_PAYMENT_TYPE
+}
+
+function isCommunityHostIncentiveTransferEvent(transfer: Stripe.Transfer) {
+  return transfer.metadata?.payment_type === CHI_PAYMENT_TYPE
+}
+
 function logUnrecognizedTransferEvent(transfer: Stripe.Transfer) {
   console.log('[stripe.webhook] transfer event with no recognized namespace', {
     transferId: transfer.id,
@@ -88,6 +97,14 @@ function logMissingVenueRentalTransaction(source: string, metadata: Stripe.Metad
     stripeObjectId,
     metadata,
   })
+}
+
+async function updateWebhookRowOrThrow(
+  query: PromiseLike<{ error?: { message?: string } | null }>,
+  fallback: string
+) {
+  const { error } = await query
+  if (error) throw new Error(error.message ?? fallback)
 }
 
 async function applyKickbackCheckoutSessionCompleted(admin: any, session: Stripe.Checkout.Session) {
@@ -205,6 +222,178 @@ async function applyKickbackTransferEvent(admin: any, transfer: Stripe.Transfer,
   }
 
   await query.eq('stripe_transfer_id', transfer.id)
+  return true
+}
+
+async function applyCommunityHostIncentiveInvoicePaid(admin: any, invoice: Stripe.Invoice) {
+  if (!isCommunityHostIncentiveInvoice(invoice)) return false
+
+  const settlementId = invoice.metadata?.chi_settlement_id
+  const agreementId = invoice.metadata?.chi_agreement_id
+  const builderStripeAccountId = invoice.metadata?.builder_stripe_account_id
+  const principalCents = Number(invoice.metadata?.principal_cents ?? 0)
+
+  if (!settlementId || !agreementId || !builderStripeAccountId || !Number.isSafeInteger(principalCents) || principalCents <= 0) {
+    console.error('[stripe.webhook] Missing required CHI invoice metadata', {
+      invoiceId: invoice.id,
+      settlementId,
+      agreementId,
+    })
+    return true
+  }
+
+  const { data: settlement, error: settlementError } = await admin
+    .from('community_host_incentive_settlements')
+    .select('id, agreement_id, status, stripe_transfer_id')
+    .eq('id', settlementId)
+    .maybeSingle()
+
+  if (settlementError) throw new Error(settlementError.message)
+  if (!settlement?.id) return true
+  if (settlement.status === 'paid' || settlement.stripe_transfer_id) return true
+
+  const stripe = getStripeClient()
+  const transfer = await stripe.transfers.create(
+    {
+      amount: principalCents,
+      currency: invoice.currency ?? 'usd',
+      destination: builderStripeAccountId,
+      transfer_group: `community_host_incentive_${settlementId}`,
+      metadata: {
+        payment_type: CHI_PAYMENT_TYPE,
+        chi_settlement_id: settlementId,
+        chi_agreement_id: agreementId,
+        event_id: invoice.metadata?.event_id ?? '',
+        venue_id: invoice.metadata?.venue_id ?? '',
+        organizer_id: invoice.metadata?.organizer_id ?? '',
+        legacy_payment_id: invoice.metadata?.legacy_payment_id ?? '',
+        principal_cents: String(principalCents),
+      },
+    },
+    {
+      idempotencyKey: `community_host_incentive_invoice_transfer_${settlementId}_${invoice.id}_${principalCents}`,
+    }
+  )
+
+  const now = new Date().toISOString()
+  await updateWebhookRowOrThrow(
+    admin
+      .from('community_host_incentive_settlements')
+      .update({
+        status: 'paid',
+        paid_at: now,
+        stripe_invoice_id: invoice.id,
+        stripe_transfer_id: transfer.id,
+        organizer_payout_cents: principalCents,
+        updated_at: now,
+      })
+      .eq('id', settlementId),
+    'Failed to mark CHI settlement paid'
+  )
+
+  await updateWebhookRowOrThrow(
+    admin
+      .from('community_host_incentive_agreements')
+      .update({
+        status: 'completed',
+        updated_at: now,
+      })
+      .eq('id', agreementId),
+    'Failed to mark CHI agreement completed'
+  )
+
+  const legacyPaymentId = invoice.metadata?.legacy_payment_id
+  if (legacyPaymentId) {
+    await updateWebhookRowOrThrow(
+      admin
+        .from('kickback_payments')
+        .update({
+          status: 'paid',
+          paid_at: now,
+          completed_at: now,
+          stripe_transfer_id: transfer.id,
+          builder_payout_cents: principalCents,
+          failed_at: null,
+          failure_reason: null,
+        })
+        .eq('id', legacyPaymentId),
+      'Failed to update legacy payment compatibility state'
+    )
+  }
+
+  return true
+}
+
+async function applyCommunityHostIncentiveInvoicePaymentFailed(admin: any, invoice: Stripe.Invoice) {
+  if (!isCommunityHostIncentiveInvoice(invoice)) return false
+
+  const settlementId = invoice.metadata?.chi_settlement_id
+  if (settlementId) {
+    await updateWebhookRowOrThrow(
+      admin
+        .from('community_host_incentive_settlements')
+        .update({
+          status: 'failed',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', settlementId),
+      'Failed to mark CHI settlement failed'
+    )
+  }
+
+  const legacyPaymentId = invoice.metadata?.legacy_payment_id
+  if (legacyPaymentId) {
+    await updateWebhookRowOrThrow(
+      admin
+        .from('kickback_payments')
+        .update({
+          status: 'invoice_failed',
+          failed_at: new Date().toISOString(),
+          failure_reason: 'Stripe Community Host Incentive invoice payment failed',
+        })
+        .eq('id', legacyPaymentId),
+      'Failed to update legacy payment compatibility failure state'
+    )
+  }
+
+  return true
+}
+
+async function applyCommunityHostIncentiveTransferEvent(
+  admin: any,
+  transfer: Stripe.Transfer,
+  eventType: 'transfer.created' | 'transfer.updated' | 'transfer.reversed'
+) {
+  const settlementId = transfer.metadata?.chi_settlement_id
+  if (!settlementId) {
+    console.warn('[stripe.webhook] CHI transfer missing settlement metadata', { transferId: transfer.id })
+    return true
+  }
+
+  if (eventType === 'transfer.reversed') {
+    await updateWebhookRowOrThrow(
+      admin
+        .from('community_host_incentive_settlements')
+        .update({
+          status: 'refunded',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', settlementId),
+      'Failed to mark CHI settlement refunded'
+    )
+    return true
+  }
+
+  await updateWebhookRowOrThrow(
+    admin
+      .from('community_host_incentive_settlements')
+      .update({
+        stripe_transfer_id: transfer.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', settlementId),
+    'Failed to save CHI transfer state'
+  )
   return true
 }
 
@@ -438,6 +627,11 @@ async function routeTransferEvent(
   transfer: Stripe.Transfer,
   eventType: 'transfer.created' | 'transfer.updated' | 'transfer.reversed'
 ) {
+  if (isCommunityHostIncentiveTransferEvent(transfer)) {
+    await applyCommunityHostIncentiveTransferEvent(admin, transfer, eventType)
+    return
+  }
+
   if (isKickbackTransferEvent(transfer)) {
     if (eventType === 'transfer.reversed') {
       const handledKickbackRefund = await applyKickbackRefundCompleted(
@@ -559,23 +753,31 @@ export async function POST(request: NextRequest) {
     }
 
     if (event.type === 'invoice.paid') {
-      const handledKickbackInvoice = await applyKickbackInvoicePaid(admin as any, event.data.object as Stripe.Invoice)
-      if (!handledKickbackInvoice) {
-        await applyInvoicePayment(admin as any, event.data.object as Stripe.Invoice)
+      const invoice = event.data.object as Stripe.Invoice
+      const handledCHIInvoice = await applyCommunityHostIncentiveInvoicePaid(admin as any, invoice)
+      if (!handledCHIInvoice) {
+        const handledKickbackInvoice = await applyKickbackInvoicePaid(admin as any, invoice)
+        if (!handledKickbackInvoice) {
+          await applyInvoicePayment(admin as any, invoice)
+        }
       }
     }
 
     if (event.type === 'invoice.payment_succeeded') {
       const invoice = event.data.object as Stripe.Invoice
-      if (!invoice.metadata?.kickback_payment_id) {
+      if (!isCommunityHostIncentiveInvoice(invoice) && !invoice.metadata?.kickback_payment_id) {
         await applyInvoicePayment(admin as any, invoice)
       }
     }
 
     if (event.type === 'invoice.payment_failed') {
-      const handledKickbackInvoice = await applyKickbackInvoicePaymentFailed(admin as any, event.data.object as Stripe.Invoice)
-      if (!handledKickbackInvoice) {
-        await applyInvoicePaymentFailed(admin as any, event.data.object as Stripe.Invoice)
+      const invoice = event.data.object as Stripe.Invoice
+      const handledCHIInvoice = await applyCommunityHostIncentiveInvoicePaymentFailed(admin as any, invoice)
+      if (!handledCHIInvoice) {
+        const handledKickbackInvoice = await applyKickbackInvoicePaymentFailed(admin as any, invoice)
+        if (!handledKickbackInvoice) {
+          await applyInvoicePaymentFailed(admin as any, invoice)
+        }
       }
     }
 

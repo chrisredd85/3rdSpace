@@ -60,6 +60,8 @@ type Row = Record<string, unknown>
 
 const PAYMENT_ID = 'payment-1'
 const AGREEMENT_ID = 'agreement-1'
+const CHI_AGREEMENT_ID = 'chi-agreement-1'
+const CHI_SETTLEMENT_ID = 'chi-settlement-1'
 const VENUE_PAYMENT_ID = 'venue-payment-1'
 
 class MemoryDb {
@@ -80,6 +82,22 @@ class MemoryDb {
         id: AGREEMENT_ID,
         status: 'payment_pending',
         stripe_transfer_id: null,
+      },
+    ],
+    community_host_incentive_agreements: [
+      {
+        id: CHI_AGREEMENT_ID,
+        status: 'active',
+      },
+    ],
+    community_host_incentive_settlements: [
+      {
+        id: CHI_SETTLEMENT_ID,
+        agreement_id: CHI_AGREEMENT_ID,
+        status: 'invoice_sent',
+        stripe_invoice_id: null,
+        stripe_transfer_id: null,
+        organizer_payout_cents: 200000,
       },
     ],
     venue_payment_transactions: [],
@@ -288,6 +306,159 @@ describe('Stripe kickback invoice webhook routing', () => {
     expect(db.rows.event_kickback_agreements[0]).toMatchObject({
       status: 'payment_completed',
       stripe_transfer_id: 'tr_builder',
+    })
+  })
+
+  it('transfers CHI invoice principal once and records duplicate signed deliveries in the ledger', async () => {
+    event = {
+      id: 'evt_chi_invoice_paid',
+      type: 'invoice.paid',
+      data: {
+        object: {
+          id: 'in_chi',
+          currency: 'usd',
+          metadata: {
+            payment_type: 'community_host_incentive',
+            chi_settlement_id: CHI_SETTLEMENT_ID,
+            chi_agreement_id: CHI_AGREEMENT_ID,
+            builder_stripe_account_id: 'acct_builder',
+            principal_cents: '200000',
+            event_id: 'event-1',
+            venue_id: 'venue-1',
+            organizer_id: 'builder-1',
+            legacy_payment_id: PAYMENT_ID,
+          },
+        },
+      },
+    }
+
+    const firstResponse = await POST(makeWebhookRequest())
+    const secondResponse = await POST(makeWebhookRequest())
+    const secondJson = await secondResponse.json()
+
+    expect(firstResponse.status).toBe(200)
+    expect(secondResponse.status).toBe(200)
+    expect(secondJson).toMatchObject({ received: true, duplicate: true })
+    expect(stripe.transfers.create).toHaveBeenCalledTimes(1)
+    expect(stripe.transfers.create).toHaveBeenCalledWith(
+      {
+        amount: 200000,
+        currency: 'usd',
+        destination: 'acct_builder',
+        transfer_group: `community_host_incentive_${CHI_SETTLEMENT_ID}`,
+        metadata: {
+          payment_type: 'community_host_incentive',
+          chi_settlement_id: CHI_SETTLEMENT_ID,
+          chi_agreement_id: CHI_AGREEMENT_ID,
+          event_id: 'event-1',
+          venue_id: 'venue-1',
+          organizer_id: 'builder-1',
+          legacy_payment_id: PAYMENT_ID,
+          principal_cents: '200000',
+        },
+      },
+      {
+        idempotencyKey: `community_host_incentive_invoice_transfer_${CHI_SETTLEMENT_ID}_in_chi_200000`,
+      }
+    )
+    expect(applyInvoicePayment).not.toHaveBeenCalled()
+    expect(sendBuilderPaidEmail).not.toHaveBeenCalled()
+    expect(db.rows.community_host_incentive_settlements[0]).toMatchObject({
+      status: 'paid',
+      stripe_invoice_id: 'in_chi',
+      stripe_transfer_id: 'tr_builder',
+      organizer_payout_cents: 200000,
+    })
+    expect(db.rows.community_host_incentive_agreements[0]).toMatchObject({
+      status: 'completed',
+    })
+    expect(db.rows.kickback_payments[0]).toMatchObject({
+      status: 'paid',
+      stripe_transfer_id: 'tr_builder',
+      builder_payout_cents: 200000,
+    })
+    expect(db.rows.stripe_webhook_events).toHaveLength(1)
+    expect(db.rows.stripe_webhook_events[0]).toMatchObject({
+      stripe_event_id: 'evt_chi_invoice_paid',
+      event_type: 'invoice.paid',
+      source: 'platform',
+      endpoint_path: '/api/webhooks/stripe',
+      processed: true,
+      processing_outcome: 'processed',
+      duplicate_count: 1,
+    })
+  })
+
+  it('does not create a second CHI transfer when Stripe redelivers the same invoice under a new event id', async () => {
+    const invoice = {
+      id: 'in_chi',
+      currency: 'usd',
+      metadata: {
+        payment_type: 'community_host_incentive',
+        chi_settlement_id: CHI_SETTLEMENT_ID,
+        chi_agreement_id: CHI_AGREEMENT_ID,
+        builder_stripe_account_id: 'acct_builder',
+        principal_cents: '200000',
+        event_id: 'event-1',
+        venue_id: 'venue-1',
+        organizer_id: 'builder-1',
+        legacy_payment_id: PAYMENT_ID,
+      },
+    }
+    event = {
+      id: 'evt_chi_invoice_paid_first',
+      type: 'invoice.paid',
+      data: { object: invoice },
+    }
+
+    const firstResponse = await POST(makeWebhookRequest())
+    event = {
+      id: 'evt_chi_invoice_paid_second',
+      type: 'invoice.paid',
+      data: { object: invoice },
+    }
+    const secondResponse = await POST(makeWebhookRequest())
+
+    expect(firstResponse.status).toBe(200)
+    expect(secondResponse.status).toBe(200)
+    expect(stripe.transfers.create).toHaveBeenCalledTimes(1)
+    expect(db.rows.community_host_incentive_settlements[0]).toMatchObject({
+      status: 'paid',
+      stripe_transfer_id: 'tr_builder',
+    })
+    expect(db.rows.stripe_webhook_events).toHaveLength(2)
+    expect(db.rows.stripe_webhook_events.map((row) => row.stripe_event_id)).toEqual([
+      'evt_chi_invoice_paid_first',
+      'evt_chi_invoice_paid_second',
+    ])
+  })
+
+  it('marks CHI invoices failed without calling builder billing failure handling', async () => {
+    event = {
+      type: 'invoice.payment_failed',
+      data: {
+        object: {
+          id: 'in_chi_failed',
+          metadata: {
+            payment_type: 'community_host_incentive',
+            chi_settlement_id: CHI_SETTLEMENT_ID,
+            legacy_payment_id: PAYMENT_ID,
+          },
+        },
+      },
+    }
+
+    const response = await POST(makeWebhookRequest())
+
+    expect(response.status).toBe(200)
+    expect(applyInvoicePaymentFailed).not.toHaveBeenCalled()
+    expect(sendVenuePaymentFailedEmail).not.toHaveBeenCalled()
+    expect(db.rows.community_host_incentive_settlements[0]).toMatchObject({
+      status: 'failed',
+    })
+    expect(db.rows.kickback_payments[0]).toMatchObject({
+      status: 'invoice_failed',
+      failure_reason: 'Stripe Community Host Incentive invoice payment failed',
     })
   })
 
