@@ -1,3 +1,7 @@
 export * from './calculate'
 export * from './compliance'
+export * from './featureFlag'
+export * from './renderInvoiceLine'
+export * from './stripeMetadata'
 export * from './types'
+export * from './venueEligibility'

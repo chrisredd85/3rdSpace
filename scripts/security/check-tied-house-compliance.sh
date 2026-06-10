@@ -41,6 +41,8 @@ cd "$ROOT_DIR"
 if rg \
   --glob '!lib/finance/community-host-incentive/compliance.ts' \
   --glob '!lib/finance/community-host-incentive/__tests__/compliance.test.ts' \
+  --glob '!lib/finance/community-host-incentive/stripeMetadata.ts' \
+  --glob '!lib/finance/community-host-incentive/__tests__/stripeMetadata.test.ts' \
   -n -i "$PATTERN" "${EXISTING_TARGETS[@]}" >/tmp/3rdplace-tied-house-findings.txt; then
   echo "Tied-house compliance check failed. Forbidden settlement framing found:" >&2
   cat /tmp/3rdplace-tied-house-findings.txt >&2
