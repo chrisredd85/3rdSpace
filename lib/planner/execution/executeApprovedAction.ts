@@ -8,6 +8,7 @@ import {
 
 export type ApprovedActionExecutionKind =
   | 'no_execution'
+  | 'send_gmail_outreach'
   | 'prepare_outreach_drafts'
   | 'await_explicit_payment_confirmation'
   | 'await_external_checkout'
@@ -32,6 +33,15 @@ export function planApprovedActionExecution(input: {
       canStart: false,
       terminalActionStatus: 'approved',
       reason: 'Approval is not executable',
+    }
+  }
+
+  if (isApprovedGmailOutreachAction(input.action)) {
+    return {
+      kind: 'send_gmail_outreach',
+      canStart: true,
+      terminalActionStatus: 'complete',
+      reason: 'Approval sends reviewed outreach through the connected Gmail account',
     }
   }
 
@@ -77,6 +87,13 @@ export function planApprovedActionExecution(input: {
     terminalActionStatus: 'approved',
     reason: 'Approval recorded; no automatic execution is defined for this action',
   }
+}
+
+export function isApprovedGmailOutreachAction(
+  action: Pick<AgentAction, 'action_type' | 'payload_json'>
+): boolean {
+  const payload = readRecord(action.payload_json)
+  return action.action_type === 'email' && readString(payload?.kind) === 'gmail_approved_outreach'
 }
 
 export function isOutreachPreparationAction(

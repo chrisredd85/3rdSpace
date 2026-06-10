@@ -240,6 +240,33 @@ export async function listGmailThreadMessages(input: {
     .filter((message): message is ParsedGmailMessage => Boolean(message))
 }
 
+export async function modifyGmailThreadLabels(input: {
+  accessToken: string
+  gmailThreadId: string
+  addLabelIds?: string[]
+  removeLabelIds?: string[]
+}) {
+  const response = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(input.gmailThreadId)}/modify`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${input.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        addLabelIds: input.addLabelIds ?? [],
+        removeLabelIds: input.removeLabelIds ?? [],
+      }),
+    }
+  )
+
+  const payload = await readJson<Record<string, unknown>>(response)
+  if (!response.ok) throw new Error(readGoogleError(payload, 'Failed to update Gmail thread labels'))
+
+  return payload
+}
+
 export function parseGmailOAuthState(value: string) {
   const [encoded, signature] = value.split('.')
   if (!encoded || !signature) throw new Error('Invalid Gmail OAuth state')

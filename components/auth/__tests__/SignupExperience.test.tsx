@@ -97,7 +97,7 @@ describe('SignupExperience step validation', () => {
     expect(callbackUrl.searchParams.get('expected_user_type')).toBe('community_builder')
     expect(callbackUrl.searchParams.get('auth_flow')).toBe('signup')
     expect(callbackUrl.searchParams.get('next')).toBe(
-      '/api/integrations/gmail/connect?returnTo=/planner/settings/integrations%3Fonboarding%3Dcreator_google_signup'
+      '/api/integrations/gmail/connect?returnTo=/planner/outreach%3Fonboarding%3Dcreator_google_signup'
     )
   })
 

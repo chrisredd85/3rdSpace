@@ -27,6 +27,7 @@ import {
 } from '@/lib/planner/execution/approvalState'
 import { planApprovedActionExecution } from '@/lib/planner/execution/executeApprovedAction'
 import { approvalRequiresReapproval } from '@/lib/planner/execution/reapproval'
+import { executeApprovedGmailOutreach } from '@/lib/outreach/gmailApprovalFlow'
 import {
   BuilderBillingRequiredError,
   consumeBuilderEventAccess,
@@ -522,6 +523,28 @@ async function executeApprovedAction(
   })
 
   try {
+    if (executionPlan.kind === 'send_gmail_outreach') {
+      const gmailExecution = await executeApprovedGmailOutreach(db, {
+        userId: payload.actorId,
+        plan: payload.plan,
+        action,
+        approval: payload.approval,
+      })
+
+      await persistAgentActionTransition(db, {
+        action,
+        planId: payload.planId,
+        actorId: payload.actorId,
+        reason: 'approval.gmail_outreach_sent',
+        event: 'execution_completed',
+        metadata: {
+          execution_kind: executionPlan.kind,
+          ...gmailExecution,
+        },
+      })
+      return
+    }
+
     const preparation = await syncOpportunityInviteStatuses(db, payload.plan, payload.actorId, payload.approval)
 
     if (!preparation.prepared) {
