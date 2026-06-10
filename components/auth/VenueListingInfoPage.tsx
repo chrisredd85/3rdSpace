@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 const venueBenefits = [
   'Free curated listing — no upfront fees',
   'Leads from verified SF event organizers',
-  'You set your rates, minimums, and kickback terms',
+  'You set your rates, minimums, and Community Host Incentive terms',
 ]
 
 /**

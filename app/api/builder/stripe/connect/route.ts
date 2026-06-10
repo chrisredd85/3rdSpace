@@ -13,7 +13,7 @@ import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
 export const runtime = 'nodejs'
 
 /**
- * Starts Stripe Connect Express onboarding for builders receiving venue kickbacks.
+ * Starts Stripe Connect Express onboarding for builders receiving Community Host Incentives.
  */
 export async function POST(request: NextRequest) {
   try {

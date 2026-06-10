@@ -73,14 +73,14 @@ const modelOptions: ModelOption[] = [
   },
   {
     value: 'revenue_share',
-    label: 'Revenue Share',
-    description: 'Percentage of event revenue',
+    label: 'Partner Share',
+    description: 'Percentage of verified event revenue',
     icon: TrendingUp,
   },
   {
     value: 'hybrid',
     label: 'Hybrid',
-    description: 'Base rate + revenue share',
+    description: 'Base rate + partner share',
     icon: Layers,
   },
 ]
@@ -331,13 +331,13 @@ export default function VendorPricingPage() {
           </Card>
         )}
 
-        {/* Revenue Share / Headcount Kickback */}
+        {/* Partner share / headcount incentive */}
         {(showRevenueShare || (!showPerPerson && !showBaseRate)) && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Percent className="h-5 w-5" />
-                Revenue Share &amp; Kickback
+                Partner Share &amp; Headcount Incentive
               </CardTitle>
               <CardDescription>
                 Earn a percentage of event revenue or a fixed amount per verified attendee
@@ -352,7 +352,7 @@ export default function VendorPricingPage() {
                   className="h-4 w-4 rounded text-clay"
                 />
                 <label htmlFor="headcount_kickback" className="text-sm font-medium text-ink">
-                  Enable per-head kickback
+                  Enable per-head incentive
                 </label>
               </div>
 

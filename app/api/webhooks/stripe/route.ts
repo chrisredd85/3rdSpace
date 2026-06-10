@@ -381,6 +381,9 @@ async function applyCommunityHostIncentiveTransferEvent(
         .eq('id', settlementId),
       'Failed to mark CHI settlement refunded'
     )
+    if (transfer.metadata?.legacy_payment_id) {
+      await markLegacyCompatibilityPaymentRefunded(admin, transfer.metadata.legacy_payment_id)
+    }
     return true
   }
 
@@ -397,6 +400,62 @@ async function applyCommunityHostIncentiveTransferEvent(
   return true
 }
 
+async function applyCommunityHostIncentiveRefundCompleted(
+  admin: any,
+  metadata: {
+    chiSettlementId: string
+    legacyPaymentId?: string | null
+  } | null
+) {
+  if (!metadata?.chiSettlementId) return false
+
+  await updateWebhookRowOrThrow(
+    admin
+      .from('community_host_incentive_settlements')
+      .update({
+        status: 'refunded',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', metadata.chiSettlementId),
+    'Failed to mark CHI settlement refunded'
+  )
+
+  if (metadata.legacyPaymentId) {
+    await markLegacyCompatibilityPaymentRefunded(admin, metadata.legacyPaymentId)
+  }
+
+  return true
+}
+
+async function markLegacyCompatibilityPaymentRefunded(admin: any, paymentId: string) {
+  const { data: payment, error } = await admin
+    .from('kickback_payments')
+    .select('id, status, refund_amount_cents, builder_payout_cents, amount_cents')
+    .eq('id', paymentId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  if (!payment?.id) return
+  if (payment.status === 'refunded_full' || payment.status === 'refunded_partial') return
+
+  const refundAmountCents = Number(payment.refund_amount_cents ?? 0)
+  const payoutCents = Number(payment.builder_payout_cents ?? payment.amount_cents ?? 0)
+  const nextStatus = refundAmountCents > 0 && refundAmountCents >= payoutCents
+    ? 'refunded_full'
+    : 'refunded_partial'
+
+  await updateWebhookRowOrThrow(
+    admin
+      .from('kickback_payments')
+      .update({
+        status: nextStatus,
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', paymentId),
+    'Failed to mark CHI compatibility payment refunded'
+  )
+}
+
 async function applyKickbackInvoicePaid(admin: any, invoice: Stripe.Invoice) {
   const paymentId = invoice.metadata?.kickback_payment_id
   if (!paymentId) return false
@@ -406,7 +465,7 @@ async function applyKickbackInvoicePaid(admin: any, invoice: Stripe.Invoice) {
   const builderStripeAccountId = invoice.metadata?.builder_stripe_account_id
 
   if (!builderStripeAccountId || principalCents <= 0) {
-    console.error('[stripe.webhook] Missing builder account or principal for kickback invoice', invoice.id)
+    console.error('[stripe.webhook] Missing builder account or principal for Community Host Incentive invoice', invoice.id)
     return true
   }
 
@@ -532,6 +591,26 @@ function getKickbackPaymentIdFromRefundedCharge(charge: Stripe.Charge) {
   const refunds = (charge.refunds?.data ?? []) as Array<Stripe.Refund>
   const metadataRefund = refunds.find((refund) => refund.metadata?.kickback_payment_id)
   return metadataRefund?.metadata?.kickback_payment_id ?? null
+}
+
+function getCommunityHostIncentiveRefundMetadataFromCharge(charge: Stripe.Charge) {
+  if (charge.metadata?.payment_type === CHI_PAYMENT_TYPE && charge.metadata?.chi_settlement_id) {
+    return {
+      chiSettlementId: charge.metadata.chi_settlement_id,
+      legacyPaymentId: charge.metadata.legacy_payment_id ?? null,
+    }
+  }
+
+  const refunds = (charge.refunds?.data ?? []) as Array<Stripe.Refund>
+  const metadataRefund = refunds.find((refund) =>
+    refund.metadata?.payment_type === CHI_PAYMENT_TYPE && refund.metadata?.chi_settlement_id
+  )
+  if (!metadataRefund?.metadata?.chi_settlement_id) return null
+
+  return {
+    chiSettlementId: metadataRefund.metadata.chi_settlement_id,
+    legacyPaymentId: metadataRefund.metadata.legacy_payment_id ?? null,
+  }
 }
 
 async function applyVenueRentalCheckoutSessionCompleted(admin: any, session: Stripe.Checkout.Session) {
@@ -812,15 +891,21 @@ export async function POST(request: NextRequest) {
       const charge = event.data.object as Stripe.Charge
       const handledVenueRental = await applyVenueRentalRefundedCharge(admin as any, charge)
       if (!handledVenueRental) {
-        const handledKickbackRefund = await applyKickbackRefundCompleted(
+        const handledCHIRefund = await applyCommunityHostIncentiveRefundCompleted(
           admin as any,
-          getKickbackPaymentIdFromRefundedCharge(charge)
+          getCommunityHostIncentiveRefundMetadataFromCharge(charge)
         )
-        if (!handledKickbackRefund) {
-          await applyPlannerStripeRefundWebhook(
+        if (!handledCHIRefund) {
+          const handledKickbackRefund = await applyKickbackRefundCompleted(
             admin as any,
-            getPaymentIntentIdFromCharge(charge)
+            getKickbackPaymentIdFromRefundedCharge(charge)
           )
+          if (!handledKickbackRefund) {
+            await applyPlannerStripeRefundWebhook(
+              admin as any,
+              getPaymentIntentIdFromCharge(charge)
+            )
+          }
         }
       }
     }

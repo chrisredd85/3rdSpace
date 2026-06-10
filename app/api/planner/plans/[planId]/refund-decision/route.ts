@@ -54,7 +54,7 @@ export async function POST(
 
     const admin = createServiceRoleClient() as any
     const payment = await loadPayment(admin, body.data.payment_id)
-    if (!payment) return NextResponse.json({ error: 'Kickback payment not found' }, { status: 404 })
+    if (!payment) return NextResponse.json({ error: 'Community Host Incentive payment not found' }, { status: 404 })
     if (payment.recipient_id !== auth.userId) {
       return NextResponse.json({ error: 'Not authorized for this refund request' }, { status: 403 })
     }
@@ -128,7 +128,7 @@ async function loadPayment(admin: any, paymentId: string) {
     .eq('id', paymentId)
     .maybeSingle()
 
-  if (error) throw new Error(error.message ?? 'Failed to load kickback payment')
+  if (error) throw new Error(error.message ?? 'Failed to load Community Host Incentive payment')
   return data as {
     id: string
     agreement_id: string | null
@@ -185,6 +185,7 @@ async function approveRefund(
   if (!chargeId) throw new RouteError('Missing Stripe charge for refund', 409)
 
   const now = new Date().toISOString()
+  const chiSettlement = await loadCHISettlementForPayment(admin, payment.id)
   const { error: approvalError } = await admin
     .from('kickback_payments')
     .update({
@@ -197,29 +198,40 @@ async function approveRefund(
 
   if (approvalError) throw new Error(approvalError.message ?? 'Failed to save refund approval state')
 
+  const stripeMetadata: Record<string, string> = chiSettlement
+    ? {
+        payment_type: 'community_host_incentive',
+        chi_settlement_id: chiSettlement.id,
+        chi_agreement_id: chiSettlement.agreement_id,
+        legacy_payment_id: payment.id,
+        settlement_method: 'invoice',
+        refund_reason: payment.refund_reason ?? '',
+      }
+    : {
+        kickback_payment_id: payment.id,
+        settlement_method: 'invoice',
+        refund_reason: payment.refund_reason ?? '',
+      }
+  const idempotencyPrefix = chiSettlement
+    ? `community_host_incentive_refund_${chiSettlement.id}`
+    : `kickback_refund_${payment.id}`
+
   const reversal = await (stripe.transfers as any).createReversal(
     payment.stripe_transfer_id,
     {
       amount: refundAmountCents,
-      metadata: {
-        kickback_payment_id: payment.id,
-        settlement_method: 'invoice',
-        refund_reason: payment.refund_reason ?? '',
-      },
+      metadata: stripeMetadata,
     },
-    { idempotencyKey: `kickback_refund_reversal_${payment.id}_${refundAmountCents}` }
+    { idempotencyKey: `${idempotencyPrefix}_reversal_${refundAmountCents}` }
   )
   const refund = await stripe.refunds.create(
     {
       charge: chargeId,
       amount: refundAmountCents,
       reason: 'requested_by_customer',
-      metadata: {
-        kickback_payment_id: payment.id,
-        settlement_method: 'invoice',
-      },
+      metadata: stripeMetadata,
     },
-    { idempotencyKey: `kickback_refund_${payment.id}_${chargeId}_${refundAmountCents}` }
+    { idempotencyKey: `${idempotencyPrefix}_${chargeId}_${refundAmountCents}` }
   )
 
   const { data: latestPayment, error: latestPaymentError } = await admin
@@ -248,6 +260,17 @@ async function approveRefund(
   if (error) throw new Error(error.message ?? 'Failed to save refund processing state')
 
   return data
+}
+
+async function loadCHISettlementForPayment(admin: any, paymentId: string) {
+  const { data, error } = await admin
+    .from('community_host_incentive_settlements')
+    .select('id, agreement_id')
+    .contains('metadata', { legacy_payment_id: paymentId })
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to load CHI settlement for refund')
+  return data as { id: string; agreement_id: string } | null
 }
 
 function readInvoiceChargeId(invoice: any) {

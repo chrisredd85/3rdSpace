@@ -1313,13 +1313,13 @@ function VenueSignupFlow({
             checked={form.isBar}
             onChange={(isBar) => setForm({ ...form, isBar })}
             title="This venue serves alcohol / has a bar"
-            description="Unlocks kickback and per-head drink revenue settings below."
+            description="Unlocks Community Host Incentive and per-head drink revenue settings below."
           />
 
           {form.isBar && (
             <NestedReveal>
               <div className="grid gap-4 sm:grid-cols-3">
-                <Field label="Bar kickback to creator (%)">
+                <Field label="Bar Community Host Incentive to creator (%)">
                   <Input type="number" value={form.barKickback} onChange={(e) => setForm({ ...form, barKickback: e.target.value })} placeholder="10" />
                 </Field>
                 <Field label="Per-head drink sales (%)">

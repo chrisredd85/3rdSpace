@@ -7,6 +7,15 @@ import {
   runDocumentExtractionAgent,
   type DocumentExtractionOutput,
 } from '@/lib/ai/agents/documentExtractionAgent'
+import {
+  isCHINewEngineEnabled,
+  isCHIVenueTypeEligible,
+} from '@/lib/finance/community-host-incentive'
+import {
+  upsertCommunityHostIncentiveFromLegacy,
+  upsertLegacyPaymentCompatibilityForCHI,
+  type LegacyVenueSettlementAgreement,
+} from '@/lib/finance/legacySettlementAdapter'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { pollAttendanceForPlan } from '@/lib/ticketing/attendancePoll'
 
@@ -44,9 +53,22 @@ type PlanRow = {
 
 type KickbackAgreementRow = {
   id: string
+  event_id: string | null
+  plan_id: string | null
   venue_id: string | null
+  builder_id: string
+  venue_owner_id: string
   actual_attendance: number | null
+  actual_qualified_attendance: number | null
+  attendance_extracted_value: number | null
+  attendance_proof_url: string | null
   attendance_submitted_at: string | null
+  per_head_amount: number | string | null
+  minimum_attendees: number | null
+  maximum_payout: number | string | null
+  venue_approved: boolean | null
+  venue_approved_at: string | null
+  disputed_at: string | null
 }
 
 type UploadedProof = {
@@ -146,7 +168,7 @@ export async function POST(
     const admin = createServiceRoleClient() as any
     const agreements = await loadPlanKickbackAgreements(admin, plan.id)
     if (agreements.length === 0) {
-      return NextResponse.json({ error: 'No kickback agreement found for this plan' }, { status: 404 })
+      return NextResponse.json({ error: 'No Community Host Incentive agreement found for this plan' }, { status: 404 })
     }
 
     const uploadedProof = isUploadFile(maybeFile)
@@ -177,8 +199,18 @@ export async function POST(
       .in('id', agreements.map((agreement) => agreement.id))
 
     if (updateError) {
-      throw new Error(updateError.message ?? 'Failed to update kickback agreement')
+      throw new Error(updateError.message ?? 'Failed to update Community Host Incentive agreement')
     }
+
+    const chiSettlementIds = isCHINewEngineEnabled()
+      ? await updateCommunityHostIncentivesForPlannerReport({
+          admin,
+          agreements,
+          finalAttendance,
+          proofPath: uploadedProof?.path ?? null,
+          now,
+        })
+      : []
 
     return NextResponse.json({
       extracted_value: extraction.extracted_value,
@@ -186,6 +218,7 @@ export async function POST(
       reasoning: extraction.reasoning,
       agreement_id: agreements[0]?.id ?? null,
       final_attendance: finalAttendance,
+      chi_settlement_ids: chiSettlementIds,
     })
   } catch (error) {
     console.error('[planner.event-report] Failed to submit event report', error)
@@ -237,7 +270,25 @@ async function loadOwnedPlan(db: PlannerDb, planId: string, userId: string): Pro
 async function loadPlanKickbackAgreements(admin: any, planId: string): Promise<KickbackAgreementRow[]> {
   const { data, error } = await admin
     .from('event_kickback_agreements')
-    .select('id, venue_id, actual_attendance, attendance_submitted_at')
+    .select([
+      'id',
+      'event_id',
+      'plan_id',
+      'venue_id',
+      'builder_id',
+      'venue_owner_id',
+      'actual_attendance',
+      'actual_qualified_attendance',
+      'attendance_extracted_value',
+      'attendance_proof_url',
+      'attendance_submitted_at',
+      'per_head_amount',
+      'minimum_attendees',
+      'maximum_payout',
+      'venue_approved',
+      'venue_approved_at',
+      'disputed_at',
+    ].join(', '))
     .eq('plan_id', planId)
     .order('created_at', { ascending: true })
 
@@ -246,6 +297,80 @@ async function loadPlanKickbackAgreements(admin: any, planId: string): Promise<K
   }
 
   return (data ?? []) as KickbackAgreementRow[]
+}
+
+async function updateCommunityHostIncentivesForPlannerReport({
+  admin,
+  agreements,
+  finalAttendance,
+  proofPath,
+  now,
+}: {
+  admin: any
+  agreements: KickbackAgreementRow[]
+  finalAttendance: number | null
+  proofPath: string | null
+  now: string
+}) {
+  if (finalAttendance === null) return []
+
+  const venueTypes = await loadAgreementVenueTypes(admin, agreements)
+  const settlementIds: string[] = []
+
+  for (const agreement of agreements) {
+    if (!agreement.venue_id || !isCHIVenueTypeEligible(venueTypes.get(agreement.venue_id))) continue
+
+    const sourceAgreement = {
+      ...agreement,
+      actual_attendance: finalAttendance,
+      actual_qualified_attendance: finalAttendance,
+      attendance_extracted_value: finalAttendance,
+      attendance_proof_url: proofPath,
+      venue_id: agreement.venue_id,
+    }
+    const chi = await upsertCommunityHostIncentiveFromLegacy(admin, {
+      sourceAgreement: sourceAgreement as LegacyVenueSettlementAgreement,
+      organizerUserId: agreement.builder_id,
+      venueOwnerUserId: agreement.venue_owner_id,
+      approvedAt: agreement.venue_approved_at ?? now,
+      approvedByVenueUserId: agreement.venue_owner_id,
+      principalCents: 0,
+      now,
+    })
+
+    settlementIds.push(chi.chiSettlement.id)
+    if (chi.chiResult.organizerPayoutCents > 0) {
+      await upsertLegacyPaymentCompatibilityForCHI(admin, {
+        sourceAgreement: sourceAgreement as LegacyVenueSettlementAgreement,
+        amountCents: chi.chiResult.organizerPayoutCents,
+        status: 'pending_venue_approval',
+        now,
+      })
+    }
+  }
+
+  return settlementIds
+}
+
+async function loadAgreementVenueTypes(admin: any, agreements: KickbackAgreementRow[]) {
+  const venueIds = Array.from(new Set(
+    agreements
+      .map((agreement) => agreement.venue_id)
+      .filter((venueId): venueId is string => Boolean(venueId))
+  ))
+  if (venueIds.length === 0) return new Map<string, string | null>()
+
+  const { data, error } = await admin
+    .from('venues')
+    .select('id, venue_type')
+    .in('id', venueIds)
+
+  if (error) throw new Error(error.message ?? 'Failed to load CHI venue types')
+
+  return new Map(
+    ((data ?? []) as Array<{ id: string; venue_type?: string | null }>)
+      .map((venue) => [venue.id, venue.venue_type ?? null])
+  )
 }
 
 async function loadAgreementVenueNames(admin: any, agreements: KickbackAgreementRow[]) {

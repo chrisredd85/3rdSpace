@@ -14,7 +14,7 @@ jest.mock('next/server', () => ({
   },
 }))
 
-import { POST } from '@/app/api/venue/kickbacks/[id]/spend-report/route'
+import { POST } from '@/app/api/venue/community-host-incentive/[id]/spend-report/route'
 import { runDocumentExtractionAgent } from '@/lib/ai/agents/documentExtractionAgent'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedVenueOwner } from '@/lib/stripe/connect'

@@ -14,7 +14,7 @@ jest.mock('next/server', () => ({
   },
 }))
 
-import { GET } from '@/app/api/venue/kickbacks/summary/route'
+import { GET } from '@/app/api/venue/community-host-incentive/summary/route'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedVenueOwner } from '@/lib/stripe/connect'
 
@@ -128,7 +128,7 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
   }
 }
 
-describe('GET /api/venue/kickbacks/summary', () => {
+describe('GET /api/venue/community-host-incentive/summary', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     ;(createClient as jest.Mock).mockReturnValue({})

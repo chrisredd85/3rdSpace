@@ -102,9 +102,9 @@ const termLabels: Record<RevenueTermType, string> = {
   sales_tax: 'Sales tax',
   ticketing_fee: 'Ticketing fee',
   service_fee: 'Service fee',
-  venue_kickback: 'Venue kickback',
+  venue_kickback: 'Community Host Incentive',
   venue_minimum_spend: 'Venue minimum spend',
-  vendor_rev_share: 'Vendor rev share',
+  vendor_rev_share: 'Vendor partner share',
   sponsor_credit: 'Sponsor credit',
   other: 'Other',
 }
@@ -280,7 +280,7 @@ export function RevenueTermsTab({ eventId }: RevenueTermsTabProps) {
       ) : terms.length === 0 ? (
         <div className="rounded-md border border-dashed border-border bg-card/40 px-5 py-10 text-center">
           <p className="font-medium text-foreground">No revenue terms recorded yet.</p>
-          <p className="mt-1 text-sm text-muted-foreground">Add taxes, platform fees, kickbacks, credits, or rev-share terms.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Add taxes, platform fees, Community Host Incentives, credits, or partner terms.</p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-md border border-border bg-card">

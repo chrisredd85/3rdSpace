@@ -42,7 +42,7 @@ function sumByStatus(payments: KickbackPaymentRow[], statuses: string[]) {
 }
 
 /**
- * Returns builder payout readiness and incoming venue kickback payments.
+ * Returns builder payout readiness and incoming Community Host Incentive payments.
  */
 export async function GET() {
   try {

@@ -14,7 +14,7 @@ jest.mock('next/server', () => ({
   },
 }))
 
-import { POST } from '@/app/api/venue/kickbacks/[id]/checkout/route'
+import { POST } from '@/app/api/venue/community-host-incentive/[id]/checkout/route'
 import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
 import { sendVenueInvoiceEmail } from '@/lib/email'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
@@ -201,7 +201,7 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
 }
 
 function makeRequest() {
-  return new Request(`http://localhost/api/venue/kickbacks/${PAYMENT_ID}/checkout`, {
+  return new Request(`http://localhost/api/venue/community-host-incentive/${PAYMENT_ID}/checkout`, {
     method: 'POST',
     headers: { host: 'localhost:3000' },
   }) as never
@@ -288,7 +288,7 @@ describe('venue kickback checkout route', () => {
       expect.objectContaining({
         customer: 'cus_venue',
         amount: 51360,
-        description: 'Revenue share for "Tech Mixer" - 12% bar revenue share of $4280.00',
+        description: 'Community Host Incentive for "Tech Mixer" - 12% bar sales incentive of $4280.00',
         metadata: expect.objectContaining({ settlement_method: 'invoice', item_type: 'principal' }),
       }),
       expect.objectContaining({
@@ -516,7 +516,7 @@ describe('venue kickback checkout route', () => {
     expect(stripe.invoiceItems.create).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        description: 'Revenue share for "Tech Mixer" - 12% bar revenue share of $4280.00',
+        description: 'Community Host Incentive for "Tech Mixer" - 12% bar sales incentive of $4280.00',
       }),
       expect.objectContaining({
         idempotencyKey: `kickback_invoice_item_${PAYMENT_ID}_principal_51360`,

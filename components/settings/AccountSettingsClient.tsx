@@ -64,8 +64,8 @@ const roleCopy = {
     description: 'Update your event creator contact details and Stripe payout setup.',
     companyLabel: 'Organization name',
     displayLabel: 'Your name',
-    stripeDescription: 'Connect Stripe to receive venue kickbacks after verified attendance.',
-    notConnectedDescription: 'Create a Stripe account to receive venue kickbacks.',
+    stripeDescription: 'Connect Stripe to receive Community Host Incentives after verified attendance.',
+    notConnectedDescription: 'Create a Stripe account to receive Community Host Incentives.',
     endpointPrefix: 'builder',
   },
   venue: {

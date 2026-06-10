@@ -490,7 +490,7 @@ export function LiveEventDashboard({ eventId }: LiveEventDashboardProps) {
           <div className="mt-4 space-y-3">
             <MiniMetric label="Taxes" value={`-${formatCents(snapshot.revenue_terms.summary.sales_tax_cents)}`} />
             <MiniMetric label="Platform fees" value={`-${formatCents(snapshot.revenue_terms.summary.platform_fee_cents)}`} />
-            <MiniMetric label="Venue kickback" value={formatCents(snapshot.revenue_terms.summary.venue_kickback_cents)} />
+            <MiniMetric label="Community Host Incentive" value={formatCents(snapshot.revenue_terms.summary.venue_kickback_cents)} />
             {snapshot.revenue_terms.impacts.slice(0, 3).map((impact) => (
               <MiniMetric
                 key={`${impact.term_id ?? impact.term_type}-${impact.party_name ?? 'term'}`}
@@ -501,7 +501,7 @@ export function LiveEventDashboard({ eventId }: LiveEventDashboardProps) {
           </div>
           {snapshot.pnl.terms_conflict ? (
             <p className="mt-4 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary">
-              A rev-share term overlaps a manual vendor commitment; the larger cost basis is being used.
+              A partner-share term overlaps a manual vendor commitment; the larger cost basis is being used.
             </p>
           ) : null}
         </section>

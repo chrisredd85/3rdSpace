@@ -26,7 +26,7 @@ const questions = [
   },
   {
     q: 'What happens after the event closes?',
-    a: '3rdPlace records margin, refunds, kickbacks, vendor payments, and the pieces worth repeating next time.',
+    a: '3rdPlace records margin, refunds, Community Host Incentives, vendor payments, and the pieces worth repeating next time.',
   },
 ]
 

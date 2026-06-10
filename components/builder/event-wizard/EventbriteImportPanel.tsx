@@ -352,7 +352,7 @@ export function EventbriteImportPanel({
       setImportSummary(result as ImportSummary)
       addToast({
         title: 'Attendees imported',
-        description: result.message || 'Attendance data is now available for kickback calculations.',
+        description: result.message || 'Attendance data is now available for Community Host Incentive calculations.',
       })
       await loadImportedAttendees(integration.id)
       await loadIntegration()

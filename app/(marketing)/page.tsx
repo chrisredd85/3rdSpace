@@ -38,7 +38,7 @@ const runSteps = [
   {
     n: '03',
     title: 'Settle',
-    body: 'After the event, 3rdPlace closes the books. Refunds reviewed, kickbacks reconciled, margin recorded, next event pre-loaded.',
+    body: 'After the event, 3rdPlace closes the books. Refunds reviewed, Community Host Incentives reconciled, margin recorded, next event pre-loaded.',
   },
 ]
 
@@ -53,7 +53,7 @@ const featureCards = [
   },
   {
     title: 'Money settled, cents-accurate',
-    body: 'Deposits collected, vendor payments routed through Stripe Connect, refunds handled, kickbacks reconciled. Every dollar tagged to an event.',
+    body: 'Deposits collected, vendor payments routed through Stripe Connect, refunds handled, Community Host Incentives reconciled. Every dollar tagged to an event.',
   },
   {
     title: 'Margin on every event',
@@ -134,7 +134,7 @@ export default function HomePage() {
                     Three venues fit. Holding The Valencia Room for 24 hours while you authorize.
                   </p>
                   <div className="mt-3 flex items-center gap-2">
-                    <span className="inline-flex items-center rounded-full bg-forest-tint px-2 py-0.5 text-[10.5px] font-medium tracking-wide text-forest">15% kickback</span>
+                    <span className="inline-flex items-center rounded-full bg-forest-tint px-2 py-0.5 text-[10.5px] font-medium tracking-wide text-forest">Verified-attendance incentive</span>
                     <span className="inline-flex items-center rounded-full bg-cream-deep px-2 py-0.5 text-[10.5px] font-medium tracking-wide text-ink-soft">$1,800 rental</span>
                   </div>
                 </div>

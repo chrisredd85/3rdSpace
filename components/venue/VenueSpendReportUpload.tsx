@@ -138,7 +138,7 @@ export function VenueSpendReportUpload({
         formData.set('reported_revenue_cents_override', String(parsedRevenueCents))
       }
 
-      const response = await fetch(`/api/venue/kickbacks/${settlement.agreement_id}/spend-report`, {
+      const response = await fetch(`/api/venue/community-host-incentive/${settlement.agreement_id}/spend-report`, {
         method: 'POST',
         credentials: 'include',
         body: formData,

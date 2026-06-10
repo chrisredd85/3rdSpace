@@ -76,7 +76,7 @@ describe('VenueSpendReportUpload', () => {
     await user.click(screen.getByRole('button', { name: /Submit proof/i }))
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/venue/kickbacks/settlement-1/spend-report', expect.objectContaining({
+      expect(fetchMock).toHaveBeenCalledWith('/api/venue/community-host-incentive/settlement-1/spend-report', expect.objectContaining({
         method: 'POST',
         credentials: 'include',
       }))

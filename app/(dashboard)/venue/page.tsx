@@ -279,7 +279,7 @@ export default function VenueDashboard() {
         {[
           { label: 'View Calendar', hint: 'Monthly bookings at a glance', href: '/venue/calendar', icon: Calendar },
           { label: 'Update Listing', hint: 'Edit your venue profile', href: '/venue/listing', icon: Building2 },
-          { label: 'Adjust Pricing', hint: 'Update rates and revenue share', href: '/venue/pricing', icon: DollarSign },
+          { label: 'Adjust Pricing', hint: 'Update rates and incentives', href: '/venue/pricing', icon: DollarSign },
         ].map((a) => {
           const Icon = a.icon
           return (
