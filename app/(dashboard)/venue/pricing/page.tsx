@@ -62,14 +62,14 @@ const modelOptions: ModelOption[] = [
   },
   {
     value: 'revenue_share',
-    label: 'Revenue Share',
-    description: 'Share in event revenue',
+    label: 'Community Host Incentive',
+    description: 'Share verified event upside',
     icon: TrendingUp,
   },
   {
     value: 'hybrid',
     label: 'Hybrid',
-    description: 'Hourly + revenue share',
+    description: 'Hourly + incentive',
     icon: Layers,
   },
 ]
@@ -362,13 +362,13 @@ export default function VenuePricingPage() {
           </Card>
         )}
 
-        {/* Revenue Share */}
+        {/* Community Host Incentive */}
         {showRevenueShare && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Percent className="h-5 w-5" />
-                Revenue Share
+                Community Host Incentive
               </CardTitle>
               <CardDescription>
                 Set optional upside from ticket sales, bar revenue, or verified attendance
@@ -428,11 +428,11 @@ export default function VenuePricingPage() {
                 )}
               </div>
 
-              {/* Bar revenue share */}
+              {/* Bar share */}
               <div className="rounded-lg border border-tan bg-cream/40 p-5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-sm font-medium text-ink">Bar revenue share</p>
+                    <p className="text-sm font-medium text-ink">Bar sales incentive</p>
                     <p className="mt-0.5 text-sm text-ink-soft">
                       Earn a percentage of bar sales during the event.
                     </p>
@@ -474,10 +474,10 @@ export default function VenuePricingPage() {
                 )}
               </div>
 
-              {/* Per-head kickback */}
+              {/* Per-head incentive */}
               <div>
                 <label className="mb-2 block text-sm font-medium text-ink">
-                  Per-head kickback ($)
+                  Per-head incentive ($)
                 </label>
                 <p className="mb-3 text-sm text-ink-soft">
                   Fixed amount earned per verified attendee, regardless of ticket or bar sales.
@@ -507,14 +507,14 @@ export default function VenuePricingPage() {
                   )}
                   {barRevenueShare && (
                     <div className="flex justify-between">
-                      <span>Bar revenue share ({barRevenuePercent}%)</span>
+                      <span>Bar sales incentive ({barRevenuePercent}%)</span>
                       <span className="font-medium text-ink">
                         ${(100 * 50 * (barRevenuePercent / 100)).toLocaleString()}
                       </span>
                     </div>
                   )}
                   <div className="flex justify-between">
-                    <span>Per-head kickback</span>
+                    <span>Per-head incentive</span>
                     <span className="font-medium text-ink">
                       ${(100 * perHeadKickback).toLocaleString()}
                     </span>

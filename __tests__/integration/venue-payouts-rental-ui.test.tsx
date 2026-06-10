@@ -23,7 +23,7 @@ describe('venue payouts rental refund UI', () => {
           completionPercent: 100,
         }))
       }
-      if (url === '/api/venue/kickbacks/summary') {
+      if (url === '/api/venue/community-host-incentive/summary') {
         return Promise.resolve(jsonResponse({
           summary: { pending: 0, processing: 0, completed: 0, refunded: 0, count: 1 },
           payments: [{
@@ -61,7 +61,7 @@ describe('venue payouts rental refund UI', () => {
           }],
         }))
       }
-      if (url === '/api/venue/kickbacks/agreement-pos/spend-report') {
+      if (url === '/api/venue/community-host-incentive/agreement-pos/spend-report') {
         return Promise.resolve(jsonResponse({
           extracted_value: 428000,
           confidence: 'high',
@@ -157,12 +157,12 @@ describe('venue payouts rental refund UI', () => {
     await user.click(screen.getByRole('button', { name: /Submit proof/i }))
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith('/api/venue/kickbacks/agreement-pos/spend-report', expect.objectContaining({
+      expect(global.fetch).toHaveBeenCalledWith('/api/venue/community-host-incentive/agreement-pos/spend-report', expect.objectContaining({
         method: 'POST',
         credentials: 'include',
       }))
     })
-    const spendReportCall = (global.fetch as jest.Mock).mock.calls.find(([url]) => url === '/api/venue/kickbacks/agreement-pos/spend-report')
+    const spendReportCall = (global.fetch as jest.Mock).mock.calls.find(([url]) => url === '/api/venue/community-host-incentive/agreement-pos/spend-report')
     const formData = spendReportCall?.[1].body as FormData
     expect(formData.get('reported_revenue_cents_override')).toBe('428000')
     expect(formData.get('image')).toBeInstanceOf(File)

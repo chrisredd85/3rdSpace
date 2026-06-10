@@ -414,7 +414,7 @@ export function getEventSpecificQuestions(eventType: string | null): EventSpecif
       ...shared,
       question('dj', 'Music', 'Do you need a DJ, or are you bringing your own music?', /\b(dj|music|playlist|sound)\b/i),
       question('alcohol', 'Alcohol', 'Do you plan on bringing your own alcohol, using a bar package, or keeping it non-alcoholic?', /\b(alcohol|bar|byob|bring.*own|cocktails?|drinks?|non-alcoholic)\b/i),
-      question('bar_rev_share', 'Bar economics', 'Do you want a revenue share or kickback with the bar?', /\b(revenue share|rev share|bar split|kickback|minimum spend|no rev)\b/i),
+      question('bar_rev_share', 'Bar economics', 'Do you want a Community Host Incentive, bar split, minimum spend, or no bar terms?', /\b(revenue share|rev share|bar split|kickback|minimum spend|no rev)\b/i),
       question('exclusive_use', 'Access', 'Do you want exclusive use / buyout, or is shared space okay?', /\b(exclusive|buyout|private|shared)\b/i),
     ],
     'listening party': [
@@ -449,7 +449,7 @@ export function getEventSpecificQuestions(eventType: string | null): EventSpecif
     'club night': [
       ...shared,
       question('music_genre', 'Music genre', 'What genre, DJ style, or nightlife format should this be?', /\b(genre|dj|house|hip hop|dance|latin|afrobeats|nightlife|format)\b/i),
-      question('door_split', 'Door economics', 'Do you want a door split, bar revenue share, flat rental, or minimum spend?', /\b(door split|bar revenue|rev share|flat rental|minimum spend|kickback)\b/i),
+      question('door_split', 'Door economics', 'Do you want a door split, bar incentive, flat rental, or minimum spend?', /\b(door split|bar revenue|rev share|flat rental|minimum spend|kickback)\b/i),
       question('security_promo', 'Ops + promo', 'Do you need security, promoters, VIP tables, or guest list management?', /\b(security|promoters?|vip tables?|guest list|bottle service)\b/i),
     ],
     'run club': [

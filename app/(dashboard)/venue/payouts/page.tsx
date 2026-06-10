@@ -159,12 +159,12 @@ const PAYOUT_CARDS = [
   {
     icon: CreditCard,
     title: 'Stripe Connect account',
-    description: 'Connect Stripe Express so 3rdPlace can route venue deposits, balances, and revenue-share payouts.',
+    description: 'Connect Stripe Express so 3rdPlace can route venue deposits, balances, and Community Host Incentive payments.',
   },
   {
     icon: CalendarClock,
     title: 'Payout schedule',
-    description: 'Future deposits, kickbacks, and revenue-share payouts will be summarized here.',
+    description: 'Future deposits, Community Host Incentives, and settlement payments will be summarized here.',
   },
   {
     icon: FileText,
@@ -411,14 +411,14 @@ export default function VenuePayoutsPage() {
 
   const loadKickbacks = useCallback(async () => {
     try {
-      const response = await fetch('/api/venue/kickbacks/summary', { credentials: 'include' })
+      const response = await fetch('/api/venue/community-host-incentive/summary', { credentials: 'include' })
       const data = await response.json()
 
-      if (!response.ok) throw new Error(data.error || 'Unable to load kickbacks')
+      if (!response.ok) throw new Error(data.error || 'Unable to load Community Host Incentives')
 
       setKickbacks(data)
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Unable to load kickbacks')
+      setError(loadError instanceof Error ? loadError.message : 'Unable to load Community Host Incentives')
     } finally {
       setIsLoadingKickbacks(false)
     }
@@ -520,17 +520,17 @@ export default function VenuePayoutsPage() {
     setError(null)
 
     try {
-      const response = await fetch(`/api/venue/kickbacks/${paymentId}/checkout`, {
+      const response = await fetch(`/api/venue/community-host-incentive/${paymentId}/checkout`, {
         method: 'POST',
         credentials: 'include',
       })
       const data = await response.json()
 
-      if (!response.ok) throw new Error(data.error || 'Unable to start kickback payment')
+      if (!response.ok) throw new Error(data.error || 'Unable to start Community Host Incentive payment')
 
       window.location.href = data.checkoutUrl
     } catch (checkoutError) {
-      setError(checkoutError instanceof Error ? checkoutError.message : 'Unable to start kickback payment')
+      setError(checkoutError instanceof Error ? checkoutError.message : 'Unable to start Community Host Incentive payment')
       setCheckoutLoading(null)
     }
   }
@@ -559,7 +559,7 @@ export default function VenuePayoutsPage() {
     setError(null)
 
     try {
-      const response = await fetch(`/api/venue/kickbacks/${refundPayment.id}/refund-request`, {
+      const response = await fetch(`/api/venue/community-host-incentive/${refundPayment.id}/refund-request`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
@@ -830,10 +830,10 @@ export default function VenuePayoutsPage() {
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-clay/20 bg-clay/10 px-3 py-1 text-xs font-semibold uppercase text-clay">
               <ShieldCheck className="h-3.5 w-3.5" />
-              Revenue share
+              Community Host Incentive
             </div>
             <h2 className="mt-3 font-display text-2xl font-bold text-ink">Settlement ledger</h2>
-            <p className="mt-1 text-sm text-ink-soft">Venue-to-builder revenue share payments after verified attendance.</p>
+            <p className="mt-1 text-sm text-ink-soft">Venue-approved Community Host Incentives after verified attendance.</p>
           </div>
           <div className="text-sm text-ink-soft">
             {isLoadingKickbacks ? 'Loading records...' : `${kickbackPayments.length} settlement${kickbackPayments.length === 1 ? '' : 's'}`}
@@ -878,7 +878,7 @@ export default function VenuePayoutsPage() {
           </div>
         ) : kickbackPayments.length === 0 ? (
           <div className="rounded-lg border border-dashed border-tan bg-cream p-8 text-sm text-ink-soft shadow-card">
-            Revenue share settlements will appear here after verified post-event reports qualify for a venue agreement.
+            Community Host Incentives will appear here after verified post-event reports qualify for a venue agreement.
           </div>
         ) : (
           <div className="space-y-3">

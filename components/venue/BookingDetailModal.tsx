@@ -374,13 +374,13 @@ export function BookingDetailModal({
               )}
               {venue?.bar_revenue_share_enabled && (
                 <div className="flex justify-between text-sm">
-                  <span className="text-ink-soft">Bar Revenue Share</span>
+                  <span className="text-ink-soft">Bar Sales Incentive</span>
                   <span className="font-medium">{venue.bar_revenue_share_percent || 0}%</span>
                 </div>
               )}
               {(perHeadKickbackCents ?? 0) > 0 && (
                 <div className="flex justify-between text-sm">
-                  <span className="text-ink-soft">Per-Head Kickback</span>
+                  <span className="text-ink-soft">Per-Head Incentive</span>
                   <span className="font-medium">{formatCents(perHeadKickbackCents ?? 0)}/guest</span>
                 </div>
               )}

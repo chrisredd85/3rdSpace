@@ -15,7 +15,7 @@ jest.mock('next/server', () => ({
 }))
 
 import { POST as refundDecisionPost } from '@/app/api/planner/plans/[planId]/refund-decision/route'
-import { POST as refundRequestPost } from '@/app/api/venue/kickbacks/[id]/refund-request/route'
+import { POST as refundRequestPost } from '@/app/api/venue/community-host-incentive/[id]/refund-request/route'
 import {
   sendBuilderRefundRequestEmail,
   sendVenueRefundDeniedEmail,
@@ -72,6 +72,7 @@ class MemoryDb {
         venue_owner_id: VENUE_OWNER_ID,
       },
     ],
+    community_host_incentive_settlements: [],
     venues: [{ id: VENUE_ID, owner_id: VENUE_OWNER_ID }],
   }
 
@@ -102,6 +103,17 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
 
   eq(field: string, value: unknown) {
     this.filters.push((row) => row[field] === value)
+    return this
+  }
+
+  contains(field: string, value: Record<string, unknown>) {
+    this.filters.push((row) => {
+      const candidate = row[field]
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return false
+      return Object.entries(value).every(([key, expected]) => (
+        (candidate as Record<string, unknown>)[key] === expected
+      ))
+    })
     return this
   }
 
@@ -198,7 +210,7 @@ describe('kickback refund routes', () => {
 
   it('lets a venue request a refund on a paid kickback', async () => {
     const response = await refundRequestPost(
-      makeJsonRequest(`http://localhost/api/venue/kickbacks/${PAYMENT_ID}/refund-request`, {
+      makeJsonRequest(`http://localhost/api/venue/community-host-incentive/${PAYMENT_ID}/refund-request`, {
         refund_amount_cents: 18000,
         reason: 'POS sales report was corrected after closeout.',
       }),
@@ -217,7 +229,7 @@ describe('kickback refund routes', () => {
 
   it('blocks refund requests above the builder payout', async () => {
     const response = await refundRequestPost(
-      makeJsonRequest(`http://localhost/api/venue/kickbacks/${PAYMENT_ID}/refund-request`, {
+      makeJsonRequest(`http://localhost/api/venue/community-host-incentive/${PAYMENT_ID}/refund-request`, {
         refund_amount_cents: 999999,
         reason: 'Too much.',
       }),
@@ -290,7 +302,7 @@ describe('kickback refund routes', () => {
           refund_reason: 'Venue request',
         },
       },
-      { idempotencyKey: `kickback_refund_reversal_${PAYMENT_ID}_18000` }
+      { idempotencyKey: `kickback_refund_${PAYMENT_ID}_reversal_18000` }
     )
     expect(stripe.refunds.create).toHaveBeenCalledWith(
       {
@@ -300,6 +312,7 @@ describe('kickback refund routes', () => {
         metadata: {
           kickback_payment_id: PAYMENT_ID,
           settlement_method: 'invoice',
+          refund_reason: 'Venue request',
         },
       },
       { idempotencyKey: `kickback_refund_${PAYMENT_ID}_ch_kickback_18000` }

@@ -9177,6 +9177,44 @@ export type Database = {
       }
     }
     Views: {
+      community_host_incentive_payments: {
+        Row: {
+          agreement_id: string | null
+          amount_cents: number | null
+          builder_payout_cents: number | null
+          created_at: string | null
+          due_at: string | null
+          event_id: string | null
+          id: string | null
+          is_legacy_revenue_share: boolean | null
+          metadata: Json | null
+          organizer_user_id: string | null
+          paid_at: string | null
+          plan_id: string | null
+          status: string | null
+          stripe_invoice_id: string | null
+          stripe_transfer_id: string | null
+          updated_at: string | null
+          venue_id: string | null
+          venue_owner_user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "community_host_incentive_settlements_agreement_id_fkey"
+            columns: ["agreement_id"]
+            isOneToOne: false
+            referencedRelation: "community_host_incentive_agreements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_host_incentive_settlements_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_ticket_sales_rollups: {
         Row: {
           average_ticket_price_cents: number | null

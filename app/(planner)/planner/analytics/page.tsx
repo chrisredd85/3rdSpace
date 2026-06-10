@@ -483,7 +483,7 @@ export default function PlannerAnalyticsPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <ImpactRow label="Foot traffic proxy" value={String(scorecard.venueFootTrafficProxy)} source="tickets/check-ins" />
-                <ImpactRow label="Venue kickback projection" value={formatMoney(scorecard.venueKickbackProjectionDollars)} source="financial summary" />
+                <ImpactRow label="Community Host Incentive projection" value={formatMoney(scorecard.venueKickbackProjectionDollars)} source="financial summary" />
                 <ImpactRow label="Ticket sales share projection" value={formatMoney(scorecard.venueSalesShareProjectionDollars)} source="venue terms" />
                 <ImpactRow label="Bar/POS spend" value="Needs venue data" source="future/manual" muted />
               </CardContent>

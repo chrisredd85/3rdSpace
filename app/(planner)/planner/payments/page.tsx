@@ -166,10 +166,10 @@ export default function PaymentsPage() {
   }, [data.payments])
 
   const paymentMetrics = [
-    { label: 'Total earned', value: formatCents(data.summary.completed), detail: 'All settled venue revenue-share payouts' },
+    { label: 'Total earned', value: formatCents(data.summary.completed), detail: 'All settled Community Host Incentives' },
     { label: 'Pending', value: formatCents(data.summary.pending), detail: 'Awaiting report, invoice payment, or refund decision' },
     { label: 'Paid this month', value: formatCents(paidThisMonthCents), detail: 'Transferred or completed in the current month' },
-    { label: 'Ledger entries', value: String(data.summary.count), detail: 'Kickback payouts tied to event agreements' },
+    { label: 'Ledger entries', value: String(data.summary.count), detail: 'Incentives tied to event agreements' },
   ]
 
   const refundRequests = data.payments.filter((payment) => payment.status === 'refund_requested')
@@ -289,7 +289,7 @@ export default function PaymentsPage() {
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-clay">Payment Control Center</p>
               <h2 className="mt-2 font-display text-xl font-bold text-ink">No money moves without organizer approval</h2>
               <p className="mt-1 max-w-2xl text-sm text-ink-soft">
-                Track venue revenue-share payouts, approval requests, deposit deadlines, and partner payment history from one ledger.
+                Track Community Host Incentives, approval requests, deposit deadlines, and partner payment history from one ledger.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -537,7 +537,7 @@ export default function PaymentsPage() {
             </div>
             <div>
               <h2 className="font-display text-lg font-bold text-ink">Builder Payout Ledger</h2>
-              <p className="text-sm text-ink-soft">Venue-to-builder revenue share payments. Platform fees are not taken from these payouts.</p>
+              <p className="text-sm text-ink-soft">Venue-approved Community Host Incentive payments. Platform fees are not taken from these payouts.</p>
             </div>
           </div>
 
@@ -580,7 +580,7 @@ export default function PaymentsPage() {
             ) : (
               <div className="flex items-center gap-3 px-4 py-8 text-sm text-ink-soft">
                 <CheckCircle2 className="h-5 w-5 shrink-0 text-clay" />
-                Ledger rows will populate after the first revenue share payment is created.
+                Ledger rows will populate after the first Community Host Incentive payment is created.
               </div>
             )}
           </div>

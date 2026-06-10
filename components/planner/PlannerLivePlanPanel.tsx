@@ -637,7 +637,7 @@ function buildProfitModel(
     { label: `Venue cost (${recommendations[0]?.name ?? 'target'})`, amountCents: venueCostCents, negative: true },
     { label: 'Vendor cost (catering, DJ, AV, security)', amountCents: vendorCostCents, negative: true },
     { label: 'Platform + payment fees (4.9%)', amountCents: feesCents, negative: true },
-    { label: 'Venue kickback (per-head model)', amountCents: venueKickbackCents, negative: true },
+    { label: 'Community Host Incentive (per-head model)', amountCents: venueKickbackCents, negative: true },
   ]
 
   if (customCostsTotalCents > 0) {
@@ -1187,11 +1187,11 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         >
           {isComparingCommercialModels ? (
             <p className="mb-4 rounded-md border border-clay/30 bg-clay-tint px-4 py-3 text-sm leading-snug text-ink-soft">
-              The agent will compare flat rental, minimum spend, per-head kickback, bar share, and ticket share before asking you to approve outreach.
+              The agent will compare flat rental, minimum spend, per-head incentives, bar share, and ticket share before asking you to approve outreach.
             </p>
           ) : null}
           <KickbackCard
-            title="Per-head kickback"
+            title="Per-head incentive"
             subtitle="$8 per attendee after 100"
             builderText={`Better for builder above ${Math.max(100, profitModel.paidAverage)}`}
             venueText="Capped upside"
@@ -1199,7 +1199,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             recommended={profitModel.venueKickbackCents <= profitModel.revenueShareCents}
           />
           <KickbackCard
-            title="Revenue share"
+            title="Ticket share"
             subtitle="12% of net ticket sales after fees"
             builderText="Lower if over-sold"
             venueText="Better for venue"
