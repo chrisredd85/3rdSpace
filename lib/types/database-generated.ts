@@ -1313,6 +1313,234 @@ export type Database = {
           },
         ]
       }
+      community_host_incentive_agreements: {
+        Row: {
+          agreement_type: string
+          approval_id: string | null
+          approved_at: string | null
+          approved_by_venue_user_id: string | null
+          base_amount_cents: number | null
+          created_at: string
+          dispute_deadline_at: string | null
+          dispute_status: string
+          event_id: string | null
+          fixed_amount_cents: number | null
+          id: string
+          is_legacy_revenue_share: boolean
+          metadata: Json
+          organizer_user_id: string
+          payout_cap_cents: number | null
+          payout_floor_cents: number | null
+          per_head_rate_cents: number | null
+          plan_id: string | null
+          settlement_due_at: string | null
+          settlement_mode: string
+          status: string
+          threshold_attendees: number | null
+          updated_at: string
+          venue_approved: boolean
+          venue_id: string
+          venue_owner_user_id: string
+        }
+        Insert: {
+          agreement_type: string
+          approval_id?: string | null
+          approved_at?: string | null
+          approved_by_venue_user_id?: string | null
+          base_amount_cents?: number | null
+          created_at?: string
+          dispute_deadline_at?: string | null
+          dispute_status?: string
+          event_id?: string | null
+          fixed_amount_cents?: number | null
+          id?: string
+          is_legacy_revenue_share?: boolean
+          metadata?: Json
+          organizer_user_id: string
+          payout_cap_cents?: number | null
+          payout_floor_cents?: number | null
+          per_head_rate_cents?: number | null
+          plan_id?: string | null
+          settlement_due_at?: string | null
+          settlement_mode?: string
+          status?: string
+          threshold_attendees?: number | null
+          updated_at?: string
+          venue_approved?: boolean
+          venue_id: string
+          venue_owner_user_id: string
+        }
+        Update: {
+          agreement_type?: string
+          approval_id?: string | null
+          approved_at?: string | null
+          approved_by_venue_user_id?: string | null
+          base_amount_cents?: number | null
+          created_at?: string
+          dispute_deadline_at?: string | null
+          dispute_status?: string
+          event_id?: string | null
+          fixed_amount_cents?: number | null
+          id?: string
+          is_legacy_revenue_share?: boolean
+          metadata?: Json
+          organizer_user_id?: string
+          payout_cap_cents?: number | null
+          payout_floor_cents?: number | null
+          per_head_rate_cents?: number | null
+          plan_id?: string | null
+          settlement_due_at?: string | null
+          settlement_mode?: string
+          status?: string
+          threshold_attendees?: number | null
+          updated_at?: string
+          venue_approved?: boolean
+          venue_id?: string
+          venue_owner_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "community_host_incentive_agreeme_approved_by_venue_user_id_fkey"
+            columns: ["approved_by_venue_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_host_incentive_agreements_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_host_incentive_agreements_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_host_incentive_agreements_organizer_user_id_fkey"
+            columns: ["organizer_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_host_incentive_agreements_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_host_incentive_agreements_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_host_incentive_agreements_venue_owner_user_id_fkey"
+            columns: ["venue_owner_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      community_host_incentive_settlements: {
+        Row: {
+          agreement_id: string
+          applied_cap: boolean
+          applied_floor: boolean
+          approval_id: string | null
+          calculation_basis: string
+          created_at: string
+          due_at: string | null
+          event_id: string | null
+          id: string
+          is_legacy_revenue_share: boolean
+          metadata: Json
+          organizer_payout_cents: number
+          paid_at: string | null
+          status: string
+          stripe_invoice_id: string | null
+          stripe_transfer_id: string | null
+          updated_at: string
+          verification_source: string
+          verification_source_id: string | null
+          verified_attendees: number
+        }
+        Insert: {
+          agreement_id: string
+          applied_cap?: boolean
+          applied_floor?: boolean
+          approval_id?: string | null
+          calculation_basis: string
+          created_at?: string
+          due_at?: string | null
+          event_id?: string | null
+          id?: string
+          is_legacy_revenue_share?: boolean
+          metadata?: Json
+          organizer_payout_cents: number
+          paid_at?: string | null
+          status?: string
+          stripe_invoice_id?: string | null
+          stripe_transfer_id?: string | null
+          updated_at?: string
+          verification_source: string
+          verification_source_id?: string | null
+          verified_attendees: number
+        }
+        Update: {
+          agreement_id?: string
+          applied_cap?: boolean
+          applied_floor?: boolean
+          approval_id?: string | null
+          calculation_basis?: string
+          created_at?: string
+          due_at?: string | null
+          event_id?: string | null
+          id?: string
+          is_legacy_revenue_share?: boolean
+          metadata?: Json
+          organizer_payout_cents?: number
+          paid_at?: string | null
+          status?: string
+          stripe_invoice_id?: string | null
+          stripe_transfer_id?: string | null
+          updated_at?: string
+          verification_source?: string
+          verification_source_id?: string | null
+          verified_attendees?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "community_host_incentive_settlements_agreement_id_fkey"
+            columns: ["agreement_id"]
+            isOneToOne: false
+            referencedRelation: "community_host_incentive_agreements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_host_incentive_settlements_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_host_incentive_settlements_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       concierge_actions: {
         Row: {
           action_type: string
