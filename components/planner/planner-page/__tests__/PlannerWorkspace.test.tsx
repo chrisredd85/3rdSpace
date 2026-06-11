@@ -2,22 +2,25 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { PlannerWorkspace } from '@/components/planner/planner-page/PlannerWorkspace'
 import { ToastProvider } from '@/components/ui/toast'
 
-const replace = jest.fn()
+const mockReplace = jest.fn()
+const mockPush = jest.fn()
+let mockPathname = '/planner'
+let mockSearchParams = 'draft=Founder%20dinner%20for%2024%20in%20Hayes%20Valley'
 
 jest.mock('next/navigation', () => ({
   useRouter() {
     return {
-      push: jest.fn(),
-      replace,
+      push: mockPush,
+      replace: mockReplace,
       prefetch: jest.fn(),
       back: jest.fn(),
     }
   },
   usePathname() {
-    return '/planner'
+    return mockPathname
   },
   useSearchParams() {
-    return new URLSearchParams('draft=Founder%20dinner%20for%2024%20in%20Hayes%20Valley')
+    return new URLSearchParams(mockSearchParams)
   },
 }))
 
@@ -44,6 +47,8 @@ describe('PlannerWorkspace desktop draft handoff', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockPathname = '/planner'
+    mockSearchParams = 'draft=Founder%20dinner%20for%2024%20in%20Hayes%20Valley'
     window.localStorage.clear()
     window.matchMedia = jest.fn().mockImplementation((query: string) => ({
       matches: query === '(min-width: 1024px)',
@@ -95,5 +100,17 @@ describe('PlannerWorkspace desktop draft handoff', () => {
         })
       )
     })
+  })
+
+  it('keeps /planner/new-plan on a clean intake instead of loading the latest saved plan', async () => {
+    mockPathname = '/planner/new-plan'
+    mockSearchParams = ''
+
+    renderPlannerWorkspace()
+
+    await waitFor(() => expect(screen.getByText('What should we plan next?')).toBeInTheDocument())
+
+    expect(global.fetch).not.toHaveBeenCalledWith('/api/planner/plans?limit=10', expect.anything())
+    expect(screen.queryByText('Building your event plan.')).not.toBeInTheDocument()
   })
 })

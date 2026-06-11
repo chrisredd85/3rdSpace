@@ -49,8 +49,10 @@ export function PlannerWorkspace() {
   const forceDraftMode = searchParams.get('mock') === '1'
   const isDemoSession = searchParams.get('demo') === '1'
   const shouldHardResetDemo = isDemoSession && searchParams.get('reset') === '1'
+  const isNewPlanRoute = pathname === '/planner/new-plan'
   const initialDraft = searchParams.get('draft')
   const requestedPlanId = searchParams.get('plan')
+  const requestedTabParam = searchParams.get('tab')
   const draftMigrationStatus = searchParams.get('draftMigration')
   const [activePlan, setActivePlan] = useState<Plan | null>(null)
   const [messages, setMessages] = useState<PlanMessage[]>([])
@@ -241,6 +243,19 @@ export function PlannerWorkspace() {
     let isCancelled = false
 
     async function loadPersistedPlannerState() {
+      if (isNewPlanRoute && !initialDraft) {
+        clearStoredPlannerConversation()
+        publishLivePlan(null, [])
+        setIsStartingInitialDraft(false)
+        setActivePlan(null)
+        setMessages([])
+        setAgentActions([])
+        setActiveTab('chat')
+        setPersistenceMode(forceDraftMode ? 'draft' : 'server')
+        setHasLoadedStoredConversation(true)
+        return
+      }
+
       if (mobilePromotedPlannerPaths.has(pathname) && !isDesktopPlannerViewport()) {
         setIsStartingInitialDraft(false)
         setPersistenceMode('draft')
@@ -307,8 +322,7 @@ export function PlannerWorkspace() {
           setActivePlan(plannerState.plan)
           setMessages(plannerState.messages)
           // Preserve the deep-link tab if one was supplied; otherwise default to Chat.
-          const requestedTabOnLoad = searchParams.get('tab')
-          const validDeepLinkTab = planTabs.some((tab) => tab.id === requestedTabOnLoad)
+          const validDeepLinkTab = planTabs.some((tab) => tab.id === requestedTabParam)
           if (!validDeepLinkTab) setActiveTab('chat')
           clearStoredPlannerConversation()
           setPersistenceMode('server')
@@ -335,7 +349,7 @@ export function PlannerWorkspace() {
     return () => {
       isCancelled = true
     }
-  }, [forceDraftMode, initialDraft, pathname, requestedPlanId, shouldHardResetDemo])
+  }, [forceDraftMode, initialDraft, isNewPlanRoute, pathname, requestedPlanId, requestedTabParam, shouldHardResetDemo])
 
   useEffect(() => {
     if (!hasLoadedStoredConversation) return
@@ -495,6 +509,9 @@ export function PlannerWorkspace() {
       setAgentActions([])
       setActiveTab('chat')
       publishLivePlan(data.plan, data.messages)
+      if (isNewPlanRoute) {
+        router.replace(`/planner?plan=${data.plan.id}`, { scroll: false })
+      }
       if (data.needs_recommendations) {
         void triggerRecommendations(data.plan.id, data.messages)
       }
@@ -727,8 +744,10 @@ export function PlannerWorkspace() {
     ignoredDraftRef.current = initialDraft
     publishLivePlan(null, [])
 
-    if (window.location.search) {
-      window.history.replaceState(null, '', forceDraftMode ? '/planner?mock=1' : '/planner')
+    if (forceDraftMode) {
+      router.push('/planner/new-plan?mock=1')
+    } else if (!isNewPlanRoute || window.location.search) {
+      router.push('/planner/new-plan')
     }
   }
 

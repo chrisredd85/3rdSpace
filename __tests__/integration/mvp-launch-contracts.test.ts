@@ -507,6 +507,44 @@ describe('MVP launch API contracts', () => {
     expect(mockEnqueueOpportunityInviteSendJobs).not.toHaveBeenCalled()
   })
 
+  it('PATCH planner approvals cancels stale pending approvals even when linked action is terminal', async () => {
+    db.rows.agent_actions.push({
+      id: ACTION_ID,
+      plan_id: PLAN_ID,
+      action_type: 'email',
+      payload_json: {
+        kind: 'venue_outreach',
+        venue_ids: [VENUE_ID_1],
+      },
+      result_metadata: {
+        action_type_fallback: 'opportunity_send_venues',
+      },
+      status: 'complete',
+    })
+    db.rows.approvals.push({
+      id: APPROVAL_ID,
+      plan_id: PLAN_ID,
+      agent_action_id: ACTION_ID,
+      action_label: 'Prepare venue outreach',
+      status: 'pending',
+      price_cents: 0,
+    })
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        action: 'cancel',
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(response.status).toBe(200)
+    expect(db.rows.approvals[0].status).toBe('cancelled')
+    expect(db.rows.agent_actions[0].status).toBe('complete')
+    expect(db.rows.venue_opportunity_briefs).toHaveLength(0)
+    expect(mockEnqueueOpportunityInviteSendJobs).not.toHaveBeenCalled()
+  })
+
   it('PATCH planner approvals blocks execution when builder has no product access', async () => {
     db.rows.builder_profiles[0] = {
       ...db.rows.builder_profiles[0],
