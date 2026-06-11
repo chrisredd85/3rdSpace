@@ -18,6 +18,7 @@ import {
   ensureVendorOpportunityInviteTokens,
 } from '@/lib/planner/vendorOpportunityBriefs'
 import {
+  TERMINAL_ACTION_STATUSES,
   agentActionStatusForApprovalStatus,
   assertIntegerCents,
   isApprovalExecutable,
@@ -478,6 +479,17 @@ async function syncAgentActionStatusForApproval(
   const transition = agentActionStatusForApprovalStatus(payload.approvalStatus, action.status)
   if (!transition) return
   if (!transition.ok) {
+    if (
+      (payload.approvalStatus === 'cancelled' || payload.approvalStatus === 'rejected') &&
+      TERMINAL_ACTION_STATUSES.some((terminalStatus) => terminalStatus === action.status)
+    ) {
+      console.info('[planner.approvals] Approval cancelled after linked action reached terminal state', {
+        approvalStatus: payload.approvalStatus,
+        actionId: action.id,
+        actionStatus: action.status,
+      })
+      return
+    }
     throw new Error(transition.reason)
   }
   if (!transition.changed) return
