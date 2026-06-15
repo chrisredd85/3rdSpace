@@ -13,6 +13,7 @@ import {
   Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ExperiencesLiveRefresh } from '@/components/planner/ExperiencesLiveRefresh'
 import { createClient } from '@/lib/supabase/server'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 import { cn } from '@/lib/utils'
@@ -62,7 +63,9 @@ type FinancialRow = {
   total_costs: number | string | null
   expected_profit: number | string | null
   profit_margin: number | string | null
+  calculated_at: string | null
   updated_at: string | null
+  created_at: string | null
 }
 
 type BookingRow = {
@@ -72,11 +75,16 @@ type BookingRow = {
   payment_status: string | null
   paid_at: string | null
   deposit_paid?: boolean | null
+  updated_at: string | null
+  created_at: string | null
 }
 
 type SalesRow = {
   id: string
   event_id: string
+  updated_at: string | null
+  received_at: string | null
+  created_at: string | null
 }
 
 type TicketingConnectionRow = {
@@ -114,6 +122,11 @@ type ExperiencesData = {
   plans: PlanRow[]
   events: EventRow[]
   records: ExperienceRecord[]
+  freshness: {
+    lastUpdatedAt: string | null
+    sourceCount: number
+    sourceLabels: string[]
+  }
   metrics: Array<{ label: string; value: string; detail: string }>
   coverage: Array<{
     title: string
@@ -160,19 +173,26 @@ export default async function ExperiencesPage() {
                 This page reads from saved planner drafts, created/imported events, bookings, ticketing rows, and financial summaries. Empty means no matching record exists yet.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/planner/events/import">
-                  Import event
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
-              <Button size="sm" asChild>
-                <Link href="/planner">
-                  Create event
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
+            <div className="flex flex-col gap-3 lg:min-w-[24rem]">
+              <ExperiencesLiveRefresh
+                lastUpdatedAt={data.freshness.lastUpdatedAt}
+                sourceCount={data.freshness.sourceCount}
+                sourceLabels={data.freshness.sourceLabels}
+              />
+              <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/planner/events/import">
+                    Import event
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button size="sm" asChild>
+                  <Link href="/planner">
+                    Create event
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -381,19 +401,19 @@ async function loadExperiencesData(): Promise<ExperiencesData> {
     const [financialsResult, venueBookingsResult, vendorBookingsResult, salesResult] = await Promise.all([
       supabase
         .from('event_financial_summary')
-        .select('event_id, tickets_sold, net_revenue, total_costs, expected_profit, profit_margin, updated_at')
+        .select('event_id, tickets_sold, net_revenue, total_costs, expected_profit, profit_margin, calculated_at, updated_at, created_at')
         .in('event_id', eventIds),
       supabase
         .from('venue_bookings')
-        .select('id, event_id, status, payment_status, paid_at')
+        .select('id, event_id, status, payment_status, paid_at, updated_at, created_at')
         .in('event_id', eventIds),
       supabase
         .from('vendor_bookings')
-        .select('id, event_id, status, payment_status, paid_at, deposit_paid')
+        .select('id, event_id, status, payment_status, paid_at, deposit_paid, updated_at, created_at')
         .in('event_id', eventIds),
       supabase
         .from('event_sales_data')
-        .select('id, event_id')
+        .select('id, event_id, updated_at, received_at, created_at')
         .in('event_id', eventIds)
         .limit(1000),
     ])
@@ -472,6 +492,15 @@ function buildExperiencesData({
   const recurringEvents = events.filter((event) => Boolean(event.is_recurring || event.recurring_frequency))
   const completedEvents = events.filter((event) => (event.status ?? '').toLowerCase() === 'completed')
   const averageMargin = average(profitabilityRows.map((row) => toNumber(row.profit_margin)).filter((value) => value !== null))
+  const freshness = buildFreshness({
+    plans,
+    events,
+    financials,
+    venueBookings,
+    vendorBookings,
+    salesRows,
+    ticketingConnections,
+  })
 
   const metrics = [
     {
@@ -558,6 +587,7 @@ function buildExperiencesData({
     plans,
     events,
     records,
+    freshness,
     metrics,
     coverage,
     issues,
@@ -768,4 +798,71 @@ function toNumber(value: unknown): number | null {
 function average(values: number[]) {
   if (values.length === 0) return null
   return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+function buildFreshness({
+  plans,
+  events,
+  financials,
+  venueBookings,
+  vendorBookings,
+  salesRows,
+  ticketingConnections,
+}: {
+  plans: PlanRow[]
+  events: EventRow[]
+  financials: FinancialRow[]
+  venueBookings: BookingRow[]
+  vendorBookings: BookingRow[]
+  salesRows: SalesRow[]
+  ticketingConnections: TicketingConnectionRow[]
+}) {
+  const sources = [
+    {
+      label: 'planner drafts',
+      values: plans.flatMap((row) => [row.updated_at, row.created_at]),
+    },
+    {
+      label: 'event records',
+      values: events.flatMap((row) => [row.updated_at, row.created_at]),
+    },
+    {
+      label: 'bookings',
+      values: [...venueBookings, ...vendorBookings].flatMap((row) => [row.updated_at, row.created_at, row.paid_at]),
+    },
+    {
+      label: 'ticketing sales',
+      values: salesRows.flatMap((row) => [row.updated_at, row.received_at, row.created_at]),
+    },
+    {
+      label: 'financial summaries',
+      values: financials.flatMap((row) => [row.updated_at, row.calculated_at, row.created_at]),
+    },
+    {
+      label: 'ticketing connections',
+      values: ticketingConnections.flatMap((row) => [row.last_webhook_received_at, row.last_connected_at]),
+    },
+  ]
+  const activeSources = sources.filter((source) => source.values.some(Boolean))
+
+  return {
+    lastUpdatedAt: latestIsoDate(activeSources.flatMap((source) => source.values)),
+    sourceCount: activeSources.length,
+    sourceLabels: activeSources.map((source) => source.label),
+  }
+}
+
+function latestIsoDate(values: Array<string | null>) {
+  let latest: string | null = null
+  let latestMs = 0
+
+  for (const value of values) {
+    if (!value) continue
+    const parsed = Date.parse(value)
+    if (Number.isNaN(parsed) || parsed <= latestMs) continue
+    latestMs = parsed
+    latest = new Date(parsed).toISOString()
+  }
+
+  return latest
 }
