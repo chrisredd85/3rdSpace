@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PlannerMobileRouteHeader } from '@/components/planner/PlannerMobileRouteHeader'
 import { cn } from '@/lib/utils'
 import {
   bookingItems,
@@ -58,7 +59,12 @@ export function ExperiencesBookingMockup({ initialBannerState }: ExperiencesBook
 
   return (
     <div className="min-h-full bg-cream text-ink">
-      <div className="border-b border-tan bg-cream/90 px-4 py-4 sm:px-6 lg:px-8">
+      <PlannerMobileRouteHeader
+        actionHref="/planner/experiences/mockup"
+        actionLabel="1 review"
+        activeHref="/planner/experiences/mockup"
+      />
+      <div className="hidden border-b border-tan bg-cream/90 px-4 py-4 sm:px-6 lg:block lg:px-8">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-ink-faint">
             Founder Dinner / June 28 / <span className="text-clay">Booking</span>

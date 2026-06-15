@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ExperiencesLiveRefresh } from '@/components/planner/ExperiencesLiveRefresh'
+import { PlannerMobileRouteHeader } from '@/components/planner/PlannerMobileRouteHeader'
 import { createClient } from '@/lib/supabase/server'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 import { cn } from '@/lib/utils'
@@ -147,6 +148,11 @@ export default async function ExperiencesPage() {
 
   return (
     <div className="min-h-screen">
+      <PlannerMobileRouteHeader
+        actionHref="/planner/experiences"
+        actionLabel="Records"
+        activeHref="/planner/experiences"
+      />
       <div className="border-b border-tan px-6 py-5">
         <h1 className="font-display text-2xl font-bold">Experiences</h1>
         <p className="mt-1 text-sm text-ink-soft">Real event records, planner drafts, partner progress, ticketing coverage, and profitability signals.</p>
