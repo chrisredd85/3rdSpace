@@ -10,6 +10,7 @@ jest.mock('@/lib/outreach/gmail', () => ({
 import {
   executeApprovedGmailOutreach,
   markGmailOutreachThreadHandled,
+  renderBodyForTarget,
   syncGmailOutreachThread,
 } from '@/lib/outreach/gmailApprovalFlow'
 import {
@@ -201,7 +202,7 @@ describe('Gmail approval flow', () => {
         payload_json: {
           kind: 'gmail_approved_outreach',
           targets: [
-            { name: 'Stable Cafe', email: 'stable@example.com' },
+            { name: 'Moongate Lounge', email: 'moongate@example.com' },
             { name: 'Mission Social Hall', email: 'mission@example.com' },
           ],
           subject: 'Happy hour partnership inquiry',
@@ -249,16 +250,38 @@ describe('Gmail approval flow', () => {
       sent_count: 2,
     }))
     expect(mockSendGmailMessage).toHaveBeenCalledTimes(2)
-    expect(mockSendGmailMessage).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      to: 'stable@example.com',
-      bodyText: expect.stringContaining('Stable Cafe'),
-    }))
     expect(db.rows.outreach_threads).toHaveLength(2)
     expect(db.rows.outreach_messages).toHaveLength(2)
+    expect(mockSendGmailMessage).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      to: 'moongate@example.com',
+      bodyText: 'Hi Moongate Lounge,\n\nCan you host this event?\n\nThanks,\ncreator@example.com',
+      bodyHtml: 'Hi Moongate Lounge,<br /><br />Can you host this event?<br /><br />Thanks,<br />creator@example.com',
+    }))
+    expect(mockSendGmailMessage).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      to: 'mission@example.com',
+      bodyText: 'Hi Mission Social Hall,\n\nCan you host this event?\n\nThanks,\ncreator@example.com',
+    }))
+    expect(mockSendGmailMessage.mock.calls[0][0].bodyText).not.toContain('{{')
+    expect(mockSendGmailMessage.mock.calls[1][0].bodyText).not.toContain('{{')
+    expect(db.rows.outreach_messages[0].body_text).toContain('Moongate Lounge')
+    expect(db.rows.outreach_messages[0].body_text).not.toContain('{{venue_name}}')
+    expect(db.rows.outreach_messages[1].body_text).toContain('Mission Social Hall')
+    expect(db.rows.outreach_messages[1].body_text).not.toContain('{{sender_email}}')
     expect(db.rows.plan_messages[0]).toEqual(expect.objectContaining({
       message_type: 'status_update',
       metadata: expect.objectContaining({ outbound_message_sent: true }),
     }))
+  })
+
+  it('renders approved outreach templates with the target place name and strips unresolved tokens', () => {
+    const rendered = renderBodyForTarget(
+      'Hi {{ venue_name }},\n\nProposal: {{event_name}}\n\nFrom {{sender_email}}',
+      { name: 'Moongate Lounge', email: 'chrisredd85@gmail.com' },
+      'julianta1985@gmail.com'
+    )
+
+    expect(rendered).toBe('Hi Moongate Lounge,\n\nProposal: \n\nFrom julianta1985@gmail.com')
+    expect(rendered).not.toContain('{{')
   })
 
   it('syncs Gmail replies and marks the thread handled using modify', async () => {

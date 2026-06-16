@@ -280,7 +280,7 @@ export async function executeApprovedGmailOutreach(
       replyTo: account.email_address,
       subject,
       bodyText,
-      bodyHtml: bodyText.replace(/\n/g, '<br />'),
+      bodyHtml: textToHtml(bodyText),
     })
 
     const thread = await insertOutreachThread(db, {
@@ -296,7 +296,7 @@ export async function executeApprovedGmailOutreach(
       direction: 'outbound',
       subject,
       body_text: bodyText,
-      body_html: bodyText.replace(/\n/g, '<br />'),
+      body_html: textToHtml(bodyText),
       headers_json: {
         from: account.email_address,
         to: target.email,
@@ -466,6 +466,12 @@ function buildApprovalMessageMetadata(
   payload: Record<string, unknown>
 ) {
   const targets = normalizeTargets(readTargets(payload))
+  const senderEmail = readString(payload.sender_email) ?? 'your connected Gmail account'
+  const previewTemplate = readString(payload.body_text) ?? defaultBodyText()
+  const previewTarget = targets[0]
+  const previewBody = previewTarget
+    ? renderBodyForTarget(previewTemplate, previewTarget, senderEmail)
+    : previewTemplate
   return {
     kind: GMAIL_APPROVED_OUTREACH_KIND,
     venue_ids: [],
@@ -482,7 +488,7 @@ function buildApprovalMessageMetadata(
     })),
     opportunity: {
       title: action.description,
-      summary: readString(payload.body_text),
+      summary: previewBody,
       response_deadline: null,
     },
     approval: {
@@ -877,10 +883,19 @@ function readTargets(payload: Record<string, unknown> | null): GmailOutreachTarg
   })
 }
 
-function renderBodyForTarget(template: string, target: GmailOutreachTarget, senderEmail: string) {
+export function renderBodyForTarget(template: string, target: GmailOutreachTarget, senderEmail: string) {
+  const replacements: Record<string, string> = {
+    venue_name: target.name,
+    target_name: target.name,
+    place_name: target.name,
+    sender_email: senderEmail,
+  }
+
   return template
-    .replace(/\{\{\s*venue_name\s*\}\}/gi, target.name)
-    .replace(/\{\{\s*sender_email\s*\}\}/gi, senderEmail)
+    .replace(/\{\{\s*(venue_name|target_name|place_name|sender_email)\s*\}\}/gi, (_match, key: string) => {
+      return replacements[key.toLowerCase()] ?? ''
+    })
+    .replace(/\{\{\s*[^}]+\s*\}\}/g, '')
 }
 
 function extractEmail(value: string | null) {
@@ -901,4 +916,17 @@ function readRecord(value: unknown): Record<string, unknown> | null {
 
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function textToHtml(value: string) {
+  return escapeHtml(value).replace(/\n/g, '<br />')
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
 }
