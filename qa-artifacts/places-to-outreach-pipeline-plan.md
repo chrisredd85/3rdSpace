@@ -38,6 +38,19 @@ Why Text Search:
 - Nearby Search requires lat/lng radius plumbing that the planner does not always have.
 - Place Details is useful after a selected candidate exists, but it is not needed for the first discovery pass if Text Search requests the exact fields used by the UI.
 
+Use these precision controls in the first implementation, not a loose text-only search:
+
+- Resolve the plan's neighborhood/city into a stored centroid + bounding rectangle before calling Places.
+- Send `locationRestriction.rectangle` for neighborhood/city searches.
+- Send `includedType` when the planner intent maps cleanly to one Google Place type (`bar`, `restaurant`, `cafe`, etc.).
+- Send `strictTypeFiltering: true` for categorical venue searches so a "bar" search does not return unrelated businesses.
+- Send `rankPreference: 'DISTANCE'` when a bounded neighborhood search has a clear center or rectangle.
+- Send `includePureServiceAreaBusinesses: false` because venues need physical locations.
+- Request `places.businessStatus` and discard anything that is not `OPERATIONAL`.
+- Keep `maxResultCount` small for the approval UI, then paginate only if the organizer explicitly asks for more.
+
+Neighborhood precision should improve venue relevance and reduce off-neighborhood candidates. It should not be expected to solve email resolution; email availability depends on the venue website, not Places.
+
 Important product fact: Google Places does **not** return business email addresses. Email resolution must remain a second step:
 
 1. Text Search returns `websiteUri`.
@@ -66,6 +79,38 @@ places.businessStatus
 Do not request reviews or photos for MVP. Do not request `places.emailAddress`; it is not a valid Places field and Google Places does not provide business emails.
 
 Implementation note: validate `GOOGLE_PLACES_API_KEY` at the search route entrypoint, not at global app boot.
+
+### Precision request shape
+
+Use this request body shape when a plan has a neighborhood/city match:
+
+```json
+{
+  "textQuery": "bars",
+  "includedType": "bar",
+  "strictTypeFiltering": true,
+  "maxResultCount": 8,
+  "rankPreference": "DISTANCE",
+  "languageCode": "en",
+  "regionCode": "US",
+  "includePureServiceAreaBusinesses": false,
+  "locationRestriction": {
+    "rectangle": {
+      "low": { "latitude": 37.748, "longitude": -122.434 },
+      "high": { "latitude": 37.7705, "longitude": -122.4 }
+    }
+  }
+}
+```
+
+For less precise prompts, fall back in this order:
+
+1. Known neighborhood rectangle.
+2. Known city rectangle.
+3. `locationBias.circle` around a Bay Area centroid.
+4. Text-only search only when the planner cannot derive a geography.
+
+Do not use `locationRestriction` and `locationBias` in the same request.
 
 ## 4. `gmail_approved_outreach` Payload Shape
 
@@ -292,6 +337,37 @@ The raw sample included false positives such as `user@domain.com` and `*.sentry-
 
 Recommendation for Phase 2 UI: design around a conservative 40-50% automatic ready-to-reach-out rate, not the raw 73.3%. Section B ("Contact pending") must be prominent because roughly half of Places candidates will still need organizer-provided email or another contact path.
 
+### Geography precision rerun
+
+After the first audit pass, the same 10-query sample was rerun with the Phase 2 precision controls:
+
+- `locationRestriction.rectangle` per neighborhood/city.
+- `includedType` (`bar`, `restaurant`, or `cafe`) when applicable.
+- `strictTypeFiltering: true`.
+- `rankPreference: 'DISTANCE'`.
+- `includePureServiceAreaBusinesses: false`.
+- Response-side `businessStatus === 'OPERATIONAL'` filtering.
+
+Precision sample result:
+
+- Places results sampled: 30
+- Results with website: 28 / 30 = 93.3%
+- Raw email extracted: 21 / 30 = 70.0%
+- Quality-adjusted usable email: 12 / 30 = 40.0%
+- Query split:
+  - Mission bars: 2 / 3 usable
+  - Hayes Valley private dining: 2 / 3 usable
+  - SOMA lounges: 0 / 3 usable
+  - Castro cafes: 0 / 3 usable
+  - Marina wine bars: 1 / 3 usable
+  - Fillmore restaurants: 0 / 3 usable
+  - North Beach rooftop bars: 1 / 3 usable
+  - Outer Sunset coffee: 1 / 3 usable
+  - Downtown Berkeley pubs: 2 / 3 usable
+  - Uptown Oakland bars: 3 / 3 usable
+
+Conclusion: geography precision is still the right Phase 2 implementation shape because it keeps candidate relevance tight and prevents off-market results. It does **not** materially improve email extraction yield. The UI should continue to assume a 40-50% usable automatic contact rate and make organizer email paste a first-class path.
+
 P1 implementation follow-up before marking extracted contacts as "ready":
 
 - Extend `shouldSkipEmail()` to filter `user@domain.com`, `domain.com` placeholder local/domain patterns, and `*.sentry-next.wixpress.com`.
@@ -308,6 +384,15 @@ P1 implementation follow-up before marking extracted contacts as "ready":
 | `POST /api/planner/plans/[planId]/outreach/approve-batch` | Create one pending Gmail approval per selected ready venue. | Authenticated `community_builder`; plan owner only; rejects candidates without contact email and duplicate existing outreach. |
 
 Do not add routes under `app/(dashboard)`.
+
+The search route should accept server-derived search hints rather than trusting client-supplied geometry blindly. If the client sends a free-text search, the route should derive or validate:
+
+- Neighborhood/city bounds.
+- Allowed Google `includedType`.
+- `rankPreference`.
+- `maxResultCount`.
+
+Store the final Places request shape on the plan candidate rows or a related metadata object for auditability and to explain why a venue was suggested.
 
 ## 9. UI Surface Plan
 
@@ -369,6 +454,27 @@ CREATE INDEX IF NOT EXISTS idx_discovery_venues_has_organizer_email
 
 Recommended additional join table: `plan_discovery_venue_candidates` from Section 5. This is needed for plan-scoped search results, dismissals, duplicate prevention, and RLS.
 
+Add a small geography cache table only if the implementation does not already have a reliable neighborhood source:
+
+```sql
+CREATE TABLE public.planner_search_geographies (
+  key text PRIMARY KEY,
+  label text NOT NULL,
+  city text,
+  state text DEFAULT 'CA',
+  center_lat double precision NOT NULL,
+  center_lng double precision NOT NULL,
+  bounds_low_lat double precision NOT NULL,
+  bounds_low_lng double precision NOT NULL,
+  bounds_high_lat double precision NOT NULL,
+  bounds_high_lng double precision NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+```
+
+If added, seed only the Bay Area neighborhoods the planner already supports. Do not geocode arbitrary user text at runtime for Phase 2 unless that path is separately rate-limited and tested.
+
 Rollback:
 
 ```sql
@@ -414,6 +520,10 @@ Unit tests:
 
 - `lib/server/__tests__/google-places-client.test.ts`
   - Happy path with multiple results.
+  - Request includes `locationRestriction.rectangle` when geography is resolved.
+  - Request includes `includedType` + `strictTypeFiltering` for categorical searches.
+  - Response filters non-`OPERATIONAL` places.
+  - Falls back from neighborhood rectangle to city rectangle to bias circle to text-only.
   - Empty results.
   - 429 rate limit.
   - 5xx retry then success.
@@ -478,6 +588,7 @@ Security/compliance:
 - SMS/Twilio outreach for phone-only venues. Defer until A2P approval.
 - Instagram-native sourcing or DMs for venues with neither email nor website.
 - Periodic re-search cron.
+- Automated pre-warm cron that runs without organizer-visible intent. A future pre-warm is acceptable only after there is a clear trigger such as plan readiness, explicit search history, or host-configured outreach policy. It must not send messages or create approvals automatically.
 - New ranker file or duplicated ranker logic.
 - Ranker enhancement. Current rankers are sparse-safe; only add adapter mapping in Phase 2.
 - Vendor invite/claim changes.
@@ -489,6 +600,7 @@ Safe to proceed to Phase 2 after review, with one product-quality caveat:
 
 - The pipeline architecture is clear and can reuse existing Gmail approval execution.
 - Existing rankers can handle sparse Places rows through an adapter.
+- Geography precision should be part of Phase 2 search implementation for relevance, but it does not change the contact-hit-rate assumption.
 - The UI must assume about half of candidates need manual contact completion.
 - Before Phase 2 marks extracted contacts as ready, tighten extractor false-positive filtering and require a confidence threshold.
 
