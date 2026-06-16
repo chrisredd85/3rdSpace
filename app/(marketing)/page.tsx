@@ -227,14 +227,40 @@ export default function HomePage() {
           </p>
           <div className="mt-10 grid gap-4 md:grid-cols-2">
             <article className="rounded-md border border-tan bg-cream p-7 shadow-sm">
-              <Caps>Per event</Caps>
-              <h3 className="mt-3 font-display text-[30px] text-ink">Pay only when you ship.</h3>
-              <p className="mt-3 text-[16px] leading-[1.6] text-ink-soft">Pay only for events you actually ship.</p>
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <Caps>Per event</Caps>
+                  <h3 className="mt-3 font-display text-[30px] leading-tight text-ink">Pay only when you ship.</h3>
+                </div>
+                <div className="sm:text-right">
+                  <p className="font-display text-[46px] leading-none text-ink">$30</p>
+                  <p className="mt-1 text-[13px] font-semibold text-ink-soft">/event</p>
+                </div>
+              </div>
+              <p className="mt-4 text-[16px] leading-[1.6] text-ink-soft">
+                Buy one event credit after your first two free events.
+              </p>
+              <p className="mt-6 border-t border-tan pt-5 text-[14px] leading-[1.6] text-ink-soft">
+                Includes the planner, approvals, payment coordination, and event margin record for one shipped event.
+              </p>
             </article>
             <article className="rounded-md border border-tan bg-cream p-7 shadow-sm">
-              <Caps>Pro</Caps>
-              <h3 className="mt-3 font-display text-[30px] text-ink">Run without the meter.</h3>
-              <p className="mt-3 text-[16px] leading-[1.6] text-ink-soft">Unlimited events, full historical margin, priority 3rdPlace team support.</p>
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <Caps>Pro</Caps>
+                  <h3 className="mt-3 font-display text-[30px] leading-tight text-ink">Run without the meter.</h3>
+                </div>
+                <div className="sm:text-right">
+                  <p className="font-display text-[46px] leading-none text-ink">$69</p>
+                  <p className="mt-1 text-[13px] font-semibold text-ink-soft">/month</p>
+                </div>
+              </div>
+              <p className="mt-4 text-[16px] leading-[1.6] text-ink-soft">
+                Unlimited events, full historical margin, priority 3rdPlace team support.
+              </p>
+              <p className="mt-6 border-t border-tan pt-5 text-[14px] leading-[1.6] text-ink-soft">
+                Annual plan available at $690/year, about $58/month.
+              </p>
             </article>
           </div>
           <Link href="/pricing" className="mt-8 inline-flex text-[15px] font-semibold text-ink transition-colors hover:text-clay">
