@@ -38,6 +38,11 @@ export type EventbriteEvent = {
   } | null
 }
 
+export type EventbriteOrganization = {
+  id: string
+  name?: string | null
+}
+
 export type EventbriteAttendee = {
   id: string
   event_id?: string | null
@@ -173,16 +178,51 @@ export class EventbriteClient {
     this.fetchImpl = options.fetchImpl ?? fetch
   }
 
-  listOwnedEvents() {
-    return this.request<{
-      events?: EventbriteEvent[]
-      pagination?: EventbritePagination | null
-    }>('/v3/users/me/owned_events/', {
+  async listOwnedEvents() {
+    const query = {
       page_size: '10',
       order_by: 'start_desc',
       status: 'live,started,ended,draft',
       expand: 'ticket_classes,venue',
-    })
+    }
+
+    try {
+      const organizations = await this.request<{
+        organizations?: EventbriteOrganization[]
+        pagination?: EventbritePagination | null
+      }>('/v3/users/me/organizations/', {
+        page_size: '50',
+      })
+      const organizationIds = (organizations.organizations ?? [])
+        .map((organization) => organization.id)
+        .filter(Boolean)
+        .slice(0, 5)
+
+      if (organizationIds.length > 0) {
+        const eventPages = await Promise.all(
+          organizationIds.map((organizationId) =>
+            this.request<{
+              events?: EventbriteEvent[]
+              pagination?: EventbritePagination | null
+            }>(`/v3/organizations/${encodeURIComponent(organizationId)}/events/`, query)
+          )
+        )
+
+        return {
+          events: eventPages.flatMap((page) => page.events ?? []).slice(0, 10),
+          pagination: {
+            has_more_items: eventPages.some((page) => Boolean(page.pagination?.has_more_items)),
+          },
+        }
+      }
+    } catch (error) {
+      if (!shouldFallbackToOwnedEvents(error)) throw error
+    }
+
+    return this.request<{
+      events?: EventbriteEvent[]
+      pagination?: EventbritePagination | null
+    }>('/v3/users/me/owned_events/', query)
   }
 
   getEvent(eventId: string) {
@@ -337,6 +377,11 @@ function readErrorMessage(value: unknown) {
     if (typeof message === 'string' && message.trim()) return message.trim()
   }
   return null
+}
+
+function shouldFallbackToOwnedEvents(error: unknown) {
+  const status = typeof error === 'object' && error && 'status' in error ? (error as EventbriteApiError).status : undefined
+  return status === 403 || status === 404
 }
 
 function safeCompare(expected: string, actual: string) {

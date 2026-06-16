@@ -70,6 +70,13 @@ describe('Eventbrite OAuth and webhooks', () => {
         return jsonResponse({ error: 'expired' }, 401)
       }
 
+      if (url === 'https://www.eventbriteapi.com/v3/users/me/organizations/?page_size=50') {
+        return jsonResponse({
+          organizations: [{ id: 'eventbrite-org-1', name: 'Backfill Org' }],
+          pagination: { has_more_items: false },
+        })
+      }
+
       return jsonResponse({
         events: [{ id: 'eventbrite-event-1', name: { text: 'Backfill Night' } }],
         pagination: { has_more_items: false },
@@ -86,12 +93,76 @@ describe('Eventbrite OAuth and webhooks', () => {
     const result = await client.listOwnedEvents()
 
     expect(result.events?.[0]?.id).toBe('eventbrite-event-1')
-    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
     expect(onRefresh).toHaveBeenCalledWith(expect.objectContaining({
       access_token: 'fresh-access-token',
       refresh_token: 'fresh-refresh-token',
     }))
     expect(new Headers(fetchImpl.mock.calls[2][1]?.headers).get('Authorization')).toBe('Bearer fresh-access-token')
+    expect(fetchImpl.mock.calls[3][0]).toContain('/v3/organizations/eventbrite-org-1/events/')
+    expect(new Headers(fetchImpl.mock.calls[3][1]?.headers).get('Authorization')).toBe('Bearer fresh-access-token')
+  })
+
+  it('lists owned Eventbrite events through organizations before using the legacy endpoint', async () => {
+    const fetchImpl = jest.fn(async (url: string) => {
+      if (url === 'https://www.eventbriteapi.com/v3/users/me/organizations/?page_size=50') {
+        return jsonResponse({
+          organizations: [{ id: 'eventbrite-org-1', name: 'Backfill Org' }],
+          pagination: { has_more_items: false },
+        })
+      }
+
+      if (url.startsWith('https://www.eventbriteapi.com/v3/organizations/eventbrite-org-1/events/')) {
+        return jsonResponse({
+          events: [{ id: 'eventbrite-event-1', name: { text: 'Backfill Night' } }],
+          pagination: { has_more_items: false },
+        })
+      }
+
+      return jsonResponse({ error: 'unexpected endpoint' }, 500)
+    }) as jest.MockedFunction<typeof fetch>
+    const client = new EventbriteClient({
+      accessToken: 'access-token',
+      fetchImpl,
+    })
+
+    const result = await client.listOwnedEvents()
+
+    expect(result.events).toEqual([
+      expect.objectContaining({ id: 'eventbrite-event-1' }),
+    ])
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(fetchImpl.mock.calls[1][0]).toContain('/v3/organizations/eventbrite-org-1/events/')
+    expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/v3/users/me/owned_events/'))).toBe(false)
+  })
+
+  it('falls back to the legacy owned events endpoint when organizations are unavailable', async () => {
+    const fetchImpl = jest.fn(async (url: string) => {
+      if (url === 'https://www.eventbriteapi.com/v3/users/me/organizations/?page_size=50') {
+        return jsonResponse({ error: 'NOT_AUTHORIZED' }, 403)
+      }
+
+      if (url.startsWith('https://www.eventbriteapi.com/v3/users/me/owned_events/')) {
+        return jsonResponse({
+          events: [{ id: 'legacy-event-1', name: { text: 'Legacy Event' } }],
+          pagination: { has_more_items: false },
+        })
+      }
+
+      return jsonResponse({ error: 'unexpected endpoint' }, 500)
+    }) as jest.MockedFunction<typeof fetch>
+    const client = new EventbriteClient({
+      accessToken: 'access-token',
+      fetchImpl,
+    })
+
+    const result = await client.listOwnedEvents()
+
+    expect(result.events).toEqual([
+      expect.objectContaining({ id: 'legacy-event-1' }),
+    ])
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(fetchImpl.mock.calls[1][0]).toContain('/v3/users/me/owned_events/')
   })
 
   it('accepts only a valid HMAC signature for Eventbrite webhook payloads', () => {
