@@ -169,6 +169,10 @@ interface ProfitModel {
   conservativeCents: number
   expectedCents: number
   upsideCents: number
+  realisticCents: number
+  rangeLowCents: number
+  rangeHighCents: number
+  perAttendeeNetCents: number | null
   lineItems: Array<{ label: string; amountCents: number; negative?: boolean }>
   paidAverage: number
   venueKickbackCents: number
@@ -625,6 +629,10 @@ function buildProfitModel(
   const venueKickbackCents = guestCount > 100 ? (guestCount - 100) * 800 : 0
   const revenueShareCents = Math.round(Math.max(0, ticketRevenueCents - feesCents) * 0.12)
   const expectedCents = ticketRevenueCents + barRevenueCents - venueCostCents - vendorCostCents - customCostsTotalCents - feesCents - venueKickbackCents
+  const conservativeCents = Math.round(expectedCents * 0.6)
+  const upsideCents = Math.round(expectedCents * 1.45)
+  const attendeeBasis = paidAverage || guestCount
+  const perAttendeeNetCents = attendeeBasis > 0 ? Math.round(expectedCents / attendeeBasis) : null
   const totalCostCents = venueCostCents + vendorCostCents + customCostsTotalCents + feesCents + venueKickbackCents
   const breakEvenTickets =
     summary.ticketed && ticketPricing.recommendedCents > 0 && totalCostCents > 0
@@ -645,9 +653,13 @@ function buildProfitModel(
   }
 
   return {
-    conservativeCents: Math.round(expectedCents * 0.6),
+    conservativeCents,
     expectedCents,
-    upsideCents: Math.round(expectedCents * 1.45),
+    upsideCents,
+    realisticCents: expectedCents,
+    rangeLowCents: Math.min(conservativeCents, upsideCents),
+    rangeHighCents: Math.max(conservativeCents, upsideCents),
+    perAttendeeNetCents,
     paidAverage,
     venueKickbackCents,
     revenueShareCents,
@@ -1070,7 +1082,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           </div>
         </ArtifactSection>
 
-        <ArtifactSection icon={<TrendingUp className="h-5 w-5" />} title="Profit Window" subtitle="Forecast range">
+        <ArtifactSection icon={<TrendingUp className="h-5 w-5" />} title="Profit Window" subtitle="Realistic forecast + range">
           <div className="mb-5 rounded-lg border border-tan bg-cream-deep/50 p-5">
             <p className="label-caps text-ink-soft">Ticket Pricing</p>
             <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(118px,1fr))]">
@@ -1082,10 +1094,10 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
               {profitModel.ticketPricing.rationale}
             </p>
           </div>
-          <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(128px,1fr))]">
-            <ProfitCard label="Conservative" value={profitModel.conservativeCents} />
-            <ProfitCard label="Expected" value={profitModel.expectedCents} featured />
-            <ProfitCard label="Upside" value={profitModel.upsideCents} />
+          <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
+            <ProfitCard label="Realistic" value={profitModel.realisticCents} featured />
+            <ProfitRangeCard label="Range" low={profitModel.rangeLowCents} high={profitModel.rangeHighCents} />
+            <ProfitCard label="Per-attendee net" value={profitModel.perAttendeeNetCents} />
           </div>
 
           <div className="mt-5 overflow-hidden rounded-lg border border-tan bg-cream-deep/50">
@@ -1475,7 +1487,7 @@ function PlanPill({ children, intent = 'neutral' }: { children: React.ReactNode;
   )
 }
 
-function ProfitCard({ label, value, featured = false }: { label: string; value: number; featured?: boolean }) {
+function ProfitCard({ label, value, featured = false }: { label: string; value: number | null; featured?: boolean }) {
   return (
     <div
       className={cn(
@@ -1484,7 +1496,18 @@ function ProfitCard({ label, value, featured = false }: { label: string; value: 
       )}
     >
       <p className={cn('whitespace-nowrap text-xs font-bold uppercase leading-none tracking-[0.08em]', featured ? 'text-cream/80' : 'text-ink-faint')}>{label}</p>
-      <p className="mt-3 whitespace-nowrap font-display text-2xl leading-none tabular-nums">{formatCents(value)}</p>
+      <p className="mt-3 whitespace-nowrap font-display text-2xl leading-none tabular-nums">{value === null ? 'TBD' : formatCents(value)}</p>
+    </div>
+  )
+}
+
+function ProfitRangeCard({ label, low, high }: { label: string; low: number; high: number }) {
+  return (
+    <div className="min-w-0 rounded-md bg-cream-deep px-4 py-4 text-center text-ink">
+      <p className="whitespace-nowrap text-xs font-bold uppercase leading-none tracking-[0.08em] text-ink-faint">{label}</p>
+      <p className="mt-3 whitespace-nowrap font-display text-xl leading-none tabular-nums">
+        {formatCents(low)} - {formatCents(high)}
+      </p>
     </div>
   )
 }

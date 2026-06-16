@@ -20,6 +20,14 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
+    const rawPublicBaseRateAmount = body.publicBaseRateAmount
+    const publicBaseRateAmount =
+      rawPublicBaseRateAmount === null ||
+      rawPublicBaseRateAmount === undefined ||
+      String(rawPublicBaseRateAmount).trim() === ''
+        ? null
+        : Number(rawPublicBaseRateAmount)
+
     const result = await claimInvitedVendor({
       token: String(body.token || ''),
       email: String(body.email || ''),
@@ -28,7 +36,7 @@ export async function POST(request: NextRequest) {
       counterAmount: body.counterAmount === null || body.counterAmount === undefined || body.counterAmount === ''
         ? null
         : Number(body.counterAmount),
-      publicBaseRateAmount: Number(body.publicBaseRateAmount || 0),
+      publicBaseRateAmount,
       publicRateType: body.publicRateType === 'hourly' || body.publicRateType === 'per_person'
         ? body.publicRateType
         : 'flat',

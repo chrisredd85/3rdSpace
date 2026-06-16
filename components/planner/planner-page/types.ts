@@ -74,14 +74,17 @@ export interface EventPlanPayload {
 
 export interface ResponseAnalysisOutput {
   availability_status: 'available' | 'unavailable' | 'tentative' | 'unknown'
+  service_type?: string | null
   quoted_price_cents: number | null
   minimum_spend_cents: number | null
   deposit_required_cents: number | null
+  availability_notes?: string | null
   capacity_notes: string | null
   included_services: string[]
   exclusions: string[]
   hidden_fees: string[]
   cancellation_terms: string | null
+  notes?: string | null
   required_next_steps: string[]
   summary: string
   risk_flags: string[]
