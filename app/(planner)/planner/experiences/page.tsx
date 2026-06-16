@@ -184,18 +184,35 @@ type ExperienceRecord = {
   title: string
   href: string
   dateLabel: string
+  metroLabel: string
+  timingLabel: string
   statusLabel: string
   sourceLabel: string
   detail: string
+  headerChips: string[]
+  attentionLabel: string
+  attentionTone: RecordTone
   partnerCount: number
   hasTicketing: boolean
   hasFinancials: boolean
   profitLabel: string
   marginLabel: string
   nextAction: string
+  banner: NeedsYouBannerRecord
   bookingItems: ExperienceBookingItem[]
   money: MoneyRecord | null
   guests: GuestRecord
+}
+
+type NeedsYouBannerRecord = {
+  tone: 'action' | 'watch' | 'settled'
+  eyebrow: string
+  title: string
+  body: string
+  primaryHref: string
+  primaryLabel: string
+  secondaryHref: string
+  secondaryLabel: string
 }
 
 type LoadIssue = {
@@ -309,39 +326,56 @@ export default async function ExperiencesPage({
                 <p className="mt-3 max-w-3xl text-sm leading-6 text-ink-soft sm:text-base">{primaryRecord.detail}</p>
               </div>
               <div className="flex flex-wrap gap-2 lg:justify-end">
-                <span className="rounded-full border border-tan bg-cream px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-ink-soft">
-                  {primaryRecord.statusLabel}
-                </span>
-                <span className="rounded-full border border-tan bg-cream px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-ink-soft">
-                  {primaryRecord.marginLabel}
-                </span>
-                <span className="rounded-full border border-tan bg-cream px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-ink-soft">
-                  {primaryRecord.profitLabel}
-                </span>
+                {primaryRecord.headerChips.map((chip) => (
+                  <span key={chip} className="rounded-full border border-tan bg-cream px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-ink-soft">
+                    {chip}
+                  </span>
+                ))}
               </div>
             </section>
 
-            <section className="rounded-lg border border-clay/25 bg-clay-tint/45 p-5 sm:p-6" aria-label="What needs you">
+            <section
+              className={cn(
+                'rounded-lg border p-5 sm:p-6',
+                primaryRecord.banner.tone === 'settled' && 'border-forest/20 bg-forest-tint/45',
+                primaryRecord.banner.tone === 'watch' && 'border-ochre/25 bg-ochre-tint/45',
+                primaryRecord.banner.tone === 'action' && 'border-clay/25 bg-clay-tint/45'
+              )}
+              aria-label="What needs you"
+            >
               <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-clay-deep">What needs you</p>
+                  <p className={cn(
+                    'text-xs font-bold uppercase tracking-[0.18em]',
+                    primaryRecord.banner.tone === 'settled' && 'text-forest',
+                    primaryRecord.banner.tone === 'watch' && 'text-ochre',
+                    primaryRecord.banner.tone === 'action' && 'text-clay-deep'
+                  )}>
+                    What needs you
+                  </p>
                   <h3 className="mt-3 max-w-4xl font-display text-xl font-bold leading-tight text-ink sm:text-2xl">
-                    {primaryRecord.nextAction}
+                    {primaryRecord.banner.eyebrow}
                   </h3>
                   <p className="mt-2 max-w-4xl text-sm leading-6 text-ink-soft sm:text-base">
-                    3rdPlace keeps the record approval-gated. The agent can prepare the next move, but the host decides before any message, booking, or payment executes.
+                    {primaryRecord.banner.title}
+                  </p>
+                  <p className="mt-2 max-w-4xl text-sm leading-6 text-ink-faint sm:text-base">
+                    {primaryRecord.banner.body}
                   </p>
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row lg:flex-col lg:items-stretch">
                   <Button asChild>
-                    <Link href={primaryRecord.href}>
-                      Review record
+                    <Link href={primaryRecord.banner.primaryHref}>
+                      {primaryRecord.banner.primaryLabel}
                       <ArrowRight className="ml-2 h-4 w-4" />
                     </Link>
                   </Button>
                   <Button variant="outline" asChild>
-                    <Link href="/planner">Use planner</Link>
+                    <Link href={primaryRecord.banner.secondaryHref}>{primaryRecord.banner.secondaryLabel}</Link>
                   </Button>
+                  <p className="max-w-[18rem] text-xs leading-5 text-ink-faint">
+                    The agent prepares the next move, but the host approves before any message, booking, or payment executes.
+                  </p>
                 </div>
               </div>
             </section>
@@ -753,26 +787,46 @@ function buildEventRecord({
   const expectedProfit = toNumber(financial?.expected_profit)
   const margin = toNumber(financial?.profit_margin)
   const guests = buildGuestRecord(event, financial, salesRows, hasTicketing)
+  const nextAction = getEventNextAction(event, bookingItems.length, hasTicketing, hasFinancials)
+  const attention = getRecordAttention(nextAction)
+  const statusLabel = titleize(event.status ?? 'draft')
+  const metroLabel = deriveEventMetro(event, venueBookings)
+  const guestChip = formatGuestCount(event.expected_attendance ?? event.expected_attendance_max ?? event.expected_attendance_min) ?? 'Guest target TBD'
+  const ticketingChip = hasTicketing ? getTicketingLabel(event) : 'Ticketing not connected'
+  const eventHref = `/planner/events/${event.id}/live`
 
   return {
     id: event.id,
     kind: 'event',
     title: event.event_name || 'Untitled event',
-    href: `/planner/events/${event.id}/live`,
+    href: eventHref,
     dateLabel: formatDate(event.event_date),
-    statusLabel: titleize(event.status ?? 'draft'),
+    metroLabel,
+    timingLabel: formatTimingLabel(event.event_date),
+    statusLabel,
     sourceLabel: event.is_recurring || event.recurring_frequency ? 'Recurring event' : 'Event record',
     detail: [
+      formatDate(event.event_date),
       titleize(event.event_type),
-      formatGuestCount(event.expected_attendance ?? event.expected_attendance_max ?? event.expected_attendance_min),
+      guestChip,
       event.budget ?? event.total_budget ? `Budget ${formatMoneyDollars(event.budget ?? event.total_budget ?? 0)}` : null,
     ].filter(Boolean).join(' · '),
+    headerChips: [metroLabel, guestChip, ticketingChip],
+    attentionLabel: attention.label,
+    attentionTone: attention.tone,
     partnerCount,
     hasTicketing,
     hasFinancials,
     profitLabel: hasFinancials && expectedProfit !== null ? formatMoneyDollars(expectedProfit) : 'No summary',
     marginLabel: margin === null ? 'No margin summary yet' : `${Math.round(margin)}% margin`,
-    nextAction: getEventNextAction(event, bookingItems.length, hasTicketing, hasFinancials),
+    nextAction,
+    banner: buildNeedsYouBanner({
+      nextAction,
+      recordHref: eventHref,
+      hasTicketing,
+      hasFinancials,
+      isCompleted: (event.status ?? '').toLowerCase() === 'completed',
+    }),
     bookingItems,
     money: buildMoneyRecord(financial, bookingItems, guests),
     guests,
@@ -780,9 +834,16 @@ function buildEventRecord({
 }
 
 function buildPlanRecord(plan: PlanRow): ExperienceRecord {
+  const dateLabel = formatDateWindow(plan.date_window_start, plan.date_window_end)
+  const guestChip = formatGuestCount(plan.guest_count) ?? 'Guest target TBD'
+  const ticketingChip = plan.ticketed || plan.ticketing_model ? titleize(plan.ticketing_model ?? 'Ticketed') : 'Ticketing not connected'
+  const nextAction = getPlanNextAction(plan)
+  const attention = getRecordAttention(nextAction)
+  const planHref = `/planner?plan=${plan.id}`
   const detail = [
+    dateLabel,
     plan.event_type ? titleize(plan.event_type) : null,
-    formatGuestCount(plan.guest_count),
+    guestChip,
     plan.budget_cap_cents ? `Budget cap ${formatMoneyCents(plan.budget_cap_cents)}` : null,
     plan.profit_goal_cents ? `Profit goal ${formatMoneyCents(plan.profit_goal_cents)}` : null,
   ].filter(Boolean).join(' · ')
@@ -791,17 +852,29 @@ function buildPlanRecord(plan: PlanRow): ExperienceRecord {
     id: plan.id,
     kind: 'plan',
     title: plan.title || 'Untitled planner draft',
-    href: `/planner?plan=${plan.id}`,
-    dateLabel: formatDateWindow(plan.date_window_start, plan.date_window_end),
+    href: planHref,
+    dateLabel,
+    metroLabel: 'Bay Area',
+    timingLabel: formatTimingLabel(plan.date_window_start),
     statusLabel: titleize(plan.status),
     sourceLabel: 'Planner draft',
     detail: detail || 'Planner artifact saved from an event conversation.',
+    headerChips: ['Bay Area', guestChip, ticketingChip],
+    attentionLabel: attention.label,
+    attentionTone: attention.tone,
     partnerCount: 0,
     hasTicketing: Boolean(plan.ticketed || plan.ticketing_model),
     hasFinancials: Boolean(plan.budget_cap_cents || plan.profit_goal_cents),
     profitLabel: plan.profit_goal_cents ? formatMoneyCents(plan.profit_goal_cents) : 'Planning',
     marginLabel: plan.ticketing_model ? `${titleize(plan.ticketing_model)} model` : 'No ticketing model yet',
-    nextAction: getPlanNextAction(plan),
+    nextAction,
+    banner: buildNeedsYouBanner({
+      nextAction,
+      recordHref: planHref,
+      hasTicketing: Boolean(plan.ticketed || plan.ticketing_model),
+      hasFinancials: Boolean(plan.budget_cap_cents || plan.profit_goal_cents),
+      isCompleted: plan.status === 'complete',
+    }),
     bookingItems: [],
     money: null,
     guests: {
@@ -836,15 +909,16 @@ function RecordRail({ records, primaryRecord }: { records: ExperienceRecord[]; p
               aria-current={isSelected ? 'page' : undefined}
             >
               <div className="flex items-start justify-between gap-3">
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-faint">{record.dateLabel}</p>
-                <span className={cn('mt-1 h-2.5 w-2.5 rounded-full', record.kind === 'event' ? 'bg-forest' : 'bg-clay')} />
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-faint">
+                  {record.dateLabel} · {record.metroLabel}
+                </p>
+                <span className={cn('mt-1 h-2.5 w-2.5 rounded-full', dotClass(record.attentionTone))} />
               </div>
               <h2 className="mt-4 truncate font-display text-xl font-bold leading-tight text-ink">{record.title}</h2>
-              <p className="mt-2 line-clamp-2 text-sm leading-6 text-ink-soft">{record.nextAction}</p>
               <div className="mt-4 flex items-center justify-between gap-3">
-                <RecordKindPill record={record} />
-                <span className="text-xs font-semibold text-clay-deep opacity-0 transition-opacity group-hover:opacity-100">
-                  Open
+                <p className="text-xs font-bold uppercase tracking-[0.1em] text-ink-faint">{record.timingLabel}</p>
+                <span className={cn('text-xs font-bold uppercase tracking-[0.1em]', attentionTextClass(record.attentionTone))}>
+                  {record.attentionLabel}
                 </span>
               </div>
             </Link>
@@ -872,6 +946,7 @@ function buildOperatingSections(record: ExperienceRecord): OperatingSection[] {
   const hasBookings = record.bookingItems.length > 0
   const hasMoney = record.hasFinancials
   const hasGuestTarget = record.guests.targetLabel !== 'Guest target not set yet'
+  const hasConfirmedGuests = !record.guests.confirmedLabel.toLowerCase().startsWith('no confirmed')
   const defaultOpenTitle = getDefaultOperatingSection(record, hasBookings, hasMoney)
 
   return [
@@ -933,9 +1008,9 @@ function buildOperatingSections(record: ExperienceRecord): OperatingSection[] {
     {
       number: '04',
       title: 'Guests',
-      summary: hasGuestTarget ? `${record.guests.targetLabel}. ${record.guests.ticketingLabel}.` : 'Guest target not set yet.',
-      status: hasGuestTarget ? 'On track' : 'Needs target',
-      tone: hasGuestTarget ? 'settled' : 'empty',
+      summary: hasGuestTarget ? `${record.guests.targetLabel}. ${record.guests.confirmedLabel}.` : 'Guest target not set yet.',
+      status: hasConfirmedGuests ? 'On track' : hasGuestTarget ? 'Needs data' : 'Needs target',
+      tone: hasConfirmedGuests ? 'settled' : hasGuestTarget ? 'watch' : 'empty',
       defaultOpen: defaultOpenTitle === 'Guests',
       details: [
         { label: 'Guest target', value: record.guests.targetLabel },
@@ -944,7 +1019,7 @@ function buildOperatingSections(record: ExperienceRecord): OperatingSection[] {
         { label: 'Remaining', value: record.guests.remainingLabel },
       ],
       guests: record.guests,
-      actionHref: '/planner/tickets',
+      actionHref: record.hasTicketing ? '/planner/tickets' : '/planner/integrations/eventbrite',
       actionLabel: record.hasTicketing ? 'Open ticketing' : 'Connect ticketing data',
     },
   ]
@@ -1507,6 +1582,30 @@ function dotClass(tone: RecordTone) {
   return 'bg-ink-faint'
 }
 
+function attentionTextClass(tone: RecordTone) {
+  if (tone === 'settled') return 'text-forest'
+  if (tone === 'action') return 'text-clay-deep'
+  if (tone === 'watch') return 'text-ochre'
+  return 'text-ink-faint'
+}
+
+function deriveEventMetro(event: EventRow, venueBookings: VenueBookingRow[]) {
+  const venueCity = venueBookings.find((booking) => booking.venues?.city)?.venues?.city
+  const venueState = venueBookings.find((booking) => booking.venues?.state)?.venues?.state
+  return compactMetroLabel(venueCity ?? venueState ?? 'Bay Area')
+}
+
+function compactMetroLabel(value: string) {
+  const normalized = value.trim()
+  if (!normalized) return 'Bay Area'
+  const lower = normalized.toLowerCase()
+  if (lower === 'san francisco') return 'SF'
+  if (lower === 'oakland') return 'Oakland'
+  if (lower.includes('peninsula')) return 'Peninsula'
+  if (lower === 'bay_area' || lower === 'bay area') return 'Bay Area'
+  return titleize(normalized)
+}
+
 function hasFinancialSignal(row: FinancialRow) {
   return (
     toNumber(row.tickets_sold) !== null ||
@@ -1532,6 +1631,124 @@ function getPlanNextAction(plan: PlanRow) {
   if (plan.status === 'executing') return 'Track execution'
   if (plan.status === 'complete') return 'Save or rebook'
   return 'Review record'
+}
+
+function getRecordAttention(nextAction: string): { label: string; tone: RecordTone } {
+  const action = nextAction.toLowerCase()
+  if (action.includes('attach')) return { label: 'Needs terms', tone: 'action' }
+  if (action.includes('connect')) return { label: 'Needs data', tone: 'action' }
+  if (action.includes('add post')) return { label: 'Post-event', tone: 'action' }
+  if (action.includes('review approvals')) return { label: 'For review', tone: 'action' }
+  if (action.includes('clarify')) return { label: 'Drafting', tone: 'watch' }
+  if (action.includes('profitability')) return { label: 'Review', tone: 'watch' }
+  if (action.includes('prepare')) return { label: 'Executing', tone: 'watch' }
+  if (action.includes('save') || action.includes('rebook')) return { label: 'Memory', tone: 'watch' }
+  return { label: 'On track', tone: 'settled' }
+}
+
+function buildNeedsYouBanner({
+  nextAction,
+  recordHref,
+  hasTicketing,
+  hasFinancials,
+  isCompleted,
+}: {
+  nextAction: string
+  recordHref: string
+  hasTicketing: boolean
+  hasFinancials: boolean
+  isCompleted: boolean
+}): NeedsYouBannerRecord {
+  const action = nextAction.toLowerCase()
+
+  if (action.includes('attach')) {
+    return {
+      tone: 'action',
+      eyebrow: 'Attach venue or vendor terms.',
+      title: 'No approved or confirmed partner bookings are attached to this event yet.',
+      body: 'Use the planner to review venue/vendor options and create an approval record before any outreach, booking, or payment moves.',
+      primaryHref: '/planner/venues',
+      primaryLabel: 'Find venue terms',
+      secondaryHref: '/planner/vendors',
+      secondaryLabel: 'Find vendor terms',
+    }
+  }
+
+  if (action.includes('connect') || !hasTicketing) {
+    return {
+      tone: 'action',
+      eyebrow: 'Connect ticketing data.',
+      title: 'Guest progress and revenue need a ticketing source before this record can be fully live.',
+      body: 'Connect or import Eventbrite, Posh, or another ticketing source. The guest and money sections update after imported rows land.',
+      primaryHref: '/planner/integrations/eventbrite',
+      primaryLabel: 'Connect Eventbrite',
+      secondaryHref: '/planner/tickets',
+      secondaryLabel: 'Open tickets',
+    }
+  }
+
+  if (isCompleted && !hasFinancials) {
+    return {
+      tone: 'action',
+      eyebrow: 'Add post-event data.',
+      title: 'This completed event still needs financials before 3rdPlace can calculate profitability.',
+      body: 'Add ticketing, cost, refund, or post-event data so this record becomes useful for templates, rebooks, and future forecasts.',
+      primaryHref: recordHref,
+      primaryLabel: 'Open event record',
+      secondaryHref: '/planner/events/import',
+      secondaryLabel: 'Import event data',
+    }
+  }
+
+  if (action.includes('review approvals')) {
+    return {
+      tone: 'action',
+      eyebrow: 'One or more approvals need review.',
+      title: 'Review the proposed next step before any message, booking, or payment executes.',
+      body: '3rdPlace keeps execution gated. The agent can prepare terms and outreach, but the host decision is the trigger.',
+      primaryHref: recordHref,
+      primaryLabel: 'Review approval',
+      secondaryHref: '/planner/payments',
+      secondaryLabel: 'Open approvals',
+    }
+  }
+
+  if (action.includes('profitability')) {
+    return {
+      tone: 'watch',
+      eyebrow: 'Review profitability.',
+      title: 'This event has enough data for a money review.',
+      body: 'Check margin, break-even, and cost movement before you use this event as a template or rebook reference.',
+      primaryHref: recordHref,
+      primaryLabel: 'Open event record',
+      secondaryHref: '/planner/analytics',
+      secondaryLabel: 'Open analytics',
+    }
+  }
+
+  if (action.includes('clarify')) {
+    return {
+      tone: 'watch',
+      eyebrow: 'Clarify the plan.',
+      title: 'This draft needs more event detail before the operating record can fill in.',
+      body: 'Add date, guest target, venue/vendor needs, budget, and profitability goals in the planner chat.',
+      primaryHref: recordHref,
+      primaryLabel: 'Open planner draft',
+      secondaryHref: '/planner/templates',
+      secondaryLabel: 'Use template',
+    }
+  }
+
+  return {
+    tone: 'settled',
+    eyebrow: 'Nothing waiting on you right now.',
+    title: 'The agent is watching bookings, ticketing movement, and money risk for this event.',
+    body: 'If price, date, seats, vendor, or terms change, 3rdPlace should ask for approval again before execution.',
+    primaryHref: recordHref,
+    primaryLabel: 'Open record',
+    secondaryHref: '/planner',
+    secondaryLabel: 'Use planner',
+  }
 }
 
 function getRecordSortValue(record: ExperienceRecord) {
@@ -1594,6 +1811,19 @@ function formatDate(value: string | null) {
     day: 'numeric',
     year: 'numeric',
   }).format(parsed)
+}
+
+function formatTimingLabel(value: string | null) {
+  if (!value) return 'TBD'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return 'TBD'
+  const today = new Date()
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  const startOfEventDay = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime()
+  const dayDifference = Math.round((startOfEventDay - startOfToday) / (24 * 60 * 60 * 1000))
+  if (dayDifference === 0) return 'Today'
+  if (dayDifference > 0) return `T-${dayDifference} days`
+  return `T+${Math.abs(dayDifference)} days`
 }
 
 function formatTimeRange(start: string | null | undefined, end: string | null | undefined) {
