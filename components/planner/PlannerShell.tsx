@@ -23,7 +23,6 @@ const mobilePromotedPlannerPaths = new Set([
   '/planner',
   '/planner/new-plan',
   '/planner/experiences',
-  '/planner/experiences/mockup',
   '/planner/venues',
   '/planner/payments',
   '/planner/messages',
