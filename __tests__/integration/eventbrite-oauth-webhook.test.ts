@@ -70,7 +70,7 @@ describe('Eventbrite OAuth and webhooks', () => {
         return jsonResponse({ error: 'expired' }, 401)
       }
 
-      if (url === 'https://www.eventbriteapi.com/v3/users/me/organizations/?page_size=50') {
+      if (url === 'https://www.eventbriteapi.com/v3/users/me/organizations/') {
         return jsonResponse({
           organizations: [{ id: 'eventbrite-org-1', name: 'Backfill Org' }],
           pagination: { has_more_items: false },
@@ -105,7 +105,7 @@ describe('Eventbrite OAuth and webhooks', () => {
 
   it('lists owned Eventbrite events through organizations before using the legacy endpoint', async () => {
     const fetchImpl = jest.fn(async (url: string) => {
-      if (url === 'https://www.eventbriteapi.com/v3/users/me/organizations/?page_size=50') {
+      if (url === 'https://www.eventbriteapi.com/v3/users/me/organizations/') {
         return jsonResponse({
           organizations: [{ id: 'eventbrite-org-1', name: 'Backfill Org' }],
           pagination: { has_more_items: false },
@@ -136,9 +136,52 @@ describe('Eventbrite OAuth and webhooks', () => {
     expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/v3/users/me/owned_events/'))).toBe(false)
   })
 
+  it('retries organization event listing without page_size when Eventbrite rejects it', async () => {
+    const fetchImpl = jest.fn(async (url: string) => {
+      if (url === 'https://www.eventbriteapi.com/v3/users/me/organizations/') {
+        return jsonResponse({
+          organizations: [{ id: 'eventbrite-org-1', name: 'Backfill Org' }],
+          pagination: { has_more_items: false },
+        })
+      }
+
+      if (url.startsWith('https://www.eventbriteapi.com/v3/organizations/eventbrite-org-1/events/')) {
+        const requestUrl = new URL(url)
+        if (requestUrl.searchParams.has('page_size')) {
+          return jsonResponse({
+            status_code: 400,
+            error_description: 'There are errors with your arguments: page_size - Unknown parameter',
+            error: 'ARGUMENTS_ERROR',
+          }, 400)
+        }
+
+        return jsonResponse({
+          events: [{ id: 'eventbrite-event-1', name: { text: 'Backfill Night' } }],
+          pagination: { has_more_items: false },
+        })
+      }
+
+      return jsonResponse({ error: 'unexpected endpoint' }, 500)
+    }) as jest.MockedFunction<typeof fetch>
+    const client = new EventbriteClient({
+      accessToken: 'access-token',
+      fetchImpl,
+    })
+
+    const result = await client.listOwnedEvents()
+
+    expect(result.events).toEqual([
+      expect.objectContaining({ id: 'eventbrite-event-1' }),
+    ])
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(String(fetchImpl.mock.calls[1][0])).toContain('page_size=10')
+    expect(String(fetchImpl.mock.calls[2][0])).not.toContain('page_size=')
+    expect(String(fetchImpl.mock.calls[2][0])).toContain('order_by=start_desc')
+  })
+
   it('falls back to the legacy owned events endpoint when organizations are unavailable', async () => {
     const fetchImpl = jest.fn(async (url: string) => {
-      if (url === 'https://www.eventbriteapi.com/v3/users/me/organizations/?page_size=50') {
+      if (url === 'https://www.eventbriteapi.com/v3/users/me/organizations/') {
         return jsonResponse({ error: 'NOT_AUTHORIZED' }, 403)
       }
 

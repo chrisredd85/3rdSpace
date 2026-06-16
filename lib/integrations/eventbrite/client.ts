@@ -187,12 +187,11 @@ export class EventbriteClient {
     }
 
     try {
+      // Eventbrite's organizations endpoint rejects page_size in production.
       const organizations = await this.request<{
         organizations?: EventbriteOrganization[]
         pagination?: EventbritePagination | null
-      }>('/v3/users/me/organizations/', {
-        page_size: '50',
-      })
+      }>('/v3/users/me/organizations/')
       const organizationIds = (organizations.organizations ?? [])
         .map((organization) => organization.id)
         .filter(Boolean)
@@ -201,10 +200,10 @@ export class EventbriteClient {
       if (organizationIds.length > 0) {
         const eventPages = await Promise.all(
           organizationIds.map((organizationId) =>
-            this.request<{
+            this.requestWithQueryParamRetry<{
               events?: EventbriteEvent[]
               pagination?: EventbritePagination | null
-            }>(`/v3/organizations/${encodeURIComponent(organizationId)}/events/`, query)
+            }>(`/v3/organizations/${encodeURIComponent(organizationId)}/events/`, query, 'page_size')
           )
         )
 
@@ -219,10 +218,10 @@ export class EventbriteClient {
       if (!shouldFallbackToOwnedEvents(error)) throw error
     }
 
-    return this.request<{
+    return this.requestWithQueryParamRetry<{
       events?: EventbriteEvent[]
       pagination?: EventbritePagination | null
-    }>('/v3/users/me/owned_events/', query)
+    }>('/v3/users/me/owned_events/', query, 'page_size')
   }
 
   getEvent(eventId: string) {
@@ -257,6 +256,21 @@ export class EventbriteClient {
       if (value) url.searchParams.set(key, value)
     })
     return this.fetchJson<T>(url, retry)
+  }
+
+  private async requestWithQueryParamRetry<T>(
+    path: string,
+    query: Record<string, string | undefined>,
+    rejectedParam: string
+  ): Promise<T> {
+    try {
+      return await this.request<T>(path, query)
+    } catch (error) {
+      if (!isRejectedQueryParameter(error, rejectedParam)) throw error
+      const fallbackQuery = { ...query }
+      delete fallbackQuery[rejectedParam]
+      return this.request<T>(path, fallbackQuery)
+    }
   }
 
   private async requestUrl<T>(apiUrl: string, query?: Record<string, string | undefined>, retry = true): Promise<T> {
@@ -382,6 +396,19 @@ function readErrorMessage(value: unknown) {
 function shouldFallbackToOwnedEvents(error: unknown) {
   const status = typeof error === 'object' && error && 'status' in error ? (error as EventbriteApiError).status : undefined
   return status === 403 || status === 404
+}
+
+function isRejectedQueryParameter(error: unknown, parameterName: string) {
+  const eventbriteError = typeof error === 'object' && error ? error as EventbriteApiError : null
+  if (eventbriteError?.status !== 400) return false
+  const message = [
+    readErrorMessage(eventbriteError.body),
+    eventbriteError.message,
+  ].filter(Boolean).join(' ').toLowerCase()
+
+  return message.includes(parameterName.toLowerCase()) && (
+    message.includes('unknown parameter') || message.includes('errors with your arguments')
+  )
 }
 
 function safeCompare(expected: string, actual: string) {
