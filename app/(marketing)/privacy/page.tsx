@@ -27,6 +27,7 @@ const sections = [
       'To authenticate your account when you choose Google sign-in.',
       'To send Gmail outreach messages only when you approve a specific message or configure an explicit outreach autonomy policy.',
       'To monitor Gmail replies to outreach threads so your planner workspace can show partner responses, follow-up needs, and outreach history.',
+      "To mark outreach reply threads as read or apply organizational labels in your Gmail account so processed threads do not appear unread, only after you approve the underlying outreach flow.",
       'To classify, summarize, and draft follow-ups for outreach replies using automated systems and service providers acting on our behalf.',
       'To process subscriptions, venue rental payments, vendor payments, and revenue-share settlement records through Stripe.',
       'To send transactional email through Resend, including account, payment, refund, and operational notifications.',

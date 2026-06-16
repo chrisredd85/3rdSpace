@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { CheckCircle2, ExternalLink, Loader2, Mail, Unplug } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 type GmailAccount = {
   id: string
@@ -67,71 +66,63 @@ export default function PlannerIntegrationsPage() {
           </p>
         </div>
 
-        <Card className="border-border/70 bg-card shadow-sm">
-          <CardHeader className="border-b border-border">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20">
-                  <Mail className="h-5 w-5" />
-                </div>
-                <div>
-                  <CardTitle className="text-xl">Gmail</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Creator sender for approved venue and vendor outreach.
-                  </p>
-                </div>
+        <section className="rounded-md border border-tan bg-cream p-5 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-tan bg-cream-deep text-clay">
+                <Mail className="h-5 w-5" />
               </div>
-              {account ? (
-                <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary">
-                  <CheckCircle2 className="h-4 w-4" />
-                  Connected
-                </span>
-              ) : null}
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-5 pt-6">
-            {isLoading ? (
-              <div className="flex min-h-24 items-center gap-3 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading Gmail connection
-              </div>
-            ) : account ? (
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">{account.email_address}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Connected {formatDate(account.created_at)}
-                  </p>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="font-display text-[22px] font-semibold leading-tight text-ink">Gmail</h2>
+                  {account ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-forest/20 bg-forest/10 px-2.5 py-1 text-xs font-semibold text-forest">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Connected
+                    </span>
+                  ) : (
+                    <span className="rounded-full border border-tan bg-cream-deep px-2.5 py-1 text-xs font-semibold text-ink-soft">
+                      Not connected
+                    </span>
+                  )}
                 </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Button asChild>
-                    <Link href="/planner/outreach">
-                      <Mail className="h-4 w-4" />
-                      Review outreach approvals
-                    </Link>
-                  </Button>
-                  <Button type="button" variant="outline" onClick={disconnect} disabled={isDisconnecting}>
-                    {isDisconnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />}
-                    Disconnect
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <p className="max-w-xl text-sm text-muted-foreground">
-                  Connect Gmail before sending approved outreach drafts or reading partner replies.
+                <p className="mt-1 text-sm text-ink-soft">
+                  Used to send approved outreach and read replies into your event plan. We never read your general inbox.
                 </p>
+                {account ? (
+                  <p className="mt-2 text-sm font-semibold text-ink">{account.email_address}</p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="sm:pt-1">
+              {isLoading ? (
+                <div className="flex min-h-10 items-center gap-3 text-sm text-ink-soft">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading
+                </div>
+              ) : account ? (
+                <Button type="button" variant="outline" onClick={disconnect} disabled={isDisconnecting}>
+                  {isDisconnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />}
+                  Disconnect
+                </Button>
+              ) : (
                 <Button asChild>
-                  <Link href="/api/integrations/gmail/connect?returnTo=/planner/outreach">
+                  <Link href="/api/integrations/gmail/connect?returnTo=/planner/settings/integrations">
                     <ExternalLink className="h-4 w-4" />
-                    Connect Gmail
+                    Connect
                   </Link>
                 </Button>
-              </div>
-            )}
-            {error ? <p className="text-sm font-semibold text-destructive">{error}</p> : null}
-          </CardContent>
-        </Card>
+              )}
+            </div>
+          </div>
+
+          {isLoading ? null : account ? (
+            <p className="mt-3 text-xs text-ink-faint">Connected {formatDate(account.created_at)}</p>
+          ) : null}
+
+          {error ? <p className="mt-4 text-sm font-semibold text-destructive">{error}</p> : null}
+        </section>
       </div>
     </div>
   )

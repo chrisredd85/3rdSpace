@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server'
 import { GET as connectGet } from '@/app/api/integrations/gmail/connect/route'
 import { DELETE as accountDelete, GET as accountGet } from '@/app/api/integrations/gmail/account/route'
+import { encryptEmailToken } from '@/lib/outreach/crypto'
 import { createClient } from '@/lib/supabase/server'
 
 jest.mock('next/server', () => ({
@@ -72,9 +73,11 @@ function makeUpdateChain(result: unknown) {
 
 describe('Gmail integration routes', () => {
   const originalEnv = process.env
+  const originalFetch = global.fetch
 
   beforeEach(() => {
     jest.clearAllMocks()
+    global.fetch = originalFetch
     process.env = {
       ...originalEnv,
       GOOGLE_CLIENT_ID: 'google-client-id',
@@ -87,6 +90,7 @@ describe('Gmail integration routes', () => {
 
   afterAll(() => {
     process.env = originalEnv
+    global.fetch = originalFetch
   })
 
   it('starts Google OAuth for authenticated community builders', async () => {
@@ -152,8 +156,18 @@ describe('Gmail integration routes', () => {
   })
 
   it('disconnects the active Gmail account for the signed-in builder', async () => {
+    const selectChain = makeSelectChain({
+      data: {
+        id: 'gmail-account-id',
+        oauth_refresh_token: encryptEmailToken('refresh-token'),
+      },
+      error: null,
+    })
     const updateChain = makeUpdateChain({ error: null })
-    const from = jest.fn(() => updateChain)
+    const from = jest.fn()
+      .mockReturnValueOnce(selectChain)
+      .mockReturnValueOnce(updateChain)
+    global.fetch = jest.fn().mockResolvedValue(new Response('', { status: 200 })) as jest.Mock
     mockCreateClient.mockReturnValue({
       ...authClient({
         id: 'builder-user-id',
@@ -168,9 +182,17 @@ describe('Gmail integration routes', () => {
     expect(response.status).toBe(200)
     expect(body).toEqual({ account: null })
     expect(from).toHaveBeenCalledWith('creator_email_accounts')
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://oauth2.googleapis.com/revoke',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ 'Content-Type': 'application/x-www-form-urlencoded' }),
+        body: 'token=refresh-token',
+      })
+    )
     expect(updateChain.update).toHaveBeenCalledWith({
       revoked_at: expect.any(String),
     })
-    expect(updateChain.eq).toHaveBeenCalledWith('user_id', 'builder-user-id')
+    expect(updateChain.eq).toHaveBeenCalledWith('id', 'gmail-account-id')
   })
 })

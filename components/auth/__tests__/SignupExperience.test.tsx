@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SignupExperience } from '@/components/auth/SignupExperience'
 import { ToastProvider } from '@/components/ui/toast'
+import { migratePlannerDraftToServer } from '@/lib/planner/migrateDraft'
 import { createClient } from '@/lib/supabase/client'
 
 jest.mock('@/lib/planner/migrateDraft', () => ({
@@ -12,7 +13,9 @@ jest.mock('@/lib/supabase/client', () => ({
 }))
 
 const mockCreateClient = createClient as jest.Mock
+const mockMigratePlannerDraftToServer = migratePlannerDraftToServer as jest.Mock
 const mockSignInWithOAuth = jest.fn()
+const originalFetch = global.fetch
 
 function renderSignup(initialUserType: 'community_builder' | 'venue_owner' | 'vendor') {
   return render(
@@ -29,18 +32,24 @@ function continueButton() {
 describe('SignupExperience step validation', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    global.fetch = originalFetch
     mockCreateClient.mockReturnValue({
       auth: {
         signInWithOAuth: mockSignInWithOAuth.mockResolvedValue({ error: null }),
       },
     })
+    mockMigratePlannerDraftToServer.mockResolvedValue(null)
   })
 
-  it('shows creator as a 4-step flow and gates each signup step', async () => {
+  afterAll(() => {
+    global.fetch = originalFetch
+  })
+
+  it('shows creator as a 5-step flow and gates each signup step', async () => {
     renderSignup('community_builder')
 
-    expect(screen.getByText(/Creator sign-up · Step 1 of 4/i)).toBeInTheDocument()
-    expect(screen.queryByText(/Step 1 of 5/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Creator sign-up · Step 1 of 5/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Step 1 of 4/i)).not.toBeInTheDocument()
     expect(continueButton()).toBeDisabled()
     expect(screen.getByText('Name is required.')).toBeInTheDocument()
 
@@ -50,7 +59,7 @@ describe('SignupExperience step validation', () => {
     expect(continueButton()).toBeEnabled()
 
     fireEvent.click(continueButton())
-    expect(screen.getByText(/Creator sign-up · Step 2 of 4/i)).toBeInTheDocument()
+    expect(screen.getByText(/Creator sign-up · Step 2 of 5/i)).toBeInTheDocument()
     expect(continueButton()).toBeDisabled()
     expect(screen.getByText('Organization name is required.')).toBeInTheDocument()
 
@@ -62,7 +71,7 @@ describe('SignupExperience step validation', () => {
     expect(continueButton()).toBeEnabled()
 
     fireEvent.click(continueButton())
-    expect(screen.getByText(/Creator sign-up · Step 3 of 4/i)).toBeInTheDocument()
+    expect(screen.getByText(/Creator sign-up · Step 3 of 5/i)).toBeInTheDocument()
     expect(continueButton()).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: /Networking mixer/i }))
@@ -71,11 +80,30 @@ describe('SignupExperience step validation', () => {
     expect(continueButton()).toBeEnabled()
 
     fireEvent.click(continueButton())
-    expect(screen.getByText(/Creator sign-up · Step 4 of 4/i)).toBeInTheDocument()
+    expect(screen.getByText(/Creator sign-up · Step 4 of 5/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Create account & activate/i })).toBeDisabled()
+
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      requiresEmailConfirmation: false,
+      user: { email: 'alex@example.com' },
+      ticketingConnections: [],
+    }), { status: 200 })) as jest.Mock
 
     fireEvent.click(screen.getByRole('button', { name: /Eventbrite/i }))
     expect(screen.getByRole('button', { name: /Create account & activate/i })).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /Create account & activate/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Creator sign-up · Step 5 of 5/i)).toBeInTheDocument()
+    })
+    expect(screen.getByRole('heading', { name: /Connect Gmail to send outreach/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Connect Gmail/i })).toHaveAttribute(
+      'href',
+      '/api/integrations/gmail/connect?returnTo=%2Fplanner%3Fsignup%3Dcomplete%26gmail%3Dconnected'
+    )
+    expect(screen.getByRole('button', { name: /I'll connect later/i })).toBeInTheDocument()
   })
 
   it('starts creator Google signup with the signup callback flags', async () => {
@@ -97,7 +125,7 @@ describe('SignupExperience step validation', () => {
     expect(callbackUrl.searchParams.get('expected_user_type')).toBe('community_builder')
     expect(callbackUrl.searchParams.get('auth_flow')).toBe('signup')
     expect(callbackUrl.searchParams.get('next')).toBe(
-      '/api/integrations/gmail/connect?returnTo=/planner/outreach%3Fonboarding%3Dcreator_google_signup'
+      '/api/integrations/gmail/connect?returnTo=%2Fplanner%3Fsignup%3Dcomplete%26gmail%3Dconnected'
     )
   })
 

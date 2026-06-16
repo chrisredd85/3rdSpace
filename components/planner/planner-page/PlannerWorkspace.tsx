@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { CalendarDays, CheckCircle2, ChevronDown, LayoutTemplate, Loader2, MessageSquare, RefreshCw, SendHorizontal, Sparkles } from 'lucide-react'
+import { CalendarDays, CheckCircle2, ChevronDown, LayoutTemplate, Loader2, Mail, MessageSquare, RefreshCw, SendHorizontal, Sparkles, X } from 'lucide-react'
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
 import { PlannerDataConnectionPanel } from '@/components/planner/PlannerDataConnectionPanel'
 import { PlannerLivePlanPanel } from '@/components/planner/PlannerLivePlanPanel'
@@ -23,6 +23,8 @@ import { DemoSessionBanner, PlannerTemplatesModal, ReplyAnalysisResult, isRespon
 import { applyMockPlanPatch, buildDeterministicDraftExchange, buildDraftMatchHandoff, buildMockMessage, buildMockPlan, hasDraftMatchGateMessage, shouldUseMockReplyPath, tryRunPublicDraftIntake } from './draftMode'
 import { buildEventPlanPayload, clearStoredPlannerConversation, getPendingActionSuccessMessage, getPlannerOrganizationName, getPlannerRoleLabel, getTabCount, getVisibleMessages, hasNewerConfirmationMessage, isApprovalMessage, isNewConversationResetRequest, isPendingConversionAction, isRecommendationMessage, isTimelineOutput, loadPlannerStateFromApiCached, persistStoredPlannerConversation, publishLivePlan, readStoredPlannerConversation, shouldStartNewPlanFromReply } from './plannerState'
 import { planTabs, quickActionChips, type ApprovalUiStatus, type PendingConversionAction, type PlannerAccountSummary, type PlannerAgentActionRequest, type PlannerPersistenceMode, type PlannerTab, type PlannerTemplateSummary, type ResponseAnalysisOutput, type TimelineOutput } from './types'
+
+const gmailSkipReminderStorageKey = 'gmail_skip_reminder_dismissed'
 
 function isDesktopPlannerViewport() {
   return typeof window === 'undefined' || window.matchMedia('(min-width: 1024px)').matches
@@ -54,6 +56,7 @@ export function PlannerWorkspace() {
   const requestedPlanId = searchParams.get('plan')
   const requestedTabParam = searchParams.get('tab')
   const draftMigrationStatus = searchParams.get('draftMigration')
+  const gmailSkipped = searchParams.get('gmail_skipped') === '1'
   const [activePlan, setActivePlan] = useState<Plan | null>(null)
   const [messages, setMessages] = useState<PlanMessage[]>([])
   const [activeTab, setActiveTab] = useState<PlannerTab>('chat')
@@ -101,6 +104,7 @@ export function PlannerWorkspace() {
   const [demoResetError, setDemoResetError] = useState<string | null>(null)
   const [signupGateContext, setSignupGateContext] = useState<'default' | 'recommendations'>('default')
   const [plannerAccount, setPlannerAccount] = useState<PlannerAccountSummary | null>(null)
+  const [showGmailSkipReminder, setShowGmailSkipReminder] = useState(false)
   const billingGate = usePlannerBillingGate({
     onPlanArchived: (planId) => {
       if (activePlan?.id === planId) {
@@ -138,6 +142,38 @@ export function PlannerWorkspace() {
   useEffect(() => {
     setIsAuthenticated(persistenceMode === 'server')
   }, [persistenceMode])
+
+  useEffect(() => {
+    if (!gmailSkipped) return
+    if (typeof window === 'undefined') return
+    if (window.localStorage.getItem(gmailSkipReminderStorageKey) === '1') return
+
+    let cancelled = false
+    async function loadGmailState() {
+      try {
+        const response = await fetch('/api/integrations/gmail/account', {
+          cache: 'no-store',
+          credentials: 'include',
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (!cancelled) setShowGmailSkipReminder(!payload?.account)
+      } catch {
+        if (!cancelled) setShowGmailSkipReminder(true)
+      }
+    }
+
+    void loadGmailState()
+    return () => {
+      cancelled = true
+    }
+  }, [gmailSkipped])
+
+  function dismissGmailSkipReminder() {
+    setShowGmailSkipReminder(false)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(gmailSkipReminderStorageKey, '1')
+    }
+  }
 
   // Deep-link support: on first render, if the URL carries ?tab=... (and
   // optionally ?msg=...), open the planner on that tab. The scroll-to-message
@@ -1343,6 +1379,29 @@ export function PlannerWorkspace() {
   const organizationName = getPlannerOrganizationName(plannerAccount)
   const plannerRoleLabel = getPlannerRoleLabel(plannerAccount)
   const shouldShowInitialDraftLoading = isStartingInitialDraft && !activePlan
+  const gmailSkipReminder = showGmailSkipReminder ? (
+    <div className="mx-auto mb-4 max-w-5xl px-4 lg:px-6">
+      <div className="flex flex-col gap-3 rounded-md border border-ochre bg-ochre-tint px-4 py-3 text-sm text-ink sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <Mail className="mt-0.5 h-4 w-4 shrink-0 text-clay-deep" />
+          <p>Connect Gmail in Settings to start sending outreach.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button asChild size="sm">
+            <a href="/planner/settings/integrations">Open integrations</a>
+          </Button>
+          <button
+            type="button"
+            onClick={dismissGmailSkipReminder}
+            aria-label="Dismiss Gmail reminder"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-soft transition-colors hover:bg-cream hover:text-ink"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null
 
   if (shouldHardResetDemo) {
     return (
@@ -1374,6 +1433,7 @@ export function PlannerWorkspace() {
     return (
       <div className="min-h-screen">
         <PlannerTopBar userName={organizationName} userRole={plannerRoleLabel} />
+        {gmailSkipReminder}
         <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6">
           {shouldShowInitialDraftLoading ? (
             <PlannerInitialDraftLoading />
@@ -1425,6 +1485,7 @@ export function PlannerWorkspace() {
     <div className="min-h-screen">
       {demoBanner}
       <PlannerTopBar userName={organizationName} userRole={plannerRoleLabel} />
+      {gmailSkipReminder}
 
       <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6">
         <div className="mb-5 flex flex-col gap-4 rounded-3xl border border-border bg-card/50 p-5 shadow-card sm:flex-row sm:items-center sm:justify-between">

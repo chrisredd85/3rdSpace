@@ -10,14 +10,12 @@ import {
   Ticket,
   Building2,
   Music2,
-  Sparkles,
   Camera,
   Eye,
   EyeOff,
   Zap,
   Users,
   Store,
-  Copy,
   ExternalLink,
   Mail,
 } from 'lucide-react'
@@ -434,8 +432,9 @@ const stripeOnboardingConfig: Record<
   },
 }
 
+const gmailSignupReturnTo = '/planner?signup=complete&gmail=connected'
 const creatorGoogleSignupNext =
-  '/api/integrations/gmail/connect?returnTo=/planner/outreach%3Fonboarding%3Dcreator_google_signup'
+  `/api/integrations/gmail/connect?returnTo=${encodeURIComponent(gmailSignupReturnTo)}`
 
 function getStripeLoginRedirect(userType: UserType) {
   const config = stripeOnboardingConfig[userType]
@@ -483,8 +482,8 @@ function BuilderSignupFlow({
   const router = useRouter()
   const { addToast } = useToast()
   const [step, setStep] = useState(1)
-  const total = 4
-  const activationStep = total + 1
+  const total = 5
+  const activationStep = total
   const [isLoading, setIsLoading] = useState(false)
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
   const [inlineError, setInlineError] = useState<string | null>(null)
@@ -566,15 +565,6 @@ function BuilderSignupFlow({
   const showInlineError = (message: string, targetStep?: number) => {
     if (targetStep) setStep(targetStep)
     setInlineError(message)
-  }
-
-  async function copyToClipboard(value: string, label: string) {
-    try {
-      await navigator.clipboard.writeText(value)
-      addToast({ title: `${label} copied`, description: 'Paste it into your ticketing platform webhook settings.' })
-    } catch {
-      addToast({ title: 'Could not copy URL', description: 'Select the URL and copy it manually.', variant: 'destructive' })
-    }
   }
 
   const startGoogleSignup = async () => {
@@ -709,29 +699,9 @@ function BuilderSignupFlow({
     }
   }
 
-  const continueFromActivation = () => {
-    if (!activationState) return
-
-    if (activationState.requiresEmailConfirmation) {
-      router.push(getStripeLoginRedirect('community_builder'))
-      return
-    }
-
-    if (activationState.migrationFailed) {
-      router.push('/planner?draftMigration=failed')
-      return
-    }
-
-    router.push(activationState.migratedPlanId ? `/planner?plan=${encodeURIComponent(activationState.migratedPlanId)}` : '/planner')
-  }
-
-  const ticketingConnectionByPlatform = new Map(
-    (activationState?.ticketingConnections ?? []).map((connection) => [connection.platform, connection])
-  )
-
   return (
     <AuthShell
-      eyebrow={step <= total ? `Creator sign-up · Step ${step} of ${total}` : 'Creator sign-up · Activation'}
+      eyebrow={`Creator sign-up · Step ${step} of ${total}`}
       title="Set up your Creator account"
       subtitle="Tell us about your organization and the events you throw so we can match you to the right venues and vendors."
       alreadySignedInWarning={alreadySignedInWarning}
@@ -880,28 +850,42 @@ function BuilderSignupFlow({
 
       {step === 5 && (
         <div className="space-y-5 animate-fade-in">
-          <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4">
+          <div className="rounded-md border border-tan bg-cream-deep p-5">
             <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-brand shadow-glow">
-                <Sparkles className="h-5 w-5 text-primary-foreground" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-tan bg-cream text-clay">
+                <Mail className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="font-display text-lg font-bold text-foreground">Activate your event workspace</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Your creator profile is ready. Finish these setup steps now, or continue and manage them later from Tickets.
+                <h2 className="font-display text-[24px] font-semibold leading-tight text-ink">Connect Gmail to send outreach</h2>
+                <p className="mt-2 text-[14px] leading-6 text-ink-soft">
+                  3rdPlace sends approved venue and vendor outreach from your Gmail and reads replies into your event plan.
+                  We never read your general inbox, and you must approve every message before it sends.
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-border bg-card/40 p-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            {[
+              ['Send', 'Only the outreach messages you approve'],
+              ['Read', 'Only replies to threads we started'],
+              ['Mark as read', "Only on processed reply threads, so they don't clutter your inbox"],
+            ].map(([title, copy]) => (
+              <div key={title} className="rounded-md border border-tan bg-cream p-4">
+                <p className="label-caps text-clay-deep">{title}</p>
+                <p className="mt-2 text-[13px] leading-5 text-ink-soft">{copy}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-md border border-tan bg-cream p-4">
             <div className="flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-background text-primary">
-                <Mail className="h-5 w-5" />
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-cream-deep text-clay">
+                <Check className="h-5 w-5" />
               </div>
               <div>
-                <p className="font-semibold text-foreground">Email confirmation</p>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="font-semibold text-ink">Creator workspace</p>
+                <p className="mt-1 text-sm text-ink-soft">
                   {activationState?.requiresEmailConfirmation
                     ? `Check ${activationState.email} and confirm your email before signing in.`
                     : `${activationState?.email ?? form.email} is ready for this workspace session.`}
@@ -910,56 +894,36 @@ function BuilderSignupFlow({
             </div>
           </div>
 
-          <div className="space-y-3">
-            <div>
-              <p className="font-semibold text-foreground">Ticketing setup</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Posh and Luma webhooks are private to your creator account. Copy these into the matching platform when you are ready to sync activity.
-              </p>
+          <div className="rounded-md border border-tan bg-cream-deep p-4 text-[13px] leading-5 text-ink-soft">
+            Ticketing setup is saved. You can finish Eventbrite OAuth, webhook URLs, and ticket imports from Tickets after entering the planner.
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-[13px] text-ink-soft">You can disconnect anytime from Settings → Integrations.</p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              {activationState?.requiresEmailConfirmation ? (
+                <Button type="button" onClick={() => router.push(getStripeLoginRedirect('community_builder'))}>
+                  Go to sign in
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              ) : (
+                <>
+                  <Button asChild type="button">
+                    <Link href={`/api/integrations/gmail/connect?returnTo=${encodeURIComponent(gmailSignupReturnTo)}`}>
+                      Connect Gmail
+                      <ExternalLink className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => router.push('/planner?signup=complete&gmail_skipped=1')}
+                  >
+                    I&apos;ll connect later
+                  </Button>
+                </>
+              )}
             </div>
-
-            {selectedTicketPlatforms.map((platform) => {
-              const connection = ticketingConnectionByPlatform.get(platform)
-              const label = ticketPlatforms.find((ticketPlatform) => ticketPlatformIds[ticketPlatform] === platform) ?? platform
-              const isWebhookPlatform = platform === 'posh' || platform === 'luma'
-
-              return (
-                <div key={platform} className="rounded-2xl border border-border bg-background/60 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="font-semibold text-foreground">{label}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {isWebhookPlatform
-                          ? 'Paste this endpoint into the platform webhook settings.'
-                          : platform === 'eventbrite'
-                            ? 'Connect with OAuth from Tickets after entering the planner.'
-                            : 'Paste event links from Tickets when each event is ready.'}
-                      </p>
-                    </div>
-                    <span className="w-fit rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
-                      {connection?.status ?? 'setup required'}
-                    </span>
-                  </div>
-
-                  {isWebhookPlatform && connection?.webhook_url ? (
-                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                      <p className="min-w-0 flex-1 break-all rounded-xl border border-border bg-card/50 px-3 py-2 text-xs text-foreground">
-                        {connection.webhook_url}
-                      </p>
-                      <Button
-                        type="button"
-                        variant="glass"
-                        size="sm"
-                        onClick={() => copyToClipboard(connection.webhook_url!, label)}
-                      >
-                        <Copy className="h-4 w-4" />
-                        Copy
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
-              )
-            })}
           </div>
         </div>
       )}
@@ -984,10 +948,7 @@ function BuilderSignupFlow({
               {isLoading ? 'Creating account...' : 'Create account & activate'}
             </Button>
           ) : (
-            <Button variant="hero" onClick={continueFromActivation} className="w-full sm:w-auto">
-              {activationState?.requiresEmailConfirmation ? 'Go to sign in' : 'Continue to planner'}
-              <ExternalLink className="h-4 w-4" />
-            </Button>
+            <div />
           )}
         </div>
       </div>
