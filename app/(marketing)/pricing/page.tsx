@@ -10,15 +10,21 @@ export const metadata: Metadata = {
 const tiers = [
   {
     label: 'Per event',
+    price: '$30',
+    cadence: '/event',
     title: 'Pay only when you ship.',
-    body: 'Pay only for events you actually ship.',
+    body: 'Buy one event credit after your first two free events.',
     detail: 'Best for hosts testing a new cadence or running a small seasonal calendar.',
+    note: 'No monthly commitment.',
   },
   {
     label: 'Pro',
+    price: '$69',
+    cadence: '/month',
     title: 'Run without the meter.',
     body: 'Unlimited events, full historical margin, priority 3rdPlace team support.',
     detail: 'Best for recurring hosts who need every event measured against the last one.',
+    note: '$690/year, about $58/month.',
   },
 ]
 
@@ -44,11 +50,22 @@ export default function PricingPage() {
             <article key={tier.label} className="rounded-md border border-tan bg-cream p-7 shadow-sm">
               <Caps>{tier.label}</Caps>
               <h2 className="mt-3 font-display text-[30px] leading-tight text-ink">{tier.title}</h2>
+              <div className="mt-5 flex items-end gap-2">
+                <span className="font-display text-[52px] leading-none text-ink">{tier.price}</span>
+                <span className="pb-2 text-[15px] font-semibold text-ink-soft">{tier.cadence}</span>
+              </div>
+              <p className="mt-2 text-[13px] font-semibold text-clay-deep">{tier.note}</p>
               <p className="mt-3 text-[16px] leading-[1.6] text-ink-soft">{tier.body}</p>
               <p className="mt-6 border-t border-tan pt-5 text-[14px] leading-[1.6] text-ink-soft">{tier.detail}</p>
             </article>
           ))}
         </div>
+
+        <p className="mt-5 max-w-3xl text-[13px] leading-6 text-ink-faint">
+          Venue rentals, vendor payments, ticketing fees, and payment processing are separate from
+          platform access. The platform fee covers 3rdPlace planning, approvals, execution records,
+          and event margin tools.
+        </p>
 
         <div className="mt-10 flex flex-col gap-3 sm:flex-row">
           <Link

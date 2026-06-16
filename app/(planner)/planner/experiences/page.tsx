@@ -1,19 +1,17 @@
 import Link from 'next/link'
 import {
   ArrowRight,
-  BarChart3,
   Building2,
   CalendarDays,
-  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   ClipboardList,
   Repeat2,
-  Store,
   Ticket,
   TrendingUp,
   Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ExperiencesLiveRefresh } from '@/components/planner/ExperiencesLiveRefresh'
 import { PlannerMobileRouteHeader } from '@/components/planner/PlannerMobileRouteHeader'
 import { createClient } from '@/lib/supabase/server'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
@@ -59,32 +57,116 @@ type EventRow = {
 
 type FinancialRow = {
   event_id: string
+  break_even_tickets: number | string | null
+  current_attendance: number | string | null
+  gross_revenue: number | string | null
   tickets_sold: number | string | null
   net_revenue: number | string | null
+  per_attendee_value: number | string | null
+  projected_revenue: number | string | null
   total_costs: number | string | null
+  total_fees: number | string | null
+  total_refunds: number | string | null
   expected_profit: number | string | null
   profit_margin: number | string | null
-  calculated_at: string | null
+  vendor_cost: number | string | null
+  venue_cost: number | string | null
   updated_at: string | null
-  created_at: string | null
 }
 
-type BookingRow = {
+type RecordTone = 'settled' | 'action' | 'watch' | 'empty'
+
+type BaseBookingRow = {
   id: string
   event_id: string
   status: string | null
   payment_status: string | null
   paid_at: string | null
+}
+
+type VenueBookingRow = BaseBookingRow & {
+  approval_source?: string | null
+  approved_at?: string | null
+  booking_date?: string | null
+  end_time?: string | null
+  final_price?: number | null
+  guest_count_max?: number | null
+  guest_count_min?: number | null
+  quoted_price?: number | null
+  services_needed?: unknown
+  special_requests?: string | null
+  start_time?: string | null
+  subtotal?: number | null
+  total_amount?: number | null
+  venue_id?: string | null
+  venues?: {
+    venue_name?: string | null
+    address?: string | null
+    city?: string | null
+    state?: string | null
+  } | null
+}
+
+type VendorBookingRow = BaseBookingRow & {
+  booking_date?: string | null
+  confirmed_date?: string | null
+  confirmed_end_time?: string | null
+  confirmed_start_time?: string | null
+  deposit_amount?: number | null
   deposit_paid?: boolean | null
-  updated_at: string | null
-  created_at: string | null
+  final_price?: number | null
+  guest_count?: number | null
+  notes?: string | null
+  quantity?: number | null
+  quoted_price?: number | null
+  requested_date?: string | null
+  requested_end_time?: string | null
+  requested_start_time?: string | null
+  setup_time?: string | null
+  subtotal?: number | null
+  total_amount?: number | null
+  vendor_id?: string | null
+  vendor_profiles?: {
+    name?: string | null
+    service_type?: string | null
+  } | null
+  vendor_offerings?: {
+    offering_name?: string | null
+    service_category?: string | null
+    duration_hours?: number | null
+  } | null
+  vendor_packages?: {
+    package_name?: string | null
+    duration_hours?: number | null
+  } | null
+}
+
+type ExperienceBookingItem = {
+  id: string
+  kind: 'venue' | 'vendor'
+  category: string
+  partnerName: string
+  detail: string
+  costAmount: number | null
+  costLabel: string
+  scheduleLabel: string
+  status: string
+  paymentStatus: string
+  tone: RecordTone
+  terms: Array<{ label: string; value: string }>
+  approvalCopy: string
+  targetHref: string
+  targetLabel: string
 }
 
 type SalesRow = {
   id: string
   event_id: string
-  updated_at: string | null
+  ticket_quantity: number | string | null
+  is_refund: boolean | null
+  purchase_timestamp: string | null
   received_at: string | null
+  submitted_at: string | null
   created_at: string | null
 }
 
@@ -111,6 +193,9 @@ type ExperienceRecord = {
   profitLabel: string
   marginLabel: string
   nextAction: string
+  bookingItems: ExperienceBookingItem[]
+  money: MoneyRecord | null
+  guests: GuestRecord
 }
 
 type LoadIssue = {
@@ -123,11 +208,6 @@ type ExperiencesData = {
   plans: PlanRow[]
   events: EventRow[]
   records: ExperienceRecord[]
-  freshness: {
-    lastUpdatedAt: string | null
-    sourceCount: number
-    sourceLabels: string[]
-  }
   metrics: Array<{ label: string; value: string; detail: string }>
   coverage: Array<{
     title: string
@@ -139,26 +219,68 @@ type ExperiencesData = {
   issues: LoadIssue[]
 }
 
+type OperatingSection = {
+  number: string
+  title: string
+  summary: string
+  status: string
+  tone: RecordTone
+  defaultOpen: boolean
+  details?: Array<{ label: string; value: string }>
+  bookingItems?: ExperienceBookingItem[]
+  money?: MoneyRecord | null
+  guests?: GuestRecord
+  actionHref: string
+  actionLabel: string
+  note?: string
+}
+
+type MoneyRecord = {
+  projectedProfitLabel: string
+  confidenceLabel: string
+  totalIncomeLabel: string
+  totalCostLabel: string
+  marginLabel: string
+  breakEvenLabel: string
+  perAttendeeLabel: string
+  incomeLines: Array<{ label: string; value: string }>
+  costLines: Array<{ label: string; value: string }>
+  watchTitle: string
+  watchBody: string
+}
+
+type GuestRecord = {
+  targetLabel: string
+  confirmedLabel: string
+  remainingLabel: string
+  ticketingLabel: string
+  movementLabel: string
+  movementDetail: string
+  readinessCopy: string
+}
+
 /**
  * Data-backed operating-record route for recurring hosts.
  */
-export default async function ExperiencesPage() {
+export default async function ExperiencesPage({
+  searchParams,
+}: {
+  searchParams?: { record?: string }
+}) {
   const data = await loadExperiencesData()
   const hasRecords = data.records.length > 0
+  const primaryRecord = getSelectedRecord(data.records, searchParams?.record)
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-full bg-cream text-ink">
       <PlannerMobileRouteHeader
         actionHref="/planner/experiences"
         actionLabel="Records"
         activeHref="/planner/experiences"
       />
-      <div className="border-b border-tan px-6 py-5">
-        <h1 className="font-display text-2xl font-bold">Experiences</h1>
-        <p className="mt-1 text-sm text-ink-soft">Real event records, planner drafts, partner progress, ticketing coverage, and profitability signals.</p>
-      </div>
+      {primaryRecord ? <RecordTopBar record={primaryRecord} /> : <ExperiencesEmptyHeader />}
 
-      <div className="mx-auto max-w-6xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         {data.issues.length > 0 ? (
           <section className="rounded-lg border border-ochre/30 bg-ochre-tint p-4 text-sm text-ink">
             <p className="font-semibold">Some operating data could not be loaded.</p>
@@ -170,170 +292,123 @@ export default async function ExperiencesPage() {
           </section>
         ) : null}
 
-        <section className="rounded-lg border border-tan bg-cream p-5 shadow-card">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-clay">Experience OS</p>
-              <h2 className="mt-2 font-display text-xl font-bold text-ink">Every event becomes an operating record</h2>
-              <p className="mt-1 max-w-2xl text-sm text-ink-soft">
-                This page reads from saved planner drafts, created/imported events, bookings, ticketing rows, and financial summaries. Empty means no matching record exists yet.
-              </p>
-            </div>
-            <div className="flex flex-col gap-3 lg:min-w-[24rem]">
-              <ExperiencesLiveRefresh
-                lastUpdatedAt={data.freshness.lastUpdatedAt}
-                sourceCount={data.freshness.sourceCount}
-                sourceLabels={data.freshness.sourceLabels}
-              />
-              <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
-                <Button variant="outline" size="sm" asChild>
-                  <Link href="/planner/events/import">
-                    Import event
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
-                <Button size="sm" asChild>
-                  <Link href="/planner">
-                    Create event
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
-              </div>
-            </div>
-          </div>
+        {!data.isAuthenticated ? (
+          <EmptyState
+            title="Sign in to view event records"
+            body="Experiences reads your planner drafts, imported events, bookings, ticketing data, and profitability summaries after authentication."
+            actionHref="/login"
+            actionLabel="Sign in"
+          />
+        ) : hasRecords && primaryRecord ? (
+          <>
+            <RecordRail records={data.records} primaryRecord={primaryRecord} />
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {data.metrics.map((metric) => (
-              <div key={metric.label} className="rounded-md border border-tan bg-cream-deep/60 p-4">
-                <p className="text-xs font-semibold text-ink-soft">{metric.label}</p>
-                <p className="mt-2 font-display text-2xl font-bold text-ink">{metric.value}</p>
-                <p className="mt-1 text-xs leading-snug text-ink-soft">{metric.detail}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <div className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
-          <section className="rounded-lg border border-tan bg-cream shadow-card">
-            <div className="border-b border-tan p-5">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-cream-deep text-clay">
-                  <CalendarDays className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="font-display text-lg font-bold text-ink">Event Pipeline</h2>
-                  <p className="text-sm text-ink-soft">Saved planner drafts and event records ordered by date or recent activity.</p>
-                </div>
-              </div>
-            </div>
-            <div className="p-5">
-              {!data.isAuthenticated ? (
-                <EmptyState
-                  title="Sign in to view event records"
-                  body="Experiences reads your planner drafts, imported events, bookings, ticketing data, and profitability summaries after authentication."
-                  actionHref="/login"
-                  actionLabel="Sign in"
-                />
-              ) : hasRecords ? (
-                <div className="space-y-3">
-                  {data.records.map((record) => (
-                    <Link
-                      key={`${record.kind}-${record.id}`}
-                      href={record.href}
-                      className="group block rounded-md border border-tan bg-cream-deep/55 p-4 transition-smooth hover:border-clay/45 hover:bg-cream-deep"
-                    >
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className={cn(
-                              'rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase leading-none tracking-normal',
-                              record.kind === 'event'
-                                ? 'border-forest/25 bg-forest-tint text-forest'
-                                : 'border-clay/25 bg-clay-tint text-clay-deep'
-                            )}>
-                              {record.sourceLabel}
-                            </span>
-                            <span className="text-xs font-semibold text-ink-soft">{record.statusLabel}</span>
-                          </div>
-                          <h3 className="mt-3 truncate font-display text-lg font-bold text-ink">{record.title}</h3>
-                          <p className="mt-1 text-sm leading-6 text-ink-soft">{record.detail}</p>
-                        </div>
-                        <div className="shrink-0 text-left sm:text-right">
-                          <p className="text-sm font-semibold text-ink">{record.dateLabel}</p>
-                          <p className="mt-1 text-xs text-ink-soft">{record.nextAction}</p>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                        <RecordSignal icon={<Building2 className="h-4 w-4" />} label="Partners" value={record.partnerCount > 0 ? String(record.partnerCount) : 'None yet'} ready={record.partnerCount > 0} />
-                        <RecordSignal icon={<Ticket className="h-4 w-4" />} label="Ticketing" value={record.hasTicketing ? 'Attached' : 'No data'} ready={record.hasTicketing} />
-                        <RecordSignal icon={<TrendingUp className="h-4 w-4" />} label="Profit" value={record.profitLabel} ready={record.hasFinancials} />
-                      </div>
-
-                      <div className="mt-3 flex items-center justify-between gap-3 text-xs font-semibold text-clay-deep">
-                        <span>{record.marginLabel}</span>
-                        <span className="inline-flex items-center">
-                          Open record
-                          <ArrowRight className="ml-1 h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-                        </span>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState
-                  title="No event records yet"
-                  body="Saved planner drafts, imported ticketing events, confirmed bookings, and completed event reports will appear here once they exist."
-                  actionHref="/planner"
-                  actionLabel="Start in planner"
-                />
-              )}
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-tan bg-cream p-5 shadow-card">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-cream-deep text-clay">
-                <Store className="h-5 w-5" />
-              </div>
+            <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
               <div>
-                <h2 className="font-display text-lg font-bold text-ink">Operating Coverage</h2>
-                <p className="text-sm text-ink-soft">What is currently backed by real records.</p>
+                <h2 className="font-display text-3xl font-bold leading-tight text-ink sm:text-4xl">{primaryRecord.title}</h2>
+                <p className="mt-3 max-w-3xl text-sm leading-6 text-ink-soft sm:text-base">{primaryRecord.detail}</p>
               </div>
-            </div>
+              <div className="flex flex-wrap gap-2 lg:justify-end">
+                <span className="rounded-full border border-tan bg-cream px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-ink-soft">
+                  {primaryRecord.statusLabel}
+                </span>
+                <span className="rounded-full border border-tan bg-cream px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-ink-soft">
+                  {primaryRecord.marginLabel}
+                </span>
+                <span className="rounded-full border border-tan bg-cream px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-ink-soft">
+                  {primaryRecord.profitLabel}
+                </span>
+              </div>
+            </section>
 
-            <div className="mt-5 space-y-3">
-              {data.coverage.map((section) => {
-                const Icon = section.icon
+            <section className="rounded-lg border border-clay/25 bg-clay-tint/45 p-5 sm:p-6" aria-label="What needs you">
+              <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-clay-deep">What needs you</p>
+                  <h3 className="mt-3 max-w-4xl font-display text-xl font-bold leading-tight text-ink sm:text-2xl">
+                    {primaryRecord.nextAction}
+                  </h3>
+                  <p className="mt-2 max-w-4xl text-sm leading-6 text-ink-soft sm:text-base">
+                    3rdPlace keeps the record approval-gated. The agent can prepare the next move, but the host decides before any message, booking, or payment executes.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row lg:flex-col lg:items-stretch">
+                  <Button asChild>
+                    <Link href={primaryRecord.href}>
+                      Review record
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <Button variant="outline" asChild>
+                    <Link href="/planner">Use planner</Link>
+                  </Button>
+                </div>
+              </div>
+            </section>
 
-                return (
-                  <div
-                    key={section.title}
-                    className={cn(
-                      'rounded-md border p-4',
-                      section.tone === 'ready' && 'border-forest/25 bg-forest-tint/60',
-                      section.tone === 'partial' && 'border-ochre/25 bg-ochre-tint/70',
-                      section.tone === 'empty' && 'border-tan bg-cream-deep/55'
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <Icon className={cn(
-                        'mt-0.5 h-4 w-4',
-                        section.tone === 'ready' && 'text-forest',
-                        section.tone === 'partial' && 'text-ochre',
-                        section.tone === 'empty' && 'text-clay'
-                      )} />
-                      <div>
-                        <div className="font-semibold text-ink">{section.title}</div>
-                        <p className="mt-1 font-display text-2xl font-bold text-ink">{section.value}</p>
-                        <p className="mt-2 text-sm leading-relaxed text-ink-soft">{section.body}</p>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </section>
+            <section className="overflow-hidden rounded-lg border border-tan bg-cream shadow-card" aria-label="Event operating record">
+              {buildOperatingSections(primaryRecord).map((section) => (
+                <OperatingRecordRow key={section.title} section={section} />
+              ))}
+            </section>
+          </>
+        ) : (
+          <EmptyState
+            title="No event records yet"
+            body="Saved planner drafts, imported ticketing events, confirmed bookings, and completed event reports will appear here once they exist."
+            actionHref="/planner"
+            actionLabel="Start in planner"
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function RecordTopBar({ record }: { record: ExperienceRecord }) {
+  return (
+    <div className="border-b border-tan bg-cream/95 px-4 py-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-ink-faint">
+          {record.title} / {record.dateLabel} / <span className="text-clay">{record.kind === 'plan' ? 'Planning' : 'Record'}</span>
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <RecordKindPill record={record} />
+          <span className="rounded-full border border-tan bg-cream px-3 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-ink-soft">
+            {record.statusLabel}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ExperiencesEmptyHeader() {
+  return (
+    <div className="border-b border-tan bg-cream/95 px-4 py-5 sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-7xl flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-clay">Experiences</p>
+          <h1 className="mt-2 font-display text-3xl font-bold leading-tight text-ink sm:text-4xl">
+            Operating files for every event
+          </h1>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-ink-soft sm:text-base">
+            Each saved plan becomes a live record for partner progress, ticketing coverage, guest targets, and profitability signals.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/planner/events/import">
+              Import event
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+          <Button size="sm" asChild>
+            <Link href="/planner">
+              Create event
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
         </div>
       </div>
     </div>
@@ -399,27 +474,90 @@ async function loadExperiencesData(): Promise<ExperiencesData> {
   const eventIds = events.map((event) => event.id)
 
   let financials: FinancialRow[] = []
-  let venueBookings: BookingRow[] = []
-  let vendorBookings: BookingRow[] = []
+  let venueBookings: VenueBookingRow[] = []
+  let vendorBookings: VendorBookingRow[] = []
   let salesRows: SalesRow[] = []
 
   if (eventIds.length > 0) {
     const [financialsResult, venueBookingsResult, vendorBookingsResult, salesResult] = await Promise.all([
       supabase
         .from('event_financial_summary')
-        .select('event_id, tickets_sold, net_revenue, total_costs, expected_profit, profit_margin, calculated_at, updated_at, created_at')
+        .select('event_id, break_even_tickets, current_attendance, gross_revenue, tickets_sold, net_revenue, per_attendee_value, projected_revenue, total_costs, total_fees, total_refunds, expected_profit, profit_margin, vendor_cost, venue_cost, updated_at')
         .in('event_id', eventIds),
       supabase
         .from('venue_bookings')
-        .select('id, event_id, status, payment_status, paid_at, updated_at, created_at')
+        .select(`
+          id,
+          event_id,
+          status,
+          payment_status,
+          paid_at,
+          approval_source,
+          approved_at,
+          booking_date,
+          start_time,
+          end_time,
+          final_price,
+          quoted_price,
+          total_amount,
+          venue_id,
+          subtotal,
+          guest_count_min,
+          guest_count_max,
+          services_needed,
+          special_requests,
+          venues (
+            venue_name,
+            address,
+            city,
+            state
+          )
+        `)
         .in('event_id', eventIds),
       supabase
         .from('vendor_bookings')
-        .select('id, event_id, status, payment_status, paid_at, deposit_paid, updated_at, created_at')
+        .select(`
+          id,
+          event_id,
+          status,
+          payment_status,
+          paid_at,
+          booking_date,
+          requested_date,
+          requested_start_time,
+          requested_end_time,
+          confirmed_date,
+          confirmed_start_time,
+          confirmed_end_time,
+          final_price,
+          quoted_price,
+          total_amount,
+          vendor_id,
+          subtotal,
+          deposit_amount,
+          deposit_paid,
+          quantity,
+          guest_count,
+          notes,
+          setup_time,
+          vendor_profiles (
+            name,
+            service_type
+          ),
+          vendor_offerings (
+            offering_name,
+            service_category,
+            duration_hours
+          ),
+          vendor_packages (
+            package_name,
+            duration_hours
+          )
+        `)
         .in('event_id', eventIds),
       supabase
         .from('event_sales_data')
-        .select('id, event_id, updated_at, received_at, created_at')
+        .select('id, event_id, ticket_quantity, is_refund, purchase_timestamp, received_at, submitted_at, created_at')
         .in('event_id', eventIds)
         .limit(1000),
     ])
@@ -430,8 +568,8 @@ async function loadExperiencesData(): Promise<ExperiencesData> {
     if (salesResult.error) issues.push({ area: 'Ticket sales rows', message: salesResult.error.message })
 
     financials = ((financialsResult.data ?? []) as FinancialRow[])
-    venueBookings = ((venueBookingsResult.data ?? []) as BookingRow[])
-    vendorBookings = ((vendorBookingsResult.data ?? []) as BookingRow[])
+    venueBookings = ((venueBookingsResult.data ?? []) as VenueBookingRow[])
+    vendorBookings = ((vendorBookingsResult.data ?? []) as VendorBookingRow[])
     salesRows = ((salesResult.data ?? []) as SalesRow[])
   }
 
@@ -463,13 +601,14 @@ function buildExperiencesData({
   plans: PlanRow[]
   events: EventRow[]
   financials: FinancialRow[]
-  venueBookings: BookingRow[]
-  vendorBookings: BookingRow[]
+  venueBookings: VenueBookingRow[]
+  vendorBookings: VendorBookingRow[]
   salesRows: SalesRow[]
   ticketingConnections: TicketingConnectionRow[]
   issues: LoadIssue[]
 }): ExperiencesData {
   const financialsByEvent = new Map(financials.map((row) => [row.event_id, row]))
+  const salesRowsByEvent = groupSalesRowsByEvent(salesRows)
   const salesEventIds = new Set(salesRows.map((row) => row.event_id))
   const venueBookingsByEvent = groupBookingsByEvent(venueBookings)
   const vendorBookingsByEvent = groupBookingsByEvent(vendorBookings)
@@ -478,7 +617,7 @@ function buildExperiencesData({
     financial: financialsByEvent.get(event.id) ?? null,
     venueBookings: venueBookingsByEvent.get(event.id) ?? [],
     vendorBookings: vendorBookingsByEvent.get(event.id) ?? [],
-    hasSalesRows: salesEventIds.has(event.id),
+    salesRows: salesRowsByEvent.get(event.id) ?? [],
   }))
   const planRecords = plans.map(buildPlanRecord)
   const records = [...eventRecords, ...planRecords]
@@ -498,15 +637,6 @@ function buildExperiencesData({
   const recurringEvents = events.filter((event) => Boolean(event.is_recurring || event.recurring_frequency))
   const completedEvents = events.filter((event) => (event.status ?? '').toLowerCase() === 'completed')
   const averageMargin = average(profitabilityRows.map((row) => toNumber(row.profit_margin)).filter((value) => value !== null))
-  const freshness = buildFreshness({
-    plans,
-    events,
-    financials,
-    venueBookings,
-    vendorBookings,
-    salesRows,
-    ticketingConnections,
-  })
 
   const metrics = [
     {
@@ -593,7 +723,6 @@ function buildExperiencesData({
     plans,
     events,
     records,
-    freshness,
     metrics,
     coverage,
     issues,
@@ -605,20 +734,25 @@ function buildEventRecord({
   financial,
   venueBookings,
   vendorBookings,
-  hasSalesRows,
+  salesRows,
 }: {
   event: EventRow
   financial: FinancialRow | null
-  venueBookings: BookingRow[]
-  vendorBookings: BookingRow[]
-  hasSalesRows: boolean
+  venueBookings: VenueBookingRow[]
+  vendorBookings: VendorBookingRow[]
+  salesRows: SalesRow[]
 }): ExperienceRecord {
-  const partnerCount = [...venueBookings, ...vendorBookings].filter(isBookedPartner).length
+  const bookingItems = [
+    ...venueBookings.map(buildVenueBookingItem),
+    ...vendorBookings.map(buildVendorBookingItem),
+  ]
+  const partnerCount = bookingItems.filter((item) => item.tone === 'settled').length
   const ticketsSold = toNumber(financial?.tickets_sold)
-  const hasTicketing = Boolean(event.eventbrite_event_id || event.posh_event_id || hasSalesRows || (ticketsSold ?? 0) > 0)
+  const hasTicketing = Boolean(event.eventbrite_event_id || event.posh_event_id || salesRows.length > 0 || (ticketsSold ?? 0) > 0)
   const hasFinancials = Boolean(financial && hasFinancialSignal(financial))
   const expectedProfit = toNumber(financial?.expected_profit)
   const margin = toNumber(financial?.profit_margin)
+  const guests = buildGuestRecord(event, financial, salesRows, hasTicketing)
 
   return {
     id: event.id,
@@ -638,7 +772,10 @@ function buildEventRecord({
     hasFinancials,
     profitLabel: hasFinancials && expectedProfit !== null ? formatMoneyDollars(expectedProfit) : 'No summary',
     marginLabel: margin === null ? 'No margin summary yet' : `${Math.round(margin)}% margin`,
-    nextAction: getEventNextAction(event, partnerCount, hasTicketing, hasFinancials),
+    nextAction: getEventNextAction(event, bookingItems.length, hasTicketing, hasFinancials),
+    bookingItems,
+    money: buildMoneyRecord(financial, bookingItems, guests),
+    guests,
   }
 }
 
@@ -665,19 +802,438 @@ function buildPlanRecord(plan: PlanRow): ExperienceRecord {
     profitLabel: plan.profit_goal_cents ? formatMoneyCents(plan.profit_goal_cents) : 'Planning',
     marginLabel: plan.ticketing_model ? `${titleize(plan.ticketing_model)} model` : 'No ticketing model yet',
     nextAction: getPlanNextAction(plan),
+    bookingItems: [],
+    money: null,
+    guests: {
+      targetLabel: formatGuestCount(plan.guest_count) ?? 'Guest target not set yet',
+      confirmedLabel: 'No imported attendance yet',
+      remainingLabel: 'Capacity opens once ticketing or RSVP rows are imported',
+      ticketingLabel: plan.ticketed || plan.ticketing_model ? titleize(plan.ticketing_model ?? 'ticketed') : 'No ticketing model yet',
+      movementLabel: 'No imported guest increase yet',
+      movementDetail: 'When ticketing or RSVP rows increase, this count updates automatically from the event record.',
+      readinessCopy: 'Planner drafts become guest operations once the event has imported attendees, ticketing rows, or expected attendance.',
+    },
   }
 }
 
-function RecordSignal({ icon, label, value, ready }: { icon: React.ReactNode; label: string; value: string; ready: boolean }) {
+function RecordRail({ records, primaryRecord }: { records: ExperienceRecord[]; primaryRecord: ExperienceRecord }) {
   return (
-    <div className={cn(
-      'flex items-center gap-2 rounded-md border px-3 py-2 text-xs',
-      ready ? 'border-forest/25 bg-forest-tint text-forest' : 'border-tan bg-cream text-ink-soft'
+    <section aria-label="Experience record selector" className="-mx-4 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6 lg:mx-0 lg:px-0">
+      <div className="flex min-w-max snap-x gap-3 lg:min-w-0 lg:grid lg:grid-cols-4">
+        {records.slice(0, 4).map((record) => {
+          const isSelected = record.kind === primaryRecord.kind && record.id === primaryRecord.id
+
+          return (
+            <Link
+              key={`${record.kind}-${record.id}`}
+              href={getExperienceRecordRoute(record)}
+              className={cn(
+                'group w-[17rem] snap-start rounded-lg border bg-cream-deep/45 p-4 transition-smooth lg:w-auto',
+                isSelected
+                  ? 'border-clay bg-cream shadow-card'
+                  : 'border-tan hover:border-clay/45 hover:bg-cream'
+              )}
+              aria-current={isSelected ? 'page' : undefined}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-faint">{record.dateLabel}</p>
+                <span className={cn('mt-1 h-2.5 w-2.5 rounded-full', record.kind === 'event' ? 'bg-forest' : 'bg-clay')} />
+              </div>
+              <h2 className="mt-4 truncate font-display text-xl font-bold leading-tight text-ink">{record.title}</h2>
+              <p className="mt-2 line-clamp-2 text-sm leading-6 text-ink-soft">{record.nextAction}</p>
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <RecordKindPill record={record} />
+                <span className="text-xs font-semibold text-clay-deep opacity-0 transition-opacity group-hover:opacity-100">
+                  Open
+                </span>
+              </div>
+            </Link>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function RecordKindPill({ record }: { record: ExperienceRecord }) {
+  return (
+    <span className={cn(
+      'rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase leading-none tracking-normal',
+      record.kind === 'event'
+        ? 'border-forest/25 bg-forest-tint text-forest'
+        : 'border-clay/25 bg-clay-tint text-clay-deep'
     )}>
-      {icon}
-      <span className="font-semibold text-ink">{label}</span>
-      <span className="ml-auto truncate">{value}</span>
+      {record.sourceLabel}
+    </span>
+  )
+}
+
+function buildOperatingSections(record: ExperienceRecord): OperatingSection[] {
+  const hasBookings = record.bookingItems.length > 0
+  const hasMoney = record.hasFinancials
+  const hasGuestTarget = record.guests.targetLabel !== 'Guest target not set yet'
+  const defaultOpenTitle = getDefaultOperatingSection(record, hasBookings, hasMoney)
+
+  return [
+    {
+      number: '01',
+      title: 'Plan',
+      summary: record.kind === 'plan' ? record.detail : `${record.sourceLabel}. ${record.detail}`,
+      status: record.statusLabel,
+      tone: record.statusLabel.toLowerCase().includes('draft') ? 'watch' : 'settled',
+      defaultOpen: defaultOpenTitle === 'Plan',
+      details: [
+        { label: 'Record type', value: record.sourceLabel },
+        { label: 'Timing', value: record.dateLabel },
+        { label: 'Source', value: record.kind === 'plan' ? 'Planner conversation' : 'Event record' },
+        { label: 'Approval model', value: 'Host approves before execution' },
+      ],
+      actionHref: record.href,
+      actionLabel: record.kind === 'plan' ? 'Open planner draft' : 'Open event live view',
+    },
+    {
+      number: '02',
+      title: 'Bookings',
+      summary: hasBookings
+        ? `${record.partnerCount} approved or confirmed partner booking${record.partnerCount === 1 ? '' : 's'} attached.`
+        : 'No approved or confirmed partner bookings are attached yet.',
+      status: hasBookings ? 'On track' : 'Action required',
+      tone: hasBookings ? 'settled' : 'action',
+      defaultOpen: defaultOpenTitle === 'Bookings',
+      details: [
+        { label: 'Attached rows', value: String(record.bookingItems.length) },
+        { label: 'Confirmed partners', value: String(record.partnerCount) },
+        { label: 'Next step', value: hasBookings ? 'Track execution' : 'Attach venue/vendor terms' },
+      ],
+      bookingItems: record.bookingItems,
+      actionHref: record.kind === 'plan' ? record.href : hasBookings ? record.href : '/planner/venues',
+      actionLabel: hasBookings ? 'Review event bookings' : 'Find venue/vendor terms',
+      note: hasBookings
+        ? 'Booking rows are read from venue_bookings and vendor_bookings. Approval actions here are review surfaces only until wired to an approval route.'
+        : 'Partner terms will appear here after the planner creates or links a real venue/vendor booking row.',
+    },
+    {
+      number: '03',
+      title: 'Money',
+      summary: hasMoney
+        ? `${record.profitLabel}. ${record.marginLabel}.`
+        : 'No financial summary is attached yet. Profitability appears after ticketing, costs, or event financial recomputation runs.',
+      status: hasMoney ? 'On track' : 'Needs data',
+      tone: hasMoney ? 'settled' : 'watch',
+      defaultOpen: defaultOpenTitle === 'Money',
+      details: [
+        { label: 'Profit signal', value: record.profitLabel },
+        { label: 'Margin signal', value: record.marginLabel },
+      ],
+      money: record.money,
+      actionHref: record.kind === 'event' ? `/planner/events/${record.id}/costs` : record.href,
+      actionLabel: hasMoney ? 'Open event costs' : 'Add costs and revenue',
+      note: hasMoney ? 'The agent should keep checking whether new costs change the event economics.' : 'Money fills from event_financial_summary, ticketing rows, and attached booking costs.',
+    },
+    {
+      number: '04',
+      title: 'Guests',
+      summary: hasGuestTarget ? `${record.guests.targetLabel}. ${record.guests.ticketingLabel}.` : 'Guest target not set yet.',
+      status: hasGuestTarget ? 'On track' : 'Needs target',
+      tone: hasGuestTarget ? 'settled' : 'empty',
+      defaultOpen: defaultOpenTitle === 'Guests',
+      details: [
+        { label: 'Guest target', value: record.guests.targetLabel },
+        { label: 'Confirmed', value: record.guests.confirmedLabel },
+        { label: 'Movement', value: record.guests.movementLabel },
+        { label: 'Remaining', value: record.guests.remainingLabel },
+      ],
+      guests: record.guests,
+      actionHref: '/planner/tickets',
+      actionLabel: record.hasTicketing ? 'Open ticketing' : 'Connect ticketing data',
+    },
+  ]
+}
+
+function OperatingRecordRow({ section }: { section: OperatingSection }) {
+  return (
+    <details className="group border-b border-tan last:border-b-0" open={section.defaultOpen}>
+      <summary className="grid cursor-pointer list-none grid-cols-[2.5rem_minmax(0,1fr)_auto] gap-4 px-4 py-6 transition-smooth hover:bg-cream-deep/40 sm:grid-cols-[3rem_1fr_auto] sm:items-center sm:px-8 sm:py-8 [&::-webkit-details-marker]:hidden">
+        <span className="text-xs font-bold uppercase tracking-[0.08em] text-ink-faint">{section.number}</span>
+        <span className="min-w-0">
+          <span className="block font-display text-xl font-bold leading-tight text-ink sm:text-2xl">{section.title}</span>
+          <span className="mt-1 block max-w-3xl text-sm leading-6 text-ink-soft sm:text-base">{section.summary}</span>
+        </span>
+        <span className="flex items-center justify-end gap-3">
+          <span className="hidden sm:inline-flex">
+            <StatusPill tone={section.tone}>{section.status}</StatusPill>
+          </span>
+          <ChevronRight className="h-5 w-5 text-ink-faint transition-transform group-open:rotate-90" />
+        </span>
+        <span className="col-start-2 sm:hidden">
+          <StatusPill tone={section.tone}>{section.status}</StatusPill>
+        </span>
+      </summary>
+
+      <div className="border-t border-tan bg-cream-deep/25 px-4 py-4 sm:px-8 sm:py-5">
+        {section.details?.length ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {section.details.map((detail) => (
+              <div key={`${section.number}-${detail.label}`} className="rounded-md border border-tan bg-cream/85 p-4">
+                <p className="text-xs text-ink-faint">{detail.label}</p>
+                <p className="mt-1 font-mono text-sm font-semibold text-ink">{detail.value}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button asChild size="sm">
+            <Link href={section.actionHref}>
+              {section.actionLabel}
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+          {section.title === 'Bookings' && section.bookingItems?.length === 0 ? (
+            <Button asChild size="sm" variant="outline">
+              <Link href="/planner/venues">Check venues</Link>
+            </Button>
+          ) : null}
+          {section.title === 'Bookings' && section.bookingItems?.length === 0 ? (
+            <Button asChild size="sm" variant="outline">
+              <Link href="/planner/vendors">Check vendors</Link>
+            </Button>
+          ) : null}
+        </div>
+        {section.title === 'Bookings' ? <BookingsDrilldown items={section.bookingItems ?? []} actionHref={section.actionHref} actionLabel={section.actionLabel} /> : null}
+        {section.title === 'Money' ? <MoneyDrilldown money={section.money ?? null} /> : null}
+        {section.title === 'Guests' && section.guests ? <GuestsDrilldown guests={section.guests} /> : null}
+        {section.note ? <p className="mt-4 text-sm leading-6 text-ink-soft">{section.note}</p> : null}
+      </div>
+    </details>
+  )
+}
+
+function BookingsDrilldown({
+  items,
+  actionHref,
+  actionLabel,
+}: {
+  items: ExperienceBookingItem[]
+  actionHref: string
+  actionLabel: string
+}) {
+  if (items.length === 0) {
+    return (
+      <div className="mt-4 rounded-lg border border-dashed border-tan bg-cream/80 p-5">
+        <p className="font-display text-xl font-bold text-ink">No venue or vendor terms attached yet.</p>
+        <p className="mt-2 text-sm leading-6 text-ink-soft">
+          The agent can draft recommendations in the planner, but a real booking row only appears after the host approves the terms to track.
+        </p>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button asChild size="sm" variant="outline">
+            <Link href={actionHref}>
+              {actionLabel}
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/planner/venues">Check venue options</Link>
+          </Button>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/planner/vendors">Check vendor options</Link>
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-lg border border-tan bg-cream">
+      {items.map((item, index) => (
+        <details key={item.id} className="group border-b border-tan last:border-b-0" open={index === 0}>
+          <summary className="grid cursor-pointer list-none gap-3 px-4 py-5 text-left transition-smooth hover:bg-cream-deep/45 sm:grid-cols-[1rem_minmax(0,1.3fr)_auto_auto_auto] sm:items-center sm:px-6 [&::-webkit-details-marker]:hidden">
+            <span className={cn('mt-2 h-2.5 w-2.5 rounded-full sm:mt-0', dotClass(item.tone))} />
+            <span className="min-w-0">
+              <span className="block text-base font-semibold leading-6 text-ink">
+                {item.category} <span className="ml-2 font-normal text-ink-soft">{item.partnerName}</span>
+              </span>
+              <span className="mt-1 block text-sm text-ink-faint">{item.detail}</span>
+            </span>
+            <span className="font-mono text-sm font-semibold text-ink sm:text-base">{item.costLabel}</span>
+            <StatusPill tone={item.tone}>{item.status}</StatusPill>
+            <ChevronDown className="h-5 w-5 text-ink-faint transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="border-t border-tan bg-cream-deep/35 px-4 py-4 sm:px-6 sm:py-5">
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div>
+                <p className="font-display text-xl font-bold text-ink">{item.partnerName}</p>
+                <p className="mt-1 text-sm leading-6 text-ink-soft">{item.scheduleLabel}</p>
+                <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {item.terms.map((term) => (
+                    <div key={`${item.id}-${term.label}`} className="rounded-lg border border-tan bg-cream/85 p-4">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint">{term.label}</p>
+                      <p className="mt-2 text-sm leading-6 text-ink">{term.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-lg border border-clay/25 bg-clay-tint/45 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-clay-deep">
+                  {item.tone === 'action' ? 'Approval required' : 'Approval-gated'}
+                </p>
+                <p className="mt-3 text-sm leading-6 text-ink-soft">{item.approvalCopy}</p>
+                <div className="mt-5 flex flex-col gap-2">
+                  <Button asChild variant="outline" className="justify-between border-tan bg-cream">
+                    <Link href={item.targetHref}>
+                      {item.targetLabel}
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <Button asChild variant="ghost" className="justify-start px-0 text-clay-deep hover:bg-transparent hover:text-clay">
+                    <Link href="/planner">
+                      Review in planner
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <p className="text-xs leading-5 text-ink-faint">
+                    Booking execution still requires a host approval record before any message, booking, or payment goes out.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+      ))}
     </div>
+  )
+}
+
+function MoneyDrilldown({ money }: { money: MoneyRecord | null }) {
+  if (!money) {
+    return (
+      <div className="mt-4 rounded-lg border border-dashed border-tan bg-cream/80 p-5">
+        <p className="font-display text-xl font-bold text-ink">No profitability record yet.</p>
+        <p className="mt-2 text-sm leading-6 text-ink-soft">
+          Money fills after ticketing imports, venue/vendor costs, or event financial recomputation produce an event_financial_summary row.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="rounded-lg border border-tan bg-cream p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-faint">Projected profit</p>
+            <p className="mt-2 font-display text-3xl font-bold text-forest sm:text-4xl">{money.projectedProfitLabel}</p>
+          </div>
+          <span className="rounded-full border border-forest/20 bg-forest-tint px-3 py-1.5 text-xs font-semibold text-forest">
+            {money.confidenceLabel}
+          </span>
+        </div>
+        <div className="mt-6 space-y-5">
+          <MoneyLineGroup title="Income" lines={money.incomeLines} />
+          <MoneyLineGroup title="Costs" lines={money.costLines} />
+          <div className="border-t border-tan pt-4">
+            <MoneyDisplayRow label="Total income" value={money.totalIncomeLabel} />
+            <MoneyDisplayRow label="Total cost" value={money.totalCostLabel} />
+            <MoneyDisplayRow label="Projected profit" value={money.projectedProfitLabel} isStrong />
+          </div>
+        </div>
+      </div>
+
+      <aside className="rounded-lg border border-ochre/25 bg-ochre-tint/45 p-5">
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-ochre">Money watch</p>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <DetailStat label="Break-even" value={money.breakEvenLabel} />
+          <DetailStat label="Margin" value={money.marginLabel} />
+          <DetailStat label="Per attendee" value={money.perAttendeeLabel} />
+          <DetailStat label="Confidence" value={money.confidenceLabel} />
+        </div>
+        <p className="mt-5 text-sm font-semibold text-ink">{money.watchTitle}</p>
+        <p className="mt-2 text-sm leading-6 text-ink-soft">{money.watchBody}</p>
+      </aside>
+    </div>
+  )
+}
+
+function GuestsDrilldown({ guests }: { guests: GuestRecord }) {
+  return (
+    <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="rounded-lg border border-tan bg-cream p-5">
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-faint">Current guest count</p>
+        <p className="mt-2 font-display text-2xl font-bold text-ink">{guests.confirmedLabel}</p>
+        <p className="mt-2 text-sm leading-6 text-ink-soft">{guests.movementLabel}</p>
+        <p className="mt-1 text-sm leading-6 text-ink-faint">{guests.movementDetail}</p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <DetailStat label="Target" value={guests.targetLabel} />
+          <DetailStat label="Remaining" value={guests.remainingLabel} />
+          <DetailStat label="Ticketing" value={guests.ticketingLabel} />
+        </div>
+      </div>
+      <aside className="rounded-lg border border-tan bg-cream p-5">
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-faint">Guest operations</p>
+        <p className="mt-4 text-sm leading-6 text-ink-soft">{guests.readinessCopy}</p>
+        <Button asChild variant="outline" className="mt-5 w-full border-tan bg-cream">
+          <Link href="/planner/tickets">
+            Open ticketing
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Link>
+        </Button>
+      </aside>
+    </div>
+  )
+}
+
+function MoneyLineGroup({ title, lines }: { title: string; lines: Array<{ label: string; value: string }> }) {
+  if (lines.length === 0) {
+    return (
+      <div>
+        <p className="mb-2 text-sm font-semibold text-ink">{title}</p>
+        <p className="text-sm text-ink-faint">No {title.toLowerCase()} rows yet.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <p className="mb-2 text-sm font-semibold text-ink">{title}</p>
+      <div className="space-y-1">
+        {lines.map((line) => (
+          <MoneyDisplayRow key={line.label} label={line.label} value={line.value} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MoneyDisplayRow({ label, value, isStrong = false }: { label: string; value: string; isStrong?: boolean }) {
+  return (
+    <div className={cn('grid gap-2 py-1 text-sm sm:grid-cols-[minmax(0,1fr)_auto]', isStrong && 'text-base font-semibold text-ink')}>
+      <span className="min-w-0 text-ink-soft">{label}</span>
+      <span className="font-mono font-semibold tabular-nums text-ink">{value}</span>
+    </div>
+  )
+}
+
+function DetailStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-tan bg-cream/80 p-3">
+      <p className="text-xs text-ink-faint">{label}</p>
+      <p className="mt-1 font-mono text-sm font-semibold text-ink">{value}</p>
+    </div>
+  )
+}
+
+function StatusPill({ tone, children }: { tone: OperatingSection['tone']; children: string }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex w-fit items-center rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.08em]',
+        tone === 'settled' && 'border-forest/20 bg-forest-tint text-forest',
+        tone === 'action' && 'border-clay/20 bg-clay-tint text-clay-deep',
+        tone === 'watch' && 'border-ochre/25 bg-ochre-tint text-ochre',
+        tone === 'empty' && 'border-tan bg-cream-deep text-ink-soft'
+      )}
+    >
+      {children}
+    </span>
   )
 }
 
@@ -704,22 +1260,251 @@ function EmptyState({
   )
 }
 
-function groupBookingsByEvent(bookings: BookingRow[]) {
+function getSelectedRecord(records: ExperienceRecord[], recordKey?: string | null) {
+  if (!recordKey) return records[0] ?? null
+  const selected = records.find((record) => `${record.kind}:${record.id}` === recordKey)
+  return selected ?? records[0] ?? null
+}
+
+function getExperienceRecordRoute(record: ExperienceRecord) {
+  return `/planner/experiences?record=${encodeURIComponent(`${record.kind}:${record.id}`)}`
+}
+
+function getDefaultOperatingSection(record: ExperienceRecord, hasBookings: boolean, hasMoney: boolean): string {
+  const action = record.nextAction.toLowerCase()
+  if (action.includes('attach') || action.includes('booking') || action.includes('terms')) return 'Bookings'
+  if (action.includes('ticket') || action.includes('guest')) return 'Guests'
+  if (action.includes('profit') || action.includes('money') || !hasMoney) return 'Money'
+  if (!hasBookings) return 'Bookings'
+  return 'Money'
+}
+
+function buildVenueBookingItem(booking: VenueBookingRow): ExperienceBookingItem {
+  const costAmount = firstNumber(booking.final_price, booking.quoted_price, booking.total_amount, booking.subtotal)
+  const venueName = booking.venues?.venue_name ?? 'Venue terms pending'
+  const location = [booking.venues?.city, booking.venues?.state].filter(Boolean).join(', ')
+  const schedule = [formatDate(booking.booking_date ?? null), formatTimeRange(booking.start_time, booking.end_time)]
+    .filter(Boolean)
+    .join(' · ')
+  const tone = bookingTone(booking.status)
+
+  return {
+    id: `venue-${booking.id}`,
+    kind: 'venue',
+    category: 'Venue',
+    partnerName: venueName,
+    detail: [schedule, location || null, booking.special_requests].filter(Boolean).join(' · ') || 'Venue booking row attached.',
+    costAmount,
+    costLabel: costAmount === null ? 'Price not set' : formatMoneyDollars(costAmount),
+    scheduleLabel: schedule || 'Schedule not set yet',
+    status: titleize(booking.status ?? 'pending'),
+    paymentStatus: titleize(booking.payment_status ?? 'unpaid'),
+    tone,
+    terms: [
+      { label: 'Offer', value: schedule || 'No date or time attached' },
+      { label: 'Guest range', value: formatGuestRange(booking.guest_count_min, booking.guest_count_max) },
+      { label: 'Payment', value: titleize(booking.payment_status ?? 'unpaid') },
+      { label: 'Approval source', value: titleize(booking.approval_source ?? 'manual review') },
+    ],
+    approvalCopy:
+      tone === 'action'
+        ? 'A host approval record should be created before any hold, message, or payment executes.'
+        : 'This row is tracked as an operating record. Any changed price, date, or term still requires re-approval.',
+    targetHref: booking.venue_id ? `/planner/venues/${booking.venue_id}` : '/planner/venues',
+    targetLabel: booking.venue_id ? 'Open venue profile' : 'Find venues',
+  }
+}
+
+function buildVendorBookingItem(booking: VendorBookingRow): ExperienceBookingItem {
+  const costAmount = firstNumber(booking.final_price, booking.quoted_price, booking.total_amount, booking.subtotal)
+  const service = booking.vendor_profiles?.service_type ?? booking.vendor_offerings?.service_category ?? 'Vendor'
+  const partnerName =
+    booking.vendor_profiles?.name ??
+    booking.vendor_offerings?.offering_name ??
+    booking.vendor_packages?.package_name ??
+    'Vendor terms pending'
+  const date = booking.confirmed_date ?? booking.requested_date ?? booking.booking_date ?? null
+  const start = booking.confirmed_start_time ?? booking.requested_start_time
+  const end = booking.confirmed_end_time ?? booking.requested_end_time
+  const schedule = [formatDate(date), formatTimeRange(start, end)].filter(Boolean).join(' · ')
+  const tone = bookingTone(booking.status)
+
+  return {
+    id: `vendor-${booking.id}`,
+    kind: 'vendor',
+    category: titleize(service),
+    partnerName,
+    detail: [booking.vendor_offerings?.offering_name ?? booking.vendor_packages?.package_name, schedule, booking.notes]
+      .filter(Boolean)
+      .join(' · ') || 'Vendor booking row attached.',
+    costAmount,
+    costLabel: costAmount === null ? 'Quote not set' : formatMoneyDollars(costAmount),
+    scheduleLabel: schedule || 'Schedule not set yet',
+    status: titleize(booking.status ?? 'pending'),
+    paymentStatus: titleize(booking.payment_status ?? 'unpaid'),
+    tone,
+    terms: [
+      { label: 'Service', value: titleize(service) },
+      { label: 'Deposit', value: booking.deposit_amount ? formatMoneyDollars(booking.deposit_amount) : 'No deposit recorded' },
+      { label: 'Payment', value: booking.deposit_paid ? 'Deposit paid' : titleize(booking.payment_status ?? 'unpaid') },
+      { label: 'Quantity', value: booking.quantity ? String(booking.quantity) : booking.guest_count ? `${booking.guest_count} guests` : 'Not set' },
+    ],
+    approvalCopy:
+      tone === 'action'
+        ? 'A host approval record should be created before any vendor message, booking, or payment executes.'
+        : 'This vendor row is tracked for readiness. Any changed price, timing, or scope still requires re-approval.',
+    targetHref: booking.vendor_id ? `/planner/vendors/${booking.vendor_id}` : '/planner/vendors',
+    targetLabel: booking.vendor_id ? 'Open vendor profile' : 'Find vendors',
+  }
+}
+
+function buildMoneyRecord(
+  financial: FinancialRow | null,
+  bookingItems: ExperienceBookingItem[],
+  guests: GuestRecord
+): MoneyRecord | null {
+  const hasFinancial = financial ? hasFinancialSignal(financial) : false
+  const bookedCosts = bookingItems.filter((item) => item.costAmount !== null)
+
+  if (!hasFinancial && bookedCosts.length === 0) return null
+
+  const expectedProfit = financial ? toNumber(financial.expected_profit) : null
+  const grossRevenue = financial ? toNumber(financial.gross_revenue) : null
+  const projectedRevenue = financial ? toNumber(financial.projected_revenue) : null
+  const netRevenue = financial ? toNumber(financial.net_revenue) : null
+  const totalCosts = financial ? toNumber(financial.total_costs) : null
+  const venueCost = financial ? toNumber(financial.venue_cost) : null
+  const vendorCost = financial ? toNumber(financial.vendor_cost) : null
+  const totalFees = financial ? toNumber(financial.total_fees) : null
+  const totalRefunds = financial ? toNumber(financial.total_refunds) : null
+  const margin = financial ? toNumber(financial.profit_margin) : null
+  const breakEven = financial ? toNumber(financial.break_even_tickets) : null
+  const perAttendee = financial ? toNumber(financial.per_attendee_value) : null
+
+  const incomeLines = [
+    moneyLine('Gross revenue', grossRevenue),
+    moneyLine('Projected revenue', projectedRevenue),
+    moneyLine('Net revenue', netRevenue),
+  ].filter(Boolean) as Array<{ label: string; value: string }>
+
+  const costLines = [
+    moneyLine('Venue cost', venueCost),
+    moneyLine('Vendor cost', vendorCost),
+    moneyLine('Platform/payment fees', totalFees),
+    moneyLine('Refunds', totalRefunds),
+    moneyLine('Total costs', totalCosts),
+    ...bookedCosts.map((item) => ({ label: `${item.category} · ${item.partnerName}`, value: item.costLabel })),
+  ].filter(Boolean) as Array<{ label: string; value: string }>
+
+  return {
+    projectedProfitLabel: expectedProfit === null ? 'Not calculated' : formatMoneyDollars(expectedProfit),
+    confidenceLabel: hasFinancial ? 'Live summary' : 'Costs only',
+    totalIncomeLabel: formatNullableMoney(netRevenue ?? projectedRevenue ?? grossRevenue),
+    totalCostLabel: formatNullableMoney(totalCosts ?? sumNumbers(bookedCosts.map((item) => item.costAmount))),
+    marginLabel: margin === null ? 'No margin' : `${Math.round(margin)}%`,
+    breakEvenLabel: breakEven === null ? 'Not calculated' : `${Math.round(breakEven)} tickets`,
+    perAttendeeLabel: perAttendee === null ? guests.targetLabel : formatMoneyDollars(perAttendee),
+    incomeLines,
+    costLines,
+    watchTitle: hasFinancial ? 'One thing the agent is watching' : 'Money data still needs a source',
+    watchBody: hasFinancial
+      ? 'This section should update when ticketing imports, partner costs, or event financial recomputation change the margin.'
+      : 'Attached partner costs are visible, but profitability needs ticketing revenue or an event_financial_summary row before the agent can call the event on track.',
+  }
+}
+
+function buildGuestRecord(event: EventRow, financial: FinancialRow | null, salesRows: SalesRow[], hasTicketing: boolean): GuestRecord {
+  const target = event.expected_attendance ?? event.expected_attendance_max ?? event.expected_attendance_min ?? null
+  const importedTicketCount = sumSalesTicketQuantity(salesRows)
+  const confirmed = toNumber(financial?.current_attendance) ?? toNumber(financial?.tickets_sold) ?? importedTicketCount
+  const remaining = target !== null && confirmed !== null ? Math.max(target - confirmed, 0) : null
+  const overTarget = target !== null && confirmed !== null ? Math.max(confirmed - target, 0) : 0
+  const latestMovementAt = latestSalesTimestamp(salesRows)
+  const hasImportedMovement = importedTicketCount !== null && importedTicketCount > 0
+
+  return {
+    targetLabel: target === null ? 'Guest target not set yet' : `${target.toLocaleString()} guests`,
+    confirmedLabel: confirmed === null ? 'No confirmed attendance imported yet' : `${confirmed.toLocaleString()} confirmed`,
+    remainingLabel: overTarget > 0
+      ? `${overTarget.toLocaleString()} over target`
+      : remaining === null
+        ? 'Remaining capacity depends on imported ticketing or RSVP rows'
+        : `${remaining.toLocaleString()} capacity remaining`,
+    ticketingLabel: hasTicketing ? getTicketingLabel(event) : 'No ticketing rows attached',
+    movementLabel: buildGuestMovementLabel({ confirmed, importedTicketCount, target, overTarget, hasImportedMovement }),
+    movementDetail: latestMovementAt
+      ? `Latest imported guest movement: ${formatDateTime(latestMovementAt)}. This count recalculates from event_sales_data ticket quantities and event_financial_summary.`
+      : 'This count updates as ticketing, RSVP, or attendance rows are imported for the event.',
+    readinessCopy: hasTicketing
+      ? 'Guest operations are tied to this event record. Imported ticketing or attendee rows can drive reminders, check-in readiness, and post-event review.'
+      : 'Guest operations will stay empty until this event has imported attendees, ticketing rows, or expected attendance.',
+  }
+}
+
+function buildGuestMovementLabel({
+  confirmed,
+  importedTicketCount,
+  target,
+  overTarget,
+  hasImportedMovement,
+}: {
+  confirmed: number | null
+  importedTicketCount: number | null
+  target: number | null
+  overTarget: number
+  hasImportedMovement: boolean
+}) {
+  if (confirmed === null) return 'No imported guest increase yet'
+  if (overTarget > 0) {
+    return `Guest count increased to ${confirmed.toLocaleString()}, ${overTarget.toLocaleString()} over target.`
+  }
+  if (hasImportedMovement && importedTicketCount !== null) {
+    return `Guest count increased to ${confirmed.toLocaleString()} from ${importedTicketCount.toLocaleString()} imported ticket/RSVP ${importedTicketCount === 1 ? 'row' : 'rows'}.`
+  }
+  if (target !== null) return `${confirmed.toLocaleString()} confirmed against a ${target.toLocaleString()} guest target.`
+  return `${confirmed.toLocaleString()} confirmed guests.`
+}
+
+function groupSalesRowsByEvent(rows: SalesRow[]) {
+  return rows.reduce((map, row) => {
+    const eventRows = map.get(row.event_id) ?? []
+    eventRows.push(row)
+    map.set(row.event_id, eventRows)
+    return map
+  }, new Map<string, SalesRow[]>())
+}
+
+function groupBookingsByEvent<T extends BaseBookingRow>(bookings: T[]) {
   return bookings.reduce((map, booking) => {
     const rows = map.get(booking.event_id) ?? []
     rows.push(booking)
     map.set(booking.event_id, rows)
     return map
-  }, new Map<string, BookingRow[]>())
+  }, new Map<string, T[]>())
 }
 
-function isBookedPartner(booking: BookingRow) {
+function isBookedPartner(booking: BaseBookingRow) {
   const status = (booking.status ?? '').toLowerCase()
   return ['approved', 'confirmed', 'accepted', 'booked', 'complete', 'completed'].includes(status)
 }
 
 function isConnectedTicketingStatus(status: string) {
   return ['connected', 'linked', 'completed'].includes(status)
+}
+
+function bookingTone(status: string | null): RecordTone {
+  const normalized = (status ?? '').toLowerCase()
+  if (['approved', 'confirmed', 'accepted', 'booked', 'complete', 'completed'].includes(normalized)) return 'settled'
+  if (['pending', 'requested', 'hold', 'needs_approval', 'approval_required'].includes(normalized)) return 'action'
+  if (['cancelled', 'canceled', 'declined', 'rejected'].includes(normalized)) return 'empty'
+  return 'watch'
+}
+
+function dotClass(tone: RecordTone) {
+  if (tone === 'settled') return 'bg-forest'
+  if (tone === 'action') return 'bg-clay'
+  if (tone === 'watch') return 'bg-ochre'
+  return 'bg-ink-faint'
 }
 
 function hasFinancialSignal(row: FinancialRow) {
@@ -755,6 +1540,51 @@ function getRecordSortValue(record: ExperienceRecord) {
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
+function firstNumber(...values: Array<number | null | undefined>) {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
+  return null
+}
+
+function sumNumbers(values: Array<number | null | undefined>) {
+  const usable = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+  if (usable.length === 0) return null
+  return usable.reduce((sum, value) => sum + value, 0)
+}
+
+function sumSalesTicketQuantity(rows: SalesRow[]) {
+  if (rows.length === 0) return null
+  return rows.reduce((sum, row) => {
+    const quantity = toNumber(row.ticket_quantity) ?? 0
+    return sum + (row.is_refund ? -Math.abs(quantity) : Math.max(quantity, 0))
+  }, 0)
+}
+
+function latestSalesTimestamp(rows: SalesRow[]) {
+  const timestamps = rows
+    .map((row) => row.purchase_timestamp ?? row.received_at ?? row.submitted_at ?? row.created_at)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+
+  return timestamps[timestamps.length - 1] ?? null
+}
+
+function moneyLine(label: string, value: number | null) {
+  if (value === null) return null
+  return { label, value: formatMoneyDollars(value) }
+}
+
+function formatNullableMoney(value: number | null) {
+  return value === null ? 'Not calculated' : formatMoneyDollars(value)
+}
+
+function getTicketingLabel(event: EventRow) {
+  if (event.posh_event_id) return 'Ticketed via Posh'
+  if (event.eventbrite_event_id) return 'Ticketed via Eventbrite'
+  return 'Ticketing attached'
+}
+
 function formatDate(value: string | null) {
   if (!value) return 'Date TBD'
   const parsed = new Date(value)
@@ -766,15 +1596,55 @@ function formatDate(value: string | null) {
   }).format(parsed)
 }
 
+function formatTimeRange(start: string | null | undefined, end: string | null | undefined) {
+  if (!start && !end) return null
+  if (start && end) return `${formatClock(start)}-${formatClock(end)}`
+  return formatClock(start ?? end ?? '')
+}
+
+function formatClock(value: string) {
+  if (!value) return ''
+  const [hourPart, minutePart = '00'] = value.split(':')
+  const hour = Number(hourPart)
+  if (!Number.isFinite(hour)) return value
+  const minute = Number(minutePart)
+  const period = hour >= 12 ? 'PM' : 'AM'
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12
+  return `${displayHour}:${String(Number.isFinite(minute) ? minute : 0).padStart(2, '0')} ${period}`
+}
+
+function formatGuestRange(min: number | null | undefined, max: number | null | undefined) {
+  if (min && max && min !== max) return `${min.toLocaleString()}-${max.toLocaleString()} guests`
+  if (max) return `Up to ${max.toLocaleString()} guests`
+  if (min) return `${min.toLocaleString()} guests`
+  return 'Not set'
+}
+
 function formatDateWindow(start: string | null, end: string | null) {
   if (!start && !end) return 'Date TBD'
   if (start && end && start !== end) return `${formatDate(start)} - ${formatDate(end)}`
   return formatDate(start ?? end)
 }
 
+function formatDateTime(value: string) {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(parsed)
+}
+
 function formatGuestCount(value: number | null) {
   if (!value) return null
   return `${value.toLocaleString()} guests`
+}
+
+function getGuestSummary(record: ExperienceRecord) {
+  const match = record.detail.match(/[\d,]+ guests/)
+  return match?.[0] ?? 'Guest target not set yet.'
 }
 
 function formatMoneyDollars(value: number) {
@@ -804,71 +1674,4 @@ function toNumber(value: unknown): number | null {
 function average(values: number[]) {
   if (values.length === 0) return null
   return values.reduce((sum, value) => sum + value, 0) / values.length
-}
-
-function buildFreshness({
-  plans,
-  events,
-  financials,
-  venueBookings,
-  vendorBookings,
-  salesRows,
-  ticketingConnections,
-}: {
-  plans: PlanRow[]
-  events: EventRow[]
-  financials: FinancialRow[]
-  venueBookings: BookingRow[]
-  vendorBookings: BookingRow[]
-  salesRows: SalesRow[]
-  ticketingConnections: TicketingConnectionRow[]
-}) {
-  const sources = [
-    {
-      label: 'planner drafts',
-      values: plans.flatMap((row) => [row.updated_at, row.created_at]),
-    },
-    {
-      label: 'event records',
-      values: events.flatMap((row) => [row.updated_at, row.created_at]),
-    },
-    {
-      label: 'bookings',
-      values: [...venueBookings, ...vendorBookings].flatMap((row) => [row.updated_at, row.created_at, row.paid_at]),
-    },
-    {
-      label: 'ticketing sales',
-      values: salesRows.flatMap((row) => [row.updated_at, row.received_at, row.created_at]),
-    },
-    {
-      label: 'financial summaries',
-      values: financials.flatMap((row) => [row.updated_at, row.calculated_at, row.created_at]),
-    },
-    {
-      label: 'ticketing connections',
-      values: ticketingConnections.flatMap((row) => [row.last_webhook_received_at, row.last_connected_at]),
-    },
-  ]
-  const activeSources = sources.filter((source) => source.values.some(Boolean))
-
-  return {
-    lastUpdatedAt: latestIsoDate(activeSources.flatMap((source) => source.values)),
-    sourceCount: activeSources.length,
-    sourceLabels: activeSources.map((source) => source.label),
-  }
-}
-
-function latestIsoDate(values: Array<string | null>) {
-  let latest: string | null = null
-  let latestMs = 0
-
-  for (const value of values) {
-    if (!value) continue
-    const parsed = Date.parse(value)
-    if (Number.isNaN(parsed) || parsed <= latestMs) continue
-    latestMs = parsed
-    latest = new Date(parsed).toISOString()
-  }
-
-  return latest
 }
