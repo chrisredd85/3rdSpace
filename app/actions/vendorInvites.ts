@@ -105,7 +105,7 @@ export async function inviteVendor(input: InviteVendorInput): Promise<InviteVend
     body: [
       `${user.email || 'An organizer'} invited ${vendor.name} to confirm a private booking rate on 3rdPlace.`,
       '',
-      'Create your vendor account, confirm or counter the proposed rate, then set your public catalog rate for future clients.',
+      'Create your vendor account, confirm or counter the proposed rate, then add a public catalog rate later only if you want new clients to discover you.',
     ].join('\n'),
     actionUrl: claimUrl,
     templateType: 'generic',

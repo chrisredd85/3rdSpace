@@ -333,7 +333,7 @@ function InviteKnownVendorPanel({ activePlanId, onCatalogChanged }: InviteKnownV
         claimUrl: response.claimUrl,
         message: response.existing
           ? 'This vendor was already in your people. I reused the existing invite record.'
-          : 'Invite created. They can claim the listing, confirm the private rate, and set their public catalog rate.',
+          : 'Invite created. They can claim the private listing, confirm the private rate, and add a public catalog rate later if they want to be discoverable.',
       })
     })
   }
@@ -349,7 +349,7 @@ function InviteKnownVendorPanel({ activePlanId, onCatalogChanged }: InviteKnownV
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-clay">Your people</p>
             <h2 className="mt-1 font-display text-xl font-bold text-ink">Bring a vendor you already trust</h2>
             <p className="mt-1 max-w-2xl text-sm text-ink-soft">
-              Invite them with the private rate you agreed on. They claim the profile, confirm or counter that rate, then set a separate public catalog rate.
+              Invite them with the private rate you agreed on. They claim the profile and confirm or counter that rate; public catalog pricing is optional and can come later.
             </p>
           </div>
         </div>

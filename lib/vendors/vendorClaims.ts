@@ -27,8 +27,33 @@ export interface ClaimInvitedVendorInput {
   password: string
   rateDecision: 'accept' | 'counter'
   counterAmount?: number | null
-  publicBaseRateAmount: number
+  publicBaseRateAmount?: number | null
   publicRateType: 'flat' | 'per_person' | 'hourly'
+}
+
+export function resolveVendorClaimCatalogFields(
+  publicBaseRateAmount: number | null | undefined,
+  publicRateType: ClaimInvitedVendorInput['publicRateType']
+):
+  | { ok: true; update: { is_published: boolean; base_rate?: number; pricing_model?: string } }
+  | { ok: false; error: string } {
+  const hasPublicBaseRate = publicBaseRateAmount !== null && publicBaseRateAmount !== undefined
+  if (hasPublicBaseRate && (!Number.isFinite(publicBaseRateAmount) || publicBaseRateAmount <= 0)) {
+    return { ok: false, error: 'Enter a public base rate greater than 0, or leave it blank to stay private.' }
+  }
+
+  if (!hasPublicBaseRate) {
+    return { ok: true, update: { is_published: false } }
+  }
+
+  return {
+    ok: true,
+    update: {
+      is_published: true,
+      base_rate: Math.round(Number(publicBaseRateAmount) * 100),
+      pricing_model: publicRateType === 'flat' ? 'flat_rate' : publicRateType,
+    },
+  }
 }
 
 export async function getVendorClaimDetails(token: string): Promise<{ ok: true; details: VendorClaimDetails } | { ok: false; error: string }> {
@@ -110,9 +135,8 @@ export async function claimInvitedVendor(input: ClaimInvitedVendorInput): Promis
     return { ok: false, error: 'Password must be at least 8 characters.' }
   }
 
-  if (!Number.isFinite(input.publicBaseRateAmount) || input.publicBaseRateAmount <= 0) {
-    return { ok: false, error: 'Enter a public base rate greater than 0.' }
-  }
+  const catalogFields = resolveVendorClaimCatalogFields(input.publicBaseRateAmount, input.publicRateType)
+  if (!catalogFields.ok) return catalogFields
 
   const admin = createServiceRoleClient() as any
   const { data: existingAppUser, error: existingAppUserError } = await admin
@@ -163,7 +187,6 @@ export async function claimInvitedVendor(input: ClaimInvitedVendorInput): Promis
     return { ok: false, error: `Could not create vendor profile user: ${userError.message}` }
   }
 
-  const publicBaseRateCents = Math.round(input.publicBaseRateAmount * 100)
   const { error: vendorError } = await admin
     .from('vendor_profiles')
     .update({
@@ -171,9 +194,7 @@ export async function claimInvitedVendor(input: ClaimInvitedVendorInput): Promis
       claimed_user_id: userId,
       claim_status: 'invited_claimed',
       is_claimed: true,
-      is_published: true,
-      base_rate: publicBaseRateCents,
-      pricing_model: input.publicRateType === 'flat' ? 'flat_rate' : input.publicRateType,
+      ...catalogFields.update,
       contact_email: email,
     })
     .eq('id', details.vendor_id)

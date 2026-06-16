@@ -138,7 +138,21 @@ export function formatTemplateCreatedAt(value: string): string {
   return `Saved ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
 }
 
-export function ReplyAnalysisResult({ result }: { result: ResponseAnalysisOutput }) {
+export function ReplyAnalysisResult({
+  result,
+  partnerType = 'venue',
+  isCreatingApproval = false,
+  approvalError = null,
+  approvalMessage = null,
+  onCreateApproval,
+}: {
+  result: ResponseAnalysisOutput
+  partnerType?: 'venue' | 'vendor'
+  isCreatingApproval?: boolean
+  approvalError?: string | null
+  approvalMessage?: string | null
+  onCreateApproval?: () => void
+}) {
   const suggestedReply = buildSuggestedReplyFromAnalysis(result)
   const actionItems = result.required_next_steps.length > 0
     ? result.required_next_steps
@@ -150,6 +164,11 @@ export function ReplyAnalysisResult({ result }: { result: ResponseAnalysisOutput
         <span className={cn('rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-widest', getAvailabilityBadgeClass(result.availability_status))}>
           {result.availability_status}
         </span>
+        {result.service_type ? (
+          <span className="rounded-full border border-border bg-background/70 px-3 py-1 text-xs font-semibold text-muted-foreground">
+            {result.service_type}
+          </span>
+        ) : null}
         {result.quoted_price_cents !== null ? (
           <span className="rounded-full border border-border bg-background/70 px-3 py-1 text-xs font-semibold text-muted-foreground">
             Quote {formatMockCents(result.quoted_price_cents)}
@@ -168,6 +187,12 @@ export function ReplyAnalysisResult({ result }: { result: ResponseAnalysisOutput
       </div>
 
       <p className="text-sm leading-relaxed text-muted-foreground">{result.summary}</p>
+      {result.availability_notes || result.notes ? (
+        <div className="rounded-xl border border-border bg-background/70 p-3 text-sm text-muted-foreground">
+          {result.availability_notes ? <p><span className="font-semibold text-foreground">Availability:</span> {result.availability_notes}</p> : null}
+          {result.notes ? <p className={result.availability_notes ? 'mt-2' : undefined}><span className="font-semibold text-foreground">Notes:</span> {result.notes}</p> : null}
+        </div>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2">
         <div>
@@ -216,6 +241,19 @@ export function ReplyAnalysisResult({ result }: { result: ResponseAnalysisOutput
           {suggestedReply}
         </pre>
       </div>
+
+      {partnerType === 'vendor' && onCreateApproval ? (
+        <div className="space-y-2 rounded-xl border border-border bg-background/70 p-3">
+          <p className="text-sm text-muted-foreground">
+            Create an organizer approval before any vendor invite or private rate agreement is created or updated.
+          </p>
+          <Button type="button" size="sm" onClick={onCreateApproval} disabled={isCreatingApproval}>
+            {isCreatingApproval ? 'Creating approval...' : 'Create vendor capture approval'}
+          </Button>
+          {approvalMessage ? <p className="text-sm font-semibold text-success">{approvalMessage}</p> : null}
+          {approvalError ? <p className="text-sm text-destructive">{approvalError}</p> : null}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -318,4 +356,3 @@ export function isResponseAnalysisOutput(value: unknown): value is ResponseAnaly
 export function isAvailabilityStatus(value: unknown): value is ResponseAnalysisOutput['availability_status'] {
   return value === 'available' || value === 'unavailable' || value === 'tentative' || value === 'unknown'
 }
-

@@ -48,6 +48,32 @@ const modelOutputWithDepositPercent = {
   extracted_questions: ['Can you confirm your final headcount?'],
 }
 
+const vendorReplyPayload = {
+  raw_email_text:
+    'I can DJ the happy hour on March 15 from 6-10pm. My quote is $1,200 with a $300 deposit. I can bring controller, speakers, and a wireless mic. I am available after 5pm and would need power near the stage.',
+  event_plan: eventPlan,
+  partner_type: 'vendor',
+} as const
+
+const vendorModelOutput = {
+  availability_status: 'available',
+  service_type: 'DJ',
+  quoted_price_cents: 120000,
+  minimum_spend_cents: null,
+  deposit_required_cents: 30000,
+  availability_notes: 'Available March 15 after 5pm.',
+  capacity_notes: null,
+  included_services: ['Controller', 'Speakers', 'Wireless mic'],
+  exclusions: ['Power near stage must be provided'],
+  hidden_fees: [],
+  cancellation_terms: null,
+  notes: 'Needs power near the stage.',
+  required_next_steps: ['Confirm stage power location'],
+  summary: 'The DJ is available March 15 from 6-10pm for $1,200 with a $300 deposit.',
+  risk_flags: [],
+  extracted_questions: [],
+}
+
 describe('runResponseAnalysisAgent', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -82,6 +108,21 @@ describe('runResponseAnalysisAgent', () => {
     })
 
     expect(result.success).toBe(false)
+  })
+
+  it('preserves structured vendor reply details for approval capture', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify(vendorModelOutput) } }],
+    })
+
+    const result = await runResponseAnalysisAgent(vendorReplyPayload, { create })
+
+    expect(result.output.service_type).toBe('DJ')
+    expect(result.output.quoted_price_cents).toBe(120000)
+    expect(result.output.deposit_required_cents).toBe(30000)
+    expect(result.output.availability_notes).toContain('after 5pm')
+    expect(result.output.notes).toContain('power')
+    expect(result.output.included_services).toContain('Speakers')
   })
 
   it('throws when the model output is missing required structured fields', async () => {

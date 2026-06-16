@@ -88,6 +88,10 @@ export function PlannerWorkspace() {
   const [isAnalyzingReply, setIsAnalyzingReply] = useState(false)
   const [replyAnalysisError, setReplyAnalysisError] = useState<string | null>(null)
   const [replyAnalysisResult, setReplyAnalysisResult] = useState<ResponseAnalysisOutput | null>(null)
+  const [replyAnalysisPartnerType, setReplyAnalysisPartnerType] = useState<'venue' | 'vendor'>('venue')
+  const [isCreatingVendorCaptureApproval, setIsCreatingVendorCaptureApproval] = useState(false)
+  const [vendorCaptureApprovalError, setVendorCaptureApprovalError] = useState<string | null>(null)
+  const [vendorCaptureApprovalMessage, setVendorCaptureApprovalMessage] = useState<string | null>(null)
   const [timelineResult, setTimelineResult] = useState<TimelineOutput | null>(null)
   const [agentActions, setAgentActions] = useState<DerivationAgentAction[]>([])
   const [isTimelineLoading, setIsTimelineLoading] = useState(false)
@@ -1025,7 +1029,7 @@ export function PlannerWorkspace() {
           payload: {
             raw_email_text: rawEmailText,
             event_plan: buildEventPlanPayload(activePlan),
-            partner_type: 'venue',
+            partner_type: replyAnalysisPartnerType,
           },
         }),
       })
@@ -1041,10 +1045,85 @@ export function PlannerWorkspace() {
       }
 
       setReplyAnalysisResult(output)
+      setVendorCaptureApprovalError(null)
+      setVendorCaptureApprovalMessage(null)
     } catch (error) {
       setReplyAnalysisError(error instanceof Error ? error.message : 'Unable to analyze reply')
     } finally {
       setIsAnalyzingReply(false)
+    }
+  }
+
+  async function createVendorCaptureApproval() {
+    if (!activePlan || !replyAnalysisResult) return
+
+    const rawReplyText = replyAnalysisText.trim()
+    if (!rawReplyText) {
+      setVendorCaptureApprovalError('Paste the vendor reply before creating an approval.')
+      return
+    }
+
+    setIsCreatingVendorCaptureApproval(true)
+    setVendorCaptureApprovalError(null)
+    setVendorCaptureApprovalMessage(null)
+
+    const amountCents = replyAnalysisResult.quoted_price_cents ?? replyAnalysisResult.minimum_spend_cents ?? 0
+
+    try {
+      const response = await fetch(`/api/planner/plans/${activePlan.id}/agent-actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          actionType: 'vendor_contact',
+          targetType: 'vendor_reply_capture',
+          payloadJson: {
+            kind: 'vendor_reply_capture',
+            partner_type: 'vendor',
+            action_label: 'Review vendor reply terms',
+            provider: replyAnalysisResult.service_type ?? 'Manual vendor reply',
+            package_details: replyAnalysisResult.summary,
+            refund_terms: 'No vendor invite, booking, private rate, or payment is created until this approval is reviewed.',
+            cancellation_terms: replyAnalysisResult.cancellation_terms ?? 'Cancellation terms not confirmed.',
+            requestedAmountCents: amountCents,
+            raw_reply_text: rawReplyText,
+            analysis: replyAnalysisResult,
+            service_type: replyAnalysisResult.service_type ?? null,
+            quoted_price_cents: replyAnalysisResult.quoted_price_cents,
+            minimum_spend_cents: replyAnalysisResult.minimum_spend_cents,
+            deposit_required_cents: replyAnalysisResult.deposit_required_cents,
+            availability_status: replyAnalysisResult.availability_status,
+            availability_notes: replyAnalysisResult.availability_notes ?? null,
+            notes: replyAnalysisResult.notes ?? null,
+            included_services: replyAnalysisResult.included_services,
+          },
+          requestedAmountCents: amountCents,
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        if (billingGate.handleBillingRequiredResponse(
+          response,
+          payload as { error?: string; message?: string; billingRequired?: boolean }
+        )) {
+          throw new Error('Choose a billing path to continue.')
+        }
+        throw new Error(payload?.error ?? 'Could not create vendor capture approval.')
+      }
+
+      setVendorCaptureApprovalMessage('Approval request created. Review it before any vendor invite or private rate changes.')
+      setActiveTab('approvals')
+      if (activePlan.id && persistenceMode === 'server') void loadPlanAgentActions(activePlan.id)
+      addToast({
+        title: 'Vendor approval created',
+        description: 'Review the captured vendor terms before creating or updating vendor records.',
+        variant: 'success',
+      })
+    } catch (error) {
+      setVendorCaptureApprovalError(error instanceof Error ? error.message : 'Could not create vendor capture approval.')
+    } finally {
+      setIsCreatingVendorCaptureApproval(false)
     }
   }
 
@@ -1538,9 +1617,36 @@ export function PlannerWorkspace() {
 
                     {isReplyAnalysisOpen ? (
                       <div className="space-y-3 border-t border-border p-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Partner type</span>
+                          {(['venue', 'vendor'] as const).map((partnerType) => (
+                            <button
+                              key={partnerType}
+                              type="button"
+                              onClick={() => {
+                                setReplyAnalysisPartnerType(partnerType)
+                                setReplyAnalysisResult(null)
+                                setVendorCaptureApprovalError(null)
+                                setVendorCaptureApprovalMessage(null)
+                              }}
+                              className={cn(
+                                'rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-widest transition-smooth',
+                                replyAnalysisPartnerType === partnerType
+                                  ? 'border-primary bg-primary text-primary-foreground'
+                                  : 'border-border bg-background/70 text-muted-foreground hover:text-foreground'
+                              )}
+                            >
+                              {partnerType}
+                            </button>
+                          ))}
+                        </div>
                         <Textarea
                           value={replyAnalysisText}
-                          onChange={(event) => setReplyAnalysisText(event.target.value)}
+                          onChange={(event) => {
+                            setReplyAnalysisText(event.target.value)
+                            setVendorCaptureApprovalError(null)
+                            setVendorCaptureApprovalMessage(null)
+                          }}
                           rows={5}
                           placeholder="Paste venue or vendor reply"
                           className="min-h-32 resize-y bg-card/60"
@@ -1563,7 +1669,14 @@ export function PlannerWorkspace() {
                         ) : null}
 
                         {replyAnalysisResult ? (
-                          <ReplyAnalysisResult result={replyAnalysisResult} />
+                          <ReplyAnalysisResult
+                            result={replyAnalysisResult}
+                            partnerType={replyAnalysisPartnerType}
+                            isCreatingApproval={isCreatingVendorCaptureApproval}
+                            approvalError={vendorCaptureApprovalError}
+                            approvalMessage={vendorCaptureApprovalMessage}
+                            onCreateApproval={replyAnalysisPartnerType === 'vendor' ? () => void createVendorCaptureApproval() : undefined}
+                          />
                         ) : null}
                       </div>
                     ) : null}

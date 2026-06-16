@@ -79,7 +79,7 @@ export function VendorClaimFlow({ token, details }: VendorClaimFlowProps) {
               Hi {details.vendor_name}, {details.organizer_name} invited you to 3rdPlace.
             </h1>
             <p className="mt-2 text-sm text-ink-soft">
-              Create your account, confirm the private rate for this organizer, then set the public rate new clients see in the vendor catalog.
+              Create your account and confirm the private rate for this organizer. You can add a public catalog rate later if you want new clients to discover you.
             </p>
           </div>
         </div>
@@ -171,14 +171,14 @@ export function VendorClaimFlow({ token, details }: VendorClaimFlowProps) {
         {step === 3 ? (
           <div className="mt-6 space-y-4">
             <div className="rounded-lg border border-tan bg-cream/50 p-4">
-              <p className="font-semibold text-ink">Set your public catalog rate</p>
+              <p className="font-semibold text-ink">Public catalog rate optional</p>
               <p className="mt-1 text-sm text-ink-soft">
-                This is different from your private rate with {details.organizer_name}. It is what new clients see when they browse vendors.
+                Leave this blank to stay private to {details.organizer_name}. Add a public rate only when you want this profile listed for new clients. Stripe setup happens before your first in-app payment, not during claim.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block space-y-1">
-                <span className="text-xs font-semibold text-ink-soft">Public base rate</span>
+                <span className="text-xs font-semibold text-ink-soft">Public base rate (optional)</span>
                 <Input value={publicBaseRateAmount} onChange={(event) => setPublicBaseRateAmount(event.target.value)} type="number" min="1" step="1" placeholder="650" />
               </label>
               <label className="block space-y-1">
@@ -203,7 +203,7 @@ export function VendorClaimFlow({ token, details }: VendorClaimFlowProps) {
               onBack={() => setStep(2)}
               onNext={submitClaim}
               nextLabel={isPending ? 'Claiming...' : 'Claim vendor profile'}
-              nextDisabled={isPending || Number(publicBaseRateAmount) <= 0}
+              nextDisabled={isPending}
             />
           </div>
         ) : null}
