@@ -902,7 +902,7 @@ function RecordRail({ records, primaryRecord }: { records: ExperienceRecord[]; p
               key={`${record.kind}-${record.id}`}
               href={getExperienceRecordRoute(record)}
               className={cn(
-                'group w-[17rem] snap-start rounded-lg border bg-cream-deep/45 p-4 transition-smooth lg:w-auto',
+                'group flex min-h-[13.75rem] w-[17rem] snap-start flex-col rounded-lg border bg-cream-deep/45 p-4 transition-smooth lg:w-auto',
                 isSelected
                   ? 'border-clay bg-cream shadow-card'
                   : 'border-tan hover:border-clay/45 hover:bg-cream'
@@ -910,16 +910,15 @@ function RecordRail({ records, primaryRecord }: { records: ExperienceRecord[]; p
               aria-current={isSelected ? 'page' : undefined}
             >
               <div className="flex items-start justify-between gap-3">
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-faint">
-                  {record.dateLabel} · {record.metroLabel}
-                </p>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-faint">{record.dateLabel}</p>
                 <span className={cn('mt-1 h-2.5 w-2.5 rounded-full', dotClass(record.attentionTone))} />
               </div>
-              <h2 className="mt-4 truncate font-display text-xl font-bold leading-tight text-ink">{record.title}</h2>
-              <div className="mt-4 flex items-center justify-between gap-3">
-                <p className="text-xs font-bold uppercase tracking-[0.1em] text-ink-faint">{record.timingLabel}</p>
-                <span className={cn('text-xs font-bold uppercase tracking-[0.1em]', attentionTextClass(record.attentionTone))}>
-                  {record.attentionLabel}
+              <h2 className="mt-4 line-clamp-2 min-h-[3.5rem] font-display text-xl font-bold leading-tight text-ink">{record.title}</h2>
+              <p className="mt-2 line-clamp-2 min-h-[3rem] text-sm leading-6 text-ink-soft">{record.nextAction}</p>
+              <div className="mt-auto flex items-center justify-between gap-3 pt-4">
+                <RecordKindPill record={record} />
+                <span className={cn('text-xs font-bold uppercase tracking-[0.1em] opacity-0 transition-opacity group-hover:opacity-100', attentionTextClass(record.attentionTone))}>
+                  Open
                 </span>
               </div>
             </Link>

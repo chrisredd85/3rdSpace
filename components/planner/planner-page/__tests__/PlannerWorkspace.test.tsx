@@ -1,6 +1,9 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { PlannerWorkspace } from '@/components/planner/planner-page/PlannerWorkspace'
+import { shouldStartNewPlanFromReply } from '@/components/planner/planner-page/plannerState'
 import { ToastProvider } from '@/components/ui/toast'
+import type { Plan } from '@/lib/types'
 
 const mockReplace = jest.fn()
 const mockPush = jest.fn()
@@ -113,4 +116,92 @@ describe('PlannerWorkspace desktop draft handoff', () => {
     expect(global.fetch).not.toHaveBeenCalledWith('/api/planner/plans?limit=10', expect.anything())
     expect(screen.queryByText('Building your event plan.')).not.toBeInTheDocument()
   })
+
+  it('archives an unfinished server plan before starting a new planner chat', async () => {
+    mockPathname = '/planner'
+    mockSearchParams = ''
+    const user = userEvent.setup()
+    const activePlan = makePlan()
+
+    global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+
+      if (url === '/api/auth/user') {
+        return jsonResponse({ user: { organization_name: 'nsbe' } })
+      }
+
+      if (url === '/api/planner/plans?limit=10') {
+        return jsonResponse({ plans: [activePlan], count: 1 })
+      }
+
+      if (url === `/api/planner/plans/${activePlan.id}` && init?.method === 'PATCH') {
+        return jsonResponse({ plan: { ...activePlan, status: 'archived' } })
+      }
+
+      if (url === `/api/planner/plans/${activePlan.id}`) {
+        return jsonResponse({
+          plan: activePlan,
+          messages: [],
+          recommendations: [],
+          approvals: [],
+          workspace_summary: null,
+        })
+      }
+
+      if (url === `/api/planner/plans/${activePlan.id}/agent-actions?limit=50`) {
+        return jsonResponse({ agentActions: [] })
+      }
+
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    }) as jest.Mock
+
+    renderPlannerWorkspace()
+
+    expect(await screen.findByRole('heading', { name: activePlan.title })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'New plan' }))
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        `/api/planner/plans/${activePlan.id}`,
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'archived' }),
+        })
+      )
+    })
+
+    expect(mockPush).toHaveBeenCalledWith('/planner/new-plan')
+  })
+
+  it('treats a literal new chat request as a fresh planner conversation', () => {
+    expect(shouldStartNewPlanFromReply('new chat', makePlan())).toBe(true)
+    expect(shouldStartNewPlanFromReply('fresh conversation please', makePlan())).toBe(true)
+    expect(shouldStartNewPlanFromReply('start over with a clean workspace', makePlan())).toBe(true)
+  })
 })
+
+function makePlan(overrides: Partial<Plan> = {}): Plan {
+  return {
+    id: '11111111-1111-4111-8111-111111111111',
+    user_id: 'builder-1',
+    title: 'Unfinished mixer plan',
+    event_type: 'mixer',
+    status: 'drafting',
+    guest_count: 40,
+    budget_cap_cents: 500000,
+    neighborhood: 'Mission',
+    date_window_start: '2026-11-14',
+    date_window_end: '2026-11-14',
+    ticketed: false,
+    ticketing_model: null,
+    food_responsibility: null,
+    venue_terms: null,
+    agent_action: null,
+    profit_goal_cents: null,
+    notes: null,
+    metadata: {},
+    created_at: '2026-06-16T12:00:00.000Z',
+    updated_at: '2026-06-16T12:00:00.000Z',
+    ...overrides,
+  }
+}
