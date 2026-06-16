@@ -275,6 +275,8 @@ export function readPlanTicketPriceTargetCents(plan: Plan): number | null {
 export function shouldStartNewPlanFromReply(message: string, activePlan: Plan): boolean {
   if (activePlan.status === 'complete' || activePlan.status === 'archived') return true
   const normalized = message.toLowerCase()
+  if (isNewConversationResetRequest(normalized)) return true
+
   const startsLikeNewPlan =
     /\b(start|create|plan|host|throw|organize)\s+(?:a|an|another|new)\b/.test(normalized) ||
     /\b(new|different)\s+(?:event|plan)\b/.test(normalized) ||
@@ -282,6 +284,11 @@ export function shouldStartNewPlanFromReply(message: string, activePlan: Plan): 
   if (!startsLikeNewPlan) return false
 
   return /\b(event|dinner|party|workshop|class|launch|hackathon|fundraiser|gala|watch party|screening|retreat|offsite|mixer|happy hour|listening party|showcase|pop-?up|activation|run club|wellness)\b/.test(normalized)
+}
+
+export function isNewConversationResetRequest(message: string): boolean {
+  const normalized = message.trim().toLowerCase()
+  return /\b(new|fresh)\s+(chat|conversation)\b/.test(normalized) || /\bstart\s+over\b/.test(normalized)
 }
 
 export function readPlanAgentCacheOutput(plan: Plan, key: 'timeline' | 'workspace_summary'): Record<string, unknown> | null {

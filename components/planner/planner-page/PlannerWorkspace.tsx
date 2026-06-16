@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils'
 import { DraftMatchSignupCard, PlannerApprovalFocusedCard, PlannerFocusedMessageCard, PlannerMessageBubble, getActivePlanDateChip, getApprovalSummary, isUuid, readUnknownRecord } from './PlannerConversation'
 import { DemoSessionBanner, PlannerTemplatesModal, ReplyAnalysisResult, isResponseAnalysisOutput, readAgentOutput } from './PlannerTemplatesModal'
 import { applyMockPlanPatch, buildDeterministicDraftExchange, buildDraftMatchHandoff, buildMockMessage, buildMockPlan, hasDraftMatchGateMessage, shouldUseMockReplyPath, tryRunPublicDraftIntake } from './draftMode'
-import { buildEventPlanPayload, clearStoredPlannerConversation, getPendingActionSuccessMessage, getPlannerOrganizationName, getPlannerRoleLabel, getTabCount, getVisibleMessages, hasNewerConfirmationMessage, isApprovalMessage, isPendingConversionAction, isRecommendationMessage, isTimelineOutput, loadPlannerStateFromApiCached, persistStoredPlannerConversation, publishLivePlan, readStoredPlannerConversation, shouldStartNewPlanFromReply } from './plannerState'
+import { buildEventPlanPayload, clearStoredPlannerConversation, getPendingActionSuccessMessage, getPlannerOrganizationName, getPlannerRoleLabel, getTabCount, getVisibleMessages, hasNewerConfirmationMessage, isApprovalMessage, isNewConversationResetRequest, isPendingConversionAction, isRecommendationMessage, isTimelineOutput, loadPlannerStateFromApiCached, persistStoredPlannerConversation, publishLivePlan, readStoredPlannerConversation, shouldStartNewPlanFromReply } from './plannerState'
 import { planTabs, quickActionChips, type ApprovalUiStatus, type PendingConversionAction, type PlannerAccountSummary, type PlannerAgentActionRequest, type PlannerPersistenceMode, type PlannerTab, type PlannerTemplateSummary, type ResponseAnalysisOutput, type TimelineOutput } from './types'
 
 function isDesktopPlannerViewport() {
@@ -69,6 +69,7 @@ export function PlannerWorkspace() {
   const [persistenceMode, setPersistenceMode] = useState<PlannerPersistenceMode>('loading')
   const [hasLoadedStoredConversation, setHasLoadedStoredConversation] = useState(false)
   const [isCreatingPlan, setIsCreatingPlan] = useState(false)
+  const [isStartingNewPlan, setIsStartingNewPlan] = useState(false)
   const [isStartingInitialDraft, setIsStartingInitialDraft] = useState(() => Boolean(initialDraft))
   const [isSendingReply, setIsSendingReply] = useState(false)
   const [isAwaitingRecommendations, setIsAwaitingRecommendations] = useState(false)
@@ -598,8 +599,22 @@ export function PlannerWorkspace() {
 
     if (persistenceMode === 'server' && shouldStartNewPlanFromReply(trimmed, activePlan)) {
       try {
-        const created = await handleCreatePlan(trimmed)
-        if (created) setReply('')
+        if (isNewConversationResetRequest(trimmed)) {
+          const reset = await handleNewPlan()
+          if (reset) setReply('')
+        } else {
+          await archiveAbandonedPlanForNewConversation(activePlan)
+          const created = await handleCreatePlan(trimmed)
+          if (created) setReply('')
+        }
+      } catch (error) {
+        const description = error instanceof Error ? error.message : 'Unable to start a fresh planner chat'
+        setErrorMessage(description)
+        addToast({
+          title: 'New plan not started',
+          description,
+          variant: 'destructive',
+        })
       } finally {
         setIsSendingReply(false)
       }
@@ -720,38 +735,80 @@ export function PlannerWorkspace() {
   }
 
   /**
+   * Archives an unfinished server-backed planner draft before a fresh chat starts.
+   * Experiences hides archived plans, so abandoned drafts disappear without
+   * hard-deleting the audit trail for messages, approvals, or agent actions.
+   */
+  async function archiveAbandonedPlanForNewConversation(plan: Plan | null) {
+    if (!plan || persistenceMode !== 'server' || !isUuid(plan.id)) return
+    if (plan.status === 'complete' || plan.status === 'archived') return
+
+    const response = await fetch(`/api/planner/plans/${plan.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ status: 'archived' }),
+    })
+    const payload = await response.json().catch(() => ({} as { error?: string }))
+
+    if (!response.ok) {
+      throw new Error(payload.error ?? 'Could not archive the previous planner draft.')
+    }
+  }
+
+  /**
    * Clears the active conversation and returns the planner to a fresh intake state.
    */
-  function handleNewPlan() {
-    clearStoredPlannerConversation()
-    setActivePlan(null)
-    setMessages([])
-    setAgentActions([])
-    setReply('')
-    setActiveTab('chat')
-    setErrorMessage(null)
-    setIsCreatingPlan(false)
-    setIsSendingReply(false)
-    setIsAwaitingRecommendations(false)
-    setPendingAction(null)
-    setIsSignupGateOpen(false)
-    setIsTemplatesModalOpen(false)
-    setIsReplyAnalysisOpen(false)
-    setReplyAnalysisText('')
-    setReplyAnalysisError(null)
-    setReplyAnalysisResult(null)
-    setTimelineResult(null)
-    setTimelineError(null)
-    setIsTimelineLoading(false)
-    hasStartedInitialDraftRef.current = false
-    hasTriedDraftAutoMigrationRef.current = false
-    ignoredDraftRef.current = initialDraft
-    publishLivePlan(null, [])
+  async function handleNewPlan() {
+    if (isStartingNewPlan) return false
 
-    if (forceDraftMode) {
-      router.push('/planner/new-plan?mock=1')
-    } else if (!isNewPlanRoute || window.location.search) {
-      router.push('/planner/new-plan')
+    setIsStartingNewPlan(true)
+    setErrorMessage(null)
+
+    try {
+      await archiveAbandonedPlanForNewConversation(activePlan)
+
+      clearStoredPlannerConversation()
+      setActivePlan(null)
+      setMessages([])
+      setAgentActions([])
+      setReply('')
+      setActiveTab('chat')
+      setIsCreatingPlan(false)
+      setIsSendingReply(false)
+      setIsAwaitingRecommendations(false)
+      setPendingAction(null)
+      setIsSignupGateOpen(false)
+      setIsTemplatesModalOpen(false)
+      setIsReplyAnalysisOpen(false)
+      setReplyAnalysisText('')
+      setReplyAnalysisError(null)
+      setReplyAnalysisResult(null)
+      setTimelineResult(null)
+      setTimelineError(null)
+      setIsTimelineLoading(false)
+      hasStartedInitialDraftRef.current = false
+      hasTriedDraftAutoMigrationRef.current = false
+      ignoredDraftRef.current = initialDraft
+      publishLivePlan(null, [])
+
+      if (forceDraftMode) {
+        router.push('/planner/new-plan?mock=1')
+      } else if (!isNewPlanRoute || window.location.search) {
+        router.push('/planner/new-plan')
+      }
+      return true
+    } catch (error) {
+      const description = error instanceof Error ? error.message : 'Unable to start a fresh planner chat'
+      setErrorMessage(description)
+      addToast({
+        title: 'New plan not started',
+        description,
+        variant: 'destructive',
+      })
+      return false
+    } finally {
+      setIsStartingNewPlan(false)
     }
   }
 
@@ -1405,8 +1462,8 @@ export function PlannerWorkspace() {
               )}
               {activeDateChip.label}
             </span>
-            <Button type="button" variant="glass" size="sm" onClick={handleNewPlan}>
-              New plan
+            <Button type="button" variant="glass" size="sm" disabled={isStartingNewPlan} onClick={() => void handleNewPlan()}>
+              {isStartingNewPlan ? 'Starting...' : 'New plan'}
             </Button>
           </div>
         </div>
