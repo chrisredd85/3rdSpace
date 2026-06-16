@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PlannerMobileRouteHeader } from '@/components/planner/PlannerMobileRouteHeader'
+import { hasImportedGuestAttendanceLabel } from '@/lib/planner/experienceGuestStatus'
 import { createClient } from '@/lib/supabase/server'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 import { cn } from '@/lib/utils'
@@ -946,7 +947,7 @@ function buildOperatingSections(record: ExperienceRecord): OperatingSection[] {
   const hasBookings = record.bookingItems.length > 0
   const hasMoney = record.hasFinancials
   const hasGuestTarget = record.guests.targetLabel !== 'Guest target not set yet'
-  const hasConfirmedGuests = !record.guests.confirmedLabel.toLowerCase().startsWith('no confirmed')
+  const hasConfirmedGuests = hasImportedGuestAttendanceLabel(record.guests.confirmedLabel)
   const defaultOpenTitle = getDefaultOperatingSection(record, hasBookings, hasMoney)
 
   return [
