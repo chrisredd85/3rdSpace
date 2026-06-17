@@ -19,3 +19,6 @@
 [2026-06-17T23:48:00Z] self-review: complete — [x] No actual code renames in this PR; audit and grep only.
 [2026-06-17T23:48:00Z] self-review: complete — [x] No --no-verify used.
 [2026-06-17T23:48:00Z] self-review: complete — [x] In-flight PR branches were not touched.
+[2026-06-18T00:04:00Z] ci-unblock: complete — Renamed the later vendor Stripe migration from 20260617000000 to 20260617000001 to resolve the duplicate Supabase migration version introduced after PR #85.
+[2026-06-18T00:05:00Z] ci-unblock-validation: partial — Duplicate migration-version scan is clean; local supabase db reset could not run because Docker daemon is not available in this desktop session.
+[2026-06-18T00:05:00Z] ci-unblock-validation: complete — npm test -- __tests__/security/tied-house-strict.test.ts --runInBand passed; npm run security:tied-house passed.
