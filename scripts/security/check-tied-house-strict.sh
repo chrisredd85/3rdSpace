@@ -53,6 +53,9 @@ should_skip_file() {
 add_file_if_scannable() {
   local file="$1"
   [ -f "$file" ] || return 0
+  if [ "$file" = "$OUTPUT_FILE" ]; then
+    return 0
+  fi
   if should_skip_file "$file"; then
     return 0
   fi

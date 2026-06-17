@@ -24,3 +24,4 @@
 [2026-06-18T00:05:00Z] ci-unblock-validation: complete — npm test -- __tests__/security/tied-house-strict.test.ts --runInBand passed; npm run security:tied-house passed.
 [2026-06-18T00:13:00Z] ci-unblock: complete — Strict tied-house script now falls back to grep when ripgrep is unavailable in GitHub Actions test runners.
 [2026-06-18T00:14:00Z] ci-unblock-validation: complete — Simulated no-ripgrep PATH passed/fail-scanned correctly; focused strict tests passed; loose tied-house passed; strict tied-house still expected-fails on current inventory.
+[2026-06-18T00:20:00Z] ci-unblock: complete — Excluded the strict scan output file from scan candidates so CI fallback tests are deterministic when the fixture writes violations.txt inside the scanned temp directory.
