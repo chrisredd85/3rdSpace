@@ -64,17 +64,29 @@ export async function POST(request: NextRequest) {
           action: 'capture_reconciled',
           plan_id: intent.plan_id,
           payment_intent_id: intent.id,
+          amount_cents: String(amountCents),
         },
         extra: {
-          amount_cents: amountCents,
           platform_fee_cents: platformFeeCents,
           payout_amount_cents: payoutAmountCents,
         },
       })
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown reconciliation error'
+      Sentry.captureException(error, {
+        tags: {
+          action: 'capture_reconcile_failed',
+          plan_id: intent.plan_id,
+          payment_intent_id: intent.id,
+          amount_cents: String(intent.amount_cents ?? 'unknown'),
+        },
+        extra: {
+          error: message,
+        },
+      })
       errors.push({
         payment_intent_id: intent.id,
-        error: error instanceof Error ? error.message : 'Unknown reconciliation error',
+        error: message,
       })
     }
   }

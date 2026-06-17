@@ -13,6 +13,7 @@ jest.mock('@/lib/supabase/server', () => ({
 }))
 
 jest.mock('@sentry/nextjs', () => ({
+  captureException: jest.fn(),
   captureMessage: jest.fn(),
 }))
 
@@ -32,6 +33,7 @@ jest.mock('next/server', () => ({
 
 const mockGetWorkerOrAdminContext = getWorkerOrAdminContext as jest.Mock
 const mockCreateServiceRoleClient = createServiceRoleClient as jest.Mock
+const mockCaptureException = Sentry.captureException as jest.Mock
 const mockCaptureMessage = Sentry.captureMessage as jest.Mock
 
 type Row = Record<string, unknown>
@@ -108,6 +110,10 @@ class MemoryQuery {
 
   private async execute() {
     if (this.operation === 'insert' && this.payload) {
+      if (this.payload.force_error) {
+        return { data: null, error: { message: String(this.payload.force_error) } }
+      }
+
       const row = {
         id: this.payload.id ?? this.db.nextId(this.table),
         created_at: new Date().toISOString(),
@@ -227,12 +233,59 @@ describe('capture reconciler route', () => {
         action: 'capture_reconciled',
         plan_id: 'plan-1',
         payment_intent_id: 'payment-intent-1',
+        amount_cents: '25000',
       }),
       extra: expect.objectContaining({
-        amount_cents: 25_000,
         platform_fee_cents: 1_000,
         payout_amount_cents: 24_000,
       }),
+    }))
+  })
+
+  it('logs Sentry exceptions for payout insert errors and keeps reconciling response safe', async () => {
+    mockGetWorkerOrAdminContext.mockResolvedValue({
+      authorized: true,
+      user: { id: 'admin-1', email: 'admin@example.com' },
+    })
+    const db = new MemoryDb()
+    db.rows.payment_intents.push({
+      id: 'payment-intent-error',
+      plan_id: 'plan-error',
+      partner_kind: 'venue',
+      partner_id: 'venue-error',
+      amount_cents: 10_000,
+      platform_fee_cents: 0,
+      currency: 'usd',
+      status: 'captured',
+      captured_at: new Date().toISOString(),
+    })
+    const originalFrom = db.from.bind(db)
+    jest.spyOn(db, 'from').mockImplementation((table: string) => {
+      const query = originalFrom(table)
+      if (table === 'payouts') {
+        const originalInsert = query.insert.bind(query)
+        query.insert = (payload: Row) => originalInsert({ ...payload, force_error: 'payout insert failed' })
+      }
+      return query
+    })
+    mockCreateServiceRoleClient.mockReturnValue(db)
+
+    const response = await GET(request())
+    const body = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual({
+      reconciled: 0,
+      errors: [{ payment_intent_id: 'payment-intent-error', error: 'payout insert failed' }],
+    })
+    expect(mockCaptureException).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({
+      tags: expect.objectContaining({
+        action: 'capture_reconcile_failed',
+        plan_id: 'plan-error',
+        payment_intent_id: 'payment-intent-error',
+        amount_cents: '10000',
+      }),
+      extra: { error: 'payout insert failed' },
     }))
   })
 })

@@ -1,10 +1,13 @@
 jest.mock('server-only', () => ({}))
 
+const mockStripePaymentIntentsCapture = jest.fn()
+const mockStripePaymentIntentsCreate = jest.fn()
+
 jest.mock('@/lib/stripe/connect', () => ({
   getStripeClient: jest.fn(() => ({
     paymentIntents: {
-      capture: jest.fn(),
-      create: jest.fn(),
+      capture: mockStripePaymentIntentsCapture,
+      create: mockStripePaymentIntentsCreate,
     },
   })),
 }))
@@ -154,6 +157,12 @@ class MemoryQuery {
 describe('planner deposit payments', () => {
   beforeEach(() => {
     delete process.env.STRIPE_SECRET_KEY
+    mockStripePaymentIntentsCapture.mockReset()
+    mockStripePaymentIntentsCreate.mockReset()
+    mockStripePaymentIntentsCreate.mockResolvedValue({
+      id: 'pi_planner_deposit_test',
+      status: 'requires_capture',
+    })
   })
 
   it('requires explicit approval before authorization', async () => {
@@ -268,6 +277,43 @@ describe('planner deposit payments', () => {
       partnerKind: 'venue',
       partnerId: 'venue-1',
       amountCents: 12_500,
-    })).rejects.toThrow(/different amount/)
+    })).rejects.toThrow(
+      'Concurrent deposit authorization attempted with different amount (existing: $100.00, requested: $125.00). Refresh and try again.'
+    )
+  })
+
+  it('uses the same Stripe idempotency key for same-approval concurrent authorizations', async () => {
+    const db = memoryDb()
+
+    const [first, second] = await Promise.all([
+      authorizePlannerDeposit({
+        db,
+        plan,
+        approval,
+        userId: 'user-1',
+        partnerKind: 'venue',
+        partnerId: 'venue-1',
+        amountCents: 12_500,
+        paymentMethodId: 'pm_test_same_amount',
+      }),
+      authorizePlannerDeposit({
+        db,
+        plan,
+        approval,
+        userId: 'user-1',
+        partnerKind: 'venue',
+        partnerId: 'venue-1',
+        amountCents: 12_500,
+        paymentMethodId: 'pm_test_same_amount',
+      }),
+    ])
+
+    expect(db.rows.payment_intents).toHaveLength(1)
+    expect(first).toEqual(second)
+    expect(mockStripePaymentIntentsCreate).toHaveBeenCalledTimes(2)
+    expect(mockStripePaymentIntentsCreate.mock.calls.map((call) => call[1])).toEqual([
+      { idempotencyKey: `planner_deposit_${approval.id}_12500` },
+      { idempotencyKey: `planner_deposit_${approval.id}_12500` },
+    ])
   })
 })

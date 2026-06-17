@@ -235,11 +235,15 @@ function returnExistingActivePaymentIntentOrThrow(
     wasCreatedWithinLastSeconds(existing.created_at, 60)
   ) {
     throw new Error(
-      `Active planner deposit for approval ${existing.approval_id} was just created with a different amount. Refresh before authorizing again.`
+      `Concurrent deposit authorization attempted with different amount (existing: $${formatCentsForError(existing.amount_cents)}, requested: $${formatCentsForError(requestedAmountCents)}). Refresh and try again.`
     )
   }
 
   return existing
+}
+
+function formatCentsForError(cents: number) {
+  return (cents / 100).toFixed(2)
 }
 
 function wasCreatedWithinLastSeconds(value: string, seconds: number) {
@@ -250,7 +254,11 @@ function wasCreatedWithinLastSeconds(value: string, seconds: number) {
 
 function isUniqueViolation(error: unknown) {
   if (!error || typeof error !== 'object') return false
-  return (error as { code?: string }).code === '23505'
+  const maybeError = error as { code?: string; message?: string; details?: string }
+  return (
+    maybeError.code === '23505' ||
+    /duplicate key|unique constraint/i.test([maybeError.message, maybeError.details].filter(Boolean).join(' '))
+  )
 }
 
 async function maybeCreateStripeManualPaymentIntent(input: {

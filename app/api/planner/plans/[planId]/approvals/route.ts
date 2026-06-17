@@ -520,10 +520,10 @@ async function rollbackApprovalAfterAccessFailure(
         action: 'approval_rollback_failed',
         plan_id: input.planId,
         approval_id: input.approval.id,
-      },
-      extra: {
         original_status: input.originalStatus,
         attempted_status: input.approval.status,
+      },
+      extra: {
         error: error?.message ?? 'Approval row no longer matched rollback predicate',
       },
     })

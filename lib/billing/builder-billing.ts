@@ -730,7 +730,11 @@ async function insertBuilderEventAccessConsumption(
 
 function isUniqueViolation(error: unknown) {
   if (!error || typeof error !== 'object') return false
-  return (error as { code?: string }).code === '23505'
+  const maybeError = error as { code?: string; message?: string; details?: string }
+  return (
+    maybeError.code === '23505' ||
+    /duplicate key|unique constraint/i.test([maybeError.message, maybeError.details].filter(Boolean).join(' '))
+  )
 }
 
 export async function applyCheckoutSessionCompleted(admin: any, session: Stripe.Checkout.Session) {
