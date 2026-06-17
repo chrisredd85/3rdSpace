@@ -15,3 +15,4 @@
 [2026-06-17T05:56:15Z] security:rls: blocked-local-env — npm run security:rls could not inspect local Postgres on 127.0.0.1:54322 because the server closed the connection.
 [2026-06-17T05:58:20Z] approval-test-rerun: pass — P0 approval concurrency suite still passed after aligning rollback Sentry tags with the prompt.
 [2026-06-17T05:59:05Z] final-rerun: pass — npm run type-check -- --pretty false and focused deposit/reconciler/billing suites passed after final edits.
+[2026-06-17T06:04:10Z] vercel-cron: adjusted-for-plan — Vercel rejected the 15-minute cron with a usage/pricing link; registered the reconciler as daily on Hobby-compatible cadence pending Pro/external scheduler for 15-minute execution.

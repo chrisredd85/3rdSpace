@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/admin/reconcile/captured-deposits",
-      "schedule": "*/15 * * * *"
+      "schedule": "15 14 * * *"
     }
   ]
 }

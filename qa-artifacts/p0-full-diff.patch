@@ -1707,10 +1707,10 @@ index 9ac68a4..c80e626 100644
            builder_id: string | null
 diff --git a/qa-artifacts/p0-overnight-status.md b/qa-artifacts/p0-overnight-status.md
 new file mode 100644
-index 0000000..1ffa1e4
+index 0000000..560302f
 --- /dev/null
 +++ b/qa-artifacts/p0-overnight-status.md
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,18 @@
 +[2026-06-17T05:48:31Z] preflight: complete — AGENTS.md and updated overnight P0 prompt reviewed; existing draft PR #85 found on codex/p0-concurrency-hardening.
 +[2026-06-17T05:48:31Z] baseline: documented — P0 implementation already existed in commit f04fbfb; prior PR checks had RLS and unit test jobs green, with Vercel failing on that commit.
 +[2026-06-17T05:48:31Z] checkpoint-1: complete — approval PATCH race fix already present with optimistic status lock, stale 409 branch, post-update billing access, and best-effort rollback.
@@ -1728,6 +1728,7 @@ index 0000000..1ffa1e4
 +[2026-06-17T05:56:15Z] security:rls: blocked-local-env — npm run security:rls could not inspect local Postgres on 127.0.0.1:54322 because the server closed the connection.
 +[2026-06-17T05:58:20Z] approval-test-rerun: pass — P0 approval concurrency suite still passed after aligning rollback Sentry tags with the prompt.
 +[2026-06-17T05:59:05Z] final-rerun: pass — npm run type-check -- --pretty false and focused deposit/reconciler/billing suites passed after final edits.
++[2026-06-17T06:04:10Z] vercel-cron: adjusted-for-plan — Vercel rejected the 15-minute cron with a usage/pricing link; registered the reconciler as daily on Hobby-compatible cadence pending Pro/external scheduler for 15-minute execution.
 diff --git a/supabase/migrations/20260617000000_add_p0_concurrency_guards.sql b/supabase/migrations/20260617000000_add_p0_concurrency_guards.sql
 new file mode 100644
 index 0000000..99d83a7
@@ -1803,7 +1804,7 @@ index 0000000..99d83a7
 +GRANT SELECT ON public.builder_event_access_consumptions TO authenticated;
 +GRANT ALL ON public.builder_event_access_consumptions TO service_role;
 diff --git a/vercel.json b/vercel.json
-index cc19f8f..d51f693 100644
+index cc19f8f..4f9680d 100644
 --- a/vercel.json
 +++ b/vercel.json
 @@ -3,6 +3,10 @@
@@ -1813,7 +1814,7 @@ index cc19f8f..d51f693 100644
 +    },
 +    {
 +      "path": "/api/admin/reconcile/captured-deposits",
-+      "schedule": "*/15 * * * *"
++      "schedule": "15 14 * * *"
      }
    ]
  }
