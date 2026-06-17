@@ -22,3 +22,5 @@
 [2026-06-18T00:04:00Z] ci-unblock: complete — Renamed the later vendor Stripe migration from 20260617000000 to 20260617000001 to resolve the duplicate Supabase migration version introduced after PR #85.
 [2026-06-18T00:05:00Z] ci-unblock-validation: partial — Duplicate migration-version scan is clean; local supabase db reset could not run because Docker daemon is not available in this desktop session.
 [2026-06-18T00:05:00Z] ci-unblock-validation: complete — npm test -- __tests__/security/tied-house-strict.test.ts --runInBand passed; npm run security:tied-house passed.
+[2026-06-18T00:13:00Z] ci-unblock: complete — Strict tied-house script now falls back to grep when ripgrep is unavailable in GitHub Actions test runners.
+[2026-06-18T00:14:00Z] ci-unblock-validation: complete — Simulated no-ripgrep PATH passed/fail-scanned correctly; focused strict tests passed; loose tied-house passed; strict tied-house still expected-fails on current inventory.

@@ -5,11 +5,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUTPUT_FILE="${TIED_HOUSE_STRICT_OUTPUT:-$ROOT_DIR/qa-artifacts/tied-house-violations.txt}"
 MIGRATION_CUTOFF="20260601000000"
 
-if ! command -v rg >/dev/null 2>&1; then
-  echo "ripgrep is required for tied-house compliance checks." >&2
-  exit 1
-fi
-
 PATTERN='kickback|kick_back|kick-back|rev_share|revShare|RevShare|revenue_share|revenueShare|bar_split|barSplit|bar_kickback|headcount_kickback|per_head_kickback'
 DEFAULT_TARGETS=(
   "app"
@@ -87,7 +82,13 @@ fi
 
 cd "$ROOT_DIR"
 
-if rg -n -i --no-heading "$PATTERN" "${FILES[@]}" > "$OUTPUT_FILE"; then
+if command -v rg >/dev/null 2>&1; then
+  scan_command=(rg -n -i --no-heading "$PATTERN")
+else
+  scan_command=(grep -E -n -i -H -- "$PATTERN")
+fi
+
+if "${scan_command[@]}" "${FILES[@]}" > "$OUTPUT_FILE"; then
   echo "Strict tied-house compliance check failed. Forbidden nomenclature found:" >&2
   cat "$OUTPUT_FILE" >&2
   exit 1
