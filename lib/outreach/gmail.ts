@@ -51,6 +51,15 @@ type GmailThreadResponse = {
   messages?: GmailMessage[]
 }
 
+type GmailThreadListResponse = {
+  threads?: Array<{
+    id?: string
+    snippet?: string
+    historyId?: string
+  }>
+  nextPageToken?: string
+}
+
 export type ParsedGmailMessage = {
   gmailMessageId: string
   gmailThreadId: string
@@ -60,6 +69,12 @@ export type ParsedGmailMessage = {
   headers: Record<string, string>
   receivedAt: string
   from: string | null
+}
+
+export type GmailRecentThread = {
+  gmailThreadId: string
+  snippet: string
+  historyId: string | null
 }
 
 export const GMAIL_SCOPES = [
@@ -218,6 +233,33 @@ export async function sendGmailMessage(input: {
   }
 }
 
+export async function listGmailRecentThreads(input: {
+  accessToken: string
+  maxResults: number
+}) {
+  const maxResults = Math.max(1, Math.min(Math.floor(input.maxResults), 25))
+  const params = new URLSearchParams({
+    maxResults: String(maxResults),
+  })
+  const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads?${params.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${input.accessToken}`,
+    },
+    cache: 'no-store',
+  })
+
+  const payload = await readJson<GmailThreadListResponse>(response)
+  if (!response.ok) throw new Error(readGoogleError(payload, 'Failed to list Gmail threads'))
+
+  return (payload.threads ?? [])
+    .filter((thread): thread is { id: string; snippet?: string; historyId?: string } => Boolean(thread.id))
+    .map((thread): GmailRecentThread => ({
+      gmailThreadId: thread.id,
+      snippet: thread.snippet ?? '',
+      historyId: thread.historyId ?? null,
+    }))
+}
+
 export async function listGmailThreadMessages(input: {
   accessToken: string
   gmailThreadId: string
@@ -240,7 +282,7 @@ export async function listGmailThreadMessages(input: {
     .filter((message): message is ParsedGmailMessage => Boolean(message))
 }
 
-export async function modifyGmailThreadLabels(input: {
+export async function modifyGmailThread(input: {
   accessToken: string
   gmailThreadId: string
   addLabelIds?: string[]
@@ -265,6 +307,15 @@ export async function modifyGmailThreadLabels(input: {
   if (!response.ok) throw new Error(readGoogleError(payload, 'Failed to update Gmail thread labels'))
 
   return payload
+}
+
+export async function modifyGmailThreadLabels(input: {
+  accessToken: string
+  gmailThreadId: string
+  addLabelIds?: string[]
+  removeLabelIds?: string[]
+}) {
+  return modifyGmailThread(input)
 }
 
 export function parseGmailOAuthState(value: string) {

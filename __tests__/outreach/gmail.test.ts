@@ -2,7 +2,9 @@ import {
   buildGmailOAuthUrl,
   encryptGmailTokenSet,
   getUsableGmailAccessToken,
+  listGmailRecentThreads,
   listGmailThreadMessages,
+  modifyGmailThread,
   modifyGmailThreadLabels,
   parseGmailOAuthState,
   sendGmailMessage,
@@ -184,6 +186,74 @@ describe('Gmail outreach helpers', () => {
         bodyText: 'Yes, we can host that date.',
       }),
     ])
+  })
+
+  it('lists recent Gmail threads for verification and reply tracking', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      threads: [
+        {
+          id: 'gmail-thread-id',
+          snippet: 'Latest venue reply',
+          historyId: 'history-1',
+        },
+        {
+          id: 'gmail-thread-id-2',
+        },
+      ],
+    }), { status: 200 })) as jest.Mock
+
+    const threads = await listGmailRecentThreads({
+      accessToken: 'access-token',
+      maxResults: 10,
+    })
+
+    expect(threads).toEqual([
+      {
+        gmailThreadId: 'gmail-thread-id',
+        snippet: 'Latest venue reply',
+        historyId: 'history-1',
+      },
+      {
+        gmailThreadId: 'gmail-thread-id-2',
+        snippet: '',
+        historyId: null,
+      },
+    ])
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://gmail.googleapis.com/gmail/v1/users/me/threads?maxResults=10',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer access-token' }),
+        cache: 'no-store',
+      })
+    )
+  })
+
+  it('modifies a Gmail thread with the canonical helper', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: 'gmail-thread-id',
+      labelIds: ['UNREAD'],
+    }), { status: 200 })) as jest.Mock
+
+    await expect(modifyGmailThread({
+      accessToken: 'access-token',
+      gmailThreadId: 'gmail-thread-id',
+      addLabelIds: ['UNREAD'],
+    })).resolves.toEqual(expect.objectContaining({
+      id: 'gmail-thread-id',
+    }))
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://gmail.googleapis.com/gmail/v1/users/me/threads/gmail-thread-id/modify',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer access-token' }),
+      })
+    )
+    const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
+    expect(body).toEqual({
+      addLabelIds: ['UNREAD'],
+      removeLabelIds: [],
+    })
   })
 
   it('modifies a Gmail thread for handled/read state', async () => {
