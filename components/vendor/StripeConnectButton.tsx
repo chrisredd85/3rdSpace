@@ -24,9 +24,9 @@ export function StripeConnectButton({
       {isLoading ? (
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
       ) : (
-        <CreditCard className="mr-2 h-4 w-4" />
+      <CreditCard className="mr-2 h-4 w-4" />
       )}
-      {isConnected ? 'Continue Stripe setup' : 'Connect Stripe'}
+      {isConnected ? 'Continue Stripe onboarding' : 'Connect Stripe'}
     </Button>
   )
 }

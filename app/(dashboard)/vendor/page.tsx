@@ -11,6 +11,7 @@ import { useToast } from '@/components/ui/toast'
 interface VendorStats {
   vendorId?: string
   isPublished?: boolean
+  stripeSkippedAt?: string | null
   newRequests: number
   confirmedGigs: number
   revenueMtd: number
@@ -62,8 +63,14 @@ export default function VendorDashboard() {
   const [stats, setStats] = useState<VendorStats | null>(null)
   const [pendingRequests, setPendingRequests] = useState<any[]>([])
   const [hasStripeAccount, setHasStripeAccount] = useState<boolean | null>(null)
+  const [stripeChargesEnabled, setStripeChargesEnabled] = useState<boolean | null>(null)
   const [isStripeBannerDismissed, setIsStripeBannerDismissed] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    setIsStripeBannerDismissed(window.sessionStorage.getItem('vendor_stripe_skip_banner_dismissed') === '1')
+  }, [])
 
   useEffect(() => {
     if (!user) return
@@ -75,7 +82,10 @@ export default function VendorDashboard() {
       .then(([statsData, bookingsData, stripeData]) => {
         if (statsData) setStats(statsData)
         if (bookingsData) setPendingRequests(bookingsData.bookings || [])
-        if (stripeData) setHasStripeAccount(Boolean(stripeData.account?.stripe_account_id))
+        if (stripeData) {
+          setHasStripeAccount(Boolean(stripeData.account?.stripe_account_id))
+          setStripeChargesEnabled(Boolean(stripeData.charges_enabled))
+        }
       })
       .catch(console.error)
       .finally(() => setIsLoading(false))
@@ -106,6 +116,17 @@ export default function VendorDashboard() {
     }
   }
 
+  const dismissStripeBanner = () => {
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem('vendor_stripe_skip_banner_dismissed', '1')
+    }
+    setIsStripeBannerDismissed(true)
+  }
+
+  const shouldShowStripeSkippedBanner = Boolean(
+    stats?.stripeSkippedAt && stripeChargesEnabled !== true && !isStripeBannerDismissed
+  )
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -124,7 +145,31 @@ export default function VendorDashboard() {
         <h1 className="mt-1 font-display text-4xl font-bold">Your Vendor Dashboard</h1>
       </div>
 
-      {!isStripeBannerDismissed && hasStripeAccount === false ? (
+      {shouldShowStripeSkippedBanner ? (
+        <div className="rounded-lg border border-clay/30 bg-clay/10 p-5 shadow-card">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-clay/15 text-clay">
+                <AlertCircle className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="font-display text-lg font-bold">Connect Stripe to start receiving payouts</p>
+                <p className="mt-1 text-sm text-ink-soft">
+                  Booking requests still come through, but payouts are paused until you connect.
+                </p>
+              </div>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button variant="hero" size="sm" asChild>
+                <Link href="/vendor/payouts">Set up payouts</Link>
+              </Button>
+              <Button variant="ghost" size="sm" onClick={dismissStripeBanner}>
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : !isStripeBannerDismissed && hasStripeAccount === false ? (
         <div className="rounded-lg border border-clay/30 bg-clay/10 p-5 shadow-card">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex gap-3">

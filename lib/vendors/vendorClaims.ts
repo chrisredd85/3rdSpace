@@ -19,6 +19,12 @@ export interface VendorClaimDetails {
     rate_type: 'flat' | 'per_person' | 'hourly'
     status: string
   } | null
+  stripe_account: {
+    stripe_account_id: string | null
+    account_status: string | null
+    charges_enabled: boolean
+    payouts_enabled: boolean
+  } | null
 }
 
 export interface ClaimInvitedVendorInput {
@@ -93,6 +99,11 @@ export async function getVendorClaimDetails(token: string): Promise<{ ok: true; 
     .limit(1)
 
   const rate = Array.isArray(rateRows) ? rateRows[0] : null
+  const { data: stripeAccount } = await admin
+    .from('vendor_stripe_accounts')
+    .select('stripe_account_id, account_status, charges_enabled, payouts_enabled')
+    .eq('vendor_id', vendor.id)
+    .maybeSingle()
 
   return {
     ok: true,
@@ -113,8 +124,41 @@ export async function getVendorClaimDetails(token: string): Promise<{ ok: true; 
             status: rate.status,
           }
         : null,
+      stripe_account: stripeAccount
+        ? {
+            stripe_account_id: stripeAccount.stripe_account_id ?? null,
+            account_status: stripeAccount.account_status ?? null,
+            charges_enabled: Boolean(stripeAccount.charges_enabled),
+            payouts_enabled: Boolean(stripeAccount.payouts_enabled),
+          }
+        : null,
     },
   }
+}
+
+export async function markVendorStripeSkippedForAuthenticatedUser(
+  userId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const admin = createServiceRoleClient() as any
+  const { data: vendor, error: vendorError } = await admin
+    .from('vendor_profiles')
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (vendorError) return { ok: false, error: 'Could not load vendor profile.' }
+  if (!vendor?.id) return { ok: false, error: 'Vendor profile not found.' }
+
+  const { error } = await admin
+    .from('vendor_profiles')
+    .update({
+      stripe_skipped_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', vendor.id)
+
+  if (error) return { ok: false, error: 'Could not save Stripe skip preference.' }
+  return { ok: true }
 }
 
 export async function claimInvitedVendor(input: ClaimInvitedVendorInput): Promise<{ ok: true; redirectTo: string } | { ok: false; error: string }> {

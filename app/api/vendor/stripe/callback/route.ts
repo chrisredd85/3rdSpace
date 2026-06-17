@@ -11,8 +11,9 @@ import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
 
 export const runtime = 'nodejs'
 
-function redirectToPayouts(request: NextRequest, status: string, message?: string) {
-  const url = new URL('/vendor/payouts', request.url)
+function redirectToVendorStripeDestination(request: NextRequest, status: string, message?: string) {
+  const returnTo = sanitizeInternalReturnTo(request.nextUrl.searchParams.get('returnTo'))
+  const url = new URL(returnTo ?? '/vendor/payouts', request.url)
   url.searchParams.set('stripe', status)
   if (message) url.searchParams.set('message', message)
   return NextResponse.redirect(url)
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
 
   if (searchParams.get('error')) {
-    return redirectToPayouts(request, 'error', searchParams.get('error_description') || 'Stripe onboarding was cancelled')
+    return redirectToVendorStripeDestination(request, 'error', searchParams.get('error_description') || 'Stripe onboarding was cancelled')
   }
 
   try {
@@ -33,7 +34,7 @@ export async function GET(request: NextRequest) {
     const auth = await getAuthenticatedVendor(supabase)
 
     if (auth.error || !auth.user || !auth.vendor) {
-      return redirectToPayouts(request, 'auth_required')
+      return redirectToVendorStripeDestination(request, 'auth_required')
     }
 
     const admin = createServiceRoleClient()
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
       })
       const account = await stripe.accounts.retrieve(token.stripe_user_id)
       await saveVendorStripeAccount(admin as any, auth.vendor.id, account)
-      return redirectToPayouts(request, 'connected')
+      return redirectToVendorStripeDestination(request, 'connected')
     }
 
     const { data: existing } = await (admin as any)
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
       .maybeSingle()
 
     if (!existing?.stripe_account_id) {
-      return redirectToPayouts(request, 'missing_account')
+      return redirectToVendorStripeDestination(request, 'missing_account')
     }
 
     const validation = await validateStripeConnectAccount({
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest) {
     })
 
     if (validation.mismatchCleared || !validation.account) {
-      return redirectToPayouts(
+      return redirectToVendorStripeDestination(
         request,
         'reconnect_required',
         'Reconnect Stripe to receive payouts.'
@@ -81,22 +82,31 @@ export async function GET(request: NextRequest) {
     await saveVendorStripeAccount(admin as any, auth.vendor.id, account)
 
     if (searchParams.get('refresh') === '1') {
+      const returnTo = sanitizeInternalReturnTo(searchParams.get('returnTo'))
+      const returnToSuffix = returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ''
       const accountLink = await stripe.accountLinks.create({
         account: account.id,
-        refresh_url: `${baseUrl}/api/vendor/stripe/callback?refresh=1`,
-        return_url: `${baseUrl}/api/vendor/stripe/callback`,
+        refresh_url: `${baseUrl}/api/vendor/stripe/callback?refresh=1${returnToSuffix}`,
+        return_url: `${baseUrl}/api/vendor/stripe/callback${returnToSuffix}`,
         type: 'account_onboarding',
       })
       return NextResponse.redirect(accountLink.url)
     }
 
-    return redirectToPayouts(request, 'connected')
+    return redirectToVendorStripeDestination(request, 'connected')
   } catch (error) {
     console.error('[vendor.stripe.callback] Failed to complete onboarding', error)
-    return redirectToPayouts(
+    return redirectToVendorStripeDestination(
       request,
       'error',
       error instanceof Error ? error.message : 'Unable to complete Stripe onboarding'
     )
   }
+}
+
+function sanitizeInternalReturnTo(value: string | null) {
+  if (!value) return null
+  if (!value.startsWith('/')) return null
+  if (value.startsWith('//')) return null
+  return value
 }

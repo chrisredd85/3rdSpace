@@ -2,9 +2,11 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle2, Lock, Mail, Package } from 'lucide-react'
+import { CheckCircle2, Lock, Mail, Package, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { StripeConnectButton } from '@/components/vendor/StripeConnectButton'
+import { StripeOnboardingModal } from '@/components/vendor/StripeOnboardingModal'
 
 interface VendorClaimFlowProps {
   token: string
@@ -21,12 +23,18 @@ interface VendorClaimFlowProps {
       rate_type: 'flat' | 'per_person' | 'hourly'
       status: string
     } | null
+    stripe_account: {
+      stripe_account_id: string | null
+      account_status: string | null
+      charges_enabled: boolean
+      payouts_enabled: boolean
+    } | null
   }
 }
 
 export function VendorClaimFlow({ token, details }: VendorClaimFlowProps) {
   const router = useRouter()
-  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   const [email, setEmail] = useState(details.email)
   const [password, setPassword] = useState('')
   const [rateDecision, setRateDecision] = useState<'accept' | 'counter'>('accept')
@@ -35,10 +43,16 @@ export function VendorClaimFlow({ token, details }: VendorClaimFlowProps) {
   const [publicRateType, setPublicRateType] = useState<'flat' | 'per_person' | 'hourly'>(
     details.proposed_rate?.rate_type || 'flat'
   )
+  const [claimComplete, setClaimComplete] = useState(false)
+  const [isStripeModalOpen, setIsStripeModalOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const [isStripePending, startStripeTransition] = useTransition()
 
   const proposedRate = details.proposed_rate
+  const stripeAccount = details.stripe_account
+  const hasStripeAccount = Boolean(stripeAccount?.stripe_account_id)
+  const stripeReady = Boolean(stripeAccount?.charges_enabled)
 
   function submitClaim() {
     setError(null)
@@ -62,7 +76,75 @@ export function VendorClaimFlow({ token, details }: VendorClaimFlowProps) {
         return
       }
 
-      router.push(payload.redirectTo || '/vendor')
+      const loginResponse = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password,
+          expectedUserType: 'vendor',
+        }),
+      })
+      const loginPayload = await loginResponse.json().catch(() => ({}))
+      if (!loginResponse.ok) {
+        setError(
+          loginPayload.error ||
+            'Your vendor profile was claimed, but we could not sign you in automatically. Sign in to connect Stripe.'
+        )
+        return
+      }
+
+      setClaimComplete(true)
+      if (stripeReady) {
+        router.push('/vendor?claim_complete=1&stripe=connected')
+        return
+      }
+      setStep(4)
+    })
+  }
+
+  function skipStripe() {
+    setError(null)
+    startStripeTransition(async () => {
+      const response = await fetch('/api/vendor/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'skip_stripe' }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        setError(payload.error || 'Could not save Stripe skip preference.')
+        return
+      }
+
+      router.push(payload.redirectTo || '/vendor?claim_complete=1&stripe_skipped=1')
+    })
+  }
+
+  function startStripeOnboarding() {
+    startStripeTransition(async () => {
+      const response = await fetch('/api/vendor/stripe/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          returnTo: '/vendor?claim_complete=1&stripe=connected',
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        setError(payload.error || 'Could not start Stripe onboarding.')
+        setIsStripeModalOpen(false)
+        return
+      }
+
+      const url = payload.accountLinkUrl || payload.url
+      if (!url) {
+        setError('Stripe did not return an onboarding link.')
+        setIsStripeModalOpen(false)
+        return
+      }
+
+      window.location.href = url
     })
   }
 
@@ -84,8 +166,8 @@ export function VendorClaimFlow({ token, details }: VendorClaimFlowProps) {
           </div>
         </div>
 
-        <div className="mt-6 grid gap-2 sm:grid-cols-3">
-          {[1, 2, 3].map((item) => (
+        <div className="mt-6 grid gap-2 sm:grid-cols-4">
+          {[1, 2, 3, 4].map((item) => (
             <div
               key={item}
               className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
@@ -202,8 +284,68 @@ export function VendorClaimFlow({ token, details }: VendorClaimFlowProps) {
             <StepFooter
               onBack={() => setStep(2)}
               onNext={submitClaim}
-              nextLabel={isPending ? 'Claiming...' : 'Claim vendor profile'}
+              nextLabel={isPending ? 'Claiming...' : 'Claim and continue'}
               nextDisabled={isPending}
+            />
+          </div>
+        ) : null}
+
+        {step === 4 ? (
+          <div className="mt-6 space-y-4">
+            <div className="rounded-lg border border-tan bg-cream/50 p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-clay/15 text-clay">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="font-semibold text-ink">Connect Stripe to receive payouts</p>
+                  <p className="mt-1 text-sm leading-6 text-ink-soft">
+                    3rdPlace uses Stripe Connect to pay you for completed bookings. Connect now to start receiving payouts the moment a booking settles. If you skip, you can connect from your vendor settings later — but you won&apos;t receive payouts until you do.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {stripeReady ? (
+              <div className="rounded-lg border border-forest/25 bg-forest/10 p-4 text-sm text-ink">
+                Stripe is already connected for this vendor profile. Sending you to your dashboard.
+              </div>
+            ) : null}
+
+            {hasStripeAccount && !stripeReady ? (
+              <div className="rounded-lg border border-tan bg-cream/50 p-4 text-sm text-ink-soft">
+                A Stripe account exists for this profile but onboarding is not complete yet. Continue onboarding to unlock payouts.
+              </div>
+            ) : null}
+
+            {error ? (
+              <div className="rounded-lg border border-brick/30 bg-brick/10 px-4 py-3 text-sm text-ink">
+                {error}
+              </div>
+            ) : null}
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-xs text-ink-soft">
+                Stripe will ask for your business or personal payout details. 3rdPlace never sees your bank info.
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={skipStripe} disabled={!claimComplete || isStripePending}>
+                  I&apos;ll connect later
+                </Button>
+                <StripeConnectButton
+                  isConnected={hasStripeAccount}
+                  isLoading={isStripePending}
+                  disabled={!claimComplete}
+                  onConnect={() => setIsStripeModalOpen(true)}
+                />
+              </div>
+            </div>
+
+            <StripeOnboardingModal
+              isOpen={isStripeModalOpen}
+              onClose={() => setIsStripeModalOpen(false)}
+              onStart={startStripeOnboarding}
+              isLoading={isStripePending}
             />
           </div>
         ) : null}

@@ -86,6 +86,7 @@ export interface Venue {
   is_claimed: boolean
   claimed_user_id: string | null
   is_admin_seeded: boolean
+  stripe_skipped_at?: string | null
   requires_deposit?: boolean | null
   deposit_amount_cents?: number | null
   deposit_amount?: number | null
