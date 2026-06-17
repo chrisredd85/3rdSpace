@@ -45,6 +45,9 @@ export async function applyStripeConnectAccountUpdated(
   const vendor = await loadStripeAccountRow(admin, 'vendor_stripe_accounts', 'vendor_id', account.id)
   if (vendor?.vendor_id) {
     await saveVendorStripeAccount(admin, vendor.vendor_id, account)
+    if (account.charges_enabled) {
+      await clearVendorStripeSkippedAt(admin, vendor.vendor_id)
+    }
     await recordStripeConnectAccountEvent(admin, account.id, 'account.updated', eventId)
     return { received: true }
   }
@@ -64,6 +67,21 @@ export async function applyStripeConnectAccountUpdated(
   }
 
   return { received: true, ignored: true, reason: 'unknown_account' }
+}
+
+async function clearVendorStripeSkippedAt(
+  admin: StripeAdminClient,
+  vendorId: string
+) {
+  const { error } = await admin
+    .from('vendor_profiles')
+    .update({
+      stripe_skipped_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', vendorId)
+
+  if (error) throw new Error(`Failed to clear vendor Stripe skip state: ${error.message}`)
 }
 
 export async function restrictDeauthorizedStripeConnectAccount(

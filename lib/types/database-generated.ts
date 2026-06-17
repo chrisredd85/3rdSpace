@@ -7503,6 +7503,7 @@ export type Database = {
           setup_time_minutes: number | null
           slug: string | null
           stripe_account_id: string | null
+          stripe_skipped_at: string | null
           total_bookings: number | null
           total_earnings: number | null
           total_gigs: number | null
@@ -7562,6 +7563,7 @@ export type Database = {
           setup_time_minutes?: number | null
           slug?: string | null
           stripe_account_id?: string | null
+          stripe_skipped_at?: string | null
           total_bookings?: number | null
           total_earnings?: number | null
           total_gigs?: number | null
@@ -7621,6 +7623,7 @@ export type Database = {
           setup_time_minutes?: number | null
           slug?: string | null
           stripe_account_id?: string | null
+          stripe_skipped_at?: string | null
           total_bookings?: number | null
           total_earnings?: number | null
           total_gigs?: number | null

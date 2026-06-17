@@ -240,13 +240,18 @@ export async function saveVendorStripeAccount(
     throw new Error(`Failed to save Stripe account: ${error.message}`)
   }
 
+  const vendorProfileUpdate: Record<string, unknown> = {
+    stripe_account_id: account.id,
+    payout_enabled: Boolean(account.payouts_enabled),
+    updated_at: new Date().toISOString(),
+  }
+  if (account.charges_enabled) {
+    vendorProfileUpdate.stripe_skipped_at = null
+  }
+
   const { error: mirrorError } = await supabase
     .from('vendor_profiles')
-    .update({
-      stripe_account_id: account.id,
-      payout_enabled: Boolean(account.payouts_enabled),
-      updated_at: new Date().toISOString(),
-    })
+    .update(vendorProfileUpdate)
     .eq('id', vendorId)
 
   if (mirrorError) {

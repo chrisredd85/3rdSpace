@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { claimInvitedVendor, getVendorClaimDetails } from '@/lib/vendors/vendorClaims'
+import { createClient } from '@/lib/supabase/server'
+import {
+  claimInvitedVendor,
+  getVendorClaimDetails,
+  markVendorStripeSkippedForAuthenticatedUser,
+} from '@/lib/vendors/vendorClaims'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,6 +25,29 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
+    if (body.action === 'skip_stripe') {
+      const supabase = createClient()
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser()
+
+      if (error || !user) {
+        return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+      }
+
+      if (user.user_metadata?.user_type !== 'vendor') {
+        return NextResponse.json({ error: 'Vendor access required' }, { status: 403 })
+      }
+
+      const result = await markVendorStripeSkippedForAuthenticatedUser(user.id)
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: 400 })
+      }
+
+      return NextResponse.json({ success: true, redirectTo: '/vendor?claim_complete=1&stripe_skipped=1' })
+    }
+
     const rawPublicBaseRateAmount = body.publicBaseRateAmount
     const publicBaseRateAmount =
       rawPublicBaseRateAmount === null ||

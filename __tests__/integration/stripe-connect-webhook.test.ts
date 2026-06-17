@@ -66,6 +66,7 @@ type Row = Record<string, unknown>
 class MemoryDb {
   rows: Record<string, Row[]> = {
     vendor_stripe_accounts: [],
+    vendor_profiles: [],
     venue_stripe_accounts: [],
     builder_stripe_accounts: [
       {
@@ -244,6 +245,46 @@ describe('Stripe platform and Connect webhook routes', () => {
     expect(getWebhookRateLimitKey).toHaveBeenCalledWith('stripe-connect', expect.any(Headers))
     expect(saveBuilderStripeAccount).toHaveBeenCalledWith(db, 'builder-user-1', 'builder-profile-1', account)
     expect(saveVendorStripeAccount).not.toHaveBeenCalled()
+    expect(saveVenueStripeAccount).not.toHaveBeenCalled()
+  })
+
+  it('clears vendor Stripe skipped state when account.updated enables charges', async () => {
+    db.rows.vendor_stripe_accounts.push({
+      vendor_id: 'vendor-1',
+      stripe_account_id: 'acct_vendor',
+    })
+    db.rows.vendor_profiles.push({
+      id: 'vendor-1',
+      stripe_skipped_at: '2026-06-16T12:00:00.000Z',
+    })
+    const account = {
+      id: 'acct_vendor',
+      charges_enabled: true,
+      payouts_enabled: true,
+      requirements: {
+        currently_due: [],
+        eventually_due: [],
+        past_due: [],
+        pending_verification: [],
+        disabled_reason: null,
+      },
+    }
+    event = {
+      id: 'evt_connect_vendor_account_updated',
+      type: 'account.updated',
+      livemode: false,
+      data: { object: account },
+    }
+
+    const response = await stripeConnectWebhookPost(makeWebhookRequest('/api/webhooks/stripe/connect'))
+
+    expect(response.status).toBe(200)
+    expect(saveVendorStripeAccount).toHaveBeenCalledWith(db, 'vendor-1', account)
+    expect(db.rows.vendor_profiles[0]).toEqual(expect.objectContaining({
+      stripe_skipped_at: null,
+      updated_at: expect.any(String),
+    }))
+    expect(saveBuilderStripeAccount).not.toHaveBeenCalled()
     expect(saveVenueStripeAccount).not.toHaveBeenCalled()
   })
 

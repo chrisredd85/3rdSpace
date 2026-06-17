@@ -30,6 +30,8 @@ export async function POST(request: NextRequest) {
     const admin = createServiceRoleClient()
     const stripe = getStripeClient()
     const baseUrl = getAppBaseUrl(request)
+    const { returnTo } = await readConnectRequestBody(request)
+    const callbackParams = buildCallbackParams(returnTo)
 
     const { data: existing } = await (admin as any)
       .from('vendor_stripe_accounts')
@@ -73,8 +75,8 @@ export async function POST(request: NextRequest) {
     const record = await saveVendorStripeAccount(admin as any, auth.vendor.id, account)
     const accountLink = await stripe.accountLinks.create({
       account: account.id,
-      refresh_url: `${baseUrl}/api/vendor/stripe/callback?refresh=1`,
-      return_url: `${baseUrl}/api/vendor/stripe/callback`,
+      refresh_url: `${baseUrl}/api/vendor/stripe/callback?refresh=1${callbackParams.refreshSuffix}`,
+      return_url: `${baseUrl}/api/vendor/stripe/callback${callbackParams.returnSuffix}`,
       type: 'account_onboarding',
     })
 
@@ -91,4 +93,30 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+async function readConnectRequestBody(request: NextRequest) {
+  try {
+    const body = await request.json()
+    return {
+      returnTo: typeof body?.returnTo === 'string' ? body.returnTo : null,
+    }
+  } catch {
+    return { returnTo: null }
+  }
+}
+
+function buildCallbackParams(returnTo: string | null) {
+  const safeReturnTo = sanitizeInternalReturnTo(returnTo)
+  return {
+    refreshSuffix: safeReturnTo ? `&returnTo=${encodeURIComponent(safeReturnTo)}` : '',
+    returnSuffix: safeReturnTo ? `?returnTo=${encodeURIComponent(safeReturnTo)}` : '',
+  }
+}
+
+function sanitizeInternalReturnTo(value: string | null) {
+  if (!value) return null
+  if (!value.startsWith('/')) return null
+  if (value.startsWith('//')) return null
+  return value
 }
