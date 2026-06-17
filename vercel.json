@@ -3,6 +3,10 @@
     {
       "path": "/api/internal/cron/venue-overdue-check",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/admin/reconcile/captured-deposits",
+      "schedule": "15 14 * * *"
     }
   ]
 }

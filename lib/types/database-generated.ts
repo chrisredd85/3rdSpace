@@ -885,6 +885,54 @@ export type Database = {
           },
         ]
       }
+      builder_event_access_consumptions: {
+        Row: {
+          amount: number
+          amount_cents: number
+          builder_id: string
+          created_at: string
+          event_id: string
+          id: string
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          amount?: number
+          amount_cents?: number
+          builder_id: string
+          created_at?: string
+          event_id: string
+          id?: string
+          source: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          amount_cents?: number
+          builder_id?: string
+          created_at?: string
+          event_id?: string
+          id?: string
+          source?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "builder_event_access_consumptions_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "builder_event_access_consumptions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       builder_payment_methods: {
         Row: {
           builder_id: string | null

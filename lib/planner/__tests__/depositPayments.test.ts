@@ -1,10 +1,13 @@
 jest.mock('server-only', () => ({}))
 
+const mockStripePaymentIntentsCapture = jest.fn()
+const mockStripePaymentIntentsCreate = jest.fn()
+
 jest.mock('@/lib/stripe/connect', () => ({
   getStripeClient: jest.fn(() => ({
     paymentIntents: {
-      capture: jest.fn(),
-      create: jest.fn(),
+      capture: mockStripePaymentIntentsCapture,
+      create: mockStripePaymentIntentsCreate,
     },
   })),
 }))
@@ -92,6 +95,7 @@ class MemoryQuery {
 
   async single() {
     const result = await this.execute()
+    if (result.error) return result
     const row = Array.isArray(result.data) ? result.data[0] : result.data
     return { data: row ?? null, error: row ? null : { message: 'No row' } }
   }
@@ -104,6 +108,19 @@ class MemoryQuery {
 
   private async execute() {
     if (this.operation === 'insert' && this.payload) {
+      if (this.table === 'payment_intents') {
+        const incoming = this.payload as Record<string, unknown>
+        const approvalId = incoming.approval_id
+        const activeStatuses = new Set(['requested', 'authorized', 'captured'])
+        const duplicate = this.rows.payment_intents.some((row) => (
+          row.approval_id === approvalId &&
+          activeStatuses.has(String(row.status))
+        ))
+        if (duplicate) {
+          return { data: null, error: { code: '23505', message: 'duplicate active payment intent' } }
+        }
+      }
+
       const row = {
         id: `${this.table}-${this.rows[this.table].length + 1}`,
         created_at: new Date().toISOString(),
@@ -140,6 +157,12 @@ class MemoryQuery {
 describe('planner deposit payments', () => {
   beforeEach(() => {
     delete process.env.STRIPE_SECRET_KEY
+    mockStripePaymentIntentsCapture.mockReset()
+    mockStripePaymentIntentsCreate.mockReset()
+    mockStripePaymentIntentsCreate.mockResolvedValue({
+      id: 'pi_planner_deposit_test',
+      status: 'requires_capture',
+    })
   })
 
   it('requires explicit approval before authorization', async () => {
@@ -191,5 +214,106 @@ describe('planner deposit payments', () => {
       approval,
       explicitUserConfirmation: false,
     })).rejects.toThrow(/Explicit user confirmation/)
+  })
+
+  it('returns the winning active intent when concurrent authorizations race the unique index', async () => {
+    const db = memoryDb()
+
+    const [first, second] = await Promise.all([
+      authorizePlannerDeposit({
+        db,
+        plan,
+        approval,
+        userId: 'user-1',
+        partnerKind: 'venue',
+        partnerId: 'venue-1',
+        amountCents: 12_500,
+      }),
+      authorizePlannerDeposit({
+        db,
+        plan,
+        approval,
+        userId: 'user-1',
+        partnerKind: 'venue',
+        partnerId: 'venue-1',
+        amountCents: 12_500,
+      }),
+    ])
+
+    expect(db.rows.payment_intents).toHaveLength(1)
+    expect(first).toEqual(second)
+    expect(first).toEqual(expect.objectContaining({
+      approval_id: approval.id,
+      amount_cents: 12_500,
+      status: 'requested',
+    }))
+  })
+
+  it('rejects a fresh active intent with a different amount during an authorization race', async () => {
+    const db = memoryDb()
+    db.rows.payment_intents.push({
+      id: 'payment-intents-1',
+      plan_id: plan.id,
+      approval_id: approval.id,
+      partner_kind: 'venue',
+      partner_id: 'venue-1',
+      amount_cents: 10_000,
+      currency: 'usd',
+      status: 'requested',
+      stripe_payment_intent_id: null,
+      authorized_at: null,
+      captured_at: null,
+      refund_terms: 'Refundable',
+      platform_fee_cents: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+
+    await expect(authorizePlannerDeposit({
+      db,
+      plan,
+      approval,
+      userId: 'user-1',
+      partnerKind: 'venue',
+      partnerId: 'venue-1',
+      amountCents: 12_500,
+    })).rejects.toThrow(
+      'Concurrent deposit authorization attempted with different amount (existing: $100.00, requested: $125.00). Refresh and try again.'
+    )
+  })
+
+  it('uses the same Stripe idempotency key for same-approval concurrent authorizations', async () => {
+    const db = memoryDb()
+
+    const [first, second] = await Promise.all([
+      authorizePlannerDeposit({
+        db,
+        plan,
+        approval,
+        userId: 'user-1',
+        partnerKind: 'venue',
+        partnerId: 'venue-1',
+        amountCents: 12_500,
+        paymentMethodId: 'pm_test_same_amount',
+      }),
+      authorizePlannerDeposit({
+        db,
+        plan,
+        approval,
+        userId: 'user-1',
+        partnerKind: 'venue',
+        partnerId: 'venue-1',
+        amountCents: 12_500,
+        paymentMethodId: 'pm_test_same_amount',
+      }),
+    ])
+
+    expect(db.rows.payment_intents).toHaveLength(1)
+    expect(first).toEqual(second)
+    expect(mockStripePaymentIntentsCreate).toHaveBeenCalledTimes(2)
+    expect(mockStripePaymentIntentsCreate.mock.calls.map((call) => call[1])).toEqual([
+      { idempotencyKey: `planner_deposit_${approval.id}_12500` },
+      { idempotencyKey: `planner_deposit_${approval.id}_12500` },
+    ])
   })
 })
