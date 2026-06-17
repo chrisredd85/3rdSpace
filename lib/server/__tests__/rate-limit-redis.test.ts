@@ -27,6 +27,9 @@ describe('Redis-backed rate limiting', () => {
     process.env = { ...ORIGINAL_ENV }
     delete process.env.UPSTASH_REDIS_REST_URL
     delete process.env.UPSTASH_REDIS_REST_TOKEN
+    delete process.env.KV_REST_API_URL
+    delete process.env.KV_REST_API_TOKEN
+    delete process.env.REDIS_URL
     delete process.env.VERCEL_ENV
   })
 
@@ -83,7 +86,7 @@ describe('Redis-backed rate limiting', () => {
     process.env.VERCEL_ENV = 'production'
     const { checkRateLimit } = await loadRateLimitModule()
 
-    await expect(checkRateLimit('prod-user')).rejects.toThrow(/Missing UPSTASH_REDIS_REST_URL/)
+    await expect(checkRateLimit('prod-user')).rejects.toThrow(/Missing Redis rate-limit credentials/)
   })
 
   it('uses an Upstash sliding-window limiter when Redis env vars are configured', async () => {
@@ -115,6 +118,85 @@ describe('Redis-backed rate limiting', () => {
       limit: 10,
       remaining: 9,
       resetAt: 1_234_000,
+    })
+  })
+
+  it('uses Vercel KV REST env vars when UPSTASH env vars are absent', async () => {
+    process.env.KV_REST_API_URL = 'https://kv.example.com'
+    process.env.KV_REST_API_TOKEN = 'kv-token'
+    mockLimit.mockResolvedValueOnce({
+      success: true,
+      limit: 10,
+      remaining: 9,
+      reset: 1_234_000,
+    })
+
+    const { checkRateLimit } = await loadRateLimitModule()
+    await checkRateLimit('kv-user', { limit: 10, windowMs: 60_000 })
+
+    expect(mockRedisConstructor).toHaveBeenCalledWith({
+      url: 'https://kv.example.com',
+      token: 'kv-token',
+    })
+  })
+
+  it('prefers UPSTASH env vars over Vercel KV REST env vars', async () => {
+    process.env.UPSTASH_REDIS_REST_URL = 'https://redis.example.com'
+    process.env.UPSTASH_REDIS_REST_TOKEN = 'test-token'
+    process.env.KV_REST_API_URL = 'https://kv.example.com'
+    process.env.KV_REST_API_TOKEN = 'kv-token'
+    mockLimit.mockResolvedValueOnce({
+      success: true,
+      limit: 10,
+      remaining: 9,
+      reset: 1_234_000,
+    })
+
+    const { checkRateLimit } = await loadRateLimitModule()
+    await checkRateLimit('precedence-user', { limit: 10, windowMs: 60_000 })
+
+    expect(mockRedisConstructor).toHaveBeenCalledWith({
+      url: 'https://redis.example.com',
+      token: 'test-token',
+    })
+  })
+
+  it('ignores quoted-empty UPSTASH values and falls back to Vercel KV REST env vars', async () => {
+    process.env.UPSTASH_REDIS_REST_URL = '""'
+    process.env.UPSTASH_REDIS_REST_TOKEN = '""'
+    process.env.KV_REST_API_URL = 'https://kv.example.com'
+    process.env.KV_REST_API_TOKEN = 'kv-token'
+    mockLimit.mockResolvedValueOnce({
+      success: true,
+      limit: 10,
+      remaining: 9,
+      reset: 1_234_000,
+    })
+
+    const { checkRateLimit } = await loadRateLimitModule()
+    await checkRateLimit('quoted-empty-user', { limit: 10, windowMs: 60_000 })
+
+    expect(mockRedisConstructor).toHaveBeenCalledWith({
+      url: 'https://kv.example.com',
+      token: 'kv-token',
+    })
+  })
+
+  it('derives REST credentials from REDIS_URL when REST-specific env vars are absent', async () => {
+    process.env.REDIS_URL = 'rediss://default:redis-token@redis-host.upstash.io:6379'
+    mockLimit.mockResolvedValueOnce({
+      success: true,
+      limit: 10,
+      remaining: 9,
+      reset: 1_234_000,
+    })
+
+    const { checkRateLimit } = await loadRateLimitModule()
+    await checkRateLimit('redis-url-user', { limit: 10, windowMs: 60_000 })
+
+    expect(mockRedisConstructor).toHaveBeenCalledWith({
+      url: 'https://redis-host.upstash.io',
+      token: 'redis-token',
     })
   })
 

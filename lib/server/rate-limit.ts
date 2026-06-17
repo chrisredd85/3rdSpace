@@ -29,6 +29,11 @@ interface RateLimitBucket {
   resetAt: number
 }
 
+type UpstashCredentials = {
+  url: string
+  token: string
+}
+
 const buckets = new Map<string, RateLimitBucket>()
 const redisLimiters = new Map<string, RedisLimiter>()
 
@@ -117,11 +122,14 @@ async function getRedisLimiter(limit: number, windowMs: number): Promise<RedisLi
 async function getRedis(): Promise<RedisClient> {
   if (redis) return redis
 
+  const credentials = resolveUpstashCredentials()
+  if (!credentials) {
+    assertUpstashConfiguredForProduction()
+    throw new Error('Redis rate limiting is not configured.')
+  }
+
   const { Redis } = await loadUpstashModules()
-  redis = new Redis({
-    url: process.env.UPSTASH_REDIS_REST_URL ?? '',
-    token: process.env.UPSTASH_REDIS_REST_TOKEN ?? '',
-  })
+  redis = new Redis(credentials)
   return redis
 }
 
@@ -139,7 +147,7 @@ async function loadUpstashModules(): Promise<{ Ratelimit: RatelimitClass; Redis:
 }
 
 function hasUpstashConfig(): boolean {
-  return Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN)
+  return Boolean(resolveUpstashCredentials())
 }
 
 function isVercelProduction(): boolean {
@@ -150,7 +158,7 @@ function assertUpstashConfiguredForProduction(): void {
   if (!isVercelProduction()) return
 
   throw new Error(
-    'Missing UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN in Vercel Production. Production rate limiting must use Redis.'
+    'Missing Redis rate-limit credentials in Vercel Production. Set UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN, KV_REST_API_URL/KV_REST_API_TOKEN, or REDIS_URL.'
   )
 }
 
@@ -158,7 +166,7 @@ function warnOnceMissingUpstash(): void {
   if (warnedMissingUpstash) return
   warnedMissingUpstash = true
   console.warn(
-    '[rate-limit] UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN is unset; using in-memory rate limiting for this non-production environment.'
+    '[rate-limit] Redis rate-limit credentials are unset; using in-memory rate limiting for this non-production environment.'
   )
 }
 
@@ -174,6 +182,69 @@ function toUpstashDuration(windowMs: number): Duration {
   if (windowMs % 60_000 === 0) return `${windowMs / 60_000} m`
   if (windowMs % 1_000 === 0) return `${windowMs / 1_000} s`
   return `${windowMs} ms`
+}
+
+function resolveUpstashCredentials(): UpstashCredentials | null {
+  const upstashCredentials = resolveCredentialPair(
+    process.env.UPSTASH_REDIS_REST_URL,
+    process.env.UPSTASH_REDIS_REST_TOKEN
+  )
+  if (upstashCredentials) return upstashCredentials
+
+  const kvCredentials = resolveCredentialPair(
+    process.env.KV_REST_API_URL,
+    process.env.KV_REST_API_TOKEN
+  )
+  if (kvCredentials) return kvCredentials
+
+  return resolveCredentialsFromRedisUrl(process.env.REDIS_URL)
+}
+
+function resolveCredentialPair(
+  rawUrl: string | undefined,
+  rawToken: string | undefined
+): UpstashCredentials | null {
+  const url = normalizeEnvValue(rawUrl)
+  const token = normalizeEnvValue(rawToken)
+  if (!url || !token) return null
+  return { url, token }
+}
+
+function resolveCredentialsFromRedisUrl(rawRedisUrl: string | undefined): UpstashCredentials | null {
+  const redisUrl = normalizeEnvValue(rawRedisUrl)
+  if (!redisUrl) return null
+
+  try {
+    const parsed = new URL(redisUrl)
+    if (!['redis:', 'rediss:'].includes(parsed.protocol)) return null
+
+    const token = parsed.password ? decodeURIComponent(parsed.password) : null
+    if (!parsed.hostname || !token) return null
+
+    return {
+      url: `https://${parsed.hostname}`,
+      token,
+    }
+  } catch {
+    return null
+  }
+}
+
+function normalizeEnvValue(value: string | undefined): string | null {
+  if (!value) return null
+
+  const trimmed = value.trim()
+  if (!trimmed || trimmed === '""' || trimmed === "''") return null
+
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    const unquoted = trimmed.slice(1, -1).trim()
+    return unquoted || null
+  }
+
+  return trimmed
 }
 
 /**

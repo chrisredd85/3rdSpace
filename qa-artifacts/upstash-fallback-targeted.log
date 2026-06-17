@@ -1,0 +1,23 @@
+
+> 3rdspace-webapp@0.1.0 test
+> jest lib/server/__tests__/rate-limit-redis.test.ts --runInBand
+
+(node:22904) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS lib/server/__tests__/rate-limit-redis.test.ts
+  Redis-backed rate limiting
+    ✓ falls back to in-memory limiting when Upstash env vars are missing outside production (7 ms)
+    ✓ resets the local fallback bucket after the configured window (2 ms)
+    ✓ requires Upstash env vars on Vercel production (5 ms)
+    ✓ uses an Upstash sliding-window limiter when Redis env vars are configured (2 ms)
+    ✓ uses Vercel KV REST env vars when UPSTASH env vars are absent (1 ms)
+    ✓ prefers UPSTASH env vars over Vercel KV REST env vars
+    ✓ ignores quoted-empty UPSTASH values and falls back to Vercel KV REST env vars (1 ms)
+    ✓ derives REST credentials from REDIS_URL when REST-specific env vars are absent (1 ms)
+    ✓ builds separate Redis sliding-window limiters for distinct windows
+
+Test Suites: 1 passed, 1 total
+Tests:       9 passed, 9 total
+Snapshots:   0 total
+Time:        0.496 s
+Ran all test suites matching /lib\/server\/__tests__\/rate-limit-redis.test.ts/i.
