@@ -193,7 +193,7 @@ export async function POST(
     const auth = await getAuthenticatedPlannerDb()
     if ('response' in auth) return auth.response
 
-    const rateLimit = checkRateLimit(`planner:messages:${auth.userId}`)
+    const rateLimit = await checkRateLimit(`planner:messages:${auth.userId}`)
     if (!rateLimit.allowed) {
       return NextResponse.json(
         { error: 'Too many planner messages. Try again shortly.' },
