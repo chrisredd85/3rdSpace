@@ -92,6 +92,7 @@ class MemoryQuery {
 
   async single() {
     const result = await this.execute()
+    if (result.error) return result
     const row = Array.isArray(result.data) ? result.data[0] : result.data
     return { data: row ?? null, error: row ? null : { message: 'No row' } }
   }
@@ -104,6 +105,19 @@ class MemoryQuery {
 
   private async execute() {
     if (this.operation === 'insert' && this.payload) {
+      if (this.table === 'payment_intents') {
+        const incoming = this.payload as Record<string, unknown>
+        const approvalId = incoming.approval_id
+        const activeStatuses = new Set(['requested', 'authorized', 'captured'])
+        const duplicate = this.rows.payment_intents.some((row) => (
+          row.approval_id === approvalId &&
+          activeStatuses.has(String(row.status))
+        ))
+        if (duplicate) {
+          return { data: null, error: { code: '23505', message: 'duplicate active payment intent' } }
+        }
+      }
+
       const row = {
         id: `${this.table}-${this.rows[this.table].length + 1}`,
         created_at: new Date().toISOString(),
@@ -191,5 +205,69 @@ describe('planner deposit payments', () => {
       approval,
       explicitUserConfirmation: false,
     })).rejects.toThrow(/Explicit user confirmation/)
+  })
+
+  it('returns the winning active intent when concurrent authorizations race the unique index', async () => {
+    const db = memoryDb()
+
+    const [first, second] = await Promise.all([
+      authorizePlannerDeposit({
+        db,
+        plan,
+        approval,
+        userId: 'user-1',
+        partnerKind: 'venue',
+        partnerId: 'venue-1',
+        amountCents: 12_500,
+      }),
+      authorizePlannerDeposit({
+        db,
+        plan,
+        approval,
+        userId: 'user-1',
+        partnerKind: 'venue',
+        partnerId: 'venue-1',
+        amountCents: 12_500,
+      }),
+    ])
+
+    expect(db.rows.payment_intents).toHaveLength(1)
+    expect(first).toEqual(second)
+    expect(first).toEqual(expect.objectContaining({
+      approval_id: approval.id,
+      amount_cents: 12_500,
+      status: 'requested',
+    }))
+  })
+
+  it('rejects a fresh active intent with a different amount during an authorization race', async () => {
+    const db = memoryDb()
+    db.rows.payment_intents.push({
+      id: 'payment-intents-1',
+      plan_id: plan.id,
+      approval_id: approval.id,
+      partner_kind: 'venue',
+      partner_id: 'venue-1',
+      amount_cents: 10_000,
+      currency: 'usd',
+      status: 'requested',
+      stripe_payment_intent_id: null,
+      authorized_at: null,
+      captured_at: null,
+      refund_terms: 'Refundable',
+      platform_fee_cents: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+
+    await expect(authorizePlannerDeposit({
+      db,
+      plan,
+      approval,
+      userId: 'user-1',
+      partnerKind: 'venue',
+      partnerId: 'venue-1',
+      amountCents: 12_500,
+    })).rejects.toThrow(/different amount/)
   })
 })

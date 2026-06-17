@@ -8,6 +8,7 @@
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
+import * as Sentry from '@sentry/nextjs'
 import { z } from 'zod'
 import {
   createVenueOpportunityBrief,
@@ -207,6 +208,10 @@ export async function PATCH(
       return NextResponse.json({ error: approvalTransition.reason }, { status: 409 })
     }
 
+    if (!approvalTransition.changed) {
+      return NextResponse.json({ approval: existingApproval })
+    }
+
     if (
       (parsed.data.action === 'authorize' || parsed.data.action === 'approve') &&
       await approvalRequiresFreshReview(auth.db, plan, existingApproval)
@@ -221,27 +226,46 @@ export async function PATCH(
       )
     }
 
-    if (parsed.data.action === 'authorize' || parsed.data.action === 'approve') {
-      const access = await ensurePlannerProductAccess(plan, auth.userId)
-      if ('response' in access) return access.response
-      plan = access.plan
-    }
-
     const updates = buildApprovalUpdates(approvalTransition.to, auth.userId, parsed.data.authorizedAmountCents)
     const { data, error } = await auth.db
       .from('approvals')
       .update(updates)
       .eq('id', parsed.data.approvalId)
       .eq('plan_id', context.params.planId)
+      .eq('status', existingApproval.status)
       .select(APPROVAL_SELECT_COLUMNS)
-      .single()
+      .maybeSingle()
 
-    if (error || !data) {
+    if (error) {
       console.error('Planner approval update error:', error)
       return NextResponse.json({ error: 'Failed to update approval' }, { status: 500 })
     }
 
+    if (!data) {
+      return NextResponse.json(
+        {
+          error: 'Approval was updated by another request. Refresh and try again.',
+          code: 'approval_stale',
+        },
+        { status: 409 }
+      )
+    }
+
     const approval = data as Approval
+    if (parsed.data.action === 'authorize' || parsed.data.action === 'approve') {
+      const access = await ensurePlannerProductAccess(plan, auth.userId)
+      if ('response' in access) {
+        await rollbackApprovalAfterAccessFailure(auth.db, {
+          planId: context.params.planId,
+          approval,
+          originalStatus: existingApproval.status,
+          actorId: auth.userId,
+        })
+        return access.response
+      }
+      plan = access.plan
+    }
+
     await syncAgentActionStatusForApproval(auth.db, {
       actionId: approval.agent_action_id,
       planId: context.params.planId,
@@ -462,6 +486,105 @@ async function markApprovalReapprovalRequired(
   }
 
   return data as Approval
+}
+
+async function rollbackApprovalAfterAccessFailure(
+  db: PlannerDb,
+  input: {
+    planId: string
+    approval: Approval
+    originalStatus: ApprovalStatus
+    actorId: string
+  }
+) {
+  const { data, error } = await db
+    .from('approvals')
+    .update({
+      status: input.originalStatus,
+      authorized_by: null,
+      authorized_at: null,
+      authorized_amount_cents: null,
+      approved_by: null,
+      approved_at: null,
+    })
+    .eq('id', input.approval.id)
+    .eq('plan_id', input.planId)
+    .eq('status', input.approval.status)
+    .select(APPROVAL_SELECT_COLUMNS)
+    .maybeSingle()
+
+  if (error || !data) {
+    Sentry.captureMessage('approval_rollback_failed', {
+      level: 'error',
+      tags: {
+        action: 'approval_rollback_failed',
+        plan_id: input.planId,
+        approval_id: input.approval.id,
+      },
+      extra: {
+        original_status: input.originalStatus,
+        attempted_status: input.approval.status,
+        error: error?.message ?? 'Approval row no longer matched rollback predicate',
+      },
+    })
+    return null
+  }
+
+  await markAgentActionAccessGateRollback(db, {
+    actionId: input.approval.agent_action_id,
+    actorId: input.actorId,
+    planId: input.planId,
+    originalStatus: input.originalStatus,
+    attemptedStatus: input.approval.status,
+  })
+
+  await syncApprovalMessageMetadata(db, input.planId, data as Approval)
+  return data as Approval
+}
+
+async function markAgentActionAccessGateRollback(
+  db: PlannerDb,
+  input: {
+    actionId: string
+    actorId: string
+    planId: string
+    originalStatus: ApprovalStatus
+    attemptedStatus: ApprovalStatus
+  }
+) {
+  const action = await loadAgentAction(db, input.actionId)
+  if (!action) return
+
+  const nextMetadata = {
+    ...(readRecord(action.result_metadata) ?? {}),
+    approval_access_gate_rollback: {
+      action: 'approval_access_gate_rollback',
+      approval_original_status: input.originalStatus,
+      approval_attempted_status: input.attemptedStatus,
+      rolled_back_at: new Date().toISOString(),
+    },
+  } as Json
+
+  const { error } = await db
+    .from('agent_actions')
+    .update({ result_metadata: nextMetadata })
+    .eq('id', input.actionId)
+    .eq('plan_id', input.planId)
+
+  if (error) {
+    Sentry.captureException(error, {
+      tags: {
+        action: 'approval_action_rollback_metadata_failed',
+        plan_id: input.planId,
+        action_id: input.actionId,
+      },
+      extra: {
+        actor_id: input.actorId,
+        original_status: input.originalStatus,
+        attempted_status: input.attemptedStatus,
+      },
+    })
+  }
 }
 
 async function syncAgentActionStatusForApproval(

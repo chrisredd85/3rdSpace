@@ -67,7 +67,7 @@ export async function authorizePlannerDeposit(input: {
   const amountCents = assertIntegerCents(input.amountCents, 'amountCents', 50)
 
   const existing = await loadExistingActivePaymentIntent(input.db, input.approval.id)
-  if (existing) return existing
+  if (existing) return returnExistingActivePaymentIntentOrThrow(existing, amountCents)
 
   const platformFeeCents = assertIntegerCents(input.platformFeeCents ?? 0, 'platformFeeCents')
   const stripePaymentIntent = await maybeCreateStripeManualPaymentIntent({
@@ -101,7 +101,13 @@ export async function authorizePlannerDeposit(input: {
     .select(PAYMENT_INTENT_SELECT_COLUMNS)
     .single()
 
-  if (error || !data) throw new Error(error?.message ?? 'Failed to create planner deposit')
+  if (error || !data) {
+    if (isUniqueViolation(error)) {
+      const winner = await loadExistingActivePaymentIntent(input.db, input.approval.id)
+      if (winner) return returnExistingActivePaymentIntentOrThrow(winner, amountCents)
+    }
+    throw new Error(error?.message ?? 'Failed to create planner deposit')
+  }
   return data as PlannerPaymentIntentRow
 }
 
@@ -218,6 +224,33 @@ async function loadExistingActivePaymentIntent(db: PlannerDb, approvalId: string
 
   if (error) throw new Error(error.message)
   return (data as PlannerPaymentIntentRow | null) ?? null
+}
+
+function returnExistingActivePaymentIntentOrThrow(
+  existing: PlannerPaymentIntentRow,
+  requestedAmountCents: number
+) {
+  if (
+    existing.amount_cents !== requestedAmountCents &&
+    wasCreatedWithinLastSeconds(existing.created_at, 60)
+  ) {
+    throw new Error(
+      `Active planner deposit for approval ${existing.approval_id} was just created with a different amount. Refresh before authorizing again.`
+    )
+  }
+
+  return existing
+}
+
+function wasCreatedWithinLastSeconds(value: string, seconds: number) {
+  const createdAtMs = Date.parse(value)
+  if (!Number.isFinite(createdAtMs)) return false
+  return Date.now() - createdAtMs <= seconds * 1000
+}
+
+function isUniqueViolation(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  return (error as { code?: string }).code === '23505'
 }
 
 async function maybeCreateStripeManualPaymentIntent(input: {
