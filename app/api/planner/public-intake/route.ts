@@ -44,7 +44,7 @@ type PublicIntakeAgentDraft = {
 
 export async function POST(request: NextRequest) {
   try {
-    const rateLimit = checkRateLimit(`planner-public-intake:${getIpAddress(request)}`, {
+    const rateLimit = await checkRateLimit(`planner-public-intake:${getIpAddress(request)}`, {
       limit: 10,
       windowMs: 60_000,
     })

@@ -31,13 +31,13 @@ import {
 const mockRunAgent = runAgent as jest.Mock
 let requestCounter = 0
 
-function makeRequest(body: Record<string, unknown>) {
+function makeRequest(body: Record<string, unknown>, ipAddress?: string) {
   requestCounter += 1
   const request = new Request('http://localhost/api/planner/public-intake', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'x-forwarded-for': `10.30.${Math.floor(requestCounter / 250)}.${(requestCounter % 250) + 1}`,
+      'x-forwarded-for': ipAddress ?? `10.30.${Math.floor(requestCounter / 250)}.${(requestCounter % 250) + 1}`,
     },
     body: JSON.stringify(body),
   }) as NextRequest
@@ -86,6 +86,25 @@ describe('planner public intake route', () => {
       neighborhood: 'Mission',
     }))
     expect(json.data.plan_patch.budget_cap_cents).toBeUndefined()
+  })
+
+  it('returns 429 with rate-limit headers after 10 public intake requests from one IP', async () => {
+    const limitedIp = '10.99.0.42'
+
+    for (let index = 0; index < 10; index += 1) {
+      const response = await publicIntake(makeRequest({}, limitedIp))
+      expect(response.status).toBe(400)
+    }
+
+    const response = await publicIntake(makeRequest({}, limitedIp))
+    const json = await readJson(response)
+
+    expect(response.status).toBe(429)
+    expect(json.error).toBe('Too many planner requests. Try again in a minute.')
+    expect(response.headers.get('X-RateLimit-Limit')).toBe('10')
+    expect(response.headers.get('X-RateLimit-Remaining')).toBe('0')
+    expect(response.headers.get('X-RateLimit-Reset')).toMatch(/^\d+$/)
+    expect(mockRunAgent).not.toHaveBeenCalled()
   })
 
   it('preserves already-cent-normalized ticket prices from the model', async () => {

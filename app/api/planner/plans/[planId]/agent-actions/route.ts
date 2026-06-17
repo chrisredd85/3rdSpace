@@ -191,7 +191,7 @@ export async function POST(
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
 
-    const rateLimit = checkRateLimit(`planner:agent-actions:${auth.userId}`)
+    const rateLimit = await checkRateLimit(`planner:agent-actions:${auth.userId}`)
     if (!rateLimit.allowed) {
       return NextResponse.json(
         { error: 'Too many planner actions. Try again shortly.' },
