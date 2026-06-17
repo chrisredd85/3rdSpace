@@ -1,0 +1,98 @@
+
+> 3rdspace-webapp@0.1.0 build
+> next build
+
+  ▲ Next.js 14.2.35
+  - Experiments (use with caution):
+    · optimizeCss
+    · instrumentationHook
+
+   Creating an optimized production build ...
+[@sentry/nextjs] DEPRECATION WARNING: It is recommended renaming your `sentry.client.config.ts` file, or moving its content to `instrumentation-client.ts`. When using Turbopack `sentry.client.config.ts` will no longer work. Read more about the `instrumentation-client.ts` file: https://nextjs.org/docs/app/api-reference/file-conventions/instrumentation-client
+(node:23277) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (127kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (139kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (131kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+(node:23277) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+Browserslist: caniuse-lite is outdated. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+
+./components/auth/RoleLoginPage.tsx
+91:6  Warning: React Hook useEffect has a missing dependency: 'loginError'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/auth/SignupExperience.tsx
+511:6  Warning: React Hook useEffect has a missing dependency: 'inlineError'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+1021:6  Warning: React Hook useEffect has a missing dependency: 'inlineError'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+1436:6  Warning: React Hook useEffect has a missing dependency: 'inlineError'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/builder/event-wizard/EventVenueStep.tsx
+72:9  Warning: The 'venues' conditional could make the dependencies of useMemo Hook (at line 87) change on every render. To fix this, wrap the initialization of 'venues' in its own useMemo() Hook.  react-hooks/exhaustive-deps
+72:9  Warning: The 'venues' conditional could make the dependencies of useMemo Hook (at line 92) change on every render. To fix this, wrap the initialization of 'venues' in its own useMemo() Hook.  react-hooks/exhaustive-deps
+
+./components/builder/event-wizard/EventbriteImportPanel.tsx
+190:6  Warning: React Hook useEffect has a missing dependency: 'loadIntegration'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+206:6  Warning: React Hook useEffect has missing dependencies: 'addToast' and 'loadImportedAttendees'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+232:6  Warning: React Hook useEffect has a missing dependency: 'loadIntegration'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/planner/planner-page/PlannerWorkspace.tsx
+195:6  Warning: React Hook useEffect has missing dependencies: 'isTimelineLoading', 'loadPlannerTimeline', and 'timelineResult'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+279:6  Warning: React Hook useEffect has a missing dependency: 'resetDemoSession'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+420:6  Warning: React Hook useEffect has a missing dependency: 'startInitialDraftPlan'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+437:6  Warning: React Hook useEffect has a missing dependency: 'triggerRecommendations'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/shared/FilterSidebar.tsx
+91:33  Warning: React Hook useCallback received a function whose dependencies are unknown. Pass an inline function instead.  react-hooks/exhaustive-deps
+
+./components/shared/SearchBar.tsx
+59:27  Warning: React Hook useCallback received a function whose dependencies are unknown. Pass an inline function instead.  react-hooks/exhaustive-deps
+
+./components/venue/AmenitiesSelector.tsx
+155:6  Warning: React Hook useEffect has a missing dependency: 'loadAmenities'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/venue/BulkApprovalDashboard.tsx
+127:6  Warning: React Hook useEffect has a missing dependency: 'loadPendingBookings'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/venue/BulkApprovalSettings.tsx
+82:6  Warning: React Hook useEffect has a missing dependency: 'loadSettings'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/venue/RulesManager.tsx
+131:6  Warning: React Hook useEffect has a missing dependency: 'loadRules'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/basic-features/eslint#disabling-rules
+   Collecting page data ...
+Error: Missing Supabase environment variables
+    at 24372 (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/app/api/account/settings/route.js:1:8257)
+    at t (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/webpack-runtime.js:1:143)
+    at 55689 (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/app/api/account/settings/route.js:1:2740)
+    at t (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/webpack-runtime.js:1:143)
+    at r (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/app/api/account/settings/route.js:1:8888)
+    at /Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/app/api/account/settings/route.js:1:8935
+    at t.X (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/webpack-runtime.js:1:1291)
+    at /Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/app/api/account/settings/route.js:1:8901
+    at Object.<anonymous> (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/app/api/account/settings/route.js:1:8963)
+    at Module._compile (node:internal/modules/cjs/loader:1739:14)
+Error: Missing Supabase environment variables
+    at 24372 (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/app/api/admin/concierge/actions/route.js:1:11095)
+    at t (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/webpack-runtime.js:1:143)
+    at 74204 (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/app/api/admin/concierge/actions/route.js:1:4824)
+    at t (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/webpack-runtime.js:1:143)
+    at 72093 (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/app/api/admin/concierge/actions/route.js:1:2726)
+    at t (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/webpack-runtime.js:1:143)
+    at r (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/app/api/admin/concierge/actions/route.js:1:11729)
+    at /Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/app/api/admin/concierge/actions/route.js:1:11776
+    at t.X (/Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/webpack-runtime.js:1:1291)
+    at /Users/chrisredd/3rdSpace.upstash-env-fallback/.next/server/app/api/admin/concierge/actions/route.js:1:11742
+
+> Build error occurred
+Error: Failed to collect page data for /api/account/settings
+    at /Users/chrisredd/3rdSpace.upstash-env-fallback/node_modules/next/dist/build/utils.js:1269:15
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+  type: 'Error'
+}

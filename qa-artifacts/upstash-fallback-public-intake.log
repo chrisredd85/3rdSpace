@@ -1,0 +1,20 @@
+
+> 3rdspace-webapp@0.1.0 test
+> jest __tests__/integration/planner-public-intake-route.test.ts --runInBand
+
+(node:27060) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS __tests__/integration/planner-public-intake-route.test.ts
+  planner public intake route
+    ✓ falls back to deterministic intake instead of 503 when the model fails (131 ms)
+    ✓ returns 429 with rate-limit headers after 10 public intake requests from one IP (11 ms)
+    ✓ preserves already-cent-normalized ticket prices from the model (52 ms)
+    ✓ surfaces inferred archetype resolution for ambiguous dinner language (22 ms)
+    ✓ treats a bare numeric reply as the pending guest count instead of repeating headcount (11 ms)
+    ✓ handles 300 archetype follow-up combinations without repeating answered slots (3414 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       6 passed, 6 total
+Snapshots:   0 total
+Time:        4.764 s
+Ran all test suites matching /__tests__\/integration\/planner-public-intake-route.test.ts/i.
