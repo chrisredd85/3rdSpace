@@ -8,9 +8,11 @@ import {
   Inbox,
   Loader2,
   Mail,
+  Plus,
   RefreshCw,
   Send,
   ShieldCheck,
+  Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -42,6 +44,7 @@ type GmailOutreachThread = {
   id: string
   plan_id: string
   target_name: string
+  target_type: string
   target_email: string | null
   state: string
   needs_attention: boolean
@@ -60,13 +63,15 @@ type GmailApprovalState = {
 }
 
 type TargetDraft = {
+  kind: 'venue' | 'vendor'
   name: string
   email: string
 }
 
 const initialTargets: TargetDraft[] = [
-  { name: 'Stable Cafe', email: '' },
-  { name: 'Mission Social Hall', email: '' },
+  { kind: 'venue', name: 'Stable Cafe', email: '' },
+  { kind: 'venue', name: 'Mission Social Hall', email: '' },
+  { kind: 'vendor', name: 'Photo vendor', email: '' },
 ]
 
 export default function PlannerOutreachPage() {
@@ -116,9 +121,9 @@ export default function PlannerOutreachPage() {
       const response = await fetch('/api/planner/outreach/gmail-approval', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          targets: targets.filter((target) => target.name.trim() && target.email.trim()),
-          subject,
+      body: JSON.stringify({
+        targets: targets.filter((target) => target.name.trim() && target.email.trim()),
+        subject,
           bodyText,
         }),
       })
@@ -224,7 +229,7 @@ export default function PlannerOutreachPage() {
               <CardHeader className="border-b border-border">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <CardTitle className="text-xl">Send outreach to 2 venues</CardTitle>
+                    <CardTitle className="text-xl">Build a partner outreach batch</CardTitle>
                     <p className="mt-1 text-sm text-muted-foreground">
                       Connected as <span className="font-semibold text-foreground">{connectedEmail}</span>
                     </p>
@@ -236,18 +241,47 @@ export default function PlannerOutreachPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-5 pt-6">
+                <div className="rounded-md border border-border bg-background/60 p-4 text-sm leading-relaxed text-muted-foreground">
+                  Add venues and vendors to one approval batch. 3rdPlace sends only after approval, then compares replies by availability,
+                  fit, pricing, and next step before recommending the best choices.
+                </div>
+
                 <div className="grid gap-4 sm:grid-cols-2">
                   {targets.map((target, index) => (
                     <div key={index} className="rounded-md border border-border bg-background/60 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                        Venue {index + 1}
-                      </p>
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          Partner {index + 1}
+                        </p>
+                        {targets.length > 1 ? (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            aria-label={`Remove partner ${index + 1}`}
+                            onClick={() => removeTarget(index)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        ) : null}
+                      </div>
                       <div className="mt-3 space-y-3">
-                        <Field label="Venue name">
+                        <Field label="Partner type">
+                          <select
+                            value={target.kind}
+                            onChange={(event) => updateTarget(index, 'kind', event.target.value)}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                          >
+                            <option value="venue">Venue</option>
+                            <option value="vendor">Vendor</option>
+                          </select>
+                        </Field>
+                        <Field label="Partner name">
                           <Input
                             value={target.name}
                             onChange={(event) => updateTarget(index, 'name', event.target.value)}
-                            placeholder="Venue name"
+                            placeholder={target.kind === 'vendor' ? 'Vendor name' : 'Venue name'}
                           />
                         </Field>
                         <Field label="Email">
@@ -262,6 +296,10 @@ export default function PlannerOutreachPage() {
                     </div>
                   ))}
                 </div>
+                <Button type="button" variant="outline" onClick={addTarget} disabled={targets.length >= 6} className="w-fit">
+                  <Plus className="h-4 w-4" />
+                  Add venue or vendor
+                </Button>
 
                 <Field label="Subject">
                   <Input value={subject} onChange={(event) => setSubject(event.target.value)} />
@@ -276,8 +314,8 @@ export default function PlannerOutreachPage() {
                 </Field>
 
                 <div className="rounded-md border border-border bg-background/60 p-4 text-sm leading-relaxed text-muted-foreground">
-                  The planner will create an approval card first. Sending happens only after the host clicks Approve and send.
-                  Replies appear below after syncing from Gmail.
+                  The planner will create one approval card for the full batch. Sending happens only after the host approves it.
+                  Replies appear below after syncing from Gmail, so the agent can compare the options before recommending next steps.
                 </div>
 
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -312,7 +350,7 @@ export default function PlannerOutreachPage() {
                           <p className="font-semibold text-foreground">{thread.target_name}</p>
                           <p className="text-xs text-muted-foreground">{thread.target_email}</p>
                           <span className="mt-2 inline-flex rounded-full border border-border bg-card px-2.5 py-1 text-xs font-semibold text-muted-foreground">
-                            {thread.state.replace(/_/g, ' ')}
+                            {thread.target_type} · {thread.state.replace(/_/g, ' ')}
                           </span>
                         </div>
                         <div className="flex shrink-0 flex-wrap gap-2">
@@ -371,9 +409,19 @@ export default function PlannerOutreachPage() {
   )
 
   function updateTarget(index: number, field: keyof TargetDraft, value: string) {
-    setTargets((current) => current.map((target, targetIndex) =>
-      targetIndex === index ? { ...target, [field]: value } : target
-    ))
+    setTargets((current) => current.map((target, targetIndex) => {
+      if (targetIndex !== index) return target
+      if (field === 'kind') return { ...target, kind: value === 'vendor' ? 'vendor' : 'venue' }
+      return { ...target, [field]: value }
+    }))
+  }
+
+  function addTarget() {
+    setTargets((current) => current.length >= 6 ? current : [...current, { kind: 'venue', name: '', email: '' }])
+  }
+
+  function removeTarget(index: number) {
+    setTargets((current) => current.length <= 1 ? current : current.filter((_target, targetIndex) => targetIndex !== index))
   }
 }
 
@@ -410,11 +458,11 @@ function isValidEmail(value: string) {
 
 function defaultBodyText() {
   return [
-    'Hi {{venue_name}},',
+    'Hi {{place_name}},',
     '',
-    "I'm planning a Bay Area happy hour and wanted to see whether your space is open to hosting community events.",
+    "I'm planning a Bay Area happy hour and wanted to see whether there is a fit to support the event.",
     '',
-    'If you are interested, please reply with available dates, minimum spend, and the best next step.',
+    'If you are interested, please reply with available dates, pricing or minimums, and the best next step.',
     '',
     'Thanks,',
     '{{sender_email}}',

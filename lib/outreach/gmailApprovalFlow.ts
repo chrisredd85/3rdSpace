@@ -39,6 +39,7 @@ const AGENT_ACTION_SELECT_COLUMNS = `
 export type GmailOutreachTarget = {
   name: string
   email: string
+  kind?: 'venue' | 'vendor'
 }
 
 export type GmailApprovalState = {
@@ -53,6 +54,7 @@ export type GmailOutreachThreadSummary = {
   id: string
   plan_id: string
   target_name: string
+  target_type: string
   target_email: string | null
   state: string
   needs_attention: boolean
@@ -147,10 +149,12 @@ export async function createOrReuseGmailOutreachApproval(
         description: buildActionDescription(targets),
         payload_json: actionPayload as Json,
         provider: 'Gmail',
-        target_type: 'venue',
+        target_type: getBatchTargetType(targets),
         result_metadata: {
           ...(readRecord(action.result_metadata) ?? {}),
           target_count: targets.length,
+          venue_count: countTargetsByKind(targets, 'venue'),
+          vendor_count: countTargetsByKind(targets, 'vendor'),
         } as Json,
       })
       .eq('id', action.id)
@@ -184,7 +188,7 @@ export async function createOrReuseGmailOutreachApproval(
       action_type: 'email',
       description: buildActionDescription(targets),
       provider: 'Gmail',
-      target_type: 'venue',
+      target_type: getBatchTargetType(targets),
       target_id: null,
       payload_json: actionPayload as Json,
       amount_cents: 0,
@@ -192,6 +196,8 @@ export async function createOrReuseGmailOutreachApproval(
       status: 'pending',
       result_metadata: {
         target_count: targets.length,
+        venue_count: countTargetsByKind(targets, 'venue'),
+        vendor_count: countTargetsByKind(targets, 'vendor'),
         approval_flow: GMAIL_APPROVED_OUTREACH_KIND,
       } as Json,
     })
@@ -229,7 +235,7 @@ export async function createOrReuseGmailOutreachApproval(
     .insert({
       plan_id: plan.id,
       role: 'agent',
-      content: `Review this Gmail outreach before anything sends. Approving sends ${targets.length} email${targets.length === 1 ? '' : 's'} from your connected Gmail account.`,
+      content: `Review this Gmail outreach batch before anything sends. Approving sends ${targets.length} email${targets.length === 1 ? '' : 's'} from your connected Gmail account so replies can be compared in 3rdPlace.`,
       message_type: 'approval_request',
       metadata: buildApprovalMessageMetadata(plan, agentAction as AgentAction, approval as Approval, actionPayload) as Json,
     })
@@ -325,7 +331,7 @@ export async function executeApprovedGmailOutreach(
   await db.from('plan_messages').insert({
     plan_id: input.plan.id,
     role: 'system',
-    content: `Sent approved Gmail outreach to ${sent.length} venue${sent.length === 1 ? '' : 's'}. Replies will appear in Outreach.`,
+    content: `Sent approved Gmail outreach to ${sent.length} partner${sent.length === 1 ? '' : 's'}. Replies will appear in Outreach for comparison and follow-up.`,
     message_type: 'status_update',
     metadata: {
       kind: GMAIL_APPROVED_OUTREACH_KIND,
@@ -412,11 +418,11 @@ export async function markGmailOutreachThreadHandled(
 
 export function defaultBodyText() {
   return [
-    'Hi {{venue_name}},',
+    'Hi {{place_name}},',
     '',
-    "I'm planning a Bay Area happy hour and wanted to see whether your space is open to hosting community events.",
+    "I'm planning a Bay Area happy hour and wanted to see whether there is a fit to support the event.",
     '',
-    'If you are interested, please reply with available dates, minimum spend, and the best next step.',
+    'If you are interested, please reply with available dates, pricing or minimums, and the best next step.',
     '',
     'Thanks,',
     '{{sender_email}}',
@@ -437,24 +443,30 @@ function buildActionPayload(input: {
     sender_email: input.senderEmail,
     requires_user_action: true,
     sends_after_approval: true,
+    comparison_goal: 'Collect availability, fit, pricing, and next steps so 3rdPlace can compare replies and recommend the best partner choices.',
+    batch_partner_counts: {
+      venues: countTargetsByKind(input.targets, 'venue'),
+      vendors: countTargetsByKind(input.targets, 'vendor'),
+      total: input.targets.length,
+    },
     gmail_scopes_demonstrated: ['gmail.send', 'gmail.readonly', 'gmail.modify'],
   }
 }
 
 function buildActionDescription(targets: GmailOutreachTarget[]) {
-  return `Send approved Gmail outreach to ${targets.length} venue${targets.length === 1 ? '' : 's'}`
+  return `Send approved Gmail outreach to ${formatTargetCounts(targets)}`
 }
 
 function buildApprovalUpdates(targets: GmailOutreachTarget[], subject: string) {
   return {
-    action_label: `Send outreach to ${targets.length} venue${targets.length === 1 ? '' : 's'}`,
+    action_label: `Send outreach to ${formatTargetCounts(targets)}`,
     provider: 'Gmail',
     event_date: null,
     price_cents: 0,
     fees_cents: 0,
     refund_terms: 'No booking or payment happens. This approval only sends the reviewed Gmail outreach.',
     cancellation_terms: 'Cancel before approving to prevent outbound email.',
-    package_details: `${subject} — ${targets.map((target) => `${target.name} <${target.email}>`).join(', ')}`,
+    package_details: `${subject} — ${targets.map((target) => `${target.name} <${target.email}>`).join(', ')}. Replies are compared by availability, fit, pricing, and next step before recommendations are finalized.`,
     delivery_email: targets[0]?.email ?? null,
   }
 }
@@ -480,8 +492,17 @@ function buildApprovalMessageMetadata(
     summary: `Approved Gmail send for ${plan.title}`,
     response_deadline: null,
     queued_invite_count: targets.length,
+    queued_vendor_invite_count: countTargetsByKind(targets, 'vendor'),
+    partner_targets: targets.map((target) => ({
+      kind: target.kind ?? 'venue',
+      name: target.name,
+      email: target.email,
+    })),
+    comparison_goal: readString(payload.comparison_goal),
     invites: targets.map((target) => ({
+      target_type: target.kind ?? 'venue',
       venue_response_json: {
+        target_type: target.kind ?? 'venue',
         target_name: target.name,
         target_email: target.email,
       },
@@ -639,7 +660,7 @@ async function loadGmailOutreachThreads(
 ): Promise<GmailOutreachThreadSummary[]> {
   let query = db
     .from('outreach_threads')
-    .select('id, plan_id, target_name, target_email, state, needs_attention, last_event_at, last_inbound_at, last_outbound_at, updated_at, channel_strategy')
+    .select('id, plan_id, target_name, target_type, target_email, state, needs_attention, last_event_at, last_inbound_at, last_outbound_at, updated_at, channel_strategy')
     .eq('user_id', userId)
     .eq('target_source', GMAIL_APPROVAL_DEMO_TARGET_SOURCE)
     .order('updated_at', { ascending: false })
@@ -686,6 +707,7 @@ async function loadGmailOutreachThreads(
     id: String(thread.id),
     plan_id: String(thread.plan_id),
     target_name: String(thread.target_name ?? 'Venue'),
+    target_type: String(thread.target_type ?? 'venue'),
     target_email: readString(thread.target_email),
     state: String(thread.state ?? 'sent'),
     needs_attention: Boolean(thread.needs_attention),
@@ -713,7 +735,7 @@ async function insertOutreachThread(
       plan_id: input.planId,
       source_agent_action_id: input.actionId,
       target_name: input.target.name,
-      target_type: 'venue',
+      target_type: input.target.kind ?? 'venue',
       target_source: GMAIL_APPROVAL_DEMO_TARGET_SOURCE,
       target_email: input.target.email,
       channel: 'email',
@@ -863,11 +885,12 @@ function normalizeTargets(targets: GmailOutreachTarget[]) {
     .map((target) => ({
       name: target.name.trim(),
       email: target.email.trim().toLowerCase(),
+      kind: target.kind === 'vendor' ? 'vendor' as const : 'venue' as const,
     }))
     .filter((target) => target.name && isValidEmail(target.email))
 
-  if (cleaned.length === 0) throw new Error('Add at least one venue with a valid email address.')
-  if (cleaned.length > 3) throw new Error('Send at most three outreach emails at a time.')
+  if (cleaned.length === 0) throw new Error('Add at least one venue or vendor with a valid email address.')
+  if (cleaned.length > 6) throw new Error('Send at most six outreach emails at a time.')
   return cleaned
 }
 
@@ -879,7 +902,8 @@ function readTargets(payload: Record<string, unknown> | null): GmailOutreachTarg
     const record = target as Record<string, unknown>
     const name = readString(record.name)
     const email = readString(record.email)
-    return name && email ? [{ name, email }] : []
+    const kind = readString(record.kind) === 'vendor' ? 'vendor' : 'venue'
+    return name && email ? [{ name, email, kind }] : []
   })
 }
 
@@ -906,6 +930,26 @@ function extractEmail(value: string | null) {
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+function countTargetsByKind(targets: GmailOutreachTarget[], kind: 'venue' | 'vendor') {
+  return targets.filter((target) => (target.kind ?? 'venue') === kind).length
+}
+
+function formatTargetCounts(targets: GmailOutreachTarget[]) {
+  const venueCount = countTargetsByKind(targets, 'venue')
+  const vendorCount = countTargetsByKind(targets, 'vendor')
+  const parts = []
+  if (venueCount > 0) parts.push(`${venueCount} venue${venueCount === 1 ? '' : 's'}`)
+  if (vendorCount > 0) parts.push(`${vendorCount} vendor${vendorCount === 1 ? '' : 's'}`)
+  return parts.length > 0 ? parts.join(' and ') : 'selected partners'
+}
+
+function getBatchTargetType(targets: GmailOutreachTarget[]) {
+  const venueCount = countTargetsByKind(targets, 'venue')
+  const vendorCount = countTargetsByKind(targets, 'vendor')
+  if (venueCount > 0 && vendorCount > 0) return 'outreach'
+  return vendorCount > 0 ? 'vendor' : 'venue'
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {

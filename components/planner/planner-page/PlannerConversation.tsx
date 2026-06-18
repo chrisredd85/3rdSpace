@@ -444,6 +444,8 @@ export function buildApprovalDisplayMetadata(
     response_deadline: metadata.response_deadline,
     opportunity: metadata.opportunity,
     invites: metadata.invites,
+    partner_targets: metadata.partner_targets,
+    comparison_goal: metadata.comparison_goal,
     invite_stats: metadata.invite_stats,
     queued_invite_count: metadata.queued_invite_count,
     queued_vendor_invite_count: metadata.queued_vendor_invite_count,
@@ -1870,14 +1872,19 @@ export function PlannerApprovalCard({
   const deliveryEmail = deliveryEmailRaw ? 'Contact info on file' : 'Needed'
   const terms = readApprovalString(approval, 'terms') || readApprovalString(approval, 'refund_terms') || 'Approval required before payment.'
   const amountCents = readApprovalAmount(approval)
-  const venueNames = readApprovalVenueNames(approval)
+  const partnerTargets = readApprovalPartnerTargets(approval)
+  const venueNames = partnerTargets.filter((target) => target.kind === 'venue').map((target) => target.name)
+  const vendorNames = partnerTargets.filter((target) => target.kind === 'vendor').map((target) => target.name)
+  const fallbackVenueNames = venueNames.length === 0 && vendorNames.length === 0 ? readApprovalVenueNames(approval) : []
   const briefPreview = readApprovalBriefPreview(approval)
   const responseDeadline = readApprovalResponseDeadline(approval)
+  const comparisonGoal = readApprovalString(approval, 'comparison_goal')
   const approvalKind = readApprovalString(approval, 'kind')
-  const isVenueOutreachApproval = approvalKind === 'venue_outreach' || /outreach/i.test(label)
-  const isSendToVenues = isVenueOutreachApproval || /send to venues/i.test(label)
+  const isGmailOutreachApproval = approvalKind === 'gmail_approved_outreach'
+  const isOutreachApproval = approvalKind === 'venue_outreach' || approvalKind === 'vendor_outreach' || isGmailOutreachApproval || /outreach/i.test(label)
+  const isSendToPartners = isOutreachApproval || /send to (venues|vendors|partners)/i.test(label)
   const inviteStats = readApprovalInviteStats(approval)
-  const queuedInviteCount = readApprovalQueuedInviteCount(approval) ?? venueNames.length
+  const queuedInviteCount = readApprovalQueuedInviteCount(approval) ?? partnerTargets.length
   const sentAt = inviteStats?.last_sent_at ? formatApprovalTimestamp(inviteStats.last_sent_at) : null
   const conciergeFollowupCount = inviteStats?.concierge_followup_count ?? 0
   const isProductGateLoading = isAuthenticated && billingAccess === 'loading'
@@ -1941,7 +1948,7 @@ export function PlannerApprovalCard({
     setInlineError(null)
 
     try {
-      const updatedApproval = await patchApproval(isVenueOutreachApproval ? 'approve' : 'authorize', amountCents)
+      const updatedApproval = await patchApproval(isOutreachApproval ? 'approve' : 'authorize', amountCents)
       setAuthorizedAmountCents(readAuthorizedApprovalAmount(updatedApproval ?? approval) ?? amountCents)
       setStatus('approved')
       onStatusChange(approvalId, 'approved', updatedApproval ?? { status: 'authorized', authorized_amount_cents: amountCents })
@@ -1992,7 +1999,7 @@ export function PlannerApprovalCard({
     setEditNotice(null)
 
     try {
-      const updatedApproval = await patchApproval(isVenueOutreachApproval ? 'approve' : 'authorize', nextAuthorizedAmountCents)
+      const updatedApproval = await patchApproval(isOutreachApproval ? 'approve' : 'authorize', nextAuthorizedAmountCents)
       setAuthorizedAmountCents(nextAuthorizedAmountCents)
       setStatus('approved')
       setMode('view')
@@ -2101,11 +2108,11 @@ export function PlannerApprovalCard({
             </div>
           </div>
 
-          {isSendToVenues ? (
+          {isSendToPartners ? (
             <div className="mt-4 space-y-3 rounded-xl border border-border bg-background/60 p-3 text-sm">
               {venueNames.length > 0 ? (
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Venue list</p>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Venues in this batch</p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {venueNames.map((venueName) => (
                       <span key={venueName} className="rounded-full border border-border bg-card px-2 py-1 text-xs font-semibold text-foreground">
@@ -2113,6 +2120,36 @@ export function PlannerApprovalCard({
                       </span>
                     ))}
                   </div>
+                </div>
+              ) : null}
+              {vendorNames.length > 0 ? (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Vendors in this batch</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {vendorNames.map((vendorName) => (
+                      <span key={vendorName} className="rounded-full border border-border bg-card px-2 py-1 text-xs font-semibold text-foreground">
+                        {vendorName}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {fallbackVenueNames.length > 0 ? (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Partner list</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {fallbackVenueNames.map((partnerName) => (
+                      <span key={partnerName} className="rounded-full border border-border bg-card px-2 py-1 text-xs font-semibold text-foreground">
+                        {partnerName}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {comparisonGoal ? (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Comparison goal</p>
+                  <p className="mt-1 break-words text-sm leading-snug text-foreground">{comparisonGoal}</p>
                 </div>
               ) : null}
               {briefPreview ? (
@@ -2135,12 +2172,14 @@ export function PlannerApprovalCard({
               <span className="inline-flex items-center rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs font-bold text-success">
                 ✓ Authorized
               </span>
-              {isSendToVenues ? (
+              {isSendToPartners ? (
                 <div className="mt-2 space-y-2">
                   <p className="text-sm font-semibold text-success">
                     {sentAt
                       ? `Sent at ${sentAt} · (${inviteStats?.viewed_count ?? 0} viewed, ${inviteStats?.responded_count ?? 0} responded)`
-                      : `Queued — ${queuedInviteCount} invite${queuedInviteCount === 1 ? '' : 's'} ready to send`}
+                      : isGmailOutreachApproval
+                        ? `Approved — ${queuedInviteCount} email${queuedInviteCount === 1 ? '' : 's'} sent or ready to send from Gmail`
+                        : `Queued — ${queuedInviteCount} outreach draft${queuedInviteCount === 1 ? '' : 's'} ready for partner comparison`}
                   </p>
                   {conciergeFollowupCount > 0 ? (
                     <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-xs font-bold text-warning">
@@ -2196,10 +2235,10 @@ export function PlannerApprovalCard({
             <div className="mt-4 flex flex-wrap gap-2">
               <Button type="button" size="sm" onClick={handleAuthorize} disabled={isSubmitting || isProductGateLoading}>
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {isProductGateLoading ? 'Checking access…' : isVenueOutreachApproval ? 'Approve and send' : 'Authorize'}
+                {isProductGateLoading ? 'Checking access…' : isGmailOutreachApproval ? 'Approve and send' : isOutreachApproval ? 'Approve outreach batch' : 'Authorize'}
               </Button>
               <Button type="button" variant="glass" size="sm" onClick={() => setMode('edit')} disabled={isSubmitting || isProductGateLoading}>
-                {isVenueOutreachApproval ? 'Edit picks' : 'Edit'}
+                {isOutreachApproval ? 'Edit batch' : 'Edit'}
               </Button>
               <Button type="button" variant="ghost" size="sm" onClick={() => setMode('confirm_cancel')} disabled={isSubmitting || isProductGateLoading}>
                 Cancel
@@ -2256,25 +2295,72 @@ export function readAuthorizedApprovalAmount(approval: Record<string, unknown>) 
  * Reads venue names attached to a Send-to-venues approval card.
  */
 export function readApprovalVenueNames(approval: Record<string, unknown>) {
+  return readApprovalPartnerTargets(approval)
+    .filter((target) => target.kind === 'venue' || target.kind === 'partner')
+    .map((target) => target.name)
+}
+
+type ApprovalPartnerTarget = {
+  kind: 'venue' | 'vendor' | 'partner'
+  name: string
+  email?: string
+}
+
+/**
+ * Reads venue and vendor names attached to an outreach batch approval card.
+ */
+export function readApprovalPartnerTargets(approval: Record<string, unknown>): ApprovalPartnerTarget[] {
+  const explicitTargets = approval.partner_targets
+  if (Array.isArray(explicitTargets)) {
+    const targets = explicitTargets.flatMap((target) => {
+      if (!target || typeof target !== 'object' || Array.isArray(target)) return []
+      const record = target as Record<string, unknown>
+      const name = readTrimmedString(record.name)
+      if (!name) return []
+      return [{
+        kind: readPartnerKind(record.kind),
+        name,
+        email: readTrimmedString(record.email) ?? undefined,
+      }]
+    })
+    if (targets.length > 0) return targets
+  }
+
   const invites = approval.invites
   if (!Array.isArray(invites)) return []
 
   return invites
     .map((invite) => {
       if (!invite || typeof invite !== 'object' || Array.isArray(invite)) return null
-      const venue = (invite as Record<string, unknown>).venue
+      const inviteRecord = invite as Record<string, unknown>
+      const venue = inviteRecord.venue
       if (venue && typeof venue === 'object' && !Array.isArray(venue)) {
-        const name = (venue as Record<string, unknown>).venue_name
-        if (typeof name === 'string' && name.trim()) return name.trim()
+        const venueRecord = venue as Record<string, unknown>
+        const name = readTrimmedString(venueRecord.venue_name) ?? readTrimmedString(venueRecord.name)
+        if (name) return { kind: 'venue' as const, name }
       }
-      const response = (invite as Record<string, unknown>).venue_response_json
+
+      const vendor = inviteRecord.vendor
+      if (vendor && typeof vendor === 'object' && !Array.isArray(vendor)) {
+        const name = readTrimmedString((vendor as Record<string, unknown>).name)
+        if (name) return { kind: 'vendor' as const, name }
+      }
+
+      const response = inviteRecord.venue_response_json ?? inviteRecord.response_payload
       if (response && typeof response === 'object' && !Array.isArray(response)) {
-        const targetName = (response as Record<string, unknown>).target_name
-        if (typeof targetName === 'string' && targetName.trim()) return targetName.trim()
+        const responseRecord = response as Record<string, unknown>
+        const targetName = readTrimmedString(responseRecord.target_name)
+        if (targetName) {
+          return {
+            kind: readPartnerKind(responseRecord.target_type ?? inviteRecord.target_type),
+            name: targetName,
+            email: readTrimmedString(responseRecord.target_email) ?? undefined,
+          }
+        }
       }
       return null
     })
-    .filter((name): name is string => Boolean(name))
+    .filter((target): target is ApprovalPartnerTarget => Boolean(target))
 }
 
 /**
@@ -2355,6 +2441,16 @@ export function readApprovalInviteStats(approval: Record<string, unknown>): Appr
 export function readNumberField(record: Record<string, unknown>, key: string) {
   const value = record[key]
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function readTrimmedString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function readPartnerKind(value: unknown): ApprovalPartnerTarget['kind'] {
+  if (value === 'vendor') return 'vendor'
+  if (value === 'venue') return 'venue'
+  return 'partner'
 }
 
 export function formatApprovalTimestamp(value: string) {
