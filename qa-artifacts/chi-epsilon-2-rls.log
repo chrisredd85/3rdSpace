@@ -1,0 +1,30 @@
+
+> 3rdspace-webapp@0.1.0 test
+> jest __tests__/security/rls.test.ts --runInBand
+
+(node:19617) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS __tests__/security/rls.test.ts
+  RLS security baseline
+    events
+      ✓ lets a builder read own events but not other builders events (73 ms)
+      ✓ lets a collaborator read collaborated events and blocks anonymous reads (63 ms)
+    collaborators
+      ✓ lets a builder list event collaborators without policy recursion (44 ms)
+      ✓ lets a collaborator update own status and blocks anonymous reads (86 ms)
+    vendor_bookings
+      ✓ lets organizers and vendors read their own bookings and blocks anonymous reads (226 ms)
+    webhook_rate_limits
+      ✓ denies anon and authenticated RPC calls but allows service role (2549 ms)
+    plans
+      ✓ lets owners read own plans and blocks anonymous reads (119 ms)
+    venues
+      ✓ keeps published venues public and unpublished venues owner-only (178 ms)
+    vendor_profiles
+      ✓ keeps published profiles public and unpublished profiles owner-only (172 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       9 passed, 9 total
+Snapshots:   0 total
+Time:        5.011 s
+Ran all test suites matching /__tests__\/security\/rls.test.ts/i.
