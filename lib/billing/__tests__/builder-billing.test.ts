@@ -177,4 +177,22 @@ describe('builder billing free tier summary', () => {
       paid_event_credits: 0,
     }).freeEventsGranted).toBe(2)
   })
+
+  it('exposes camelCase and snake_case billing access fields', () => {
+    const summary = getBuilderBillingSummary({
+      ...builder,
+      billing_tier: 'free_trial',
+      subscription_status: 'trial',
+      free_events_granted: 2,
+      free_events_used: 1,
+      paid_event_credits: 0,
+    })
+
+    expect(summary.freeEventsRemaining).toBe(1)
+    expect(summary.free_events_remaining).toBe(1)
+    expect(summary.isOnFreeTrial).toBe(true)
+    expect(summary.is_on_free_trial).toBe(true)
+    expect(summary.canCreateEvent).toBe(true)
+    expect(summary.can_create_event).toBe(true)
+  })
 })

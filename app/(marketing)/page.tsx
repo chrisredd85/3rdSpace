@@ -219,7 +219,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-[1000px] px-6 py-24">
           <Caps>Pricing</Caps>
           <h2 className="mt-4 font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
-            First two events on us.
+            First 2 events free.
           </h2>
           <p className="mt-5 max-w-3xl text-[18px] leading-[1.6] text-ink-soft">
             Run two events end-to-end before you commit. No card required. After that, pay per event
@@ -238,7 +238,7 @@ export default function HomePage() {
                 </div>
               </div>
               <p className="mt-4 text-[16px] leading-[1.6] text-ink-soft">
-                Buy one event credit after your first two free events.
+                After your first 2 events free, buy one event credit at a time.
               </p>
               <p className="mt-6 border-t border-tan pt-5 text-[14px] leading-[1.6] text-ink-soft">
                 Includes the planner, approvals, payment coordination, and event margin record for one shipped event.
@@ -300,7 +300,7 @@ export default function HomePage() {
           <div className="mt-10 flex flex-col items-center gap-4">
             <PrimaryLink href="/planner">Start running events -&gt;</PrimaryLink>
             <p className="font-mono text-[12px] text-ink-faint">
-              First two events free. Approval required before booking or payment.
+              First 2 events free. Approval required before booking or payment.
             </p>
           </div>
         </div>

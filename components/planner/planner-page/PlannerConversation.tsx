@@ -1791,10 +1791,16 @@ interface PlannerApprovalCardProps {
 interface PlannerBillingSummary {
   tierLabel?: string
   canCreateEvent?: boolean
+  can_create_event?: boolean
   freeEventsRemaining?: number
+  free_events_remaining?: number
+  isOnFreeTrial?: boolean
+  is_on_free_trial?: boolean
   paidEventCredits?: number
+  hasProAccess?: boolean
   prices?: {
     payPerEventAmount?: number
+    proMonthlyAmount?: number
   }
 }
 
@@ -1889,6 +1895,8 @@ export function PlannerApprovalCard({
   const conciergeFollowupCount = inviteStats?.concierge_followup_count ?? 0
   const isProductGateLoading = isAuthenticated && billingAccess === 'loading'
   const isProductGateRequired = isAuthenticated && billingAccess === 'required'
+  const freeEventsRemaining = billingSummary?.freeEventsRemaining ?? billingSummary?.free_events_remaining ?? 0
+  const shouldShowFreeEventApprovalNotice = isOutreachApproval && !isProductGateRequired && freeEventsRemaining > 0
 
   function requestSignupForAuthorization(nextAuthorizedAmountCents: number) {
     onAuthRequired({
@@ -2232,17 +2240,27 @@ export function PlannerApprovalCard({
               </div>
             </div>
           ) : (
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button type="button" size="sm" onClick={handleAuthorize} disabled={isSubmitting || isProductGateLoading}>
-                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {isProductGateLoading ? 'Checking access…' : isGmailOutreachApproval ? 'Approve and send' : isOutreachApproval ? 'Approve outreach batch' : 'Authorize'}
-              </Button>
-              <Button type="button" variant="glass" size="sm" onClick={() => setMode('edit')} disabled={isSubmitting || isProductGateLoading}>
-                {isOutreachApproval ? 'Edit batch' : 'Edit'}
-              </Button>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setMode('confirm_cancel')} disabled={isSubmitting || isProductGateLoading}>
-                Cancel
-              </Button>
+            <div className="mt-4 space-y-3">
+              {shouldShowFreeEventApprovalNotice ? (
+                <div className="rounded-xl border border-tan bg-cream px-3 py-2 text-xs leading-5 text-ink-soft">
+                  <span className="font-semibold text-ink">
+                    {freeEventsRemaining} free event{freeEventsRemaining === 1 ? '' : 's'} remaining.
+                  </span>{' '}
+                  Approving outreach consumes one event. After your free events, planner sessions are $30 each or $69/mo unlimited.
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" onClick={handleAuthorize} disabled={isSubmitting || isProductGateLoading}>
+                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {isProductGateLoading ? 'Checking access…' : isGmailOutreachApproval ? 'Approve and send' : isOutreachApproval ? 'Approve outreach batch' : 'Authorize'}
+                </Button>
+                <Button type="button" variant="glass" size="sm" onClick={() => setMode('edit')} disabled={isSubmitting || isProductGateLoading}>
+                  {isOutreachApproval ? 'Edit batch' : 'Edit'}
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setMode('confirm_cancel')} disabled={isSubmitting || isProductGateLoading}>
+                  Cancel
+                </Button>
+              </div>
             </div>
           )}
 
