@@ -66,7 +66,7 @@ const OPERATIONAL_SIGNAL_PATTERNS: Array<{
   { bucket: 'guest_list', label: 'Guest-list control', pattern: /\bguest[-\s]?list|guest list control|door list|check[-\s]?in|ticket scan\b/i },
   { bucket: 'vip', label: 'Artist/VIP area', pattern: /\b(artist vip|vip|green room|green-room|artist area|holding area)\b/i },
   { bucket: 'food_drink', label: 'Food/drinks', pattern: /\b(food|drinks?|bar|venue handles drinks|cash bar|hosted bar|minimum spend|bar minimum|catering|snacks?|light bites?)\b/i },
-  { bucket: 'venue_terms', label: 'Venue terms', pattern: /\b(venue terms|minimum spend|bar minimum|deposit|rental|rev share|revenue share|door split|ticket split)\b/i },
+  { bucket: 'venue_terms', label: 'Venue terms', pattern: /\b(venue terms|minimum spend|bar minimum|deposit|rental|chi|consumption share|door incentive|ticket incentive)\b/i },
   { bucket: 'sponsor', label: 'Sponsor needs', pattern: /\b(sponsor|sponsors|sponsored|brand partner)\b/i },
   { bucket: 'timing', label: 'Load-in/breakdown', pattern: /\b(load[-\s]?in|breakdown|tear[-\s]?down|setup|sound check|soundcheck|doors)\b/i },
 ]

@@ -186,7 +186,7 @@ describe('event actuals', () => {
       crossed_at: secondSaleAt,
     })
     expect(pnl.margin_pct).toBe(16.6667)
-    expect(pnl.rev_share_adjustments).toEqual([])
+    expect(pnl.consumption_share_adjustments).toEqual([])
   })
 
   it('keeps refund-heavy events deterministic and separates sold from refunded tickets', async () => {

@@ -414,7 +414,7 @@ export function getEventSpecificQuestions(eventType: string | null): EventSpecif
       ...shared,
       question('dj', 'Music', 'Do you need a DJ, or are you bringing your own music?', /\b(dj|music|playlist|sound)\b/i),
       question('alcohol', 'Alcohol', 'Do you plan on bringing your own alcohol, using a bar package, or keeping it non-alcoholic?', /\b(alcohol|bar|byob|bring.*own|cocktails?|drinks?|non-alcoholic)\b/i),
-      question('bar_rev_share', 'Bar economics', 'Do you want a Community Host Incentive, bar split, minimum spend, or no bar terms?', /\b(revenue share|rev share|bar split|kickback|minimum spend|no rev)\b/i),
+      question('bar_consumption_share', 'Bar economics', 'Do you want a Community Host Incentive, minimum spend, or no bar terms?', /\b(community host incentive|chi|consumption share|minimum spend|no bar terms|no chi)\b/i),
       question('exclusive_use', 'Access', 'Do you want exclusive use / buyout, or is shared space okay?', /\b(exclusive|buyout|private|shared)\b/i),
     ],
     'listening party': [
@@ -449,7 +449,7 @@ export function getEventSpecificQuestions(eventType: string | null): EventSpecif
     'club night': [
       ...shared,
       question('music_genre', 'Music genre', 'What genre, DJ style, or nightlife format should this be?', /\b(genre|dj|house|hip hop|dance|latin|afrobeats|nightlife|format)\b/i),
-      question('door_split', 'Door economics', 'Do you want a door split, bar incentive, flat rental, or minimum spend?', /\b(door split|bar revenue|rev share|flat rental|minimum spend|kickback)\b/i),
+      question('door_split', 'Door economics', 'Do you want a door incentive, bar incentive, flat rental, or minimum spend?', /\b(door incentive|bar incentive|flat rental|minimum spend|chi)\b/i),
       question('security_promo', 'Ops + promo', 'Do you need security, promoters, VIP tables, or guest list management?', /\b(security|promoters?|vip tables?|guest list|bottle service)\b/i),
     ],
     'run club': [
@@ -619,7 +619,7 @@ export function detectMockEventType(message: string): string | null {
   if (/\b(launch party|product launch|brand launch|release party)\b/.test(lower)) return 'launch party'
   if (/\b(birthday|milestone birthday)\b/.test(lower)) return 'birthday'
   if (/\b(afterparty|after party)\b/.test(lower)) return 'afterparty'
-  if (/\b(house party|kickback|pregame)\b/.test(lower)) return 'house party'
+  if (/\b(house party|pregame)\b/.test(lower)) return 'house party'
   if (/\b(watch party|screening|sports watch|movie watch)\b/.test(lower)) return 'watch party'
   if (/\b(run club|running club|social run|5k meetup)\b/.test(lower)) return 'run club'
   if (/\b(tennis|tennis event|tennis tournament|tennis clinic|tennis social)\b/.test(lower)) return 'tennis event'

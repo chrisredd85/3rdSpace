@@ -191,13 +191,14 @@ export function inferSupportedCommercialModels(venue: Record<string, unknown>): 
   const autoApprove = readRecord(venue.auto_approve_conditions)
 
   if (
-    venue.bar_rev_share_enabled === true ||
+    venue.bar_consumption_share_enabled === true ||
     venue.bar_revenue_share_enabled === true ||
-    (readNumber(venue.bar_rev_share_pct ?? venue.bar_revenue_share_pct ?? venue.bar_revenue_percentage) ?? 0) > 0
+    venue.bar_rev_share_enabled === true ||
+    (readNumber(venue.bar_consumption_share_pct ?? venue.bar_revenue_share_percent ?? venue.bar_revenue_percentage) ?? 0) > 0
   ) {
-    models.add('bar_rev_share')
+    models.add('bar_consumption_share')
   }
-  if ((readVenuePerHeadKickbackCents(venue) ?? 0) > 0) {
+  if ((readVenuePerHeadChiCents(venue) ?? 0) > 0) {
     models.add('per_head')
   }
   if (
@@ -627,9 +628,9 @@ function readRecord(value: unknown): Record<string, unknown> | null {
   return null
 }
 
-function readVenuePerHeadKickbackCents(venue: Record<string, unknown>): number | null {
+function readVenuePerHeadChiCents(venue: Record<string, unknown>): number | null {
   return readCents(
-    venue.per_head_kickback_cents as number | string | null | undefined,
+    venue.per_head_chi_cents as number | string | null | undefined,
     (venue.per_head_kickback_amount ?? venue.per_head_kickback) as number | string | null | undefined
   )
 }

@@ -99,7 +99,7 @@ describe('runEconomicsAgent', () => {
     expect(userPayload.negotiated_savings_cents).toBe(25000)
   })
 
-  it('passes venue kickback inputs and labels expected kickback in narrative', async () => {
+  it('passes venue CHI inputs and labels expected CHI in narrative', async () => {
     const create = jest.fn().mockResolvedValue({
       choices: [{
         message: {
@@ -116,20 +116,20 @@ describe('runEconomicsAgent', () => {
 
     const result = await runEconomicsAgent({
       ...economicsInput,
-      venue_commercial_model: 'bar_revenue_share',
-      venue_kickback_rate: 10,
+      venue_commercial_model: 'bar_consumption_share',
+      venue_chi_rate: 10,
       estimated_spend_per_head_cents: 4000,
     }, { create })
 
     const messages = create.mock.calls[0][0].messages
     const userPayload = JSON.parse(messages[1].content)
     expect(userPayload.input_cents).toMatchObject({
-      venue_commercial_model: 'bar_revenue_share',
-      venue_kickback_rate: 10,
+      venue_commercial_model: 'bar_consumption_share',
+      venue_chi_rate: 10,
       estimated_spend_per_head_cents: 4000,
     })
-    expect(result.output.revenue_scenarios.expected.kickback_projection_cents).toBe(16800)
-    expect(result.output.narrative).toContain('Expected venue kickback: $168.')
+    expect(result.output.revenue_scenarios.expected.venue_chi_projection_cents).toBe(16800)
+    expect(result.output.narrative).toContain('Expected Community Host Incentive: $168.')
     expect(result.output.price_points.find((point) => point.price_cents === 5000)?.projected_net_cents).toBe(70000)
   })
 

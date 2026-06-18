@@ -352,8 +352,8 @@ export interface PlannerTemplate {
   ticket_price_model: Json
   /** Profit forecast assumptions from the source or template model. */
   profit_assumptions: Json
-  /** Per-head, revenue-share, or hybrid kickback assumptions. */
-  kickback_model: Json
+  /** Per-head, consumption-share, or hybrid CHI assumptions. */
+  chi_model: Json
   /** Reusable event timeline and run-of-show. */
   run_of_show: Json
   /** Reusable venue, vendor, staffing, ticketing, and supplies checklist. */
@@ -1114,8 +1114,8 @@ export interface AdminVenueSeedInput {
   contact_email: string
   /** Whether baseline AV is included in the venue package. */
   av_included: boolean
-  /** Per-head kickback amount in integer cents; null when none or unknown. */
-  per_head_kickback_amount: number | null
+  /** Per-head CHI amount in integer cents; null when none or unknown. */
+  per_head_chi_cents: number | null
   /** Internal notes for admin/concierge context. */
   notes: string | null
 }

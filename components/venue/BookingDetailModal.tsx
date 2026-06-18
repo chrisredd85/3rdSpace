@@ -63,9 +63,9 @@ export function BookingDetailModal({
   const venue = booking.venues as any
   const hourlyRateCents = readCents(venue?.hourly_rate_cents, venue?.hourly_rate)
   const dailyRateCents = readCents(venue?.daily_rate_cents, venue?.daily_rate)
-  const perHeadKickbackCents = readCents(
-    venue?.per_head_kickback_cents,
-    venue?.per_head_kickback_amount ?? venue?.per_head_kickback
+  const perHeadChiCents = readCents(
+    venue?.per_head_chi_cents,
+    venue?.per_head_chi_cents ?? venue?.per_head_chi_cents
   )
 
   const organizerId = event?.profiles?.id || event?.builder_id
@@ -372,16 +372,16 @@ export function BookingDetailModal({
                   <span className="font-medium">{venue.ticket_sales_share_percent || 0}%</span>
                 </div>
               )}
-              {venue?.bar_revenue_share_enabled && (
+              {venue?.bar_consumption_share_enabled && (
                 <div className="flex justify-between text-sm">
                   <span className="text-ink-soft">Bar Sales Incentive</span>
-                  <span className="font-medium">{venue.bar_revenue_share_percent || 0}%</span>
+                  <span className="font-medium">{venue.bar_consumption_share_percent || 0}%</span>
                 </div>
               )}
-              {(perHeadKickbackCents ?? 0) > 0 && (
+              {(perHeadChiCents ?? 0) > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-ink-soft">Per-Head Incentive</span>
-                  <span className="font-medium">{formatCents(perHeadKickbackCents ?? 0)}/guest</span>
+                  <span className="font-medium">{formatCents(perHeadChiCents ?? 0)}/guest</span>
                 </div>
               )}
               <div className="border-t border-tan pt-2 mt-2">

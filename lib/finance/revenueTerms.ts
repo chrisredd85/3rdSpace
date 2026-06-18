@@ -9,11 +9,11 @@ export const revenueTermTypes = [
   'sales_tax',
   'ticketing_fee',
   'service_fee',
-  'venue_kickback',
   'venue_chi',
+  'venue_kickback',
   'venue_minimum_spend',
-  'vendor_rev_share',
   'vendor_consumption_share',
+  'vendor_rev_share',
   'sponsor_credit',
   'other',
 ] as const
@@ -113,11 +113,7 @@ export type RevenueTermsSummary = {
   platform_fee_cents: number
   venue_chi_cents: number
   vendor_consumption_share_cents: number
-  /** @deprecated Use venue_chi_cents. Kept until δ.5 removes legacy compat. */
-  venue_kickback_cents: number
   sponsor_credit_cents: number
-  /** @deprecated Use vendor_consumption_share_cents. Kept until δ.5 removes legacy compat. */
-  vendor_rev_share_cents: number
   venue_minimum_spend_cents: number
   other_cents: number
 }
@@ -286,9 +282,7 @@ export function summarizeRevenueTermImpacts(
     platform_fee_cents: 0,
     venue_chi_cents: 0,
     vendor_consumption_share_cents: 0,
-    venue_kickback_cents: 0,
     sponsor_credit_cents: 0,
-    vendor_rev_share_cents: 0,
     venue_minimum_spend_cents: 0,
     other_cents: 0,
   }
@@ -300,12 +294,10 @@ export function summarizeRevenueTermImpacts(
     }
     if (isVenueChiTerm(impact.term_type)) {
       summary.venue_chi_cents += impact.amount_cents
-      summary.venue_kickback_cents += impact.amount_cents
     }
     if (impact.term_type === 'sponsor_credit') summary.sponsor_credit_cents += impact.amount_cents
     if (isVendorConsumptionShareTerm(impact.term_type)) {
       summary.vendor_consumption_share_cents += impact.amount_cents
-      summary.vendor_rev_share_cents += impact.amount_cents
     }
     if (impact.term_type === 'venue_minimum_spend') summary.venue_minimum_spend_cents += impact.amount_cents
     if (impact.term_type === 'other') summary.other_cents += impact.amount_cents

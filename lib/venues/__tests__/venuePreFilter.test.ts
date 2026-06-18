@@ -29,12 +29,12 @@ function makeVenue(overrides: Partial<VenueMatchingCandidate> = {}): VenueMatchi
     hourly_rate: 125000,
     minimum_hours: 3,
     is_published: true,
-    per_head_kickback: null,
-    offers_kickbacks: false,
+    per_head_chi_cents: null,
+    offers_chis: false,
     deposit_percentage: 25,
     cancellation_terms: 'Refundable until 14 days out.',
     available_days: ['friday', 'saturday'],
-    bar_revenue_share_enabled: false,
+    bar_consumption_share_enabled: false,
     venue_amenities: [{ amenity_name: 'private dining room' }],
     ...overrides,
   }
@@ -62,8 +62,8 @@ describe('preFilterVenues', () => {
       standing_capacity: 90 + index,
       seated_capacity: 80 + index,
       hourly_rate: 100000 + index * 5000,
-      offers_kickbacks: index % 2 === 0,
-      bar_revenue_share_enabled: index % 3 === 0,
+      offers_chis: index % 2 === 0,
+      bar_consumption_share_enabled: index % 3 === 0,
     }))
 
     const result = preFilterVenues({

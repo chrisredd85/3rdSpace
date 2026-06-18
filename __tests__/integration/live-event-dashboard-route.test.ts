@@ -406,7 +406,7 @@ function makePnl(): EventPnL {
       crossed_at: '2026-06-02T00:00:00.000Z',
     },
     margin_pct: 20,
-    rev_share_adjustments: [],
+    consumption_share_adjustments: [],
     terms_conflict: false,
   }
 }

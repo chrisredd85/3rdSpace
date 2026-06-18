@@ -3,7 +3,7 @@ import { z } from 'zod'
 export type CommercialModel =
   | 'flat_rental'
   | 'minimum_spend'
-  | 'bar_rev_share'
+  | 'bar_consumption_share'
   | 'per_head'
   | 'prix_fixe'
   | 'sponsor_share'
@@ -173,7 +173,7 @@ export interface EventArchetypeConfig {
 export const commercialModelSchema = z.enum([
   'flat_rental',
   'minimum_spend',
-  'bar_rev_share',
+  'bar_consumption_share',
   'per_head',
   'prix_fixe',
   'sponsor_share',

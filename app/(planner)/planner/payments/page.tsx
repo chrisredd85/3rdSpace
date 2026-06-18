@@ -19,7 +19,7 @@ type BuilderPayoutPayment = {
   payout_cents?: number | null
   processing_fee_cents?: number | null
   reported_revenue_cents?: number | null
-  revenue_share_percent?: number | null
+  consumption_share_percent?: number | null
   refund_amount_cents?: number | null
   refund_reason?: string | null
   invoice_hosted_url?: string | null

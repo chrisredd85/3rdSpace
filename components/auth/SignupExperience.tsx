@@ -1005,7 +1005,7 @@ function VenueSignupFlow({
     amenities: [] as string[],
     houseRules: '',
     isBar: false,
-    barKickback: '10',
+    barChiPct: '10',
     perHeadDrinkPct: '15',
     minBarSpend: '',
     pricePerNight: '',
@@ -1123,7 +1123,7 @@ function VenueSignupFlow({
           amenities: form.amenities,
           house_rules: form.houseRules,
           has_bar: form.isBar,
-          bar_kickback_pct: form.isBar ? parseFloat(form.barKickback) : null,
+          bar_chi_pct: form.isBar ? parseFloat(form.barChiPct) : null,
           per_head_drink_pct: form.isBar ? parseFloat(form.perHeadDrinkPct) : null,
           min_bar_spend: form.isBar ? parseFloat(form.minBarSpend) : null,
           price_per_night: parseFloat(form.pricePerNight) || 0,
@@ -1281,7 +1281,7 @@ function VenueSignupFlow({
             <NestedReveal>
               <div className="grid gap-4 sm:grid-cols-3">
                 <Field label="Bar Community Host Incentive to creator (%)">
-                  <Input type="number" value={form.barKickback} onChange={(e) => setForm({ ...form, barKickback: e.target.value })} placeholder="10" />
+                  <Input type="number" value={form.barChiPct} onChange={(e) => setForm({ ...form, barChiPct: e.target.value })} placeholder="10" />
                 </Field>
                 <Field label="Per-head drink sales (%)">
                   <Input type="number" value={form.perHeadDrinkPct} onChange={(e) => setForm({ ...form, perHeadDrinkPct: e.target.value })} placeholder="15" />

@@ -56,7 +56,7 @@ export type EventPnL = {
     crossed_at: string | null
   }
   margin_pct: number
-  rev_share_adjustments: Array<{
+  consumption_share_adjustments: Array<{
     party_name: string
     type: string
     amount_cents: number
@@ -215,7 +215,7 @@ export async function computeEventPnL(
     margin_pct: revenue.net_revenue_cents > 0
       ? roundRatio((expectedNetCents / revenue.net_revenue_cents) * 100)
       : 0,
-    rev_share_adjustments: termCostAdjustments.rev_share_adjustments,
+    consumption_share_adjustments: termCostAdjustments.consumption_share_adjustments,
     terms_conflict: termCostAdjustments.terms_conflict,
   }
 }
@@ -616,7 +616,7 @@ function buildTermCostAdjustments(input: {
   barRevenueCents: number
 }) {
   const basis = buildRevenueTermBasisFromActuals(input.revenue, input.barRevenueCents)
-  const adjustments: EventPnL['rev_share_adjustments'] = []
+  const adjustments: EventPnL['consumption_share_adjustments'] = []
   let committedCents = 0
   let termsConflict = false
 
@@ -648,7 +648,7 @@ function buildTermCostAdjustments(input: {
 
   return {
     committed_cents: committedCents,
-    rev_share_adjustments: adjustments,
+    consumption_share_adjustments: adjustments,
     terms_conflict: termsConflict,
   }
 }

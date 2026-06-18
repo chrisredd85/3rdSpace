@@ -5,7 +5,7 @@ import { AgentRunExecutionError, type AgentResult } from '@/lib/ai/types'
 import { buildAgentRunMetadata, type AgentMessagePayload } from '@/lib/ai/run-metadata'
 import {
   calculateEventPlanningEconomics,
-  calculateVenueKickbackProjectionCents,
+  calculateVenueChiProjectionCents,
   eventPlanningEconomicsInputSchema,
   eventPlanningEconomicsOutputSchema,
 } from '@/lib/finance/eventPlanningEconomics'
@@ -167,7 +167,7 @@ export async function runEconomicsAgent(
           ticket_price_cents: input.ticket_price_cents,
           sponsorship_revenue_cents: input.sponsorship_revenue_cents,
           venue_commercial_model: input.venue_commercial_model ?? null,
-          venue_kickback_rate: input.venue_kickback_rate,
+          venue_chi_rate: input.venue_chi_rate,
           estimated_spend_per_head_cents: input.estimated_spend_per_head_cents,
           cost_confidence: input.cost_confidence,
           negotiated_savings_cents: input.negotiated_savings_cents,
@@ -226,7 +226,7 @@ export async function runEconomicsAgent(
     const narrative = buildNarrative(
       recommendation,
       historicalAnchor,
-      calculations.revenue_scenarios.expected.kickback_projection_cents,
+      calculations.revenue_scenarios.expected.venue_chi_projection_cents,
       input.mode,
       liveTriggers
     )
@@ -265,9 +265,9 @@ function buildPricePoints(
 
   return sweep.map((priceCents) => {
     const grossTicketRevenueCents = input.expected_attendance * priceCents
-    const kickbackProjectionCents = calculateVenueKickbackProjectionCents({
+    const chiProjectionCents = calculateVenueChiProjectionCents({
       model: input.venue_commercial_model,
-      kickbackRate: input.venue_kickback_rate,
+      chiRate: input.venue_chi_rate,
       attendance: input.expected_attendance,
       grossTicketRevenueCents,
       estimatedSpendPerHeadCents: input.estimated_spend_per_head_cents,
@@ -275,7 +275,7 @@ function buildPricePoints(
     const projectedNetCents = input.expected_attendance * priceCents +
       input.sponsorship_revenue_cents -
       totalCostCents +
-      kickbackProjectionCents
+      chiProjectionCents
 
     return {
       price_cents: priceCents,
@@ -414,17 +414,17 @@ function mergePricePointNarrative(
 function buildNarrative(
   recommendation: z.infer<typeof economicsRecommendationSchema>,
   historicalAnchor: string | null,
-  expectedKickbackProjectionCents: number,
+  expectedChiProjectionCents: number,
   mode: z.infer<typeof economicsModeSchema>,
   liveTriggers: LiveTrigger[]
 ): string {
   const narrative = recommendation.narrative ?? recommendation.recommendation_summary
-  const withKickbackLine = expectedKickbackProjectionCents > 0
-    ? `${narrative} Expected venue kickback: ${formatCurrency(expectedKickbackProjectionCents)}.`
+  const withChiLine = expectedChiProjectionCents > 0
+    ? `${narrative} Expected Community Host Incentive: ${formatCurrency(expectedChiProjectionCents)}.`
     : narrative
   const withTriggerEvidence = mode === 'live' && liveTriggers.length > 0
-    ? `${withKickbackLine} ${formatLiveTriggerEvidence(liveTriggers)}`
-    : withKickbackLine
+    ? `${withChiLine} ${formatLiveTriggerEvidence(liveTriggers)}`
+    : withChiLine
 
   if (!historicalAnchor) return withTriggerEvidence
   if (withTriggerEvidence.startsWith(historicalAnchor)) return withTriggerEvidence

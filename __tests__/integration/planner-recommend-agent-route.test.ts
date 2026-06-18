@@ -290,12 +290,12 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       hourly_rate_cents: 50000,
       minimum_hours: 4,
       is_published: true,
-      per_head_kickback: null,
-      offers_kickbacks: false,
+      per_head_chi_cents: null,
+      offers_chis: false,
       deposit_percentage: 25,
       cancellation_terms: 'Refundable until 14 days out.',
       available_days: ['friday'],
-      bar_revenue_share_enabled: false,
+      bar_consumption_share_enabled: false,
       venue_amenities: Array.from(new Set([
         'private dining room',
         ...ARCHETYPES.flatMap((archetype) => [

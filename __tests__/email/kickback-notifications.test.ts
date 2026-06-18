@@ -147,7 +147,7 @@ describe('kickback notification email wrappers', () => {
 
     expect(result.sent).toBe(true)
     expect(body.to).toEqual(['venue@example.com'])
-    expect(body.subject).toBe('Payment due - Revenue share for Tech Mixer')
+    expect(body.subject).toBe('Payment due - Community Host Incentive for Tech Mixer')
     expect(body.html).toContain('With ACH processing fee: $517.71')
     expect(body.html).toContain('https://invoice.test/in_1')
   })
@@ -159,7 +159,7 @@ describe('kickback notification email wrappers', () => {
     expect(result.sent).toBe(true)
     expect(body.to).toEqual(['builder@example.com'])
     expect(body.subject).toBe('You received $513.60 from The Roof')
-    expect(body.html).toContain('12% bar revenue share agreement')
+    expect(body.html).toContain('12% bar consumption CHI agreement')
   })
 
   it('sends venue overdue warning at the booking pause threshold', async () => {

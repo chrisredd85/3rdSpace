@@ -69,7 +69,7 @@ describe('calculateEventPlanningEconomics', () => {
     expect(output.break_even_attendance).toBe(47)
   })
 
-  it('adds venue kickback projection as positive revenue by commercial model', () => {
+  it('adds venue CHI projection as positive revenue by commercial model', () => {
     const barShareOutput = calculateEventPlanningEconomics({
       event_plan: eventPlan,
       budget_line_items: [],
@@ -78,14 +78,14 @@ describe('calculateEventPlanningEconomics', () => {
       vendor_cost_cents: 50000,
       ticket_price_cents: 5000,
       sponsorship_revenue_cents: 0,
-      venue_commercial_model: 'bar_revenue_share',
-      venue_kickback_rate: 10,
+      venue_commercial_model: 'bar_consumption_share',
+      venue_chi_rate: 10,
       estimated_spend_per_head_cents: 4000,
     })
 
     expect(barShareOutput.revenue_scenarios.expected).toEqual(expect.objectContaining({
       attendance: 42,
-      kickback_projection_cents: 16800,
+      venue_chi_projection_cents: 16800,
       total_revenue_cents: 226800,
       profit_cents: 26800,
     }))
@@ -99,11 +99,11 @@ describe('calculateEventPlanningEconomics', () => {
       vendor_cost_cents: 50000,
       ticket_price_cents: 5000,
       sponsorship_revenue_cents: 0,
-      venue_commercial_model: 'per_head_kickback',
-      venue_kickback_rate: 300,
+      venue_commercial_model: 'per_head_chi_cents',
+      venue_chi_rate: 300,
     })
 
-    expect(perHeadOutput.revenue_scenarios.expected.kickback_projection_cents).toBe(12600)
+    expect(perHeadOutput.revenue_scenarios.expected.venue_chi_projection_cents).toBe(12600)
     expect(perHeadOutput.revenue_scenarios.expected.profit_cents).toBe(22600)
   })
 

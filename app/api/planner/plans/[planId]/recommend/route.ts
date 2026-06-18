@@ -2479,7 +2479,7 @@ function buildRankingInput(
     ticketing_model: plan.ticketing_model ?? readString(summary.ticketing_model),
     food_responsibility: plan.food_responsibility ?? readString(summary.food_responsibility),
     venue_terms: plan.venue_terms ?? readString(summary.venue_terms),
-    revenue_share: readString(summary.revenue_share),
+    consumption_share: readString(summary.consumption_share ?? summary.revenue_share),
     room_type: readString(summary.room_type),
     date_window:
       readString(summary.date) ??
@@ -2541,7 +2541,7 @@ function buildEconomicsPayload(
     vendorCostSummary: VendorEconomicsCostSummary
   }
 ): EconomicsAgentInput {
-  const venueKickback = deriveVenueKickbackEconomics(context.venue)
+  const venueChi = deriveVenueChiEconomics(context.venue)
 
   return {
     event_plan: eventPlan,
@@ -2551,8 +2551,8 @@ function buildEconomicsPayload(
     vendor_cost_cents: vendorCostCents,
     ticket_price_cents: plan.ticketed ? eventPlan.ticket_price_target ?? 0 : 0,
     sponsorship_revenue_cents: 0,
-    venue_commercial_model: venueKickback.venue_commercial_model,
-    venue_kickback_rate: venueKickback.venue_kickback_rate ?? 0,
+    venue_commercial_model: venueChi.venue_commercial_model,
+    venue_chi_rate: venueChi.venue_chi_rate ?? 0,
     estimated_spend_per_head_cents: 4000,
     cost_confidence: context.vendorCostSummary.cost_confidence,
     negotiated_savings_cents: context.vendorCostSummary.negotiated_savings_cents,
@@ -2582,33 +2582,33 @@ function buildEconomicsPayload(
   }
 }
 
-function deriveVenueKickbackEconomics(venue: VenueMatchingCandidate | null): Partial<Pick<
+function deriveVenueChiEconomics(venue: VenueMatchingCandidate | null): Partial<Pick<
   EconomicsAgentInput,
-  'venue_commercial_model' | 'venue_kickback_rate'
+  'venue_commercial_model' | 'venue_chi_rate'
 >> {
   if (!venue) return {}
 
-  const barRevenueSharePercent = readNumber(venue.bar_revenue_share_percent)
-  if (venue.bar_revenue_share_enabled && barRevenueSharePercent && barRevenueSharePercent > 0) {
+  const barConsumptionSharePercent = readNumber(venue.bar_consumption_share_percent)
+  if (venue.bar_consumption_share_enabled && barConsumptionSharePercent && barConsumptionSharePercent > 0) {
     return {
-      venue_commercial_model: 'bar_revenue_share',
-      venue_kickback_rate: barRevenueSharePercent,
+      venue_commercial_model: 'bar_consumption_share',
+      venue_chi_rate: barConsumptionSharePercent,
     }
   }
 
   const ticketSharePercent = readNumber(venue.ticket_sales_share_percent)
   if (venue.ticket_sales_share_enabled && ticketSharePercent && ticketSharePercent > 0) {
     return {
-      venue_commercial_model: 'ticket_revenue_share',
-      venue_kickback_rate: ticketSharePercent,
+      venue_commercial_model: 'ticket_consumption_share',
+      venue_chi_rate: ticketSharePercent,
     }
   }
 
-  const perHeadKickbackCents = readCents(venue.per_head_kickback)
-  if (perHeadKickbackCents && perHeadKickbackCents > 0) {
+  const perHeadChiCents = readCents(venue.per_head_chi_cents)
+  if (perHeadChiCents && perHeadChiCents > 0) {
     return {
-      venue_commercial_model: 'per_head_kickback',
-      venue_kickback_rate: perHeadKickbackCents,
+      venue_commercial_model: 'per_head_chi_cents',
+      venue_chi_rate: perHeadChiCents,
     }
   }
 
@@ -3095,16 +3095,22 @@ function toVenueMatchingCandidate(row: Record<string, unknown>): VenueMatchingCa
     ),
     minimum_hours: readNumber(row.minimum_hours),
     is_published: readBoolean(row.is_published),
-    per_head_kickback: readCents(
-      row.per_head_kickback_cents as number | string | null | undefined,
-      row.per_head_kickback as number | string | null | undefined
+    per_head_chi_cents: readCents(
+      row.per_head_chi_cents as number | string | null | undefined,
+      (row.per_head_kickback_cents ?? row.per_head_kickback) as number | string | null | undefined
     ),
-    offers_kickbacks: readBoolean(row.offers_kickbacks),
+    offers_chis: readBoolean(row.offers_chis ?? row.offers_kickbacks),
     deposit_percentage: readNumber(row.deposit_percentage),
     cancellation_terms: readString(row.cancellation_terms),
     available_days: readStringArray(row.available_days),
-    bar_revenue_share_enabled: readBoolean(row.bar_revenue_share_enabled),
-    bar_revenue_share_percent: readNumber(row.bar_revenue_share_percent ?? row.bar_rev_share_pct ?? row.bar_revenue_percentage),
+    bar_consumption_share_enabled: readBoolean(row.bar_consumption_share_enabled ?? row.bar_revenue_share_enabled),
+    bar_consumption_share_percent: readNumber(
+      row.bar_consumption_share_percent ??
+      row.bar_consumption_share_pct ??
+      row.bar_revenue_share_percent ??
+      row.bar_rev_share_pct ??
+      row.bar_revenue_percentage
+    ),
     ticket_sales_share_enabled: readBoolean(row.ticket_sales_share_enabled),
     ticket_sales_share_percent: readNumber(row.ticket_sales_share_percent ?? row.ticket_sales_share_pct),
     venue_amenities: readVenueAmenities(row.venue_amenities),

@@ -40,15 +40,15 @@ export const venueMatchingCandidateSchema = z.object({
   hourly_rate: nullableNonnegativeNumberSchema,
   minimum_hours: z.number().int().nonnegative().nullable(),
   is_published: z.boolean().nullable(),
-  per_head_kickback: nullableNonnegativeNumberSchema,
-  bar_revenue_share_percent: nullableNonnegativeNumberSchema.optional(),
+  per_head_chi_cents: nullableNonnegativeNumberSchema,
+  bar_consumption_share_percent: nullableNonnegativeNumberSchema.optional(),
   ticket_sales_share_enabled: z.boolean().nullable().optional(),
   ticket_sales_share_percent: nullableNonnegativeNumberSchema.optional(),
-  offers_kickbacks: z.boolean().nullable(),
+  offers_chis: z.boolean().nullable(),
   deposit_percentage: nullableNonnegativeNumberSchema,
   cancellation_terms: nullableStringSchema,
   available_days: z.array(z.string().trim().min(1)).nullable(),
-  bar_revenue_share_enabled: z.boolean().nullable(),
+  bar_consumption_share_enabled: z.boolean().nullable(),
   venue_amenities: z.array(venueAmenitySchema).default([]),
 })
 
@@ -317,7 +317,7 @@ function scoreAvailableDayFit(
 }
 
 function scoreCommercialFit(venue: VenueMatchingCandidate): { score: number; reason: string | null } {
-  if (venue.offers_kickbacks || venue.bar_revenue_share_enabled || (venue.per_head_kickback ?? 0) > 0) {
+  if (venue.offers_chis || venue.bar_consumption_share_enabled || (venue.per_head_chi_cents ?? 0) > 0) {
     return { score: 8, reason: 'Venue has revenue-share or per-head economics available.' }
   }
 

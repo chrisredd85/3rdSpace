@@ -87,9 +87,9 @@ const SERVICE_QUESTION_COPY: Record<ServiceType, Omit<ArchetypeIntakeQuestion, '
   bartending: {
     id: 'bar_plan',
     label: 'Bar',
-    prompt: 'What bar setup do you want: hosted bar, cash bar, minimum spend, or revenue share?',
+    prompt: 'What bar setup do you want: hosted bar, cash bar, minimum spend, or bar consumption CHI?',
     field: 'food_responsibility',
-    answer_keywords: ['bar', 'bartender', 'hosted bar', 'cash bar', 'minimum spend', 'revenue share', 'drinks'],
+    answer_keywords: ['bar', 'bartender', 'hosted bar', 'cash bar', 'minimum spend', 'consumption share', 'chi', 'drinks'],
   },
   av_production: {
     id: 'av_production',
@@ -357,9 +357,9 @@ const MATCHING_FIELD_QUESTION_COPY: Record<MatchingField, Omit<ArchetypeIntakeQu
   preferred_commercial_model: {
     id: 'preferred_commercial_model',
     label: 'Commercial model',
-    prompt: 'Do you prefer flat rental, minimum spend, revenue share, package, or a flexible deal?',
+    prompt: 'Do you prefer flat rental, minimum spend, CHI, package, or a flexible deal?',
     field: 'preferred_commercial_model',
-    answer_keywords: ['flat rental', 'minimum spend', 'revenue share', 'bar rev', 'ticket share', 'package', 'flexible'],
+    answer_keywords: ['flat rental', 'minimum spend', 'chi', 'consumption share', 'ticket share', 'package', 'flexible'],
   },
 }
 
@@ -405,16 +405,16 @@ const AMENITY_QUESTION_COPY: Record<string, Omit<ArchetypeIntakeQuestion, 'sourc
   full_bar: {
     id: 'bar_plan',
     label: 'Bar',
-    prompt: 'What bar setup do you want: hosted bar, cash bar, minimum spend, or revenue share?',
+    prompt: 'What bar setup do you want: hosted bar, cash bar, minimum spend, or bar consumption CHI?',
     field: 'food_responsibility',
-    answer_keywords: ['bar', 'hosted bar', 'cash bar', 'minimum spend', 'revenue share', 'drinks'],
+    answer_keywords: ['bar', 'hosted bar', 'cash bar', 'minimum spend', 'consumption share', 'chi', 'drinks'],
   },
   bar: {
     id: 'bar_plan',
     label: 'Bar',
-    prompt: 'What bar setup do you want: hosted bar, cash bar, minimum spend, or revenue share?',
+    prompt: 'What bar setup do you want: hosted bar, cash bar, minimum spend, or bar consumption CHI?',
     field: 'food_responsibility',
-    answer_keywords: ['bar', 'hosted bar', 'cash bar', 'minimum spend', 'revenue share', 'drinks'],
+    answer_keywords: ['bar', 'hosted bar', 'cash bar', 'minimum spend', 'consumption share', 'chi', 'drinks'],
   },
   av: {
     id: 'av_production',
@@ -679,33 +679,33 @@ const AMENITY_QUESTION_COPY: Record<string, Omit<ArchetypeIntakeQuestion, 'sourc
 }
 
 const COMMERCIAL_QUESTION_COPY: Partial<Record<CommercialModel, Omit<ArchetypeIntakeQuestion, 'source' | 'required' | 'priority'>>> = {
-  bar_rev_share: {
+  bar_consumption_share: {
     id: 'venue_terms',
     label: 'Venue terms',
-    prompt: 'Do you prefer minimum spend, flat rental, bar revenue share, per-head kickback, or a flexible venue deal?',
+    prompt: 'Do you prefer minimum spend, flat rental, bar consumption CHI, per-head CHI, or a flexible venue deal?',
     field: 'venue_terms',
-    answer_keywords: ['minimum spend', 'flat rental', 'bar revenue', 'revenue share', 'rev share', 'kickback', 'per-head', 'per head'],
+    answer_keywords: ['minimum spend', 'flat rental', 'bar consumption', 'consumption share', 'chi', 'per-head', 'per head'],
   },
   door_split: {
     id: 'venue_terms',
     label: 'Venue terms',
-    prompt: 'Do you want a door split, bar revenue share, flat rental, or minimum spend?',
+    prompt: 'Do you want a door incentive, bar consumption CHI, flat rental, or minimum spend?',
     field: 'venue_terms',
-    answer_keywords: ['door split', 'bar revenue', 'revenue share', 'flat rental', 'minimum spend'],
+    answer_keywords: ['door incentive', 'bar consumption', 'consumption share', 'flat rental', 'minimum spend', 'chi'],
   },
   ticket_split: {
     id: 'venue_terms',
     label: 'Venue terms',
-    prompt: 'Do you want a ticket split, flat rental, minimum spend, or bar revenue share?',
+    prompt: 'Do you want a ticket incentive, flat rental, minimum spend, or bar consumption CHI?',
     field: 'venue_terms',
-    answer_keywords: ['ticket split', 'flat rental', 'minimum spend', 'bar revenue', 'revenue share'],
+    answer_keywords: ['ticket incentive', 'flat rental', 'minimum spend', 'bar consumption', 'consumption share', 'chi'],
   },
   ticket_share: {
     id: 'venue_terms',
     label: 'Venue terms',
-    prompt: 'Do you want a ticket split, flat rental, minimum spend, or bar revenue share?',
+    prompt: 'Do you want a ticket incentive, flat rental, minimum spend, or bar consumption CHI?',
     field: 'venue_terms',
-    answer_keywords: ['ticket split', 'ticket share', 'flat rental', 'minimum spend', 'bar revenue'],
+    answer_keywords: ['ticket incentive', 'ticket share', 'flat rental', 'minimum spend', 'bar consumption', 'chi'],
   },
   external_checkout: {
     id: 'external_tickets',

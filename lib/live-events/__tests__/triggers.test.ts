@@ -260,7 +260,7 @@ function makePnl(overrides: DeepPartial<PnLSnapshot> = {}): PnLSnapshot {
       crossed_at: null,
     },
     margin_pct: 16.6667,
-    rev_share_adjustments: [],
+    consumption_share_adjustments: [],
     terms_conflict: false,
   }, overrides)
 }

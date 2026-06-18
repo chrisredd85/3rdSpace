@@ -16,7 +16,7 @@ export interface FinancialMetrics {
   expected_profit: number
   profit_margin: number
   break_even_tickets: number
-  venue_kickback_projection: number
+  venue_chi_projection: number
   venue_sales_share_projection: number
   per_attendee_value: number
 }
@@ -104,7 +104,7 @@ function createEmptyMetrics(venueCost = 0, vendorCost = 0): FinancialMetrics {
     expected_profit: roundMoney(-totalCosts),
     profit_margin: 0,
     break_even_tickets: 0,
-    venue_kickback_projection: 0,
+    venue_chi_projection: 0,
     venue_sales_share_projection: 0,
     per_attendee_value: 0,
   }
@@ -153,16 +153,16 @@ async function loadEventCosts(supabase: SupabaseClient, eventId: string) {
 }
 
 /**
- * Loads the per-head venue kickback rate configured for an event.
+ * Loads the per-head Community Host Incentive rate configured for an event.
  *
- * Kickback projections are only projections during sales. Actual kickbacks are
+ * CHI projections are only projections during sales. Actual CHI amounts are
  * calculated later by the database function from verified check-ins.
  *
- * @param supabase - Supabase client with permission to read kickback agreements.
+ * @param supabase - Supabase client with permission to read CHI agreements.
  * @param eventId - Internal event id.
- * @returns Per-attendee kickback amount, or 0 when no agreement exists.
+ * @returns Per-attendee CHI amount, or 0 when no agreement exists.
  */
-async function loadKickbackRate(supabase: SupabaseClient, eventId: string) {
+async function loadChiRate(supabase: SupabaseClient, eventId: string) {
   const { data, error } = await supabase
     .from('event_kickback_agreements')
     .select('per_head_amount')
@@ -245,7 +245,7 @@ async function saveFinancialSummary(
  * - Net revenue is gross revenue minus refunds and platform fees.
  * - Current attendance is tickets sold, not verified attendance.
  * - Projected attendance uses an 85% show-up assumption.
- * - Venue kickback projection uses projected attendance, but actual kickback
+ * - Venue CHI projection uses projected attendance, but actual CHI
  *   is only paid later from verified CSV check-ins.
  *
  * @param supabase - Supabase client with access to sales, bookings, events, and summaries.
@@ -262,7 +262,7 @@ export async function recalculateEventFinancials(
     { data: salesData, error: salesError },
     { data: event, error: eventError },
     costs,
-    kickbackRate,
+    chiRate,
   ] = await Promise.all([
     supabase
       .from('event_sales_data')
@@ -274,7 +274,7 @@ export async function recalculateEventFinancials(
       .eq('id', eventId)
       .maybeSingle(),
     loadEventCosts(supabase, eventId),
-    loadKickbackRate(supabase, eventId),
+    loadChiRate(supabase, eventId),
   ])
 
   if (salesError) throw salesError
@@ -320,7 +320,7 @@ export async function recalculateEventFinancials(
   const venueSalesShareProjection = venueTicketSalesShare.enabled
     ? projectedRevenue * (venueTicketSalesShare.percent / 100)
     : 0
-  const venueKickbackProjection = projectedAttendance * kickbackRate + venueSalesShareProjection
+  const venueChiProjection = projectedAttendance * chiRate + venueSalesShareProjection
   const perAttendeeValue = currentAttendance > 0 ? netRevenue / currentAttendance : 0
 
   const metrics: FinancialMetrics = {
@@ -339,7 +339,7 @@ export async function recalculateEventFinancials(
     expected_profit: roundMoney(expectedProfit),
     profit_margin: roundMoney(profitMargin),
     break_even_tickets: breakEvenTickets,
-    venue_kickback_projection: roundMoney(venueKickbackProjection),
+    venue_chi_projection: roundMoney(venueChiProjection),
     venue_sales_share_projection: roundMoney(venueSalesShareProjection),
     per_attendee_value: roundMoney(perAttendeeValue),
   }

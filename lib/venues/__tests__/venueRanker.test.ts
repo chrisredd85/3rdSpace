@@ -36,7 +36,7 @@ describe('venue archetype ranker', () => {
           id: 'bar',
           venue_type: 'bar',
           standing_capacity: 120,
-          bar_revenue_share_enabled: true,
+          bar_consumption_share_enabled: true,
           unique_features_tags: ['standing_room', 'full_bar'],
         }),
       ],
@@ -128,7 +128,7 @@ describe('venue archetype ranker', () => {
     expect(ranked[0].venue.id).toBe('sweet-spot-market')
   })
 
-  it('Commercial model alignment: bar with rev share scores higher than bar with flat rental for a mixer', () => {
+  it('Commercial model alignment: bar with CHI scores higher than bar with flat rental for a mixer', () => {
     const archetype = archetypeFor('mixer')
     const ranked = rankVenuesForArchetype({
       archetype,
@@ -142,16 +142,16 @@ describe('venue archetype ranker', () => {
           unique_features_tags: ['standing_room', 'full_bar'],
         }),
         makeVenue({
-          id: 'rev-share-bar',
+          id: 'chi-bar',
           venue_type: 'bar',
           standing_capacity: 100,
-          bar_revenue_share_enabled: true,
+          bar_consumption_share_enabled: true,
           unique_features_tags: ['standing_room', 'full_bar'],
         }),
       ],
     })
 
-    expect(ranked[0].venue.id).toBe('rev-share-bar')
+    expect(ranked[0].venue.id).toBe('chi-bar')
     expect(ranked[0].score.commercial_model_alignment_score).toBeGreaterThan(
       ranked[1].score.commercial_model_alignment_score
     )
@@ -167,14 +167,14 @@ describe('venue archetype ranker', () => {
           id: 'fits-stated-only',
           venue_type: 'bar',
           standing_capacity: 120,
-          bar_revenue_share_enabled: true,
+          bar_consumption_share_enabled: true,
           unique_features_tags: ['standing_room', 'full_bar'],
         }),
         makeVenue({
           id: 'fits-history',
           venue_type: 'bar',
           standing_capacity: 220,
-          bar_revenue_share_enabled: true,
+          bar_consumption_share_enabled: true,
           unique_features_tags: ['standing_room', 'full_bar'],
         }),
       ],
@@ -206,14 +206,14 @@ describe('venue archetype ranker', () => {
         id: 'smaller-bar',
         venue_type: 'bar',
         standing_capacity: 70,
-        bar_revenue_share_enabled: true,
+        bar_consumption_share_enabled: true,
         unique_features_tags: ['standing_room', 'full_bar'],
       }),
       makeVenue({
         id: 'larger-bar',
         venue_type: 'bar',
         standing_capacity: 120,
-        bar_revenue_share_enabled: true,
+        bar_consumption_share_enabled: true,
         unique_features_tags: ['standing_room', 'full_bar'],
       }),
     ]

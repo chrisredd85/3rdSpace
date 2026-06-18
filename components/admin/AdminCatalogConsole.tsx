@@ -261,7 +261,7 @@ function buildPayload(kind: CatalogKind, form: Record<string, string>) {
       minimum_spend: null,
       contact_email: form.contact_email,
       av_included: false,
-      per_head_kickback_amount: null,
+      per_head_chi_cents: null,
       notes: form.notes || null,
     }
   }

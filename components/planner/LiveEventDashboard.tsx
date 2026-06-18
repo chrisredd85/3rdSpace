@@ -76,7 +76,7 @@ type LiveEventSnapshot = {
       crossed_at: string | null
     }
     margin_pct: number
-    rev_share_adjustments: Array<{
+    consumption_share_adjustments: Array<{
       party_name: string
       type: string
       amount_cents: number
@@ -148,9 +148,9 @@ type LiveEventSnapshot = {
     summary: {
       sales_tax_cents: number
       platform_fee_cents: number
-      venue_kickback_cents: number
+      venue_chi_cents: number
       sponsor_credit_cents: number
-      vendor_rev_share_cents: number
+      vendor_consumption_share_cents: number
       venue_minimum_spend_cents: number
       other_cents: number
     }
@@ -490,7 +490,7 @@ export function LiveEventDashboard({ eventId }: LiveEventDashboardProps) {
           <div className="mt-4 space-y-3">
             <MiniMetric label="Taxes" value={`-${formatCents(snapshot.revenue_terms.summary.sales_tax_cents)}`} />
             <MiniMetric label="Platform fees" value={`-${formatCents(snapshot.revenue_terms.summary.platform_fee_cents)}`} />
-            <MiniMetric label="Community Host Incentive" value={formatCents(snapshot.revenue_terms.summary.venue_kickback_cents)} />
+            <MiniMetric label="Community Host Incentive" value={formatCents(snapshot.revenue_terms.summary.venue_chi_cents)} />
             {snapshot.revenue_terms.impacts.slice(0, 3).map((impact) => (
               <MiniMetric
                 key={`${impact.term_id ?? impact.term_type}-${impact.party_name ?? 'term'}`}

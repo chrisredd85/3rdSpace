@@ -178,7 +178,7 @@ describe('rankCatalogPartners', () => {
         ticketing_model: 'Paid tickets',
         food_responsibility: 'Cash bar',
         venue_terms: 'Flexible',
-        revenue_share: 'Recommend best model',
+        consumption_share: 'Recommend best model',
       },
       venues: [
         {
@@ -190,7 +190,7 @@ describe('rankCatalogPartners', () => {
           standing_capacity: 180,
           hourly_rate_cents: 200_000,
           minimum_hours: 4,
-          per_head_kickback_cents: 800,
+          per_head_chi_cents: 800,
           unique_features_tags: ['AV', 'rooftop', 'bar'],
         },
       ],
@@ -202,13 +202,13 @@ describe('rankCatalogPartners', () => {
         partner_id: 'venue-per-head',
         estimate_cents: 40_000,
         metadata: expect.objectContaining({
-          category: 'per_head_kickback',
-          commercial_model: 'per_head_kickback',
-          commercial_model_label: 'Per-head kickback',
+          category: 'per_head_chi_cents',
+          commercial_model: 'per_head_chi_cents',
+          commercial_model_label: 'Per-head CHI',
           category_rank: 1,
           compared_models: expect.arrayContaining([
             expect.objectContaining({ model: 'flat_rental' }),
-            expect.objectContaining({ model: 'per_head_kickback' }),
+            expect.objectContaining({ model: 'per_head_chi_cents' }),
           ]),
         }),
       })

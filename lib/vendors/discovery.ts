@@ -123,7 +123,13 @@ export function buildVendorDiscoveryResult(
   availableOnDate?: boolean
 ): VendorDiscoveryResult {
   const vendor = normalizeVendorProfile(row)
-  const perHeadChiCents = Number(row.per_head_chi_cents ?? row.per_head_kickback ?? vendor.per_head_kickback ?? 0) || null
+  const perHeadChiCents =
+    Number(
+      row.per_head_chi_cents ??
+        (row as Record<string, unknown>).per_head_kickback ??
+        vendor.per_head_chi_cents ??
+        0
+    ) || null
   const prices = [
     ...services.map((service) => service.base_price).filter((price) => price > 0),
     Number(row.base_rate || 0),
@@ -133,7 +139,6 @@ export function buildVendorDiscoveryResult(
   return {
     ...vendor,
     per_head_chi_cents: perHeadChiCents,
-    per_head_kickback: vendor.per_head_kickback ?? perHeadChiCents,
     rating: Number(row.average_rating ?? row.rating ?? 0),
     review_count: Number(row.review_count ?? 0),
     total_bookings: Number(row.total_bookings ?? row.total_gigs ?? 0),
