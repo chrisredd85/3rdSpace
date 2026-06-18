@@ -147,6 +147,8 @@ describe('venue payouts rental refund UI', () => {
     render(<VenuePayoutsPage />)
 
     expect(await screen.findByText('Settlement ledger')).toBeInTheDocument()
+    expect(await screen.findByText('Settlement now runs automatically')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /create invoice|retry invoice|pay/i })).not.toBeInTheDocument()
     expect(await screen.findByText('POS proof needed')).toBeInTheDocument()
 
     await user.upload(

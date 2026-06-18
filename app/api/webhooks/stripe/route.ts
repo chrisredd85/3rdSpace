@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic'
+import * as Sentry from '@sentry/nextjs'
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sendBuilderPaidEmail, sendRefundCompletedEmail, sendVenuePaymentFailedEmail } from '@/lib/email'
@@ -40,6 +41,18 @@ export const runtime = 'nodejs'
 
 const KICKBACK_TRANSFER_NAMESPACE = 'venue_builder_kickback'
 const CHI_PAYMENT_TYPE = 'community_host_incentive'
+
+function captureLegacyCHIWebhook(stripeEventId: string, eventType: string, stripeObjectId: string) {
+  Sentry.captureMessage('legacy_chi_webhook_received', {
+    level: 'warning',
+    tags: {
+      action: 'legacy_chi_webhook_received',
+      stripe_event_id: stripeEventId,
+      stripe_event_type: eventType,
+    },
+    extra: { stripeObjectId },
+  })
+}
 
 function getPaymentIntentId(value: Stripe.PaymentIntent | string | null) {
   if (!value) return null
@@ -107,8 +120,12 @@ async function updateWebhookRowOrThrow(
   if (error) throw new Error(error.message ?? fallback)
 }
 
-async function applyKickbackCheckoutSessionCompleted(admin: any, session: Stripe.Checkout.Session) {
+async function applyKickbackCheckoutSessionCompleted(admin: any, session: Stripe.Checkout.Session, stripeEventId: string) {
   if (session.metadata?.payment_kind !== 'venue_builder_kickback') return false
+  // DEPRECATED: handles in-flight legacy CHI checkout webhooks. New CHI
+  // settlements use the 'chi_settlement' kind. Delete in delta.5 once Sentry
+  // shows zero hits for 7+ days.
+  captureLegacyCHIWebhook(stripeEventId, 'checkout.session.completed', session.id)
 
   const paymentId = session.metadata.kickback_payment_id
   if (!paymentId) return true
@@ -151,8 +168,12 @@ async function applyKickbackCheckoutSessionCompleted(admin: any, session: Stripe
   return true
 }
 
-async function applyKickbackPaymentIntent(admin: any, paymentIntent: Stripe.PaymentIntent) {
+async function applyKickbackPaymentIntent(admin: any, paymentIntent: Stripe.PaymentIntent, stripeEventId: string, eventType: string) {
   if (paymentIntent.metadata?.payment_kind !== 'venue_builder_kickback') return false
+  // DEPRECATED: handles in-flight legacy CHI checkout webhooks. New CHI
+  // settlements use the 'chi_settlement' kind. Delete in delta.5 once Sentry
+  // shows zero hits for 7+ days.
+  captureLegacyCHIWebhook(stripeEventId, eventType, paymentIntent.id)
 
   const paymentId = paymentIntent.metadata.kickback_payment_id
   if (!paymentId) return true
@@ -456,10 +477,14 @@ async function markLegacyCompatibilityPaymentRefunded(admin: any, paymentId: str
   )
 }
 
-async function applyKickbackInvoicePaid(admin: any, invoice: Stripe.Invoice) {
+async function applyKickbackInvoicePaid(admin: any, invoice: Stripe.Invoice, stripeEventId: string) {
   const paymentId = invoice.metadata?.kickback_payment_id
   if (!paymentId) return false
   if (invoice.metadata?.settlement_method !== 'invoice') return true
+  // DEPRECATED: handles in-flight legacy CHI checkout webhooks. New CHI
+  // settlements use the 'chi_settlement' kind. Delete in delta.5 once Sentry
+  // shows zero hits for 7+ days.
+  captureLegacyCHIWebhook(stripeEventId, 'invoice.paid', invoice.id)
 
   const principalCents = Number(invoice.metadata?.principal_cents ?? 0)
   const builderStripeAccountId = invoice.metadata?.builder_stripe_account_id
@@ -530,10 +555,14 @@ async function applyKickbackInvoicePaid(admin: any, invoice: Stripe.Invoice) {
   return true
 }
 
-async function applyKickbackInvoicePaymentFailed(admin: any, invoice: Stripe.Invoice) {
+async function applyKickbackInvoicePaymentFailed(admin: any, invoice: Stripe.Invoice, stripeEventId: string) {
   const paymentId = invoice.metadata?.kickback_payment_id
   if (!paymentId) return false
   if (invoice.metadata?.settlement_method !== 'invoice') return true
+  // DEPRECATED: handles in-flight legacy CHI checkout webhooks. New CHI
+  // settlements use the 'chi_settlement' kind. Delete in delta.5 once Sentry
+  // shows zero hits for 7+ days.
+  captureLegacyCHIWebhook(stripeEventId, 'invoice.payment_failed', invoice.id)
 
   await admin
     .from('kickback_payments')
@@ -824,7 +853,7 @@ export async function POST(request: NextRequest) {
       const session = event.data.object as Stripe.Checkout.Session
       const handledVenueRental = await applyVenueRentalCheckoutSessionCompleted(admin as any, session)
       if (!handledVenueRental) {
-        const handledKickback = await applyKickbackCheckoutSessionCompleted(admin as any, session)
+        const handledKickback = await applyKickbackCheckoutSessionCompleted(admin as any, session, event.id)
         if (!handledKickback) {
           await applyCheckoutSessionCompleted(admin as any, session)
         }
@@ -835,7 +864,7 @@ export async function POST(request: NextRequest) {
       const invoice = event.data.object as Stripe.Invoice
       const handledCHIInvoice = await applyCommunityHostIncentiveInvoicePaid(admin as any, invoice)
       if (!handledCHIInvoice) {
-        const handledKickbackInvoice = await applyKickbackInvoicePaid(admin as any, invoice)
+        const handledKickbackInvoice = await applyKickbackInvoicePaid(admin as any, invoice, event.id)
         if (!handledKickbackInvoice) {
           await applyInvoicePayment(admin as any, invoice)
         }
@@ -853,7 +882,7 @@ export async function POST(request: NextRequest) {
       const invoice = event.data.object as Stripe.Invoice
       const handledCHIInvoice = await applyCommunityHostIncentiveInvoicePaymentFailed(admin as any, invoice)
       if (!handledCHIInvoice) {
-        const handledKickbackInvoice = await applyKickbackInvoicePaymentFailed(admin as any, invoice)
+        const handledKickbackInvoice = await applyKickbackInvoicePaymentFailed(admin as any, invoice, event.id)
         if (!handledKickbackInvoice) {
           await applyInvoicePaymentFailed(admin as any, invoice)
         }
@@ -882,7 +911,7 @@ export async function POST(request: NextRequest) {
           paymentIntent
         )
         if (!handledPlannerDeposit) {
-          await applyKickbackPaymentIntent(admin as any, paymentIntent)
+          await applyKickbackPaymentIntent(admin as any, paymentIntent, event.id, event.type)
         }
       }
     }

@@ -5,7 +5,6 @@ import type { ComponentType } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   AlertCircle,
-  ArrowUpRight,
   Banknote,
   CalendarClock,
   CheckCircle2,
@@ -279,12 +278,6 @@ const statusStyles: Record<StatusTone, {
   },
 }
 
-function actionLabel(status: string) {
-  if (status === 'invoice_failed' || status === 'failed') return 'Retry invoice'
-  if (status === 'pending_venue_approval') return 'Create invoice'
-  return 'Pay'
-}
-
 function paymentSettlementCents(payment: VenueKickbackPayment) {
   return payment.payout_cents ?? payment.amount_cents ?? 0
 }
@@ -373,7 +366,6 @@ export default function VenuePayoutsPage() {
   const [isLoadingKickbacks, setIsLoadingKickbacks] = useState(true)
   const [rentals, setRentals] = useState<VenueRentalSummaryResponse | null>(null)
   const [isLoadingRentals, setIsLoadingRentals] = useState(true)
-  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null)
   const [refundLoading, setRefundLoading] = useState(false)
   const [refundPayment, setRefundPayment] = useState<VenueKickbackPayment | null>(null)
   const [refundAmount, setRefundAmount] = useState('')
@@ -512,26 +504,6 @@ export default function VenuePayoutsPage() {
     } catch (dashboardError) {
       setError(dashboardError instanceof Error ? dashboardError.message : 'Unable to open Stripe dashboard')
       setIsOpeningDashboard(false)
-    }
-  }
-
-  const payKickback = async (paymentId: string) => {
-    setCheckoutLoading(paymentId)
-    setError(null)
-
-    try {
-      const response = await fetch(`/api/venue/community-host-incentive/${paymentId}/checkout`, {
-        method: 'POST',
-        credentials: 'include',
-      })
-      const data = await response.json()
-
-      if (!response.ok) throw new Error(data.error || 'Unable to start Community Host Incentive payment')
-
-      window.location.href = data.checkoutUrl
-    } catch (checkoutError) {
-      setError(checkoutError instanceof Error ? checkoutError.message : 'Unable to start Community Host Incentive payment')
-      setCheckoutLoading(null)
     }
   }
 
@@ -844,7 +816,7 @@ export default function VenuePayoutsPage() {
           <SettlementMetric
             label="Needs action"
             value={formatCents(settlementTotals.needsAction)}
-            detail="Open invoices and failed payments"
+            detail="Automatic settlement records awaiting follow-up"
             icon={ReceiptText}
             tone="ready"
           />
@@ -886,8 +858,6 @@ export default function VenuePayoutsPage() {
               <SettlementRow
                 key={payment.id}
                 payment={payment}
-                checkoutLoading={checkoutLoading}
-                onPay={payKickback}
                 onRefund={openRefundRequest}
                 onSpendReportUploaded={handleSpendReportUploaded}
               />
@@ -1054,31 +1024,18 @@ function SettlementMetric({
 
 function SettlementRow({
   payment,
-  checkoutLoading,
-  onPay,
   onRefund,
   onSpendReportUploaded,
 }: {
   payment: VenueKickbackPayment
-  checkoutLoading: string | null
-  onPay: (paymentId: string) => void
   onRefund: (payment: VenueKickbackPayment) => void
   onSpendReportUploaded: () => void | Promise<void>
 }) {
   const tone = statusTone(payment.status)
   const styles = statusStyles[tone]
   const StatusIcon = statusIcon(payment.status)
-  const paymentId = payment.payment_id ?? payment.id
-  const canCreateInvoice = Boolean(payment.payment_id) && (
-    payment.status === 'pending' ||
-    payment.status === 'failed' ||
-    payment.status === 'pending_venue_approval' ||
-    payment.status === 'invoice_failed'
-  )
-  const canPayInvoice = payment.status === 'invoice_sent' && payment.invoice_hosted_url
   const canRequestRefund = payment.status === 'paid' || payment.status === 'completed'
   const amountCents = paymentSettlementCents(payment)
-  const isStarting = checkoutLoading === paymentId
 
   return (
     <article className={cn('group relative overflow-hidden rounded-lg border border-tan bg-cream p-5 shadow-card transition-smooth sm:p-6', styles.row)}>
@@ -1145,32 +1102,12 @@ function SettlementRow({
           </div>
 
           <div className="flex w-full flex-col gap-2 sm:flex-row lg:justify-end">
-            {canPayInvoice ? (
-              <Button type="button" variant="hero" className="w-full sm:w-auto" asChild>
-                <a href={payment.invoice_hosted_url ?? '#'}>
-                  Open invoice
-                  <ArrowUpRight className="h-4 w-4" />
-                </a>
-              </Button>
-            ) : null}
-            {canCreateInvoice ? (
-              <Button
-                type="button"
-                variant={payment.status === 'invoice_failed' || payment.status === 'failed' ? 'hero' : 'accent'}
-                className="w-full sm:w-auto"
-                disabled={Boolean(checkoutLoading)}
-                onClick={() => onPay(paymentId)}
-              >
-                {isStarting ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                    Starting
-                  </>
-                ) : (
-                  actionLabel(payment.status)
-                )}
-              </Button>
-            ) : null}
+            <div className="rounded-lg border border-forest/20 bg-forest/10 px-3 py-2 text-sm text-forest sm:max-w-72 lg:text-right">
+              <p className="font-semibold">Settlement now runs automatically</p>
+              <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+                CHI settlements are scheduled 7 days after each event. Check your email for settlement links when due.
+              </p>
+            </div>
             {canRequestRefund ? (
               <Button
                 type="button"
