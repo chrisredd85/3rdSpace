@@ -14,6 +14,11 @@ jest.mock('next/server', () => ({
   },
 }))
 
+jest.mock('@sentry/nextjs', () => ({
+  captureMessage: jest.fn(),
+}))
+
+import * as Sentry from '@sentry/nextjs'
 import { POST } from '@/app/api/webhooks/stripe/route'
 import { applyCheckoutSessionCompleted, applyInvoicePayment, applyInvoicePaymentFailed } from '@/lib/billing/builder-billing'
 import { applyPlannerStripePaymentIntentWebhook, applyPlannerStripeRefundWebhook } from '@/lib/planner/depositPayments'
@@ -63,6 +68,7 @@ const AGREEMENT_ID = 'agreement-1'
 const CHI_AGREEMENT_ID = 'chi-agreement-1'
 const CHI_SETTLEMENT_ID = 'chi-settlement-1'
 const VENUE_PAYMENT_ID = 'venue-payment-1'
+const mockCaptureMessage = Sentry.captureMessage as jest.Mock
 
 class MemoryDb {
   rows: Record<string, Row[]> = {
@@ -265,6 +271,7 @@ describe('Stripe kickback invoice webhook routing', () => {
 
   it('transfers 100% of invoice principal to the builder for kickback invoices', async () => {
     event = {
+      id: 'evt_legacy_invoice_paid',
       type: 'invoice.paid',
       data: {
         object: {
@@ -298,6 +305,15 @@ describe('Stripe kickback invoice webhook routing', () => {
     )
     expect(applyInvoicePayment).not.toHaveBeenCalled()
     expect(sendBuilderPaidEmail).toHaveBeenCalledWith({ paymentId: PAYMENT_ID })
+    expect(mockCaptureMessage).toHaveBeenCalledWith('legacy_chi_webhook_received', {
+      level: 'warning',
+      tags: {
+        action: 'legacy_chi_webhook_received',
+        stripe_event_id: 'evt_legacy_invoice_paid',
+        stripe_event_type: 'invoice.paid',
+      },
+      extra: { stripeObjectId: 'in_kickback' },
+    })
     expect(db.rows.kickback_payments[0]).toMatchObject({
       status: 'paid',
       stripe_transfer_id: 'tr_builder',
