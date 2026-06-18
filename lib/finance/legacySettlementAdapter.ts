@@ -1,5 +1,6 @@
 import { dollarsToCents } from '@/lib/money'
 import { calculateCHI } from '@/lib/finance/community-host-incentive/calculate'
+import { withConsumptionShareFlag } from '@/lib/finance/chi-nomenclature-sync'
 import type {
   CHIAgreementInput,
   CHISettlementResult,
@@ -274,7 +275,7 @@ async function upsertCHIAgreementForLegacySettlement(
     input.sourceAgreement,
     input.organizerUserId
   )
-  const payload = {
+  const payload = withConsumptionShareFlag({
     agreement_type: input.chiAgreementInput.agreementType,
     per_head_rate_cents: input.chiAgreementInput.perHeadRateCents ?? null,
     fixed_amount_cents: input.chiAgreementInput.fixedAmountCents ?? null,
@@ -288,6 +289,7 @@ async function upsertCHIAgreementForLegacySettlement(
     approved_at: input.chiAgreementInput.approvedAt,
     approved_by_venue_user_id: input.chiAgreementInput.approvedByVenueUserId,
     settlement_due_at: input.dueDateIso,
+    is_legacy_consumption_share: false,
     is_legacy_revenue_share: false,
     metadata: {
       source_table: 'event_kickback_agreements',
@@ -295,7 +297,7 @@ async function upsertCHIAgreementForLegacySettlement(
       legacy_payment_id: input.legacyPaymentId,
     },
     updated_at: input.now,
-  }
+  })
 
   if (existing?.id) {
     await updateOrThrow(
@@ -378,7 +380,7 @@ async function upsertCHISettlementForLegacySettlement(
 
   if (existingError) throw new Error(existingError.message ?? 'Failed to load CHI settlement')
 
-  const payload = {
+  const payload = withConsumptionShareFlag({
     event_id: input.sourceAgreement.event_id,
     verified_attendees: input.attendance.verifiedAttendees,
     verification_source: input.attendance.verificationSource,
@@ -388,6 +390,7 @@ async function upsertCHISettlementForLegacySettlement(
     applied_floor: input.chiResult.appliedFloor,
     applied_cap: input.chiResult.appliedCap,
     status: 'pending',
+    is_legacy_consumption_share: false,
     is_legacy_revenue_share: false,
     metadata: {
       source_table: 'event_kickback_agreements',
@@ -395,7 +398,7 @@ async function upsertCHISettlementForLegacySettlement(
       legacy_payment_id: input.legacyPaymentId,
     },
     updated_at: input.now,
-  }
+  })
 
   if ((existing as CHISettlementRowForLegacySettlement | null)?.id) {
     const settlement = existing as CHISettlementRowForLegacySettlement

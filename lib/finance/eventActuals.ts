@@ -5,6 +5,7 @@ import {
   listRevenueTerms,
   type RevenueTerm,
 } from '@/lib/finance/revenueTerms'
+import { isVendorConsumptionShareTerm } from '@/lib/finance/chi-nomenclature-sync'
 
 export type ActualsConfidence = 'low' | 'medium' | 'high'
 
@@ -620,26 +621,26 @@ function buildTermCostAdjustments(input: {
   let termsConflict = false
 
   for (const term of input.revenueTerms) {
-    if (term.term_type !== 'vendor_rev_share' && term.term_type !== 'venue_minimum_spend') continue
+    if (!isVendorConsumptionShareTerm(term.term_type) && term.term_type !== 'venue_minimum_spend') continue
 
     const impact = calculateRevenueTermImpact(term, basis)
     if (impact.amount_cents <= 0) continue
 
-    const category = term.term_type === 'vendor_rev_share' ? 'vendor' : 'venue'
+    const category = isVendorConsumptionShareTerm(term.term_type) ? 'vendor' : 'venue'
     const matchingManualAmount = sumMatchingCommitmentAmount(input.commitmentRows, {
       category,
       partyId: impact.party_id,
       partyName: impact.party_name,
     })
 
-    if (term.term_type === 'vendor_rev_share' && matchingManualAmount > 0) {
+    if (isVendorConsumptionShareTerm(term.term_type) && matchingManualAmount > 0) {
       termsConflict = true
     }
 
     const additionalCents = Math.max(impact.amount_cents - matchingManualAmount, 0)
     committedCents += additionalCents
     adjustments.push({
-      party_name: impact.party_name ?? (term.term_type === 'vendor_rev_share' ? 'Vendor rev share' : 'Venue minimum spend'),
+      party_name: impact.party_name ?? (isVendorConsumptionShareTerm(term.term_type) ? 'Vendor consumption share' : 'Venue minimum spend'),
       type: term.term_type,
       amount_cents: impact.amount_cents,
     })
