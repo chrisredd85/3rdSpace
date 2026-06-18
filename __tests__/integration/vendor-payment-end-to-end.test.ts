@@ -259,7 +259,7 @@ class MemoryQuery {
   }
 
   private hasActivePaymentIntent(approvalId: unknown) {
-    const activeStatuses = new Set(['requested', 'authorized', 'captured'])
+    const activeStatuses = new Set(['pending', 'requested', 'authorized', 'captured'])
     return this.db.rows.payment_intents.some((row) => (
       row.approval_id === approvalId &&
       activeStatuses.has(String(row.status))
@@ -513,6 +513,7 @@ describe('vendor payment approval to payout chain', () => {
         payment_method: 'pm_card_visa',
         metadata: expect.objectContaining({
           payment_kind: 'planner_deposit',
+          planner_payment_intent_id: authorizeBody.paymentIntent.id,
           plan_id: PLAN_ID,
           approval_id: APPROVAL_ID,
           user_id: USER_ID,
@@ -603,8 +604,8 @@ describe('vendor payment approval to payout chain', () => {
       amount_cents: AMOUNT_CENTS,
       status: 'authorized',
     }))
+    expect(mockStripePaymentIntentsCreate).toHaveBeenCalledTimes(1)
     expect(mockStripePaymentIntentsCreate.mock.calls.map((call) => call[1])).toEqual([
-      { idempotencyKey: `planner_deposit_${APPROVAL_ID}_${AMOUNT_CENTS}` },
       { idempotencyKey: `planner_deposit_${APPROVAL_ID}_${AMOUNT_CENTS}` },
     ])
   })
@@ -704,7 +705,7 @@ describe('vendor payment approval to payout chain', () => {
     ])
   })
 
-  it('does not persist a payment intent or transition the action when Stripe authorization fails', async () => {
+  it('marks the reserved payment intent failed and does not transition the action when Stripe authorization fails', async () => {
     const db = seedDb({ approvalStatus: 'authorized', actionStatus: 'approved' })
     mockStripePaymentIntentsCreate.mockRejectedValueOnce(new Error('Stripe authorization failed'))
 
@@ -713,7 +714,15 @@ describe('vendor payment approval to payout chain', () => {
 
     expect(response.status).toBe(500)
     expect(body.error).toBe('Stripe authorization failed')
-    expect(db.rows.payment_intents).toHaveLength(0)
+    expect(db.rows.payment_intents).toEqual([
+      expect.objectContaining({
+        approval_id: APPROVAL_ID,
+        amount_cents: AMOUNT_CENTS,
+        status: 'failed',
+        stripe_payment_intent_id: null,
+        failure_reason: 'Stripe authorization failed',
+      }),
+    ])
     expect(db.rows.agent_actions[0].status).toBe('approved')
     expect(db.rows.agent_action_audit_log).toHaveLength(0)
   })
