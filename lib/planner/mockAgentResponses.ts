@@ -36,7 +36,7 @@ interface MockIntakeContext {
   vendor_needs: string | null
   amenities: string | null
   venue_terms: string | null
-  revenue_share: string | null
+  consumption_share: string | null
   action_permission: string | null
   must_haves: string[]
   dress_code: string | null
@@ -100,7 +100,7 @@ const EVENT_TYPES = [
   { label: 'Day Party', patterns: [/\bday party\b/i, /\bbrunch party\b/i, /\brooftop day\b/i, /\bpatio party\b/i, /\bsunday party\b/i] },
   { label: 'Listening Party', patterns: [/\blistening party\b/i, /\balbum party\b/i, /\bmusic preview\b/i, /\brelease listen\b/i, /\bdj listening session\b/i] },
   { label: 'Birthday', patterns: [/\bbirthday\b/i, /\bmilestone birthday\b/i] },
-  { label: 'House Party', patterns: [/\bhouse party\b/i, /\bkickback\b/i, /\bpregame\b/i, /\bcasual gathering\b/i, /\bapartment party\b/i] },
+  { label: 'House Party', patterns: [/\bhouse party\b/i, /\bpregame\b/i, /\bcasual gathering\b/i, /\bapartment party\b/i] },
   { label: 'Concert', patterns: [/\bconcert\b/i, /\blive show\b/i, /\bshowcase\b/i, /\blive performance\b/i] },
   { label: 'Club Night', patterns: [/\bclub night\b/i, /\bnightlife\b/i, /\bdj night\b/i, /\bdance party\b/i, /\bafterdark\b/i] },
   { label: 'Run Club', patterns: [/\brun club\b/i, /\bsocial run\b/i, /\bcommunity run\b/i, /\b5k meetup\b/i, /\bwellness run\b/i] },
@@ -297,13 +297,13 @@ const EVENT_MODEL_QUESTIONS = {
   ],
   'club night': [
     eventQuestion('club_night_economics', 'Nightlife format', 'What genre and door/bar economics should I model?', [
-      /\b(genre|dj|house|hip hop|dance|latin|afrobeats|door split|bar revenue|rev share|security|promo|guest list)\b/i,
+      /\b(genre|dj|house|hip hop|dance|latin|afrobeats|door incentive|bar incentive|consumption share|security|promo|guest list)\b/i,
     ], [
-      { label: 'DJ night', value: 'DJ night with bar revenue share', description: 'Optimize for venue bar upside and promotion' },
-      { label: 'Ticketed dance party', value: 'Ticketed dance party', description: 'Model door split, ticket price, and security' },
+      { label: 'DJ night', value: 'DJ night with bar consumption CHI', description: 'Optimize for venue bar upside and promotion' },
+      { label: 'Ticketed dance party', value: 'Ticketed dance party', description: 'Model door incentive, ticket price, and security' },
       { label: 'Guest-list night', value: 'Guest-list nightlife event', description: 'Prioritize RSVP/check-in and VIP tables' },
-      { label: 'Promoter model', value: 'Promoter-supported club night', description: 'Adds promo, door split, and staffing assumptions' },
-    ], 'e.g. house music, Afrobeats, 70/30 door split'),
+      { label: 'Promoter model', value: 'Promoter-supported club night', description: 'Adds promo, door incentive, and staffing assumptions' },
+    ], 'e.g. house music, Afrobeats, 70/30 door incentive'),
   ],
   'run club': [
     eventQuestion('run_club_route', 'Route + pace', 'Do you have a route and pace, or should I suggest one?', [
@@ -517,7 +517,7 @@ export function getMockAgentResponse(
               vendor_needs: context.vendor_needs,
               amenities: context.amenities,
               venue_terms: context.venue_terms,
-              revenue_share: context.revenue_share,
+              consumption_share: context.consumption_share,
               action_permission: context.action_permission,
               must_haves: context.must_haves,
               dress_code: context.dress_code,
@@ -565,7 +565,7 @@ export function getMockAgentResponse(
             vendor_needs: context.vendor_needs,
             amenities: context.amenities,
             venue_terms: context.venue_terms,
-            revenue_share: context.revenue_share,
+            consumption_share: context.consumption_share,
             action_permission: context.action_permission,
             must_haves: context.must_haves,
             dress_code: context.dress_code,
@@ -678,11 +678,11 @@ function getNextMissingQuestion(context: MockIntakeContext): MockNextQuestion | 
       prompt: 'What venue deal structure should I optimize for: free space, minimum spend, flat rental, deposit hold, or flexible?',
     }
   }
-  if (!context.revenue_share) {
+  if (!context.consumption_share) {
     return {
-      field: 'revenue_share',
-      label: 'Revenue model',
-      prompt: 'Do you care about the venue revenue-share model, or should I optimize for the simplest booking terms?',
+      field: 'consumption_share',
+      label: 'Commercial model',
+      prompt: 'Do you care about the venue CHI model, or should I optimize for the simplest booking terms?',
     }
   }
   if (!context.action_permission) {
@@ -797,7 +797,7 @@ function buildMockIntakeContext(
     vendor_needs: detectVendorNeeds(allText),
     amenities: detectAmenities(allText),
     venue_terms: detectVenueTerms(allText),
-    revenue_share: detectRevenueShare(allText),
+    consumption_share: detectConsumptionShare(allText),
     action_permission: detectActionPermission(allText),
     must_haves: mustHaves,
     dress_code: detectDressCode(allText),
@@ -827,7 +827,7 @@ function buildPlanNotes(context: MockIntakeContext) {
     context.ticketing_model ? `Ticketing model: ${context.ticketing_model}` : null,
     context.food_responsibility ? `Food responsibility: ${context.food_responsibility}` : null,
     context.venue_terms ? `Venue terms: ${context.venue_terms}` : null,
-    context.revenue_share ? `Revenue model: ${context.revenue_share}` : null,
+    context.consumption_share ? `Commercial model: ${context.consumption_share}` : null,
     context.action_permission ? `Agent action: ${context.action_permission}` : null,
     context.must_haves.length > 0 ? `Must-haves: ${context.must_haves.join(', ')}` : null,
   ].filter(Boolean)
@@ -1341,17 +1341,17 @@ function detectActionPermission(text: string): string | null {
   return null
 }
 
-function detectRevenueShare(text: string): string | null {
-  const explicit = text.match(/\b(?:revenue share|revenue model|rev share|economics)\s*:\s*([^.!?\n]+)/i)
+function detectConsumptionShare(text: string): string | null {
+  const explicit = text.match(/\b(?:community host incentive|chi model|commercial model|economics)\s*:\s*([^.!?\n]+)/i)
   if (explicit) return normalizeAnswerValue(explicit[1])
 
-  if (/\b(no revenue share|no rev share|flat rental|simple booking terms|simplest booking terms|no kickback)\b/i.test(text)) {
-    return 'No revenue share'
+  if (/\b(no chi|flat rental|simple booking terms|simplest booking terms)\b/i.test(text)) {
+    return 'No CHI'
   }
-  if (/\b(bar revenue share|bar rev share|bar split|bar kickback)\b/i.test(text)) return 'Bar revenue share'
-  if (/\b(ticket revenue share|ticket rev share|ticket split|door split)\b/i.test(text)) return 'Ticket revenue share'
-  if (/\b(per[-\s]?head kickback|per attendee|per confirmed attendee)\b/i.test(text)) return 'Per-head kickback'
-  if (/\b(not sure|recommend|optimize|best model|open to)\b/i.test(text) && /\b(revenue|economics|terms|kickback|share)\b/i.test(text)) {
+  if (/\b(bar consumption chi|bar chi|consumption share)\b/i.test(text)) return 'Bar consumption CHI'
+  if (/\b(ticket chi|ticket incentive|door incentive)\b/i.test(text)) return 'Ticket CHI'
+  if (/\b(per[-\s]?head chi|per attendee|per confirmed attendee)\b/i.test(text)) return 'Per-head CHI'
+  if (/\b(not sure|recommend|optimize|best model|open to)\b/i.test(text) && /\b(economics|terms|chi|share)\b/i.test(text)) {
     return 'Recommend best model'
   }
 
@@ -1913,45 +1913,45 @@ function buildStructuredQuestion(context: MockIntakeContext, nextQuestion: MockN
         },
       ],
       allow_other: true,
-      other_placeholder: 'e.g. flexible, per-head kickback, sponsor-covered',
+      other_placeholder: 'e.g. flexible, per-head CHI, sponsor-covered',
     }
   }
 
-  if (field === 'revenue_share') {
+  if (field === 'consumption_share') {
     return {
       field,
-      label: 'Revenue model',
+      label: 'Commercial model',
       prompt: questionPrompt,
       instruction: 'Select one answer',
       options: [
         {
           label: 'Simple rental',
-          value: 'No revenue share',
+          value: 'No CHI',
           description: 'Flat rental or minimum spend. Easiest to explain and book.',
         },
         {
-          label: 'Bar share',
-          value: 'Bar revenue share',
+          label: 'Bar consumption CHI',
+          value: 'Bar consumption CHI',
           description: 'Useful when the venue makes money from drinks',
         },
         {
-          label: 'Ticket share',
-          value: 'Ticket revenue share',
+          label: 'Ticket CHI',
+          value: 'Ticket CHI',
           description: 'Useful for paid events where venue upside can reduce deposit',
         },
         {
           label: 'Per-head',
-          value: 'Per-head kickback',
+          value: 'Per-head CHI',
           description: 'Useful for bars or venues paid by confirmed attendee volume',
         },
         {
           label: 'Recommend model',
           value: 'Recommend best model',
-          description: 'Let the agent compare flat rental, per-head, and revenue share',
+          description: 'Let the agent compare flat rental, per-head CHI, and consumption CHI',
         },
       ],
       allow_other: true,
-      other_placeholder: 'e.g. per-head kickback after 100 attendees',
+      other_placeholder: 'e.g. per-head CHI after 100 attendees',
     }
   }
 
@@ -2033,7 +2033,7 @@ function buildConfirmationItems(context: MockIntakeContext) {
     { label: 'Vendors', value: context.vendor_needs ?? 'Need vendor needs', confirmed: Boolean(context.vendor_needs) },
     { label: 'Amenities', value: context.amenities ?? 'Need amenities', confirmed: Boolean(context.amenities) },
     { label: 'Venue terms', value: context.venue_terms ?? 'Need venue terms', confirmed: Boolean(context.venue_terms) },
-    { label: 'Revenue model', value: context.revenue_share ?? 'Need revenue model', confirmed: Boolean(context.revenue_share) },
+    { label: 'Commercial model', value: context.consumption_share ?? 'Need commercial model', confirmed: Boolean(context.consumption_share) },
     { label: 'Agent action', value: context.action_permission ?? 'Need action permission', confirmed: Boolean(context.action_permission) },
     { label: 'Duration', value: context.duration ?? 'Not specified', confirmed: Boolean(context.duration) },
     {
@@ -2064,7 +2064,7 @@ function buildTailoredRecommendations(context: MockIntakeContext) {
   const vendorSummary = context.vendor_needs && context.vendor_needs !== 'No vendors needed'
     ? context.vendor_needs
     : null
-  const termsTag = getRevenueModelTag(context.revenue_share)
+  const termsTag = getRevenueModelTag(context.consumption_share)
   const venueTermsTag = getVenueTermsTag(context.venue_terms)
   const foodTag = getFoodResponsibilityTag(context.food_responsibility)
   const commercialModelOptions = getCommercialModelOptions(context)
@@ -2250,41 +2250,41 @@ function buildTailoredRecommendations(context: MockIntakeContext) {
   ]
 }
 
-function getRevenueModelTag(revenueShare: string | null) {
-  if (!revenueShare) return 'Terms TBD'
-  if (revenueShare === 'No revenue share') return 'Flat/simple terms'
-  if (isRecommendBestModel(revenueShare)) return 'Compare commercial models'
-  return revenueShare
+function getRevenueModelTag(consumptionShare: string | null) {
+  if (!consumptionShare) return 'Terms TBD'
+  if (consumptionShare === 'No CHI') return 'Flat/simple terms'
+  if (isRecommendBestModel(consumptionShare)) return 'Compare commercial models'
+  return consumptionShare
 }
 
-function isRecommendBestModel(revenueShare: string | null | undefined) {
-  return /\brecommend best model|recommend model|compare\b/i.test(revenueShare ?? '')
+function isRecommendBestModel(consumptionShare: string | null | undefined) {
+  return /\brecommend best model|recommend model|compare\b/i.test(consumptionShare ?? '')
 }
 
 function getCommercialModelOptions(context: MockIntakeContext) {
-  if (!isRecommendBestModel(context.revenue_share)) return []
+  if (!isRecommendBestModel(context.consumption_share)) return []
 
-  const options = ['Flat rental', 'Minimum spend', 'Per-head kickback']
+  const options = ['Flat rental', 'Minimum spend', 'Per-head CHI']
   if (/\b(ticket|paid|door|vip|ga|early bird)\b/i.test(context.ticketing_model ?? context.conversation_text)) {
-    options.push('Ticket revenue share')
+    options.push('Ticket CHI')
   }
   if (/\b(bar|drink|cocktail|beer|wine|alcohol|cash bar|open bar)\b/i.test(context.food_responsibility ?? context.conversation_text)) {
-    options.push('Bar revenue share')
+    options.push('Bar consumption CHI')
   }
 
   return mergeUnique(options)
 }
 
 function getCommercialModelRecommendation(context: MockIntakeContext) {
-  if (!isRecommendBestModel(context.revenue_share)) return context.revenue_share
+  if (!isRecommendBestModel(context.consumption_share)) return context.consumption_share
 
   if (/\bguests pay|cash bar\b/i.test(context.food_responsibility ?? context.conversation_text)) {
-    return 'Bar revenue share or per-head kickback'
+    return 'Bar consumption CHI or per-head CHI'
   }
   if (/\b(ticket|paid|door|vip|ga|early bird)\b/i.test(context.ticketing_model ?? context.conversation_text)) {
-    return 'Ticket revenue share or per-head kickback'
+    return 'Ticket CHI or per-head CHI'
   }
-  if ((context.guest_count ?? 0) > 100) return 'Per-head kickback'
+  if ((context.guest_count ?? 0) > 100) return 'Per-head CHI'
   return 'Flat rental or minimum spend'
 }
 
@@ -2338,13 +2338,13 @@ function getCommercialVenueName(area: string, baseName: string, context: MockInt
 function buildCommercialVenueNote(context: MockIntakeContext) {
   const area = context.area ?? 'the Bay Area'
   const guestLabel = context.guest_count ? `${context.guest_count} guests` : 'your target headcount'
-  const terms = (isRecommendBestModel(context.revenue_share)
+  const terms = (isRecommendBestModel(context.consumption_share)
     ? getCommercialModelRecommendation(context)
-    : context.venue_terms ?? context.revenue_share) ?? 'terms still to confirm'
+    : context.venue_terms ?? context.consumption_share) ?? 'terms still to confirm'
   const requirements = formatRequirementSummary(context)
 
   if (isDinnerLike(context.event_type) && /\bguests pay\b/i.test(context.food_responsibility ?? '')) {
-    const comparison = isRecommendBestModel(context.revenue_share)
+    const comparison = isRecommendBestModel(context.consumption_share)
       ? ` Agent should compare ${getCommercialModelOptions(context).join(', ').toLowerCase()} before outreach.`
       : ''
     return `Guest-pay dining fit in ${area} for ${guestLabel}. Prioritizes venues where guests can order directly so ticket revenue is not consumed by per-person food liability.${comparison}`
@@ -2352,7 +2352,7 @@ function buildCommercialVenueNote(context: MockIntakeContext) {
   if (isDinnerLike(context.event_type)) {
     return buildDinnerVenueNote(context, area, guestLabel, requirements, terms)
   }
-  if (isRecommendBestModel(context.revenue_share)) {
+  if (isRecommendBestModel(context.consumption_share)) {
     return `${formatEventTypeForSentence(context.event_type)} venue in ${area} for ${guestLabel}. Agent should compare ${getCommercialModelOptions(context).join(', ').toLowerCase()} and pick the structure that protects organizer profit while giving the venue enough upside.`
   }
   if (/\bticket includes food\b/i.test(context.food_responsibility ?? '')) {
@@ -2478,7 +2478,7 @@ function buildMockOpportunityApprovalMetadata(context: MockIntakeContext) {
       vendor_needs: context.vendor_needs,
       amenities: context.amenities,
       venue_terms: context.venue_terms,
-      revenue_share: context.revenue_share,
+      consumption_share: context.consumption_share,
       action_permission: context.action_permission,
       must_haves: context.must_haves,
       deposit_target_cents: approvalAmount,
@@ -2512,7 +2512,7 @@ function buildMockOpportunityApprovalMetadata(context: MockIntakeContext) {
           context.ticketing_model,
           context.food_responsibility,
           context.venue_terms,
-          context.revenue_share,
+          context.consumption_share,
           context.action_permission,
         ].filter(Boolean).join(' · ') || 'TBD'}. Unclaimed listings route to 3rdPlace team fallback.`,
       status: 'pending',

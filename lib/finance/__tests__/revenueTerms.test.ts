@@ -63,7 +63,7 @@ describe('revenue terms', () => {
     expect(impacts.find((impact) => impact.term_type === 'other')?.net_revenue_delta_cents).toBe(0)
   })
 
-  it('applies taxes, service fees, venue kickbacks, and sponsor credits to actuals without double-counting row fees', () => {
+  it('applies taxes, service fees, venue CHI, and sponsor credits to actuals without double-counting row fees', () => {
     const actuals = applyRevenueTermsToActuals(
       {
         gross_revenue_cents: 290000,
@@ -149,7 +149,7 @@ describe('revenue terms', () => {
       committed_cents: 20000,
       paid_cents: 0,
     })
-    expect(pnl.rev_share_adjustments).toEqual([
+    expect(pnl.consumption_share_adjustments).toEqual([
       { party_name: 'DJ Analog', type: 'vendor_consumption_share', amount_cents: 20000 },
     ])
     expect(pnl.terms_conflict).toBe(true)
@@ -266,9 +266,7 @@ describe('revenue terms', () => {
     )
 
     expect(summary.venue_chi_cents).toBe(5000)
-    expect(summary.venue_kickback_cents).toBe(5000)
     expect(summary.vendor_consumption_share_cents).toBe(20000)
-    expect(summary.vendor_rev_share_cents).toBe(20000)
     expect(summary.impacts.map((impact) => impact.term_type)).toEqual([
       'venue_chi',
       'vendor_consumption_share',

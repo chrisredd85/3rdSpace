@@ -65,7 +65,7 @@ export const pnlSnapshotSchema = z.object({
     crossed_at: z.string().nullable(),
   }),
   margin_pct: z.number(),
-  rev_share_adjustments: z.array(z.object({
+  consumption_share_adjustments: z.array(z.object({
     party_name: z.string(),
     type: z.string(),
     amount_cents: z.number().int(),

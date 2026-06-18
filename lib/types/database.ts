@@ -76,11 +76,7 @@ export interface Venue {
   ticket_consumption_share_percent?: number | null
   bar_consumption_share_enabled?: boolean | null
   bar_consumption_share_percent?: number | null
-  bar_revenue_share_enabled?: boolean | null
-  bar_revenue_share_percent?: number | null
   per_head_chi_cents?: number | null
-  per_head_kickback_amount?: number | null
-  per_head_kickback_cents?: number | null
   bulk_approval_enabled?: boolean | null
   auto_approve_threshold?: number | null
   auto_approve_conditions?: Json | null
@@ -198,7 +194,6 @@ export interface Vendor {
   base_rate?: number | null
   per_person_rate?: number | null
   per_head_chi_cents?: number | null
-  per_head_kickback?: number | null
   contact_email: string | null
   is_claimed: boolean
   claimed_user_id: string | null

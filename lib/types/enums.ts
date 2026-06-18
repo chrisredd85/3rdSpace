@@ -48,7 +48,7 @@ export type EventStatus =
  */
 export type PricingModel =
   | 'hourly'
-  | 'revenue_share'
+  | 'consumption_share'
   | 'hybrid'
   | 'flat_rate'
   | 'per_person'
@@ -117,7 +117,7 @@ export function isEventStatus(value: string): value is EventStatus {
 export function isPricingModel(value: string): value is PricingModel {
   return [
     'hourly',
-    'revenue_share',
+    'consumption_share',
     'hybrid',
     'flat_rate',
     'per_person',

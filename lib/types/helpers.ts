@@ -94,7 +94,7 @@ export function getPricingModelDisplayName(
 ): string {
   const displayNames: Record<PricingModel, string> = {
     hourly: 'Hourly',
-    revenue_share: 'Revenue Share',
+    consumption_share: 'Consumption Model',
     hybrid: 'Hybrid',
     flat_rate: 'Flat Rate',
     per_person: 'Per Person',

@@ -75,7 +75,7 @@ type StripeStatusResponse = {
   error?: string
 }
 
-type VenueKickbackPayment = {
+type VenueChiPayment = {
   id: string
   agreement_id: string | null
   payment_id?: string | null
@@ -101,7 +101,7 @@ type VenueKickbackPayment = {
   revenue_extraction_confidence?: string | null
   revenue_proof_url?: string | null
   revenue_submitted_at?: string | null
-  revenue_share_percent?: number | null
+  consumption_share_percent?: number | null
   agreement_status?: string | null
   requires_manual_review?: boolean | null
   initiated_at: string | null
@@ -109,7 +109,7 @@ type VenueKickbackPayment = {
   failure_reason: string | null
 }
 
-type VenueKickbackSummaryResponse = {
+type VenueChiSummaryResponse = {
   summary: {
     pending: number
     processing: number
@@ -117,7 +117,7 @@ type VenueKickbackSummaryResponse = {
     refunded: number
     count: number
   }
-  payments: VenueKickbackPayment[]
+  payments: VenueChiPayment[]
   error?: string
 }
 
@@ -278,11 +278,11 @@ const statusStyles: Record<StatusTone, {
   },
 }
 
-function paymentSettlementCents(payment: VenueKickbackPayment) {
+function paymentSettlementCents(payment: VenueChiPayment) {
   return payment.payout_cents ?? payment.amount_cents ?? 0
 }
 
-function calculateSettlementTotals(payments: VenueKickbackPayment[]) {
+function calculateSettlementTotals(payments: VenueChiPayment[]) {
   return payments.reduce(
     (totals, payment) => {
       const amountCents = paymentSettlementCents(payment)
@@ -362,12 +362,12 @@ export default function VenuePayoutsPage() {
   const [isConnecting, setIsConnecting] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isOpeningDashboard, setIsOpeningDashboard] = useState(false)
-  const [kickbacks, setKickbacks] = useState<VenueKickbackSummaryResponse | null>(null)
-  const [isLoadingKickbacks, setIsLoadingKickbacks] = useState(true)
+  const [chiSummary, setChiSummary] = useState<VenueChiSummaryResponse | null>(null)
+  const [isLoadingChi, setIsLoadingChi] = useState(true)
   const [rentals, setRentals] = useState<VenueRentalSummaryResponse | null>(null)
   const [isLoadingRentals, setIsLoadingRentals] = useState(true)
   const [refundLoading, setRefundLoading] = useState(false)
-  const [refundPayment, setRefundPayment] = useState<VenueKickbackPayment | null>(null)
+  const [refundPayment, setRefundPayment] = useState<VenueChiPayment | null>(null)
   const [refundAmount, setRefundAmount] = useState('')
   const [refundReason, setRefundReason] = useState('')
   const [rentalRefundPayment, setRentalRefundPayment] = useState<VenueRentalPayment | null>(null)
@@ -401,24 +401,24 @@ export default function VenuePayoutsPage() {
     loadStatus()
   }, [loadStatus])
 
-  const loadKickbacks = useCallback(async () => {
+  const loadChi = useCallback(async () => {
     try {
       const response = await fetch('/api/venue/community-host-incentive/summary', { credentials: 'include' })
       const data = await response.json()
 
       if (!response.ok) throw new Error(data.error || 'Unable to load Community Host Incentives')
 
-      setKickbacks(data)
+      setChiSummary(data)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load Community Host Incentives')
     } finally {
-      setIsLoadingKickbacks(false)
+      setIsLoadingChi(false)
     }
   }, [])
 
   useEffect(() => {
-    loadKickbacks()
-  }, [loadKickbacks])
+    loadChi()
+  }, [loadChi])
 
   const loadRentals = useCallback(async () => {
     try {
@@ -507,7 +507,7 @@ export default function VenuePayoutsPage() {
     }
   }
 
-  const openRefundRequest = (payment: VenueKickbackPayment) => {
+  const openRefundRequest = (payment: VenueChiPayment) => {
     setRefundPayment(payment)
     setRefundAmount(centsToDollars(payment.payout_cents ?? payment.amount_cents ?? 0).toFixed(2))
     setRefundReason('')
@@ -545,8 +545,8 @@ export default function VenuePayoutsPage() {
       setRefundPayment(null)
       setRefundAmount('')
       setRefundReason('')
-      setIsLoadingKickbacks(true)
-      await loadKickbacks()
+      setIsLoadingChi(true)
+      await loadChi()
     } catch (refundError) {
       setError(refundError instanceof Error ? refundError.message : 'Unable to request refund')
     } finally {
@@ -555,9 +555,9 @@ export default function VenuePayoutsPage() {
   }
 
   const handleSpendReportUploaded = useCallback(async () => {
-    setIsLoadingKickbacks(true)
-    await loadKickbacks()
-  }, [loadKickbacks])
+    setIsLoadingChi(true)
+    await loadChi()
+  }, [loadChi])
 
   const openRentalRefundDecision = (payment: VenueRentalPayment) => {
     setRentalRefundPayment(payment)
@@ -615,8 +615,8 @@ export default function VenuePayoutsPage() {
   const connectDescription = status.reason === 'stripe_mode_mismatch'
     ? 'Reconnect your Stripe account to receive venue payouts. Your previous connection is no longer valid for this environment.'
     : 'Create a Stripe Express account to receive venue payouts.'
-  const kickbackPayments = kickbacks?.payments ?? []
-  const settlementTotals = calculateSettlementTotals(kickbackPayments)
+  const chiPayments = chiSummary?.payments ?? []
+  const settlementTotals = calculateSettlementTotals(chiPayments)
   const rentalPayments = rentals?.transactions ?? []
 
   return (
@@ -808,7 +808,7 @@ export default function VenuePayoutsPage() {
             <p className="mt-1 text-sm text-ink-soft">Venue-approved Community Host Incentives after verified attendance.</p>
           </div>
           <div className="text-sm text-ink-soft">
-            {isLoadingKickbacks ? 'Loading records...' : `${kickbackPayments.length} settlement${kickbackPayments.length === 1 ? '' : 's'}`}
+            {isLoadingChi ? 'Loading records...' : `${chiPayments.length} settlement${chiPayments.length === 1 ? '' : 's'}`}
           </div>
         </div>
 
@@ -843,18 +843,18 @@ export default function VenuePayoutsPage() {
           />
         </div>
 
-        {isLoadingKickbacks ? (
+        {isLoadingChi ? (
           <div className="grid gap-3">
             <div className="h-36 animate-pulse rounded-lg border border-tan bg-cream shadow-card" />
             <div className="h-36 animate-pulse rounded-lg border border-tan bg-cream shadow-card" />
           </div>
-        ) : kickbackPayments.length === 0 ? (
+        ) : chiPayments.length === 0 ? (
           <div className="rounded-lg border border-dashed border-tan bg-cream p-8 text-sm text-ink-soft shadow-card">
             Community Host Incentives will appear here after verified post-event reports qualify for a venue agreement.
           </div>
         ) : (
           <div className="space-y-3">
-            {kickbackPayments.map((payment) => (
+            {chiPayments.map((payment) => (
               <SettlementRow
                 key={payment.id}
                 payment={payment}
@@ -1027,8 +1027,8 @@ function SettlementRow({
   onRefund,
   onSpendReportUploaded,
 }: {
-  payment: VenueKickbackPayment
-  onRefund: (payment: VenueKickbackPayment) => void
+  payment: VenueChiPayment
+  onRefund: (payment: VenueChiPayment) => void
   onSpendReportUploaded: () => void | Promise<void>
 }) {
   const tone = statusTone(payment.status)

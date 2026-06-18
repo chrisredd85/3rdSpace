@@ -25,8 +25,8 @@ interface CatalogVenue {
   hourly_rate?: number | null
   pricing_model?: string | null
   ticket_sales_share_enabled?: boolean | null
-  bar_revenue_share_enabled?: boolean | null
-  per_head_kickback_amount?: number | null
+  bar_consumption_share_enabled?: boolean | null
+  per_head_chi_cents?: number | null
   unique_features_tags?: string[] | null
   requires_deposit?: boolean | null
   deposit_amount?: number | null
@@ -105,13 +105,13 @@ export default function PlannerVenuesPage() {
 
   const catalogStats = useMemo(() => {
     const unclaimed = venues.filter((venue) => venue.is_claimed === false).length
-    const revShareReady = venues.filter((venue) => venue.ticket_sales_share_enabled || venue.bar_revenue_share_enabled || venue.per_head_kickback_amount).length
+    const consumptionShareReady = venues.filter((venue) => venue.ticket_sales_share_enabled || venue.bar_consumption_share_enabled || venue.per_head_chi_cents).length
     const capacityReady = venues.filter((venue) => (venue.standing_capacity ?? venue.capacity ?? venue.max_capacity ?? 0) > 0).length
 
     return [
       { label: 'Catalog spaces', value: venues.length.toLocaleString() },
       { label: 'Capacity-ready', value: capacityReady.toLocaleString() },
-      { label: 'Flexible terms', value: revShareReady.toLocaleString() },
+      { label: 'Flexible terms', value: consumptionShareReady.toLocaleString() },
       { label: 'Team fallback', value: unclaimed.toLocaleString() },
     ]
   }, [venues])
@@ -365,9 +365,9 @@ function formatCapacityRange(minCapacity: number | null, maxCapacity: number | n
  * Returns the most planner-relevant venue deal term.
  */
 function getVenueTerms(venue: CatalogVenue) {
-  if (venue.ticket_sales_share_enabled) return 'Ticket share'
-  if (venue.bar_revenue_share_enabled) return 'Bar share'
-  if (venue.per_head_kickback_amount && venue.per_head_kickback_amount > 0) return 'Per-head'
+  if (venue.ticket_sales_share_enabled) return 'Ticket CHI'
+  if (venue.bar_consumption_share_enabled) return 'Bar consumption CHI'
+  if (venue.per_head_chi_cents && venue.per_head_chi_cents > 0) return 'Per-head CHI'
   if (venue.requires_deposit || venue.deposit_amount) return 'Deposit'
   return venue.pricing_model ? formatVenueType(venue.pricing_model) : 'Quote needed'
 }

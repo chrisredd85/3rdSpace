@@ -3,9 +3,9 @@ import { readCents } from '@/lib/money'
 export type CommercialModel =
   | 'flat_rental'
   | 'minimum_spend'
-  | 'per_head_kickback'
-  | 'bar_revenue_share'
-  | 'ticket_revenue_share'
+  | 'per_head_chi_cents'
+  | 'bar_consumption_share'
+  | 'ticket_consumption_share'
 
 export type CommercialRiskLevel = 'low' | 'medium' | 'high'
 
@@ -36,9 +36,9 @@ export interface CommercialModelRanking {
   compared_models: CommercialModelComparison[]
 }
 
-const DEFAULT_PER_HEAD_KICKBACK_CENTS = 800
-const DEFAULT_TICKET_REVENUE_SHARE_PCT = 12
-const DEFAULT_BAR_REVENUE_SHARE_PCT = 10
+const DEFAULT_PER_HEAD_CHI_CENTS = 800
+const DEFAULT_TICKET_CONSUMPTION_SHARE_PCT = 12
+const DEFAULT_BAR_CONSUMPTION_SHARE_PCT = 10
 
 /**
  * Ranks the venue commercial models supported by a catalog row.
@@ -63,9 +63,9 @@ export function rankVenueCommercialModels(
 export function formatCommercialModelLabel(model: CommercialModel): string {
   if (model === 'flat_rental') return 'Flat rental'
   if (model === 'minimum_spend') return 'Minimum spend'
-  if (model === 'per_head_kickback') return 'Per-head kickback'
-  if (model === 'bar_revenue_share') return 'Bar revenue share'
-  return 'Ticket revenue share'
+  if (model === 'per_head_chi_cents') return 'Per-head CHI'
+  if (model === 'bar_consumption_share') return 'Bar consumption CHI'
+  return 'Ticket CHI'
 }
 
 function scoreCommercialModel(
@@ -125,22 +125,23 @@ function inferSupportedCommercialModels(venue: Record<string, unknown>, fallback
     models.add('minimum_spend')
   }
   if (
-    (readVenuePerHeadKickbackCents(venue) ?? 0) > 0
+    (readVenuePerHeadChiCents(venue) ?? 0) > 0
   ) {
-    models.add('per_head_kickback')
+    models.add('per_head_chi_cents')
   }
   if (
-    venue.bar_rev_share_enabled === true ||
+    venue.bar_consumption_share_enabled === true ||
     venue.bar_revenue_share_enabled === true ||
-    (readNumber(venue.bar_rev_share_pct ?? venue.bar_revenue_share_pct ?? venue.bar_revenue_percentage) ?? 0) > 0
+    venue.bar_rev_share_enabled === true ||
+    (readNumber(venue.bar_consumption_share_pct ?? venue.bar_revenue_share_percent ?? venue.bar_revenue_percentage) ?? 0) > 0
   ) {
-    models.add('bar_revenue_share')
+    models.add('bar_consumption_share')
   }
   if (
     venue.ticket_sales_share_enabled === true ||
     (readNumber(venue.ticket_sales_share_pct ?? venue.ticket_sales_share_percent) ?? 0) > 0
   ) {
-    models.add('ticket_revenue_share')
+    models.add('ticket_consumption_share')
   }
 
   if (models.size === 0) models.add('flat_rental')
@@ -155,9 +156,9 @@ function filterPreferredCommercialModels(models: CommercialModel[], venueTerms: 
   return models.filter((model) => {
     if (model === 'flat_rental') return /\b(flat|rental|hourly|buyout|room fee)\b/.test(normalized)
     if (model === 'minimum_spend') return /\b(min|minimum spend|f b minimum)\b/.test(normalized)
-    if (model === 'per_head_kickback') return /\b(per head|kickback|attendee)\b/.test(normalized)
-    if (model === 'bar_revenue_share') return /\b(bar|drink|beverage)\b/.test(normalized) && /\b(share|rev|revenue|split)\b/.test(normalized)
-    if (model === 'ticket_revenue_share') return /\b(ticket|door)\b/.test(normalized) && /\b(share|rev|revenue|split)\b/.test(normalized)
+    if (model === 'per_head_chi_cents') return /\b(per head|chi|attendee)\b/.test(normalized)
+    if (model === 'bar_consumption_share') return /\b(bar|drink|beverage)\b/.test(normalized) && /\b(share|chi|incentive)\b/.test(normalized)
+    if (model === 'ticket_consumption_share') return /\b(ticket|door)\b/.test(normalized) && /\b(share|chi|incentive)\b/.test(normalized)
     return false
   })
 }
@@ -172,17 +173,17 @@ function estimateOrganizerOutlayCents(
 ) {
   if (model === 'flat_rental') return fallbackEstimateCents
   if (model === 'minimum_spend') return readMinimumSpendCents(venue) ?? fallbackEstimateCents
-  if (model === 'per_head_kickback') {
-    const threshold = readNumber(venue.per_head_kickback_threshold ?? venue.kickback_threshold) ?? 100
-    const amount = readVenuePerHeadKickbackCents(venue) ?? DEFAULT_PER_HEAD_KICKBACK_CENTS
+  if (model === 'per_head_chi_cents') {
+    const threshold = readNumber(venue.per_head_chi_cents_threshold ?? venue.chi_threshold) ?? 100
+    const amount = readVenuePerHeadChiCents(venue) ?? DEFAULT_PER_HEAD_CHI_CENTS
     return Math.max(0, headcount - threshold) * amount
   }
-  if (model === 'bar_revenue_share') {
-    const pct = readPercent(venue.bar_rev_share_pct ?? venue.bar_revenue_share_pct ?? venue.bar_revenue_percentage) ?? DEFAULT_BAR_REVENUE_SHARE_PCT
+  if (model === 'bar_consumption_share') {
+    const pct = readPercent(venue.bar_consumption_share_pct ?? venue.bar_revenue_share_percent ?? venue.bar_revenue_percentage) ?? DEFAULT_BAR_CONSUMPTION_SHARE_PCT
     return Math.round(barRevenueCents * (pct / 100))
   }
 
-  const pct = readPercent(venue.ticket_sales_share_pct ?? venue.ticket_sales_share_percent) ?? DEFAULT_TICKET_REVENUE_SHARE_PCT
+  const pct = readPercent(venue.ticket_sales_share_pct ?? venue.ticket_sales_share_percent) ?? DEFAULT_TICKET_CONSUMPTION_SHARE_PCT
   return Math.round(ticketRevenueCents * (pct / 100))
 }
 
@@ -196,8 +197,8 @@ function estimateVenueUpsideCents(
 ) {
   if (model === 'flat_rental') return outlayCents
   if (model === 'minimum_spend') return Math.max(outlayCents, readMinimumSpendCents(venue) ?? 0)
-  if (model === 'bar_revenue_share') return Math.max(outlayCents, Math.round(barRevenueCents * 0.2))
-  if (model === 'ticket_revenue_share') return Math.max(outlayCents, Math.round(ticketRevenueCents * 0.12))
+  if (model === 'bar_consumption_share') return Math.max(outlayCents, Math.round(barRevenueCents * 0.2))
+  if (model === 'ticket_consumption_share') return Math.max(outlayCents, Math.round(ticketRevenueCents * 0.12))
   return Math.max(outlayCents, Math.round(fallbackEstimateCents * 0.15))
 }
 
@@ -209,9 +210,9 @@ function readMinimumSpendCents(venue: Record<string, unknown>): number | null {
   )
 }
 
-function readVenuePerHeadKickbackCents(venue: Record<string, unknown>): number | null {
+function readVenuePerHeadChiCents(venue: Record<string, unknown>): number | null {
   return readCents(
-    venue.per_head_kickback_cents as number | string | null | undefined,
+    venue.per_head_chi_cents as number | string | null | undefined,
     (venue.per_head_kickback_amount ?? venue.per_head_kickback) as number | string | null | undefined
   )
 }
@@ -235,9 +236,9 @@ function scoreVenueIncentive(model: CommercialModel, venueUpsideCents: number, f
 
 function scoreEventFit(model: CommercialModel, plan: CommercialPlanInput): number {
   const text = normalizeText([plan.event_type, plan.ticketing_model, plan.food_responsibility].filter(Boolean).join(' '))
-  if (model === 'bar_revenue_share' && /\b(bar|drink|cocktail|beer|wine|cash bar|guests pay)\b/.test(text)) return 20
-  if (model === 'ticket_revenue_share' && /\b(ticket|paid|door|vip|ga|early bird)\b/.test(text)) return 20
-  if (model === 'per_head_kickback' && (readNumber(plan.headcount ?? plan.guest_count) ?? 0) >= 90) return 18
+  if (model === 'bar_consumption_share' && /\b(bar|drink|cocktail|beer|wine|cash bar|guests pay)\b/.test(text)) return 20
+  if (model === 'ticket_consumption_share' && /\b(ticket|paid|door|vip|ga|early bird)\b/.test(text)) return 20
+  if (model === 'per_head_chi_cents' && (readNumber(plan.headcount ?? plan.guest_count) ?? 0) >= 90) return 18
   if ((model === 'flat_rental' || model === 'minimum_spend') && /\b(simple|rsvp|free|dinner|private)\b/.test(text)) return 17
   return 12
 }
@@ -252,13 +253,13 @@ function scoreBudgetSafety(outlayCents: number, venueBudgetCents: number): numbe
 function scoreSimplicity(model: CommercialModel): number {
   if (model === 'flat_rental') return 10
   if (model === 'minimum_spend') return 9
-  if (model === 'per_head_kickback') return 7
+  if (model === 'per_head_chi_cents') return 7
   return 5
 }
 
 function getRiskLevel(model: CommercialModel, outlayCents: number, venueBudgetCents: number): CommercialRiskLevel {
   if (venueBudgetCents > 0 && outlayCents > venueBudgetCents) return 'high'
-  if (model === 'bar_revenue_share' || model === 'ticket_revenue_share') return 'medium'
+  if (model === 'bar_consumption_share' || model === 'ticket_consumption_share') return 'medium'
   return 'low'
 }
 
@@ -281,9 +282,9 @@ function buildCommercialReasoning(
       : `Above the ${formatCents(venueBudgetCents)} venue allocation`)
   }
   if (isTicketed(plan)) reasons.push(`Projected organizer margin: ${formatCents(expectedProfitCents)}`)
-  if (model === 'per_head_kickback') reasons.push('Protects cash before turnout is confirmed')
-  if (model === 'bar_revenue_share') reasons.push('Aligns venue upside with drink sales')
-  if (model === 'ticket_revenue_share') reasons.push('Can reduce deposit pressure for paid events')
+  if (model === 'per_head_chi_cents') reasons.push('Protects cash before turnout is confirmed')
+  if (model === 'bar_consumption_share') reasons.push('Aligns venue upside with drink sales')
+  if (model === 'ticket_consumption_share') reasons.push('Can reduce deposit pressure for paid events')
 
   return reasons.slice(0, 5)
 }

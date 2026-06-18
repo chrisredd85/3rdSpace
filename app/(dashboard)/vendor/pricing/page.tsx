@@ -37,9 +37,9 @@ const optionalMoney = z.preprocess((value) => {
 }, z.number().min(0).optional())
 
 const pricingSchema = z.object({
-  pricing_model: z.enum(['flat_rate', 'per_person', 'hourly', 'revenue_share', 'hybrid']),
+  pricing_model: z.enum(['flat_rate', 'per_person', 'hourly', 'consumption_share', 'hybrid']),
   base_rate: optionalMoney,
-  headcount_kickback: z.boolean().optional(),
+  headcount_chi: z.boolean().optional(),
   per_person_rate: optionalMoney,
 })
 
@@ -72,7 +72,7 @@ const modelOptions: ModelOption[] = [
     icon: Clock,
   },
   {
-    value: 'revenue_share',
+    value: 'consumption_share',
     label: 'Partner Share',
     description: 'Percentage of verified event revenue',
     icon: TrendingUp,
@@ -110,7 +110,7 @@ export default function VendorPricingPage() {
   })
 
   const pricingModel = watch('pricing_model')
-  const headcountKickback = watch('headcount_kickback')
+  const headcountChi = watch('headcount_chi')
   const perPersonRate = watch('per_person_rate') || 0
 
   useEffect(() => {
@@ -130,14 +130,14 @@ export default function VendorPricingPage() {
 
   useEffect(() => {
     if (vendor) {
-      const storedPerHeadRate = vendor.per_head_kickback ?? 0
+      const storedPerHeadRate = vendor.per_head_chi_cents ?? 0
       reset({
         pricing_model: vendor.pricing_model,
         base_rate:
           vendor.pricing_model === 'hourly'
             ? vendor.hourly_rate ?? vendor.base_rate ?? undefined
             : vendor.base_rate ?? vendor.hourly_rate ?? undefined,
-        headcount_kickback: storedPerHeadRate > 0,
+        headcount_chi: storedPerHeadRate > 0,
         per_person_rate: (vendor.per_person_rate ?? storedPerHeadRate) || undefined,
       })
     }
@@ -172,7 +172,7 @@ export default function VendorPricingPage() {
               ? data.base_rate ?? null
               : vendor.hourly_rate ?? null,
           per_person_rate: data.per_person_rate ?? null,
-          per_head_kickback: data.headcount_kickback ? (data.per_person_rate ?? 0) : 0,
+          per_head_chi_cents: data.headcount_chi ? (data.per_person_rate ?? 0) : 0,
         },
       })
       addToast({ title: 'Pricing updated', description: 'Your pricing settings have been saved.' })
@@ -213,7 +213,7 @@ export default function VendorPricingPage() {
 
   const showBaseRate = pricingModel === 'flat_rate' || pricingModel === 'hourly' || pricingModel === 'hybrid'
   const showPerPerson = pricingModel === 'per_person'
-  const showRevenueShare = pricingModel === 'revenue_share' || pricingModel === 'hybrid'
+  const showConsumptionShare = pricingModel === 'consumption_share' || pricingModel === 'hybrid'
 
   return (
     <div className="space-y-6">
@@ -332,7 +332,7 @@ export default function VendorPricingPage() {
         )}
 
         {/* Partner share / headcount incentive */}
-        {(showRevenueShare || (!showPerPerson && !showBaseRate)) && (
+        {(showConsumptionShare || (!showPerPerson && !showBaseRate)) && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -347,16 +347,16 @@ export default function VendorPricingPage() {
               <div className="flex items-center gap-3">
                 <input
                   type="checkbox"
-                  id="headcount_kickback"
-                  {...register('headcount_kickback')}
+                  id="headcount_chi"
+                  {...register('headcount_chi')}
                   className="h-4 w-4 rounded text-clay"
                 />
-                <label htmlFor="headcount_kickback" className="text-sm font-medium text-ink">
+                <label htmlFor="headcount_chi" className="text-sm font-medium text-ink">
                   Enable per-head incentive
                 </label>
               </div>
 
-              {headcountKickback && (
+              {headcountChi && (
                 <div className="space-y-3 pl-7">
                   <div>
                     <label className="mb-2 block text-sm font-medium text-ink">

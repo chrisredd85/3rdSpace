@@ -101,7 +101,7 @@ interface EventSummary {
   vendor_needs: string | null
   amenities: string | null
   venue_terms: string | null
-  revenue_share: string | null
+  consumption_share: string | null
   action_permission: string | null
   must_haves: string | null
   dress_code: string | null
@@ -175,8 +175,8 @@ interface ProfitModel {
   perAttendeeNetCents: number | null
   lineItems: Array<{ label: string; amountCents: number; negative?: boolean }>
   paidAverage: number
-  venueKickbackCents: number
-  revenueShareCents: number
+  venueChiCents: number
+  consumptionShareCents: number
   ticketPricing: TicketPricingModel
   customCostsTotalCents: number
   breakEvenTickets: number | null
@@ -423,7 +423,7 @@ function deriveEventSummary(messages: PlanMessage[], plan: LivePlanSnapshot | nu
     vendor_needs: null,
     amenities: null,
     venue_terms: plan?.venueTerms ?? null,
-    revenue_share: null,
+    consumption_share: null,
     action_permission: plan?.actionPermission ?? null,
     must_haves: null,
     dress_code: null,
@@ -451,7 +451,7 @@ function deriveEventSummary(messages: PlanMessage[], plan: LivePlanSnapshot | nu
       vendor_needs: readString(summary.vendor_needs) ?? fallback.vendor_needs,
       amenities: readString(summary.amenities) ?? fallback.amenities,
       venue_terms: fallback.venue_terms ?? readString(summary.venue_terms),
-      revenue_share: readString(summary.revenue_share) ?? fallback.revenue_share,
+      consumption_share: readString(summary.consumption_share) ?? fallback.consumption_share,
       action_permission: fallback.action_permission ?? readString(summary.action_permission),
       must_haves: readStringListValue(summary.must_haves) ?? fallback.must_haves,
       dress_code: readString(summary.dress_code) ?? fallback.dress_code,
@@ -492,7 +492,7 @@ function deriveSummaryFromConfirmationItems(
     if (label.includes('vendors')) nextSummary.vendor_needs = value
     if (label.includes('amenities')) nextSummary.amenities = value
     if (label.includes('venue terms') && !nextSummary.venue_terms) nextSummary.venue_terms = value
-    if (label.includes('revenue')) nextSummary.revenue_share = value
+    if (label.includes('revenue')) nextSummary.consumption_share = value
     if (label.includes('agent action') && !nextSummary.action_permission) nextSummary.action_permission = value
     if (label.includes('duration')) nextSummary.duration = /^not specified$/i.test(value) ? null : value
     if (label.includes('must')) nextSummary.must_haves = value
@@ -626,14 +626,14 @@ function buildProfitModel(
     && /guests pay venue|cash bar|no-host/i.test(summary.food_responsibility ?? '')
   const barRevenueCents = hasBarRevenue ? Math.round(paidAverage * 2600) : 0
   const feesCents = Math.round(ticketRevenueCents * 0.049)
-  const venueKickbackCents = guestCount > 100 ? (guestCount - 100) * 800 : 0
-  const revenueShareCents = Math.round(Math.max(0, ticketRevenueCents - feesCents) * 0.12)
-  const expectedCents = ticketRevenueCents + barRevenueCents - venueCostCents - vendorCostCents - customCostsTotalCents - feesCents - venueKickbackCents
+  const venueChiCents = guestCount > 100 ? (guestCount - 100) * 800 : 0
+  const consumptionShareCents = Math.round(Math.max(0, ticketRevenueCents - feesCents) * 0.12)
+  const expectedCents = ticketRevenueCents + barRevenueCents - venueCostCents - vendorCostCents - customCostsTotalCents - feesCents - venueChiCents
   const conservativeCents = Math.round(expectedCents * 0.6)
   const upsideCents = Math.round(expectedCents * 1.45)
   const attendeeBasis = paidAverage || guestCount
   const perAttendeeNetCents = attendeeBasis > 0 ? Math.round(expectedCents / attendeeBasis) : null
-  const totalCostCents = venueCostCents + vendorCostCents + customCostsTotalCents + feesCents + venueKickbackCents
+  const totalCostCents = venueCostCents + vendorCostCents + customCostsTotalCents + feesCents + venueChiCents
   const breakEvenTickets =
     summary.ticketed && ticketPricing.recommendedCents > 0 && totalCostCents > 0
       ? Math.ceil(totalCostCents / ticketPricing.recommendedCents)
@@ -645,7 +645,7 @@ function buildProfitModel(
     { label: `Venue cost (${recommendations[0]?.name ?? 'target'})`, amountCents: venueCostCents, negative: true },
     { label: 'Vendor cost (catering, DJ, AV, security)', amountCents: vendorCostCents, negative: true },
     { label: 'Platform + payment fees (4.9%)', amountCents: feesCents, negative: true },
-    { label: 'Community Host Incentive (per-head model)', amountCents: venueKickbackCents, negative: true },
+    { label: 'Community Host Incentive (per-head model)', amountCents: venueChiCents, negative: true },
   ]
 
   if (customCostsTotalCents > 0) {
@@ -661,8 +661,8 @@ function buildProfitModel(
     rangeHighCents: Math.max(conservativeCents, upsideCents),
     perAttendeeNetCents,
     paidAverage,
-    venueKickbackCents,
-    revenueShareCents,
+    venueChiCents,
+    consumptionShareCents,
     customCostsTotalCents,
     breakEvenTickets,
     ticketPricing: {
@@ -779,7 +779,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
     recommendationCount: recommendationMessageCount,
     planStatus: livePlan?.status ?? null,
   })
-  const isComparingCommercialModels = isRecommendBestModel(eventSummary.revenue_share)
+  const isComparingCommercialModels = isRecommendBestModel(eventSummary.consumption_share)
   const primaryAuthorization = authorizationCards[0] ?? null
   const shoppingListItems = buildShoppingList(primaryVenue, renderedBudgetLineItems, eventSummary, livePlan?.selectedVendors ?? [])
 
@@ -1199,24 +1199,24 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         >
           {isComparingCommercialModels ? (
             <p className="mb-4 rounded-md border border-clay/30 bg-clay-tint px-4 py-3 text-sm leading-snug text-ink-soft">
-              The agent will compare flat rental, minimum spend, per-head incentives, bar share, and ticket share before asking you to approve outreach.
+              The agent will compare flat rental, minimum spend, per-head CHI, bar consumption CHI, and ticket CHI before asking you to approve outreach.
             </p>
           ) : null}
-          <KickbackCard
+          <ChiCard
             title="Per-head incentive"
             subtitle="$8 per attendee after 100"
             builderText={`Better for builder above ${Math.max(100, profitModel.paidAverage)}`}
             venueText="Capped upside"
-            estimate={`≈ ${formatCents(profitModel.venueKickbackCents)} to venue at ${profitModel.paidAverage || 'TBD'}`}
-            recommended={profitModel.venueKickbackCents <= profitModel.revenueShareCents}
+            estimate={`≈ ${formatCents(profitModel.venueChiCents)} to venue at ${profitModel.paidAverage || 'TBD'}`}
+            recommended={profitModel.venueChiCents <= profitModel.consumptionShareCents}
           />
-          <KickbackCard
-            title="Ticket share"
+          <ChiCard
+            title="Ticket CHI"
             subtitle="12% of net ticket sales after fees"
             builderText="Lower if over-sold"
             venueText="Better for venue"
-            estimate={`≈ ${formatCents(profitModel.revenueShareCents)} to venue at ${profitModel.paidAverage || 'TBD'}`}
-            recommended={profitModel.revenueShareCents < profitModel.venueKickbackCents}
+            estimate={`≈ ${formatCents(profitModel.consumptionShareCents)} to venue at ${profitModel.paidAverage || 'TBD'}`}
+            recommended={profitModel.consumptionShareCents < profitModel.venueChiCents}
           />
         </ArtifactSection>
 
@@ -1523,7 +1523,7 @@ function PricingMetric({ label, value, featured = false }: { label: string; valu
   )
 }
 
-function KickbackCard({
+function ChiCard({
   title,
   subtitle,
   builderText,
@@ -1737,13 +1737,13 @@ function formatFoodResponsibilityValue(value: string | null) {
 
 function formatVenueTermsValue(summary: EventSummary) {
   if (summary.venue_terms) return summary.venue_terms
-  if (isRecommendBestModel(summary.revenue_share)) return 'Flexible while agent compares'
+  if (isRecommendBestModel(summary.consumption_share)) return 'Flexible while agent compares'
   return 'Need terms'
 }
 
 function formatRevenueModelValue(summary: EventSummary) {
-  if (isRecommendBestModel(summary.revenue_share)) return 'Agent recommends best model'
-  return summary.revenue_share ?? 'Need revenue model'
+  if (isRecommendBestModel(summary.consumption_share)) return 'Agent recommends best model'
+  return summary.consumption_share ?? 'Need commercial model'
 }
 
 function isRecommendBestModel(value: string | null | undefined) {
@@ -2269,7 +2269,7 @@ function summaryMatches(summary: EventSummary, pattern: RegExp) {
     summary.food_responsibility,
     summary.venue_terms,
     summary.ticketing_model,
-    summary.revenue_share,
+    summary.consumption_share,
   ].filter(Boolean).join(' '))
 }
 

@@ -26,7 +26,7 @@ export const VENUE_SELECT_COLUMNS = `
   price_per_night_cents,
   minimum_hours,
   bar_revenue_percentage,
-  per_head_kickback,
+  per_head_chi_cents,
   deposit_percentage,
   deposit_due,
   is_published,
@@ -34,16 +34,15 @@ export const VENUE_SELECT_COLUMNS = `
   total_bookings,
   created_at,
   updated_at,
-  offers_kickbacks,
+  offers_chis,
   default_kickback_type,
   stripe_account_id,
   ticket_sales_share_enabled,
   ticket_sales_share_pct,
-  bar_rev_share_enabled,
-  bar_rev_share_pct,
-  sponsor_rev_share_enabled,
-  sponsor_rev_share_pct,
-  per_head_kickback_cents,
+  bar_consumption_share_enabled,
+  bar_consumption_share_pct,
+  sponsor_consumption_share_enabled,
+  sponsor_consumption_share_pct,
   is_claimed,
   is_admin_seeded,
   requires_deposit,
@@ -79,7 +78,7 @@ export const VENUE_LEGACY_SELECT_COLUMNS = `
   hourly_rate,
   minimum_hours,
   bar_revenue_percentage,
-  per_head_kickback,
+  per_head_chi_cents,
   deposit_percentage,
   deposit_due,
   is_published,
@@ -87,7 +86,7 @@ export const VENUE_LEGACY_SELECT_COLUMNS = `
   total_bookings,
   created_at,
   updated_at,
-  offers_kickbacks,
+  offers_chis,
   default_kickback_type,
   stripe_account_id
 `
@@ -107,8 +106,12 @@ export function normalizeVenue(row: VenueRow): Venue {
   const dailyRateCents = readCents(row.daily_rate_cents, row.daily_rate)
   const pricePerNightCents = readCents(row.price_per_night_cents, row.price_per_night)
   const depositAmountCents = readCents(row.deposit_amount_cents, row.deposit_amount)
-  const perHeadKickbackCents =
-    readCents(row.per_head_kickback_cents, row.per_head_kickback_amount ?? row.per_head_kickback) ?? 0
+  const perHeadChiCents =
+    readCents(
+      row.per_head_chi_cents,
+      ((row as Record<string, unknown>).per_head_kickback_amount ??
+        (row as Record<string, unknown>).per_head_kickback) as number | string | null | undefined
+    ) ?? 0
   const autoApproveConditions =
     row.auto_approve_conditions && typeof row.auto_approve_conditions === 'object' && !Array.isArray(row.auto_approve_conditions)
       ? row.auto_approve_conditions as Record<string, unknown>
@@ -150,17 +153,17 @@ export function normalizeVenue(row: VenueRow): Venue {
     ticket_consumption_share_percent:
       row.ticket_consumption_share_percent ?? row.ticket_sales_share_percent ?? row.ticket_sales_share_pct ?? 0,
     bar_consumption_share_enabled:
-      row.bar_consumption_share_enabled ?? row.bar_revenue_share_enabled ?? row.bar_rev_share_enabled ?? false,
+      row.bar_consumption_share_enabled ??
+      (row as Record<string, unknown>).bar_revenue_share_enabled ??
+      (row as Record<string, unknown>).bar_rev_share_enabled ??
+      false,
     bar_consumption_share_percent:
-      row.bar_consumption_share_percent ?? row.bar_revenue_share_percent ?? row.bar_rev_share_pct ?? row.bar_revenue_percentage ?? 0,
-    bar_revenue_share_enabled:
-      row.bar_revenue_share_enabled ?? row.bar_rev_share_enabled ?? false,
-    bar_revenue_share_percent:
-      row.bar_revenue_share_percent ?? row.bar_rev_share_pct ?? row.bar_revenue_percentage ?? 0,
-    per_head_kickback_amount:
-      perHeadKickbackCents,
-    per_head_kickback_cents: perHeadKickbackCents,
-    per_head_chi_cents: perHeadKickbackCents,
+      row.bar_consumption_share_percent ??
+      (row as Record<string, unknown>).bar_revenue_share_percent ??
+      row.bar_consumption_share_pct ??
+      row.bar_revenue_percentage ??
+      0,
+    per_head_chi_cents: perHeadChiCents,
     bulk_approval_enabled: row.bulk_approval_enabled ?? false,
     auto_approve_threshold: row.auto_approve_threshold ?? null,
     auto_approve_conditions: row.auto_approve_conditions ?? null,
@@ -233,17 +236,14 @@ export function toVenueRowUpdate(updates: Partial<Omit<Venue, 'id' | 'created_at
   if (updates.ticket_sales_share_percent !== undefined) {
     row.ticket_sales_share_percent = updates.ticket_sales_share_percent
   }
-  if (updates.bar_revenue_share_enabled !== undefined) {
-    row.bar_revenue_share_enabled = updates.bar_revenue_share_enabled
+  if (updates.bar_consumption_share_enabled !== undefined) {
+    row.bar_consumption_share_enabled = updates.bar_consumption_share_enabled
   }
-  if (updates.bar_revenue_share_percent !== undefined) {
-    row.bar_revenue_share_percent = updates.bar_revenue_share_percent
+  if (updates.bar_consumption_share_percent !== undefined) {
+    row.bar_consumption_share_percent = updates.bar_consumption_share_percent
   }
-  if (updates.per_head_kickback_amount !== undefined) {
-    row.per_head_kickback_cents = updates.per_head_kickback_amount
-  }
-  if (updates.per_head_kickback_cents !== undefined) {
-    row.per_head_kickback_cents = updates.per_head_kickback_cents
+  if (updates.per_head_chi_cents !== undefined) {
+    row.per_head_chi_cents = updates.per_head_chi_cents
   }
   if (updates.bulk_approval_enabled !== undefined) {
     row.bulk_approval_enabled = updates.bulk_approval_enabled
@@ -275,7 +275,7 @@ export function toVenueRowUpdate(updates: Partial<Omit<Venue, 'id' | 'created_at
 }
 
 function normalizeVenuePricingModel(value: unknown): PricingModel {
-  if (value === 'hourly' || value === 'revenue_share' || value === 'hybrid') {
+  if (value === 'hourly' || value === 'consumption_share' || value === 'hybrid') {
     return value
   }
   if (value === 'flat_rate' || value === 'per_person') {

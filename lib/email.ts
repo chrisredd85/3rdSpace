@@ -112,10 +112,10 @@ export async function sendEmailNotification(params: EmailNotificationParams) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Kickback settlement notifications (Phase 1 rev share PR)
+// Community Host Incentive settlement notifications.
 // ─────────────────────────────────────────────────────────────────────
 
-type KickbackNotificationPayment = {
+type ChiNotificationPayment = {
   id: string
   agreement_id: string | null
   event_id: string | null
@@ -132,7 +132,7 @@ type KickbackNotificationPayment = {
   status?: string | null
 }
 
-type KickbackNotificationAgreement = {
+type ChiNotificationAgreement = {
   id: string
   event_id: string | null
   plan_id?: string | null
@@ -144,9 +144,9 @@ type KickbackNotificationAgreement = {
   per_head_amount?: number | string | null
 }
 
-type KickbackNotificationContext = {
-  payment: KickbackNotificationPayment
-  agreement: KickbackNotificationAgreement | null
+type ChiNotificationContext = {
+  payment: ChiNotificationPayment
+  agreement: ChiNotificationAgreement | null
   eventTitle: string
   eventDate: string | null
   venueName: string
@@ -191,13 +191,13 @@ type VenueRentalNotificationContext = {
 }
 
 export async function sendVenueInvoiceEmail({ paymentId }: { paymentId: string }) {
-  const context = await loadKickbackNotificationContext(paymentId)
+  const context = await loadChiNotificationContext(paymentId)
   if (!context.venueEmail) return skippedEmail('Venue email not found')
 
   const totalDueCents = context.principalCents + context.processingFeeCents
   return sendEmailNotification({
     to: context.venueEmail,
-    subject: `Payment due - Revenue share for ${context.eventTitle}`,
+    subject: `Payment due - Community Host Incentive for ${context.eventTitle}`,
     templateType: 'payment_due',
     actionUrl: context.invoiceUrl ?? buildAppUrl('/venue/payouts'),
     body: [
@@ -212,7 +212,7 @@ export async function sendVenueInvoiceEmail({ paymentId }: { paymentId: string }
 }
 
 export async function sendBuilderPaidEmail({ paymentId }: { paymentId: string }) {
-  const context = await loadKickbackNotificationContext(paymentId)
+  const context = await loadChiNotificationContext(paymentId)
   if (!context.builderEmail) return skippedEmail('Builder email not found')
 
   return sendEmailNotification({
@@ -222,7 +222,7 @@ export async function sendBuilderPaidEmail({ paymentId }: { paymentId: string })
     actionUrl: buildAppUrl('/planner/payments'),
     body: [
       `Hi ${context.builderName},`,
-      `${context.venueName} just paid the revenue share for your event "${context.eventTitle}".`,
+      `${context.venueName} just paid the Community Host Incentive for your event "${context.eventTitle}".`,
       `Amount: ${formatMoney(context.builderPayoutCents)}.`,
       `Source: ${context.settlementSource}${context.reportedRevenueCents > 0 ? ` on ${formatMoney(context.reportedRevenueCents)} reported by the venue` : ''}.`,
       'Status: transferred to your connected Stripe account.',
@@ -231,7 +231,7 @@ export async function sendBuilderPaidEmail({ paymentId }: { paymentId: string })
 }
 
 export async function sendVenuePaymentFailedEmail({ paymentId }: { paymentId: string }) {
-  const context = await loadKickbackNotificationContext(paymentId)
+  const context = await loadChiNotificationContext(paymentId)
   if (!context.venueEmail) return skippedEmail('Venue email not found')
 
   const totalDueCents = context.principalCents + context.processingFeeCents
@@ -242,7 +242,7 @@ export async function sendVenuePaymentFailedEmail({ paymentId }: { paymentId: st
     actionUrl: context.invoiceUrl ?? buildAppUrl('/venue/payouts'),
     body: [
       `Hi ${context.venueName},`,
-      `The payment for ${context.eventTitle} revenue share (${formatMoney(totalDueCents)}) did not process.`,
+      `The Community Host Incentive payment for ${context.eventTitle} (${formatMoney(totalDueCents)}) did not process.`,
       'This usually happens with an expired card or insufficient ACH funds.',
       'Please retry from the invoice link or your venue dashboard.',
     ].join('\n\n'),
@@ -250,7 +250,7 @@ export async function sendVenuePaymentFailedEmail({ paymentId }: { paymentId: st
 }
 
 export async function sendBuilderRefundRequestEmail({ paymentId }: { paymentId: string }) {
-  const context = await loadKickbackNotificationContext(paymentId)
+  const context = await loadChiNotificationContext(paymentId)
   if (!context.builderEmail) return skippedEmail('Builder email not found')
 
   return sendEmailNotification({
@@ -275,7 +275,7 @@ export async function sendVenueRefundDeniedEmail({
   paymentId: string
   builderNote?: string | null
 }) {
-  const context = await loadKickbackNotificationContext(paymentId)
+  const context = await loadChiNotificationContext(paymentId)
   if (!context.venueEmail) return skippedEmail('Venue email not found')
 
   return sendEmailNotification({
@@ -298,7 +298,7 @@ export async function sendRefundCompletedEmail({
   paymentId: string
   isFullRefund: boolean
 }) {
-  const context = await loadKickbackNotificationContext(paymentId)
+  const context = await loadChiNotificationContext(paymentId)
   const recipients = [context.venueEmail, context.builderEmail].filter(Boolean) as string[]
   if (recipients.length === 0) return skippedEmail('No refund notification recipients found')
 
@@ -457,7 +457,7 @@ export async function sendVenueOverdueWarningEmail({
   })
 }
 
-async function loadKickbackNotificationContext(paymentId: string): Promise<KickbackNotificationContext> {
+async function loadChiNotificationContext(paymentId: string): Promise<ChiNotificationContext> {
   const admin = await createKickbackEmailAdminClient()
   const { data: payment, error: paymentError } = await admin
     .from('kickback_payments')
@@ -482,12 +482,12 @@ async function loadKickbackNotificationContext(paymentId: string): Promise<Kickb
     .eq('id', paymentId)
     .maybeSingle()
 
-  if (paymentError) throw new Error(paymentError.message ?? 'Failed to load kickback payment')
-  if (!payment) throw new Error('Kickback payment not found')
+  if (paymentError) throw new Error(paymentError.message ?? 'Failed to load CHI payment')
+  if (!payment) throw new Error('CHI payment not found')
 
-  const typedPayment = payment as KickbackNotificationPayment
+  const typedPayment = payment as ChiNotificationPayment
   const agreement = typedPayment.agreement_id
-    ? await loadKickbackAgreement(admin, typedPayment.agreement_id)
+    ? await loadChiAgreement(admin, typedPayment.agreement_id)
     : null
   const venue = agreement?.venue_id ? await loadVenue(admin, agreement.venue_id) : null
   const venueOwnerId = (venue as any)?.owner_id || typedPayment.payer_id
@@ -569,7 +569,7 @@ async function loadVenueRentalNotificationContext(transactionId: string): Promis
   }
 }
 
-async function loadKickbackAgreement(admin: any, agreementId: string): Promise<KickbackNotificationAgreement | null> {
+async function loadChiAgreement(admin: any, agreementId: string): Promise<ChiNotificationAgreement | null> {
   const { data, error } = await admin
     .from('event_kickback_agreements')
     .select(
@@ -588,8 +588,8 @@ async function loadKickbackAgreement(admin: any, agreementId: string): Promise<K
     .eq('id', agreementId)
     .maybeSingle()
 
-  if (error) throw new Error(error.message ?? 'Failed to load kickback agreement')
-  return (data as KickbackNotificationAgreement | null) ?? null
+  if (error) throw new Error(error.message ?? 'Failed to load CHI agreement')
+  return (data as ChiNotificationAgreement | null) ?? null
 }
 
 async function loadVenue(admin: any, venueId: string) {
@@ -700,12 +700,12 @@ function readPositiveNumber(value: number | string | null | undefined) {
   return typeof numeric === 'number' && Number.isFinite(numeric) && numeric > 0 ? numeric : 0
 }
 
-function formatSettlementSource(agreement: KickbackNotificationAgreement | null) {
+function formatSettlementSource(agreement: ChiNotificationAgreement | null) {
   const barShare = readPositiveNumber(agreement?.bar_revenue_share_percent)
-  if (barShare > 0) return `${barShare}% bar revenue share agreement`
+  if (barShare > 0) return `${barShare}% bar consumption CHI agreement`
 
   const ticketShare = readPositiveNumber(agreement?.ticket_revenue_share_percent)
-  if (ticketShare > 0) return `${ticketShare}% ticket revenue share agreement`
+  if (ticketShare > 0) return `${ticketShare}% ticket CHI agreement`
 
   const liftShare = readPositiveNumber(agreement?.lift_share_percentage)
   if (liftShare > 0) return `${liftShare}% lift share agreement`
@@ -713,7 +713,7 @@ function formatSettlementSource(agreement: KickbackNotificationAgreement | null)
   const perHeadCents = dollarsToCents(agreement?.per_head_amount)
   if (perHeadCents > 0) return `${formatMoney(perHeadCents)} per attendee agreement`
 
-  return 'revenue share agreement'
+  return 'Community Host Incentive agreement'
 }
 
 function formatMoney(cents: number | string | null | undefined) {

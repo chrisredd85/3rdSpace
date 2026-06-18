@@ -19,7 +19,7 @@ import { centsToDollars, dollarsToCents } from '@/lib/money'
 import type { PricingModel } from '@/lib/types'
 
 const pricingSchema = z.object({
-  pricing_model: z.enum(['flat_rate', 'per_person', 'hourly', 'revenue_share', 'hybrid']),
+  pricing_model: z.enum(['flat_rate', 'per_person', 'hourly', 'consumption_share', 'hybrid']),
   hourly_rate: z.number().optional(),
   daily_rate: z.number().optional(),
   flat_rate: z.number().optional(),
@@ -27,9 +27,9 @@ const pricingSchema = z.object({
   min_hours: z.number().optional(),
   ticket_sales_share: z.boolean().optional(),
   ticket_sales_share_percent: z.number().min(0).max(100).optional(),
-  bar_revenue_share: z.boolean().optional(),
+  bar_consumption_share: z.boolean().optional(),
   bar_revenue_percent: z.number().min(0).max(100).optional(),
-  per_head_kickback: z.number().optional(),
+  per_head_chi_cents: z.number().optional(),
 })
 
 type PricingFormData = z.infer<typeof pricingSchema>
@@ -61,7 +61,7 @@ const modelOptions: ModelOption[] = [
     icon: Clock,
   },
   {
-    value: 'revenue_share',
+    value: 'consumption_share',
     label: 'Community Host Incentive',
     description: 'Share verified event upside',
     icon: TrendingUp,
@@ -97,9 +97,9 @@ export default function VenuePricingPage() {
   const pricingModel = watch('pricing_model')
   const ticketSalesShare = watch('ticket_sales_share')
   const ticketSalesSharePercent = watch('ticket_sales_share_percent') || 0
-  const barRevenueShare = watch('bar_revenue_share')
+  const barConsumptionShare = watch('bar_consumption_share')
   const barRevenuePercent = watch('bar_revenue_percent') || 0
-  const perHeadKickback = watch('per_head_kickback') || 0
+  const perHeadChi = watch('per_head_chi_cents') || 0
   const hourlyRate = watch('hourly_rate') || 0
   const minHours = watch('min_hours') || 2
   const flatRate = watch('flat_rate') || 0
@@ -127,13 +127,13 @@ export default function VenuePricingPage() {
         hourly_rate: venue.hourly_rate ? centsToDollars(venue.hourly_rate) : undefined,
         daily_rate: venue.daily_rate ? centsToDollars(venue.daily_rate) : undefined,
         flat_rate: venue.daily_rate ? centsToDollars(venue.daily_rate) : undefined,
-        per_person_rate: venue.per_head_kickback_amount ? centsToDollars(venue.per_head_kickback_amount) : undefined,
+        per_person_rate: venue.per_head_chi_cents ? centsToDollars(venue.per_head_chi_cents) : undefined,
         min_hours: 2,
         ticket_sales_share: venue.ticket_sales_share_enabled || false,
         ticket_sales_share_percent: venue.ticket_sales_share_percent ?? 10,
-        bar_revenue_share: venue.bar_revenue_share_enabled || false,
-        bar_revenue_percent: venue.bar_revenue_share_percent ?? 15,
-        per_head_kickback: venue.per_head_kickback_amount ? centsToDollars(venue.per_head_kickback_amount) : 0,
+        bar_consumption_share: venue.bar_consumption_share_enabled || false,
+        bar_revenue_percent: venue.bar_consumption_share_percent ?? 15,
+        per_head_chi_cents: venue.per_head_chi_cents ? centsToDollars(venue.per_head_chi_cents) : 0,
       })
     }
   }, [venue, reset])
@@ -165,9 +165,9 @@ export default function VenuePricingPage() {
           daily_rate_cents: data.flat_rate || data.daily_rate ? dollarsToCents(data.flat_rate || data.daily_rate) : null,
           ticket_sales_share_enabled: Boolean(data.ticket_sales_share),
           ticket_sales_share_percent: data.ticket_sales_share ? (data.ticket_sales_share_percent || 0) : 0,
-          bar_revenue_share_enabled: Boolean(data.bar_revenue_share),
-          bar_revenue_share_percent: data.bar_revenue_share ? (data.bar_revenue_percent || 0) : 0,
-          per_head_kickback_cents: data.per_head_kickback ? dollarsToCents(data.per_head_kickback) : 0,
+          bar_consumption_share_enabled: Boolean(data.bar_consumption_share),
+          bar_consumption_share_percent: data.bar_consumption_share ? (data.bar_revenue_percent || 0) : 0,
+          per_head_chi_cents: data.per_head_chi_cents ? dollarsToCents(data.per_head_chi_cents) : 0,
         },
       })
       addToast({ title: 'Pricing updated', description: 'Your venue pricing has been saved.' })
@@ -199,7 +199,7 @@ export default function VenuePricingPage() {
   const showHourly = pricingModel === 'hourly' || pricingModel === 'hybrid'
   const showFlatRate = pricingModel === 'flat_rate'
   const showPerPerson = pricingModel === 'per_person'
-  const showRevenueShare = pricingModel === 'revenue_share' || pricingModel === 'hybrid'
+  const showConsumptionShare = pricingModel === 'consumption_share' || pricingModel === 'hybrid'
 
   return (
     <div className="space-y-6">
@@ -363,7 +363,7 @@ export default function VenuePricingPage() {
         )}
 
         {/* Community Host Incentive */}
-        {showRevenueShare && (
+        {showConsumptionShare && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -428,7 +428,7 @@ export default function VenuePricingPage() {
                 )}
               </div>
 
-              {/* Bar share */}
+              {/* Bar sales incentive */}
               <div className="rounded-lg border border-tan bg-cream/40 p-5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -439,13 +439,13 @@ export default function VenuePricingPage() {
                   </div>
                   <input
                     type="checkbox"
-                    id="bar_revenue_share"
-                    {...register('bar_revenue_share')}
+                    id="bar_consumption_share"
+                    {...register('bar_consumption_share')}
                     className="h-4 w-4"
                   />
                 </div>
 
-                {barRevenueShare && (
+                {barConsumptionShare && (
                   <div className="mt-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <label className="text-sm font-medium text-ink">Share percentage</label>
@@ -486,7 +486,7 @@ export default function VenuePricingPage() {
                   <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft/60" />
                   <Input
                     type="number"
-                    {...register('per_head_kickback', { valueAsNumber: true })}
+                    {...register('per_head_chi_cents', { valueAsNumber: true })}
                     className="pl-10"
                     placeholder="5"
                   />
@@ -505,7 +505,7 @@ export default function VenuePricingPage() {
                       </span>
                     </div>
                   )}
-                  {barRevenueShare && (
+                  {barConsumptionShare && (
                     <div className="flex justify-between">
                       <span>Bar sales incentive ({barRevenuePercent}%)</span>
                       <span className="font-medium text-ink">
@@ -516,7 +516,7 @@ export default function VenuePricingPage() {
                   <div className="flex justify-between">
                     <span>Per-head incentive</span>
                     <span className="font-medium text-ink">
-                      ${(100 * perHeadKickback).toLocaleString()}
+                      ${(100 * perHeadChi).toLocaleString()}
                     </span>
                   </div>
                   <div className="flex justify-between border-t pt-1 font-semibold text-ink">
@@ -524,8 +524,8 @@ export default function VenuePricingPage() {
                     <span>
                       ${(
                         (ticketSalesShare ? 5000 * (ticketSalesSharePercent / 100) : 0) +
-                        (barRevenueShare ? 100 * 50 * (barRevenuePercent / 100) : 0) +
-                        100 * perHeadKickback
+                        (barConsumptionShare ? 100 * 50 * (barRevenuePercent / 100) : 0) +
+                        100 * perHeadChi
                       ).toLocaleString()}
                     </span>
                   </div>

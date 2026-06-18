@@ -13,9 +13,9 @@ const DEFAULT_ESTIMATED_SPEND_PER_HEAD_CENTS = 4000
 const venueCommercialModelSchema = z.enum([
   'flat_rental',
   'minimum_spend',
-  'per_head_kickback',
-  'bar_revenue_share',
-  'ticket_revenue_share',
+  'per_head_chi_cents',
+  'bar_consumption_share',
+  'ticket_consumption_share',
 ])
 
 export const budgetLineItemSchema = z.object({
@@ -33,7 +33,7 @@ export const eventPlanningEconomicsInputSchema = z.object({
   ticket_price_cents: z.number().int().nonnegative(),
   sponsorship_revenue_cents: z.number().int().nonnegative().default(0),
   venue_commercial_model: venueCommercialModelSchema.optional(),
-  venue_kickback_rate: z.number().nonnegative().default(0),
+  venue_chi_rate: z.number().nonnegative().default(0),
   estimated_spend_per_head_cents: z.number().int().nonnegative().default(DEFAULT_ESTIMATED_SPEND_PER_HEAD_CENTS),
 })
 
@@ -41,7 +41,7 @@ export const revenueScenarioSchema = z.object({
   attendance: z.number().int().nonnegative(),
   ticket_revenue_cents: z.number().int(),
   sponsorship_revenue_cents: z.number().int(),
-  kickback_projection_cents: z.number().int(),
+  venue_chi_projection_cents: z.number().int(),
   total_revenue_cents: z.number().int(),
   total_cost_cents: z.number().int(),
   profit_cents: z.number().int(),
@@ -122,21 +122,21 @@ function buildRevenueScenario(
 ) {
   const attendance = Math.floor(input.expected_attendance * SCENARIO_ATTENDANCE_RATES[scenario])
   const ticketRevenueCents = attendance * input.ticket_price_cents
-  const kickbackProjectionCents = calculateVenueKickbackProjectionCents({
+  const chiProjectionCents = calculateVenueChiProjectionCents({
     model: input.venue_commercial_model,
-    kickbackRate: input.venue_kickback_rate,
+    chiRate: input.venue_chi_rate,
     attendance,
     grossTicketRevenueCents: ticketRevenueCents,
     estimatedSpendPerHeadCents: input.estimated_spend_per_head_cents,
   })
-  const totalRevenueCents = ticketRevenueCents + input.sponsorship_revenue_cents + kickbackProjectionCents
+  const totalRevenueCents = ticketRevenueCents + input.sponsorship_revenue_cents + chiProjectionCents
   const profitCents = totalRevenueCents - totalCostCents
 
   return revenueScenarioSchema.parse({
     attendance,
     ticket_revenue_cents: ticketRevenueCents,
     sponsorship_revenue_cents: input.sponsorship_revenue_cents,
-    kickback_projection_cents: kickbackProjectionCents,
+    venue_chi_projection_cents: chiProjectionCents,
     total_revenue_cents: totalRevenueCents,
     total_cost_cents: totalCostCents,
     profit_cents: profitCents,
@@ -144,30 +144,30 @@ function buildRevenueScenario(
   })
 }
 
-export function calculateVenueKickbackProjectionCents({
+export function calculateVenueChiProjectionCents({
   model,
-  kickbackRate,
+  chiRate,
   attendance,
   grossTicketRevenueCents,
   estimatedSpendPerHeadCents = DEFAULT_ESTIMATED_SPEND_PER_HEAD_CENTS,
 }: {
   model?: z.infer<typeof venueCommercialModelSchema>
-  kickbackRate?: number
+  chiRate?: number
   attendance: number
   grossTicketRevenueCents: number
   estimatedSpendPerHeadCents?: number
 }) {
-  const rate = Number.isFinite(kickbackRate ?? 0) ? Math.max(kickbackRate ?? 0, 0) : 0
-  if (model === 'per_head_kickback') {
+  const rate = Number.isFinite(chiRate ?? 0) ? Math.max(chiRate ?? 0, 0) : 0
+  if (model === 'per_head_chi_cents') {
     return Math.round(rate) * attendance
   }
 
-  if (model === 'bar_revenue_share') {
+  if (model === 'bar_consumption_share') {
     const estimatedBarRevenueCents = attendance * Math.max(estimatedSpendPerHeadCents, 0)
     return Math.round(estimatedBarRevenueCents * (rate / 100))
   }
 
-  if (model === 'ticket_revenue_share') {
+  if (model === 'ticket_consumption_share') {
     return Math.round(grossTicketRevenueCents * (rate / 100))
   }
 

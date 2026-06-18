@@ -22,7 +22,7 @@ export interface CatalogPlanRankingInput {
   ticketing_model?: string | null
   food_responsibility?: string | null
   venue_terms?: string | null
-  revenue_share?: string | null
+  consumption_share?: string | null
   room_type?: string | null
   date_window?: string | null
   date_window_start?: string | null
@@ -441,8 +441,8 @@ function compareRecommendations(a: RankedCatalogRecommendation, b: RankedCatalog
 }
 
 function getCommercialModelPreference(plan: CatalogPlanRankingInput): string | null | undefined {
-  if (/\brecommend|compare|best model|open|flexible\b/i.test(plan.revenue_share ?? '')) return plan.revenue_share
-  return plan.venue_terms ?? plan.revenue_share
+  if (/\brecommend|compare|best model|open|flexible\b/i.test(plan.consumption_share ?? '')) return plan.consumption_share
+  return plan.venue_terms ?? plan.consumption_share
 }
 
 function attachCategoryRanks(recommendations: RankedCatalogRecommendation[]): RankedCatalogRecommendation[] {
@@ -890,16 +890,16 @@ function inferVenueTerms(row: Record<string, unknown>): string[] {
   ) {
     terms.add('min_spend')
   }
-  if (row.ticket_sales_share_enabled === true || row.bar_rev_share_enabled === true) {
-    terms.add('revenue_share')
+  if (row.ticket_sales_share_enabled === true || row.bar_consumption_share_enabled === true) {
+    terms.add('consumption_share')
   }
   if (
     (readCents(
-      row.per_head_kickback_cents as number | string | null | undefined,
-      (row.per_head_kickback_amount ?? row.per_head_kickback) as number | string | null | undefined
+      row.per_head_chi_cents as number | string | null | undefined,
+      (row.per_head_chi_cents ?? row.per_head_chi_cents) as number | string | null | undefined
     ) ?? 0) > 0
   ) {
-    terms.add('per_head_kickback')
+    terms.add('per_head_chi_cents')
   }
 
   return [...terms]
@@ -914,8 +914,8 @@ function normalizeVenueTerms(value: string | null | undefined): string[] {
   const terms: string[] = []
   if (/\b(flat|rental|hourly|buyout|room fee)\b/.test(normalized)) terms.push('flat_rental')
   if (/\b(min|minimum spend|f&b minimum)\b/.test(normalized)) terms.push('min_spend')
-  if (/\b(revenue|share|bar rev|ticket share)\b/.test(normalized)) terms.push('revenue_share')
-  if (/\b(per head|kickback|attendee)\b/.test(normalized)) terms.push('per_head_kickback')
+  if (/\b(consumption|share|bar chi|ticket chi)\b/.test(normalized)) terms.push('consumption_share')
+  if (/\b(per head|chi|attendee)\b/.test(normalized)) terms.push('per_head_chi_cents')
   if (/\b(free|no fee|comp)\b/.test(normalized)) terms.push('free_space')
   return terms.length > 0 ? terms : [normalized.replace(/\s+/g, '_')]
 }

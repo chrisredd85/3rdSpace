@@ -9,9 +9,9 @@ type RevenueTermType =
   | 'sales_tax'
   | 'ticketing_fee'
   | 'service_fee'
-  | 'venue_kickback'
+  | 'venue_chi'
   | 'venue_minimum_spend'
-  | 'vendor_rev_share'
+  | 'vendor_consumption_share'
   | 'sponsor_credit'
   | 'other'
 
@@ -61,9 +61,9 @@ type RevenueTermsResponse = {
   summary?: {
     sales_tax_cents: number
     platform_fee_cents: number
-    venue_kickback_cents: number
+    venue_chi_cents: number
     sponsor_credit_cents: number
-    vendor_rev_share_cents: number
+    vendor_consumption_share_cents: number
     venue_minimum_spend_cents: number
     other_cents: number
   }
@@ -102,9 +102,9 @@ const termLabels: Record<RevenueTermType, string> = {
   sales_tax: 'Sales tax',
   ticketing_fee: 'Ticketing fee',
   service_fee: 'Service fee',
-  venue_kickback: 'Community Host Incentive',
+  venue_chi: 'Community Host Incentive',
   venue_minimum_spend: 'Venue minimum spend',
-  vendor_rev_share: 'Vendor partner share',
+  vendor_consumption_share: 'Vendor consumption share',
   sponsor_credit: 'Sponsor credit',
   other: 'Other',
 }
@@ -169,10 +169,10 @@ export function RevenueTermsTab({ eventId }: RevenueTermsTabProps) {
     deductions:
       (summary?.sales_tax_cents ?? 0) +
       (summary?.platform_fee_cents ?? 0) +
-      (summary?.vendor_rev_share_cents ?? 0) +
+      (summary?.vendor_consumption_share_cents ?? 0) +
       (summary?.venue_minimum_spend_cents ?? 0),
     additions:
-      (summary?.venue_kickback_cents ?? 0) +
+      (summary?.venue_chi_cents ?? 0) +
       (summary?.sponsor_credit_cents ?? 0),
     gross: actuals?.gross_revenue_cents ?? 0,
     net: actuals?.net_revenue_cents ?? 0,

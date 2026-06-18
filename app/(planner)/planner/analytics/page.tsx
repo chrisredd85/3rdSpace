@@ -39,7 +39,7 @@ type FinancialSummary = {
   expected_profit?: number | null
   profit_margin?: number | null
   break_even_tickets?: number | null
-  venue_kickback_projection?: number | null
+  venue_chi_projection?: number | null
   venue_sales_share_projection?: number | null
   per_attendee_value?: number | null
   message?: string
@@ -483,7 +483,7 @@ export default function PlannerAnalyticsPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <ImpactRow label="Foot traffic proxy" value={String(scorecard.venueFootTrafficProxy)} source="tickets/check-ins" />
-                <ImpactRow label="Community Host Incentive projection" value={formatMoney(scorecard.venueKickbackProjectionDollars)} source="financial summary" />
+                <ImpactRow label="Community Host Incentive projection" value={formatMoney(scorecard.venueChiProjectionDollars)} source="financial summary" />
                 <ImpactRow label="Ticket sales share projection" value={formatMoney(scorecard.venueSalesShareProjectionDollars)} source="venue terms" />
                 <ImpactRow label="Bar/POS spend" value="Needs venue data" source="future/manual" muted />
               </CardContent>
@@ -646,7 +646,7 @@ function buildScorecard(data: AnalyticsState | null) {
     attendanceCoverage: postSummary?.attendance_coverage ?? null,
     venueFootTrafficProxy: postSummary?.venue_foot_traffic_proxy ?? 0,
     sourceConfidenceLabel: sourceConfidenceLabel(postSummary?.source_confidence),
-    venueKickbackProjectionDollars: readNumber(financial?.venue_kickback_projection) ?? 0,
+    venueChiProjectionDollars: readNumber(financial?.venue_chi_projection) ?? 0,
     venueSalesShareProjectionDollars: readNumber(financial?.venue_sales_share_projection) ?? 0,
   }
 

@@ -38,7 +38,7 @@ export async function getVenueComplianceStatus(
     .eq('venue_id', venueId)
 
   if (agreementError) {
-    throw new Error(agreementError.message ?? 'Failed to load venue kickback agreements')
+    throw new Error(agreementError.message ?? 'Failed to load venue CHI agreements')
   }
 
   const agreementRows = ((agreements ?? []) as AgreementRow[])
@@ -51,7 +51,7 @@ export async function getVenueComplianceStatus(
     .in('agreement_id', agreementIds)
 
   if (paymentError) {
-    throw new Error(paymentError.message ?? 'Failed to load venue kickback payments')
+    throw new Error(paymentError.message ?? 'Failed to load venue CHI payments')
   }
 
   const eventDates = await loadAgreementEventDates(admin, agreementRows)
