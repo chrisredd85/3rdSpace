@@ -314,13 +314,13 @@ export async function recalculateEventFinancials(
   const projectedAttendance = Math.max(Math.floor(currentAttendance * TYPICAL_SHOW_UP_RATE), 0)
   const remainingCapacity = Math.max(expectedAttendees - currentAttendance, 0)
   const projectedRevenue = netRevenue + remainingCapacity * averageTicketPrice
-  const expectedProfit = netRevenue - costs.totalCosts
-  const profitMargin = netRevenue > 0 ? (expectedProfit / netRevenue) * 100 : 0
   const breakEvenTickets = averageTicketPrice > 0 ? Math.ceil(costs.totalCosts / averageTicketPrice) : 0
   const venueSalesShareProjection = venueTicketSalesShare.enabled
     ? projectedRevenue * (venueTicketSalesShare.percent / 100)
     : 0
   const venueChiProjection = projectedAttendance * chiRate + venueSalesShareProjection
+  const profitRevenue = netRevenue + venueChiProjection
+  const expectedProfit = profitRevenue - costs.totalCosts
   const perAttendeeValue = currentAttendance > 0 ? netRevenue / currentAttendance : 0
 
   const metrics: FinancialMetrics = {
@@ -337,7 +337,7 @@ export async function recalculateEventFinancials(
     vendor_cost: roundMoney(costs.vendorCost),
     total_costs: roundMoney(costs.totalCosts),
     expected_profit: roundMoney(expectedProfit),
-    profit_margin: roundMoney(profitMargin),
+    profit_margin: profitRevenue > 0 ? roundMoney((expectedProfit / profitRevenue) * 100) : 0,
     break_even_tickets: breakEvenTickets,
     venue_chi_projection: roundMoney(venueChiProjection),
     venue_sales_share_projection: roundMoney(venueSalesShareProjection),

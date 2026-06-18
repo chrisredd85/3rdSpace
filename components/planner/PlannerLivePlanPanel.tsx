@@ -177,6 +177,9 @@ interface ProfitModel {
   paidAverage: number
   venueChiCents: number
   consumptionShareCents: number
+  barConsumptionShareCents: number
+  venueIncentiveCents: number
+  venueIncentiveLabel: string
   ticketPricing: TicketPricingModel
   customCostsTotalCents: number
   breakEvenTickets: number | null
@@ -621,31 +624,33 @@ function buildProfitModel(
   const customCostsTotalCents = Math.round(customCosts.reduce((sum, c) => sum + c.amount * 100, 0))
   const ticketPricing = buildTicketPricingModel(summary, paidAverage, venueCostCents + customCostsTotalCents, vendorCostCents)
   const ticketRevenueCents = summary.ticketed && paidAverage > 0 ? ticketPricing.recommendedCents * paidAverage : 0
-  const hasBarRevenue = paidAverage > 0
-    && summary.ticketed
-    && /guests pay venue|cash bar|no-host/i.test(summary.food_responsibility ?? '')
-  const barRevenueCents = hasBarRevenue ? Math.round(paidAverage * 2600) : 0
   const feesCents = Math.round(ticketRevenueCents * 0.049)
   const venueChiCents = guestCount > 100 ? (guestCount - 100) * 800 : 0
   const consumptionShareCents = Math.round(Math.max(0, ticketRevenueCents - feesCents) * 0.12)
-  const expectedCents = ticketRevenueCents + barRevenueCents - venueCostCents - vendorCostCents - customCostsTotalCents - feesCents - venueChiCents
+  const barConsumptionShareCents = estimateBarConsumptionShareCents(summary, paidAverage)
+  const venueIncentive = resolveVenueIncentiveProjection(summary, {
+    perHeadCents: venueChiCents,
+    ticketShareCents: consumptionShareCents,
+    barShareCents: barConsumptionShareCents,
+  })
+  const expectedCents = ticketRevenueCents + venueIncentive.amountCents - venueCostCents - vendorCostCents - customCostsTotalCents - feesCents
   const conservativeCents = Math.round(expectedCents * 0.6)
   const upsideCents = Math.round(expectedCents * 1.45)
   const attendeeBasis = paidAverage || guestCount
   const perAttendeeNetCents = attendeeBasis > 0 ? Math.round(expectedCents / attendeeBasis) : null
-  const totalCostCents = venueCostCents + vendorCostCents + customCostsTotalCents + feesCents + venueChiCents
+  const totalCostCents = venueCostCents + vendorCostCents + customCostsTotalCents + feesCents
+  const breakEvenCostCents = Math.max(0, totalCostCents - venueIncentive.amountCents)
   const breakEvenTickets =
-    summary.ticketed && ticketPricing.recommendedCents > 0 && totalCostCents > 0
-      ? Math.ceil(totalCostCents / ticketPricing.recommendedCents)
+    summary.ticketed && ticketPricing.recommendedCents > 0 && breakEvenCostCents > 0
+      ? Math.ceil(breakEvenCostCents / ticketPricing.recommendedCents)
       : null
 
   const lineItems: ProfitModel['lineItems'] = [
     { label: `Ticket revenue (${paidAverage || 'TBD'} paid avg × ${formatCents(ticketPricing.recommendedCents)})`, amountCents: ticketRevenueCents },
-    { label: 'Bar / drink mark-up', amountCents: barRevenueCents },
+    { label: venueIncentive.label, amountCents: venueIncentive.amountCents },
     { label: `Venue cost (${recommendations[0]?.name ?? 'target'})`, amountCents: venueCostCents, negative: true },
     { label: 'Vendor cost (catering, DJ, AV, security)', amountCents: vendorCostCents, negative: true },
     { label: 'Platform + payment fees (4.9%)', amountCents: feesCents, negative: true },
-    { label: 'Community Host Incentive (per-head model)', amountCents: venueChiCents, negative: true },
   ]
 
   if (customCostsTotalCents > 0) {
@@ -663,6 +668,9 @@ function buildProfitModel(
     paidAverage,
     venueChiCents,
     consumptionShareCents,
+    barConsumptionShareCents,
+    venueIncentiveCents: venueIncentive.amountCents,
+    venueIncentiveLabel: venueIncentive.label,
     customCostsTotalCents,
     breakEvenTickets,
     ticketPricing: {
@@ -671,6 +679,63 @@ function buildProfitModel(
     },
     lineItems,
   }
+}
+
+function estimateBarConsumptionShareCents(summary: EventSummary, paidAverage: number) {
+  if (paidAverage <= 0) return 0
+
+  const text = [
+    summary.food_responsibility,
+    summary.venue_terms,
+    summary.consumption_share,
+  ].filter(Boolean).join(' ')
+
+  if (!/\b(bar consumption|venue consumption|cash bar|no-host|guests pay venue|drink sales|beverage sales|bar chi)\b/i.test(text)) {
+    return 0
+  }
+
+  const estimatedBarSpendCents = paidAverage * 2600
+  return Math.round(estimatedBarSpendCents * 0.12)
+}
+
+function resolveVenueIncentiveProjection(
+  summary: EventSummary,
+  options: {
+    perHeadCents: number
+    ticketShareCents: number
+    barShareCents: number
+  }
+) {
+  const text = [
+    summary.venue_terms,
+    summary.consumption_share,
+    summary.food_responsibility,
+  ].filter(Boolean).join(' ')
+
+  if (/\b(ticket chi|ticket consumption|ticket share|door incentive|door share)\b/i.test(text)) {
+    return { amountCents: options.ticketShareCents, label: 'Venue consumption incentive (ticket CHI)' }
+  }
+
+  if (/\b(bar consumption|venue consumption|cash bar|no-host|guests pay venue|drink sales|beverage sales|bar chi)\b/i.test(text)) {
+    return { amountCents: options.barShareCents, label: 'Venue consumption incentive (bar CHI)' }
+  }
+
+  if (/\b(per[-\s]?head|per attendee|headcount chi|attendance incentive)\b/i.test(text)) {
+    return { amountCents: options.perHeadCents, label: 'Venue consumption incentive (per-head CHI)' }
+  }
+
+  if (isRecommendBestModel(summary.consumption_share)) {
+    const candidates = [
+      { amountCents: options.perHeadCents, label: 'Venue consumption incentive (best model)' },
+      { amountCents: options.ticketShareCents, label: 'Venue consumption incentive (best model)' },
+      { amountCents: options.barShareCents, label: 'Venue consumption incentive (best model)' },
+    ]
+    return candidates.reduce((best, candidate) => (
+      candidate.amountCents > best.amountCents ? candidate : best
+    ))
+  }
+
+  return { amountCents: 0, label: 'Venue consumption incentive' }
 }
 
 /**
@@ -1207,16 +1272,24 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             subtitle="$8 per attendee after 100"
             builderText={`Better for builder above ${Math.max(100, profitModel.paidAverage)}`}
             venueText="Capped upside"
-            estimate={`≈ ${formatCents(profitModel.venueChiCents)} to venue at ${profitModel.paidAverage || 'TBD'}`}
-            recommended={profitModel.venueChiCents <= profitModel.consumptionShareCents}
+            estimate={`≈ ${formatCents(profitModel.venueChiCents)} to host at ${profitModel.paidAverage || 'TBD'}`}
+            recommended={profitModel.venueIncentiveCents === profitModel.venueChiCents && profitModel.venueChiCents > 0}
+          />
+          <ChiCard
+            title="Bar consumption CHI"
+            subtitle="12% of estimated drink spend"
+            builderText="Best when guests buy drinks on site"
+            venueText="Venue keeps primary bar sales"
+            estimate={`≈ ${formatCents(profitModel.barConsumptionShareCents)} to host at ${profitModel.paidAverage || 'TBD'}`}
+            recommended={profitModel.venueIncentiveCents === profitModel.barConsumptionShareCents && profitModel.barConsumptionShareCents > 0}
           />
           <ChiCard
             title="Ticket CHI"
             subtitle="12% of net ticket sales after fees"
             builderText="Lower if over-sold"
             venueText="Better for venue"
-            estimate={`≈ ${formatCents(profitModel.consumptionShareCents)} to venue at ${profitModel.paidAverage || 'TBD'}`}
-            recommended={profitModel.consumptionShareCents < profitModel.venueChiCents}
+            estimate={`≈ ${formatCents(profitModel.consumptionShareCents)} to host at ${profitModel.paidAverage || 'TBD'}`}
+            recommended={profitModel.venueIncentiveCents === profitModel.consumptionShareCents && profitModel.consumptionShareCents > 0}
           />
         </ArtifactSection>
 
