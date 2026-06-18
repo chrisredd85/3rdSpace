@@ -28,7 +28,8 @@
     "test:e2e:vendor": "playwright test e2e/05-vendor",
     "test:e2e:business-math": "playwright test e2e/08-business-math",
     "test:e2e:ui": "playwright test --ui",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "security:tied-house:strict": "bash scripts/security/check-tied-house-strict.sh"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",

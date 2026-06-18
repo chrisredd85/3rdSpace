@@ -1,0 +1,27 @@
+[2026-06-17T23:14:42Z] setup: complete — Worktree created from origin/main at 01d813b.
+[2026-06-17T23:14:42Z] inspection: complete — Existing tied-house script is scoped/loose; strict check will be additive via a new script and npm alias.
+[2026-06-17T23:31:00Z] strict-scan: expected-failure — Strict scanner found 771 current nomenclature matches and wrote qa-artifacts/tied-house-violations.txt.
+[2026-06-17T23:32:00Z] focused-tests: complete — npm test -- __tests__/security/tied-house-strict.test.ts --runInBand passed (3/3).
+[2026-06-17T23:36:00Z] type-check: complete — npm run type-check passed.
+[2026-06-17T23:36:00Z] lint: complete-with-existing-warnings — npm run lint passed with existing react-hooks warnings.
+[2026-06-17T23:39:00Z] build: complete-with-env-note — npm run build passed after linking Vercel, pulling env, and using a local placeholder OPENAI_API_KEY because pulled production OPENAI_API_KEY is empty.
+[2026-06-17T23:40:00Z] secret-hygiene: complete — Removed local .env.local from the delta worktree after build validation.
+[2026-06-17T23:42:00Z] full-tests: complete — npm test passed: 147 suites passed, 1 skipped; 775 tests passed, 9 skipped.
+[2026-06-17T23:42:00Z] loose-compliance: complete — npm run security:tied-house passed unchanged.
+[2026-06-17T23:42:00Z] strict-compliance: expected-failure — npm run security:tied-house:strict exited 1 and wrote the current violation inventory.
+[2026-06-17T23:48:00Z] self-review: complete — [x] Loose tied-house grep behavior unchanged.
+[2026-06-17T23:48:00Z] self-review: complete — [x] Strict tied-house grep covers app, lib, components, post-cutoff migrations, and seeds.
+[2026-06-17T23:48:00Z] self-review: complete — [x] Test files and pre-2026-06-01 migrations excluded.
+[2026-06-17T23:48:00Z] self-review: complete — [x] Audit document covers Tracks A-E.
+[2026-06-17T23:48:00Z] self-review: complete — [x] Audit entries include path:line and proposed rename/context.
+[2026-06-17T23:48:00Z] self-review: complete — [x] Decisions-needed section flags ambiguous schema/API naming cases.
+[2026-06-17T23:48:00Z] self-review: complete — [x] Strict grep tests pass.
+[2026-06-17T23:48:00Z] self-review: complete — [x] No actual code renames in this PR; audit and grep only.
+[2026-06-17T23:48:00Z] self-review: complete — [x] No --no-verify used.
+[2026-06-17T23:48:00Z] self-review: complete — [x] In-flight PR branches were not touched.
+[2026-06-18T00:04:00Z] ci-unblock: complete — Renamed the later vendor Stripe migration from 20260617000000 to 20260617000001 to resolve the duplicate Supabase migration version introduced after PR #85.
+[2026-06-18T00:05:00Z] ci-unblock-validation: partial — Duplicate migration-version scan is clean; local supabase db reset could not run because Docker daemon is not available in this desktop session.
+[2026-06-18T00:05:00Z] ci-unblock-validation: complete — npm test -- __tests__/security/tied-house-strict.test.ts --runInBand passed; npm run security:tied-house passed.
+[2026-06-18T00:13:00Z] ci-unblock: complete — Strict tied-house script now falls back to grep when ripgrep is unavailable in GitHub Actions test runners.
+[2026-06-18T00:14:00Z] ci-unblock-validation: complete — Simulated no-ripgrep PATH passed/fail-scanned correctly; focused strict tests passed; loose tied-house passed; strict tied-house still expected-fails on current inventory.
+[2026-06-18T00:20:00Z] ci-unblock: complete — Excluded the strict scan output file from scan candidates so CI fallback tests are deterministic when the fixture writes violations.txt inside the scanned temp directory.
