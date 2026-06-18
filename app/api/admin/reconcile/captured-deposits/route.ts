@@ -50,13 +50,18 @@ export async function POST(request: NextRequest) {
   const candidates = await loadCapturedDepositCandidates(admin)
   const errors: Array<{ payment_intent_id: string; error: string }> = []
   let reconciled = 0
+  let skipped = 0
 
   for (const intent of candidates) {
     try {
       const amountCents = assertIntegerCents(intent.amount_cents, 'amount_cents')
       const platformFeeCents = assertIntegerCents(intent.platform_fee_cents ?? 0, 'platform_fee_cents')
       const payoutAmountCents = Math.max(0, amountCents - platformFeeCents)
-      await insertMissingPayout(admin, intent, payoutAmountCents)
+      const inserted = await insertMissingPayout(admin, intent, payoutAmountCents)
+      if (!inserted) {
+        skipped += 1
+        continue
+      }
       reconciled += 1
       Sentry.captureMessage('capture_reconciled', {
         level: 'info',
@@ -91,7 +96,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ reconciled, errors })
+  return NextResponse.json({ reconciled, skipped, errors })
 }
 
 export async function GET(request: NextRequest) {
@@ -135,5 +140,30 @@ async function insertMissingPayout(
       status: 'pending',
     })
 
+  if (isUniqueViolation(error)) {
+    Sentry.captureMessage('reconciler_payout_already_exists', {
+      level: 'info',
+      tags: {
+        action: 'reconciler_payout_already_exists',
+        plan_id: intent.plan_id,
+        payment_intent_id: intent.id,
+      },
+      extra: {
+        payout_amount_cents: payoutAmountCents,
+      },
+    })
+    return false
+  }
+
   if (error) throw new Error(error.message ?? 'Failed to insert missing payout')
+  return true
+}
+
+function isUniqueViolation(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const maybeError = error as { code?: string; message?: string; details?: string }
+  return (
+    maybeError.code === '23505' ||
+    /duplicate key|unique constraint/i.test([maybeError.message, maybeError.details].filter(Boolean).join(' '))
+  )
 }

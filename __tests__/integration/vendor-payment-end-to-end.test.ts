@@ -693,7 +693,7 @@ describe('vendor payment approval to payout chain', () => {
     const body = await readJson(response)
 
     expect(response.status).toBe(200)
-    expect(body).toEqual({ reconciled: 1, errors: [] })
+    expect(body).toEqual({ reconciled: 1, skipped: 0, errors: [] })
     expect(db.rows.payouts).toEqual([
       expect.objectContaining({
         payment_intent_id: PAYMENT_INTENT_ID,

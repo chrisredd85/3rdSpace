@@ -43,6 +43,7 @@ class MemoryDb {
     payment_intents: [],
     payouts: [],
   }
+  beforePaymentIntentSelect: (() => Promise<void>) | null = null
 
   from(table: string) {
     if (!this.rows[table]) this.rows[table] = []
@@ -113,6 +114,12 @@ class MemoryQuery {
       if (this.payload.force_error) {
         return { data: null, error: { message: String(this.payload.force_error) } }
       }
+      if (
+        this.table === 'payouts' &&
+        this.db.rows.payouts.some((row) => row.payment_intent_id === this.payload?.payment_intent_id)
+      ) {
+        return { data: null, error: { code: '23505', message: 'duplicate payout for payment_intent_id' } }
+      }
 
       const row = {
         id: this.payload.id ?? this.db.nextId(this.table),
@@ -122,6 +129,10 @@ class MemoryQuery {
       }
       this.db.rows[this.table].push(row)
       return { data: row, error: null }
+    }
+
+    if (this.table === 'payment_intents') {
+      await this.db.beforePaymentIntentSelect?.()
     }
 
     let selected = this.db.rows[this.table].filter((row) => this.matches(row))
@@ -150,6 +161,20 @@ function request() {
 
 async function readJson(response: Response) {
   return response.json() as Promise<Record<string, unknown>>
+}
+
+function createBarrier(count: number) {
+  let waiting = 0
+  let release: (() => void) | null = null
+  const promise = new Promise<void>((resolve) => {
+    release = resolve
+  })
+
+  return async () => {
+    waiting += 1
+    if (waiting >= count) release?.()
+    await promise
+  }
 }
 
 describe('capture reconciler route', () => {
@@ -214,7 +239,7 @@ describe('capture reconciler route', () => {
     const body = await readJson(response)
 
     expect(response.status).toBe(200)
-    expect(body).toEqual({ reconciled: 1, errors: [] })
+    expect(body).toEqual({ reconciled: 1, skipped: 0, errors: [] })
     expect(db.rows.payouts).toEqual([
       expect.objectContaining({
         payment_intent_id: 'payment-intent-with-payout',
@@ -239,6 +264,60 @@ describe('capture reconciler route', () => {
         platform_fee_cents: 1_000,
         payout_amount_cents: 24_000,
       }),
+    }))
+  })
+
+  it('skips a duplicate payout insert when concurrent reconcilers race', async () => {
+    mockGetWorkerOrAdminContext.mockResolvedValue({
+      authorized: true,
+      user: { id: 'admin-1', email: 'admin@example.com' },
+    })
+    const db = new MemoryDb()
+    db.beforePaymentIntentSelect = createBarrier(2)
+    db.rows.payment_intents.push({
+      id: 'payment-intent-race',
+      plan_id: 'plan-race',
+      partner_kind: 'vendor',
+      partner_id: 'vendor-race',
+      amount_cents: 40_000,
+      platform_fee_cents: 2_500,
+      currency: 'usd',
+      status: 'captured',
+      captured_at: new Date().toISOString(),
+    })
+    mockCreateServiceRoleClient.mockReturnValue(db)
+
+    const [first, second] = await Promise.all([GET(request()), GET(request())])
+    const firstBody = await readJson(first)
+    const secondBody = await readJson(second)
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(db.rows.payouts).toEqual([
+      expect.objectContaining({
+        payment_intent_id: 'payment-intent-race',
+        partner_kind: 'vendor',
+        partner_id: 'vendor-race',
+        amount_cents: 37_500,
+        currency: 'usd',
+        status: 'pending',
+      }),
+    ])
+    expect(
+      Number(firstBody.reconciled) + Number(secondBody.reconciled)
+    ).toBe(1)
+    expect(
+      Number(firstBody.skipped) + Number(secondBody.skipped)
+    ).toBe(1)
+    expect(firstBody.errors).toEqual([])
+    expect(secondBody.errors).toEqual([])
+    expect(mockCaptureMessage).toHaveBeenCalledWith('reconciler_payout_already_exists', expect.objectContaining({
+      tags: expect.objectContaining({
+        action: 'reconciler_payout_already_exists',
+        plan_id: 'plan-race',
+        payment_intent_id: 'payment-intent-race',
+      }),
+      extra: { payout_amount_cents: 37_500 },
     }))
   })
 
@@ -276,6 +355,7 @@ describe('capture reconciler route', () => {
     expect(response.status).toBe(200)
     expect(body).toEqual({
       reconciled: 0,
+      skipped: 0,
       errors: [{ payment_intent_id: 'payment-intent-error', error: 'payout insert failed' }],
     })
     expect(mockCaptureException).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({
