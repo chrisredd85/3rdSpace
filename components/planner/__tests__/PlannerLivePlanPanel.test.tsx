@@ -110,6 +110,41 @@ describe('PlannerLivePlanPanel', () => {
     expect(screen.getByText('Vendor confirmed availability and quote from outreach reply.')).toBeInTheDocument()
     expect(screen.queryByText('Need food model')).not.toBeInTheDocument()
   })
+
+  it('includes venue consumption incentive revenue in the event brief profit window', async () => {
+    window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      plan: makePlanSnapshot({
+        title: 'Consumption venue happy hour',
+        guestCount: 120,
+        neighborhood: 'Mission',
+        budgetCapCents: 0,
+        ticketed: false,
+        ticketingModel: 'Free RSVP',
+      }),
+      messages: [
+        makeConfirmationMessage('confirmation-consumption', {
+          event_type: 'happy_hour',
+          guest_count: 120,
+          area: 'Mission',
+          budget_cents: 0,
+          ticketing_model: 'Free RSVP',
+          food_responsibility: 'Guests pay venue through a no-host cash bar.',
+          venue_terms: 'Moongate Lounge proposed bar consumption CHI.',
+          consumption_share: 'Bar consumption CHI at 12%.',
+          action_permission: 'Host approval required before outreach.',
+          ticketed: false,
+        }),
+      ],
+      planId: 'plan-consumption-profit',
+    }))
+
+    render(<PlannerLivePlanPanel inline />)
+
+    expect(await screen.findByRole('heading', { name: 'Consumption venue happy hour' })).toBeInTheDocument()
+    expect(screen.getByText('Venue consumption incentive (bar CHI)')).toBeInTheDocument()
+    expect(screen.getAllByText('$324').length).toBeGreaterThan(0)
+    expect(screen.getByText('Per-attendee net')).toBeInTheDocument()
+  })
 })
 
 function makePlanSnapshot(overrides: Record<string, unknown>) {
