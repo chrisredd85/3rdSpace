@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
+import { jsonWithDeprecatedKeys } from '@/lib/api/legacy-key-compat'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { recalculateEventFinancials } from '@/lib/finance/calculate-event-financials'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
@@ -69,7 +70,18 @@ export async function GET(
 
     if (request.nextUrl.searchParams.get('recalculate') === 'true') {
       const metrics = await recalculateEventFinancials(admin, params.eventId)
-      return NextResponse.json({ event_id: params.eventId, ...metrics })
+      const metricsRecord = metrics as unknown as Record<string, unknown>
+      return jsonWithDeprecatedKeys(
+        {
+          event_id: params.eventId,
+          ...metrics,
+          venue_chi_projection:
+            metricsRecord.venue_chi_projection ??
+            metricsRecord.venue_kickback_projection ??
+            0,
+        },
+        ['venue_kickback_projection']
+      )
     }
 
     const { data: financials, error } = await admin
@@ -81,7 +93,7 @@ export async function GET(
     if (error) throw error
 
     if (!financials) {
-      return NextResponse.json({
+      return jsonWithDeprecatedKeys({
         event_id: params.eventId,
         tickets_sold: 0,
         gross_revenue: 0,
@@ -89,12 +101,22 @@ export async function GET(
         expected_profit: 0,
         current_attendance: 0,
         projected_attendance: 0,
+        venue_chi_projection: 0,
         venue_kickback_projection: 0,
         message: 'No sales data yet',
-      })
+      }, ['venue_kickback_projection'])
     }
 
-    return NextResponse.json(financials)
+    return jsonWithDeprecatedKeys(
+      {
+        ...(financials as Record<string, unknown>),
+        venue_chi_projection:
+          (financials as Record<string, unknown>).venue_chi_projection ??
+          (financials as Record<string, unknown>).venue_kickback_projection ??
+          0,
+      },
+      ['venue_kickback_projection']
+    )
   } catch (error) {
     console.error('[Financials API] Error', error)
     return NextResponse.json(

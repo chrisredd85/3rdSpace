@@ -3,6 +3,11 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
+import {
+  jsonWithDeprecatedKeys,
+  normalizeLegacyKeys,
+  withLegacyResponseKeys,
+} from '@/lib/api/legacy-key-compat'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getAdminContext } from '@/lib/server/admin-auth'
 import type { Database as GeneratedDatabase } from '@/lib/types/database-generated'
@@ -23,7 +28,8 @@ const venueSeedSchema = z.object({
   contact_email: z.string().email(),
   av_included: z.boolean().default(false),
   // integer cents — e.g. $22/head = 2200
-  per_head_kickback_amount: z.number().int().nonnegative().nullable().default(null),
+  per_head_chi_cents: z.number().int().nonnegative().nullable().default(null),
+  per_head_kickback_amount: z.number().int().nonnegative().nullable().optional(),
   notes: z.string().trim().max(2000).nullable().default(null),
 })
 
@@ -49,7 +55,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: context.error }, { status: context.status })
   }
 
-  const parsed = venueSeedSchema.safeParse(await request.json())
+  const body = normalizeLegacyKeys(
+    await request.json(),
+    { per_head_kickback_amount: 'per_head_chi_cents' },
+    { route: '/api/admin/catalog/venues', direction: 'request' }
+  )
+  const parsed = venueSeedSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json(
       { error: 'Invalid venue seed payload', details: parsed.error.flatten() },
@@ -72,7 +83,7 @@ export async function POST(request: NextRequest) {
     seated_capacity: venue.capacity,
     hourly_rate_cents: venue.hourly_rate,
     minimum_hours: null,
-    per_head_kickback_cents: venue.per_head_kickback_amount,
+    per_head_kickback_cents: venue.per_head_chi_cents,
     contact_email: venue.contact_email,
     is_claimed: false,
     claimed_user_id: null,
@@ -102,12 +113,13 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  return NextResponse.json(
+  return jsonWithDeprecatedKeys(
     {
       success: true,
       venueId: (data as { id: string } | null)?.id,
       message: 'Venue added to catalog',
-    }
+    },
+    ['per_head_kickback_amount', 'per_head_kickback_cents']
   )
 }
 
@@ -140,7 +152,21 @@ export async function GET() {
     )
   }
 
-  return NextResponse.json({ venues: data ?? [] })
+  return jsonWithDeprecatedKeys(
+    {
+      venues: ((data ?? []) as Array<Record<string, unknown>>).map((venue) =>
+        withLegacyResponseKeys(
+          {
+            ...venue,
+            per_head_chi_cents: venue.per_head_chi_cents ?? venue.per_head_kickback_cents ?? venue.per_head_kickback_amount ?? null,
+          },
+          { per_head_kickback_amount: 'per_head_chi_cents', per_head_kickback_cents: 'per_head_chi_cents' },
+          { route: '/api/admin/catalog/venues', direction: 'response' }
+        )
+      ),
+    },
+    ['per_head_kickback_amount', 'per_head_kickback_cents']
+  )
 }
 
 /**
@@ -183,5 +209,20 @@ export async function PATCH(request: NextRequest) {
     )
   }
 
-  return NextResponse.json({ success: true, venue: data })
+  const venue = data
+    ? withLegacyResponseKeys(
+        {
+          ...(data as Record<string, unknown>),
+          per_head_chi_cents:
+            (data as Record<string, unknown>).per_head_chi_cents ??
+            (data as Record<string, unknown>).per_head_kickback_cents ??
+            (data as Record<string, unknown>).per_head_kickback_amount ??
+            null,
+        },
+        { per_head_kickback_amount: 'per_head_chi_cents', per_head_kickback_cents: 'per_head_chi_cents' },
+        { route: '/api/admin/catalog/venues', direction: 'response' }
+      )
+    : data
+
+  return jsonWithDeprecatedKeys({ success: true, venue }, ['per_head_kickback_amount', 'per_head_kickback_cents'])
 }

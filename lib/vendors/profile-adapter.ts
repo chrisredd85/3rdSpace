@@ -81,6 +81,7 @@ export function normalizeVendorProfile(row: VendorProfileRow): Vendor {
     hourly_rate: row.hourly_rate ?? null,
     base_rate: row.base_rate ?? null,
     per_person_rate: row.per_person_rate ?? null,
+    per_head_chi_cents: row.per_head_chi_cents ?? row.per_head_kickback ?? null,
     per_head_kickback: row.per_head_kickback ?? null,
     contact_email: row.contact_email ?? null,
     is_claimed: row.is_claimed ?? false,
@@ -127,7 +128,8 @@ export function toVendorProfileUpdate(updates: Partial<Vendor>) {
   if (updates.hourly_rate !== undefined) payload.hourly_rate = updates.hourly_rate
   if (updates.base_rate !== undefined) payload.base_rate = updates.base_rate
   if (updates.per_person_rate !== undefined) payload.per_person_rate = updates.per_person_rate
-  if (updates.per_head_kickback !== undefined) payload.per_head_kickback = updates.per_head_kickback
+  if (updates.per_head_chi_cents !== undefined) payload.per_head_kickback = updates.per_head_chi_cents
+  else if (updates.per_head_kickback !== undefined) payload.per_head_kickback = updates.per_head_kickback
   if (updates.requires_deposit !== undefined) payload.requires_deposit = updates.requires_deposit
   if (updates.deposit_amount !== undefined) payload.deposit_amount = updates.deposit_amount
   if (updates.deposit_type !== undefined) payload.deposit_type = updates.deposit_type

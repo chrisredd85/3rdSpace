@@ -293,7 +293,21 @@ describe('Admin Catalog — GET endpoints', () => {
     expect(selectMock).toHaveBeenCalledWith('*')
     expect(eqMock).toHaveBeenCalledWith('is_admin_seeded', true)
     expect(orderMock).toHaveBeenCalledWith('created_at', { ascending: false })
-    expect(json.venues).toEqual(rows)
+    expect(response.headers.get('X-Deprecated-Keys')).toContain('per_head_kickback_amount')
+    expect(json.venues).toEqual([
+      expect.objectContaining({
+        ...rows[0],
+        per_head_chi_cents: null,
+        per_head_kickback_amount: null,
+        per_head_kickback_cents: null,
+      }),
+      expect.objectContaining({
+        ...rows[1],
+        per_head_chi_cents: null,
+        per_head_kickback_amount: null,
+        per_head_kickback_cents: null,
+      }),
+    ])
     expect((json.venues as JsonObject[])[0].contact_email).toBe('one@example.com')
   })
 

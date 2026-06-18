@@ -179,6 +179,7 @@ describe('GET /api/builder/payouts/summary', () => {
     const json = await response.json()
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('X-Deprecated-Keys')).toContain('revenue_share_percent')
     expect(json.summary).toMatchObject({
       pending: 51360,
       completed: 25200,
@@ -191,6 +192,9 @@ describe('GET /api/builder/payouts/summary', () => {
         event_name: 'Tech Mixer',
         event_date: '2026-05-12T00:00:00.000Z',
         venue_name: 'The Roof',
+        bar_consumption_share_percent: 12,
+        consumption_share_percent: 12,
+        revenue_share_percent: 12,
       }),
       expect.objectContaining({
         id: 'payment-legacy',

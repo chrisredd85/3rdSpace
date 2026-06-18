@@ -3,6 +3,7 @@ export const maxDuration = 60
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { jsonWithDeprecatedKeys } from '@/lib/api/legacy-key-compat'
 import {
   economicsAgentDefinition,
   runEconomicsAgent,
@@ -190,6 +191,17 @@ type CreatedOutreachApproval = {
   approvalMessageId: string
   approvalId: string
 }
+
+const RECOMMEND_DEPRECATED_KEYS = [
+  'per_head_kickback',
+  'per_head_kickback_cents',
+  'offers_kickbacks',
+  'bar_revenue_share_enabled',
+  'bar_revenue_share_percent',
+  'bar_rev_share_pct',
+  'venue_kickback_rate',
+  'revenue_share',
+]
 
 type RecommendedVenueContext = {
   venue_id: string
@@ -604,17 +616,18 @@ export async function POST(
       ip_address: getIpAddress(request),
     })
 
-    return NextResponse.json({
+    const rankedVenueResponses = venueMatch.venueResult.output.ranked_venues.map(withVenueRecommendationCompat)
+    return jsonWithDeprecatedKeys({
       resolved_archetype: toResolvedArchetypeSummary(archetype),
-      ranked_venues: venueMatch.venueResult.output.ranked_venues,
-      recommendations: venueMatch.venueResult.output.ranked_venues,
+      ranked_venues: rankedVenueResponses,
+      recommendations: rankedVenueResponses,
       venue_match_notice: venueMatch.notice,
       vendor_recommendations: suggestedVendors,
       vendor_recommendation_groups: vendorRecommendationGroups,
       vendor_match_notice: vendorMatchNotice,
       capacity_calibration: capacityCalibration,
       elasticity,
-      economics: economicsPlaceholder ? null : (economicsResult?.output ?? null),
+      economics: economicsPlaceholder ? null : withEconomicsCompat(economicsResult?.output ?? null),
       economics_placeholder: economicsPlaceholder,
       profit_projection: economicsPlaceholder ? null : profitProjection,
       workspace_summary: operationalArtifacts.workspace_summary,
@@ -625,7 +638,7 @@ export async function POST(
       ticketing_platform_prompt: ticketingPlatformPrompt,
       phase: effectivePhase,
       byo_vendors: byoVendors,
-    })
+    }, RECOMMEND_DEPRECATED_KEYS)
     } catch (error) {
       console.warn('[planner.recommend] Agent-backed recommendation pipeline failed; falling back to catalog ranker', error)
       return runCatalogFallback({
@@ -845,17 +858,18 @@ async function runCatalogFallback(input: {
 
   const catalogTicketingPlatformPrompt = buildTicketingPlatformPrompt(input.plan, input.archetype, input.connectedTicketingPlatforms, input.messages)
 
-  return NextResponse.json({
+  const rankedVenueResponses = rankedVenues.map(withVenueRecommendationCompat)
+  return jsonWithDeprecatedKeys({
     resolved_archetype: toResolvedArchetypeSummary(input.archetype),
-    ranked_venues: rankedVenues,
-    recommendations: rankedVenues,
+    ranked_venues: rankedVenueResponses,
+    recommendations: rankedVenueResponses,
     venue_match_notice: catalogVenueMatch.notice,
     vendor_recommendations: vendorRecommendations,
     vendor_recommendation_groups: vendorRecommendationGroups,
     vendor_match_notice: vendorMatchNotice,
     capacity_calibration: input.capacityCalibration,
     elasticity: input.elasticity,
-    economics: fallbackEconomics,
+    economics: withEconomicsCompat(fallbackEconomics),
     economics_placeholder: fallbackEconomicsPlaceholder,
     profit_projection: fallbackEconomicsPlaceholder ? null : profitProjection,
     workspace_summary: operationalArtifacts.workspace_summary,
@@ -865,7 +879,49 @@ async function runCatalogFallback(input: {
     outreach_approval_message_id: outreachApproval?.approvalMessageId ?? null,
     ticketing_platform_prompt: catalogTicketingPlatformPrompt,
     byo_vendors: byoVendorsFallback,
-  })
+  }, RECOMMEND_DEPRECATED_KEYS)
+}
+
+function withVenueRecommendationCompat<T extends Record<string, unknown>>(venue: T): T {
+  const perHeadChiCents =
+    venue.per_head_chi_cents ??
+    venue.per_head_kickback_cents ??
+    venue.per_head_kickback ??
+    null
+  const barConsumptionSharePercent =
+    venue.bar_consumption_share_percent ??
+    venue.bar_revenue_share_percent ??
+    venue.bar_rev_share_pct ??
+    null
+  const barConsumptionShareEnabled =
+    venue.bar_consumption_share_enabled ??
+    venue.bar_revenue_share_enabled ??
+    null
+
+  return {
+    ...venue,
+    per_head_chi_cents: perHeadChiCents,
+    per_head_kickback: venue.per_head_kickback ?? perHeadChiCents,
+    per_head_kickback_cents: venue.per_head_kickback_cents ?? perHeadChiCents,
+    offers_chis: venue.offers_chis ?? venue.offers_kickbacks ?? null,
+    offers_kickbacks: venue.offers_kickbacks ?? venue.offers_chis ?? null,
+    bar_consumption_share_enabled: barConsumptionShareEnabled,
+    bar_revenue_share_enabled: venue.bar_revenue_share_enabled ?? barConsumptionShareEnabled,
+    bar_consumption_share_percent: barConsumptionSharePercent,
+    bar_revenue_share_percent: venue.bar_revenue_share_percent ?? barConsumptionSharePercent,
+    venue_chi_rate: venue.venue_chi_rate ?? venue.venue_kickback_rate ?? null,
+    venue_kickback_rate: venue.venue_kickback_rate ?? venue.venue_chi_rate ?? null,
+  }
+}
+
+function withEconomicsCompat<T extends Record<string, unknown> | null>(economics: T): T {
+  if (!economics) return economics
+
+  return {
+    ...economics,
+    venue_chi_rate: economics.venue_chi_rate ?? economics.venue_kickback_rate ?? null,
+    venue_kickback_rate: economics.venue_kickback_rate ?? economics.venue_chi_rate ?? null,
+  } as T
 }
 
 async function ensureOutreachApprovalRequest(input: {

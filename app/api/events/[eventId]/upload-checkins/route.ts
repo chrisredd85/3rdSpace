@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { parse } from 'csv-parse/sync'
+import { jsonWithDeprecatedKeys } from '@/lib/api/legacy-key-compat'
 import {
   isCHINewEngineEnabled,
   isCHIVenueTypeEligible,
@@ -256,18 +257,22 @@ export async function POST(
       settlement,
     })
 
-    return NextResponse.json({
-      success: true,
-      total_tickets: attendance.totalTickets,
-      checked_in: attendance.checkedIn,
-      no_shows: attendance.noShows,
-      show_up_rate: Number(attendance.showUpRate.toFixed(1)),
-      community_host_incentive_amount_cents: settlement.amountCents,
-      kickback_amount: settlement.legacyAmountForCompatibility,
-      chi_settlement_ids: settlement.chiSettlementIds,
-      matched_rows: matchedRows,
-      message: `Processed ${records.length} check-in records`,
-    })
+    return jsonWithDeprecatedKeys(
+      {
+        success: true,
+        total_tickets: attendance.totalTickets,
+        checked_in: attendance.checkedIn,
+        no_shows: attendance.noShows,
+        show_up_rate: Number(attendance.showUpRate.toFixed(1)),
+        community_host_incentive_amount_cents: settlement.amountCents,
+        chi_amount: settlement.legacyAmountForCompatibility,
+        kickback_amount: settlement.legacyAmountForCompatibility,
+        chi_settlement_ids: settlement.chiSettlementIds,
+        matched_rows: matchedRows,
+        message: `Processed ${records.length} check-in records`,
+      },
+      ['kickback_amount']
+    )
   } catch (error) {
     console.error('[Check-in Upload] Error', error)
     return NextResponse.json(
@@ -288,8 +293,8 @@ async function updateLegacySettlementForAttendance(admin: any, eventId: string) 
   }
 
   const amountDollars =
-    typeof data === 'object' && data && 'kickback_amount' in data
-      ? Number((data as { kickback_amount?: number }).kickback_amount ?? 0)
+    typeof data === 'object' && data && ('chi_amount' in data || 'kickback_amount' in data)
+      ? Number((data as { chi_amount?: number; kickback_amount?: number }).chi_amount ?? (data as { kickback_amount?: number }).kickback_amount ?? 0)
       : 0
 
   return {

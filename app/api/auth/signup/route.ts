@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
+import { normalizeLegacyKeys } from '@/lib/api/legacy-key-compat'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { ensureBuilderProfile, ensureOwnerProfile, ensureVenueSetup, ensureVendorProfile } from '@/lib/server/account-setup'
 import type { TicketPlatform } from '@/lib/constants/account-setup'
@@ -27,6 +28,7 @@ interface SignupRequest {
   house_rules?: string
   amenities?: string[]
   has_bar?: boolean | null
+  bar_chi_pct?: number | null
   bar_kickback_pct?: number | null
   per_head_drink_pct?: number | null
   min_bar_spend?: number | null
@@ -77,6 +79,7 @@ interface VenueSignupDetails {
   amenities: string[]
   phone?: string | null
   has_bar?: boolean | null
+  bar_chi_pct?: number | null
   bar_kickback_pct?: number | null
   per_head_drink_pct?: number | null
   min_bar_spend?: number | null
@@ -277,6 +280,7 @@ function getVenueDetails(body: SignupRequest): VenueSignupDetails | null {
     amenities,
     phone: body.phone ?? null,
     has_bar: body.has_bar ?? null,
+    bar_chi_pct: body.bar_chi_pct ?? body.bar_kickback_pct ?? null,
     bar_kickback_pct: body.bar_kickback_pct ?? null,
     per_head_drink_pct: body.per_head_drink_pct ?? null,
     min_bar_spend: body.min_bar_spend ?? null,
@@ -379,7 +383,7 @@ async function ensureRoleSetup(
       amenities: venueDetails.amenities,
       phone: venueDetails.phone ?? null,
       hasBar: venueDetails.has_bar ?? null,
-      barKickbackPct: venueDetails.bar_kickback_pct ?? null,
+      barKickbackPct: venueDetails.bar_chi_pct ?? null,
       perHeadDrinkPct: venueDetails.per_head_drink_pct ?? null,
       minBarSpend: venueDetails.min_bar_spend ?? null,
       pricePerNight: venueDetails.price_per_night ?? null,
@@ -488,7 +492,11 @@ async function cleanupFailedSignup(
 
 export async function POST(request: NextRequest) {
   try {
-    const body: SignupRequest = await request.json()
+    const body: SignupRequest = normalizeLegacyKeys(
+      await request.json(),
+      { bar_kickback_pct: 'bar_chi_pct' },
+      { route: '/api/auth/signup', direction: 'request' }
+    ) as SignupRequest
     const {
       userType,
       email,
