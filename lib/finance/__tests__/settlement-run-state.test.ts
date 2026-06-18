@@ -26,11 +26,15 @@ describe('settlement run state machine', () => {
   it('keeps epsilon.3 transitions explicit but unavailable until the right state', () => {
     expect(transitionSettlementRunStatus('awaiting_venue_ack', 'venue_acknowledged')).toEqual({
       ok: true,
-      to: 'ready_to_settle',
+      to: 'awaiting_venue_payment',
     })
-    expect(transitionSettlementRunStatus('ready_to_settle', 'stripe_settled')).toEqual({
+    expect(transitionSettlementRunStatus('awaiting_venue_payment', 'venue_paid')).toEqual({
       ok: true,
       to: 'settled',
+    })
+    expect(transitionSettlementRunStatus('awaiting_venue_payment', 'venue_disputed')).toEqual({
+      ok: true,
+      to: 'disputed',
     })
     expect(transitionSettlementRunStatus('awaiting_organizer_review', 'stripe_settled')).toMatchObject({
       ok: false,

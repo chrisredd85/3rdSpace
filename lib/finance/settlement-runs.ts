@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { isChiEligibleVenueType } from '@/lib/finance/chi-eligibility'
 import { resolveChiRate } from '@/lib/finance/chi-rate-resolver'
+import { ensureSettlementApproval } from '@/lib/finance/settlement-checkout'
 import {
   transitionSettlementRunStatus,
   type SettlementRunStatus,
@@ -345,6 +346,21 @@ export async function reviewSettlementRun(
   if (error) throw new Error(error.message ?? 'Failed to review settlement run')
   if (!data) return null
 
+  const updatedRun = normalizeRun(data)
+
+  if (input.action === 'approve') {
+    await ensureSettlementApproval(admin, {
+      run: updatedRun,
+      organizerId: input.organizerId,
+    })
+    await enqueueJob(admin as unknown as SupabaseJobClient, {
+      jobType: 'settlement.ack.email_send',
+      payload: { settlement_run_id: updatedRun.id },
+      uniqueKey: `settlement-ack-email:${updatedRun.id}`,
+      maxAttempts: 5,
+    })
+  }
+
   Sentry.addBreadcrumb({
     category: 'finance.settlement_run',
     level: 'info',
@@ -355,7 +371,7 @@ export async function reviewSettlementRun(
     },
   })
 
-  return normalizeRun(data)
+  return updatedRun
 }
 
 export function extractWebhookAttendanceCount(payload: JsonObject): number | null {

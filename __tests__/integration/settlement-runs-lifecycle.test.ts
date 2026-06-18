@@ -111,6 +111,19 @@ function createSettlementDb(initialRun: SettlementRunRow, options: { staleUpdate
   const state = {
     run: { ...initialRun },
     evidence: [] as Array<Record<string, unknown>>,
+    approvals: [
+      {
+        id: 'approval-1',
+        agent_action_id: 'action-1',
+        settlement_run_id: initialRun.id,
+        approval_type: 'chi_settlement',
+        status: 'authorized',
+        authorized_amount_cents: initialRun.total_cents ?? 0,
+        created_at: '2026-06-17T00:00:00.000Z',
+      },
+    ] as Array<Record<string, unknown>>,
+    jobs: [] as Array<Record<string, unknown>>,
+    actions: [] as Array<Record<string, unknown>>,
   }
 
   return {
@@ -123,6 +136,7 @@ function createSettlementDb(initialRun: SettlementRunRow, options: { staleUpdate
         mode: 'select',
         patch: null,
         filters: [] as Array<[string, unknown]>,
+        rowLimit: null as number | null,
         select() {
           return this
         },
@@ -132,31 +146,103 @@ function createSettlementDb(initialRun: SettlementRunRow, options: { staleUpdate
           return this
         },
         insert(values: Record<string, unknown>) {
-          if (table !== 'settlement_attendance_evidence') {
-            return Promise.resolve({ error: { message: `Unexpected insert into ${table}` } })
-          }
-          state.evidence.push(values)
-          return Promise.resolve({ error: null })
+          this.mode = 'insert'
+          this.patch = values
+          return this
         },
         eq(column: string, value: unknown) {
           this.filters.push([column, value])
           return this
         },
+        in(column: string, values: readonly unknown[]) {
+          this.filters.push([column, values])
+          return this
+        },
+        order() {
+          return this
+        },
+        limit(count: number) {
+          this.rowLimit = count
+          return this
+        },
+        single() {
+          return this.maybeSingle()
+        },
         maybeSingle() {
-          if (table !== 'settlement_runs') return Promise.resolve({ data: null, error: null })
+          const result = this.execute()
+          const data = Array.isArray(result.data) ? result.data[0] ?? null : result.data
+          return Promise.resolve({ data, error: result.error })
+        },
+        then(onfulfilled?: ((value: { data: unknown; error: { message: string } | null }) => unknown) | null, onrejected?: ((reason: unknown) => unknown) | null) {
+          return Promise.resolve(this.execute()).then(onfulfilled, onrejected)
+        },
+        execute() {
+          if (this.mode === 'insert') {
+            const row = {
+              id: `${table}-${Date.now()}-${Math.random()}`,
+              created_at: '2026-06-17T00:00:00.000Z',
+              updated_at: '2026-06-17T00:00:00.000Z',
+              ...(this.patch as Record<string, unknown>),
+            }
+
+            if (table === 'settlement_attendance_evidence') {
+              state.evidence.push(row)
+              return { data: [row], error: null }
+            }
+            if (table === 'app_jobs') {
+              state.jobs.push({ status: 'pending', attempts: 0, ...row })
+              return { data: [{ status: 'pending', attempts: 0, ...row }], error: null }
+            }
+            if (table === 'agent_actions') {
+              state.actions.push(row)
+              return { data: [row], error: null }
+            }
+            if (table === 'approvals') {
+              state.approvals.push(row)
+              return { data: [row], error: null }
+            }
+
+            return { data: null, error: { message: `Unexpected insert into ${table}` } }
+          }
+
           if (this.mode === 'select') {
+            if (table === 'approvals') {
+              let rows = state.approvals.filter((row) => this.filters.every(([column, value]) => {
+                if (Array.isArray(value)) return value.includes(row[column])
+                return row[column] === value
+              }))
+              if (this.rowLimit != null) rows = rows.slice(0, this.rowLimit)
+              return { data: rows, error: null }
+            }
+            if (table === 'app_jobs') {
+              let rows = state.jobs.filter((row) => this.filters.every(([column, value]) => {
+                if (Array.isArray(value)) return value.includes(row[column])
+                return row[column] === value
+              }))
+              if (this.rowLimit != null) rows = rows.slice(0, this.rowLimit)
+              return { data: rows, error: null }
+            }
+            if (table !== 'settlement_runs') return { data: null, error: null }
             const idFilter = this.filters.find(([column]) => column === 'id')
-            if (idFilter && idFilter[1] !== state.run.id) return Promise.resolve({ data: null, error: null })
-            return Promise.resolve({ data: { ...state.run }, error: null })
+            if (idFilter && idFilter[1] !== state.run.id) return { data: null, error: null }
+            return { data: [{ ...state.run }], error: null }
           }
 
           const statusFilter = this.filters.find(([column]) => column === 'status')
           if (options.staleUpdates || (statusFilter && statusFilter[1] !== state.run.status)) {
-            return Promise.resolve({ data: null, error: null })
+            return { data: [], error: null }
           }
 
-          state.run = { ...state.run, ...(this.patch as Record<string, unknown>) } as SettlementRunRow
-          return Promise.resolve({ data: { ...state.run }, error: null })
+          if (table === 'settlement_runs') {
+            state.run = { ...state.run, ...(this.patch as Record<string, unknown>) } as SettlementRunRow
+            return { data: [{ ...state.run }], error: null }
+          }
+
+          if (table === 'agent_actions') {
+            return { data: [], error: null }
+          }
+
+          return { data: null, error: { message: `Unexpected update to ${table}` } }
         },
       }
       return query

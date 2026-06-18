@@ -51,6 +51,7 @@ export type AppJobType =
   | 'webhook.partiful'
   | 'settlement.run.create'
   | 'settlement.run.eventbrite_pull'
+  | 'settlement.ack.email_send'
   | 'opportunity_send_venue_invite'
   | 'opportunity_remind_venue_invite'
   | 'opportunity_expire_venue_invite'

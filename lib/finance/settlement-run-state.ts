@@ -5,6 +5,7 @@ export type SettlementRunStatus =
   | 'awaiting_attendance'
   | 'awaiting_organizer_review'
   | 'awaiting_venue_ack'
+  | 'awaiting_venue_payment'
   | 'ready_to_settle'
   | 'settled'
   | 'disputed'
@@ -15,6 +16,9 @@ export type SettlementRunTransition =
   | 'organizer_approved'
   | 'organizer_disputed'
   | 'venue_acknowledged'
+  | 'venue_payment_initiated'
+  | 'venue_paid'
+  | 'venue_disputed'
   | 'stripe_settled'
   | 'admin_resolved'
   | 'admin_cancelled'
@@ -31,7 +35,16 @@ const VALID_TRANSITIONS: Record<
     admin_cancelled: 'cancelled',
   },
   awaiting_venue_ack: {
-    venue_acknowledged: 'ready_to_settle',
+    venue_acknowledged: 'awaiting_venue_payment',
+    venue_payment_initiated: 'awaiting_venue_payment',
+    venue_disputed: 'disputed',
+    organizer_disputed: 'disputed',
+    admin_cancelled: 'cancelled',
+  },
+  awaiting_venue_payment: {
+    venue_paid: 'settled',
+    stripe_settled: 'settled',
+    venue_disputed: 'disputed',
     organizer_disputed: 'disputed',
     admin_cancelled: 'cancelled',
   },

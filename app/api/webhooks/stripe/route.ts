@@ -36,6 +36,10 @@ import {
   recordStripeWebhookProcessingResult,
   type StripeWebhookProcessingOutcome,
 } from '@/lib/stripe/webhookLedger'
+import {
+  handleSettlementCheckoutCompleted,
+  handleSettlementPaymentIntentFailed,
+} from '@/lib/finance/settlement-checkout'
 
 export const runtime = 'nodejs'
 
@@ -851,11 +855,14 @@ export async function POST(request: NextRequest) {
 
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session
-      const handledVenueRental = await applyVenueRentalCheckoutSessionCompleted(admin as any, session)
-      if (!handledVenueRental) {
+      const handledSettlement = await handleSettlementCheckoutCompleted(admin as any, session)
+      if (!handledSettlement.handled) {
+        const handledVenueRental = await applyVenueRentalCheckoutSessionCompleted(admin as any, session)
+        if (!handledVenueRental) {
         const handledKickback = await applyKickbackCheckoutSessionCompleted(admin as any, session, event.id)
         if (!handledKickback) {
           await applyCheckoutSessionCompleted(admin as any, session)
+        }
         }
       }
     }
@@ -904,14 +911,19 @@ export async function POST(request: NextRequest) {
 
     if (event.type === 'payment_intent.succeeded' || event.type === 'payment_intent.payment_failed') {
       const paymentIntent = event.data.object as Stripe.PaymentIntent
-      const handledVenueRental = await applyVenueRentalPaymentIntent(admin as any, paymentIntent, event.type)
-      if (!handledVenueRental) {
+      const handledSettlement = event.type === 'payment_intent.payment_failed'
+        ? await handleSettlementPaymentIntentFailed(admin as any, paymentIntent)
+        : { handled: false }
+      if (!handledSettlement.handled) {
+        const handledVenueRental = await applyVenueRentalPaymentIntent(admin as any, paymentIntent, event.type)
+        if (!handledVenueRental) {
         const handledPlannerDeposit = await applyPlannerStripePaymentIntentWebhook(
           admin as any,
           paymentIntent
         )
         if (!handledPlannerDeposit) {
           await applyKickbackPaymentIntent(admin as any, paymentIntent, event.id, event.type)
+        }
         }
       }
     }
