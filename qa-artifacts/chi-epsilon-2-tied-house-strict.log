@@ -1,0 +1,797 @@
+
+> 3rdspace-webapp@0.1.0 security:tied-house:strict
+> bash scripts/security/check-tied-house-strict.sh
+
+Strict tied-house compliance check failed. Forbidden nomenclature found:
+app/api/vendors/featured/route.ts:30:  per_head_kickback,
+app/api/vendors/[id]/route.ts:29:  per_head_kickback,
+app/(planner)/planner/analytics/page.tsx:42:  venue_kickback_projection?: number | null
+app/(planner)/planner/analytics/page.tsx:486:                <ImpactRow label="Community Host Incentive projection" value={formatMoney(scorecard.venueKickbackProjectionDollars)} source="financial summary" />
+app/(planner)/planner/analytics/page.tsx:649:    venueKickbackProjectionDollars: readNumber(financial?.venue_kickback_projection) ?? 0,
+app/(planner)/planner/payments/page.tsx:22:  revenue_share_percent?: number | null
+app/(planner)/planner/venues/page.tsx:28:  bar_revenue_share_enabled?: boolean | null
+app/(planner)/planner/venues/page.tsx:29:  per_head_kickback_amount?: number | null
+app/(planner)/planner/venues/page.tsx:108:    const revShareReady = venues.filter((venue) => venue.ticket_sales_share_enabled || venue.bar_revenue_share_enabled || venue.per_head_kickback_amount).length
+app/(planner)/planner/venues/page.tsx:114:      { label: 'Flexible terms', value: revShareReady.toLocaleString() },
+app/(planner)/planner/venues/page.tsx:369:  if (venue.bar_revenue_share_enabled) return 'Bar share'
+app/(planner)/planner/venues/page.tsx:370:  if (venue.per_head_kickback_amount && venue.per_head_kickback_amount > 0) return 'Per-head'
+app/api/vendors/search/route.ts:43:  per_head_kickback,
+app/api/vendors/route.ts:21:  per_head_kickback,
+app/api/planner/plans/[planId]/refund-decision/route.ts:126:    .from('kickback_payments')
+app/api/planner/plans/[planId]/refund-decision/route.ts:148:    .from('kickback_payments')
+app/api/planner/plans/[planId]/refund-decision/route.ts:190:    .from('kickback_payments')
+app/api/planner/plans/[planId]/refund-decision/route.ts:211:        kickback_payment_id: payment.id,
+app/api/planner/plans/[planId]/refund-decision/route.ts:217:    : `kickback_refund_${payment.id}`
+app/api/planner/plans/[planId]/refund-decision/route.ts:238:    .from('kickback_payments')
+app/api/planner/plans/[planId]/refund-decision/route.ts:249:    .from('kickback_payments')
+app/api/auth/signup/route.ts:30:  bar_kickback_pct?: number | null
+app/api/auth/signup/route.ts:80:  bar_kickback_pct?: number | null
+app/api/auth/signup/route.ts:280:    bar_kickback_pct: body.bar_kickback_pct ?? null,
+app/api/auth/signup/route.ts:382:      barKickbackPct: venueDetails.bar_kickback_pct ?? null,
+app/api/planner/plans/[planId]/event-report/route.ts:54:type KickbackAgreementRow = {
+app/api/planner/plans/[planId]/event-report/route.ts:107:    const agreements = await loadPlanKickbackAgreements(admin, plan.id)
+app/api/planner/plans/[planId]/event-report/route.ts:169:    const agreements = await loadPlanKickbackAgreements(admin, plan.id)
+app/api/planner/plans/[planId]/event-report/route.ts:197:      .from('event_kickback_agreements')
+app/api/planner/plans/[planId]/event-report/route.ts:270:async function loadPlanKickbackAgreements(admin: any, planId: string): Promise<KickbackAgreementRow[]> {
+app/api/planner/plans/[planId]/event-report/route.ts:272:    .from('event_kickback_agreements')
+app/api/planner/plans/[planId]/event-report/route.ts:296:    throw new Error(error.message ?? 'Failed to load kickback agreement')
+app/api/planner/plans/[planId]/event-report/route.ts:299:  return (data ?? []) as KickbackAgreementRow[]
+app/api/planner/plans/[planId]/event-report/route.ts:310:  agreements: KickbackAgreementRow[]
+app/api/planner/plans/[planId]/event-report/route.ts:355:async function loadAgreementVenueTypes(admin: any, agreements: KickbackAgreementRow[]) {
+app/api/planner/plans/[planId]/event-report/route.ts:376:async function loadAgreementVenueNames(admin: any, agreements: KickbackAgreementRow[]) {
+app/api/admin/catalog/venues/route.ts:26:  per_head_kickback_amount: z.number().int().nonnegative().nullable().default(null),
+app/api/admin/catalog/venues/route.ts:75:    per_head_kickback_cents: venue.per_head_kickback_amount,
+app/api/planner/templates/[id]/apply/route.ts:58:  kickback_model,
+app/api/planner/templates/[id]/apply/route.ts:77:  kickback_model: Json
+app/api/planner/templates/[id]/apply/route.ts:450:      kickback_model: template.kickback_model,
+app/api/webhooks/stripe/route.ts:41:const KICKBACK_TRANSFER_NAMESPACE = 'venue_builder_kickback'
+app/api/webhooks/stripe/route.ts:72:function isKickbackTransferEvent(transfer: Stripe.Transfer) {
+app/api/webhooks/stripe/route.ts:74:    transfer.metadata?.payment_kind_namespace === KICKBACK_TRANSFER_NAMESPACE ||
+app/api/webhooks/stripe/route.ts:75:    Boolean(transfer.metadata?.kickback_payment_id)
+app/api/webhooks/stripe/route.ts:110:async function applyKickbackCheckoutSessionCompleted(admin: any, session: Stripe.Checkout.Session) {
+app/api/webhooks/stripe/route.ts:111:  if (session.metadata?.payment_kind !== 'venue_builder_kickback') return false
+app/api/webhooks/stripe/route.ts:113:  const paymentId = session.metadata.kickback_payment_id
+app/api/webhooks/stripe/route.ts:125:    .from('kickback_payments')
+app/api/webhooks/stripe/route.ts:141:      .from('event_kickback_agreements')
+app/api/webhooks/stripe/route.ts:154:async function applyKickbackPaymentIntent(admin: any, paymentIntent: Stripe.PaymentIntent) {
+app/api/webhooks/stripe/route.ts:155:  if (paymentIntent.metadata?.payment_kind !== 'venue_builder_kickback') return false
+app/api/webhooks/stripe/route.ts:157:  const paymentId = paymentIntent.metadata.kickback_payment_id
+app/api/webhooks/stripe/route.ts:165:      .from('kickback_payments')
+app/api/webhooks/stripe/route.ts:180:        .from('event_kickback_agreements')
+app/api/webhooks/stripe/route.ts:193:      .from('kickback_payments')
+app/api/webhooks/stripe/route.ts:206:async function applyKickbackTransferEvent(admin: any, transfer: Stripe.Transfer, status: 'completed' | 'refunded') {
+app/api/webhooks/stripe/route.ts:209:  const paymentId = transfer.metadata?.kickback_payment_id
+app/api/webhooks/stripe/route.ts:211:    .from('kickback_payments')
+app/api/webhooks/stripe/route.ts:309:        .from('kickback_payments')
+app/api/webhooks/stripe/route.ts:348:        .from('kickback_payments')
+app/api/webhooks/stripe/route.ts:432:    .from('kickback_payments')
+app/api/webhooks/stripe/route.ts:449:      .from('kickback_payments')
+app/api/webhooks/stripe/route.ts:459:async function applyKickbackInvoicePaid(admin: any, invoice: Stripe.Invoice) {
+app/api/webhooks/stripe/route.ts:460:  const paymentId = invoice.metadata?.kickback_payment_id
+app/api/webhooks/stripe/route.ts:473:    .from('kickback_payments')
+app/api/webhooks/stripe/route.ts:488:      transfer_group: `kickback_${paymentId}`,
+app/api/webhooks/stripe/route.ts:490:        payment_kind_namespace: KICKBACK_TRANSFER_NAMESPACE,
+app/api/webhooks/stripe/route.ts:491:        kickback_payment_id: paymentId,
+app/api/webhooks/stripe/route.ts:496:      idempotencyKey: `kickback_invoice_transfer_${paymentId}_${invoice.id}_${principalCents}`,
+app/api/webhooks/stripe/route.ts:502:    .from('kickback_payments')
+app/api/webhooks/stripe/route.ts:516:      .from('event_kickback_agreements')
+app/api/webhooks/stripe/route.ts:533:async function applyKickbackInvoicePaymentFailed(admin: any, invoice: Stripe.Invoice) {
+app/api/webhooks/stripe/route.ts:534:  const paymentId = invoice.metadata?.kickback_payment_id
+app/api/webhooks/stripe/route.ts:539:    .from('kickback_payments')
+app/api/webhooks/stripe/route.ts:554:async function applyKickbackRefundCompleted(admin: any, paymentId: string | null) {
+app/api/webhooks/stripe/route.ts:558:    .from('kickback_payments')
+app/api/webhooks/stripe/route.ts:573:    .from('kickback_payments')
+app/api/webhooks/stripe/route.ts:587:function getKickbackPaymentIdFromRefundedCharge(charge: Stripe.Charge) {
+app/api/webhooks/stripe/route.ts:588:  const directPaymentId = charge.metadata?.kickback_payment_id
+app/api/webhooks/stripe/route.ts:592:  const metadataRefund = refunds.find((refund) => refund.metadata?.kickback_payment_id)
+app/api/webhooks/stripe/route.ts:593:  return metadataRefund?.metadata?.kickback_payment_id ?? null
+app/api/webhooks/stripe/route.ts:714:  if (isKickbackTransferEvent(transfer)) {
+app/api/webhooks/stripe/route.ts:716:      const handledKickbackRefund = await applyKickbackRefundCompleted(
+app/api/webhooks/stripe/route.ts:719:          ? transfer.metadata?.kickback_payment_id ?? null
+app/api/webhooks/stripe/route.ts:722:      if (!handledKickbackRefund) {
+app/api/webhooks/stripe/route.ts:723:        await applyKickbackTransferEvent(admin, transfer, 'refunded')
+app/api/webhooks/stripe/route.ts:728:    await applyKickbackTransferEvent(admin, transfer, 'completed')
+app/api/webhooks/stripe/route.ts:827:        const handledKickback = await applyKickbackCheckoutSessionCompleted(admin as any, session)
+app/api/webhooks/stripe/route.ts:828:        if (!handledKickback) {
+app/api/webhooks/stripe/route.ts:838:        const handledKickbackInvoice = await applyKickbackInvoicePaid(admin as any, invoice)
+app/api/webhooks/stripe/route.ts:839:        if (!handledKickbackInvoice) {
+app/api/webhooks/stripe/route.ts:847:      if (!isCommunityHostIncentiveInvoice(invoice) && !invoice.metadata?.kickback_payment_id) {
+app/api/webhooks/stripe/route.ts:856:        const handledKickbackInvoice = await applyKickbackInvoicePaymentFailed(admin as any, invoice)
+app/api/webhooks/stripe/route.ts:857:        if (!handledKickbackInvoice) {
+app/api/webhooks/stripe/route.ts:885:          await applyKickbackPaymentIntent(admin as any, paymentIntent)
+app/api/webhooks/stripe/route.ts:899:          const handledKickbackRefund = await applyKickbackRefundCompleted(
+app/api/webhooks/stripe/route.ts:901:            getKickbackPaymentIdFromRefundedCharge(charge)
+app/api/webhooks/stripe/route.ts:903:          if (!handledKickbackRefund) {
+app/api/planner/plans/[planId]/recommend/route.ts:258:  bar_rev_share_enabled,
+app/api/planner/plans/[planId]/recommend/route.ts:259:  bar_rev_share_pct,
+app/api/planner/plans/[planId]/recommend/route.ts:261:  per_head_kickback,
+app/api/planner/plans/[planId]/recommend/route.ts:262:  per_head_kickback_cents,
+app/api/planner/plans/[planId]/recommend/route.ts:310:  per_head_kickback,
+app/api/planner/plans/[planId]/recommend/route.ts:311:  per_head_kickback_cents,
+app/api/planner/plans/[planId]/recommend/route.ts:312:  offers_kickbacks,
+app/api/planner/plans/[planId]/recommend/route.ts:316:  bar_revenue_share_enabled,
+app/api/planner/plans/[planId]/recommend/route.ts:317:  bar_rev_share_pct,
+app/api/planner/plans/[planId]/recommend/route.ts:318:  bar_revenue_share_percent,
+app/api/planner/plans/[planId]/recommend/route.ts:2426:    revenue_share: readString(summary.revenue_share),
+app/api/planner/plans/[planId]/recommend/route.ts:2488:  const venueKickback = deriveVenueKickbackEconomics(context.venue)
+app/api/planner/plans/[planId]/recommend/route.ts:2498:    venue_commercial_model: venueKickback.venue_commercial_model,
+app/api/planner/plans/[planId]/recommend/route.ts:2499:    venue_kickback_rate: venueKickback.venue_kickback_rate ?? 0,
+app/api/planner/plans/[planId]/recommend/route.ts:2529:function deriveVenueKickbackEconomics(venue: VenueMatchingCandidate | null): Partial<Pick<
+app/api/planner/plans/[planId]/recommend/route.ts:2531:  'venue_commercial_model' | 'venue_kickback_rate'
+app/api/planner/plans/[planId]/recommend/route.ts:2535:  const barRevenueSharePercent = readNumber(venue.bar_revenue_share_percent)
+app/api/planner/plans/[planId]/recommend/route.ts:2536:  if (venue.bar_revenue_share_enabled && barRevenueSharePercent && barRevenueSharePercent > 0) {
+app/api/planner/plans/[planId]/recommend/route.ts:2538:      venue_commercial_model: 'bar_revenue_share',
+app/api/planner/plans/[planId]/recommend/route.ts:2539:      venue_kickback_rate: barRevenueSharePercent,
+app/api/planner/plans/[planId]/recommend/route.ts:2546:      venue_commercial_model: 'ticket_revenue_share',
+app/api/planner/plans/[planId]/recommend/route.ts:2547:      venue_kickback_rate: ticketSharePercent,
+app/api/planner/plans/[planId]/recommend/route.ts:2551:  const perHeadKickbackCents = readCents(venue.per_head_kickback)
+app/api/planner/plans/[planId]/recommend/route.ts:2552:  if (perHeadKickbackCents && perHeadKickbackCents > 0) {
+app/api/planner/plans/[planId]/recommend/route.ts:2554:      venue_commercial_model: 'per_head_kickback',
+app/api/planner/plans/[planId]/recommend/route.ts:2555:      venue_kickback_rate: perHeadKickbackCents,
+app/api/planner/plans/[planId]/recommend/route.ts:3042:    per_head_kickback: readCents(
+app/api/planner/plans/[planId]/recommend/route.ts:3043:      row.per_head_kickback_cents as number | string | null | undefined,
+app/api/planner/plans/[planId]/recommend/route.ts:3044:      row.per_head_kickback as number | string | null | undefined
+app/api/planner/plans/[planId]/recommend/route.ts:3046:    offers_kickbacks: readBoolean(row.offers_kickbacks),
+app/api/planner/plans/[planId]/recommend/route.ts:3050:    bar_revenue_share_enabled: readBoolean(row.bar_revenue_share_enabled),
+app/api/planner/plans/[planId]/recommend/route.ts:3051:    bar_revenue_share_percent: readNumber(row.bar_revenue_share_percent ?? row.bar_rev_share_pct ?? row.bar_revenue_percentage),
+app/api/venues/route.ts:259:  'bar_rev_share_enabled',
+app/api/venues/route.ts:260:  'bar_rev_share_pct',
+app/api/venues/route.ts:261:  'sponsor_rev_share_enabled',
+app/api/venues/route.ts:262:  'sponsor_rev_share_pct',
+app/api/venues/route.ts:263:  'per_head_kickback_cents',
+app/api/planner/templates/route.ts:21:  kickback_model,
+app/api/planner/templates/route.ts:41:  kickback_model: Json
+app/api/planner/templates/route.ts:202:      kickback_model: row.kickback_model,
+app/api/planner/templates/route.ts:275:    kickback_model: {
+app/api/events/[eventId]/financials/route.ts:92:        venue_kickback_projection: 0,
+app/api/builder/payouts/summary/route.ts:9:type KickbackPaymentRow = {
+app/api/builder/payouts/summary/route.ts:38:function sumByStatus(payments: KickbackPaymentRow[], statuses: string[]) {
+app/api/builder/payouts/summary/route.ts:64:        .from('kickback_payments')
+app/api/builder/payouts/summary/route.ts:77:    const payments = ((paymentRows || []) as KickbackPaymentRow[])
+app/api/builder/payouts/summary/route.ts:92:            .from('event_kickback_agreements')
+app/api/builder/payouts/summary/route.ts:93:            .select('id, event_id, plan_id, venue_id, per_head_amount, minimum_attendees, maximum_payout, actual_attendance, actual_kickback_amount, reported_revenue_cents, bar_revenue_share_percent, ticket_revenue_share_percent, lift_share_percentage, status')
+app/api/builder/payouts/summary/route.ts:148:        revenue_share_percent:
+app/api/builder/payouts/summary/route.ts:149:          agreement?.bar_revenue_share_percent ??
+app/api/builder/payouts/summary/route.ts:150:          agreement?.ticket_revenue_share_percent ??
+app/api/builder/payouts/summary/route.ts:177:function getPaymentPrincipalCents(payment: Pick<KickbackPaymentRow, 'amount_cents' | 'amount'>) {
+app/(dashboard)/venue/pricing/page.tsx:22:  pricing_model: z.enum(['flat_rate', 'per_person', 'hourly', 'revenue_share', 'hybrid']),
+app/(dashboard)/venue/pricing/page.tsx:30:  bar_revenue_share: z.boolean().optional(),
+app/(dashboard)/venue/pricing/page.tsx:32:  per_head_kickback: z.number().optional(),
+app/(dashboard)/venue/pricing/page.tsx:64:    value: 'revenue_share',
+app/(dashboard)/venue/pricing/page.tsx:100:  const barRevenueShare = watch('bar_revenue_share')
+app/(dashboard)/venue/pricing/page.tsx:102:  const perHeadKickback = watch('per_head_kickback') || 0
+app/(dashboard)/venue/pricing/page.tsx:130:        per_person_rate: venue.per_head_kickback_amount ? centsToDollars(venue.per_head_kickback_amount) : undefined,
+app/(dashboard)/venue/pricing/page.tsx:134:        bar_revenue_share: venue.bar_revenue_share_enabled || false,
+app/(dashboard)/venue/pricing/page.tsx:135:        bar_revenue_percent: venue.bar_revenue_share_percent ?? 15,
+app/(dashboard)/venue/pricing/page.tsx:136:        per_head_kickback: venue.per_head_kickback_amount ? centsToDollars(venue.per_head_kickback_amount) : 0,
+app/(dashboard)/venue/pricing/page.tsx:168:          bar_revenue_share_enabled: Boolean(data.bar_revenue_share),
+app/(dashboard)/venue/pricing/page.tsx:169:          bar_revenue_share_percent: data.bar_revenue_share ? (data.bar_revenue_percent || 0) : 0,
+app/(dashboard)/venue/pricing/page.tsx:170:          per_head_kickback_cents: data.per_head_kickback ? dollarsToCents(data.per_head_kickback) : 0,
+app/(dashboard)/venue/pricing/page.tsx:202:  const showRevenueShare = pricingModel === 'revenue_share' || pricingModel === 'hybrid'
+app/(dashboard)/venue/pricing/page.tsx:366:        {showRevenueShare && (
+app/(dashboard)/venue/pricing/page.tsx:442:                    id="bar_revenue_share"
+app/(dashboard)/venue/pricing/page.tsx:443:                    {...register('bar_revenue_share')}
+app/(dashboard)/venue/pricing/page.tsx:448:                {barRevenueShare && (
+app/(dashboard)/venue/pricing/page.tsx:489:                    {...register('per_head_kickback', { valueAsNumber: true })}
+app/(dashboard)/venue/pricing/page.tsx:508:                  {barRevenueShare && (
+app/(dashboard)/venue/pricing/page.tsx:519:                      ${(100 * perHeadKickback).toLocaleString()}
+app/(dashboard)/venue/pricing/page.tsx:527:                        (barRevenueShare ? 100 * 50 * (barRevenuePercent / 100) : 0) +
+app/(dashboard)/venue/pricing/page.tsx:528:                        100 * perHeadKickback
+app/(dashboard)/vendor/pricing/page.tsx:40:  pricing_model: z.enum(['flat_rate', 'per_person', 'hourly', 'revenue_share', 'hybrid']),
+app/(dashboard)/vendor/pricing/page.tsx:42:  headcount_kickback: z.boolean().optional(),
+app/(dashboard)/vendor/pricing/page.tsx:75:    value: 'revenue_share',
+app/(dashboard)/vendor/pricing/page.tsx:113:  const headcountKickback = watch('headcount_kickback')
+app/(dashboard)/vendor/pricing/page.tsx:133:      const storedPerHeadRate = vendor.per_head_kickback ?? 0
+app/(dashboard)/vendor/pricing/page.tsx:140:        headcount_kickback: storedPerHeadRate > 0,
+app/(dashboard)/vendor/pricing/page.tsx:175:          per_head_kickback: data.headcount_kickback ? (data.per_person_rate ?? 0) : 0,
+app/(dashboard)/vendor/pricing/page.tsx:216:  const showRevenueShare = pricingModel === 'revenue_share' || pricingModel === 'hybrid'
+app/(dashboard)/vendor/pricing/page.tsx:335:        {(showRevenueShare || (!showPerPerson && !showBaseRate)) && (
+app/(dashboard)/vendor/pricing/page.tsx:350:                  id="headcount_kickback"
+app/(dashboard)/vendor/pricing/page.tsx:351:                  {...register('headcount_kickback')}
+app/(dashboard)/vendor/pricing/page.tsx:354:                <label htmlFor="headcount_kickback" className="text-sm font-medium text-ink">
+app/(dashboard)/vendor/pricing/page.tsx:359:              {headcountKickback && (
+app/(dashboard)/venue/payouts/page.tsx:79:type VenueKickbackPayment = {
+app/(dashboard)/venue/payouts/page.tsx:105:  revenue_share_percent?: number | null
+app/(dashboard)/venue/payouts/page.tsx:113:type VenueKickbackSummaryResponse = {
+app/(dashboard)/venue/payouts/page.tsx:121:  payments: VenueKickbackPayment[]
+app/(dashboard)/venue/payouts/page.tsx:288:function paymentSettlementCents(payment: VenueKickbackPayment) {
+app/(dashboard)/venue/payouts/page.tsx:292:function calculateSettlementTotals(payments: VenueKickbackPayment[]) {
+app/(dashboard)/venue/payouts/page.tsx:372:  const [kickbacks, setKickbacks] = useState<VenueKickbackSummaryResponse | null>(null)
+app/(dashboard)/venue/payouts/page.tsx:373:  const [isLoadingKickbacks, setIsLoadingKickbacks] = useState(true)
+app/(dashboard)/venue/payouts/page.tsx:378:  const [refundPayment, setRefundPayment] = useState<VenueKickbackPayment | null>(null)
+app/(dashboard)/venue/payouts/page.tsx:412:  const loadKickbacks = useCallback(async () => {
+app/(dashboard)/venue/payouts/page.tsx:419:      setKickbacks(data)
+app/(dashboard)/venue/payouts/page.tsx:423:      setIsLoadingKickbacks(false)
+app/(dashboard)/venue/payouts/page.tsx:428:    loadKickbacks()
+app/(dashboard)/venue/payouts/page.tsx:429:  }, [loadKickbacks])
+app/(dashboard)/venue/payouts/page.tsx:518:  const payKickback = async (paymentId: string) => {
+app/(dashboard)/venue/payouts/page.tsx:538:  const openRefundRequest = (payment: VenueKickbackPayment) => {
+app/(dashboard)/venue/payouts/page.tsx:576:      setIsLoadingKickbacks(true)
+app/(dashboard)/venue/payouts/page.tsx:577:      await loadKickbacks()
+app/(dashboard)/venue/payouts/page.tsx:586:    setIsLoadingKickbacks(true)
+app/(dashboard)/venue/payouts/page.tsx:587:    await loadKickbacks()
+app/(dashboard)/venue/payouts/page.tsx:588:  }, [loadKickbacks])
+app/(dashboard)/venue/payouts/page.tsx:646:  const kickbackPayments = kickbacks?.payments ?? []
+app/(dashboard)/venue/payouts/page.tsx:647:  const settlementTotals = calculateSettlementTotals(kickbackPayments)
+app/(dashboard)/venue/payouts/page.tsx:839:            {isLoadingKickbacks ? 'Loading records...' : `${kickbackPayments.length} settlement${kickbackPayments.length === 1 ? '' : 's'}`}
+app/(dashboard)/venue/payouts/page.tsx:874:        {isLoadingKickbacks ? (
+app/(dashboard)/venue/payouts/page.tsx:879:        ) : kickbackPayments.length === 0 ? (
+app/(dashboard)/venue/payouts/page.tsx:885:            {kickbackPayments.map((payment) => (
+app/(dashboard)/venue/payouts/page.tsx:890:                onPay={payKickback}
+app/(dashboard)/venue/payouts/page.tsx:1062:  payment: VenueKickbackPayment
+app/(dashboard)/venue/payouts/page.tsx:1065:  onRefund: (payment: VenueKickbackPayment) => void
+app/api/events/[eventId]/upload-checkins/route.ts:266:      kickback_amount: settlement.legacyAmountForCompatibility,
+app/api/events/[eventId]/upload-checkins/route.ts:281:  const { data, error } = await admin.rpc('calculate_event_kickback', {
+app/api/events/[eventId]/upload-checkins/route.ts:291:    typeof data === 'object' && data && 'kickback_amount' in data
+app/api/events/[eventId]/upload-checkins/route.ts:292:      ? Number((data as { kickback_amount?: number }).kickback_amount ?? 0)
+app/api/events/[eventId]/upload-checkins/route.ts:357:    .from('event_kickback_agreements')
+app/api/events/[eventId]/upload-checkins/route.ts:392:    .from('event_kickback_agreements')
+lib/vendors/profile-adapter.ts:36:  if (value === 'per_person' || value === 'hourly' || value === 'revenue_share' || value === 'hybrid') {
+lib/vendors/profile-adapter.ts:84:    per_head_kickback: row.per_head_kickback ?? null,
+lib/vendors/profile-adapter.ts:130:  if (updates.per_head_kickback !== undefined) payload.per_head_kickback = updates.per_head_kickback
+lib/types/helpers.ts:97:    revenue_share: 'Revenue Share',
+lib/types/enums.ts:51:  | 'revenue_share'
+lib/types/enums.ts:120:    'revenue_share',
+lib/bookings/venue-booking-adapter.ts:58:    bar_revenue_share_enabled,
+lib/bookings/venue-booking-adapter.ts:59:    bar_revenue_share_percent,
+lib/bookings/venue-booking-adapter.ts:61:    per_head_kickback,
+lib/bookings/venue-booking-adapter.ts:62:    per_head_kickback_amount,
+lib/types/database-generated.ts:1378:          is_legacy_revenue_share: boolean
+lib/types/database-generated.ts:1407:          is_legacy_revenue_share?: boolean
+lib/types/database-generated.ts:1436:          is_legacy_revenue_share?: boolean
+lib/types/database-generated.ts:1516:          is_legacy_revenue_share: boolean
+lib/types/database-generated.ts:1539:          is_legacy_revenue_share?: boolean
+lib/types/database-generated.ts:1562:          is_legacy_revenue_share?: boolean
+lib/types/database-generated.ts:2392:          venue_kickback_projection: number | null
+lib/types/database-generated.ts:2417:          venue_kickback_projection?: number | null
+lib/types/database-generated.ts:2442:          venue_kickback_projection?: number | null
+lib/types/database-generated.ts:2519:      event_kickback_agreements: {
+lib/types/database-generated.ts:2522:          actual_kickback_amount: number | null
+lib/types/database-generated.ts:2532:          bar_revenue_share_percent: number | null
+lib/types/database-generated.ts:2551:          expected_kickback_amount: number | null
+lib/types/database-generated.ts:2554:          kickback_model: string
+lib/types/database-generated.ts:2572:          ticket_revenue_share_percent: number | null
+lib/types/database-generated.ts:2581:          actual_kickback_amount?: number | null
+lib/types/database-generated.ts:2591:          bar_revenue_share_percent?: number | null
+lib/types/database-generated.ts:2610:          expected_kickback_amount?: number | null
+lib/types/database-generated.ts:2613:          kickback_model: string
+lib/types/database-generated.ts:2631:          ticket_revenue_share_percent?: number | null
+lib/types/database-generated.ts:2640:          actual_kickback_amount?: number | null
+lib/types/database-generated.ts:2650:          bar_revenue_share_percent?: number | null
+lib/types/database-generated.ts:2669:          expected_kickback_amount?: number | null
+lib/types/database-generated.ts:2672:          kickback_model?: string
+lib/types/database-generated.ts:2690:          ticket_revenue_share_percent?: number | null
+lib/types/database-generated.ts:2699:            foreignKeyName: "event_kickback_agreements_builder_id_fkey"
+lib/types/database-generated.ts:2706:            foreignKeyName: "event_kickback_agreements_disputed_by_fkey"
+lib/types/database-generated.ts:2713:            foreignKeyName: "event_kickback_agreements_event_id_fkey"
+lib/types/database-generated.ts:2720:            foreignKeyName: "event_kickback_agreements_plan_id_fkey"
+lib/types/database-generated.ts:2727:            foreignKeyName: "event_kickback_agreements_venue_id_fkey"
+lib/types/database-generated.ts:2734:            foreignKeyName: "event_kickback_agreements_venue_owner_id_fkey"
+lib/types/database-generated.ts:2949:            referencedRelation: "event_kickback_agreements"
+lib/types/database-generated.ts:3396:          kickback_agreement_id: string | null
+lib/types/database-generated.ts:3431:          kickback_agreement_id?: string | null
+lib/types/database-generated.ts:3466:          kickback_agreement_id?: string | null
+lib/types/database-generated.ts:3489:            foreignKeyName: "events_kickback_agreement_id_fkey"
+lib/types/database-generated.ts:3490:            columns: ["kickback_agreement_id"]
+lib/types/database-generated.ts:3492:            referencedRelation: "event_kickback_agreements"
+lib/types/database-generated.ts:3786:      kickback_disputes: {
+lib/types/database-generated.ts:3840:            foreignKeyName: "kickback_disputes_agreement_id_fkey"
+lib/types/database-generated.ts:3843:            referencedRelation: "event_kickback_agreements"
+lib/types/database-generated.ts:3847:            foreignKeyName: "kickback_disputes_initiated_by_fkey"
+lib/types/database-generated.ts:3854:            foreignKeyName: "kickback_disputes_resolved_by_fkey"
+lib/types/database-generated.ts:3862:      kickback_payments: {
+lib/types/database-generated.ts:3985:            foreignKeyName: "kickback_payments_agreement_id_fkey"
+lib/types/database-generated.ts:3988:            referencedRelation: "event_kickback_agreements"
+lib/types/database-generated.ts:3992:            foreignKeyName: "kickback_payments_event_id_fkey"
+lib/types/database-generated.ts:3999:            foreignKeyName: "kickback_payments_payer_id_fkey"
+lib/types/database-generated.ts:4006:            foreignKeyName: "kickback_payments_recipient_id_fkey"
+lib/types/database-generated.ts:4013:            foreignKeyName: "kickback_payments_refund_approved_by_fkey"
+lib/types/database-generated.ts:4020:            foreignKeyName: "kickback_payments_refund_requested_by_fkey"
+lib/types/database-generated.ts:6527:          kickback_model: Json
+lib/types/database-generated.ts:6549:          kickback_model?: Json
+lib/types/database-generated.ts:6571:          kickback_model?: Json
+lib/types/database-generated.ts:7544:          per_head_kickback: number | null
+lib/types/database-generated.ts:7604:          per_head_kickback?: number | null
+lib/types/database-generated.ts:7664:          per_head_kickback?: number | null
+lib/types/database-generated.ts:8293:      venue_kickback_configs: {
+lib/types/database-generated.ts:8306:          kickback_model: string
+lib/types/database-generated.ts:8329:          kickback_model: string
+lib/types/database-generated.ts:8352:          kickback_model?: string
+lib/types/database-generated.ts:8365:            foreignKeyName: "venue_kickback_configs_venue_id_fkey"
+lib/types/database-generated.ts:8961:          bar_rev_share_enabled: boolean
+lib/types/database-generated.ts:8962:          bar_rev_share_pct: number
+lib/types/database-generated.ts:8964:          bar_revenue_share_enabled: boolean | null
+lib/types/database-generated.ts:8965:          bar_revenue_share_percent: number | null
+lib/types/database-generated.ts:8973:          default_kickback_type: string | null
+lib/types/database-generated.ts:8993:          offers_kickbacks: boolean | null
+lib/types/database-generated.ts:8997:          per_head_kickback: number | null
+lib/types/database-generated.ts:8998:          per_head_kickback_amount: number | null
+lib/types/database-generated.ts:8999:          per_head_kickback_cents: number
+lib/types/database-generated.ts:9006:          sponsor_rev_share_enabled: boolean
+lib/types/database-generated.ts:9007:          sponsor_rev_share_pct: number
+lib/types/database-generated.ts:9030:          bar_rev_share_enabled?: boolean
+lib/types/database-generated.ts:9031:          bar_rev_share_pct?: number
+lib/types/database-generated.ts:9033:          bar_revenue_share_enabled?: boolean | null
+lib/types/database-generated.ts:9034:          bar_revenue_share_percent?: number | null
+lib/types/database-generated.ts:9042:          default_kickback_type?: string | null
+lib/types/database-generated.ts:9062:          offers_kickbacks?: boolean | null
+lib/types/database-generated.ts:9066:          per_head_kickback?: number | null
+lib/types/database-generated.ts:9067:          per_head_kickback_amount?: number | null
+lib/types/database-generated.ts:9068:          per_head_kickback_cents?: number
+lib/types/database-generated.ts:9075:          sponsor_rev_share_enabled?: boolean
+lib/types/database-generated.ts:9076:          sponsor_rev_share_pct?: number
+lib/types/database-generated.ts:9099:          bar_rev_share_enabled?: boolean
+lib/types/database-generated.ts:9100:          bar_rev_share_pct?: number
+lib/types/database-generated.ts:9102:          bar_revenue_share_enabled?: boolean | null
+lib/types/database-generated.ts:9103:          bar_revenue_share_percent?: number | null
+lib/types/database-generated.ts:9111:          default_kickback_type?: string | null
+lib/types/database-generated.ts:9131:          offers_kickbacks?: boolean | null
+lib/types/database-generated.ts:9135:          per_head_kickback?: number | null
+lib/types/database-generated.ts:9136:          per_head_kickback_amount?: number | null
+lib/types/database-generated.ts:9137:          per_head_kickback_cents?: number
+lib/types/database-generated.ts:9144:          sponsor_rev_share_enabled?: boolean
+lib/types/database-generated.ts:9145:          sponsor_rev_share_pct?: number
+lib/types/database-generated.ts:9247:          is_legacy_revenue_share: boolean | null
+lib/types/database-generated.ts:9372:      calculate_event_kickback: { Args: { p_event_id: string }; Returns: Json }
+lib/types/database-generated.ts:9480:      get_event_kickback_summary: {
+lib/types/database.ts:76:  bar_revenue_share_enabled?: boolean | null
+lib/types/database.ts:77:  bar_revenue_share_percent?: number | null
+lib/types/database.ts:78:  per_head_kickback_amount?: number | null
+lib/types/database.ts:79:  per_head_kickback_cents?: number | null
+lib/types/database.ts:196:  per_head_kickback?: number | null
+lib/types/planner.ts:355:  /** Per-head, revenue-share, or hybrid kickback assumptions. */
+lib/types/planner.ts:356:  kickback_model: Json
+lib/types/planner.ts:1117:  /** Per-head kickback amount in integer cents; null when none or unknown. */
+lib/types/planner.ts:1118:  per_head_kickback_amount: number | null
+lib/planner/archetypes/data.ts:45:    preferred_commercial_models: ['minimum_spend', 'bar_rev_share', 'per_head'],
+lib/planner/archetypes/data.ts:542:    preferred_commercial_models: ['bar_rev_share', 'minimum_spend', 'ticket_split'],
+lib/planner/archetypes/data.ts:583:    preferred_commercial_models: ['door_split', 'bar_rev_share', 'ticket_share'],
+lib/planner/archetypes/data.ts:626:    preferred_commercial_models: ['flat_rental', 'ticket_split', 'bar_rev_share'],
+lib/planner/archetypes/data.ts:667:    preferred_commercial_models: ['minimum_spend', 'bar_rev_share', 'ticket_revenue'],
+lib/planner/archetypes/data.ts:748:    preferred_commercial_models: ['external_checkout', 'bar_rev_share'],
+lib/planner/archetypes/intakeQuestions.ts:682:  bar_rev_share: {
+lib/planner/archetypes/intakeQuestions.ts:685:    prompt: 'Do you prefer minimum spend, flat rental, bar revenue share, per-head kickback, or a flexible venue deal?',
+lib/planner/archetypes/intakeQuestions.ts:687:    answer_keywords: ['minimum spend', 'flat rental', 'bar revenue', 'revenue share', 'rev share', 'kickback', 'per-head', 'per head'],
+lib/planner/venueComplianceGate.ts:36:    .from('event_kickback_agreements')
+lib/planner/venueComplianceGate.ts:41:    throw new Error(agreementError.message ?? 'Failed to load venue kickback agreements')
+lib/planner/venueComplianceGate.ts:49:    .from('kickback_payments')
+lib/planner/venueComplianceGate.ts:54:    throw new Error(paymentError.message ?? 'Failed to load venue kickback payments')
+lib/planner/commercialModelRanker.ts:6:  | 'per_head_kickback'
+lib/planner/commercialModelRanker.ts:7:  | 'bar_revenue_share'
+lib/planner/commercialModelRanker.ts:8:  | 'ticket_revenue_share'
+lib/planner/commercialModelRanker.ts:39:const DEFAULT_PER_HEAD_KICKBACK_CENTS = 800
+lib/planner/commercialModelRanker.ts:40:const DEFAULT_TICKET_REVENUE_SHARE_PCT = 12
+lib/planner/commercialModelRanker.ts:41:const DEFAULT_BAR_REVENUE_SHARE_PCT = 10
+lib/planner/commercialModelRanker.ts:66:  if (model === 'per_head_kickback') return 'Per-head kickback'
+lib/planner/commercialModelRanker.ts:67:  if (model === 'bar_revenue_share') return 'Bar revenue share'
+lib/planner/commercialModelRanker.ts:128:    (readVenuePerHeadKickbackCents(venue) ?? 0) > 0
+lib/planner/commercialModelRanker.ts:130:    models.add('per_head_kickback')
+lib/planner/commercialModelRanker.ts:133:    venue.bar_rev_share_enabled === true ||
+lib/planner/commercialModelRanker.ts:134:    venue.bar_revenue_share_enabled === true ||
+lib/planner/commercialModelRanker.ts:135:    (readNumber(venue.bar_rev_share_pct ?? venue.bar_revenue_share_pct ?? venue.bar_revenue_percentage) ?? 0) > 0
+lib/planner/commercialModelRanker.ts:137:    models.add('bar_revenue_share')
+lib/planner/commercialModelRanker.ts:143:    models.add('ticket_revenue_share')
+lib/planner/commercialModelRanker.ts:158:    if (model === 'per_head_kickback') return /\b(per head|kickback|attendee)\b/.test(normalized)
+lib/planner/commercialModelRanker.ts:159:    if (model === 'bar_revenue_share') return /\b(bar|drink|beverage)\b/.test(normalized) && /\b(share|rev|revenue|split)\b/.test(normalized)
+lib/planner/commercialModelRanker.ts:160:    if (model === 'ticket_revenue_share') return /\b(ticket|door)\b/.test(normalized) && /\b(share|rev|revenue|split)\b/.test(normalized)
+lib/planner/commercialModelRanker.ts:175:  if (model === 'per_head_kickback') {
+lib/planner/commercialModelRanker.ts:176:    const threshold = readNumber(venue.per_head_kickback_threshold ?? venue.kickback_threshold) ?? 100
+lib/planner/commercialModelRanker.ts:177:    const amount = readVenuePerHeadKickbackCents(venue) ?? DEFAULT_PER_HEAD_KICKBACK_CENTS
+lib/planner/commercialModelRanker.ts:180:  if (model === 'bar_revenue_share') {
+lib/planner/commercialModelRanker.ts:181:    const pct = readPercent(venue.bar_rev_share_pct ?? venue.bar_revenue_share_pct ?? venue.bar_revenue_percentage) ?? DEFAULT_BAR_REVENUE_SHARE_PCT
+lib/planner/commercialModelRanker.ts:185:  const pct = readPercent(venue.ticket_sales_share_pct ?? venue.ticket_sales_share_percent) ?? DEFAULT_TICKET_REVENUE_SHARE_PCT
+lib/planner/commercialModelRanker.ts:199:  if (model === 'bar_revenue_share') return Math.max(outlayCents, Math.round(barRevenueCents * 0.2))
+lib/planner/commercialModelRanker.ts:200:  if (model === 'ticket_revenue_share') return Math.max(outlayCents, Math.round(ticketRevenueCents * 0.12))
+lib/planner/commercialModelRanker.ts:212:function readVenuePerHeadKickbackCents(venue: Record<string, unknown>): number | null {
+lib/planner/commercialModelRanker.ts:214:    venue.per_head_kickback_cents as number | string | null | undefined,
+lib/planner/commercialModelRanker.ts:215:    (venue.per_head_kickback_amount ?? venue.per_head_kickback) as number | string | null | undefined
+lib/planner/commercialModelRanker.ts:238:  if (model === 'bar_revenue_share' && /\b(bar|drink|cocktail|beer|wine|cash bar|guests pay)\b/.test(text)) return 20
+lib/planner/commercialModelRanker.ts:239:  if (model === 'ticket_revenue_share' && /\b(ticket|paid|door|vip|ga|early bird)\b/.test(text)) return 20
+lib/planner/commercialModelRanker.ts:240:  if (model === 'per_head_kickback' && (readNumber(plan.headcount ?? plan.guest_count) ?? 0) >= 90) return 18
+lib/planner/commercialModelRanker.ts:255:  if (model === 'per_head_kickback') return 7
+lib/planner/commercialModelRanker.ts:261:  if (model === 'bar_revenue_share' || model === 'ticket_revenue_share') return 'medium'
+lib/planner/commercialModelRanker.ts:284:  if (model === 'per_head_kickback') reasons.push('Protects cash before turnout is confirmed')
+lib/planner/commercialModelRanker.ts:285:  if (model === 'bar_revenue_share') reasons.push('Aligns venue upside with drink sales')
+lib/planner/commercialModelRanker.ts:286:  if (model === 'ticket_revenue_share') reasons.push('Can reduce deposit pressure for paid events')
+lib/email.ts:115:// Kickback settlement notifications (Phase 1 rev share PR)
+lib/email.ts:118:type KickbackNotificationPayment = {
+lib/email.ts:135:type KickbackNotificationAgreement = {
+lib/email.ts:141:  bar_revenue_share_percent?: number | string | null
+lib/email.ts:142:  ticket_revenue_share_percent?: number | string | null
+lib/email.ts:147:type KickbackNotificationContext = {
+lib/email.ts:148:  payment: KickbackNotificationPayment
+lib/email.ts:149:  agreement: KickbackNotificationAgreement | null
+lib/email.ts:194:  const context = await loadKickbackNotificationContext(paymentId)
+lib/email.ts:215:  const context = await loadKickbackNotificationContext(paymentId)
+lib/email.ts:234:  const context = await loadKickbackNotificationContext(paymentId)
+lib/email.ts:253:  const context = await loadKickbackNotificationContext(paymentId)
+lib/email.ts:278:  const context = await loadKickbackNotificationContext(paymentId)
+lib/email.ts:301:  const context = await loadKickbackNotificationContext(paymentId)
+lib/email.ts:419:  const admin = await createKickbackEmailAdminClient()
+lib/email.ts:460:async function loadKickbackNotificationContext(paymentId: string): Promise<KickbackNotificationContext> {
+lib/email.ts:461:  const admin = await createKickbackEmailAdminClient()
+lib/email.ts:463:    .from('kickback_payments')
+lib/email.ts:485:  if (paymentError) throw new Error(paymentError.message ?? 'Failed to load kickback payment')
+lib/email.ts:486:  if (!payment) throw new Error('Kickback payment not found')
+lib/email.ts:488:  const typedPayment = payment as KickbackNotificationPayment
+lib/email.ts:490:    ? await loadKickbackAgreement(admin, typedPayment.agreement_id)
+lib/email.ts:499:  const eventLabel = await loadKickbackEventLabel(admin, typedPayment.event_id || agreement?.event_id || null, agreement?.plan_id ?? null)
+lib/email.ts:524:  const admin = await createKickbackEmailAdminClient()
+lib/email.ts:572:async function loadKickbackAgreement(admin: any, agreementId: string): Promise<KickbackNotificationAgreement | null> {
+lib/email.ts:574:    .from('event_kickback_agreements')
+lib/email.ts:582:        'bar_revenue_share_percent',
+lib/email.ts:583:        'ticket_revenue_share_percent',
+lib/email.ts:591:  if (error) throw new Error(error.message ?? 'Failed to load kickback agreement')
+lib/email.ts:592:  return (data as KickbackNotificationAgreement | null) ?? null
+lib/email.ts:633:async function loadKickbackEventLabel(admin: any, eventId: string | null, planId: string | null) {
+lib/email.ts:703:function formatSettlementSource(agreement: KickbackNotificationAgreement | null) {
+lib/email.ts:704:  const barShare = readPositiveNumber(agreement?.bar_revenue_share_percent)
+lib/email.ts:707:  const ticketShare = readPositiveNumber(agreement?.ticket_revenue_share_percent)
+lib/email.ts:759:async function createKickbackEmailAdminClient() {
+lib/planner/archetypes/types.ts:6:  | 'bar_rev_share'
+lib/planner/archetypes/types.ts:176:  'bar_rev_share',
+lib/live-events/triggers.ts:68:  rev_share_adjustments: z.array(z.object({
+lib/server/community-host-incentive/refund-request.ts:66:      .from('kickback_payments')
+lib/server/community-host-incentive/refund-request.ts:96:    .from('kickback_payments')
+lib/server/community-host-incentive/refund-request.ts:113:    .from('event_kickback_agreements')
+lib/server/community-host-incentive/refund-request.ts:118:  if (error) throw new Error(error.message ?? 'Failed to load kickback agreement')
+lib/server/admin-ops.ts:8:  KICKBACK_DISPUTES: 'kickback_disputes',
+lib/server/admin-ops.ts:106:        .from(TABLES.KICKBACK_DISPUTES)
+lib/server/account-setup.ts:36:  barKickbackPct?: number | null
+lib/server/account-setup.ts:298:    bar_revenue_share_enabled: hasBar,
+lib/server/account-setup.ts:299:    offers_kickbacks: hasBar,
+lib/server/account-setup.ts:300:    bar_revenue_percentage: hasBar ? input.barKickbackPct ?? null : null,
+lib/server/account-setup.ts:301:    bar_revenue_share_percent: hasBar ? input.perHeadDrinkPct ?? null : null,
+lib/server/community-host-incentive/spend-report.ts:44:type KickbackAgreementRow = {
+lib/server/community-host-incentive/spend-report.ts:64:  bar_revenue_share_percent?: number | string | null
+lib/server/community-host-incentive/spend-report.ts:65:  ticket_revenue_share_percent?: number | string | null
+lib/server/community-host-incentive/spend-report.ts:113:    const agreement = await loadKickbackAgreement(admin, agreementId)
+lib/server/community-host-incentive/spend-report.ts:166:      .from('event_kickback_agreements')
+lib/server/community-host-incentive/spend-report.ts:222:async function loadKickbackAgreement(admin: any, agreementId: string): Promise<KickbackAgreementRow | null> {
+lib/server/community-host-incentive/spend-report.ts:224:    .from('event_kickback_agreements')
+lib/server/community-host-incentive/spend-report.ts:246:        'bar_revenue_share_percent',
+lib/server/community-host-incentive/spend-report.ts:247:        'ticket_revenue_share_percent',
+lib/server/community-host-incentive/spend-report.ts:254:    throw new Error(error.message ?? 'Failed to load kickback agreement')
+lib/server/community-host-incentive/spend-report.ts:257:  return (data as KickbackAgreementRow | null) ?? null
+lib/server/community-host-incentive/spend-report.ts:273:  agreement: KickbackAgreementRow,
+lib/server/community-host-incentive/spend-report.ts:288:  agreement: KickbackAgreementRow
+lib/server/community-host-incentive/spend-report.ts:350:  agreement: KickbackAgreementRow
+lib/server/community-host-incentive/spend-report.ts:355:  const calculatedOwedCents = await calculateKickbackOwedCents(admin, agreement, reportedRevenueCents)
+lib/server/community-host-incentive/spend-report.ts:356:  const payment = await upsertKickbackPayment(
+lib/server/community-host-incentive/spend-report.ts:375:    .from('kickback_payments')
+lib/server/community-host-incentive/spend-report.ts:387:async function upsertKickbackPayment(
+lib/server/community-host-incentive/spend-report.ts:389:  agreement: KickbackAgreementRow,
+lib/server/community-host-incentive/spend-report.ts:411:    .from('kickback_payments')
+lib/server/community-host-incentive/spend-report.ts:427:async function calculateKickbackOwedCents(
+lib/server/community-host-incentive/spend-report.ts:429:  agreement: KickbackAgreementRow,
+lib/server/community-host-incentive/spend-report.ts:433:  const barSharePercent = readPositiveNumber(agreement.bar_revenue_share_percent)
+lib/server/community-host-incentive/spend-report.ts:438:  const ticketSharePercent = readPositiveNumber(agreement.ticket_revenue_share_percent)
+lib/server/community-host-incentive/checkout.ts:33:type KickbackPaymentForCheckout = {
+lib/server/community-host-incentive/checkout.ts:47:type KickbackAgreementForInvoice = {
+lib/server/community-host-incentive/checkout.ts:59:  bar_revenue_share_percent: number | string | null
+lib/server/community-host-incentive/checkout.ts:60:  ticket_revenue_share_percent: number | string | null
+lib/server/community-host-incentive/checkout.ts:158:      .from('kickback_payments')
+lib/server/community-host-incentive/checkout.ts:166:    const payment = paymentRow as KickbackPaymentForCheckout
+lib/server/community-host-incentive/checkout.ts:172:      return createInvoiceForKickback({
+lib/server/community-host-incentive/checkout.ts:184:    const paymentAmountCents = resolveKickbackPaymentAmountCents(payment)
+lib/server/community-host-incentive/checkout.ts:240:      payment_kind: 'venue_builder_kickback',
+lib/server/community-host-incentive/checkout.ts:241:      kickback_payment_id: payment.id,
+lib/server/community-host-incentive/checkout.ts:275:        idempotencyKey: `kickback_checkout_${payment.id}_${paymentAmountCents}`,
+lib/server/community-host-incentive/checkout.ts:280:      .from('kickback_payments')
+lib/server/community-host-incentive/checkout.ts:290:      .from('event_kickback_agreements')
+lib/server/community-host-incentive/checkout.ts:310:async function createInvoiceForKickback({
+lib/server/community-host-incentive/checkout.ts:318:  payment: KickbackPaymentForCheckout
+lib/server/community-host-incentive/checkout.ts:389:    kickback_payment_id: payment.id,
+lib/server/community-host-incentive/checkout.ts:402:      metadata: { kickback_payment_id: payment.id, settlement_method: 'invoice', item_type: 'principal' },
+lib/server/community-host-incentive/checkout.ts:404:    { idempotencyKey: `kickback_invoice_item_${payment.id}_principal_${principalCents}` }
+lib/server/community-host-incentive/checkout.ts:413:      metadata: { kickback_payment_id: payment.id, settlement_method: 'invoice', item_type: 'processing_fee' },
+lib/server/community-host-incentive/checkout.ts:415:    { idempotencyKey: `kickback_invoice_item_${payment.id}_processing_${achFeeCents}` }
+lib/server/community-host-incentive/checkout.ts:429:    { idempotencyKey: `kickback_invoice_${payment.id}_${principalCents}_${achFeeCents}` }
+lib/server/community-host-incentive/checkout.ts:434:    { idempotencyKey: `kickback_invoice_finalize_${payment.id}_${invoice.id}` }
+lib/server/community-host-incentive/checkout.ts:439:    { idempotencyKey: `kickback_invoice_send_${payment.id}_${finalizedInvoice.id}` }
+lib/server/community-host-incentive/checkout.ts:446:    .from('kickback_payments')
+lib/server/community-host-incentive/checkout.ts:463:    .from('event_kickback_agreements')
+lib/server/community-host-incentive/checkout.ts:499:  payment: KickbackPaymentForCheckout
+lib/server/community-host-incentive/checkout.ts:500:  agreement: KickbackAgreementForInvoice
+lib/server/community-host-incentive/checkout.ts:660:      .from('kickback_payments')
+lib/server/community-host-incentive/checkout.ts:677:      .from('event_kickback_agreements')
+lib/server/community-host-incentive/checkout.ts:698:function resolveVerifiedAttendance(agreement: KickbackAgreementForInvoice): {
+lib/server/community-host-incentive/checkout.ts:727:  agreement: KickbackAgreementForInvoice
+lib/server/community-host-incentive/checkout.ts:768:    sourceAgreement: KickbackAgreementForInvoice
+lib/server/community-host-incentive/checkout.ts:793:    is_legacy_revenue_share: false,
+lib/server/community-host-incentive/checkout.ts:795:      source_table: 'event_kickback_agreements',
+lib/server/community-host-incentive/checkout.ts:842:  agreement: KickbackAgreementForInvoice,
+lib/server/community-host-incentive/checkout.ts:863:    sourceAgreement: KickbackAgreementForInvoice
+lib/server/community-host-incentive/checkout.ts:894:    is_legacy_revenue_share: false,
+lib/server/community-host-incentive/checkout.ts:896:      source_table: 'event_kickback_agreements',
+lib/server/community-host-incentive/checkout.ts:948:function resolveKickbackPaymentAmountCents(payment: KickbackPaymentForCheckout) {
+lib/server/community-host-incentive/checkout.ts:953:async function loadAgreementForInvoice(admin: any, agreementId: string): Promise<KickbackAgreementForInvoice | null> {
+lib/server/community-host-incentive/checkout.ts:955:    .from('event_kickback_agreements')
+lib/server/community-host-incentive/checkout.ts:969:        'bar_revenue_share_percent',
+lib/server/community-host-incentive/checkout.ts:970:        'ticket_revenue_share_percent',
+lib/server/community-host-incentive/checkout.ts:983:  if (error) throw new Error(error.message ?? 'Failed to load kickback agreement')
+lib/server/community-host-incentive/checkout.ts:984:  return (data as KickbackAgreementForInvoice | null) ?? null
+lib/server/community-host-incentive/checkout.ts:1090:      payment_kind_namespace: 'venue_builder_kickback',
+lib/server/community-host-incentive/checkout.ts:1115:async function loadInvoiceEventLabel(admin: any, agreement: KickbackAgreementForInvoice) {
+lib/server/community-host-incentive/checkout.ts:1147:function getSettlementLabel(agreement: KickbackAgreementForInvoice) {
+lib/server/community-host-incentive/checkout.ts:1148:  const barShare = readPositiveNumber(agreement.bar_revenue_share_percent)
+lib/server/community-host-incentive/checkout.ts:1151:  const ticketShare = readPositiveNumber(agreement.ticket_revenue_share_percent)
+lib/venues/venue-adapter.ts:29:  per_head_kickback,
+lib/venues/venue-adapter.ts:37:  offers_kickbacks,
+lib/venues/venue-adapter.ts:38:  default_kickback_type,
+lib/venues/venue-adapter.ts:42:  bar_rev_share_enabled,
+lib/venues/venue-adapter.ts:43:  bar_rev_share_pct,
+lib/venues/venue-adapter.ts:44:  sponsor_rev_share_enabled,
+lib/venues/venue-adapter.ts:45:  sponsor_rev_share_pct,
+lib/venues/venue-adapter.ts:46:  per_head_kickback_cents,
+lib/venues/venue-adapter.ts:82:  per_head_kickback,
+lib/venues/venue-adapter.ts:90:  offers_kickbacks,
+lib/venues/venue-adapter.ts:91:  default_kickback_type,
+lib/venues/venue-adapter.ts:110:  const perHeadKickbackCents =
+lib/venues/venue-adapter.ts:111:    readCents(row.per_head_kickback_cents, row.per_head_kickback_amount ?? row.per_head_kickback) ?? 0
+lib/venues/venue-adapter.ts:150:    bar_revenue_share_enabled:
+lib/venues/venue-adapter.ts:151:      row.bar_revenue_share_enabled ?? row.bar_rev_share_enabled ?? false,
+lib/venues/venue-adapter.ts:152:    bar_revenue_share_percent:
+lib/venues/venue-adapter.ts:153:      row.bar_revenue_share_percent ?? row.bar_rev_share_pct ?? row.bar_revenue_percentage ?? 0,
+lib/venues/venue-adapter.ts:154:    per_head_kickback_amount:
+lib/venues/venue-adapter.ts:155:      perHeadKickbackCents,
+lib/venues/venue-adapter.ts:156:    per_head_kickback_cents: perHeadKickbackCents,
+lib/venues/venue-adapter.ts:229:  if (updates.bar_revenue_share_enabled !== undefined) {
+lib/venues/venue-adapter.ts:230:    row.bar_revenue_share_enabled = updates.bar_revenue_share_enabled
+lib/venues/venue-adapter.ts:232:  if (updates.bar_revenue_share_percent !== undefined) {
+lib/venues/venue-adapter.ts:233:    row.bar_revenue_share_percent = updates.bar_revenue_share_percent
+lib/venues/venue-adapter.ts:235:  if (updates.per_head_kickback_amount !== undefined) {
+lib/venues/venue-adapter.ts:236:    row.per_head_kickback_cents = updates.per_head_kickback_amount
+lib/venues/venue-adapter.ts:238:  if (updates.per_head_kickback_cents !== undefined) {
+lib/venues/venue-adapter.ts:239:    row.per_head_kickback_cents = updates.per_head_kickback_cents
+lib/venues/venue-adapter.ts:271:  if (value === 'hourly' || value === 'revenue_share' || value === 'hybrid') {
+lib/planner/mockAgentResponses.ts:39:  revenue_share: string | null
+lib/planner/mockAgentResponses.ts:103:  { label: 'House Party', patterns: [/\bhouse party\b/i, /\bkickback\b/i, /\bpregame\b/i, /\bcasual gathering\b/i, /\bapartment party\b/i] },
+lib/planner/mockAgentResponses.ts:520:              revenue_share: context.revenue_share,
+lib/planner/mockAgentResponses.ts:568:            revenue_share: context.revenue_share,
+lib/planner/mockAgentResponses.ts:681:  if (!context.revenue_share) {
+lib/planner/mockAgentResponses.ts:683:      field: 'revenue_share',
+lib/planner/mockAgentResponses.ts:800:    revenue_share: detectRevenueShare(allText),
+lib/planner/mockAgentResponses.ts:830:    context.revenue_share ? `Revenue model: ${context.revenue_share}` : null,
+lib/planner/mockAgentResponses.ts:1344:function detectRevenueShare(text: string): string | null {
+lib/planner/mockAgentResponses.ts:1348:  if (/\b(no revenue share|no rev share|flat rental|simple booking terms|simplest booking terms|no kickback)\b/i.test(text)) {
+lib/planner/mockAgentResponses.ts:1351:  if (/\b(bar revenue share|bar rev share|bar split|bar kickback)\b/i.test(text)) return 'Bar revenue share'
+lib/planner/mockAgentResponses.ts:1353:  if (/\b(per[-\s]?head kickback|per attendee|per confirmed attendee)\b/i.test(text)) return 'Per-head kickback'
+lib/planner/mockAgentResponses.ts:1354:  if (/\b(not sure|recommend|optimize|best model|open to)\b/i.test(text) && /\b(revenue|economics|terms|kickback|share)\b/i.test(text)) {
+lib/planner/mockAgentResponses.ts:1916:      other_placeholder: 'e.g. flexible, per-head kickback, sponsor-covered',
+lib/planner/mockAgentResponses.ts:1920:  if (field === 'revenue_share') {
+lib/planner/mockAgentResponses.ts:1944:          value: 'Per-head kickback',
+lib/planner/mockAgentResponses.ts:1954:      other_placeholder: 'e.g. per-head kickback after 100 attendees',
+lib/planner/mockAgentResponses.ts:2036:    { label: 'Revenue model', value: context.revenue_share ?? 'Need revenue model', confirmed: Boolean(context.revenue_share) },
+lib/planner/mockAgentResponses.ts:2067:  const termsTag = getRevenueModelTag(context.revenue_share)
+lib/planner/mockAgentResponses.ts:2253:function getRevenueModelTag(revenueShare: string | null) {
+lib/planner/mockAgentResponses.ts:2254:  if (!revenueShare) return 'Terms TBD'
+lib/planner/mockAgentResponses.ts:2255:  if (revenueShare === 'No revenue share') return 'Flat/simple terms'
+lib/planner/mockAgentResponses.ts:2256:  if (isRecommendBestModel(revenueShare)) return 'Compare commercial models'
+lib/planner/mockAgentResponses.ts:2257:  return revenueShare
+lib/planner/mockAgentResponses.ts:2260:function isRecommendBestModel(revenueShare: string | null | undefined) {
+lib/planner/mockAgentResponses.ts:2261:  return /\brecommend best model|recommend model|compare\b/i.test(revenueShare ?? '')
+lib/planner/mockAgentResponses.ts:2265:  if (!isRecommendBestModel(context.revenue_share)) return []
+lib/planner/mockAgentResponses.ts:2267:  const options = ['Flat rental', 'Minimum spend', 'Per-head kickback']
+lib/planner/mockAgentResponses.ts:2279:  if (!isRecommendBestModel(context.revenue_share)) return context.revenue_share
+lib/planner/mockAgentResponses.ts:2282:    return 'Bar revenue share or per-head kickback'
+lib/planner/mockAgentResponses.ts:2285:    return 'Ticket revenue share or per-head kickback'
+lib/planner/mockAgentResponses.ts:2287:  if ((context.guest_count ?? 0) > 100) return 'Per-head kickback'
+lib/planner/mockAgentResponses.ts:2341:  const terms = (isRecommendBestModel(context.revenue_share)
+lib/planner/mockAgentResponses.ts:2343:    : context.venue_terms ?? context.revenue_share) ?? 'terms still to confirm'
+lib/planner/mockAgentResponses.ts:2347:    const comparison = isRecommendBestModel(context.revenue_share)
+lib/planner/mockAgentResponses.ts:2355:  if (isRecommendBestModel(context.revenue_share)) {
+lib/planner/mockAgentResponses.ts:2481:      revenue_share: context.revenue_share,
+lib/planner/mockAgentResponses.ts:2515:          context.revenue_share,
+lib/venues/venueRanker.ts:194:    venue.bar_rev_share_enabled === true ||
+lib/venues/venueRanker.ts:195:    venue.bar_revenue_share_enabled === true ||
+lib/venues/venueRanker.ts:196:    (readNumber(venue.bar_rev_share_pct ?? venue.bar_revenue_share_pct ?? venue.bar_revenue_percentage) ?? 0) > 0
+lib/venues/venueRanker.ts:198:    models.add('bar_rev_share')
+lib/venues/venueRanker.ts:200:  if ((readVenuePerHeadKickbackCents(venue) ?? 0) > 0) {
+lib/venues/venueRanker.ts:630:function readVenuePerHeadKickbackCents(venue: Record<string, unknown>): number | null {
+lib/venues/venueRanker.ts:632:    venue.per_head_kickback_cents as number | string | null | undefined,
+lib/venues/venueRanker.ts:633:    (venue.per_head_kickback_amount ?? venue.per_head_kickback) as number | string | null | undefined
+lib/finance/eventPlanningEconomics.ts:16:  'per_head_kickback',
+lib/finance/eventPlanningEconomics.ts:17:  'bar_revenue_share',
+lib/finance/eventPlanningEconomics.ts:18:  'ticket_revenue_share',
+lib/finance/eventPlanningEconomics.ts:36:  venue_kickback_rate: z.number().nonnegative().default(0),
+lib/finance/eventPlanningEconomics.ts:44:  kickback_projection_cents: z.number().int(),
+lib/finance/eventPlanningEconomics.ts:125:  const kickbackProjectionCents = calculateVenueKickbackProjectionCents({
+lib/finance/eventPlanningEconomics.ts:127:    kickbackRate: input.venue_kickback_rate,
+lib/finance/eventPlanningEconomics.ts:132:  const totalRevenueCents = ticketRevenueCents + input.sponsorship_revenue_cents + kickbackProjectionCents
+lib/finance/eventPlanningEconomics.ts:139:    kickback_projection_cents: kickbackProjectionCents,
+lib/finance/eventPlanningEconomics.ts:147:export function calculateVenueKickbackProjectionCents({
+lib/finance/eventPlanningEconomics.ts:149:  kickbackRate,
+lib/finance/eventPlanningEconomics.ts:155:  kickbackRate?: number
+lib/finance/eventPlanningEconomics.ts:160:  const rate = Number.isFinite(kickbackRate ?? 0) ? Math.max(kickbackRate ?? 0, 0) : 0
+lib/finance/eventPlanningEconomics.ts:161:  if (model === 'per_head_kickback') {
+lib/finance/eventPlanningEconomics.ts:165:  if (model === 'bar_revenue_share') {
+lib/finance/eventPlanningEconomics.ts:170:  if (model === 'ticket_revenue_share') {
+lib/planner/catalogRanker.ts:25:  revenue_share?: string | null
+lib/planner/catalogRanker.ts:444:  if (/\brecommend|compare|best model|open|flexible\b/i.test(plan.revenue_share ?? '')) return plan.revenue_share
+lib/planner/catalogRanker.ts:445:  return plan.venue_terms ?? plan.revenue_share
+lib/planner/catalogRanker.ts:893:  if (row.ticket_sales_share_enabled === true || row.bar_rev_share_enabled === true) {
+lib/planner/catalogRanker.ts:894:    terms.add('revenue_share')
+lib/planner/catalogRanker.ts:898:      row.per_head_kickback_cents as number | string | null | undefined,
+lib/planner/catalogRanker.ts:899:      (row.per_head_kickback_amount ?? row.per_head_kickback) as number | string | null | undefined
+lib/planner/catalogRanker.ts:902:    terms.add('per_head_kickback')
+lib/planner/catalogRanker.ts:917:  if (/\b(revenue|share|bar rev|ticket share)\b/.test(normalized)) terms.push('revenue_share')
+lib/planner/catalogRanker.ts:918:  if (/\b(per head|kickback|attendee)\b/.test(normalized)) terms.push('per_head_kickback')
+lib/ai/agents/venueMatchingAgent.ts:123:  'Do not invent venue fields. Use only candidate id, venue_name, venue_type, standing_capacity, seated_capacity, city, state, hourly_rate, minimum_hours, per_head_kickback, offers_kickbacks, deposit_percentage, cancellation_terms, available_days, bar_revenue_share_enabled, venue_amenities. Amenity data is from venue_amenities.amenity_name.',
+lib/ai/agents/venueMatchingAgent.ts:237:    per_head_kickback: venue.per_head_kickback,
+lib/ai/agents/venueMatchingAgent.ts:238:    offers_kickbacks: venue.offers_kickbacks,
+lib/ai/agents/venueMatchingAgent.ts:242:    bar_revenue_share_enabled: venue.bar_revenue_share_enabled,
+lib/ai/agents/economicsAgent.ts:8:  calculateVenueKickbackProjectionCents,
+lib/ai/agents/economicsAgent.ts:170:          venue_kickback_rate: input.venue_kickback_rate,
+lib/ai/agents/economicsAgent.ts:229:      calculations.revenue_scenarios.expected.kickback_projection_cents,
+lib/ai/agents/economicsAgent.ts:268:    const kickbackProjectionCents = calculateVenueKickbackProjectionCents({
+lib/ai/agents/economicsAgent.ts:270:      kickbackRate: input.venue_kickback_rate,
+lib/ai/agents/economicsAgent.ts:278:      kickbackProjectionCents
+lib/ai/agents/economicsAgent.ts:417:  expectedKickbackProjectionCents: number,
+lib/ai/agents/economicsAgent.ts:422:  const withKickbackLine = expectedKickbackProjectionCents > 0
+lib/ai/agents/economicsAgent.ts:423:    ? `${narrative} Expected venue kickback: ${formatCurrency(expectedKickbackProjectionCents)}.`
+lib/ai/agents/economicsAgent.ts:426:    ? `${withKickbackLine} ${formatLiveTriggerEvidence(liveTriggers)}`
+lib/ai/agents/economicsAgent.ts:427:    : withKickbackLine
+lib/finance/chi-nomenclature-sync.ts:2:  'venue_kickback',
+lib/finance/chi-nomenclature-sync.ts:3:  'vendor_rev_share',
+lib/finance/chi-nomenclature-sync.ts:15:  venue_kickback: 'venue_chi',
+lib/finance/chi-nomenclature-sync.ts:16:  vendor_rev_share: 'vendor_consumption_share',
+lib/finance/chi-nomenclature-sync.ts:20:  venue_chi: 'venue_kickback',
+lib/finance/chi-nomenclature-sync.ts:21:  vendor_consumption_share: 'vendor_rev_share',
+lib/finance/chi-nomenclature-sync.ts:46:  is_legacy_revenue_share: boolean
+lib/finance/chi-nomenclature-sync.ts:48:  const flag = Boolean(payload.is_legacy_consumption_share ?? payload.is_legacy_revenue_share ?? false)
+lib/finance/chi-nomenclature-sync.ts:52:    is_legacy_revenue_share: flag,
+lib/ticketing/attendancePoll.ts:195:    .from('event_kickback_agreements')
+lib/finance/community-host-incentive/compliance.ts:8:  'kickback',
+lib/finance/community-host-incentive/compliance.ts:9:  'revenue_share',
+lib/finance/community-host-incentive/compliance.ts:10:  'rev_share',
+lib/finance/community-host-incentive/compliance.ts:11:  'bar_split',
+lib/finance/legacySettlementAdapter.ts:245:    .from('kickback_payments')
+lib/finance/legacySettlementAdapter.ts:293:    is_legacy_revenue_share: false,
+lib/finance/legacySettlementAdapter.ts:295:      source_table: 'event_kickback_agreements',
+lib/finance/legacySettlementAdapter.ts:394:    is_legacy_revenue_share: false,
+lib/finance/legacySettlementAdapter.ts:396:      source_table: 'event_kickback_agreements',
+lib/finance/eventActuals.ts:59:  rev_share_adjustments: Array<{
+lib/finance/eventActuals.ts:218:    rev_share_adjustments: termCostAdjustments.rev_share_adjustments,
+lib/finance/eventActuals.ts:416:  let query = asQuery(supabase.from('event_kickback_agreements'))
+lib/finance/eventActuals.ts:619:  const adjustments: EventPnL['rev_share_adjustments'] = []
+lib/finance/eventActuals.ts:651:    rev_share_adjustments: adjustments,
+lib/finance/revenueTerms.ts:12:  'venue_kickback',
+lib/finance/revenueTerms.ts:15:  'vendor_rev_share',
+lib/finance/revenueTerms.ts:117:  venue_kickback_cents: number
+lib/finance/revenueTerms.ts:120:  vendor_rev_share_cents: number
+lib/finance/revenueTerms.ts:289:    venue_kickback_cents: 0,
+lib/finance/revenueTerms.ts:291:    vendor_rev_share_cents: 0,
+lib/finance/revenueTerms.ts:303:      summary.venue_kickback_cents += impact.amount_cents
+lib/finance/revenueTerms.ts:308:      summary.vendor_rev_share_cents += impact.amount_cents
+lib/server/community-host-incentive/summary.ts:9:type KickbackPaymentRow = {
+lib/server/community-host-incentive/summary.ts:37:type KickbackAgreementRow = {
+lib/server/community-host-incentive/summary.ts:47:  actual_kickback_amount: number | null
+lib/server/community-host-incentive/summary.ts:53:  bar_revenue_share_percent: number | null
+lib/server/community-host-incentive/summary.ts:54:  ticket_revenue_share_percent: number | null
+lib/server/community-host-incentive/summary.ts:59:function getPaymentPrincipalCents(payment: Pick<KickbackPaymentRow, 'amount_cents' | 'amount'>) {
+lib/server/community-host-incentive/summary.ts:63:function sumByStatus(payments: KickbackPaymentRow[], statuses: string[]) {
+lib/server/community-host-incentive/summary.ts:83:      .from('kickback_payments')
+lib/server/community-host-incentive/summary.ts:93:    const payments = ((paymentRows || []) as KickbackPaymentRow[])
+lib/server/community-host-incentive/summary.ts:95:      .from('event_kickback_agreements')
+lib/server/community-host-incentive/summary.ts:107:          'actual_kickback_amount',
+lib/server/community-host-incentive/summary.ts:113:          'bar_revenue_share_percent',
+lib/server/community-host-incentive/summary.ts:114:          'ticket_revenue_share_percent',
+lib/server/community-host-incentive/summary.ts:123:    const ownedAgreements = ((agreementRows || []) as KickbackAgreementRow[])
+lib/server/community-host-incentive/summary.ts:148:            .from('event_kickback_agreements')
+lib/server/community-host-incentive/summary.ts:149:            .select('id, event_id, plan_id, venue_id, builder_id, per_head_amount, minimum_attendees, maximum_payout, actual_attendance, actual_kickback_amount, reported_revenue_cents, revenue_proof_url, revenue_extracted_value_cents, revenue_extraction_confidence, revenue_submitted_at, bar_revenue_share_percent, ticket_revenue_share_percent, lift_share_percentage, status')
+lib/server/community-host-incentive/summary.ts:175:    const paymentByAgreementId = new Map<string, KickbackPaymentRow>(
+lib/server/community-host-incentive/summary.ts:210:        revenue_share_percent:
+lib/server/community-host-incentive/summary.ts:211:          agreement?.bar_revenue_share_percent ??
+lib/server/community-host-incentive/summary.ts:212:          agreement?.ticket_revenue_share_percent ??
+lib/server/community-host-incentive/summary.ts:249:function shouldSurfaceAgreementForSpendReport(agreement: KickbackAgreementRow) {
+lib/server/community-host-incentive/summary.ts:258:  agreement: KickbackAgreementRow | undefined,
+lib/server/community-host-incentive/summary.ts:260:): KickbackPaymentRow {
+lib/server/community-host-incentive/summary.ts:292:  agreement: KickbackAgreementRow | null | undefined,
+lib/server/community-host-incentive/summary.ts:293:  payment: KickbackPaymentRow | null
+lib/finance/community-host-incentive/stripeMetadata.ts:25:    is_revenue_share: 'false',
+components/planner/RevenueTermsTab.tsx:12:  | 'venue_kickback'
+components/planner/RevenueTermsTab.tsx:14:  | 'vendor_rev_share'
+components/planner/RevenueTermsTab.tsx:64:    venue_kickback_cents: number
+components/planner/RevenueTermsTab.tsx:66:    vendor_rev_share_cents: number
+components/planner/RevenueTermsTab.tsx:105:  venue_kickback: 'Community Host Incentive',
+components/planner/RevenueTermsTab.tsx:107:  vendor_rev_share: 'Vendor partner share',
+components/planner/RevenueTermsTab.tsx:172:      (summary?.vendor_rev_share_cents ?? 0) +
+components/planner/RevenueTermsTab.tsx:175:      (summary?.venue_kickback_cents ?? 0) +
+components/planner/planner-page/draftMode.ts:417:      question('bar_rev_share', 'Bar economics', 'Do you want a Community Host Incentive, bar split, minimum spend, or no bar terms?', /\b(revenue share|rev share|bar split|kickback|minimum spend|no rev)\b/i),
+components/planner/planner-page/draftMode.ts:452:      question('door_split', 'Door economics', 'Do you want a door split, bar incentive, flat rental, or minimum spend?', /\b(door split|bar revenue|rev share|flat rental|minimum spend|kickback)\b/i),
+components/planner/planner-page/draftMode.ts:622:  if (/\b(house party|kickback|pregame)\b/.test(lower)) return 'house party'
+lib/venues/venuePreFilter.ts:43:  per_head_kickback: nullableNonnegativeNumberSchema,
+lib/venues/venuePreFilter.ts:44:  bar_revenue_share_percent: nullableNonnegativeNumberSchema.optional(),
+lib/venues/venuePreFilter.ts:47:  offers_kickbacks: z.boolean().nullable(),
+lib/venues/venuePreFilter.ts:51:  bar_revenue_share_enabled: z.boolean().nullable(),
+lib/venues/venuePreFilter.ts:320:  if (venue.offers_kickbacks || venue.bar_revenue_share_enabled || (venue.per_head_kickback ?? 0) > 0) {
+components/auth/SignupExperience.tsx:1008:    barKickback: '10',
+components/auth/SignupExperience.tsx:1126:          bar_kickback_pct: form.isBar ? parseFloat(form.barKickback) : null,
+components/auth/SignupExperience.tsx:1284:                  <Input type="number" value={form.barKickback} onChange={(e) => setForm({ ...form, barKickback: e.target.value })} placeholder="10" />
+components/planner/PlannerLivePlanPanel.tsx:104:  revenue_share: string | null
+components/planner/PlannerLivePlanPanel.tsx:178:  venueKickbackCents: number
+components/planner/PlannerLivePlanPanel.tsx:179:  revenueShareCents: number
+components/planner/PlannerLivePlanPanel.tsx:426:    revenue_share: null,
+components/planner/PlannerLivePlanPanel.tsx:454:      revenue_share: readString(summary.revenue_share) ?? fallback.revenue_share,
+components/planner/PlannerLivePlanPanel.tsx:495:    if (label.includes('revenue')) nextSummary.revenue_share = value
+components/planner/PlannerLivePlanPanel.tsx:629:  const venueKickbackCents = guestCount > 100 ? (guestCount - 100) * 800 : 0
+components/planner/PlannerLivePlanPanel.tsx:630:  const revenueShareCents = Math.round(Math.max(0, ticketRevenueCents - feesCents) * 0.12)
+components/planner/PlannerLivePlanPanel.tsx:631:  const expectedCents = ticketRevenueCents + barRevenueCents - venueCostCents - vendorCostCents - customCostsTotalCents - feesCents - venueKickbackCents
+components/planner/PlannerLivePlanPanel.tsx:636:  const totalCostCents = venueCostCents + vendorCostCents + customCostsTotalCents + feesCents + venueKickbackCents
+components/planner/PlannerLivePlanPanel.tsx:648:    { label: 'Community Host Incentive (per-head model)', amountCents: venueKickbackCents, negative: true },
+components/planner/PlannerLivePlanPanel.tsx:664:    venueKickbackCents,
+components/planner/PlannerLivePlanPanel.tsx:665:    revenueShareCents,
+components/planner/PlannerLivePlanPanel.tsx:782:  const isComparingCommercialModels = isRecommendBestModel(eventSummary.revenue_share)
+components/planner/PlannerLivePlanPanel.tsx:1205:          <KickbackCard
+components/planner/PlannerLivePlanPanel.tsx:1210:            estimate={`≈ ${formatCents(profitModel.venueKickbackCents)} to venue at ${profitModel.paidAverage || 'TBD'}`}
+components/planner/PlannerLivePlanPanel.tsx:1211:            recommended={profitModel.venueKickbackCents <= profitModel.revenueShareCents}
+components/planner/PlannerLivePlanPanel.tsx:1213:          <KickbackCard
+components/planner/PlannerLivePlanPanel.tsx:1218:            estimate={`≈ ${formatCents(profitModel.revenueShareCents)} to venue at ${profitModel.paidAverage || 'TBD'}`}
+components/planner/PlannerLivePlanPanel.tsx:1219:            recommended={profitModel.revenueShareCents < profitModel.venueKickbackCents}
+components/planner/PlannerLivePlanPanel.tsx:1526:function KickbackCard({
+components/planner/PlannerLivePlanPanel.tsx:1740:  if (isRecommendBestModel(summary.revenue_share)) return 'Flexible while agent compares'
+components/planner/PlannerLivePlanPanel.tsx:1745:  if (isRecommendBestModel(summary.revenue_share)) return 'Agent recommends best model'
+components/planner/PlannerLivePlanPanel.tsx:1746:  return summary.revenue_share ?? 'Need revenue model'
+components/planner/PlannerLivePlanPanel.tsx:2272:    summary.revenue_share,
+components/planner/LiveEventDashboard.tsx:79:    rev_share_adjustments: Array<{
+components/planner/LiveEventDashboard.tsx:151:      venue_kickback_cents: number
+components/planner/LiveEventDashboard.tsx:153:      vendor_rev_share_cents: number
+components/planner/LiveEventDashboard.tsx:493:            <MiniMetric label="Community Host Incentive" value={formatCents(snapshot.revenue_terms.summary.venue_kickback_cents)} />
+lib/finance/calculate-event-financials.ts:19:  venue_kickback_projection: number
+lib/finance/calculate-event-financials.ts:107:    venue_kickback_projection: 0,
+lib/finance/calculate-event-financials.ts:156: * Loads the per-head venue kickback rate configured for an event.
+lib/finance/calculate-event-financials.ts:158: * Kickback projections are only projections during sales. Actual kickbacks are
+lib/finance/calculate-event-financials.ts:161: * @param supabase - Supabase client with permission to read kickback agreements.
+lib/finance/calculate-event-financials.ts:163: * @returns Per-attendee kickback amount, or 0 when no agreement exists.
+lib/finance/calculate-event-financials.ts:165:async function loadKickbackRate(supabase: SupabaseClient, eventId: string) {
+lib/finance/calculate-event-financials.ts:167:    .from('event_kickback_agreements')
+lib/finance/calculate-event-financials.ts:248: * - Venue kickback projection uses projected attendance, but actual kickback
+lib/finance/calculate-event-financials.ts:265:    kickbackRate,
+lib/finance/calculate-event-financials.ts:277:    loadKickbackRate(supabase, eventId),
+lib/finance/calculate-event-financials.ts:323:  const venueKickbackProjection = projectedAttendance * kickbackRate + venueSalesShareProjection
+lib/finance/calculate-event-financials.ts:342:    venue_kickback_projection: roundMoney(venueKickbackProjection),
+components/admin/AdminCatalogConsole.tsx:264:      per_head_kickback_amount: null,
+components/venue/BookingDetailModal.tsx:66:  const perHeadKickbackCents = readCents(
+components/venue/BookingDetailModal.tsx:67:    venue?.per_head_kickback_cents,
+components/venue/BookingDetailModal.tsx:68:    venue?.per_head_kickback_amount ?? venue?.per_head_kickback
+components/venue/BookingDetailModal.tsx:375:              {venue?.bar_revenue_share_enabled && (
+components/venue/BookingDetailModal.tsx:378:                  <span className="font-medium">{venue.bar_revenue_share_percent || 0}%</span>
+components/venue/BookingDetailModal.tsx:381:              {(perHeadKickbackCents ?? 0) > 0 && (
+components/venue/BookingDetailModal.tsx:384:                  <span className="font-medium">{formatCents(perHeadKickbackCents ?? 0)}/guest</span>
+supabase/migrations/20260616000000_add_community_host_incentive_payments_view.sql:25:  false::boolean AS is_legacy_revenue_share
+supabase/migrations/20260602000007_add_event_revenue_terms.sql:3:-- Context: Store event-scoped tax, ticketing fee, service fee, venue kickback,
+supabase/migrations/20260602000007_add_event_revenue_terms.sql:17:      'venue_kickback',
+supabase/migrations/20260602000007_add_event_revenue_terms.sql:19:      'vendor_rev_share',
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:19:      'venue_kickback',
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:22:      'vendor_rev_share',
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:37:SET is_legacy_consumption_share = is_legacy_revenue_share
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:51:SET is_legacy_consumption_share = is_legacy_revenue_share
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:69:      COALESCE(NEW.is_legacy_consumption_share, NEW.is_legacy_revenue_share, false);
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:70:    NEW.is_legacy_revenue_share :=
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:71:      COALESCE(NEW.is_legacy_revenue_share, NEW.is_legacy_consumption_share, false);
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:76:    NEW.is_legacy_revenue_share := NEW.is_legacy_consumption_share;
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:77:  ELSIF NEW.is_legacy_revenue_share IS DISTINCT FROM OLD.is_legacy_revenue_share THEN
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:78:    NEW.is_legacy_consumption_share := NEW.is_legacy_revenue_share;
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:82:  NEW.is_legacy_revenue_share := COALESCE(NEW.is_legacy_revenue_share, false);
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:90:  BEFORE INSERT OR UPDATE OF is_legacy_revenue_share, is_legacy_consumption_share
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:97:  BEFORE INSERT OR UPDATE OF is_legacy_revenue_share, is_legacy_consumption_share
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:129:  settlement.is_legacy_revenue_share,
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:136:  'Payment-facing read model for Community Host Incentive settlements. Uses is_legacy_consumption_share as the canonical flag and exposes is_legacy_revenue_share for compatibility until δ.5.';
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:149:  WHERE is_legacy_consumption_share IS DISTINCT FROM is_legacy_revenue_share;
+supabase/migrations/20260618013000_chi_nomenclature_additive_phase.sql:158:  WHERE is_legacy_consumption_share IS DISTINCT FROM is_legacy_revenue_share;
+supabase/migrations/20260618013100_chi_nomenclature_drop_sync.sql:23:  WHERE is_legacy_consumption_share IS DISTINCT FROM is_legacy_revenue_share;
+supabase/migrations/20260618013100_chi_nomenclature_drop_sync.sql:32:  WHERE is_legacy_consumption_share IS DISTINCT FROM is_legacy_revenue_share;
+supabase/migrations/20260609000000_add_community_host_incentive_foundation.sql:4:-- kickback/revenue-share rows are renamed or converted in this phase.
+supabase/migrations/20260609000000_add_community_host_incentive_foundation.sql:29:  is_legacy_revenue_share boolean NOT NULL DEFAULT false,
+supabase/migrations/20260609000000_add_community_host_incentive_foundation.sql:102:COMMENT ON COLUMN public.community_host_incentive_agreements.is_legacy_revenue_share IS
+supabase/migrations/20260609000000_add_community_host_incentive_foundation.sql:146:  is_legacy_revenue_share boolean NOT NULL DEFAULT false,
+supabase/migrations/20260609000000_add_community_host_incentive_foundation.sql:186:COMMENT ON COLUMN public.community_host_incentive_settlements.is_legacy_revenue_share IS
+supabase/migrations/20260608000000_stripe_connect_business_readiness.sql:184:ALTER TABLE public.kickback_payments
+supabase/migrations/20260608000000_stripe_connect_business_readiness.sql:185:  DROP CONSTRAINT IF EXISTS kickback_payments_status_check;
+supabase/migrations/20260608000000_stripe_connect_business_readiness.sql:186:ALTER TABLE public.kickback_payments
+supabase/migrations/20260608000000_stripe_connect_business_readiness.sql:187:  ADD CONSTRAINT kickback_payments_status_check
+supabase/migrations/20260608000000_stripe_connect_business_readiness.sql:318:  v_kickback_payments integer := 0;
+supabase/migrations/20260608000000_stripe_connect_business_readiness.sql:368:  UPDATE public.kickback_payments
+supabase/migrations/20260608000000_stripe_connect_business_readiness.sql:376:  GET DIAGNOSTICS v_kickback_payments = ROW_COUNT;
+supabase/migrations/20260608000000_stripe_connect_business_readiness.sql:394:    'kickback_payments', v_kickback_payments

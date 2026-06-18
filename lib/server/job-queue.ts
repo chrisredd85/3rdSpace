@@ -49,6 +49,8 @@ export type AppJobType =
   | 'webhook.posh'
   | 'webhook.luma'
   | 'webhook.partiful'
+  | 'settlement.run.create'
+  | 'settlement.run.eventbrite_pull'
   | 'opportunity_send_venue_invite'
   | 'opportunity_remind_venue_invite'
   | 'opportunity_expire_venue_invite'

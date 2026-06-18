@@ -21,6 +21,12 @@ import {
   verifyLumaSignature,
   verifyPoshSecret,
 } from '@/lib/server/ticket-webhooks'
+import {
+  createSettlementRunForEvent,
+  extractWebhookAttendanceCount,
+  pullEventbriteAttendanceForSettlementRun,
+  recordWebhookAttendanceForEvent,
+} from '@/lib/finance/settlement-runs'
 
 export const runtime = 'nodejs'
 
@@ -30,6 +36,21 @@ function headersFromPayload(headers: unknown) {
 
 function searchParamsFromPayload(searchParams: unknown) {
   return new URLSearchParams(readStringRecord(searchParams))
+}
+
+async function recordSettlementAttendanceBestEffort(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  input: Parameters<typeof recordWebhookAttendanceForEvent>[1],
+) {
+  try {
+    await recordWebhookAttendanceForEvent(admin, input)
+  } catch (error) {
+    console.warn('[jobs.run] Settlement attendance recording failed', {
+      eventId: input.eventId,
+      source: input.source,
+      error: error instanceof Error ? error.message : error,
+    })
+  }
 }
 
 async function processPoshWebhookJob(admin: ReturnType<typeof createServiceRoleClient>, job: AppJob) {
@@ -55,6 +76,12 @@ async function processPoshWebhookJob(admin: ReturnType<typeof createServiceRoleC
 
   await recordPoshWebhookHeartbeat(admin, context, payload)
   const result = await processPoshWebhook(admin, payload, context)
+  await recordSettlementAttendanceBestEffort(admin, {
+    eventId: result.eventId,
+    source: 'webhook_posh',
+    payload,
+    attendanceCount: extractWebhookAttendanceCount(payload),
+  })
   await recordWebhookDelivery(
     admin,
     'posh',
@@ -89,6 +116,12 @@ async function processLumaWebhookJob(admin: ReturnType<typeof createServiceRoleC
   }
 
   const result = await processLumaWebhook(admin, payload, context, headers.get('webhook-id'))
+  await recordSettlementAttendanceBestEffort(admin, {
+    eventId: result.eventId,
+    source: 'webhook_luma',
+    payload,
+    attendanceCount: extractWebhookAttendanceCount(payload),
+  })
   await recordWebhookDelivery(
     admin,
     'luma',
@@ -128,6 +161,12 @@ async function processPartifulWebhookJob(admin: ReturnType<typeof createServiceR
   }
 
   const result = await processPartifulWebhook(admin, payload, context, headers.get('webhook-id'))
+  await recordSettlementAttendanceBestEffort(admin, {
+    eventId: result.eventId,
+    source: 'webhook_partiful',
+    payload,
+    attendanceCount: extractWebhookAttendanceCount(payload),
+  })
   await recordWebhookDelivery(
     admin,
     'partiful',
@@ -202,6 +241,18 @@ async function processJob(admin: ReturnType<typeof createServiceRoleClient>, job
 
   if (job.job_type === 'webhook.partiful') {
     return processPartifulWebhookJob(admin, job)
+  }
+
+  if (job.job_type === 'settlement.run.create') {
+    const eventId = job.payload.event_id ?? job.payload.eventId
+    if (typeof eventId !== 'string') throw new Error('Missing event_id')
+    return createSettlementRunForEvent(admin, eventId)
+  }
+
+  if (job.job_type === 'settlement.run.eventbrite_pull') {
+    const runId = job.payload.settlement_run_id ?? job.payload.settlementRunId
+    if (typeof runId !== 'string') throw new Error('Missing settlement_run_id')
+    return pullEventbriteAttendanceForSettlementRun(admin, runId)
   }
 
   if (
