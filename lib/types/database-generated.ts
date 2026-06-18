@@ -1946,12 +1946,14 @@ export type Database = {
           created_at: string
           extracted_emails: Json
           google_photo_names: string[]
+          photos: Json
           google_rating: number | null
           google_user_ratings_total: number | null
           id: string
           instagram_handle: string | null
           is_claimed: boolean
           last_enriched_at: string | null
+          last_rescue_at: string | null
           last_verified_at: string | null
           lat: number | null
           lng: number | null
@@ -1959,6 +1961,8 @@ export type Database = {
           name: string
           neighborhood: string | null
           opening_hours_json: Json
+          organizer_provided_emails: Json
+          organizer_rescue_count: number
           parking_notes: string | null
           price_hint_cents_high: number | null
           price_hint_cents_low: number | null
@@ -1988,12 +1992,14 @@ export type Database = {
           created_at?: string
           extracted_emails?: Json
           google_photo_names?: string[]
+          photos?: Json
           google_rating?: number | null
           google_user_ratings_total?: number | null
           id?: string
           instagram_handle?: string | null
           is_claimed?: boolean
           last_enriched_at?: string | null
+          last_rescue_at?: string | null
           last_verified_at?: string | null
           lat?: number | null
           lng?: number | null
@@ -2001,6 +2007,8 @@ export type Database = {
           name: string
           neighborhood?: string | null
           opening_hours_json?: Json
+          organizer_provided_emails?: Json
+          organizer_rescue_count?: number
           parking_notes?: string | null
           price_hint_cents_high?: number | null
           price_hint_cents_low?: number | null
@@ -2030,12 +2038,14 @@ export type Database = {
           created_at?: string
           extracted_emails?: Json
           google_photo_names?: string[]
+          photos?: Json
           google_rating?: number | null
           google_user_ratings_total?: number | null
           id?: string
           instagram_handle?: string | null
           is_claimed?: boolean
           last_enriched_at?: string | null
+          last_rescue_at?: string | null
           last_verified_at?: string | null
           lat?: number | null
           lng?: number | null
@@ -2043,6 +2053,8 @@ export type Database = {
           name?: string
           neighborhood?: string | null
           opening_hours_json?: Json
+          organizer_provided_emails?: Json
+          organizer_rescue_count?: number
           parking_notes?: string | null
           price_hint_cents_high?: number | null
           price_hint_cents_low?: number | null
@@ -5291,6 +5303,79 @@ export type Database = {
             columns: ["plan_id"]
             isOneToOne: false
             referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plan_discovery_venue_candidates: {
+        Row: {
+          archetype_id: string | null
+          created_at: string
+          dismissed_at: string | null
+          discovery_venue_id: string
+          fit_score: number | null
+          id: string
+          neighborhood: string | null
+          outreach_approval_created_at: string | null
+          places_request_json: Json
+          plan_id: string
+          search_query: string
+          searched_by_user_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          archetype_id?: string | null
+          created_at?: string
+          dismissed_at?: string | null
+          discovery_venue_id: string
+          fit_score?: number | null
+          id?: string
+          neighborhood?: string | null
+          outreach_approval_created_at?: string | null
+          places_request_json?: Json
+          plan_id: string
+          search_query: string
+          searched_by_user_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          archetype_id?: string | null
+          created_at?: string
+          dismissed_at?: string | null
+          discovery_venue_id?: string
+          fit_score?: number | null
+          id?: string
+          neighborhood?: string | null
+          outreach_approval_created_at?: string | null
+          places_request_json?: Json
+          plan_id?: string
+          search_query?: string
+          searched_by_user_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_discovery_venue_candidates_discovery_venue_id_fkey"
+            columns: ["discovery_venue_id"]
+            isOneToOne: false
+            referencedRelation: "discovery_venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_discovery_venue_candidates_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_discovery_venue_candidates_searched_by_user_id_fkey"
+            columns: ["searched_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]

@@ -40,6 +40,7 @@ export type GmailOutreachTarget = {
   name: string
   email: string
   kind?: 'venue' | 'vendor'
+  discoveryVenueId?: string | null
 }
 
 export type GmailApprovalState = {
@@ -124,6 +125,8 @@ export async function createOrReuseGmailOutreachApproval(
     targets: GmailOutreachTarget[]
     subject: string
     bodyText: string
+    planId?: string | null
+    reuseExisting?: boolean
   }
 ) {
   const account = await loadActiveGmailAccount(db, input.userId)
@@ -132,14 +135,19 @@ export async function createOrReuseGmailOutreachApproval(
   const targets = normalizeTargets(input.targets)
   const subject = input.subject.trim()
   const bodyText = input.bodyText.trim()
-  const plan = await getOrCreateGmailApprovalPlan(db, input.userId)
+  const plan = input.planId
+    ? await loadPlanForGmailApproval(db, input.planId, input.userId)
+    : await getOrCreateGmailApprovalPlan(db, input.userId)
+  if (!plan) throw new Error('Plan not found')
   const actionPayload = buildActionPayload({
     targets,
     subject,
     bodyText,
     senderEmail: account.email_address,
   })
-  const existing = await loadReusableApprovalBundle(db, plan.id)
+  const existing = input.planId || input.reuseExisting === false
+    ? null
+    : await loadReusableApprovalBundle(db, plan.id)
 
   if (existing) {
     const { approval, action, messageId } = existing
@@ -486,7 +494,8 @@ function buildApprovalMessageMetadata(
     : previewTemplate
   return {
     kind: GMAIL_APPROVED_OUTREACH_KIND,
-    venue_ids: [],
+    venue_ids: targets.map((target) => target.discoveryVenueId).filter(Boolean),
+    discovery_venue_ids: targets.map((target) => target.discoveryVenueId).filter(Boolean),
     projected_costs_cents: 0,
     requires_user_action: true,
     summary: `Approved Gmail send for ${plan.title}`,
@@ -497,6 +506,7 @@ function buildApprovalMessageMetadata(
       kind: target.kind ?? 'venue',
       name: target.name,
       email: target.email,
+      discovery_venue_id: target.discoveryVenueId ?? null,
     })),
     comparison_goal: readString(payload.comparison_goal),
     invites: targets.map((target) => ({
@@ -505,6 +515,7 @@ function buildApprovalMessageMetadata(
         target_type: target.kind ?? 'venue',
         target_name: target.name,
         target_email: target.email,
+        discovery_venue_id: target.discoveryVenueId ?? null,
       },
     })),
     opportunity: {
@@ -577,6 +588,18 @@ async function loadLatestGmailApprovalPlan(db: PlannerDb, userId: string): Promi
   if (error) throw new Error(error.message)
   const rows = Array.isArray(data) ? data as Plan[] : []
   return rows.find((plan) => readRecord(plan.metadata)?.gmail_approval_flow === true) ?? null
+}
+
+async function loadPlanForGmailApproval(db: PlannerDb, planId: string, userId: string): Promise<Plan | null> {
+  const { data, error } = await db
+    .from('plans')
+    .select(PLAN_SELECT_COLUMNS)
+    .eq('id', planId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return (data as Plan | null) ?? null
 }
 
 async function loadReusableApprovalBundle(
@@ -737,6 +760,7 @@ async function insertOutreachThread(
       target_name: input.target.name,
       target_type: input.target.kind ?? 'venue',
       target_source: GMAIL_APPROVAL_DEMO_TARGET_SOURCE,
+      discovery_venue_id: input.target.discoveryVenueId ?? null,
       target_email: input.target.email,
       channel: 'email',
       channel_strategy: {
@@ -886,6 +910,7 @@ function normalizeTargets(targets: GmailOutreachTarget[]) {
       name: target.name.trim(),
       email: target.email.trim().toLowerCase(),
       kind: target.kind === 'vendor' ? 'vendor' as const : 'venue' as const,
+      discoveryVenueId: readUuid(target.discoveryVenueId),
     }))
     .filter((target) => target.name && isValidEmail(target.email))
 
@@ -903,7 +928,8 @@ function readTargets(payload: Record<string, unknown> | null): GmailOutreachTarg
     const name = readString(record.name)
     const email = readString(record.email)
     const kind = readString(record.kind) === 'vendor' ? 'vendor' : 'venue'
-    return name && email ? [{ name, email, kind }] : []
+    const discoveryVenueId = readUuid(record.discoveryVenueId ?? record.discovery_venue_id)
+    return name && email ? [{ name, email, kind, discoveryVenueId }] : []
   })
 }
 
@@ -930,6 +956,13 @@ function extractEmail(value: string | null) {
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+function readUuid(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : null
 }
 
 function countTargetsByKind(targets: GmailOutreachTarget[], kind: 'venue' | 'vendor') {
