@@ -19,6 +19,7 @@ export interface VendorDiscoveryService {
 }
 
 export interface VendorDiscoveryResult extends Vendor {
+  per_head_chi_cents: number | null
   rating: number
   review_count: number
   total_bookings: number
@@ -122,6 +123,7 @@ export function buildVendorDiscoveryResult(
   availableOnDate?: boolean
 ): VendorDiscoveryResult {
   const vendor = normalizeVendorProfile(row)
+  const perHeadChiCents = Number(row.per_head_chi_cents ?? row.per_head_kickback ?? vendor.per_head_kickback ?? 0) || null
   const prices = [
     ...services.map((service) => service.base_price).filter((price) => price > 0),
     Number(row.base_rate || 0),
@@ -130,6 +132,8 @@ export function buildVendorDiscoveryResult(
 
   return {
     ...vendor,
+    per_head_chi_cents: perHeadChiCents,
+    per_head_kickback: vendor.per_head_kickback ?? perHeadChiCents,
     rating: Number(row.average_rating ?? row.rating ?? 0),
     review_count: Number(row.review_count ?? 0),
     total_bookings: Number(row.total_bookings ?? row.total_gigs ?? 0),

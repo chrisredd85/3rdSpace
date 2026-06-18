@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { jsonWithDeprecatedKeys } from '@/lib/api/legacy-key-compat'
 import { createClient } from '@/lib/supabase/server'
 import {
   buildVendorDiscoveryResult,
@@ -115,8 +116,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     ]
     const detail = stripContactEmail(buildVendorDiscoveryResult(vendor as Record<string, any>, services))
 
-    return NextResponse.json(
+    return jsonWithDeprecatedKeys(
       { vendor: detail },
+      ['per_head_kickback'],
       { headers: MARKETPLACE_CACHE_HEADERS }
     )
   } catch (error) {

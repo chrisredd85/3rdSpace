@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
+import { jsonWithDeprecatedKeys } from '@/lib/api/legacy-key-compat'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getAuthenticatedBuilderPayoutOwner } from '@/lib/stripe/connect'
 import { readCents } from '@/lib/money'
@@ -141,10 +142,27 @@ export async function GET() {
         event_date: event?.event_date ?? plan?.date_window_start ?? null,
         venue_name: venue?.venue_name ?? 'Venue',
         actual_attendance: agreement?.actual_attendance ?? null,
+        actual_chi_amount: agreement?.actual_chi_amount ?? agreement?.actual_kickback_amount ?? null,
+        actual_kickback_amount: agreement?.actual_kickback_amount ?? agreement?.actual_chi_amount ?? null,
         per_head_amount: agreement?.per_head_amount ?? null,
         minimum_attendees: agreement?.minimum_attendees ?? null,
         maximum_payout: agreement?.maximum_payout ?? null,
         reported_revenue_cents: agreement?.reported_revenue_cents ?? null,
+        bar_consumption_share_percent:
+          agreement?.bar_consumption_share_percent ??
+          agreement?.bar_revenue_share_percent ??
+          null,
+        ticket_consumption_share_percent:
+          agreement?.ticket_consumption_share_percent ??
+          agreement?.ticket_revenue_share_percent ??
+          null,
+        consumption_share_percent:
+          agreement?.bar_consumption_share_percent ??
+          agreement?.bar_revenue_share_percent ??
+          agreement?.ticket_consumption_share_percent ??
+          agreement?.ticket_revenue_share_percent ??
+          agreement?.lift_share_percentage ??
+          null,
         revenue_share_percent:
           agreement?.bar_revenue_share_percent ??
           agreement?.ticket_revenue_share_percent ??
@@ -154,17 +172,25 @@ export async function GET() {
       }
     })
 
-    return NextResponse.json({
-      account: account || null,
-      summary: {
-        pending: sumByStatus(payments, ['pending', 'processing', 'pending_venue_approval', 'invoice_sent', 'refund_requested', 'refund_approved', 'refund_processing']),
-        completed: sumByStatus(payments, ['completed', 'paid', 'refunded_partial', 'refunded_full']),
-        failed: sumByStatus(payments, ['failed']),
-        refunded: sumByStatus(payments, ['refunded', 'refunded_partial', 'refunded_full']),
-        count: payments.length,
+    return jsonWithDeprecatedKeys(
+      {
+        account: account || null,
+        summary: {
+          pending: sumByStatus(payments, ['pending', 'processing', 'pending_venue_approval', 'invoice_sent', 'refund_requested', 'refund_approved', 'refund_processing']),
+          completed: sumByStatus(payments, ['completed', 'paid', 'refunded_partial', 'refunded_full']),
+          failed: sumByStatus(payments, ['failed']),
+          refunded: sumByStatus(payments, ['refunded', 'refunded_partial', 'refunded_full']),
+          count: payments.length,
+        },
+        payments: enrichedPayments,
       },
-      payments: enrichedPayments,
-    })
+      [
+        'actual_kickback_amount',
+        'bar_revenue_share_percent',
+        'ticket_revenue_share_percent',
+        'revenue_share_percent',
+      ]
+    )
   } catch (error) {
     console.error('[builder.payouts.summary] Failed to load payout summary', error)
     return NextResponse.json(

@@ -23,7 +23,27 @@ describe('venue adapter money units', () => {
 
     expect(legacy.hourly_rate).toBe(35000)
     expect(legacy.per_head_kickback_amount).toBe(300)
+    expect(legacy.per_head_chi_cents).toBe(300)
     expect(legacy.deposit_amount).toBe(50000)
+  })
+
+  it('returns CHI aliases alongside legacy commercial terms', () => {
+    const venue = normalizeVenue({
+      id: 'venue-chi',
+      venue_name: 'CHI Hall',
+      bar_revenue_share_percent: 10,
+      bar_revenue_share_enabled: true,
+      ticket_sales_share_percent: 8,
+      per_head_kickback_cents: 250,
+    })
+
+    expect(venue).toEqual(expect.objectContaining({
+      bar_consumption_share_enabled: true,
+      bar_consumption_share_percent: 10,
+      ticket_consumption_share_percent: 8,
+      per_head_chi_cents: 250,
+      per_head_kickback_cents: 250,
+    }))
   })
 
   it('writes canonical cents columns for venue money updates', () => {

@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
+import { jsonWithDeprecatedKeys } from '@/lib/api/legacy-key-compat'
 import { createClient } from '@/lib/supabase/server'
 import {
   buildVendorDiscoveryResult,
@@ -78,8 +79,9 @@ export async function GET(request: NextRequest) {
 
     const vendorIds = ((vendorRows as Record<string, any>[] | null) || []).map((vendor) => vendor.id)
     if (vendorIds.length === 0) {
-      return NextResponse.json(
+      return jsonWithDeprecatedKeys(
         { vendors: [], count: 0 },
+        ['per_head_kickback'],
         { headers: MARKETPLACE_CACHE_HEADERS }
       )
     }
@@ -122,8 +124,9 @@ export async function GET(request: NextRequest) {
       'rating'
     ).map(stripContactEmail)
 
-    return NextResponse.json(
+    return jsonWithDeprecatedKeys(
       { vendors, count: vendors.length },
+      ['per_head_kickback'],
       { headers: MARKETPLACE_CACHE_HEADERS }
     )
   } catch (error) {

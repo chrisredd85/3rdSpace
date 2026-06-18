@@ -147,6 +147,12 @@ export function normalizeVenue(row: VenueRow): Venue {
     ticket_sales_share_enabled: row.ticket_sales_share_enabled ?? false,
     ticket_sales_share_percent:
       row.ticket_sales_share_percent ?? row.ticket_sales_share_pct ?? 0,
+    ticket_consumption_share_percent:
+      row.ticket_consumption_share_percent ?? row.ticket_sales_share_percent ?? row.ticket_sales_share_pct ?? 0,
+    bar_consumption_share_enabled:
+      row.bar_consumption_share_enabled ?? row.bar_revenue_share_enabled ?? row.bar_rev_share_enabled ?? false,
+    bar_consumption_share_percent:
+      row.bar_consumption_share_percent ?? row.bar_revenue_share_percent ?? row.bar_rev_share_pct ?? row.bar_revenue_percentage ?? 0,
     bar_revenue_share_enabled:
       row.bar_revenue_share_enabled ?? row.bar_rev_share_enabled ?? false,
     bar_revenue_share_percent:
@@ -154,6 +160,7 @@ export function normalizeVenue(row: VenueRow): Venue {
     per_head_kickback_amount:
       perHeadKickbackCents,
     per_head_kickback_cents: perHeadKickbackCents,
+    per_head_chi_cents: perHeadKickbackCents,
     bulk_approval_enabled: row.bulk_approval_enabled ?? false,
     auto_approve_threshold: row.auto_approve_threshold ?? null,
     auto_approve_conditions: row.auto_approve_conditions ?? null,

@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { jsonWithDeprecatedKeys } from '@/lib/api/legacy-key-compat'
 import { resolveArchetypeKey } from '@/lib/planner/archetypes'
 import { PLAN_SELECT_COLUMNS, RECOMMENDATION_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import { summarizeBuilderAttendance } from '@/lib/server/builderAttendanceHistory'
@@ -87,7 +88,10 @@ export async function GET() {
       return NextResponse.json({ error: 'Failed to load templates' }, { status: 500 })
     }
 
-    return NextResponse.json({ templates: (data ?? []).map(normalizeTemplateRow) })
+    return jsonWithDeprecatedKeys(
+      { templates: (data ?? []).map(normalizeTemplateRow) },
+      ['kickback_model']
+    )
   } catch (error) {
     console.error('[agent.run] Planner templates GET unexpected error', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
@@ -179,7 +183,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to save template' }, { status: 500 })
     }
 
-    return NextResponse.json({ template: normalizeTemplateRow(template as TemplateRow) }, { status: 201 })
+    return jsonWithDeprecatedKeys(
+      { template: normalizeTemplateRow(template as TemplateRow) },
+      ['kickback_model'],
+      { status: 201 }
+    )
   } catch (error) {
     console.error('[planner.templates] POST unexpected error', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
@@ -199,6 +207,7 @@ function normalizeTemplateRow(row: TemplateRow): PlannerTemplate {
       budget_model: row.budget_model,
       ticket_price_model: row.ticket_price_model,
       profit_assumptions: row.profit_assumptions,
+      chi_model: row.kickback_model,
       kickback_model: row.kickback_model,
       run_of_show: row.run_of_show,
       shopping_list: row.shopping_list,

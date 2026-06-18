@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
+import { jsonWithDeprecatedKeys } from '@/lib/api/legacy-key-compat'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { dollarsToCents } from '@/lib/money'
 import { getVenueComplianceStatus } from '@/lib/planner/venueComplianceGate'
@@ -156,13 +157,20 @@ export async function GET(request: NextRequest) {
       })
       .map(stripContactEmail)
 
-    return NextResponse.json(
+    return jsonWithDeprecatedKeys(
       {
         venues: publicVenues,
         page,
         pageSize,
         hasMore: (venues || []).length === pageSize,
       },
+      [
+        'bar_rev_share_enabled',
+        'bar_rev_share_pct',
+        'sponsor_rev_share_enabled',
+        'sponsor_rev_share_pct',
+        'per_head_kickback_cents',
+      ],
       {
         headers: {
           'Cache-Control': plannerCatalog

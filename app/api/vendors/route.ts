@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
+import { jsonWithDeprecatedKeys } from '@/lib/api/legacy-key-compat'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { normalizeVendorProfile } from '@/lib/vendors/profile-adapter'
 import { flattenTieredVendorRecommendations, getTieredVendorRecommendations } from '@/lib/vendors/relationshipRecommendations'
@@ -84,7 +85,7 @@ export async function GET(request: NextRequest) {
         const tiers = await getTieredVendorRecommendations(createServiceRoleClient() as any, user.id, {
           serviceType,
         })
-        return NextResponse.json(
+        return jsonWithDeprecatedKeys(
           {
             vendors: flattenTieredVendorRecommendations(tiers).map(stripContactEmail),
             vendor_tiers: {
@@ -93,6 +94,7 @@ export async function GET(request: NextRequest) {
               catalog: tiers.catalog.map(stripContactEmail),
             },
           },
+          ['per_head_kickback'],
           {
             headers: {
               'Cache-Control': plannerCatalog
@@ -141,10 +143,11 @@ export async function GET(request: NextRequest) {
       // For now, we'll just return all vendors and let the client filter
     }
 
-    return NextResponse.json(
+    return jsonWithDeprecatedKeys(
       {
         vendors: filteredVendors,
       },
+      ['per_head_kickback'],
       {
         headers: {
           'Cache-Control': plannerCatalog
