@@ -14,12 +14,13 @@ export interface PlannerPaymentIntentRow {
   partner_id: string
   amount_cents: number
   currency: string
-  status: 'requested' | 'authorized' | 'captured' | 'refunded' | 'failed' | 'blocked_by_account_state'
+  status: 'pending' | 'requested' | 'authorized' | 'captured' | 'refunded' | 'failed' | 'blocked_by_account_state'
   stripe_payment_intent_id: string | null
   authorized_at: string | null
   captured_at: string | null
   refund_terms: string
   platform_fee_cents: number
+  failure_reason: string | null
   created_at: string
   updated_at: string
 }
@@ -38,16 +39,19 @@ export const PAYMENT_INTENT_SELECT_COLUMNS = `
   captured_at,
   refund_terms,
   platform_fee_cents,
+  failure_reason,
   created_at,
   updated_at
 `
 
+const ACTIVE_PAYMENT_INTENT_STATUSES = ['pending', 'requested', 'authorized', 'captured'] as const
+
 /**
  * Creates or returns a planner deposit payment authorization record.
  *
- * Creates an approval-backed authorization record. When the caller supplies a
- * payment method, Stripe receives a manual-capture PaymentIntent; otherwise the
- * local record remains requested until the explicit payment step supplies one.
+ * Reserves an approval-backed authorization row before calling Stripe. That
+ * makes the database, not Stripe, the first concurrency gate for same-approval
+ * authorization races.
  */
 export async function authorizePlannerDeposit(input: {
   db: PlannerDb
@@ -70,44 +74,54 @@ export async function authorizePlannerDeposit(input: {
   if (existing) return returnExistingActivePaymentIntentOrThrow(existing, amountCents)
 
   const platformFeeCents = assertIntegerCents(input.platformFeeCents ?? 0, 'platformFeeCents')
-  const stripePaymentIntent = await maybeCreateStripeManualPaymentIntent({
+
+  const reservation = await reservePlannerPaymentIntent({
+    db: input.db,
     plan: input.plan,
     approval: input.approval,
-    userId: input.userId,
+    amountCents,
     partnerKind: input.partnerKind,
     partnerId: input.partnerId,
-    amountCents,
-    paymentMethodId: input.paymentMethodId ?? null,
+    refundTerms: input.refundTerms ?? null,
     platformFeeCents,
   })
+  if (!reservation.wonReservation) return reservation.row
+
+  const reserved = reservation.row
+
+  let stripePaymentIntent: { id: string | null; status: string }
+  try {
+    stripePaymentIntent = await maybeCreateStripeManualPaymentIntent({
+      plan: input.plan,
+      approval: input.approval,
+      plannerPaymentIntentId: reserved.id,
+      userId: input.userId,
+      partnerKind: input.partnerKind,
+      partnerId: input.partnerId,
+      amountCents,
+      paymentMethodId: input.paymentMethodId ?? null,
+      platformFeeCents,
+    })
+  } catch (error) {
+    await markReservedPaymentIntentFailed(input.db, reserved.id, getErrorMessage(error))
+    throw error
+  }
 
   const now = new Date().toISOString()
   const status = stripePaymentIntent.status === 'requires_capture' ? 'authorized' : 'requested'
   const { data, error } = await input.db
     .from('payment_intents')
-    .insert({
-      plan_id: input.plan.id,
-      approval_id: input.approval.id,
-      partner_kind: input.partnerKind,
-      partner_id: input.partnerId,
-      amount_cents: amountCents,
-      currency: 'usd',
+    .update({
       status,
       stripe_payment_intent_id: stripePaymentIntent.id,
       authorized_at: status === 'authorized' ? now : null,
-      refund_terms: input.refundTerms ?? 'Refundable up to 7 days before the event unless partner terms override.',
-      platform_fee_cents: platformFeeCents,
+      failure_reason: null,
     })
+    .eq('id', reserved.id)
     .select(PAYMENT_INTENT_SELECT_COLUMNS)
     .single()
 
-  if (error || !data) {
-    if (isUniqueViolation(error)) {
-      const winner = await loadExistingActivePaymentIntent(input.db, input.approval.id)
-      if (winner) return returnExistingActivePaymentIntentOrThrow(winner, amountCents)
-    }
-    throw new Error(error?.message ?? 'Failed to create planner deposit')
-  }
+  if (error || !data) throw new Error(error?.message ?? 'Failed to create planner deposit')
   return data as PlannerPaymentIntentRow
 }
 
@@ -217,7 +231,7 @@ async function loadExistingActivePaymentIntent(db: PlannerDb, approvalId: string
     .from('payment_intents')
     .select(PAYMENT_INTENT_SELECT_COLUMNS)
     .eq('approval_id', approvalId)
-    .in('status', ['requested', 'authorized', 'captured'])
+    .in('status', [...ACTIVE_PAYMENT_INTENT_STATUSES])
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -242,6 +256,63 @@ function returnExistingActivePaymentIntentOrThrow(
   return existing
 }
 
+async function reservePlannerPaymentIntent(input: {
+  db: PlannerDb
+  plan: Plan
+  approval: Approval
+  amountCents: number
+  partnerKind: 'venue' | 'vendor'
+  partnerId: string
+  refundTerms: string | null
+  platformFeeCents: number
+}): Promise<{ row: PlannerPaymentIntentRow; wonReservation: boolean }> {
+  const { data, error } = await input.db
+    .from('payment_intents')
+    .insert({
+      plan_id: input.plan.id,
+      approval_id: input.approval.id,
+      partner_kind: input.partnerKind,
+      partner_id: input.partnerId,
+      amount_cents: input.amountCents,
+      currency: 'usd',
+      status: 'pending',
+      stripe_payment_intent_id: null,
+      authorized_at: null,
+      refund_terms: input.refundTerms ?? 'Refundable up to 7 days before the event unless partner terms override.',
+      platform_fee_cents: input.platformFeeCents,
+      failure_reason: null,
+    })
+    .select(PAYMENT_INTENT_SELECT_COLUMNS)
+    .single()
+
+  if (error || !data) {
+    if (isUniqueViolation(error)) {
+      const winner = await loadExistingActivePaymentIntent(input.db, input.approval.id)
+      if (winner) {
+        return {
+          row: returnExistingActivePaymentIntentOrThrow(winner, input.amountCents),
+          wonReservation: false,
+        }
+      }
+    }
+    throw new Error(error?.message ?? 'Failed to reserve planner deposit')
+  }
+
+  return { row: data as PlannerPaymentIntentRow, wonReservation: true }
+}
+
+async function markReservedPaymentIntentFailed(db: PlannerDb, paymentIntentId: string, reason: string) {
+  await db
+    .from('payment_intents')
+    .update({
+      status: 'failed',
+      failure_reason: reason,
+    })
+    .eq('id', paymentIntentId)
+    .select(PAYMENT_INTENT_SELECT_COLUMNS)
+    .single()
+}
+
 function formatCentsForError(cents: number) {
   return (cents / 100).toFixed(2)
 }
@@ -264,6 +335,7 @@ function isUniqueViolation(error: unknown) {
 async function maybeCreateStripeManualPaymentIntent(input: {
   plan: Plan
   approval: Approval
+  plannerPaymentIntentId: string
   userId: string
   partnerKind: 'venue' | 'vendor'
   partnerId: string
@@ -286,6 +358,7 @@ async function maybeCreateStripeManualPaymentIntent(input: {
       automatic_payment_methods: { enabled: true },
       metadata: {
         payment_kind: 'planner_deposit',
+        planner_payment_intent_id: input.plannerPaymentIntentId,
         plan_id: input.plan.id,
         approval_id: input.approval.id,
         user_id: input.userId,
@@ -298,4 +371,8 @@ async function maybeCreateStripeManualPaymentIntent(input: {
       idempotencyKey: `planner_deposit_${input.approval.id}_${input.amountCents}`,
     }
   )
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Stripe payment authorization failed'
 }
