@@ -1,0 +1,17 @@
+
+> 3rdspace-webapp@0.1.0 test
+> jest __tests__/integration/capture-reconciler.test.ts
+
+(node:79061) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS __tests__/integration/capture-reconciler.test.ts
+  capture reconciler route
+    ✓ rejects unauthorized callers before loading service-role Supabase (3 ms)
+    ✓ inserts a missing payout for captured planner deposits and logs Sentry evidence (5 ms)
+    ✓ logs Sentry exceptions for payout insert errors and keeps reconciling response safe (3 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       3 passed, 3 total
+Snapshots:   0 total
+Time:        0.916 s
+Ran all test suites matching /__tests__\/integration\/capture-reconciler.test.ts/i.

@@ -1,0 +1,22 @@
+
+> 3rdspace-webapp@0.1.0 test
+> jest __tests__/integration/vendor-payment-end-to-end.test.ts -t authorization requests race
+
+(node:79048) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS __tests__/integration/vendor-payment-end-to-end.test.ts
+  vendor payment approval to payout chain
+    ✓ returns one active vendor payment intent when authorization requests race (11 ms)
+    ○ skipped runs the happy path from approval to vendor payout without bypassing explicit payment steps
+    ○ skipped allows only one concurrent approval PATCH to consume access and unlock payment authorization
+    ○ skipped blocks capture when the approval has not been authorized
+    ○ skipped rejects capture without explicit confirmation before loading or mutating payment state
+    ○ skipped reconciles a captured vendor deposit with no payout row
+    ○ skipped does not persist a payment intent or transition the action when Stripe authorization fails
+    ○ skipped rejecting the approval cancels the action and leaves the money chain empty
+
+Test Suites: 1 passed, 1 total
+Tests:       7 skipped, 1 passed, 8 total
+Snapshots:   0 total
+Time:        1.108 s
+Ran all test suites matching /__tests__\/integration\/vendor-payment-end-to-end.test.ts/i with tests matching "authorization requests race".
