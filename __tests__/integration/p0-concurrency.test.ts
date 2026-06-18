@@ -3,6 +3,7 @@ jest.mock('server-only', () => ({}))
 import type { NextRequest } from 'next/server'
 import { PATCH as updateApproval } from '@/app/api/planner/plans/[planId]/approvals/route'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import * as Sentry from '@sentry/nextjs'
 
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
@@ -30,6 +31,7 @@ jest.mock('next/server', () => ({
 
 const mockCreateClient = createClient as jest.Mock
 const mockCreateServiceRoleClient = createServiceRoleClient as jest.Mock
+const mockCaptureMessage = Sentry.captureMessage as jest.Mock
 
 const USER_ID = '550e8400-e29b-41d4-a716-446655440000'
 const PLAN_ID = '550e8400-e29b-41d4-a716-446655440001'
@@ -54,6 +56,7 @@ class MemoryDb {
     builder_event_usage: [],
     builder_event_access_consumptions: [],
   }
+  failApprovalRollback = false
 
   private sequence = 0
 
@@ -131,6 +134,7 @@ class MemoryQuery {
 
   async maybeSingle() {
     const result = await this.execute()
+    if (result.error) return { data: null, error: result.error }
     const row = Array.isArray(result.data) ? result.data[0] : result.data
     return { data: row ?? null, error: null }
   }
@@ -177,10 +181,20 @@ class MemoryQuery {
     }
 
     if (this.operation === 'update') {
+      const payload = this.payload as Row
+      if (
+        this.table === 'approvals' &&
+        this.db.failApprovalRollback &&
+        payload.status === 'pending' &&
+        payload.authorized_by === null
+      ) {
+        return { data: null, error: { message: 'rollback update failed' } }
+      }
+
       const updated: Row[] = []
       this.db.rows[this.table] = this.db.rows[this.table].map((row) => {
         if (!this.matches(row)) return row
-        const next = { ...row, ...(this.payload as Row), updated_at: new Date().toISOString() }
+        const next = { ...row, ...payload, updated_at: new Date().toISOString() }
         updated.push(next)
         return next
       })
@@ -378,5 +392,84 @@ describe('P0 approval concurrency hardening', () => {
       'approval.execution_started',
       'approval.outreach_drafts_prepared',
     ])
+  })
+
+  it('rolls back approval status and skips execution when billing access fails after optimistic update', async () => {
+    const db = seedDb()
+    db.rows.builder_profiles[0].free_events_used = 2
+
+    const response = await updateApproval(
+      request(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        action: 'authorize',
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+    const body = await readJson(response)
+
+    expect(response.status).toBe(402)
+    expect(body).toEqual(expect.objectContaining({
+      error: 'Choose pay-per-event or Pro to approve outreach.',
+      billingRequired: true,
+    }))
+    expect(db.rows.approvals[0]).toEqual(expect.objectContaining({
+      status: 'pending',
+      authorized_by: null,
+      authorized_at: null,
+      authorized_amount_cents: null,
+      approved_by: null,
+      approved_at: null,
+    }))
+    expect(db.rows.builder_event_access_consumptions).toHaveLength(0)
+    expect(db.rows.venue_opportunity_briefs).toHaveLength(0)
+    expect(db.rows.venue_opportunity_invites).toHaveLength(0)
+    expect(db.rows.agent_actions[0]).toEqual(expect.objectContaining({
+      status: 'pending',
+      result_metadata: expect.objectContaining({
+        approval_access_gate_rollback: expect.objectContaining({
+          action: 'approval_access_gate_rollback',
+          approval_original_status: 'pending',
+          approval_attempted_status: 'authorized',
+        }),
+      }),
+    }))
+    expect(db.rows.agent_action_audit_log).toHaveLength(0)
+  })
+
+  it('logs Sentry when rollback itself fails and still returns the billing access error', async () => {
+    const db = seedDb()
+    db.rows.builder_profiles[0].free_events_used = 2
+    db.failApprovalRollback = true
+
+    const response = await updateApproval(
+      request(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        action: 'authorize',
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+    const body = await readJson(response)
+
+    expect(response.status).toBe(402)
+    expect(body).toEqual(expect.objectContaining({
+      error: 'Choose pay-per-event or Pro to approve outreach.',
+      billingRequired: true,
+    }))
+    expect(db.rows.approvals[0].status).toBe('authorized')
+    expect(db.rows.builder_event_access_consumptions).toHaveLength(0)
+    expect(db.rows.venue_opportunity_briefs).toHaveLength(0)
+    expect(db.rows.venue_opportunity_invites).toHaveLength(0)
+    expect(db.rows.agent_action_audit_log).toHaveLength(0)
+    expect(mockCaptureMessage).toHaveBeenCalledWith('approval_rollback_failed', expect.objectContaining({
+      level: 'error',
+      tags: expect.objectContaining({
+        action: 'approval_rollback_failed',
+        plan_id: PLAN_ID,
+        approval_id: APPROVAL_ID,
+        original_status: 'pending',
+        attempted_status: 'authorized',
+      }),
+      extra: { error: 'rollback update failed' },
+    }))
   })
 })
