@@ -64,6 +64,8 @@ class MemoryDb {
     plan_messages: [],
     venue_opportunity_briefs: [],
     venue_opportunity_invites: [],
+    vendor_opportunity_briefs: [],
+    vendor_opportunity_invites: [],
     venues: [],
     vendor_profiles: [],
     builder_profiles: [],
@@ -417,6 +419,86 @@ describe('MVP launch API contracts', () => {
         }),
       }),
     ]))
+  })
+
+  it('PATCH planner approvals prepares one mixed venue and vendor outreach batch', async () => {
+    db.rows.venues.push(
+      { id: VENUE_ID_1, venue_name: 'Foundry Rooftop', city: 'San Francisco', state: 'CA', standing_capacity: 160, is_claimed: true },
+      { id: VENUE_ID_2, venue_name: 'Mission Social Hall', city: 'San Francisco', state: 'CA', standing_capacity: 120, is_claimed: true }
+    )
+    db.rows.vendor_profiles.push({
+      id: VENDOR_ID,
+      name: 'Mission Photo Co.',
+      vendor_type: 'photography',
+      service_type: 'photo',
+      is_claimed: true,
+      is_admin_seeded: false,
+    })
+    db.rows.agent_actions.push({
+      id: ACTION_ID,
+      plan_id: PLAN_ID,
+      action_type: 'email',
+      payload_json: {
+        kind: 'venue_outreach',
+        venue_ids: [VENUE_ID_1, VENUE_ID_2],
+        vendor_ids: [VENDOR_ID],
+        partner_targets: [
+          { kind: 'venue', id: VENUE_ID_1, name: 'Foundry Rooftop' },
+          { kind: 'venue', id: VENUE_ID_2, name: 'Mission Social Hall' },
+          { kind: 'vendor', id: VENDOR_ID, name: 'Mission Photo Co.' },
+        ],
+        comparison_goal: 'Collect availability, fit, pricing, and next steps.',
+        summary: 'MVP launch mixer with venue and vendor comparison requirements.',
+        requirements: { must_haves: ['AV', 'photo'] },
+        response_deadline: '2026-08-10T00:00:00.000Z',
+      },
+      result_metadata: {
+        action_type_fallback: 'opportunity_send_venues',
+      },
+      status: 'pending',
+    })
+    db.rows.approvals.push({
+      id: APPROVAL_ID,
+      plan_id: PLAN_ID,
+      agent_action_id: ACTION_ID,
+      action_label: 'Approve outreach to 2 venues, 1 vendor',
+      status: 'pending',
+      price_cents: 0,
+    })
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        action: 'approve',
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(response.status).toBe(200)
+    expect(db.rows.agent_actions[0].status).toBe('complete')
+    expect(db.rows.agent_actions[0].result_metadata).toEqual(expect.objectContaining({
+      outbound_message_sent: false,
+      send_requires_explicit_flow: true,
+      venue_invite_count: 2,
+      vendor_invite_count: 1,
+    }))
+    expect(db.rows.agent_actions[0].payload_json).toEqual(expect.objectContaining({
+      opportunity_brief_id: expect.any(String),
+      vendor_opportunity_brief_id: expect.any(String),
+      invite_ids: expect.arrayContaining([expect.any(String)]),
+      vendor_invite_ids: expect.arrayContaining([expect.any(String)]),
+      queued_invite_count: 2,
+      queued_vendor_invite_count: 1,
+      partner_targets: expect.arrayContaining([
+        expect.objectContaining({ kind: 'venue', name: 'Foundry Rooftop' }),
+        expect.objectContaining({ kind: 'vendor', name: 'Mission Photo Co.' }),
+      ]),
+    }))
+    expect(db.rows.venue_opportunity_briefs).toHaveLength(1)
+    expect(db.rows.venue_opportunity_invites).toHaveLength(2)
+    expect(db.rows.vendor_opportunity_briefs).toHaveLength(1)
+    expect(db.rows.vendor_opportunity_invites).toHaveLength(1)
+    expect(mockEnqueueOpportunityInviteSendJobs).not.toHaveBeenCalled()
   })
 
   it('PATCH planner approvals requires re-approval when approval-sensitive fields changed', async () => {

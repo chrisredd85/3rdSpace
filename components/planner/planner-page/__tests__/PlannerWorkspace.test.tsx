@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PlannerWorkspace } from '@/components/planner/planner-page/PlannerWorkspace'
+import { readApprovalPartnerTargets } from '@/components/planner/planner-page/PlannerConversation'
 import { shouldStartNewPlanFromReply } from '@/components/planner/planner-page/plannerState'
 import { ToastProvider } from '@/components/ui/toast'
 import type { Plan } from '@/lib/types'
@@ -177,6 +178,30 @@ describe('PlannerWorkspace desktop draft handoff', () => {
     expect(shouldStartNewPlanFromReply('new chat', makePlan())).toBe(true)
     expect(shouldStartNewPlanFromReply('fresh conversation please', makePlan())).toBe(true)
     expect(shouldStartNewPlanFromReply('start over with a clean workspace', makePlan())).toBe(true)
+  })
+})
+
+describe('planner outreach batch approval metadata', () => {
+  it('reads mixed venue and vendor targets for approval cards', () => {
+    expect(readApprovalPartnerTargets({
+      partner_targets: [
+        { kind: 'venue', name: 'Foundry Rooftop', email: 'events@foundry.example' },
+        { kind: 'vendor', name: 'Mission Photo Co.', email: 'photo@example.com' },
+      ],
+    })).toEqual([
+      { kind: 'venue', name: 'Foundry Rooftop', email: 'events@foundry.example' },
+      { kind: 'vendor', name: 'Mission Photo Co.', email: 'photo@example.com' },
+    ])
+
+    expect(readApprovalPartnerTargets({
+      invites: [
+        { venue_response_json: { target_type: 'venue', target_name: 'Stable Cafe' } },
+        { venue_response_json: { target_type: 'vendor', target_name: 'Mission Photo Co.' } },
+      ],
+    })).toEqual([
+      { kind: 'venue', name: 'Stable Cafe', email: undefined },
+      { kind: 'vendor', name: 'Mission Photo Co.', email: undefined },
+    ])
   })
 })
 

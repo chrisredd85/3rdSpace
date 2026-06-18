@@ -19,12 +19,13 @@ import { createClient } from '@/lib/supabase/server'
 type PlannerDb = { from: (table: string) => any }
 
 const targetSchema = z.object({
+  kind: z.enum(['venue', 'vendor']).default('venue'),
   name: z.string().trim().min(1).max(120),
   email: z.string().trim().email().max(254),
 })
 
 const createApprovalSchema = z.object({
-  targets: z.array(targetSchema).min(1).max(3),
+  targets: z.array(targetSchema).min(1).max(6),
   subject: z.string().trim().min(3).max(180),
   bodyText: z.string().trim().min(20).max(4000),
 })

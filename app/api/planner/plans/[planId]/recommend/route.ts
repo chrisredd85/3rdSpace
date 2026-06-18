@@ -141,6 +141,12 @@ type SuggestedVendorRecommendation = {
   cons: string[]
 }
 
+type OutreachDisplayTarget = {
+  kind: 'venue' | 'vendor'
+  id: string
+  name: string
+}
+
 type VendorRecommendationGroup = {
   service_type: string
   necessity: VendorStackItem['necessity']
@@ -551,6 +557,16 @@ export async function POST(
           userId: auth.userId,
           venueIds: venueMatch.venueResult.output.ranked_venues.slice(0, 3).map((venue) => venue.venue_id),
           vendorIds: suggestedVendors.slice(0, 3).map((vendor) => vendor.vendor_id),
+          venueTargets: venueMatch.venueResult.output.ranked_venues.slice(0, 3).map((venue) => ({
+            kind: 'venue',
+            id: venue.venue_id,
+            name: venue.venue_name,
+          })),
+          vendorTargets: suggestedVendors.slice(0, 3).map((vendor) => ({
+            kind: 'vendor',
+            id: vendor.vendor_id,
+            name: vendor.name,
+          })),
           projectedCostsCents: venueCostCents + vendorCostCents,
           summary: buildOutreachApprovalSummary(recommendationPlan, venueMatch.venueResult.output.ranked_venues.length, suggestedVendors.length),
           requirements: buildOutreachRequirements(recommendationPlan, archetype, archetypeIntake),
@@ -798,6 +814,16 @@ async function runCatalogFallback(input: {
     userId: input.auth.userId,
     venueIds: rankedVenues.slice(0, 3).map((venue) => venue.venue_id),
     vendorIds: vendorRecommendations.slice(0, 3).map((vendor) => vendor.vendor_id),
+    venueTargets: rankedVenues.slice(0, 3).map((venue) => ({
+      kind: 'venue',
+      id: venue.venue_id,
+      name: venue.venue_name,
+    })),
+    vendorTargets: vendorRecommendations.slice(0, 3).map((vendor) => ({
+      kind: 'vendor',
+      id: vendor.vendor_id,
+      name: vendor.name,
+    })),
     projectedCostsCents: venueCostCents + vendorCostCents,
     summary: buildOutreachApprovalSummary(input.plan, rankedVenues.length, vendorRecommendations.length),
     requirements: buildOutreachRequirements(input.plan, input.archetype, input.archetypeIntake),
@@ -930,6 +956,8 @@ async function ensureOutreachApprovalRequest(input: {
   userId: string
   venueIds: string[]
   vendorIds: string[]
+  venueTargets?: OutreachDisplayTarget[]
+  vendorTargets?: OutreachDisplayTarget[]
   projectedCostsCents: number
   summary: string
   requirements: Record<string, unknown>
@@ -941,6 +969,12 @@ async function ensureOutreachApprovalRequest(input: {
   const existing = await loadExistingOutreachApprovalMessage(input.db, input.plan.id)
   if (existing) return existing
 
+  const partnerTargets = buildOutreachDisplayTargets({
+    venueIds,
+    vendorIds,
+    venueTargets: input.venueTargets ?? [],
+    vendorTargets: input.vendorTargets ?? [],
+  })
   const responseDeadline = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
   const projectedCostsCents = Math.max(Math.round(input.projectedCostsCents), 0)
   const planSnapshotHash = buildLegacyPlanApprovalSnapshotHash({ plan: input.plan })
@@ -952,6 +986,8 @@ async function ensureOutreachApprovalRequest(input: {
     requires_user_action: true,
     summary: input.summary,
     requirements: input.requirements,
+    partner_targets: partnerTargets,
+    comparison_goal: 'Collect availability, fit, pricing, and next steps from each partner so 3rdPlace can compare responses and recommend the best choices.',
     response_deadline: responseDeadline,
     plan_snapshot_hash: planSnapshotHash,
     source: 'planner_recommendations',
@@ -1065,10 +1101,12 @@ async function ensureOutreachApprovalRequest(input: {
     kind: 'venue_outreach',
     venue_ids: venueIds,
     vendor_ids: vendorIds,
+    partner_targets: partnerTargets,
     projected_costs_cents: projectedCostsCents,
     requires_user_action: true,
     status: 'pending',
     summary: input.summary,
+    comparison_goal: 'Collect availability, fit, pricing, and next steps from each partner so 3rdPlace can compare responses and recommend the best choices.',
     response_deadline: responseDeadline,
     approval,
   }
@@ -3344,6 +3382,7 @@ function buildOutreachApprovalPackageDetails(venueCount: number, vendorCount: nu
   return [
     `Reach out to ${formatOutreachTargetCounts(venueCount, vendorCount)}.`,
     'No partner is contacted and no date is held until you approve.',
+    'Replies will be compared by availability, fit, pricing, and next step before the agent recommends the best choices.',
     'If plan details change before execution, approval must be refreshed.',
   ].join(' ')
 }
@@ -3375,6 +3414,29 @@ function formatOutreachTargetCounts(venueCount: number, vendorCount: number): st
   if (parts.length === 0) return 'selected partners'
   if (parts.length === 1) return parts[0] ?? 'selected partners'
   return `${parts[0]}, ${parts[1]}`
+}
+
+function buildOutreachDisplayTargets(input: {
+  venueIds: string[]
+  vendorIds: string[]
+  venueTargets: OutreachDisplayTarget[]
+  vendorTargets: OutreachDisplayTarget[]
+}): OutreachDisplayTarget[] {
+  const venueTargetById = new Map(input.venueTargets.map((target) => [target.id, target]))
+  const vendorTargetById = new Map(input.vendorTargets.map((target) => [target.id, target]))
+
+  return [
+    ...input.venueIds.map((id, index) => ({
+      kind: 'venue' as const,
+      id,
+      name: venueTargetById.get(id)?.name ?? `Venue ${index + 1}`,
+    })),
+    ...input.vendorIds.map((id, index) => ({
+      kind: 'vendor' as const,
+      id,
+      name: vendorTargetById.get(id)?.name ?? `Vendor ${index + 1}`,
+    })),
+  ]
 }
 
 function uniqueUuidList(values: string[]): string[] {

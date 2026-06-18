@@ -885,7 +885,9 @@ async function syncVendorOpportunitySendApproval(
   approval: Approval,
   payload: Record<string, unknown>
 ): Promise<OutreachPreparationSummary> {
-  const vendorBriefId = readString(payload.vendor_opportunity_brief_id) ?? readString(payload.opportunity_brief_id)
+  const vendorBriefId =
+    readString(payload.vendor_opportunity_brief_id) ??
+    (readString(payload.kind) === 'vendor_outreach' ? readString(payload.opportunity_brief_id) : null)
 
   if (approval.status === 'cancelled' || approval.status === 'rejected') {
     if (!vendorBriefId) return { prepared: false, reason: `approval_${approval.status}` }
@@ -994,12 +996,13 @@ async function syncVenueOpportunitySendApproval(
 
   if (opportunityBriefId) {
     const invites = await ensureVenueOpportunityInviteTokens(db, opportunityBriefId)
-    await updateActionPayload(db, approval.agent_action_id, {
+    const venuePayload = {
       ...payload,
       opportunity_brief_id: opportunityBriefId,
       invite_ids: invites.map((invite) => invite.id),
       queued_invite_count: invites.length,
-    })
+    }
+    await updateActionPayload(db, approval.agent_action_id, venuePayload)
     await insertOpportunityStatusMessage(db, plan.id, {
       opportunity_brief_id: opportunityBriefId,
       approval_id: approval.id,
@@ -1008,7 +1011,7 @@ async function syncVenueOpportunitySendApproval(
     })
     let vendorSummary: OutreachPreparationSummary = { prepared: false }
     if (hasVendorOutreachPayload(payload)) {
-      vendorSummary = await syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
+      vendorSummary = await syncVendorOpportunitySendApproval(db, plan, userId, approval, venuePayload)
     }
     return {
       prepared: true,
@@ -1039,12 +1042,13 @@ async function syncVenueOpportunitySendApproval(
     issueTokens: true,
   })
 
-  await updateActionPayload(db, approval.agent_action_id, {
+  const venuePayload = {
     ...payload,
     opportunity_brief_id: result.brief.id,
     invite_ids: result.invites.map((invite) => invite.id),
     queued_invite_count: result.invites.length,
-  })
+  }
+  await updateActionPayload(db, approval.agent_action_id, venuePayload)
 
   await insertOpportunityStatusMessage(db, plan.id, {
     opportunity_brief_id: String(result.brief.id),
@@ -1055,7 +1059,7 @@ async function syncVenueOpportunitySendApproval(
 
   let vendorSummary: OutreachPreparationSummary = { prepared: false }
   if (hasVendorOutreachPayload(payload)) {
-    vendorSummary = await syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
+    vendorSummary = await syncVendorOpportunitySendApproval(db, plan, userId, approval, venuePayload)
   }
 
   return {

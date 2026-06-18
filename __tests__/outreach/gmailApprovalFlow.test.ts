@@ -197,16 +197,16 @@ describe('Gmail approval flow', () => {
         action_type: 'email',
         description: 'Send approved Gmail outreach',
         provider: 'Gmail',
-        target_type: 'venue',
+        target_type: 'outreach',
         target_id: null,
         payload_json: {
           kind: 'gmail_approved_outreach',
           targets: [
-            { name: 'Moongate Lounge', email: 'moongate@example.com' },
-            { name: 'Mission Social Hall', email: 'mission@example.com' },
+            { kind: 'venue', name: 'Moongate Lounge', email: 'moongate@example.com' },
+            { kind: 'vendor', name: 'Mission Photo Co.', email: 'photo@example.com' },
           ],
           subject: 'Happy hour partnership inquiry',
-          body_text: 'Hi {{venue_name}},\n\nCan you host this event?\n\nThanks,\n{{sender_email}}',
+          body_text: 'Hi {{place_name}},\n\nCan you support this event?\n\nThanks,\n{{sender_email}}',
         },
         amount_cents: 0,
         currency: 'usd',
@@ -221,7 +221,7 @@ describe('Gmail approval flow', () => {
         id: 'approval-1',
         plan_id: 'plan-1',
         agent_action_id: 'action-1',
-        action_label: 'Send outreach to 2 venues',
+        action_label: 'Send outreach to 1 venue and 1 vendor',
         provider: 'Gmail',
         event_date: null,
         price_cents: 0,
@@ -254,20 +254,22 @@ describe('Gmail approval flow', () => {
     expect(db.rows.outreach_messages).toHaveLength(2)
     expect(mockSendGmailMessage).toHaveBeenNthCalledWith(1, expect.objectContaining({
       to: 'moongate@example.com',
-      bodyText: 'Hi Moongate Lounge,\n\nCan you host this event?\n\nThanks,\ncreator@example.com',
-      bodyHtml: 'Hi Moongate Lounge,<br /><br />Can you host this event?<br /><br />Thanks,<br />creator@example.com',
+      bodyText: 'Hi Moongate Lounge,\n\nCan you support this event?\n\nThanks,\ncreator@example.com',
+      bodyHtml: 'Hi Moongate Lounge,<br /><br />Can you support this event?<br /><br />Thanks,<br />creator@example.com',
     }))
     expect(mockSendGmailMessage).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      to: 'mission@example.com',
-      bodyText: 'Hi Mission Social Hall,\n\nCan you host this event?\n\nThanks,\ncreator@example.com',
+      to: 'photo@example.com',
+      bodyText: 'Hi Mission Photo Co.,\n\nCan you support this event?\n\nThanks,\ncreator@example.com',
     }))
     expect(mockSendGmailMessage.mock.calls[0][0].bodyText).not.toContain('{{')
     expect(mockSendGmailMessage.mock.calls[1][0].bodyText).not.toContain('{{')
     expect(db.rows.outreach_messages[0].body_text).toContain('Moongate Lounge')
     expect(db.rows.outreach_messages[0].body_text).not.toContain('{{venue_name}}')
-    expect(db.rows.outreach_messages[1].body_text).toContain('Mission Social Hall')
+    expect(db.rows.outreach_messages[1].body_text).toContain('Mission Photo Co.')
     expect(db.rows.outreach_messages[1].body_text).not.toContain('{{sender_email}}')
+    expect(db.rows.outreach_threads.map((thread) => thread.target_type)).toEqual(['venue', 'vendor'])
     expect(db.rows.plan_messages[0]).toEqual(expect.objectContaining({
+      content: expect.stringContaining('partners'),
       message_type: 'status_update',
       metadata: expect.objectContaining({ outbound_message_sent: true }),
     }))
