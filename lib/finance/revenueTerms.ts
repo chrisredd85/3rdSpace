@@ -1,12 +1,19 @@
 import { z } from 'zod'
+import {
+  canonicalizeEventRevenueTermType,
+  isVendorConsumptionShareTerm,
+  isVenueChiTerm,
+} from './chi-nomenclature-sync'
 
 export const revenueTermTypes = [
   'sales_tax',
   'ticketing_fee',
   'service_fee',
   'venue_kickback',
+  'venue_chi',
   'venue_minimum_spend',
   'vendor_rev_share',
+  'vendor_consumption_share',
   'sponsor_credit',
   'other',
 ] as const
@@ -104,8 +111,12 @@ export type RevenueTermsSummary = {
   impacts: RevenueTermImpact[]
   sales_tax_cents: number
   platform_fee_cents: number
+  venue_chi_cents: number
+  vendor_consumption_share_cents: number
+  /** @deprecated Use venue_chi_cents. Kept until δ.5 removes legacy compat. */
   venue_kickback_cents: number
   sponsor_credit_cents: number
+  /** @deprecated Use vendor_consumption_share_cents. Kept until δ.5 removes legacy compat. */
   vendor_rev_share_cents: number
   venue_minimum_spend_cents: number
   other_cents: number
@@ -191,6 +202,7 @@ export async function upsertRevenueTerm(
   const now = new Date().toISOString()
   const payload = {
     ...parsed,
+    term_type: canonicalizeEventRevenueTermType(parsed.term_type),
     party_id: parsed.party_id ?? null,
     party_name: parsed.party_name ?? null,
     notes: parsed.notes ?? null,
@@ -272,6 +284,8 @@ export function summarizeRevenueTermImpacts(
     impacts,
     sales_tax_cents: 0,
     platform_fee_cents: 0,
+    venue_chi_cents: 0,
+    vendor_consumption_share_cents: 0,
     venue_kickback_cents: 0,
     sponsor_credit_cents: 0,
     vendor_rev_share_cents: 0,
@@ -284,9 +298,15 @@ export function summarizeRevenueTermImpacts(
     if (impact.term_type === 'ticketing_fee' || impact.term_type === 'service_fee') {
       summary.platform_fee_cents += impact.amount_cents
     }
-    if (impact.term_type === 'venue_kickback') summary.venue_kickback_cents += impact.amount_cents
+    if (isVenueChiTerm(impact.term_type)) {
+      summary.venue_chi_cents += impact.amount_cents
+      summary.venue_kickback_cents += impact.amount_cents
+    }
     if (impact.term_type === 'sponsor_credit') summary.sponsor_credit_cents += impact.amount_cents
-    if (impact.term_type === 'vendor_rev_share') summary.vendor_rev_share_cents += impact.amount_cents
+    if (isVendorConsumptionShareTerm(impact.term_type)) {
+      summary.vendor_consumption_share_cents += impact.amount_cents
+      summary.vendor_rev_share_cents += impact.amount_cents
+    }
     if (impact.term_type === 'venue_minimum_spend') summary.venue_minimum_spend_cents += impact.amount_cents
     if (impact.term_type === 'other') summary.other_cents += impact.amount_cents
   }
@@ -359,7 +379,7 @@ export function applyRevenueTermsToActuals<TActuals extends BaseActualsForTerms>
       actuals.refunds_cents -
       platformFeesCents -
       taxesCollectedCents +
-      summary.venue_kickback_cents +
+      summary.venue_chi_cents +
       summary.sponsor_credit_cents,
   }
 }
@@ -432,7 +452,7 @@ function normalizeRevenueTerm(rawTerm: RevenueTerm | RevenueTermInput) {
 
   return {
     id: typeof record.id === 'string' ? record.id : null,
-    term_type: revenueTermTypeSchema.parse(record.term_type),
+    term_type: canonicalizeEventRevenueTermType(revenueTermTypeSchema.parse(record.term_type)) as RevenueTermType,
     rate: readNumber(record.rate),
     flat_cents: readInteger(record.flat_cents),
     applies_to: revenueTermAppliesToSchema.parse(record.applies_to),
@@ -475,14 +495,14 @@ function netDeltaForTerm(termType: RevenueTermType, amountCents: number) {
   if (termType === 'sales_tax' || termType === 'ticketing_fee' || termType === 'service_fee') {
     return -amountCents
   }
-  if (termType === 'venue_kickback' || termType === 'sponsor_credit') {
+  if (isVenueChiTerm(termType) || termType === 'sponsor_credit') {
     return amountCents
   }
   return 0
 }
 
 function costDeltaForTerm(termType: RevenueTermType, amountCents: number) {
-  if (termType === 'vendor_rev_share' || termType === 'venue_minimum_spend') {
+  if (isVendorConsumptionShareTerm(termType) || termType === 'venue_minimum_spend') {
     return amountCents
   }
   return 0

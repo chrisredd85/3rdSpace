@@ -36,9 +36,9 @@ describe('revenue terms', () => {
       term({ term_type: 'sales_tax', rate: 0.0875, applies_to: 'gross_ticket_revenue' }),
       term({ term_type: 'ticketing_fee', flat_cents: 150, applies_to: 'per_ticket' }),
       term({ term_type: 'service_fee', rate: 0.05, applies_to: 'gross_ticket_revenue' }),
-      term({ term_type: 'venue_kickback', rate: 0.1, applies_to: 'bar_revenue' }),
+      term({ term_type: 'venue_chi', rate: 0.1, applies_to: 'bar_revenue' }),
       term({ term_type: 'venue_minimum_spend', flat_cents: 200000, applies_to: 'gross_ticket_revenue' }),
-      term({ term_type: 'vendor_rev_share', rate: 0.2, applies_to: 'net_ticket_revenue' }),
+      term({ term_type: 'vendor_consumption_share', rate: 0.2, applies_to: 'net_ticket_revenue' }),
       term({ term_type: 'sponsor_credit', flat_cents: 50000, applies_to: 'gross_ticket_revenue' }),
       term({ term_type: 'other', flat_cents: 12345, applies_to: 'gross_ticket_revenue' }),
     ]
@@ -49,16 +49,16 @@ describe('revenue terms', () => {
       ['sales_tax', 25375],
       ['ticketing_fee', 14250],
       ['service_fee', 14500],
-      ['venue_kickback', 15000],
+      ['venue_chi', 15000],
       ['venue_minimum_spend', 200000],
-      ['vendor_rev_share', 55000],
+      ['vendor_consumption_share', 55000],
       ['sponsor_credit', 50000],
       ['other', 12345],
     ])
     expect(impacts.find((impact) => impact.term_type === 'sales_tax')?.net_revenue_delta_cents).toBe(-25375)
     expect(impacts.find((impact) => impact.term_type === 'service_fee')?.net_revenue_delta_cents).toBe(-14500)
-    expect(impacts.find((impact) => impact.term_type === 'venue_kickback')?.net_revenue_delta_cents).toBe(15000)
-    expect(impacts.find((impact) => impact.term_type === 'vendor_rev_share')?.cost_delta_cents).toBe(55000)
+    expect(impacts.find((impact) => impact.term_type === 'venue_chi')?.net_revenue_delta_cents).toBe(15000)
+    expect(impacts.find((impact) => impact.term_type === 'vendor_consumption_share')?.cost_delta_cents).toBe(55000)
     expect(impacts.find((impact) => impact.term_type === 'venue_minimum_spend')?.cost_delta_cents).toBe(200000)
     expect(impacts.find((impact) => impact.term_type === 'other')?.net_revenue_delta_cents).toBe(0)
   })
@@ -78,7 +78,7 @@ describe('revenue terms', () => {
       [
         term({ term_type: 'sales_tax', rate: 0.1, applies_to: 'gross_ticket_revenue' }),
         term({ term_type: 'service_fee', rate: 0.05, applies_to: 'gross_ticket_revenue' }),
-        term({ term_type: 'venue_kickback', rate: 0.1, applies_to: 'bar_revenue' }),
+        term({ term_type: 'venue_chi', rate: 0.1, applies_to: 'bar_revenue' }),
         term({ term_type: 'sponsor_credit', flat_cents: 25000, applies_to: 'gross_ticket_revenue' }),
       ],
       { bar_revenue_cents: 100000 }
@@ -112,7 +112,7 @@ describe('revenue terms', () => {
     expect(actuals.net_revenue_cents).toBe(8500)
   })
 
-  it('uses the larger value when a vendor rev-share term conflicts with a manual vendor commitment', async () => {
+  it('uses the larger value when a vendor consumption-share term conflicts with a manual vendor commitment', async () => {
     const db = new MemoryRevenueDb({
       events: [{ id: eventId, builder_id: orgId, expected_attendance: 100 }],
       event_sales_data: [
@@ -132,7 +132,7 @@ describe('revenue terms', () => {
       ],
       event_revenue_terms: [
         rowTerm({
-          term_type: 'vendor_rev_share',
+          term_type: 'vendor_consumption_share',
           rate: 0.2,
           applies_to: 'gross_ticket_revenue',
           party_id: vendorId,
@@ -150,13 +150,13 @@ describe('revenue terms', () => {
       paid_cents: 0,
     })
     expect(pnl.rev_share_adjustments).toEqual([
-      { party_name: 'DJ Analog', type: 'vendor_rev_share', amount_cents: 20000 },
+      { party_name: 'DJ Analog', type: 'vendor_consumption_share', amount_cents: 20000 },
     ])
     expect(pnl.terms_conflict).toBe(true)
     expect(pnl.net.expected_cents).toBe(80000)
   })
 
-  it('does not add rev-share cost when the manual vendor commitment is larger, but still flags the conflict', async () => {
+  it('does not add consumption-share cost when the manual vendor commitment is larger, but still flags the conflict', async () => {
     const db = new MemoryRevenueDb({
       events: [{ id: eventId, builder_id: orgId, expected_attendance: 100 }],
       event_sales_data: [
@@ -176,7 +176,7 @@ describe('revenue terms', () => {
       ],
       event_revenue_terms: [
         rowTerm({
-          term_type: 'vendor_rev_share',
+          term_type: 'vendor_consumption_share',
           rate: 0.2,
           applies_to: 'gross_ticket_revenue',
           party_id: vendorId,
@@ -246,6 +246,33 @@ describe('revenue terms', () => {
       basis_cents: 290000,
       amount_cents: 14500,
     })
+  })
+
+  it('accepts legacy revenue-term names and returns canonical CHI names', () => {
+    const basis = {
+      gross_ticket_revenue_cents: 100000,
+      net_ticket_revenue_cents: 100000,
+      bar_revenue_cents: 50000,
+      tickets_sold: 10,
+      tickets_refunded: 0,
+    }
+
+    const summary = summarizeRevenueTermImpacts(
+      [
+        term({ term_type: 'venue_kickback', rate: 0.1, applies_to: 'bar_revenue' }),
+        term({ term_type: 'vendor_rev_share', rate: 0.2, applies_to: 'net_ticket_revenue' }),
+      ],
+      basis
+    )
+
+    expect(summary.venue_chi_cents).toBe(5000)
+    expect(summary.venue_kickback_cents).toBe(5000)
+    expect(summary.vendor_consumption_share_cents).toBe(20000)
+    expect(summary.vendor_rev_share_cents).toBe(20000)
+    expect(summary.impacts.map((impact) => impact.term_type)).toEqual([
+      'venue_chi',
+      'vendor_consumption_share',
+    ])
   })
 
   it('has org-scoped RLS policies', () => {

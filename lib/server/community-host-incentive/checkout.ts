@@ -12,6 +12,7 @@ import {
   type CHISettlementResult,
   type CHIVerificationSource,
 } from '@/lib/finance/community-host-incentive'
+import { withConsumptionShareFlag } from '@/lib/finance/chi-nomenclature-sync'
 import { centsToDollars } from '@/lib/money'
 import { dollarsToCents } from '@/lib/payments/vendor-payments'
 import { validateStripeConnectAccount } from '@/lib/billing/stripeConnectGuard'
@@ -774,7 +775,7 @@ async function upsertCHIAgreementForInvoice(
   }
 ): Promise<CHIAgreementRowForInvoice> {
   const existing = await loadExistingCHIAgreementForInvoice(admin, input.sourceAgreement, input.organizerUserId)
-  const payload = {
+  const payload = withConsumptionShareFlag({
     agreement_type: input.chiAgreementInput.agreementType,
     per_head_rate_cents: input.chiAgreementInput.perHeadRateCents ?? null,
     fixed_amount_cents: input.chiAgreementInput.fixedAmountCents ?? null,
@@ -788,6 +789,7 @@ async function upsertCHIAgreementForInvoice(
     approved_at: input.chiAgreementInput.approvedAt,
     approved_by_venue_user_id: input.chiAgreementInput.approvedByVenueUserId,
     settlement_due_at: input.dueDateIso,
+    is_legacy_consumption_share: false,
     is_legacy_revenue_share: false,
     metadata: {
       source_table: 'event_kickback_agreements',
@@ -795,7 +797,7 @@ async function upsertCHIAgreementForInvoice(
       legacy_payment_id: input.legacyPaymentId,
     },
     updated_at: input.now,
-  }
+  })
 
   if (existing?.id) {
     await updateOrThrow(
@@ -878,7 +880,7 @@ async function upsertCHISettlementForInvoice(
 
   if (existingError) throw new Error(existingError.message ?? 'Failed to load CHI settlement')
 
-  const payload = {
+  const payload = withConsumptionShareFlag({
     event_id: input.sourceAgreement.event_id,
     verified_attendees: input.attendance.verifiedAttendees,
     verification_source: input.attendance.verificationSource,
@@ -888,6 +890,7 @@ async function upsertCHISettlementForInvoice(
     applied_floor: input.chiResult.appliedFloor,
     applied_cap: input.chiResult.appliedCap,
     status: 'pending',
+    is_legacy_consumption_share: false,
     is_legacy_revenue_share: false,
     metadata: {
       source_table: 'event_kickback_agreements',
@@ -895,7 +898,7 @@ async function upsertCHISettlementForInvoice(
       legacy_payment_id: input.legacyPaymentId,
     },
     updated_at: input.now,
-  }
+  })
 
   if ((existing as CHISettlementRowForInvoice | null)?.id) {
     const settlement = existing as CHISettlementRowForInvoice

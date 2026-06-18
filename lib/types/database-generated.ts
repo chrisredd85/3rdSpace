@@ -1374,6 +1374,7 @@ export type Database = {
           event_id: string | null
           fixed_amount_cents: number | null
           id: string
+          is_legacy_consumption_share: boolean
           is_legacy_revenue_share: boolean
           metadata: Json
           organizer_user_id: string
@@ -1402,6 +1403,7 @@ export type Database = {
           event_id?: string | null
           fixed_amount_cents?: number | null
           id?: string
+          is_legacy_consumption_share?: boolean
           is_legacy_revenue_share?: boolean
           metadata?: Json
           organizer_user_id: string
@@ -1430,6 +1432,7 @@ export type Database = {
           event_id?: string | null
           fixed_amount_cents?: number | null
           id?: string
+          is_legacy_consumption_share?: boolean
           is_legacy_revenue_share?: boolean
           metadata?: Json
           organizer_user_id?: string
@@ -1509,6 +1512,7 @@ export type Database = {
           due_at: string | null
           event_id: string | null
           id: string
+          is_legacy_consumption_share: boolean
           is_legacy_revenue_share: boolean
           metadata: Json
           organizer_payout_cents: number
@@ -1531,6 +1535,7 @@ export type Database = {
           due_at?: string | null
           event_id?: string | null
           id?: string
+          is_legacy_consumption_share?: boolean
           is_legacy_revenue_share?: boolean
           metadata?: Json
           organizer_payout_cents: number
@@ -1553,6 +1558,7 @@ export type Database = {
           due_at?: string | null
           event_id?: string | null
           id?: string
+          is_legacy_consumption_share?: boolean
           is_legacy_revenue_share?: boolean
           metadata?: Json
           organizer_payout_cents?: number
@@ -9237,6 +9243,7 @@ export type Database = {
           due_at: string | null
           event_id: string | null
           id: string | null
+          is_legacy_consumption_share: boolean | null
           is_legacy_revenue_share: boolean | null
           metadata: Json | null
           organizer_user_id: string | null

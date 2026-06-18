@@ -486,6 +486,7 @@ describe('venue kickback checkout route', () => {
       settlement_mode: 'community_host_incentive',
       status: 'active',
       venue_approved: true,
+      is_legacy_consumption_share: false,
       is_legacy_revenue_share: false,
     })
     expect(db.rows.community_host_incentive_settlements[0]).toMatchObject({
@@ -496,6 +497,7 @@ describe('venue kickback checkout route', () => {
       calculation_basis: 'verified_attendance',
       status: 'invoice_sent',
       stripe_invoice_id: 'in_1',
+      is_legacy_consumption_share: false,
       is_legacy_revenue_share: false,
     })
     expect(db.rows.kickback_payments[0]).toMatchObject({
