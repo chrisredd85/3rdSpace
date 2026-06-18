@@ -1,5 +1,6 @@
 import 'server-only'
 
+import * as Sentry from '@sentry/nextjs'
 import { assertIntegerCents } from '@/lib/planner/execution/approvalState'
 import { getStripeClient } from '@/lib/stripe/connect'
 import type { Approval, Json, Plan } from '@/lib/types'
@@ -164,7 +165,7 @@ export async function capturePlannerDeposit(input: {
 
   const captured = data as PlannerPaymentIntentRow
   const payoutAmountCents = Math.max(0, captured.amount_cents - captured.platform_fee_cents)
-  await input.db.from('payouts').insert({
+  const { error: payoutError } = await input.db.from('payouts').insert({
     payment_intent_id: captured.id,
     partner_kind: captured.partner_kind,
     partner_id: captured.partner_id,
@@ -172,6 +173,22 @@ export async function capturePlannerDeposit(input: {
     currency: captured.currency,
     status: 'pending',
   })
+
+  if (isUniqueViolation(payoutError)) {
+    Sentry.captureMessage('capture_payout_already_exists', {
+      level: 'info',
+      tags: {
+        action: 'capture_payout_already_exists',
+        payment_intent_id: captured.id,
+        partner_kind: captured.partner_kind,
+      },
+      extra: {
+        payout_amount_cents: payoutAmountCents,
+      },
+    })
+  } else if (payoutError) {
+    throw new Error(payoutError.message ?? 'Failed to create planner payout')
+  }
 
   return captured
 }
