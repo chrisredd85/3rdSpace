@@ -1,0 +1,5 @@
+
+> 3rdspace-webapp@0.1.0 security:rls
+> npx tsx scripts/security/check-rls.ts
+
+RLS check passed: every public table has row-level security enabled.
