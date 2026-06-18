@@ -894,6 +894,7 @@ export type Database = {
           event_id: string
           id: string
           source: string
+          source_metadata: Json
           updated_at: string
         }
         Insert: {
@@ -904,6 +905,7 @@ export type Database = {
           event_id: string
           id?: string
           source: string
+          source_metadata?: Json
           updated_at?: string
         }
         Update: {
@@ -914,6 +916,7 @@ export type Database = {
           event_id?: string
           id?: string
           source?: string
+          source_metadata?: Json
           updated_at?: string
         }
         Relationships: [

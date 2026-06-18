@@ -36,6 +36,12 @@ type BuilderEventAccessConsumption = {
   source: BuilderBillingTier | 'pay_per_event'
   amount: number
   amount_cents?: number | null
+  source_metadata?: Record<string, unknown> | null
+}
+
+type BuilderEventAccessConsumptionResult = {
+  source: BuilderBillingTier | 'pay_per_event'
+  amount: number
 }
 
 export class BuilderBillingRequiredError extends Error {
@@ -191,9 +197,13 @@ export function getBuilderBillingSummary(profile: BuilderBillingProfile) {
     freeEventsGranted,
     freeEventsUsed,
     freeEventsRemaining,
+    free_events_remaining: freeEventsRemaining,
     paidEventCredits,
     hasProAccess,
+    isOnFreeTrial: freeEventsRemaining > 0,
+    is_on_free_trial: freeEventsRemaining > 0,
     canCreateEvent: hasProAccess || freeEventsRemaining > 0 || paidEventCredits > 0,
+    can_create_event: hasProAccess || freeEventsRemaining > 0 || paidEventCredits > 0,
     prices: BUILDER_BILLING_PRICES,
   }
 }
@@ -453,10 +463,6 @@ function toIntegerCents(amount: number) {
   return cents
 }
 
-function getMonthStart(value = new Date()) {
-  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), 1)).toISOString().slice(0, 10)
-}
-
 async function getSubscriptionPlanId(admin: any, type: BuilderCheckoutType) {
   const { data } = await admin
     .from('subscription_plans')
@@ -502,38 +508,6 @@ export async function upsertBuilderSubscription(params: {
     )
 }
 
-async function updateBuilderEventUsage(params: {
-  admin: any
-  builderId: string
-  eventCountDelta: number
-  feeDelta: number
-}) {
-  const month = getMonthStart()
-  const { data: usage } = await params.admin
-    .from('builder_event_usage')
-    .select('events_booked, total_fees_paid')
-    .eq('builder_id', params.builderId)
-    .eq('month', month)
-    .maybeSingle()
-
-  const eventsBooked = (usage?.events_booked ?? 0) + params.eventCountDelta
-  const totalFeesPaid = (usage?.total_fees_paid ?? 0) + params.feeDelta
-  const couldHaveSaved = Math.max(eventsBooked * BUILDER_BILLING_PRICES.payPerEventAmount - BUILDER_BILLING_PRICES.proMonthlyAmount, 0)
-
-  await params.admin
-    .from('builder_event_usage')
-    .upsert(
-      {
-        builder_id: params.builderId,
-        month,
-        events_booked: eventsBooked,
-        total_fees_paid: totalFeesPaid,
-        could_have_saved: couldHaveSaved,
-      },
-      { onConflict: 'builder_id,month' }
-    )
-}
-
 async function insertPlatformFeeTransaction(params: {
   admin: any
   builderId: string
@@ -573,167 +547,42 @@ export async function consumeBuilderEventAccess(params: {
   admin: any
   builder: BuilderBillingProfile
   eventId: string
-}) {
-  const existingConsumption = await loadBuilderEventAccessConsumption(
-    params.admin,
-    params.builder.id,
-    params.eventId
-  )
-  if (existingConsumption) {
-    return {
-      source: existingConsumption.source,
-      amount: existingConsumption.amount,
-    }
-  }
-
-  const summary = getBuilderBillingSummary(params.builder)
-  const now = new Date().toISOString()
-  const consumption = resolveBuilderEventAccessConsumption(params.builder, summary)
-  const insertedConsumption = await insertBuilderEventAccessConsumption(params.admin, {
-    builderId: params.builder.id,
-    eventId: params.eventId,
-    source: consumption.source,
-    amount: consumption.amount,
-  })
-
-  if (!insertedConsumption.inserted) {
-    return {
-      source: insertedConsumption.consumption.source,
-      amount: insertedConsumption.consumption.amount,
-    }
-  }
-
-  if (consumption.source === 'pro_monthly' || consumption.source === 'pro_annual') {
-    await updateBuilderEventUsage({
-      admin: params.admin,
-      builderId: params.builder.id,
-      eventCountDelta: 1,
-      feeDelta: 0,
+}): Promise<BuilderEventAccessConsumptionResult> {
+  const { data, error } = await params.admin
+    .rpc('consume_builder_event_access', {
+      p_builder_id: params.builder.id,
+      p_event_id: params.eventId,
+      p_default_free_events_granted: BUILDER_BILLING_PRICES.freeEventsGranted,
+      p_pay_per_event_amount_cents: toIntegerCents(BUILDER_BILLING_PRICES.payPerEventAmount),
+      p_pro_monthly_amount_cents: toIntegerCents(BUILDER_BILLING_PRICES.proMonthlyAmount),
     })
-    return consumption
-  }
-
-  if (consumption.source === 'free_trial') {
-    await params.admin
-      .from('builder_profiles')
-      .update({
-        free_events_used: summary.freeEventsUsed + 1,
-        updated_at: now,
-      })
-      .eq('id', params.builder.id)
-
-    await updateBuilderEventUsage({
-      admin: params.admin,
-      builderId: params.builder.id,
-      eventCountDelta: 1,
-      feeDelta: 0,
-    })
-    return consumption
-  }
-
-  if (consumption.source === 'pay_per_event') {
-    await params.admin
-      .from('builder_profiles')
-      .update({
-        paid_event_credits: summary.paidEventCredits - 1,
-        billing_tier: 'pay_per_event',
-        updated_at: now,
-      })
-      .eq('id', params.builder.id)
-
-    await updateBuilderEventUsage({
-      admin: params.admin,
-      builderId: params.builder.id,
-      eventCountDelta: 1,
-      feeDelta: BUILDER_BILLING_PRICES.payPerEventAmount,
-    })
-    return consumption
-  }
-
-  throw new BuilderBillingRequiredError()
-}
-
-function resolveBuilderEventAccessConsumption(
-  builder: BuilderBillingProfile,
-  summary: ReturnType<typeof getBuilderBillingSummary>
-): { source: BuilderBillingTier | 'pay_per_event'; amount: number } {
-  if (summary.hasProAccess) {
-    return { source: builder.billing_tier === 'pro_annual' ? 'pro_annual' : 'pro_monthly', amount: 0 }
-  }
-
-  if (summary.freeEventsRemaining > 0) {
-    return { source: 'free_trial', amount: 0 }
-  }
-
-  if (summary.paidEventCredits > 0) {
-    return { source: 'pay_per_event', amount: BUILDER_BILLING_PRICES.payPerEventAmount }
-  }
-
-  throw new BuilderBillingRequiredError()
-}
-
-async function loadBuilderEventAccessConsumption(
-  admin: any,
-  builderId: string,
-  eventId: string
-): Promise<BuilderEventAccessConsumption | null> {
-  const { data, error } = await admin
-    .from('builder_event_access_consumptions')
-    .select('id,builder_id,event_id,source,amount,amount_cents')
-    .eq('builder_id', builderId)
-    .eq('event_id', eventId)
     .maybeSingle()
 
   if (error) {
-    if (isBuilderBillingSchemaDriftError(error)) return null
-    throw new Error(error.message ?? 'Failed to load builder event access consumption')
+    if (isBuilderBillingRequiredError(error)) {
+      throw new BuilderBillingRequiredError()
+    }
+
+    throw new Error(error.message ?? 'Failed to consume builder event access')
   }
 
-  return (data as BuilderEventAccessConsumption | null) ?? null
+  if (!data) {
+    throw new Error('Failed to consume builder event access')
+  }
+
+  const consumption = data as BuilderEventAccessConsumption
+  return {
+    source: consumption.source,
+    amount: consumption.amount,
+  }
 }
 
-async function insertBuilderEventAccessConsumption(
-  admin: any,
-  input: {
-    builderId: string
-    eventId: string
-    source: BuilderBillingTier | 'pay_per_event'
-    amount: number
-  }
-): Promise<
-  | { inserted: true; consumption: BuilderEventAccessConsumption }
-  | { inserted: false; consumption: BuilderEventAccessConsumption }
-> {
-  const { data, error } = await admin
-    .from('builder_event_access_consumptions')
-    .insert({
-      builder_id: input.builderId,
-      event_id: input.eventId,
-      source: input.source,
-      amount: input.amount,
-      amount_cents: toIntegerCents(input.amount),
-    })
-    .select('id,builder_id,event_id,source,amount,amount_cents')
-    .single()
-
-  if (!error && data) {
-    return { inserted: true, consumption: data as BuilderEventAccessConsumption }
-  }
-
-  if (isUniqueViolation(error)) {
-    const existing = await loadBuilderEventAccessConsumption(admin, input.builderId, input.eventId)
-    if (existing) return { inserted: false, consumption: existing }
-  }
-
-  throw new Error(error?.message ?? 'Failed to record builder event access consumption')
-}
-
-function isUniqueViolation(error: unknown) {
+function isBuilderBillingRequiredError(error: unknown) {
   if (!error || typeof error !== 'object') return false
   const maybeError = error as { code?: string; message?: string; details?: string }
   return (
-    maybeError.code === '23505' ||
-    /duplicate key|unique constraint/i.test([maybeError.message, maybeError.details].filter(Boolean).join(' '))
+    maybeError.code === 'P0001' &&
+    /builder_billing_required/i.test([maybeError.message, maybeError.details].filter(Boolean).join(' '))
   )
 }
 

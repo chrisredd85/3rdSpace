@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 
 export const metadata: Metadata = {
   title: 'Pricing | 3rdPlace',
-  description: 'First two events on us. Then pay per event or move to Pro.',
+  description: 'First 2 events free. Then pay per event or move to Pro.',
 }
 
 const tiers = [
@@ -13,7 +13,7 @@ const tiers = [
     price: '$30',
     cadence: '/event',
     title: 'Pay only when you ship.',
-    body: 'Buy one event credit after your first two free events.',
+    body: 'After your first 2 events free, buy one event credit at a time.',
     detail: 'Best for hosts testing a new cadence or running a small seasonal calendar.',
     note: 'No monthly commitment.',
   },
@@ -38,7 +38,7 @@ export default function PricingPage() {
       <section className="mx-auto max-w-[1000px]">
         <Caps>Pricing</Caps>
         <h1 className="mt-4 font-display text-[46px] leading-[1.02] text-ink sm:text-[68px]">
-          First two events on us.
+          First 2 events free.
         </h1>
         <p className="mt-5 max-w-3xl text-[18px] leading-[1.6] text-ink-soft">
           Run two events end-to-end before you commit. No card required. After that, pay per event

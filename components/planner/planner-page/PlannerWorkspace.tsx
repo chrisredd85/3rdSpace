@@ -10,6 +10,7 @@ import { PostEventReportCard } from '@/components/planner/PostEventReportCard'
 import { PlannerSignupGate } from '@/components/planner/PlannerSignupGate'
 import { PlannerTimelineCountdown } from '@/components/planner/PlannerTimelineCountdown'
 import { PlannerTopBar } from '@/components/planner/PlannerTopBar'
+import { PlannerBillingAccessBanner } from '@/components/planner/PlannerBillingAccessBanner'
 import { usePlannerBillingGate } from '@/components/planner/usePlannerBillingGate'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -1434,6 +1435,7 @@ export function PlannerWorkspace() {
       <div className="min-h-screen">
         <PlannerTopBar userName={organizationName} userRole={plannerRoleLabel} />
         {gmailSkipReminder}
+        {persistenceMode === 'server' ? <PlannerBillingAccessBanner /> : null}
         <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6">
           {shouldShowInitialDraftLoading ? (
             <PlannerInitialDraftLoading />
@@ -1486,6 +1488,7 @@ export function PlannerWorkspace() {
       {demoBanner}
       <PlannerTopBar userName={organizationName} userRole={plannerRoleLabel} />
       {gmailSkipReminder}
+      {persistenceMode === 'server' ? <PlannerBillingAccessBanner /> : null}
 
       <div className="mx-auto max-w-5xl px-4 py-6 lg:px-6">
         <div className="mb-5 flex flex-col gap-4 rounded-3xl border border-border bg-card/50 p-5 shadow-card sm:flex-row sm:items-center sm:justify-between">

@@ -70,19 +70,125 @@ class MemoryDb {
     vendor_profiles: [],
     builder_profiles: [],
     builder_event_usage: [],
+    builder_event_access_consumptions: [],
   }
 
   selects: Array<{ table: string; columns: string }> = []
   private sequence = 0
+  private rpcQueue = Promise.resolve()
 
   from(table: string) {
     if (!this.rows[table]) this.rows[table] = []
     return new MemoryQuery(this, table)
   }
 
+  rpc(name: string, params: Record<string, unknown>) {
+    if (name !== 'consume_builder_event_access') {
+      return {
+        maybeSingle: async () => ({
+          data: null,
+          error: { message: `Unknown RPC ${name}` },
+        }),
+      }
+    }
+
+    return {
+      maybeSingle: () => {
+        const result = this.rpcQueue.then(() => this.consumeBuilderEventAccess(params))
+        this.rpcQueue = result.then(() => undefined, () => undefined)
+        return result
+      },
+    }
+  }
+
   nextId(table: string) {
     this.sequence += 1
     return `${table}-${this.sequence}`
+  }
+
+  private async consumeBuilderEventAccess(params: Record<string, unknown>) {
+    const builderId = params.p_builder_id as string
+    const eventId = params.p_event_id as string
+    const defaultFreeEventsGranted = params.p_default_free_events_granted as number
+    const payPerEventAmountCents = params.p_pay_per_event_amount_cents as number
+    const proMonthlyAmountCents = params.p_pro_monthly_amount_cents as number
+    const builderRow = this.rows.builder_profiles.find((row) => row.id === builderId)
+
+    if (!builderRow) {
+      return { data: null, error: { code: 'P0002', message: 'builder_profile_not_found' } }
+    }
+
+    const existing = this.rows.builder_event_access_consumptions.find((row) => (
+      row.builder_id === builderId && row.event_id === eventId
+    ))
+    if (existing) return { data: existing, error: null }
+
+    const freeEventsGranted = Math.max(
+      (builderRow.free_events_granted as number | null | undefined) ?? defaultFreeEventsGranted,
+      defaultFreeEventsGranted
+    )
+    const freeEventsUsed = (builderRow.free_events_used as number | null | undefined) ?? 0
+    const paidEventCredits = (builderRow.paid_event_credits as number | null | undefined) ?? 0
+    const isPro = (
+      (builderRow.billing_tier === 'pro_monthly' || builderRow.billing_tier === 'pro_annual') &&
+      builderRow.subscription_status === 'active'
+    )
+
+    let source: string
+    let amountCents = 0
+
+    if (isPro) {
+      source = builderRow.billing_tier
+    } else if (freeEventsGranted - freeEventsUsed > 0) {
+      source = 'free_trial'
+      builderRow.free_events_used = freeEventsUsed + 1
+    } else if (paidEventCredits > 0) {
+      source = 'pay_per_event'
+      amountCents = payPerEventAmountCents
+      builderRow.billing_tier = 'pay_per_event'
+      builderRow.paid_event_credits = paidEventCredits - 1
+    } else {
+      return { data: null, error: { code: 'P0001', message: 'builder_billing_required' } }
+    }
+
+    const now = new Date().toISOString()
+    const row = {
+      id: this.nextId('builder_event_access_consumptions'),
+      builder_id: builderId,
+      event_id: eventId,
+      source,
+      amount: Math.floor(amountCents / 100),
+      amount_cents: amountCents,
+      source_metadata: {},
+      created_at: now,
+      updated_at: now,
+    }
+    this.rows.builder_event_access_consumptions.push(row)
+
+    const usage = this.rows.builder_event_usage[0]
+    if (usage) {
+      usage.events_booked = ((usage.events_booked as number | undefined) ?? 0) + 1
+      usage.total_fees_paid = ((usage.total_fees_paid as number | undefined) ?? 0) + amountCents / 100
+      usage.could_have_saved = Math.max(
+        (((usage.events_booked as number | undefined) ?? 0) * (payPerEventAmountCents / 100)) -
+          (proMonthlyAmountCents / 100),
+        0
+      )
+      usage.updated_at = now
+    } else {
+      this.rows.builder_event_usage.push({
+        id: this.nextId('builder_event_usage'),
+        builder_id: builderId,
+        month: '2026-06-01',
+        events_booked: 1,
+        total_fees_paid: amountCents / 100,
+        could_have_saved: Math.max((payPerEventAmountCents - proMonthlyAmountCents) / 100, 0),
+        created_at: now,
+        updated_at: now,
+      })
+    }
+
+    return { data: row, error: null }
   }
 }
 
@@ -253,6 +359,7 @@ function mockPlannerClient(db: MemoryDb) {
   })
   mockCreateServiceRoleClient.mockReturnValue({
     from: (table: string) => db.from(table),
+    rpc: (name: string, params: Record<string, unknown>) => db.rpc(name, params),
   })
 }
 
