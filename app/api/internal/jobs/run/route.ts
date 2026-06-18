@@ -27,6 +27,7 @@ import {
   pullEventbriteAttendanceForSettlementRun,
   recordWebhookAttendanceForEvent,
 } from '@/lib/finance/settlement-runs'
+import { sendVenueSettlementAcknowledgementEmail } from '@/lib/finance/settlement-checkout'
 
 export const runtime = 'nodejs'
 
@@ -253,6 +254,12 @@ async function processJob(admin: ReturnType<typeof createServiceRoleClient>, job
     const runId = job.payload.settlement_run_id ?? job.payload.settlementRunId
     if (typeof runId !== 'string') throw new Error('Missing settlement_run_id')
     return pullEventbriteAttendanceForSettlementRun(admin, runId)
+  }
+
+  if (job.job_type === 'settlement.ack.email_send') {
+    const runId = job.payload.settlement_run_id ?? job.payload.settlementRunId
+    if (typeof runId !== 'string') throw new Error('Missing settlement_run_id')
+    return sendVenueSettlementAcknowledgementEmail(admin, runId)
   }
 
   if (

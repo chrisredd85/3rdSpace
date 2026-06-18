@@ -12,6 +12,7 @@ const adminLinks = [
   ['Concierge', '/admin/concierge', 'Handle opportunity invites that need manual outreach.'],
   ['Overrides', '/admin/overrides', 'Review recommendation pin/exclude candidates for plans.'],
   ['Failures', '/admin/failures', 'Failed sends, payments, dead jobs, and webhook issues.'],
+  ['Settlements', '/admin/settlements', 'Review CHI settlement runs, disputes, and venue payment status.'],
   ['Health', '/admin/health', 'Operational health counts and recent errors.'],
   ['Ops', '/admin/ops', 'Full operations command console.'],
 ] as const
