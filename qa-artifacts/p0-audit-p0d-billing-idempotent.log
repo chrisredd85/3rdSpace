@@ -1,0 +1,16 @@
+
+> 3rdspace-webapp@0.1.0 test
+> jest __tests__/billing/builder-billing-idempotent.test.ts
+
+(node:79924) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS __tests__/billing/builder-billing-idempotent.test.ts
+  builder billing event access idempotency
+    ✓ returns the stored consumption for sequential calls with the same event id (2 ms)
+    ✓ consumes a free event once for concurrent calls with the same event id (1 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       2 passed, 2 total
+Snapshots:   0 total
+Time:        0.733 s
+Ran all test suites matching /__tests__\/billing\/builder-billing-idempotent.test.ts/i.

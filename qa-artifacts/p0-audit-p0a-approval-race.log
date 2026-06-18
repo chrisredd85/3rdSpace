@@ -1,0 +1,15 @@
+
+> 3rdspace-webapp@0.1.0 test
+> jest __tests__/integration/p0-concurrency.test.ts -t approval
+
+(node:79035) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS __tests__/integration/p0-concurrency.test.ts
+  P0 approval concurrency hardening
+    ✓ allows only one concurrent approval PATCH to win side effects (19 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        1.348 s
+Ran all test suites matching /__tests__\/integration\/p0-concurrency.test.ts/i with tests matching "approval".
