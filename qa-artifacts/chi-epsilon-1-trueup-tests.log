@@ -1,0 +1,19 @@
+
+> 3rdspace-webapp@0.1.0 test
+> jest lib/finance/__tests__/chi-rate-trueup --runInBand
+
+(node:99342) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS lib/finance/__tests__/chi-rate-trueup.test.ts
+  updateChiRateFromSettlement
+    ✓ no-ops when the future settlement_runs table does not exist yet (11 ms)
+    ✓ computes a weighted average from completed settlement runs (7 ms)
+    ✓ inserts a new history row and supersedes the prior current row with an optimistic lock (1 ms)
+    ✓ bails when the current history row loses the optimistic lock race (6 ms)
+    ✓ is forward-only and does not modify settled event records (3 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       5 passed, 5 total
+Snapshots:   0 total
+Time:        2.351 s
+Ran all test suites matching /lib\/finance\/__tests__\/chi-rate-trueup/i.

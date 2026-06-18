@@ -1,0 +1,543 @@
+Resetting local database...
+Recreating database...
+Initialising schema...
+Seeding globals from roles.sql...
+Applying migration 20260420000000_remote_baseline.sql...
+Applying migration 20260421000000_fix_handle_new_user.sql...
+Applying migration 20260422000000_handle_orphaned_signup_profiles.sql...
+Applying migration 20260424090000_add_event_and_vendor_storage.sql...
+NOTICE (00000): policy "Public can view vendor photos" for relation "storage.objects" does not exist, skipping
+NOTICE (00000): policy "Vendors can upload own photos" for relation "storage.objects" does not exist, skipping
+NOTICE (00000): policy "Vendors can delete own photos" for relation "storage.objects" does not exist, skipping
+NOTICE (00000): policy "Vendors can view own documents" for relation "storage.objects" does not exist, skipping
+NOTICE (00000): policy "Vendors can upload own documents" for relation "storage.objects" does not exist, skipping
+NOTICE (00000): policy "Vendors can delete own documents" for relation "storage.objects" does not exist, skipping
+Applying migration 20260424123000_add_ticket_import_system.sql...
+NOTICE (42701): column "token_expires_at" of relation "external_event_integrations" already exists, skipping
+NOTICE (42701): column "webhook_url" of relation "external_event_integrations" already exists, skipping
+NOTICE (42701): column "sync_status" of relation "external_event_integrations" already exists, skipping
+NOTICE (42701): column "sync_error" of relation "external_event_integrations" already exists, skipping
+NOTICE (42701): column "config" of relation "external_event_integrations" already exists, skipping
+NOTICE (42P07): relation "idx_external_integrations_platform_external_event" already exists, skipping
+NOTICE (42P07): relation "idx_external_integrations_status" already exists, skipping
+NOTICE (42P07): relation "imported_attendees" already exists, skipping
+NOTICE (42P07): relation "idx_imported_attendees_event" already exists, skipping
+NOTICE (42P07): relation "idx_imported_attendees_integration" already exists, skipping
+NOTICE (42P07): relation "idx_imported_attendees_checked_in" already exists, skipping
+NOTICE (42P07): relation "idx_imported_attendees_email" already exists, skipping
+NOTICE (42P07): relation "idx_kickback_payments_event_unique" already exists, skipping
+Applying migration 20260424160000_add_signup_profile_fields.sql...
+NOTICE (42701): column "preferred_ticket_platforms" of relation "builder_profiles" already exists, skipping
+NOTICE (42701): column "bank_account_holder_name" of relation "vendor_profiles" already exists, skipping
+NOTICE (42701): column "bank_name" of relation "vendor_profiles" already exists, skipping
+NOTICE (42701): column "availability_notes" of relation "vendor_profiles" already exists, skipping
+Applying migration 20260424190000_expand_external_integration_statuses.sql...
+Applying migration 20260424200000_make_external_event_id_nullable.sql...
+Applying migration 20260428112000_add_posh_luma_financial_webhooks.sql...
+NOTICE (42P07): relation "event_sales_data" already exists, skipping
+NOTICE (42701): column "event_id" of relation "event_sales_data" already exists, skipping
+NOTICE (42701): column "created_at" of relation "event_sales_data" already exists, skipping
+NOTICE (00000): policy "Event team can view webhook events" for relation "public.event_webhook_events" does not exist, skipping
+NOTICE (00000): policy "Event team can view sales data" for relation "public.event_sales_data" does not exist, skipping
+NOTICE (00000): policy "Event team can view financial summary" for relation "public.event_financial_summary" does not exist, skipping
+NOTICE (00000): policy "Service role can manage webhook events" for relation "public.event_webhook_events" does not exist, skipping
+NOTICE (00000): policy "Service role can manage sales data" for relation "public.event_sales_data" does not exist, skipping
+NOTICE (00000): policy "Service role can manage financial summary" for relation "public.event_financial_summary" does not exist, skipping
+NOTICE (00000): trigger "update_event_sales_data_updated_at" for relation "public.event_sales_data" does not exist, skipping
+NOTICE (00000): trigger "update_event_financial_summary_updated_at" for relation "public.event_financial_summary" does not exist, skipping
+Applying migration 20260428123000_add_venue_ticket_sales_share.sql...
+NOTICE (00000): constraint "venues_ticket_sales_share_percent_check" of relation "venues" does not exist, skipping
+NOTICE (00000): constraint "venues_bar_revenue_share_percent_check" of relation "venues" does not exist, skipping
+NOTICE (00000): constraint "venues_per_head_kickback_amount_check" of relation "venues" does not exist, skipping
+Applying migration 20260428130000_add_venue_rules.sql...
+NOTICE (42P07): relation "venue_rules" already exists, skipping
+NOTICE (42701): column "venue_id" of relation "venue_rules" already exists, skipping
+NOTICE (42701): column "created_at" of relation "venue_rules" already exists, skipping
+NOTICE (42701): column "updated_at" of relation "venue_rules" already exists, skipping
+NOTICE (00000): constraint "venue_rules_rule_type_check" of relation "venue_rules" does not exist, skipping
+NOTICE (00000): constraint "venue_rules_applies_to_check" of relation "venue_rules" does not exist, skipping
+NOTICE (00000): policy "Anyone can view venue rules" for relation "public.venue_rules" does not exist, skipping
+NOTICE (00000): policy "Venue owners can manage rules" for relation "public.venue_rules" does not exist, skipping
+NOTICE (00000): trigger "update_venue_rules_updated_at" for relation "public.venue_rules" does not exist, skipping
+Applying migration 20260428133000_add_venue_amenity_master_list.sql...
+NOTICE (00000): policy "Anyone can view venue amenity types" for relation "public.venue_amenity_types" does not exist, skipping
+NOTICE (00000): policy "Service role can manage venue amenity types" for relation "public.venue_amenity_types" does not exist, skipping
+Applying migration 20260428140000_add_deposit_requirements.sql...
+NOTICE (42701): column "deposit_percentage" of relation "venues" already exists, skipping
+NOTICE (00000): relation "vendors" does not exist, skipping
+NOTICE (00000): constraint "venues_deposit_type_check" of relation "venues" does not exist, skipping
+NOTICE (00000): constraint "venues_deposit_amount_check" of relation "venues" does not exist, skipping
+NOTICE (00000): constraint "venues_deposit_percentage_check" of relation "venues" does not exist, skipping
+NOTICE (00000): relation "vendors" does not exist, skipping
+NOTICE (00000): relation "vendors" does not exist, skipping
+NOTICE (00000): constraint "vendor_profiles_deposit_type_check" of relation "vendor_profiles" does not exist, skipping
+NOTICE (00000): constraint "vendor_profiles_deposit_amount_check" of relation "vendor_profiles" does not exist, skipping
+NOTICE (00000): constraint "vendor_profiles_deposit_percentage_check" of relation "vendor_profiles" does not exist, skipping
+Applying migration 20260428143000_add_venue_bulk_approval.sql...
+NOTICE (00000): constraint "venues_auto_approve_threshold_check" of relation "venues" does not exist, skipping
+NOTICE (00000): constraint "venue_bookings_approval_source_check" of relation "venue_bookings" does not exist, skipping
+NOTICE (00000): policy "Venue owners can view approval audit" for relation "public.venue_booking_approval_audit" does not exist, skipping
+NOTICE (00000): policy "Venue owners can insert approval audit" for relation "public.venue_booking_approval_audit" does not exist, skipping
+NOTICE (00000): trigger "venue_booking_auto_approval_before_write" for relation "public.venue_bookings" does not exist, skipping
+Applying migration 20260428144000_standardize_vendor_profiles.sql...
+NOTICE (42701): column "requires_deposit" of relation "vendor_profiles" already exists, skipping
+NOTICE (42701): column "deposit_amount" of relation "vendor_profiles" already exists, skipping
+NOTICE (42701): column "deposit_type" of relation "vendor_profiles" already exists, skipping
+NOTICE (42701): column "deposit_percentage" of relation "vendor_profiles" already exists, skipping
+NOTICE (42701): column "deposit_refundable" of relation "vendor_profiles" already exists, skipping
+NOTICE (42701): column "deposit_terms" of relation "vendor_profiles" already exists, skipping
+Applying migration 20260428145000_add_venue_unique_features.sql...
+Applying migration 20260428150000_add_builder_venue_booking_requests.sql...
+NOTICE (00000): policy "Organizers can create venue booking requests" for relation "public.venue_bookings" does not exist, skipping
+Applying migration 20260428151000_enhance_vendor_offerings_services.sql...
+NOTICE (00000): constraint "vendor_offerings_base_price_check" of relation "vendor_offerings" does not exist, skipping
+NOTICE (00000): constraint "vendor_offerings_duration_hours_check" of relation "vendor_offerings" does not exist, skipping
+NOTICE (00000): constraint "vendor_offerings_max_capacity_check" of relation "vendor_offerings" does not exist, skipping
+NOTICE (00000): constraint "vendor_offerings_pricing_model_check" of relation "vendor_offerings" does not exist, skipping
+NOTICE (00000): constraint "vendor_offerings_service_category_check" of relation "vendor_offerings" does not exist, skipping
+NOTICE (00000): constraint "vendor_offerings_portfolio_images_limit_check" of relation "vendor_offerings" does not exist, skipping
+NOTICE (00000): trigger "update_vendor_offerings_updated_at" for relation "public.vendor_offerings" does not exist, skipping
+Applying migration 20260428152000_add_vendor_availability_calendar.sql...
+NOTICE (00000): policy "Organizers can create vendor booking requests" for relation "public.vendor_bookings" does not exist, skipping
+NOTICE (00000): policy "Vendors can update own vendor bookings" for relation "public.vendor_bookings" does not exist, skipping
+NOTICE (00000): policy "Anyone can view vendor availability" for relation "public.vendor_availability" does not exist, skipping
+NOTICE (00000): policy "Vendors can manage own availability" for relation "public.vendor_availability" does not exist, skipping
+NOTICE (00000): policy "Service role can manage vendor availability" for relation "public.vendor_availability" does not exist, skipping
+NOTICE (00000): trigger "update_vendor_availability_updated_at" for relation "public.vendor_availability" does not exist, skipping
+NOTICE (00000): trigger "prevent_vendor_double_booking_before_write" for relation "public.vendor_bookings" does not exist, skipping
+NOTICE (00000): trigger "sync_vendor_booking_availability_after_write" for relation "public.vendor_bookings" does not exist, skipping
+Applying migration 20260428153000_add_vendor_deposit_payment_terms.sql...
+NOTICE (42701): column "requires_deposit" of relation "vendor_profiles" already exists, skipping
+NOTICE (42701): column "deposit_amount" of relation "vendor_profiles" already exists, skipping
+NOTICE (42701): column "deposit_type" of relation "vendor_profiles" already exists, skipping
+NOTICE (42701): column "deposit_percentage" of relation "vendor_profiles" already exists, skipping
+NOTICE (42701): column "deposit_refundable" of relation "vendor_profiles" already exists, skipping
+NOTICE (42701): column "deposit_terms" of relation "vendor_profiles" already exists, skipping
+Applying migration 20260428154000_add_vendor_reviews_system.sql...
+NOTICE (00000): policy "Vendors can respond to vendor reviews" for relation "public.reviews" does not exist, skipping
+NOTICE (00000): trigger "sync_vendor_review_stats_after_write" for relation "public.reviews" does not exist, skipping
+Applying migration 20260428160000_add_vendor_stripe_accounts.sql...
+NOTICE (00000): trigger "update_vendor_stripe_accounts_updated_at" for relation "public.vendor_stripe_accounts" does not exist, skipping
+NOTICE (00000): policy "Vendors can view own stripe account" for relation "public.vendor_stripe_accounts" does not exist, skipping
+NOTICE (00000): policy "Vendors can create own stripe account" for relation "public.vendor_stripe_accounts" does not exist, skipping
+NOTICE (00000): policy "Vendors can update own stripe account" for relation "public.vendor_stripe_accounts" does not exist, skipping
+Applying migration 20260428161000_add_vendor_transactions.sql...
+NOTICE (00000): policy "Builders can view own vendor transactions" for relation "public.vendor_transactions" does not exist, skipping
+NOTICE (00000): policy "Vendors can view own vendor transactions" for relation "public.vendor_transactions" does not exist, skipping
+Applying migration 20260428161500_restrict_vendor_review_response_updates.sql...
+NOTICE (00000): trigger "restrict_vendor_review_response_updates_before_update" for relation "public.reviews" does not exist, skipping
+Applying migration 20260428162000_add_vendor_invoices.sql...
+NOTICE (00000): constraint "vendor_profiles_default_tax_rate_check" of relation "vendor_profiles" does not exist, skipping
+NOTICE (00000): trigger "update_vendor_invoices_updated_at" for relation "public.vendor_invoices" does not exist, skipping
+NOTICE (00000): policy "Vendors can view own invoices" for relation "public.vendor_invoices" does not exist, skipping
+NOTICE (00000): policy "Builders can view own invoices" for relation "public.vendor_invoices" does not exist, skipping
+NOTICE (00000): policy "Users can view own invoices" for relation "storage.objects" does not exist, skipping
+NOTICE (00000): policy "Service role full access invoices storage" for relation "storage.objects" does not exist, skipping
+Applying migration 20260428163000_add_builder_event_billing.sql...
+NOTICE (42710): extension "uuid-ossp" already exists, skipping
+NOTICE (00000): constraint "builder_profiles_billing_tier_check" of relation "builder_profiles" does not exist, skipping
+NOTICE (00000): constraint "builder_profiles_free_events_check" of relation "builder_profiles" does not exist, skipping
+NOTICE (00000): constraint "builder_profiles_paid_event_credits_check" of relation "builder_profiles" does not exist, skipping
+NOTICE (00000): constraint "subscription_plans_plan_type_check" of relation "subscription_plans" does not exist, skipping
+NOTICE (00000): constraint "subscription_plans_billing_interval_check" of relation "subscription_plans" does not exist, skipping
+NOTICE (00000): constraint "builder_subscriptions_plan_type_check" of relation "builder_subscriptions" does not exist, skipping
+NOTICE (00000): policy "Builders view own transactions" for relation "public.platform_fee_transactions" does not exist, skipping
+NOTICE (00000): policy "Builders view own usage" for relation "public.builder_event_usage" does not exist, skipping
+NOTICE (00000): policy "Builders manage own payment methods" for relation "public.builder_payment_methods" does not exist, skipping
+NOTICE (00000): policy "Service role full access fees" for relation "public.platform_fee_transactions" does not exist, skipping
+NOTICE (00000): policy "Service role full access usage" for relation "public.builder_event_usage" does not exist, skipping
+NOTICE (00000): policy "Service role full access payment methods" for relation "public.builder_payment_methods" does not exist, skipping
+NOTICE (00000): trigger "update_platform_fees_updated_at" for relation "public.platform_fee_transactions" does not exist, skipping
+NOTICE (00000): trigger "update_payment_methods_updated_at" for relation "public.builder_payment_methods" does not exist, skipping
+Applying migration 20260428164500_add_vendor_booking_refunds.sql...
+NOTICE (00000): constraint "vendor_bookings_refund_amount_check" of relation "vendor_bookings" does not exist, skipping
+Applying migration 20260428170000_add_vendor_messaging.sql...
+NOTICE (00000): trigger "update_vendor_message_threads_updated_at" for relation "public.vendor_message_threads" does not exist, skipping
+NOTICE (00000): policy "Builders and vendors can view their message threads" for relation "public.vendor_message_threads" does not exist, skipping
+NOTICE (00000): policy "Builders and vendors can create booking message threads" for relation "public.vendor_message_threads" does not exist, skipping
+NOTICE (00000): policy "Builders and vendors can update their message threads" for relation "public.vendor_message_threads" does not exist, skipping
+NOTICE (00000): policy "Builders and vendors can view thread messages" for relation "public.vendor_messages" does not exist, skipping
+NOTICE (00000): policy "Builders and vendors can send thread messages" for relation "public.vendor_messages" does not exist, skipping
+NOTICE (00000): policy "Builders and vendors can update read receipts" for relation "public.vendor_messages" does not exist, skipping
+NOTICE (00000): policy "Builders and vendors can manage typing indicators" for relation "public.vendor_message_typing_indicators" does not exist, skipping
+NOTICE (00000): policy "Thread participants can view message attachments" for relation "storage.objects" does not exist, skipping
+NOTICE (00000): policy "Thread participants can upload message attachments" for relation "storage.objects" does not exist, skipping
+NOTICE (00000): policy "Thread participants can delete own message attachments" for relation "storage.objects" does not exist, skipping
+Applying migration 20260428171000_enhance_document_file_library.sql...
+NOTICE (00000): constraint "documents_file_type_check" of relation "documents" does not exist, skipping
+NOTICE (00000): constraint "documents_version_check" of relation "documents" does not exist, skipping
+Applying migration 20260428172000_add_vendor_analytics.sql...
+NOTICE (00000): materialized view "vendor_analytics" does not exist, skipping
+Applying migration 20260428173000_enhance_notifications_system.sql...
+NOTICE (42701): column "type" of relation "notifications" already exists, skipping
+NOTICE (42701): column "link" of relation "notifications" already exists, skipping
+NOTICE (42701): column "metadata" of relation "notifications" already exists, skipping
+NOTICE (00000): policy "Users can view their notification preferences" for relation "public.notification_preferences" does not exist, skipping
+NOTICE (00000): policy "Users can insert their notification preferences" for relation "public.notification_preferences" does not exist, skipping
+NOTICE (00000): policy "Users can update their notification preferences" for relation "public.notification_preferences" does not exist, skipping
+NOTICE (00000): trigger "update_notification_preferences_updated_at" for relation "public.notification_preferences" does not exist, skipping
+NOTICE (00000): trigger "notify_vendor_booking_events_after_write" for relation "public.vendor_bookings" does not exist, skipping
+NOTICE (00000): trigger "notify_vendor_transaction_events_after_write" for relation "public.vendor_transactions" does not exist, skipping
+NOTICE (00000): trigger "notify_review_events_after_insert" for relation "public.reviews" does not exist, skipping
+Applying migration 20260429120000_add_builder_ticketing_connections.sql...
+NOTICE (00000): trigger "update_builder_ticketing_connections_updated_at" for relation "public.builder_ticketing_connections" does not exist, skipping
+NOTICE (00000): policy "Builders can view own ticketing connections" for relation "public.builder_ticketing_connections" does not exist, skipping
+NOTICE (00000): policy "Builders can create own ticketing connections" for relation "public.builder_ticketing_connections" does not exist, skipping
+NOTICE (00000): policy "Builders can update own ticketing connections" for relation "public.builder_ticketing_connections" does not exist, skipping
+NOTICE (00000): trigger "update_app_jobs_updated_at" for relation "public.app_jobs" does not exist, skipping
+NOTICE (00000): policy "Service role can manage app jobs" for relation "public.app_jobs" does not exist, skipping
+Applying migration 20260429130000_add_event_team_members.sql...
+Applying migration 20260429131000_add_event_tasks.sql...
+Applying migration 20260430120000_add_saved_venues.sql...
+NOTICE (00000): policy "Users can view own saved venues" for relation "public.saved_venues" does not exist, skipping
+NOTICE (00000): policy "Users can save venues" for relation "public.saved_venues" does not exist, skipping
+NOTICE (00000): policy "Users can update own saved venues" for relation "public.saved_venues" does not exist, skipping
+NOTICE (00000): policy "Users can remove own saved venues" for relation "public.saved_venues" does not exist, skipping
+Applying migration 20260430133000_add_modern_message_booking_refs.sql...
+NOTICE (00000): constraint "messages_venue_booking_id_fkey" of relation "messages" does not exist, skipping
+NOTICE (00000): constraint "messages_thread_or_booking_check" of relation "messages" does not exist, skipping
+Applying migration 20260430134500_add_growth_path_indexes.sql...
+NOTICE (42P07): relation "idx_venue_bookings_event" already exists, skipping
+NOTICE (42P07): relation "idx_vendor_bookings_event" already exists, skipping
+NOTICE (42P07): relation "idx_vendor_messages_thread_created" already exists, skipping
+Applying migration 20260430143000_add_vendor_manual_availability_rpc.sql...
+Applying migration 20260430150000_add_venue_stripe_accounts.sql...
+NOTICE (00000): trigger "update_venue_stripe_accounts_updated_at" for relation "public.venue_stripe_accounts" does not exist, skipping
+NOTICE (00000): policy "Venue owners can view own stripe account" for relation "public.venue_stripe_accounts" does not exist, skipping
+NOTICE (00000): policy "Venue owners can create own stripe account" for relation "public.venue_stripe_accounts" does not exist, skipping
+NOTICE (00000): policy "Venue owners can update own stripe account" for relation "public.venue_stripe_accounts" does not exist, skipping
+Applying migration 20260430161000_update_builder_billing_pricing.sql...
+NOTICE (42701): column "plan_type" of relation "subscription_plans" already exists, skipping
+NOTICE (42701): column "price" of relation "subscription_plans" already exists, skipping
+NOTICE (42701): column "updated_at" of relation "subscription_plans" already exists, skipping
+Applying migration 20260430172000_add_builder_payout_accounts.sql...
+NOTICE (00000): trigger "update_builder_stripe_accounts_updated_at" for relation "public.builder_stripe_accounts" does not exist, skipping
+NOTICE (00000): policy "Builders can view own stripe account" for relation "public.builder_stripe_accounts" does not exist, skipping
+NOTICE (00000): policy "Builders can create own stripe account" for relation "public.builder_stripe_accounts" does not exist, skipping
+NOTICE (00000): policy "Builders can update own stripe account" for relation "public.builder_stripe_accounts" does not exist, skipping
+Applying migration 20260504000000_add_catalog_claim_fields.sql...
+Applying migration 20260504000001_make_catalog_owner_fields_nullable.sql...
+NOTICE (00000): index "idx_vendor_profiles_user_id_unique_nonnull" does not exist, skipping
+Applying migration 20260504000002_agent_planner_schema.sql...
+NOTICE (00000): trigger "update_plans_updated_at" for relation "public.plans" does not exist, skipping
+NOTICE (00000): trigger "update_agent_actions_updated_at" for relation "public.agent_actions" does not exist, skipping
+NOTICE (00000): constraint "agent_actions_approval_id_fkey" of relation "agent_actions" does not exist, skipping
+NOTICE (00000): trigger "update_approvals_updated_at" for relation "public.approvals" does not exist, skipping
+NOTICE (00000): trigger "update_agent_authorizations_updated_at" for relation "public.agent_authorizations" does not exist, skipping
+NOTICE (00000): trigger "update_templates_updated_at" for relation "public.templates" does not exist, skipping
+NOTICE (00000): trigger "update_admin_tasks_updated_at" for relation "public.admin_tasks" does not exist, skipping
+NOTICE (00000): policy "Users can view own plans" for relation "public.plans" does not exist, skipping
+NOTICE (00000): policy "Users can create own plans" for relation "public.plans" does not exist, skipping
+NOTICE (00000): policy "Users can update own plans" for relation "public.plans" does not exist, skipping
+NOTICE (00000): policy "Users can delete own plans" for relation "public.plans" does not exist, skipping
+NOTICE (00000): policy "Users can view own plan messages" for relation "public.plan_messages" does not exist, skipping
+NOTICE (00000): policy "Users can create own plan messages" for relation "public.plan_messages" does not exist, skipping
+NOTICE (00000): policy "Users can update own plan messages" for relation "public.plan_messages" does not exist, skipping
+NOTICE (00000): policy "Users can delete own plan messages" for relation "public.plan_messages" does not exist, skipping
+NOTICE (00000): policy "Users can view own plan versions" for relation "public.plan_versions" does not exist, skipping
+NOTICE (00000): policy "Users can create own plan versions" for relation "public.plan_versions" does not exist, skipping
+NOTICE (00000): policy "Users can view own recommendations" for relation "public.recommendations" does not exist, skipping
+NOTICE (00000): policy "Users can create own recommendations" for relation "public.recommendations" does not exist, skipping
+NOTICE (00000): policy "Users can update own recommendations" for relation "public.recommendations" does not exist, skipping
+NOTICE (00000): policy "Users can delete own recommendations" for relation "public.recommendations" does not exist, skipping
+NOTICE (00000): policy "Users can view own agent actions" for relation "public.agent_actions" does not exist, skipping
+NOTICE (00000): policy "Users can create own agent actions" for relation "public.agent_actions" does not exist, skipping
+NOTICE (00000): policy "Users can update own agent actions" for relation "public.agent_actions" does not exist, skipping
+NOTICE (00000): policy "Users can view own approvals" for relation "public.approvals" does not exist, skipping
+NOTICE (00000): policy "Users can create own approvals" for relation "public.approvals" does not exist, skipping
+NOTICE (00000): policy "Users can update own approvals" for relation "public.approvals" does not exist, skipping
+NOTICE (00000): policy "Users can view own agent authorizations" for relation "public.agent_authorizations" does not exist, skipping
+NOTICE (00000): policy "Users can create own agent authorizations" for relation "public.agent_authorizations" does not exist, skipping
+NOTICE (00000): policy "Users can update own agent authorizations" for relation "public.agent_authorizations" does not exist, skipping
+NOTICE (00000): policy "Users can delete own agent authorizations" for relation "public.agent_authorizations" does not exist, skipping
+NOTICE (00000): policy "Users can view own templates" for relation "public.templates" does not exist, skipping
+NOTICE (00000): policy "Users can create own templates" for relation "public.templates" does not exist, skipping
+NOTICE (00000): policy "Users can update own templates" for relation "public.templates" does not exist, skipping
+NOTICE (00000): policy "Users can delete own templates" for relation "public.templates" does not exist, skipping
+NOTICE (00000): policy "Users can view own template runs" for relation "public.template_runs" does not exist, skipping
+NOTICE (00000): policy "Users can create own template runs" for relation "public.template_runs" does not exist, skipping
+NOTICE (00000): policy "Users can update own template runs" for relation "public.template_runs" does not exist, skipping
+NOTICE (00000): policy "Users can view own exports" for relation "public.exports" does not exist, skipping
+NOTICE (00000): policy "Users can create own exports" for relation "public.exports" does not exist, skipping
+NOTICE (00000): policy "Users can view own audit logs" for relation "public.audit_logs" does not exist, skipping
+NOTICE (00000): policy "Users can create own audit logs" for relation "public.audit_logs" does not exist, skipping
+NOTICE (00000): policy "Users can view own admin tasks" for relation "public.admin_tasks" does not exist, skipping
+NOTICE (00000): policy "Users can create own admin tasks" for relation "public.admin_tasks" does not exist, skipping
+NOTICE (00000): policy "Users can update own admin tasks" for relation "public.admin_tasks" does not exist, skipping
+NOTICE (00000): policy "Users can view own historical event signals" for relation "public.historical_event_signals" does not exist, skipping
+NOTICE (00000): policy "Users can create own historical event signals" for relation "public.historical_event_signals" does not exist, skipping
+NOTICE (00000): policy "Users can update own historical event signals" for relation "public.historical_event_signals" does not exist, skipping
+NOTICE (00000): policy "Users can delete own historical event signals" for relation "public.historical_event_signals" does not exist, skipping
+NOTICE (00000): policy "Authenticated users can read global signals" for relation "public.historical_event_signals" does not exist, skipping
+NOTICE (00000): policy "Users can manage own signals" for relation "public.historical_event_signals" does not exist, skipping
+NOTICE (00000): policy "Service role can insert global signals" for relation "public.historical_event_signals" does not exist, skipping
+Applying migration 20260504000003_fix_historical_event_signals_scope.sql...
+NOTICE (00000): policy "Users can view own historical event signals" for relation "public.historical_event_signals" does not exist, skipping
+NOTICE (00000): policy "Users can create own historical event signals" for relation "public.historical_event_signals" does not exist, skipping
+NOTICE (00000): policy "Users can update own historical event signals" for relation "public.historical_event_signals" does not exist, skipping
+NOTICE (00000): policy "Users can delete own historical event signals" for relation "public.historical_event_signals" does not exist, skipping
+NOTICE (00000): policy "signals_owner" for relation "public.historical_event_signals" does not exist, skipping
+NOTICE (00000): policy "signals_readable_by_authenticated" for relation "public.historical_event_signals" does not exist, skipping
+NOTICE (00000): policy "signals_insert_service_role_only" for relation "public.historical_event_signals" does not exist, skipping
+Applying migration 20260504000004_venues_add_rev_share_fields.sql...
+NOTICE (42701): column "ticket_sales_share_enabled" of relation "venues" already exists, skipping
+Applying migration 20260504000005_agent_action_approval_booking_flow.sql...
+NOTICE (00000): constraint "approvals_requested_amount_cents_check" of relation "approvals" does not exist, skipping
+NOTICE (00000): constraint "approvals_authorized_amount_cents_check" of relation "approvals" does not exist, skipping
+Applying migration 20260504000006_add_event_type_candidates.sql...
+NOTICE (00000): policy "Users can create own event type candidates" for relation "public.event_type_candidates" does not exist, skipping
+NOTICE (00000): policy "Users can view own event type candidates" for relation "public.event_type_candidates" does not exist, skipping
+Applying migration 20260504000007_add_planner_opportunity_marketplace.sql...
+NOTICE (00000): trigger "update_venue_opportunity_briefs_updated_at" for relation "public.venue_opportunity_briefs" does not exist, skipping
+NOTICE (00000): trigger "update_venue_opportunity_invites_updated_at" for relation "public.venue_opportunity_invites" does not exist, skipping
+NOTICE (00000): policy "Builders can manage own opportunity briefs" for relation "public.venue_opportunity_briefs" does not exist, skipping
+NOTICE (00000): policy "Builders can read own opportunity invites" for relation "public.venue_opportunity_invites" does not exist, skipping
+NOTICE (00000): policy "Builders can manage own opportunity invites" for relation "public.venue_opportunity_invites" does not exist, skipping
+NOTICE (00000): policy "Claimed venues can read own opportunity invites" for relation "public.venue_opportunity_invites" does not exist, skipping
+NOTICE (00000): policy "Claimed vendors can read own opportunity invites" for relation "public.venue_opportunity_invites" does not exist, skipping
+Applying migration 20260504000008_add_ticketing_tier_analytics.sql...
+NOTICE (00000): constraint "event_sales_data_ticket_tier_category_check" of relation "event_sales_data" does not exist, skipping
+NOTICE (00000): constraint "imported_attendees_ticket_tier_category_check" of relation "imported_attendees" does not exist, skipping
+Applying migration 20260504000009_harden_planner_persistence.sql...
+NOTICE (00000): trigger "enforce_planner_plan_status_transition" for relation "public.plans" does not exist, skipping
+NOTICE (42701): column "plan_id" of relation "approvals" already exists, skipping
+NOTICE (00000): policy "Users can view own planner plan updates" for relation "public.planner_plan_updates" does not exist, skipping
+NOTICE (00000): policy "Users can create own planner plan updates" for relation "public.planner_plan_updates" does not exist, skipping
+Applying migration 20260504000010_add_venue_opportunity_queue_flow.sql...
+Applying migration 20260504000011_add_opportunity_email_jobs.sql...
+NOTICE (00000): policy "Service role can manage webhook logs" for relation "public.webhook_logs" does not exist, skipping
+Applying migration 20260504000012_add_concierge_actions.sql...
+NOTICE (00000): policy "Service role can manage concierge actions" for relation "public.concierge_actions" does not exist, skipping
+NOTICE (00000): policy "Service role can manage admin audit log" for relation "public.admin_audit_log" does not exist, skipping
+Applying migration 20260504000013_add_partnership_workspaces.sql...
+NOTICE (00000): policy "Builders can manage own partnership threads" for relation "public.partnership_threads" does not exist, skipping
+NOTICE (00000): policy "Builders can manage own partnership messages" for relation "public.partnership_messages" does not exist, skipping
+NOTICE (00000): policy "Builders can manage own partnership milestones" for relation "public.partnership_milestones" does not exist, skipping
+NOTICE (00000): policy "Builders can manage own partnership documents" for relation "public.partnership_documents" does not exist, skipping
+Applying migration 20260504000014_add_security_observability_hardening.sql...
+NOTICE (00000): policy "Users can view own agent action audit logs" for relation "public.agent_action_audit_log" does not exist, skipping
+NOTICE (00000): policy "Users can create own agent action audit logs" for relation "public.agent_action_audit_log" does not exist, skipping
+NOTICE (00000): policy "Service role can manage agent action audit logs" for relation "public.agent_action_audit_log" does not exist, skipping
+NOTICE (00000): policy "Service role can manage error logs" for relation "public.error_logs" does not exist, skipping
+Applying migration 20260504000015_add_vendor_opportunity_queue_flow.sql...
+NOTICE (00000): policy "Builders can manage own vendor opportunity briefs" for relation "public.vendor_opportunity_briefs" does not exist, skipping
+NOTICE (00000): policy "Builders can read own vendor opportunity invites" for relation "public.vendor_opportunity_invites" does not exist, skipping
+NOTICE (00000): policy "Builders can manage own vendor opportunity invites" for relation "public.vendor_opportunity_invites" does not exist, skipping
+NOTICE (00000): policy "Service role can manage vendor opportunity briefs" for relation "public.vendor_opportunity_briefs" does not exist, skipping
+NOTICE (00000): policy "Service role can manage vendor opportunity invites" for relation "public.vendor_opportunity_invites" does not exist, skipping
+Applying migration 20260504000016_add_planner_deposit_payments.sql...
+NOTICE (00000): trigger "update_payment_intents_updated_at" for relation "public.payment_intents" does not exist, skipping
+NOTICE (00000): trigger "update_payouts_updated_at" for relation "public.payouts" does not exist, skipping
+NOTICE (00000): policy "Builders can read own planner payment intents" for relation "public.payment_intents" does not exist, skipping
+NOTICE (00000): policy "Builders can insert own planner payment intents" for relation "public.payment_intents" does not exist, skipping
+NOTICE (00000): policy "Builders can read own planner payouts" for relation "public.payouts" does not exist, skipping
+NOTICE (00000): policy "Service role can manage planner payment intents" for relation "public.payment_intents" does not exist, skipping
+NOTICE (00000): policy "Service role can manage planner payouts" for relation "public.payouts" does not exist, skipping
+Applying migration 20260504000017_align_ticketing_tiers_and_partiful.sql...
+Applying migration 20260504000018_add_provider_connections.sql...
+NOTICE (00000): trigger "update_provider_connections_updated_at" for relation "public.provider_connections" does not exist, skipping
+NOTICE (00000): policy "Users can view own provider connections" for relation "public.provider_connections" does not exist, skipping
+NOTICE (00000): policy "Users can create own provider connections" for relation "public.provider_connections" does not exist, skipping
+NOTICE (00000): policy "Users can update own provider connections" for relation "public.provider_connections" does not exist, skipping
+NOTICE (00000): policy "Service role can manage provider connections" for relation "public.provider_connections" does not exist, skipping
+Applying migration 20260506000000_add_signup_economics_columns.sql...
+Applying migration 20260507000000_add_agent_run_logs.sql...
+NOTICE (00000): policy "Users can view own agent runs" for relation "public.agent_runs" does not exist, skipping
+NOTICE (00000): policy "Users can create own agent runs" for relation "public.agent_runs" does not exist, skipping
+Applying migration 20260507000001_extend_agent_run_logging.sql...
+Applying migration 20260507000002_add_agent_trigger_metadata.sql...
+NOTICE (00000): constraint "venue_opportunity_briefs_approval_status_check" of relation "venue_opportunity_briefs" does not exist, skipping
+NOTICE (00000): constraint "vendor_opportunity_briefs_approval_status_check" of relation "vendor_opportunity_briefs" does not exist, skipping
+Applying migration 20260508000000_expand_venue_taxonomy.sql...
+NOTICE (00000): policy "Anyone can read archetypes" for relation "public.event_archetypes" does not exist, skipping
+NOTICE (00000): policy "Anyone can read archetype aliases" for relation "public.event_archetype_aliases" does not exist, skipping
+Applying migration 20260508000001_add_catalog_gap_task_type.sql...
+NOTICE (00000): constraint "admin_tasks_type_check" of relation "admin_tasks" does not exist, skipping
+NOTICE (00000): constraint "admin_tasks_priority_check" of relation "admin_tasks" does not exist, skipping
+Applying migration 20260513000000_add_vendor_invite_and_rate_agreements.sql...
+NOTICE (00000): constraint "vendor_profiles_claim_status_check" of relation "vendor_profiles" does not exist, skipping
+NOTICE (00000): constraint "vendor_profiles_user_claim_status_check" of relation "vendor_profiles" does not exist, skipping
+NOTICE (00000): policy "Organizers can view own vendor relationships" for relation "public.organizer_vendor_relationships" does not exist, skipping
+NOTICE (00000): policy "Organizers can insert own vendor relationships" for relation "public.organizer_vendor_relationships" does not exist, skipping
+NOTICE (00000): policy "Organizers can update own vendor relationships" for relation "public.organizer_vendor_relationships" does not exist, skipping
+NOTICE (00000): policy "Organizers can delete own vendor relationships" for relation "public.organizer_vendor_relationships" does not exist, skipping
+NOTICE (00000): policy "Parties can view vendor rate agreements" for relation "public.vendor_rate_agreements" does not exist, skipping
+NOTICE (00000): policy "Parties can insert vendor rate agreements" for relation "public.vendor_rate_agreements" does not exist, skipping
+NOTICE (00000): policy "Parties can update vendor rate agreements" for relation "public.vendor_rate_agreements" does not exist, skipping
+NOTICE (00000): view "organizer_vendor_relationships_vendor_view" does not exist, skipping
+Applying migration 20260520000000_expand_vendor_service_catalog_constraints.sql...
+Applying migration 20260527000000_update_builder_free_events.sql...
+Applying migration 20260527000001_normalize_marketplace_money_cents.sql...
+NOTICE (00000): constraint "vendor_transactions_amount_cents_check" of relation "vendor_transactions" does not exist, skipping
+NOTICE (00000): constraint "vendor_transactions_platform_fee_cents_check" of relation "vendor_transactions" does not exist, skipping
+NOTICE (00000): constraint "vendor_transactions_stripe_fee_cents_check" of relation "vendor_transactions" does not exist, skipping
+NOTICE (00000): constraint "vendor_transactions_vendor_payout_cents_check" of relation "vendor_transactions" does not exist, skipping
+NOTICE (00000): trigger "sync_vendor_transaction_money_units" for relation "public.vendor_transactions" does not exist, skipping
+NOTICE (00000): constraint "venues_hourly_rate_cents_check" of relation "venues" does not exist, skipping
+NOTICE (00000): constraint "venues_daily_rate_cents_check" of relation "venues" does not exist, skipping
+NOTICE (00000): constraint "venues_price_per_night_cents_check" of relation "venues" does not exist, skipping
+NOTICE (00000): constraint "venues_deposit_amount_cents_check" of relation "venues" does not exist, skipping
+NOTICE (00000): constraint "venues_per_head_kickback_cents_check" of relation "venues" does not exist, skipping
+NOTICE (00000): trigger "sync_venue_money_units" for relation "public.venues" does not exist, skipping
+Applying migration 20260527000002_kickback_settlement.sql...
+NOTICE (00000): constraint "event_kickback_agreements_attendance_confidence_check" of relation "event_kickback_agreements" does not exist, skipping
+NOTICE (00000): constraint "event_kickback_agreements_revenue_confidence_check" of relation "event_kickback_agreements" does not exist, skipping
+NOTICE (00000): constraint "event_kickback_agreements_reported_revenue_cents_check" of relation "event_kickback_agreements" does not exist, skipping
+NOTICE (00000): constraint "event_kickback_agreements_revenue_extracted_value_cents_check" of relation "event_kickback_agreements" does not exist, skipping
+NOTICE (00000): constraint "event_kickback_agreements_attendance_extracted_value_check" of relation "event_kickback_agreements" does not exist, skipping
+NOTICE (00000): constraint "event_kickback_agreements_bar_revenue_share_percent_check" of relation "event_kickback_agreements" does not exist, skipping
+NOTICE (00000): constraint "event_kickback_agreements_ticket_revenue_share_percent_check" of relation "event_kickback_agreements" does not exist, skipping
+NOTICE (42701): column "stripe_transfer_reversal_id" of relation "kickback_payments" already exists, skipping
+NOTICE (00000): constraint "kickback_payments_settlement_method_check" of relation "kickback_payments" does not exist, skipping
+NOTICE (00000): constraint "kickback_payments_amount_cents_check" of relation "kickback_payments" does not exist, skipping
+NOTICE (00000): constraint "kickback_payments_processing_fee_cents_check" of relation "kickback_payments" does not exist, skipping
+NOTICE (00000): constraint "kickback_payments_builder_payout_cents_check" of relation "kickback_payments" does not exist, skipping
+NOTICE (00000): constraint "kickback_payments_refund_amount_cents_check" of relation "kickback_payments" does not exist, skipping
+NOTICE (00000): constraint "venues_last_overdue_count_notified_check" of relation "venues" does not exist, skipping
+Applying migration 20260530000000_venue_payment_transactions.sql...
+NOTICE (00000): trigger "update_venue_payment_transactions_updated_at" for relation "public.venue_payment_transactions" does not exist, skipping
+NOTICE (00000): policy "Builders can read own venue payment transactions" for relation "public.venue_payment_transactions" does not exist, skipping
+NOTICE (00000): policy "Venue owners can read own venue payment transactions" for relation "public.venue_payment_transactions" does not exist, skipping
+NOTICE (00000): policy "Service role can manage venue payment transactions" for relation "public.venue_payment_transactions" does not exist, skipping
+Applying migration 20260530000001_venue_payment_transactions_constraints.sql...
+Applying migration 20260601000000_add_creator_gmail_outreach_loop.sql...
+NOTICE (00000): trigger "update_outreach_threads_updated_at" for relation "public.outreach_threads" does not exist, skipping
+NOTICE (00000): policy "Creators can view own email accounts" for relation "public.creator_email_accounts" does not exist, skipping
+NOTICE (00000): policy "Creators can create own email accounts" for relation "public.creator_email_accounts" does not exist, skipping
+NOTICE (00000): policy "Creators can update own email accounts" for relation "public.creator_email_accounts" does not exist, skipping
+NOTICE (00000): policy "Service role can manage email accounts" for relation "public.creator_email_accounts" does not exist, skipping
+NOTICE (00000): policy "Creators can view own outreach threads" for relation "public.outreach_threads" does not exist, skipping
+NOTICE (00000): policy "Creators can create own outreach threads" for relation "public.outreach_threads" does not exist, skipping
+NOTICE (00000): policy "Creators can update own outreach threads" for relation "public.outreach_threads" does not exist, skipping
+NOTICE (00000): policy "Service role can manage outreach threads" for relation "public.outreach_threads" does not exist, skipping
+NOTICE (00000): policy "Creators can view own outreach messages" for relation "public.outreach_messages" does not exist, skipping
+NOTICE (00000): policy "Creators can create own outreach messages" for relation "public.outreach_messages" does not exist, skipping
+NOTICE (00000): policy "Creators can update own outreach messages" for relation "public.outreach_messages" does not exist, skipping
+NOTICE (00000): policy "Service role can manage outreach messages" for relation "public.outreach_messages" does not exist, skipping
+Applying migration 20260601000001_add_discovery_venues.sql...
+NOTICE (00000): trigger "update_discovery_venues_updated_at" for relation "public.discovery_venues" does not exist, skipping
+NOTICE (00000): constraint "outreach_threads_target_source_check" of relation "outreach_threads" does not exist, skipping
+NOTICE (00000): policy "Authenticated users can read discovery venues" for relation "public.discovery_venues" does not exist, skipping
+NOTICE (00000): policy "Service role can manage discovery venues" for relation "public.discovery_venues" does not exist, skipping
+NOTICE (00000): policy "Authenticated users can read discovery venue signals" for relation "public.discovery_venue_signals" does not exist, skipping
+NOTICE (00000): policy "Service role can manage discovery venue signals" for relation "public.discovery_venue_signals" does not exist, skipping
+NOTICE (00000): policy "Service role can manage discovery venue events" for relation "public.discovery_venue_events" does not exist, skipping
+Applying migration 20260601000002_add_multichannel_outreach.sql...
+NOTICE (00000): constraint "outreach_messages_provider_cost_check" of relation "outreach_messages" does not exist, skipping
+NOTICE (00000): trigger "update_creator_phone_numbers_updated_at" for relation "public.creator_phone_numbers" does not exist, skipping
+NOTICE (00000): trigger "update_venue_contact_profiles_updated_at" for relation "public.venue_contact_profiles" does not exist, skipping
+NOTICE (00000): policy "Creators can view own phone numbers" for relation "public.creator_phone_numbers" does not exist, skipping
+NOTICE (00000): policy "Service role can manage creator phone numbers" for relation "public.creator_phone_numbers" does not exist, skipping
+NOTICE (00000): policy "Authenticated users can read venue contact profiles" for relation "public.venue_contact_profiles" does not exist, skipping
+NOTICE (00000): policy "Service role can manage venue contact profiles" for relation "public.venue_contact_profiles" does not exist, skipping
+NOTICE (00000): policy "Service role can manage outreach compliance events" for relation "public.outreach_compliance_events" does not exist, skipping
+Applying migration 20260601000003_add_outreach_autonomy_policy.sql...
+NOTICE (00000): constraint "outreach_messages_autonomy_status_check" of relation "outreach_messages" does not exist, skipping
+NOTICE (00000): trigger "update_creator_outreach_policies_updated_at" for relation "public.creator_outreach_policies" does not exist, skipping
+NOTICE (00000): policy "Creators can view own outreach policies" for relation "public.creator_outreach_policies" does not exist, skipping
+NOTICE (00000): policy "Creators can create own outreach policies" for relation "public.creator_outreach_policies" does not exist, skipping
+NOTICE (00000): policy "Creators can update own outreach policies" for relation "public.creator_outreach_policies" does not exist, skipping
+NOTICE (00000): policy "Service role can manage outreach policies" for relation "public.creator_outreach_policies" does not exist, skipping
+NOTICE (00000): policy "Creators can view own outreach notifications" for relation "public.outreach_notifications" does not exist, skipping
+NOTICE (00000): policy "Creators can update own outreach notifications" for relation "public.outreach_notifications" does not exist, skipping
+NOTICE (00000): policy "Service role can manage outreach notifications" for relation "public.outreach_notifications" does not exist, skipping
+NOTICE (00000): policy "Creators can view own outreach policy audit logs" for relation "public.outreach_policy_audit_logs" does not exist, skipping
+NOTICE (00000): policy "Service role can manage outreach policy audit logs" for relation "public.outreach_policy_audit_logs" does not exist, skipping
+NOTICE (00000): policy "Creators can view own outreach trust history" for relation "public.creator_outreach_trust_history" does not exist, skipping
+NOTICE (00000): policy "Service role can manage outreach trust history" for relation "public.creator_outreach_trust_history" does not exist, skipping
+Applying migration 20260601000004_add_supply_scout_leads.sql...
+NOTICE (00000): trigger "update_supply_scout_venue_leads_updated_at" for relation "public.supply_scout_venue_leads" does not exist, skipping
+NOTICE (00000): policy "Service role can manage supply scout venue leads" for relation "public.supply_scout_venue_leads" does not exist, skipping
+Applying migration 20260602000000_enable_rls_security_baseline.sql...
+Applying migration 20260602000001_fix_events_collaborators_rls_recursion.sql...
+Applying migration 20260602000002_add_event_cost_commitments.sql...
+NOTICE (00000): trigger "validate_event_cost_commitment_scope" for relation "public.event_cost_commitments" does not exist, skipping
+NOTICE (00000): trigger "update_event_cost_commitments_updated_at" for relation "public.event_cost_commitments" does not exist, skipping
+NOTICE (00000): policy "Org members can view event cost commitments" for relation "public.event_cost_commitments" does not exist, skipping
+NOTICE (00000): policy "Org members can create event cost commitments" for relation "public.event_cost_commitments" does not exist, skipping
+NOTICE (00000): policy "Org members can update event cost commitments" for relation "public.event_cost_commitments" does not exist, skipping
+Applying migration 20260602000003_add_event_evidence_bucket.sql...
+NOTICE (00000): policy "Service role can manage event evidence" for relation "storage.objects" does not exist, skipping
+Applying migration 20260602000004_add_posh_org_ticketing_mapping.sql...
+NOTICE (00000): constraint "event_sales_data_gross_cents_check" of relation "event_sales_data" does not exist, skipping
+NOTICE (00000): trigger "update_unlinked_ticket_events_updated_at" for relation "public.unlinked_ticket_events" does not exist, skipping
+NOTICE (00000): policy "Builders can view own unlinked ticket events" for relation "public.unlinked_ticket_events" does not exist, skipping
+NOTICE (00000): policy "Builders can update own unlinked ticket events" for relation "public.unlinked_ticket_events" does not exist, skipping
+NOTICE (00000): policy "Service role can manage unlinked ticket events" for relation "public.unlinked_ticket_events" does not exist, skipping
+Applying migration 20260602000005_add_eventbrite_oauth_backfill.sql...
+NOTICE (42701): column "last_webhook_received_at" of relation "builder_ticketing_connections" already exists, skipping
+NOTICE (42701): column "last_webhook_event_type" of relation "builder_ticketing_connections" already exists, skipping
+Applying migration 20260602000006_add_event_import_wizard.sql...
+NOTICE (42701): column "field_confidence" of relation "events" already exists, skipping
+NOTICE (00000): trigger "update_event_import_sessions_updated_at" for relation "public.event_import_sessions" does not exist, skipping
+NOTICE (00000): policy "Builders can view own event import sessions" for relation "public.event_import_sessions" does not exist, skipping
+NOTICE (00000): policy "Builders can create own event import sessions" for relation "public.event_import_sessions" does not exist, skipping
+NOTICE (00000): policy "Builders can update own event import sessions" for relation "public.event_import_sessions" does not exist, skipping
+NOTICE (00000): policy "Service role can manage event import sessions" for relation "public.event_import_sessions" does not exist, skipping
+Applying migration 20260602000007_add_event_revenue_terms.sql...
+NOTICE (00000): trigger "validate_event_revenue_term_scope" for relation "public.event_revenue_terms" does not exist, skipping
+NOTICE (00000): trigger "update_event_revenue_terms_updated_at" for relation "public.event_revenue_terms" does not exist, skipping
+NOTICE (00000): policy "Org members can view event revenue terms" for relation "public.event_revenue_terms" does not exist, skipping
+NOTICE (00000): policy "Org members can create event revenue terms" for relation "public.event_revenue_terms" does not exist, skipping
+NOTICE (00000): policy "Org members can update event revenue terms" for relation "public.event_revenue_terms" does not exist, skipping
+NOTICE (00000): policy "Org members can delete event revenue terms" for relation "public.event_revenue_terms" does not exist, skipping
+Applying migration 20260602000008_add_live_recommendations.sql...
+NOTICE (00000): trigger "validate_live_recommendation_scope" for relation "public.live_recommendations" does not exist, skipping
+NOTICE (00000): trigger "update_live_recommendations_updated_at" for relation "public.live_recommendations" does not exist, skipping
+NOTICE (00000): policy "Org members can view live recommendations" for relation "public.live_recommendations" does not exist, skipping
+NOTICE (00000): policy "Org members can create live recommendations" for relation "public.live_recommendations" does not exist, skipping
+NOTICE (00000): policy "Org members can update live recommendations" for relation "public.live_recommendations" does not exist, skipping
+NOTICE (00000): policy "Org members can delete live recommendations" for relation "public.live_recommendations" does not exist, skipping
+Applying migration 20260602000009_restrict_unpublished_vendor_profiles.sql...
+Applying migration 20260603000000_align_discovery_venues_search_index_with_prod.sql...
+Applying migration 20260604000000_add_mobile_planner_read_models.sql...
+NOTICE (00000): trigger "update_plan_budget_updated_at" for relation "public.plan_budget" does not exist, skipping
+NOTICE (00000): trigger "update_plan_budget_lines_updated_at" for relation "public.plan_budget_lines" does not exist, skipping
+NOTICE (00000): policy "Plan owners can view plan budget" for relation "public.plan_budget" does not exist, skipping
+NOTICE (00000): policy "Plan owners can insert plan budget" for relation "public.plan_budget" does not exist, skipping
+NOTICE (00000): policy "Plan owners can update plan budget" for relation "public.plan_budget" does not exist, skipping
+NOTICE (00000): policy "Plan owners can delete plan budget" for relation "public.plan_budget" does not exist, skipping
+NOTICE (00000): policy "Plan owners can view plan budget lines" for relation "public.plan_budget_lines" does not exist, skipping
+NOTICE (00000): policy "Plan owners can insert plan budget lines" for relation "public.plan_budget_lines" does not exist, skipping
+NOTICE (00000): policy "Plan owners can update plan budget lines" for relation "public.plan_budget_lines" does not exist, skipping
+NOTICE (00000): policy "Plan owners can delete plan budget lines" for relation "public.plan_budget_lines" does not exist, skipping
+NOTICE (00000): policy "Plan owners can view plan activity" for relation "public.plan_activity" does not exist, skipping
+NOTICE (00000): policy "Plan owners can insert plan activity" for relation "public.plan_activity" does not exist, skipping
+NOTICE (00000): policy "Plan owners can update plan activity" for relation "public.plan_activity" does not exist, skipping
+NOTICE (00000): policy "Plan owners can delete plan activity" for relation "public.plan_activity" does not exist, skipping
+Applying migration 20260608000000_stripe_connect_business_readiness.sql...
+NOTICE (00000): constraint "stripe_webhook_events_source_check" of relation "stripe_webhook_events" does not exist, skipping
+NOTICE (00000): constraint "stripe_webhook_events_outcome_check" of relation "stripe_webhook_events" does not exist, skipping
+NOTICE (00000): constraint "stripe_webhook_events_duplicate_count_check" of relation "stripe_webhook_events" does not exist, skipping
+NOTICE (00000): policy "Service role can manage stripe webhook events" for relation "public.stripe_webhook_events" does not exist, skipping
+NOTICE (00000): constraint "platform_fee_transactions_amount_cents_check" of relation "platform_fee_transactions" does not exist, skipping
+Applying migration 20260609000000_add_community_host_incentive_foundation.sql...
+NOTICE (00000): trigger "update_community_host_incentive_agreements_updated_at" for relation "public.community_host_incentive_agreements" does not exist, skipping
+NOTICE (00000): trigger "update_community_host_incentive_settlements_updated_at" for relation "public.community_host_incentive_settlements" does not exist, skipping
+NOTICE (00000): policy "Participants can read CHI agreements" for relation "public.community_host_incentive_agreements" does not exist, skipping
+NOTICE (00000): policy "Service role can manage CHI agreements" for relation "public.community_host_incentive_agreements" does not exist, skipping
+NOTICE (00000): policy "Participants can read CHI settlements" for relation "public.community_host_incentive_settlements" does not exist, skipping
+NOTICE (00000): policy "Service role can manage CHI settlements" for relation "public.community_host_incentive_settlements" does not exist, skipping
+Applying migration 20260615000000_add_venue_website_extraction.sql...
+Applying migration 20260616000000_add_community_host_incentive_payments_view.sql...
+Applying migration 20260617000000_add_p0_concurrency_guards.sql...
+NOTICE (00000): trigger "update_builder_event_access_consumptions_updated_at" for relation "public.builder_event_access_consumptions" does not exist, skipping
+NOTICE (00000): policy "Builders can read own event access consumptions" for relation "public.builder_event_access_consumptions" does not exist, skipping
+NOTICE (00000): policy "Service role can manage builder event access consumptions" for relation "public.builder_event_access_consumptions" does not exist, skipping
+Applying migration 20260617000001_add_vendor_stripe_skipped_at.sql...
+Applying migration 20260618000000_add_chi_rate_tables.sql...
+NOTICE (00000): trigger "update_chi_network_defaults_updated_at" for relation "public.chi_network_defaults" does not exist, skipping
+NOTICE (00000): policy "Anyone can read network defaults" for relation "public.chi_network_defaults" does not exist, skipping
+NOTICE (00000): policy "Service role manages network defaults" for relation "public.chi_network_defaults" does not exist, skipping
+NOTICE (00000): policy "Organizers read own rate history" for relation "public.chi_rate_history" does not exist, skipping
+NOTICE (00000): policy "Service role manages rate history" for relation "public.chi_rate_history" does not exist, skipping
+Seeding data from supabase/seed-helpers.sql...
+Seeding data from supabase/seed.sql...
+NOTICE (42P06): schema "seed_helpers" already exists, skipping
+NOTICE (00000): Skipping public.profiles; current schema uses public.users and role-specific profile tables.
+NOTICE (00000): drop cascades to 3 other objects
+Seeding data from supabase/seeds/chi_network_defaults_bootstrap.sql...
+Restarting containers...
+Finished supabase db reset on branch main.
+A new version of Supabase CLI is available: v2.107.0 (currently installed v2.95.4)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli

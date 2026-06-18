@@ -1,0 +1,19 @@
+
+> 3rdspace-webapp@0.1.0 test
+> jest lib/finance/__tests__/chi-rate-resolver --runInBand
+
+(node:99344) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS lib/finance/__tests__/chi-rate-resolver.test.ts
+  resolveChiRate
+    ✓ resolves from measured rate when the group has at least two events (3 ms)
+    ✓ falls back to network default when measured rate has fewer than two events (4 ms)
+    ✓ returns no_rate_available when neither measured nor network rates exist (14 ms)
+    ✓ never returns non-integer cents (10 ms)
+    ✓ rejects forbidden calculation base inputs (5 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       5 passed, 5 total
+Snapshots:   0 total
+Time:        2.172 s
+Ran all test suites matching /lib\/finance\/__tests__\/chi-rate-resolver/i.
