@@ -376,16 +376,24 @@ All reminders stop firing immediately once `charges_enabled = true`.
 
 ### Template implementation notes
 
-- Email templates should live in `lib/email/templates/venue-stripe-reminder/` with four files: `day0.ts`, `day1.ts`, `day7.ts`, and `day14.ts`.
-- Each template should export `render({ venue, organizer, opportunity, amount_cents }) => { subject, body, cta_url }`.
+- Email templates should live in `lib/email/templates/venue-stripe-reminder/`.
+- Reminder templates: `day0.ts`, `day1.ts`, `day7.ts`, and `day14.ts`.
+- Loop-closure templates: `venue-success.ts`, `organizer-payment-processing.ts`, `organizer-venue-declined.ts`, and `venue-decline-confirmation.ts`.
+- Each template should export `render({ venue, organizer, opportunity, amount_cents }) => { subject, html_body, text_body, cta_url }`.
 - Each template must include both HTML and plain-text output.
 - All CTA URLs should include `utm_source=venue_reminder` and the appropriate `utm_campaign`.
 - Use the existing email helper under `lib/email/`; extend it if needed, but do not create a parallel sender.
 - Keep CHI nomenclature compliant. Do not use forbidden terms such as `kickback`, `rev_share`, or `bar_split`.
-- Add snapshot tests in `lib/email/templates/__tests__/venue-stripe-reminder.test.ts`.
+- Add snapshot tests in `lib/email/templates/venue-stripe-reminder/__tests__/`.
 - Add a small copy helper at `lib/copy/archetype-friendly.ts` to translate internal archetype ids into friendly event names.
 - Render `amount_cents` through the existing money helpers so whole-dollar amounts display as `$1,234` and cents display only when needed.
 - Use venue contact name when available; otherwise fall back to venue name. Never render `Hi null` or placeholder text.
+
+### Template triggers
+
+- Templates 1-4: `venue.stripe_setup_reminder` job at scheduled offsets.
+- Templates 5-6: Stripe Connect webhook handler when `account.updated` flips `charges_enabled` from false to true and an active opportunity has a pending payment.
+- Templates 7-8: venue opportunity decline route at `/venue/opportunity/<token>/decline`.
 
 ### Day 0: initial notification
 
@@ -472,8 +480,8 @@ pending because Stripe setup hasn't been finished.
 This is our last automated reminder. Someone from our team will reach out today 
 to help directly.
 
-If you'd rather not move forward with this booking, just reply with "decline" and 
-we'll let [organizer_first_name] know they need to find another space.
+If you'd rather not move forward with this booking, [let [organizer_first_name] know] 
+and they'll find another space.
 
 [ Finish setup → ]
 
@@ -481,6 +489,8 @@ we'll let [organizer_first_name] know they need to find another space.
 ```
 
 CTA URL: same shape as Day 0 with `utm_campaign=day_14`.
+
+Decline link URL: `${BASE_URL}/venue/opportunity/<opportunity_token>/decline?utm_source=venue_reminder&utm_campaign=day_14_decline`.
 
 Simultaneously fire a Sentry alert:
 
@@ -498,7 +508,136 @@ Sentry.captureMessage('venue_stripe_setup_stalled', {
 })
 ```
 
-## 11. Risks
+### Template 5: venue success email after Stripe completion
+
+Subject: `You're connected — [organizer_first_name]'s $[amount] is on its way`
+
+```text
+Hi [contact_name_or_venue_name],
+
+You just finished connecting Stripe. [organizer_first_name]'s payment for the 
+[event_archetype_friendly] at [venue_name] on [event_date_friendly] is processing now.
+
+Here's what to expect:
+- $[amount] will land in your Stripe account
+- Stripe pays out to your bank on their normal schedule (usually 2 business days for new accounts)
+- You'll get an email from Stripe when the payout completes
+
+For future bookings, you're all set — no setup needed next time. We'll send 
+inquiries directly when an organizer is a good match for your space.
+
+[ See your bookings → ]
+
+Thanks for hosting.
+
+— The 3rdPlace team
+```
+
+CTA URL: `${BASE_URL}/venue/dashboard?utm_source=stripe_complete&utm_campaign=venue_success`.
+
+Trigger: Stripe Connect webhook fires on `account.updated` flipping `charges_enabled` from false to true and there is an active opportunity with a pending payment. The reminder cron clears at the same moment.
+
+### Template 6: organizer notification after venue setup
+
+Subject: `[venue_name] is ready — your payment is going through now`
+
+```text
+Hi [organizer_first_name],
+
+[venue_name] just finished their payment setup. Your $[amount] for the 
+[event_archetype_friendly] on [event_date_friendly] is processing now.
+
+You should see the charge on your card within a few minutes. Your booking with 
+[venue_name] is officially confirmed.
+
+[ See your event plan → ]
+
+— The 3rdPlace team
+```
+
+CTA URL: `${BASE_URL}/planner/plans/<plan_id>`.
+
+Trigger: same webhook as Template 5. If the organizer pre-authorized a payment method, Stripe Checkout/payment processing can proceed through the existing approved payment path. If they did not pre-authorize, prompt them to complete checkout. Do not charge without an approval record.
+
+### Template 7: organizer notification when venue declines
+
+Subject: `[venue_name] won't be hosting — let's find another space`
+
+```text
+Hi [organizer_first_name],
+
+[venue_name] just let us know they can't host your [event_archetype_friendly] on 
+[event_date_friendly]. No charges happened — your card hasn't been billed.
+
+The good news: we already have other strong matches for your event.
+
+[ See alternative venues → ]
+
+If you have questions or want to talk through options, just reply to this email.
+
+— The 3rdPlace team
+```
+
+CTA URL: `${BASE_URL}/planner/plans/<plan_id>?action=replace_venue`.
+
+Trigger: venue declined via Template 4 link or explicit decline action from the venue dashboard. The planner should return to the existing event brief and surface the next 3-5 best venue alternatives using the same ranker. If alternatives were already in the candidate set, do not resend original outreach automatically; re-prompt the organizer to pick.
+
+### Template 8: venue decline confirmation
+
+Subject: `We let [organizer_first_name] know — thanks for the heads up`
+
+```text
+Hi [contact_name_or_venue_name],
+
+Got it — we let [organizer_first_name] know that [venue_name] won't be hosting 
+their [event_archetype_friendly] on [event_date_friendly]. They're looking at 
+other spaces now.
+
+A few quick notes for next time:
+
+- Declining is fine. We'd rather know upfront than have the organizer waiting.
+- Your profile is still active. We'll continue surfacing your space to organizers 
+  for events that fit your availability.
+- If your situation has changed (date no longer works, capacity questions, etc.), 
+  you can update your profile anytime.
+
+[ Update your profile → ]
+
+— The 3rdPlace team
+```
+
+CTA URL: `${BASE_URL}/venue/profile/complete?utm_source=decline_confirmation`.
+
+## 11. Phase 2 Section I: Venue Decline Opportunity Route
+
+Create:
+
+- `app/venue/opportunity/[token]/decline/page.tsx` as a server component that renders the confirmation UI.
+- `app/api/venue/opportunity/[token]/decline/route.ts` as the POST handler.
+
+### Page behavior
+
+- Validate token via the existing token validation helper.
+- Render: `Decline [organizer]'s booking for [event] on [date]? They're expecting your space.`
+- Show two buttons: `Confirm decline` as the primary action and `Cancel — I'll respond instead` as the secondary action.
+- Confirm posts to the API route.
+- After decline, render a thank-you state: `Got it — we've let [organizer_first_name] know.`
+- Include a link to `/venue/dashboard`.
+
+### API route behavior
+
+- Validate token and load the venue opportunity invite plus brief.
+- Use optimistic locking: update only where status is not in `accepted`, `declined`, or `expired`.
+- Update `venue_opportunity_invites.status` to `declined_by_venue` and record `declined_at`.
+- Update `venue_opportunity_briefs.status` to reflect at least one venue declined, following the existing status pattern.
+- Cancel any active `venue.stripe_setup_reminder` cycle for this venue and opportunity.
+- Send Template 8 to the venue and Template 7 to the organizer.
+- Add a Sentry breadcrumb with `action='venue_declined_via_email'`, `venue_id`, `opportunity_id`, and `source='day_14_email'`.
+- Return a success response.
+
+This route keeps the Day 14 decline flow simple and avoids inbound email parsing.
+
+## 12. Risks
 
 - Claim binding is trust-sensitive: assigning the wrong owner to a seeded venue would pollute the supply graph.
 - Exposing raw Stripe account ids in public response contexts would be unnecessary and risky.
@@ -506,7 +645,7 @@ Sentry.captureMessage('venue_stripe_setup_stalled', {
 - Adding new dashboard routes would violate the repo contract.
 - Changing signup step structure would violate the stable signup contract.
 
-## 12. Final Recommendation
+## 13. Final Recommendation
 
 **SAFE TO PROCEED TO PHASE 2 AFTER HUMAN REVIEW OF THIS AUDIT**
 

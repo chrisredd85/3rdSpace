@@ -5,3 +5,4 @@
 - 2026-06-19T17:05:00Z: dependency check - all required source files and database type surfaces were present on main.
 - 2026-06-19T17:20:00Z: audit complete - produced `qa-artifacts/venue-claim-flow-audit.md`; no implementation files changed.
 - 2026-06-19T17:30:00Z: prompt addendum - added approved Section G reminder cadence and email templates to the Phase 2 audit notes; no implementation files changed.
+- 2026-06-19T17:40:00Z: prompt addendum - revised Day 14 decline copy to use a click-link, added Templates 5-8, and documented the Phase 2 venue decline route; no implementation files changed.
