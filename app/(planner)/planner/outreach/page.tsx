@@ -10,6 +10,7 @@ import {
   Mail,
   Plus,
   RefreshCw,
+  Search,
   Send,
   ShieldCheck,
   Trash2,
@@ -182,12 +183,20 @@ export default function PlannerOutreachPage() {
               3rdPlace creates the outreach proposal here. The email only sends after you approve it in the planner.
             </p>
           </div>
-          <Button asChild variant="outline">
-            <Link href="/planner/settings/integrations">
-              <ShieldCheck className="h-4 w-4" />
-              Gmail settings
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link href={state?.planId ? `/planner/outreach-search?plan=${state.planId}` : '/planner/outreach-search'}>
+                <Search className="h-4 w-4" />
+                Find venues
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/planner/settings/integrations">
+                <ShieldCheck className="h-4 w-4" />
+                Gmail settings
+              </Link>
+            </Button>
+          </div>
         </header>
 
         {error ? (
