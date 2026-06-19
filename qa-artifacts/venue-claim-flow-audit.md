@@ -364,7 +364,141 @@ Do not create duplicate photo JSONB or duplicate dashboard-only fields. Reuse `v
 5. **Should opportunity response require profile completion?**
    - Recommendation: no. Response should stay low-friction. Profile completion should happen after accept/claim.
 
-## 10. Risks
+## 10. Phase 2 Section G Addendum: Venue Stripe Setup Reminders
+
+This addendum records the approved reminder cadence and template requirements for the Phase 2 implementation prompt. It should replace any more complex reminder cadence in the implementation plan.
+
+### Cadence
+
+Reminder cadence: Day 0 (initial), Day 1 (first follow-up), Day 7 (second reminder), Day 14 (final reminder + admin Sentry alert). All fire from the same `venue.stripe_setup_reminder` job type with a `reminder_kind` parameter discriminating the four templates.
+
+All reminders stop firing immediately once `charges_enabled = true`.
+
+### Template implementation notes
+
+- Email templates should live in `lib/email/templates/venue-stripe-reminder/` with four files: `day0.ts`, `day1.ts`, `day7.ts`, and `day14.ts`.
+- Each template should export `render({ venue, organizer, opportunity, amount_cents }) => { subject, body, cta_url }`.
+- Each template must include both HTML and plain-text output.
+- All CTA URLs should include `utm_source=venue_reminder` and the appropriate `utm_campaign`.
+- Use the existing email helper under `lib/email/`; extend it if needed, but do not create a parallel sender.
+- Keep CHI nomenclature compliant. Do not use forbidden terms such as `kickback`, `rev_share`, or `bar_split`.
+- Add snapshot tests in `lib/email/templates/__tests__/venue-stripe-reminder.test.ts`.
+- Add a small copy helper at `lib/copy/archetype-friendly.ts` to translate internal archetype ids into friendly event names.
+- Render `amount_cents` through the existing money helpers so whole-dollar amounts display as `$1,234` and cents display only when needed.
+- Use venue contact name when available; otherwise fall back to venue name. Never render `Hi null` or placeholder text.
+
+### Day 0: initial notification
+
+Subject: `$[amount] is ready for [venue name] — finish your payment setup`
+
+```text
+Hi [contact_name_or_venue_name],
+
+[organizer_first_name] just accepted [venue_name] for their [event_archetype_friendly] 
+on [event_date_friendly]. They're ready to send you $[amount].
+
+There's one quick step left — you haven't finished connecting Stripe, so we can't 
+route the payment yet. It usually takes about 5 minutes.
+
+[ Finish setup → ]
+
+Once you're connected, [organizer_first_name]'s payment goes through automatically 
+and you'll see it land in your account on Stripe's normal schedule.
+
+Questions? Just reply to this email.
+
+— The 3rdPlace team
+```
+
+CTA URL: `${BASE_URL}/api/venue/stripe/refresh?token=<hmac>&utm_source=venue_reminder&utm_campaign=day_0`
+
+### Day 1: first follow-up
+
+Subject: `Reminder: $[amount] from [organizer_first_name] is waiting`
+
+```text
+Hi [contact_name_or_venue_name],
+
+Quick reminder — [organizer_first_name] is still waiting to pay $[amount] for their 
+[event_archetype_friendly] at [venue_name] on [event_date_friendly].
+
+You haven't finished connecting Stripe yet. It's a one-time setup, takes about 
+5 minutes, and you'll be ready to receive this payment plus any future ones.
+
+[ Finish setup → ]
+
+If now's not a good time or you need help, hit reply — we're happy to walk you through it.
+
+— The 3rdPlace team
+```
+
+CTA URL: same shape as Day 0 with `utm_campaign=day_1`.
+
+### Day 7: escalated reminder
+
+Subject: `[organizer_first_name]'s $[amount] is still waiting at 3rdPlace`
+
+```text
+Hi [contact_name_or_venue_name],
+
+It's been a week since [organizer_first_name] accepted [venue_name] for their 
+[event_archetype_friendly] on [event_date_friendly]. We're still holding their 
+$[amount] payment because Stripe setup isn't complete.
+
+This payment can't go through without that step, and we don't want their event 
+to get held up by it.
+
+[ Finish setup now → ]
+
+If something about Stripe is blocking you — wrong tax info, business type 
+question, anything — reply to this email and we'll help you sort it.
+
+— The 3rdPlace team
+```
+
+CTA URL: same shape as Day 0 with `utm_campaign=day_7`.
+
+### Day 14: final reminder and admin alert
+
+Subject: `Last reminder before we step in — $[amount] from [organizer_first_name]`
+
+```text
+Hi [contact_name_or_venue_name],
+
+Two weeks ago [organizer_first_name] committed $[amount] to book [venue_name] for 
+their [event_archetype_friendly] on [event_date_friendly]. The payment is still 
+pending because Stripe setup hasn't been finished.
+
+This is our last automated reminder. Someone from our team will reach out today 
+to help directly.
+
+If you'd rather not move forward with this booking, just reply with "decline" and 
+we'll let [organizer_first_name] know they need to find another space.
+
+[ Finish setup → ]
+
+— The 3rdPlace team
+```
+
+CTA URL: same shape as Day 0 with `utm_campaign=day_14`.
+
+Simultaneously fire a Sentry alert:
+
+```ts
+Sentry.captureMessage('venue_stripe_setup_stalled', {
+  level: 'warning',
+  tags: {
+    action: 'venue_stripe_setup_stalled',
+    venue_id,
+    opportunity_id,
+    organizer_id,
+    amount_cents,
+    days_pending: 14,
+  },
+})
+```
+
+## 11. Risks
 
 - Claim binding is trust-sensitive: assigning the wrong owner to a seeded venue would pollute the supply graph.
 - Exposing raw Stripe account ids in public response contexts would be unnecessary and risky.
@@ -372,9 +506,8 @@ Do not create duplicate photo JSONB or duplicate dashboard-only fields. Reuse `v
 - Adding new dashboard routes would violate the repo contract.
 - Changing signup step structure would violate the stable signup contract.
 
-## 11. Final Recommendation
+## 12. Final Recommendation
 
 **SAFE TO PROCEED TO PHASE 2 AFTER HUMAN REVIEW OF THIS AUDIT**
 
 No blocker prevents a scoped Phase 2 implementation, but the current product flow is not ready for real venue partners without claim/resume cleanup. The implementation should be additive, token-aware, and outside new `(dashboard)` routes. The money path should remain blocked until venue Connect readiness is true, and every booking/payment/send action must continue to require an approval record.
-
