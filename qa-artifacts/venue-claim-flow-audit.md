@@ -374,6 +374,90 @@ Reminder cadence: Day 0 (initial), Day 1 (first follow-up), Day 7 (second remind
 
 All reminders stop firing immediately once `charges_enabled = true`.
 
+### Stripe integration boundary
+
+#### G.1: app-only work with no Stripe API calls
+
+- Reminder cron reads `venue_stripe_accounts` for each pending opportunity.
+- If `charges_enabled = true`, exit early and cancel future reminders.
+- Otherwise determine reminder kind from the `created_at` timestamp of the original payment commitment.
+- Email rendering, Resend delivery, and template snapshots are pure app-layer work.
+- Decline page UI and state update are app-layer work unless active Stripe state exists.
+- Day 14 Sentry alerting is app-layer work.
+
+Reminder jobs should not call Stripe just to read account state.
+
+#### G.2: reminder CTA to Stripe Connect resume link
+
+Create `app/api/venue/opportunity/[token]/stripe-resume/route.ts`.
+
+The route must:
+
+- Validate the HMAC token before any Stripe call. The email link is sessionless, so the token is the ownership proof.
+- Look up the venue and opportunity.
+- Load or create the venue's Stripe Express Connect account if one is not already present.
+- Call `stripe.accountLinks.create`.
+- Use `type: 'account_onboarding'` for new setup or `type: 'account_update'` when a returning venue needs to fix existing account details.
+- Set `refresh_url` back to `/api/venue/opportunity/[token]/stripe-resume` for token-safe re-entry.
+- Set `return_url` to `/venue/opportunity/[token]/stripe-complete`.
+- Store the new account-link URL in a short-lived cache for 15 minutes, matching Stripe's account-link TTL.
+- Return a `302` redirect to the Stripe-hosted onboarding URL.
+
+Reuse the existing authenticated `/api/venue/stripe/refresh` implementation where practical by extracting a shared inner helper. Do not bypass token validation: a leaked URL must not become an account-link abuse vector.
+
+#### G.3: success trigger through Stripe Connect webhook
+
+Extend `app/api/webhooks/stripe/connect/route.ts` for `account.updated` events.
+
+After the existing `venue_stripe_accounts` update:
+
+- Detect whether `charges_enabled` flipped from false to true in this transition.
+- If it did, find active `venue_opportunity_invites` for this venue with status `pending_payment`.
+- Cancel active reminder jobs for each venue/opportunity pair:
+  - `DELETE FROM app_jobs WHERE job_type = 'venue.stripe_setup_reminder'`
+  - match `payload->>'venue_id'`, `payload->>'opportunity_id'`, and `status = 'pending'`.
+- Send Template 5 to the venue.
+- Send Template 6 to the organizer.
+- Route the organizer into payment continuation per G.4.
+
+Webhook fan-out must be idempotent on the `(venue_id, opportunity_id)` pair. A duplicate webhook must not send duplicate emails or create duplicate payment artifacts.
+
+#### G.4: payment continuation and approval gate
+
+The approval invariant is binding: no automatic charge without an approval record.
+
+For future phases, if a pre-authorized payment approval exists with `status = 'authorized'` and `approval_type = 'venue_rental_payment'` or equivalent, the system may trigger the normal Stripe Checkout or PaymentIntent path with deterministic idempotency key `venue_payment_${opportunity_id}_${amount_cents}`.
+
+For MVP, do not build pre-authorization. The only supported path is:
+
+- Venue completes Stripe.
+- Organizer receives Template 6 with "confirm to send" copy.
+- Organizer clicks through to `/planner/plans/<plan_id>/checkout/<opportunity_id>`.
+- Organizer completes Stripe Checkout from the planner.
+
+Template 6 must use the confirm-to-send path until a separate pre-authorization feature exists. Add code comments in the future implementation explaining that this is intentional.
+
+#### G.5: decline path Stripe cleanup
+
+In the decline route, check for active Stripe state and release it where applicable:
+
+- If a `payment_intents` row exists for this opportunity with status `authorized`, call `stripe.paymentIntents.cancel(stripe_payment_intent_id, { cancellation_reason: 'requested_by_customer' })` and update local status to `cancelled`.
+- If a `settlement_charges` row or Stripe Checkout session is pending, call `stripe.checkout.sessions.expire(session_id)` when still expirable.
+- If a session cannot be expired, log a Sentry note for manual cleanup.
+- If no active Stripe state exists, update app state only and make no Stripe call.
+
+Test no-payment, pending-checkout-no-charge, and authorized-payment cases separately.
+
+### Updated hard constraints for Phase 2
+
+- Reminder cron reads `venue_stripe_accounts`; no Stripe API calls for read state.
+- Reminder CTA token route validates HMAC before any Stripe `accountLinks.create` call.
+- Webhook `account.updated` transition handling is idempotent on `(venue_id, opportunity_id)`.
+- No automatic charge without an approval record.
+- MVP Template 6 always uses the "confirm to send" path.
+- Decline route cancels active Stripe PaymentIntents and expires Checkout sessions where applicable.
+- Stripe idempotency key for venue payment is deterministic: `venue_payment_${opportunity_id}_${amount_cents}`. Do not use timestamps.
+
 ### Template implementation notes
 
 - Email templates should live in `lib/email/templates/venue-stripe-reminder/`.
@@ -510,18 +594,19 @@ Sentry.captureMessage('venue_stripe_setup_stalled', {
 
 ### Template 5: venue success email after Stripe completion
 
-Subject: `You're connected — [organizer_first_name]'s $[amount] is on its way`
+Subject: `You're connected — [organizer_first_name] can send $[amount]`
 
 ```text
 Hi [contact_name_or_venue_name],
 
-You just finished connecting Stripe. [organizer_first_name]'s payment for the 
-[event_archetype_friendly] at [venue_name] on [event_date_friendly] is processing now.
+You just finished connecting Stripe. [organizer_first_name] can now send the 
+$[amount] payment for their [event_archetype_friendly] at [venue_name] on 
+[event_date_friendly].
 
 Here's what to expect:
-- $[amount] will land in your Stripe account
-- Stripe pays out to your bank on their normal schedule (usually 2 business days for new accounts)
-- You'll get an email from Stripe when the payout completes
+- We'll ask [organizer_first_name] to confirm and send the payment from 3rdPlace
+- Once they confirm, $[amount] will land in your Stripe account
+- Stripe pays out to your bank on their normal schedule
 
 For future bookings, you're all set — no setup needed next time. We'll send 
 inquiries directly when an organizer is a good match for your space.
@@ -535,29 +620,29 @@ Thanks for hosting.
 
 CTA URL: `${BASE_URL}/venue/dashboard?utm_source=stripe_complete&utm_campaign=venue_success`.
 
-Trigger: Stripe Connect webhook fires on `account.updated` flipping `charges_enabled` from false to true and there is an active opportunity with a pending payment. The reminder cron clears at the same moment.
+Trigger: Stripe Connect webhook fires on `account.updated` flipping `charges_enabled` from false to true and there is an active opportunity with a pending payment. The reminder cron clears at the same moment. For MVP, this email should not claim that payment is already processing.
 
 ### Template 6: organizer notification after venue setup
 
-Subject: `[venue_name] is ready — your payment is going through now`
+Subject: `[venue_name] is ready — confirm your payment`
 
 ```text
 Hi [organizer_first_name],
 
-[venue_name] just finished their payment setup. Your $[amount] for the 
-[event_archetype_friendly] on [event_date_friendly] is processing now.
+[venue_name] just finished their payment setup. Your $[amount] payment for the 
+[event_archetype_friendly] on [event_date_friendly] is ready to send.
 
-You should see the charge on your card within a few minutes. Your booking with 
-[venue_name] is officially confirmed.
+Please confirm the final checkout step from your planner. Once you confirm, your 
+booking with [venue_name] is officially confirmed.
 
-[ See your event plan → ]
+[ Confirm payment → ]
 
 — The 3rdPlace team
 ```
 
-CTA URL: `${BASE_URL}/planner/plans/<plan_id>`.
+CTA URL: `${BASE_URL}/planner/plans/<plan_id>/checkout/<opportunity_id>`.
 
-Trigger: same webhook as Template 5. If the organizer pre-authorized a payment method, Stripe Checkout/payment processing can proceed through the existing approved payment path. If they did not pre-authorize, prompt them to complete checkout. Do not charge without an approval record.
+Trigger: same webhook as Template 5. For MVP, this always prompts the organizer to complete checkout. Do not charge automatically.
 
 ### Template 7: organizer notification when venue declines
 
