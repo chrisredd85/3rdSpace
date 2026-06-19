@@ -457,6 +457,7 @@ Test no-payment, pending-checkout-no-charge, and authorized-payment cases separa
 - MVP Template 6 always uses the "confirm to send" path.
 - Decline route cancels active Stripe PaymentIntents and expires Checkout sessions where applicable.
 - Stripe idempotency key for venue payment is deterministic: `venue_payment_${opportunity_id}_${amount_cents}`. Do not use timestamps.
+- All venue-facing and organizer-facing pages added for this flow must be mobile-first and verified at mobile viewport widths.
 
 ### Template implementation notes
 
@@ -722,7 +723,43 @@ Create:
 
 This route keeps the Day 14 decline flow simple and avoids inbound email parsing.
 
-## 12. Risks
+## 12. Phase 2 Section J: Mobile Layout Requirements
+
+All Phase 2 venue claim, Stripe resume, reminder, decline, profile-completion, and organizer checkout surfaces must work cleanly on mobile. This is load-bearing because venue operators will often open reminder links from email on a phone.
+
+### Required mobile surfaces
+
+- Public opportunity response from `/v/respond/[token]`.
+- Venue claim/resume route.
+- Stripe resume redirect route and `/venue/opportunity/[token]/stripe-complete` landing page.
+- Venue decline confirmation page at `/venue/opportunity/[token]/decline`.
+- Venue profile completion route at `/venue/profile/complete`.
+- Organizer replacement/checkout return paths linked from Templates 6 and 7.
+
+### Mobile layout requirements
+
+- Single-column layout by default, with no horizontal overflow at 320px, 375px, 390px, and 430px widths.
+- Primary and secondary actions remain visible without crowding. If two actions do not fit side-by-side, stack them with the primary action first.
+- Email-link pages must show the venue/event context above the fold: venue name, organizer first name, event date, and amount when relevant.
+- Stripe setup pages must keep one clear CTA above the fold: `Finish setup` or `Continue to Stripe`.
+- Decline pages must make the destructive action clear but not visually dominant over the cancellation path.
+- Any post-action success state must fit on a small screen without requiring the user to hunt for next steps.
+- Forms must use mobile-friendly inputs, labels, validation messages, and tap targets of at least 44px height.
+- Do not use modal-only flows for critical email-link actions. Email-link flows must be directly usable after opening in a mobile browser.
+- Match the warm editorial design system. Do not introduce dark-vibrant, glow, or glass styling.
+
+### Mobile QA requirements
+
+- Add Playwright or component coverage for the new mobile surfaces where practical.
+- At minimum, manually verify the following viewport widths before merge: 375x812 and 390x844.
+- Capture QA screenshots for:
+  - Stripe setup reminder landing/resume state.
+  - Stripe complete success state.
+  - Venue decline confirmation state.
+  - Organizer confirm-payment state.
+- Verify there is no horizontal scroll and no overlapping text or buttons.
+
+## 13. Risks
 
 - Claim binding is trust-sensitive: assigning the wrong owner to a seeded venue would pollute the supply graph.
 - Exposing raw Stripe account ids in public response contexts would be unnecessary and risky.
@@ -730,7 +767,7 @@ This route keeps the Day 14 decline flow simple and avoids inbound email parsing
 - Adding new dashboard routes would violate the repo contract.
 - Changing signup step structure would violate the stable signup contract.
 
-## 13. Final Recommendation
+## 14. Final Recommendation
 
 **SAFE TO PROCEED TO PHASE 2 AFTER HUMAN REVIEW OF THIS AUDIT**
 
