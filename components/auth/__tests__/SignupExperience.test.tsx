@@ -167,6 +167,68 @@ describe('SignupExperience step validation', () => {
     expect(continueButton()).toBeEnabled()
   })
 
+  it('collects venue-supported commercial terms without asking venues to set CHI rates', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      requiresEmailConfirmation: true,
+      user: { email: 'bookings@example.com' },
+    }), { status: 200 })) as jest.Mock
+    renderSignup('venue_owner')
+
+    fireEvent.change(screen.getByPlaceholderText('Jordan Lee'), { target: { value: 'Jordan Lee' } })
+    fireEvent.change(screen.getByPlaceholderText('GM / Owner / Booker'), { target: { value: 'Owner' } })
+    fireEvent.change(screen.getByPlaceholderText('bookings@venue.com'), { target: { value: 'bookings@example.com' } })
+    fireEvent.change(screen.getByPlaceholderText('+1 (555) 555-5555'), { target: { value: '555-555-5555' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password123' } })
+    fireEvent.click(continueButton())
+
+    fireEvent.change(screen.getByPlaceholderText('The Foundry Loft'), { target: { value: 'The Foundry Loft' } })
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Bar' } })
+    fireEvent.change(screen.getByPlaceholderText('123 Industry Rd, Brooklyn NY'), { target: { value: '123 Market St' } })
+    fireEvent.change(screen.getByPlaceholderText('Brooklyn'), { target: { value: 'San Francisco' } })
+    fireEvent.change(screen.getByPlaceholderText('NY'), { target: { value: 'CA' } })
+    fireEvent.change(screen.getByPlaceholderText('11201'), { target: { value: '94103' } })
+    fireEvent.change(screen.getByPlaceholderText('250'), { target: { value: '250' } })
+    fireEvent.click(continueButton())
+
+    fireEvent.click(screen.getByRole('button', { name: /Full bar/i }))
+    fireEvent.change(screen.getByPlaceholderText(/No outside alcohol/i), {
+      target: { value: 'No outside alcohol. Music off by midnight.' },
+    })
+    fireEvent.click(continueButton())
+
+    fireEvent.click(screen.getByRole('switch', { name: /This venue has bar or beverage sales/i }))
+    expect(screen.getByText('Commercial terms you are open to')).toBeInTheDocument()
+    expect(screen.getByText(/3rdPlace calculates the recommended CHI/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Bar Community Host Incentive to creator/i)).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByPlaceholderText('2000'), { target: { value: '2000' } })
+    fireEvent.change(screen.getByPlaceholderText('3500'), { target: { value: '3500' } })
+    fireEvent.change(screen.getByPlaceholderText('1500'), { target: { value: '1500' } })
+    fireEvent.change(screen.getByPlaceholderText(/Full refund 30/i), {
+      target: { value: 'Full refund 30+ days out.' },
+    })
+    fireEvent.click(continueButton())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fri' }))
+    fireEvent.click(screen.getByRole('button', { name: /Publish my venue listing/i }))
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith('/api/auth/signup', expect.objectContaining({
+        method: 'POST',
+      }))
+    })
+    const payload = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
+    expect(payload).toEqual(expect.objectContaining({
+      userType: 'venue_owner',
+      has_bar: true,
+      supported_commercial_terms: ['minimum_spend', 'bar_consumption_chi'],
+      bar_chi_pct: null,
+      per_head_drink_pct: null,
+      min_bar_spend: 2000,
+    }))
+  })
+
   it('gates vendor signup contact and service-detail steps', async () => {
     renderSignup('vendor')
 
