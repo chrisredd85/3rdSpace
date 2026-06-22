@@ -975,9 +975,11 @@ const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 function VenueSignupFlow({
   onBack,
   alreadySignedInWarning = false,
+  opportunityToken = null,
 }: {
   onBack: () => void
   alreadySignedInWarning?: boolean
+  opportunityToken?: string | null
 }) {
   const router = useRouter()
   const { addToast } = useToast()
@@ -1132,6 +1134,7 @@ function VenueSignupFlow({
           available_days: form.openDays,
           open_from: form.openFrom,
           open_to: form.openTo,
+          opportunity_token: opportunityToken,
         }),
       })
       const result = await response.json()
@@ -1146,7 +1149,7 @@ function VenueSignupFlow({
         return
       }
       addToast({ title: 'Venue account created', description: 'You can connect Stripe when a paid opportunity is ready.' })
-      router.push(stripeOnboardingConfig.venue_owner.dashboardPath)
+      router.push(result.redirectTo || stripeOnboardingConfig.venue_owner.dashboardPath)
     } catch {
       setInlineError('An unexpected error occurred.')
       setIsLoading(false)
@@ -1736,9 +1739,11 @@ function VendorSignupFlow({
 export function SignupExperience({
   initialUserType = null,
   alreadySignedInWarning = false,
+  opportunityToken = null,
 }: {
   initialUserType?: UserType | null
   alreadySignedInWarning?: boolean
+  opportunityToken?: string | null
 }) {
   const router = useRouter()
   const [role, setRole] = useState<UserType | null>(initialUserType)
@@ -1755,7 +1760,15 @@ export function SignupExperience({
   if (role === 'community_builder') {
     return <BuilderSignupFlow onBack={handleBack} alreadySignedInWarning={alreadySignedInWarning} />
   }
-  if (role === 'venue_owner') return <VenueSignupFlow onBack={handleBack} alreadySignedInWarning={alreadySignedInWarning} />
+  if (role === 'venue_owner') {
+    return (
+      <VenueSignupFlow
+        onBack={handleBack}
+        alreadySignedInWarning={alreadySignedInWarning}
+        opportunityToken={opportunityToken}
+      />
+    )
+  }
   if (role === 'vendor') return <VendorSignupFlow onBack={handleBack} alreadySignedInWarning={alreadySignedInWarning} />
   return null
 }

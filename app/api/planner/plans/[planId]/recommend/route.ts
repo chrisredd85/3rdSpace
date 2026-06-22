@@ -46,6 +46,7 @@ import {
 import { loadVendorEconomicsCostSummary, type VendorEconomicsCostSummary } from '@/lib/planner/vendorEconomicsCosts'
 import { hasActiveVenueHold } from '@/lib/planner/venueHold'
 import { byoVendorServiceTypes, readByoVendors, sumByoVendorCostsCents } from '@/lib/planner/byoVendors'
+import { readPlanVendorNeedStatus } from '@/lib/planner/vendorNeedStatus'
 import { logAgentRun, type AgentRunDb } from '@/lib/server/agent-runs'
 import {
   getBuilderProfileIdForUser,
@@ -462,7 +463,7 @@ export async function POST(
     const effectivePhase: 'venues' | 'vendors' = body.data.phase === 'auto'
       ? (await hasActiveVenueHold(auth.db, plan.id) ? 'vendors' : 'venues')
       : body.data.phase
-    const shouldRunVendors = effectivePhase === 'vendors'
+    const shouldRunVendors = effectivePhase === 'vendors' && readPlanVendorNeedStatus(recommendationPlan) !== 'none'
 
     // BYO vendors the organizer is providing themselves. Their costs are
     // folded into the economics total and their service types are excluded
@@ -755,10 +756,12 @@ async function runCatalogFallback(input: {
   const rankedVenues = recommendationsForPersistence
     .filter((recommendation) => recommendation.kind === 'venue')
     .map(toRankedVenueFromCatalog)
-  const vendorRecommendations = recommendationsForPersistence
-    .filter((recommendation) => recommendation.kind === 'vendor')
-    .map((recommendation) => toSuggestedVendorFromCatalog(recommendation, input.archetype))
-    .filter((vendor) => !byoServiceTypesFallback.has(String(vendor.service_type)))
+  const vendorRecommendations = readPlanVendorNeedStatus(input.plan) === 'none'
+    ? []
+    : recommendationsForPersistence
+        .filter((recommendation) => recommendation.kind === 'vendor')
+        .map((recommendation) => toSuggestedVendorFromCatalog(recommendation, input.archetype))
+        .filter((vendor) => !byoServiceTypesFallback.has(String(vendor.service_type)))
   const vendorRecommendationGroups = groupVendorRecommendations(vendorRecommendations, input.archetype)
   const vendorMatchNotice = buildVendorMatchNotice(input.archetype, vendorRecommendations)
   const venueCostCents = recommendationsForPersistence.find((recommendation) => recommendation.kind === 'venue')?.estimate_cents ?? 0
@@ -2118,6 +2121,8 @@ async function loadSuggestedVendors(
   archetype: EventArchetypeConfig,
   venueCostCents: number
 ): Promise<SuggestedVendorRecommendation[]> {
+  if (readPlanVendorNeedStatus(plan) === 'none') return []
+
   try {
     const ranked = await rankVendorsForPlan(plan, null, archetype, db, { perStackItem: 2 })
     const rankedSuggestions = Object.values(ranked.by_service_type)

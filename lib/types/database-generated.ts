@@ -8565,6 +8565,8 @@ export type Database = {
           budget_fit: boolean
           capacity_fit: boolean
           created_at: string
+          decline_reason: string | null
+          declined_at: string | null
           expires_at: string | null
           id: string
           is_claimed: boolean
@@ -8581,6 +8583,9 @@ export type Database = {
           route_to_concierge: boolean
           sent_at: string | null
           status: string
+          payment_confirmation_requested_at: string | null
+          stripe_ready_at: string | null
+          stripe_setup_started_at: string | null
           target_type: string
           updated_at: string
           vendor_profile_id: string | null
@@ -8595,6 +8600,8 @@ export type Database = {
           budget_fit?: boolean
           capacity_fit?: boolean
           created_at?: string
+          decline_reason?: string | null
+          declined_at?: string | null
           expires_at?: string | null
           id?: string
           is_claimed?: boolean
@@ -8611,6 +8618,9 @@ export type Database = {
           route_to_concierge?: boolean
           sent_at?: string | null
           status?: string
+          payment_confirmation_requested_at?: string | null
+          stripe_ready_at?: string | null
+          stripe_setup_started_at?: string | null
           target_type: string
           updated_at?: string
           vendor_profile_id?: string | null
@@ -8625,6 +8635,8 @@ export type Database = {
           budget_fit?: boolean
           capacity_fit?: boolean
           created_at?: string
+          decline_reason?: string | null
+          declined_at?: string | null
           expires_at?: string | null
           id?: string
           is_claimed?: boolean
@@ -8641,6 +8653,9 @@ export type Database = {
           route_to_concierge?: boolean
           sent_at?: string | null
           status?: string
+          payment_confirmation_requested_at?: string | null
+          stripe_ready_at?: string | null
+          stripe_setup_started_at?: string | null
           target_type?: string
           updated_at?: string
           vendor_profile_id?: string | null

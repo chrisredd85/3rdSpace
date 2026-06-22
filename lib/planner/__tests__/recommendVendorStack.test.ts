@@ -49,6 +49,18 @@ describe('plan vendor stack inference', () => {
     expect(stack.find((item) => item.service_type === 'videographer')?.necessity).toBe('required')
   })
 
+  it('returns no vendor stack when the plan explicitly needs no vendors', () => {
+    const plan = planWithSignals({ music_format: 'dj', photo_video_priority: 'both' })
+    plan.metadata = {
+      ...(plan.metadata as Record<string, unknown>),
+      vendor_need_status: 'none',
+    }
+
+    const stack = buildPlanVendorStack(archetypeFor('founder dinner'), plan)
+
+    expect(stack).toEqual([])
+  })
+
   it('hydrates default fills without overwriting explicit plan signals', () => {
     const archetype = archetypeFor('panel')
     const plan = planWithSignals({ stage_required: false })

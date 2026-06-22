@@ -51,6 +51,11 @@ import {
   isPlanReadyForRequestedRecommendations,
   isRecommendationRequest,
 } from '@/lib/planner/intakeReadiness'
+import {
+  mergeVendorNeedStatusMetadata,
+  readPlanVendorNeedStatus,
+  resolveVendorNeedStatusUpdate,
+} from '@/lib/planner/vendorNeedStatus'
 import { createVenueOpportunityBundle } from '@/lib/planner/opportunityBuilder'
 import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
 import { buildOrganizerPreferencePayload, loadBuilderOrganizerPreferences } from '@/lib/server/builderPreferences'
@@ -821,7 +826,10 @@ function buildTransitionPhrase(plan: Plan): string {
   const guestText = typeof plan.guest_count === 'number' && plan.guest_count > 0
     ? ` for ${plan.guest_count.toLocaleString()} guests`
     : ''
-  return `I have enough to start matching ${area} options${guestText} for this ${eventType}. Pulling venue and vendor recommendations now.`
+  const recommendationScope = readPlanVendorNeedStatus(plan) === 'none'
+    ? 'venue and operating recommendations'
+    : 'venue and vendor recommendations'
+  return `I have enough to start matching ${area} options${guestText} for this ${eventType}. Pulling ${recommendationScope} now.`
 }
 
 function computeCanMatchNow(
@@ -858,7 +866,7 @@ function buildRequestedRecommendationDraft(draft: AgentResponseDraft, plan: Plan
 
   return {
     ...draft,
-    content: `I have enough to start matching ${area} options${guestText} for this ${eventType}. I’ll pull venue and vendor recommendations now.`,
+    content: `I have enough to start matching ${area} options${guestText} for this ${eventType}. I’ll pull ${readPlanVendorNeedStatus(plan) === 'none' ? 'venue and operating recommendations' : 'venue and vendor recommendations'} now.`,
     message_type: 'recommendation',
     metadata: toJson({
       ...(readRecord(draft.metadata) ?? {}),
@@ -1063,6 +1071,19 @@ function buildPlanUpdatesFromIntakeOutput(
   )
   if (metadata) updates.metadata = metadata
 
+  const vendorNeedStatus = resolveVendorNeedStatusUpdate({
+    metadata: updates.metadata ?? currentPlan.metadata,
+    userMessage,
+    agentStatus: output.vendor_need_status,
+  })
+  if (vendorNeedStatus) {
+    const baseMetadata = (updates.metadata && typeof updates.metadata === 'object' && !Array.isArray(updates.metadata))
+      ? updates.metadata as Record<string, unknown>
+      : (readRecord(currentPlan.metadata) ?? {})
+    const nextMetadata = mergeVendorNeedStatusMetadata(baseMetadata, vendorNeedStatus)
+    if (nextMetadata) updates.metadata = nextMetadata
+  }
+
   mergeAnsweredArchetypeQuestionsIntoUpdates(currentPlan, updates, userMessage)
 
   return updates
@@ -1184,6 +1205,15 @@ function buildPlanUpdates(intent: Partial<PlanIntent>, currentPlan: Plan, userMe
   if (intent.food_responsibility) updates.food_responsibility = intent.food_responsibility
   if (!updates.metadata && hasEventRequirementSignals(userMessage)) {
     updates.metadata = mergeEventRequirementSignals(currentPlan.metadata, userMessage)
+  }
+  const vendorNeedStatus = resolveVendorNeedStatusUpdate({
+    metadata: updates.metadata ?? currentPlan.metadata,
+    userMessage,
+    agentStatus: null,
+  })
+  if (vendorNeedStatus) {
+    const nextMetadata = mergeVendorNeedStatusMetadata(updates.metadata ?? currentPlan.metadata, vendorNeedStatus)
+    if (nextMetadata) updates.metadata = nextMetadata
   }
 
   mergeAnsweredArchetypeQuestionsIntoUpdates(currentPlan, updates, userMessage)

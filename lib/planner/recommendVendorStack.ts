@@ -1,4 +1,5 @@
 import type { EventArchetypeConfig, MatchingField, ServiceType, VendorStackItem } from '@/lib/planner/archetypes'
+import { readPlanVendorNeedStatus } from '@/lib/planner/vendorNeedStatus'
 import type { Plan } from '@/lib/types'
 
 type MutableVendorStackItem = VendorStackItem
@@ -7,6 +8,8 @@ export function buildPlanVendorStack(
   archetype: EventArchetypeConfig,
   plan: Plan
 ): VendorStackItem[] {
+  if (readPlanVendorNeedStatus(plan) === 'none') return []
+
   const stack = archetype.vendor_stack.map((item) => ({ ...item }))
   const musicFormat = normalizeSignal(readPlanMatchingSignal(plan, 'music_format'))
   const photoVideoPriority = normalizeSignal(readPlanMatchingSignal(plan, 'photo_video_priority'))

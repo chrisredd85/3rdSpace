@@ -6,6 +6,10 @@ import { ensureBuilderProfile, ensureOwnerProfile, ensureVenueSetup, ensureVendo
 import type { TicketPlatform } from '@/lib/constants/account-setup'
 import type { UserType } from '@/lib/types'
 import type { ServiceType, VenueType } from '@/lib/types'
+import {
+  claimVenueOpportunityForUser,
+  loadVenueOpportunityRecoveryContext,
+} from '@/lib/venues/venueOpportunityRecovery'
 
 interface SignupRequest {
   userType: UserType
@@ -56,6 +60,7 @@ interface SignupRequest {
   bank_account_holder_name?: string
   bank_name?: string
   availability_notes?: string
+  opportunity_token?: string | null
 }
 
 interface BuilderSignupDetails {
@@ -337,7 +342,8 @@ async function ensureRoleSetup(
   builderDetails: BuilderSignupDetails | null,
   venueDetails: VenueSignupDetails | null,
   vendorDetails: VendorSignupDetails | null,
-  origin: string
+  origin: string,
+  venueClaimVenueId?: string | null
 ) {
   if (body.userType === 'community_builder' && builderDetails) {
     await ensureBuilderProfile(admin, {
@@ -370,6 +376,7 @@ async function ensureRoleSetup(
     })
     await ensureVenueSetup(admin, {
       userId,
+      claimVenueId: venueClaimVenueId ?? null,
       contactName: venueDetails.contact_name,
       venueName: venueDetails.venue_name,
       address: venueDetails.address,
@@ -463,6 +470,42 @@ async function loadBuilderSignupTicketingConnections(
     .filter((connection): connection is SignupTicketingConnection => Boolean(connection.platform))
 }
 
+function getVenueOpportunityToken(body: SignupRequest) {
+  if (body.userType !== 'venue_owner') return null
+  const token = body.opportunity_token?.trim()
+  return token && token.length <= 256 ? token : null
+}
+
+async function resolveVenueClaimVenueId(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  token: string | null
+) {
+  if (!token) return null
+  const context = await loadVenueOpportunityRecoveryContext(admin, token)
+  const venueId = context?.venue.id
+  return typeof venueId === 'string' ? venueId : null
+}
+
+async function completeVenueOpportunityClaimAfterSignup(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  body: SignupRequest,
+  userId: string
+) {
+  const token = getVenueOpportunityToken(body)
+  if (!token) return null
+
+  const result = await claimVenueOpportunityForUser(admin, {
+    token,
+    userId,
+  })
+
+  if (!result.ok) {
+    throw new Error(result.error)
+  }
+
+  return result.redirectTo
+}
+
 async function cleanupFailedSignup(
   admin: ReturnType<typeof createServiceRoleClient>,
   userId: string
@@ -526,6 +569,8 @@ export async function POST(request: NextRequest) {
     const builderDetails = getBuilderDetails(body)
     const venueDetails = getVenueDetails(body)
     const vendorDetails = getVendorDetails(body)
+    const venueOpportunityToken = getVenueOpportunityToken(body)
+    const venueClaimVenueId = await resolveVenueClaimVenueId(admin, venueOpportunityToken)
 
     if (userType === 'community_builder' && !builderDetails) {
       return NextResponse.json(
@@ -618,8 +663,10 @@ export async function POST(request: NextRequest) {
             }
           }
 
+          let redirectTo: string | null = null
           try {
-            await ensureRoleSetup(admin, signInData.user.id, body, builderDetails, venueDetails, vendorDetails, request.nextUrl.origin)
+            await ensureRoleSetup(admin, signInData.user.id, body, builderDetails, venueDetails, vendorDetails, request.nextUrl.origin, venueClaimVenueId)
+            redirectTo = await completeVenueOpportunityClaimAfterSignup(admin, body, signInData.user.id)
           } catch (setupError) {
             const setupMessage = setupError instanceof Error ? setupError.message : 'Failed to finish account setup'
             return NextResponse.json({ error: setupMessage }, { status: 500 })
@@ -632,6 +679,7 @@ export async function POST(request: NextRequest) {
 
           return NextResponse.json({
             success: true,
+            redirectTo,
             ticketingConnections,
             user: {
               id: signInData.user.id,
@@ -687,8 +735,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let venueClaimRedirectTo: string | null = null
     try {
-      await ensureRoleSetup(admin, authData.user.id, body, builderDetails, venueDetails, vendorDetails, request.nextUrl.origin)
+      await ensureRoleSetup(admin, authData.user.id, body, builderDetails, venueDetails, vendorDetails, request.nextUrl.origin, venueClaimVenueId)
+      venueClaimRedirectTo = await completeVenueOpportunityClaimAfterSignup(admin, body, authData.user.id)
     } catch (setupError) {
       console.error('Error completing role setup during signup:', setupError)
       await cleanupFailedSignup(admin, authData.user.id)
@@ -709,6 +759,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       requiresEmailConfirmation: !authData.session,
+      redirectTo: venueClaimRedirectTo,
       ticketingConnections,
       user: {
         id: authData.user.id,

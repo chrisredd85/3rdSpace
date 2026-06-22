@@ -20,6 +20,7 @@ export type BuilderSetupInput = {
 
 export type VenueSetupInput = {
   userId: string
+  claimVenueId?: string | null
   contactName: string
   venueName: string
   address: string
@@ -270,11 +271,11 @@ export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSe
     ...(input.neighborhood?.trim() && { neighborhood: input.neighborhood.trim() }),
   }
 
-  const { data: existingVenue, error: existingVenueError } = await admin
-    .from('venues')
-    .select('id')
-    .eq('owner_id', input.userId)
-    .maybeSingle()
+  const existingVenueQuery = input.claimVenueId
+    ? admin.from('venues').select('id').eq('id', input.claimVenueId).maybeSingle()
+    : admin.from('venues').select('id').eq('owner_id', input.userId).maybeSingle()
+
+  const { data: existingVenue, error: existingVenueError } = await existingVenueQuery
 
   if (existingVenueError) {
     throw new Error(`Failed to verify venue profile: ${existingVenueError.message}`)

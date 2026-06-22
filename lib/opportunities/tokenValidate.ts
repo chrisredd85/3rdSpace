@@ -58,6 +58,10 @@ const VENUE_SELECT = `
   venue_name,
   name,
   venue_type,
+  contact_email,
+  owner_id,
+  claimed_user_id,
+  is_claimed,
   address,
   city,
   state,
@@ -230,12 +234,36 @@ async function getVenueResponseContext(admin: SupabaseAdminClient, token: string
   if (briefError || !brief) throw new Error(`Failed to load venue brief: ${briefError?.message ?? 'not found'}`)
   if (venueError) throw new Error(`Failed to load venue: ${venueError.message}`)
 
+  const venueRow = (venue as Record<string, unknown> | null) ?? null
+  const ownerId = readString(venueRow?.owner_id)
+  const { data: stripeAccount, error: stripeError } = ownerId
+    ? await admin
+        .from('venue_stripe_accounts')
+        .select('stripe_account_id, account_status, charges_enabled, payouts_enabled')
+        .eq('owner_id', ownerId)
+        .maybeSingle()
+    : { data: null, error: null }
+
+  if (stripeError) throw new Error(`Failed to load venue Stripe account: ${stripeError.message}`)
+
+  const stripeRow = (stripeAccount as Record<string, unknown> | null) ?? null
+  const partner = venueRow
+    ? {
+        ...venueRow,
+        stripe_account_id: readString(stripeRow?.stripe_account_id),
+        stripe_account_status: readString(stripeRow?.account_status),
+        charges_enabled: stripeRow?.charges_enabled === true,
+        payouts_enabled: stripeRow?.payouts_enabled === true,
+        stripe_ready: Boolean(readString(stripeRow?.stripe_account_id) && stripeRow?.payouts_enabled === true),
+      }
+    : null
+
   return {
     kind: 'venue' as const,
     isExpired: isTokenExpired(inviteRow),
     invite: inviteRow,
     brief: brief as Record<string, unknown>,
-    partner: (venue as Record<string, unknown> | null) ?? null,
+    partner,
   }
 }
 

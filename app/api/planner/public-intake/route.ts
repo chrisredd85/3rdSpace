@@ -28,6 +28,11 @@ import {
   isPlanReadyForRequestedRecommendations,
   isRecommendationRequest,
 } from '@/lib/planner/intakeReadiness'
+import {
+  mergeVendorNeedStatusMetadata,
+  readVendorNeedStatusFromMetadata,
+  resolveVendorNeedStatusUpdate,
+} from '@/lib/planner/vendorNeedStatus'
 import { checkRateLimit, rateLimitHeaders } from '@/lib/server/rate-limit'
 import type { Plan, PlanIntent, PlanMessage } from '@/lib/types'
 
@@ -286,7 +291,10 @@ function buildPublicTransitionPhrase(planPatch: Record<string, unknown>): string
   const guestText = typeof guestCount === 'number' && guestCount > 0
     ? ` for ${guestCount.toLocaleString()} guests`
     : ''
-  return `I have enough to start pulling ${area} options${guestText} for this ${eventType}. Venue and vendor recommendations coming up.`
+  const recommendationScope = readVendorNeedStatusFromMetadata(planPatch.metadata) === 'none'
+    ? 'Venue and operating recommendations'
+    : 'Venue and vendor recommendations'
+  return `I have enough to start pulling ${area} options${guestText} for this ${eventType}. ${recommendationScope} coming up.`
 }
 
 function computePublicCanMatchNow(
@@ -527,6 +535,15 @@ function buildPlanPatchFromIntakeOutput(
 
   if (extracted.food_responsibility) patch.food_responsibility = extracted.food_responsibility
   else if (output.food_drink_needs) patch.food_responsibility = output.food_drink_needs
+  const vendorNeedStatus = resolveVendorNeedStatusUpdate({
+    metadata: patch.metadata ?? currentPlan.metadata,
+    userMessage,
+    agentStatus: output.vendor_need_status,
+  })
+  if (vendorNeedStatus) {
+    const nextMetadata = mergeVendorNeedStatusMetadata(patch.metadata ?? currentPlan.metadata, vendorNeedStatus)
+    if (nextMetadata) patch.metadata = toPlanMetadata(nextMetadata)
+  }
   if (hasEventRequirementSignals(userMessage)) {
     patch.metadata = toPlanMetadata({
       ...mergeEventRequirementSignals(currentPlan.metadata, userMessage),
@@ -608,6 +625,15 @@ function buildPlanPatchFromIntent(
       ...mergeEventRequirementSignals(currentPlan?.metadata, message),
       ...(readRecord(patch.metadata) ?? {}),
     })
+  }
+  const vendorNeedStatus = resolveVendorNeedStatusUpdate({
+    metadata: patch.metadata ?? currentPlan?.metadata,
+    userMessage: message,
+    agentStatus: null,
+  })
+  if (vendorNeedStatus) {
+    const nextMetadata = mergeVendorNeedStatusMetadata(patch.metadata ?? currentPlan?.metadata, vendorNeedStatus)
+    if (nextMetadata) patch.metadata = toPlanMetadata(nextMetadata)
   }
   patch.updated_at = new Date().toISOString()
   return patch

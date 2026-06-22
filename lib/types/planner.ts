@@ -24,6 +24,9 @@ export type RecommendationType = 'venue' | 'vendor' | 'ticket' | 'external'
 /** Selection state for a recommendation. */
 export type RecommendationStatus = 'pending' | 'selected' | 'rejected'
 
+/** Canonical planner assessment of whether an event needs vendor sourcing. */
+export type VendorNeedStatus = 'none' | 'optional' | 'required' | 'unknown'
+
 /** Executable action categories created by the planner. */
 export type AgentActionType =
   | 'payment'

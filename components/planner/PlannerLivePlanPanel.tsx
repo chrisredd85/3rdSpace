@@ -26,7 +26,8 @@ import Link from 'next/link'
 import { usePlannerBillingGate } from '@/components/planner/usePlannerBillingGate'
 import { humanizeEventType } from '@/lib/planner/archetypes/driftControl'
 import { plannerDraftStorageKey } from '@/lib/planner/migrateDraft'
-import type { PlanMessage } from '@/lib/types'
+import { readVendorNeedStatusFromMetadata } from '@/lib/planner/vendorNeedStatus'
+import type { PlanMessage, VendorNeedStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/utils/relativeTime'
 
@@ -99,6 +100,7 @@ interface EventSummary {
   ticketing_model: string | null
   food_responsibility: string | null
   vendor_needs: string | null
+  vendor_need_status: VendorNeedStatus
   amenities: string | null
   venue_terms: string | null
   consumption_share: string | null
@@ -135,6 +137,7 @@ interface LivePlanSnapshot {
   ticketingModel: string | null
   ticketPriceTargetCents: number | null
   foodResponsibility: string | null
+  vendorNeedStatus: VendorNeedStatus
   venueTerms: string | null
   actionPermission: string | null
   notes: string | null
@@ -327,6 +330,7 @@ function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
       readNumber(record.ticket_price_target_cents) ??
       readNumber(metadata?.ticket_price_target_cents),
     foodResponsibility: readString(record.foodResponsibility) ?? readString(record.food_responsibility),
+    vendorNeedStatus: readVendorNeedStatusFromMetadata(metadata),
     venueTerms: readString(record.venueTerms) ?? readString(record.venue_terms),
     actionPermission: readString(record.actionPermission) ?? readString(record.agent_action),
     notes: readString(record.notes),
@@ -423,7 +427,8 @@ function deriveEventSummary(messages: PlanMessage[], plan: LivePlanSnapshot | nu
     budget_cents: budgetCents,
     ticketing_model: ticketingModel,
     food_responsibility: plan?.foodResponsibility ?? null,
-    vendor_needs: null,
+    vendor_needs: plan?.vendorNeedStatus === 'none' ? 'No vendors needed' : null,
+    vendor_need_status: plan?.vendorNeedStatus ?? 'unknown',
     amenities: null,
     venue_terms: plan?.venueTerms ?? null,
     consumption_share: null,
@@ -452,6 +457,7 @@ function deriveEventSummary(messages: PlanMessage[], plan: LivePlanSnapshot | nu
       ticketing_model: fallback.ticketing_model ?? readString(summary.ticketing_model),
       food_responsibility: fallback.food_responsibility ?? readString(summary.food_responsibility),
       vendor_needs: readString(summary.vendor_needs) ?? fallback.vendor_needs,
+      vendor_need_status: fallback.vendor_need_status,
       amenities: readString(summary.amenities) ?? fallback.amenities,
       venue_terms: fallback.venue_terms ?? readString(summary.venue_terms),
       consumption_share: readString(summary.consumption_share) ?? fallback.consumption_share,
@@ -581,14 +587,16 @@ function deriveRecommendations(messages: PlanMessage[]): RecommendationSummary[]
 function buildBudgetItems(summary: EventSummary, plan: LivePlanSnapshot | null): BudgetLineItem[] {
   const budgetCapCents = summary.budget_cents ?? plan?.budgetCapCents ?? null
   const noOrganizerFoodCost = hasNoOrganizerFoodCost(summary)
-  const noPaidVendors = summary.vendor_needs === 'No vendors needed' || noOrganizerFoodCost
+  const noPaidVendors = summary.vendor_need_status === 'none' || isNoVendorNeed(summary.vendor_needs) || noOrganizerFoodCost
   const venueRatio = getVenueTargetRatio(summary)
   const venueAmountCents = budgetCapCents ? Math.round(budgetCapCents * venueRatio) : null
 
   if (!budgetCapCents) {
     return [
       { label: 'Venue target', amountCents: null },
-      { label: 'Vendor pool', amountCents: null },
+      noPaidVendors
+        ? { label: 'Vendor pool not needed', amountCents: 0 }
+        : { label: 'Vendor pool', amountCents: null },
       { label: 'Contingency', amountCents: null },
       { label: 'Buffer', amountCents: null },
     ]
@@ -649,9 +657,12 @@ function buildProfitModel(
     { label: `Ticket revenue (${paidAverage || 'TBD'} paid avg × ${formatCents(ticketPricing.recommendedCents)})`, amountCents: ticketRevenueCents },
     { label: venueIncentive.label, amountCents: venueIncentive.amountCents },
     { label: `Venue cost (${recommendations[0]?.name ?? 'target'})`, amountCents: venueCostCents, negative: true },
-    { label: 'Vendor cost (catering, DJ, AV, security)', amountCents: vendorCostCents, negative: true },
     { label: 'Platform + payment fees (4.9%)', amountCents: feesCents, negative: true },
   ]
+
+  if (summary.vendor_need_status !== 'none') {
+    lineItems.splice(3, 0, { label: 'Vendor cost (catering, DJ, AV, security)', amountCents: vendorCostCents, negative: true })
+  }
 
   if (customCostsTotalCents > 0) {
     lineItems.push({ label: `Custom costs (${customCosts.length} item${customCosts.length === 1 ? '' : 's'})`, amountCents: customCostsTotalCents, negative: true })
@@ -750,10 +761,10 @@ function buildOpenQuestions(summary: EventSummary, recommendations: Recommendati
   if (!summary.ticketing_model) questions.push('Choose ticketing model')
   if (!summary.food_responsibility) questions.push('Clarify who pays for food and drinks')
   if (!summary.venue_terms) questions.push('Choose venue deal structure')
-  if (!summary.must_haves) questions.push('Add venue/vendor must-haves')
+  if (!summary.must_haves) questions.push(summary.vendor_need_status === 'none' ? 'Add venue must-haves' : 'Add venue/vendor must-haves')
   if (!summary.action_permission) questions.push('Choose what the agent can do after recommendations')
   if (summary.ticketed && !summary.budget_cents) questions.push('Set ticket price assumptions')
-  if (recommendations.length === 0) questions.push('Generate venue and vendor recommendations')
+  if (recommendations.length === 0) questions.push(summary.vendor_need_status === 'none' ? 'Generate venue recommendations' : 'Generate venue and vendor recommendations')
 
   return questions.slice(0, 4)
 }
@@ -858,7 +869,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
       const response = await fetch(`/api/planner/plans/${activePlanId}/recommend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ venueLimit: 3, vendorLimit: 3 }),
+        body: JSON.stringify({ venueLimit: 3, vendorLimit: eventSummary.vendor_need_status === 'none' ? 0 : 3 }),
       })
       const payload = await response.json().catch(() => ({})) as Record<string, unknown>
       if (!response.ok) {
@@ -2098,14 +2109,16 @@ function buildShoppingList(
     })
   }
 
-  for (const vendor of selectedVendors) {
-    addShoppingItem(items, {
-      category: formatVendorServiceCategory(vendor.serviceType),
-      label: vendor.name,
-      amountLabel: typeof vendor.priceCents === 'number' ? formatCents(vendor.priceCents) : formatVendorRateAmount(vendor),
-      note: vendor.provenanceLabel ?? deriveSelectedVendorNote(vendor),
-      badge: vendor.claimStatus === 'invited_unclaimed' ? 'Invited — pending signup' : undefined,
-    })
+  if (summary.vendor_need_status !== 'none') {
+    for (const vendor of selectedVendors) {
+      addShoppingItem(items, {
+        category: formatVendorServiceCategory(vendor.serviceType),
+        label: vendor.name,
+        amountLabel: typeof vendor.priceCents === 'number' ? formatCents(vendor.priceCents) : formatVendorRateAmount(vendor),
+        note: vendor.provenanceLabel ?? deriveSelectedVendorNote(vendor),
+        badge: vendor.claimStatus === 'invited_unclaimed' ? 'Invited — pending signup' : undefined,
+      })
+    }
   }
 
   for (const need of deriveVendorNeedItems(summary)) {
@@ -2241,7 +2254,7 @@ function deriveFoodShoppingAmount(summary: EventSummary, vendorCost: number | nu
 }
 
 function deriveVendorNeedItems(summary: EventSummary): ShoppingListItem[] {
-  if (isNoVendorNeed(summary.vendor_needs)) return []
+  if (summary.vendor_need_status === 'none' || isNoVendorNeed(summary.vendor_needs)) return []
 
   const text = `${summary.vendor_needs ?? ''}, ${summary.must_haves ?? ''}, ${summary.amenities ?? ''}`
   const items: ShoppingListItem[] = []
@@ -2266,6 +2279,7 @@ function deriveVendorNeedItems(summary: EventSummary): ShoppingListItem[] {
 }
 
 function shouldIncludeAv(summary: EventSummary) {
+  if (summary.vendor_need_status === 'none') return false
   if (summaryMatches(summary, /\b(no av|no projector|standard setup)\b/i)) return false
   return summaryMatches(summary, /\b(av|projector|mic|microphone|speaker|sound system|screen|tv|recording|livestream|panel|conference|summit|hackathon|demo day|listening party|concert|performance|film screening|watch party|launch)\b/i)
 }
@@ -2283,6 +2297,7 @@ function deriveAvEstimateCents(summary: EventSummary) {
 }
 
 function shouldIncludeSecurity(summary: EventSummary) {
+  if (summary.vendor_need_status === 'none') return false
   const guestCount = summary.guest_count ?? 0
   if (summaryMatches(summary, /\b(no security|private dinner|small dinner)\b/i) && guestCount < 50) return false
   return guestCount >= 100 || summary.ticketed || summaryMatches(summary, /\b(security|check-in|check in|door|club night|concert|day party|public|gala|fundraiser|pop-up|open to public)\b/i)
@@ -2303,6 +2318,7 @@ function deriveSecurityEstimateCents(summary: EventSummary) {
 }
 
 function shouldIncludePhotography(summary: EventSummary) {
+  if (summary.vendor_need_status === 'none') return false
   return summaryMatches(summary, /\b(photo|photographer|videographer|content|brand|launch|gala|fundraiser|birthday|wedding|gallery|art show|red carpet)\b/i)
 }
 
@@ -2313,6 +2329,7 @@ function derivePhotographyShoppingLabel(summary: EventSummary) {
 }
 
 function shouldIncludeSportOps(summary: EventSummary) {
+  if (summary.vendor_need_status === 'none') return false
   return summaryMatches(summary, /\b(tennis|run club|fitness|yoga|pilates|bootcamp|sports|game outing|basketball|pickleball|athletes|runners)\b/i)
 }
 
