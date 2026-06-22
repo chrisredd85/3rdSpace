@@ -971,6 +971,30 @@ const venueTypeIds: Record<string, VenueType> = {
 }
 const venueAmenities = ['DJ booth', 'Stage', 'PA / sound system', 'Lighting rig', 'Full bar', 'Kitchen', 'Green room', 'Coat check', 'Parking', 'Loading dock', 'ADA access', 'Wifi']
 const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const venueCommercialTerms = [
+  {
+    id: 'minimum_spend',
+    label: 'Minimum spend floor',
+    description: 'Your required food and beverage floor when the room is held for an event.',
+  },
+  {
+    id: 'bar_consumption_chi',
+    label: 'Bar consumption CHI',
+    description: '3rdPlace calculates the recommended host incentive from expected beverage demand.',
+  },
+  {
+    id: 'ticket_chi',
+    label: 'Ticket CHI',
+    description: '3rdPlace can model a host incentive from ticketed-event performance when appropriate.',
+  },
+  {
+    id: 'per_attendee_chi',
+    label: 'Per-attendee CHI',
+    description: '3rdPlace can recommend a per-attendee incentive from approved benchmarks.',
+  },
+] as const
+type VenueCommercialTermId = typeof venueCommercialTerms[number]['id']
+const defaultBarCommercialTerms: VenueCommercialTermId[] = ['minimum_spend', 'bar_consumption_chi']
 
 function VenueSignupFlow({
   onBack,
@@ -1007,8 +1031,7 @@ function VenueSignupFlow({
     amenities: [] as string[],
     houseRules: '',
     isBar: false,
-    barChiPct: '10',
-    perHeadDrinkPct: '15',
+    supportedCommercialTerms: [] as VenueCommercialTermId[],
     minBarSpend: '',
     pricePerNight: '',
     deposit: '',
@@ -1024,6 +1047,14 @@ function VenueSignupFlow({
 
   const toggle = (key: 'amenities' | 'openDays', v: string) => {
     setForm((f) => ({ ...f, [key]: f[key].includes(v) ? f[key].filter((x) => x !== v) : [...f[key], v] }))
+  }
+  const toggleCommercialTerm = (termId: VenueCommercialTermId) => {
+    setForm((f) => ({
+      ...f,
+      supportedCommercialTerms: f.supportedCommercialTerms.includes(termId)
+        ? f.supportedCommercialTerms.filter((x) => x !== termId)
+        : [...f.supportedCommercialTerms, termId],
+    }))
   }
 
   const getStepErrors = (targetStep = step): FieldErrors => {
@@ -1062,7 +1093,9 @@ function VenueSignupFlow({
       if (!hasPositiveNumber(form.pricePerNight)) errors.pricePerNight = 'Base price per night is required.'
       if (!hasPositiveNumber(form.deposit)) errors.deposit = 'Deposit amount is required.'
       if (isBlank(form.cancellationTerms)) errors.cancellationTerms = 'Cancellation terms are required.'
-      if (form.isBar && !hasPositiveNumber(form.minBarSpend)) errors.minBarSpend = 'Minimum bar spend is required when bar settings are enabled.'
+      if (form.isBar && form.supportedCommercialTerms.includes('minimum_spend') && !hasPositiveNumber(form.minBarSpend)) {
+        errors.minBarSpend = 'Minimum spend is required when that term is selected.'
+      }
       return errors
     }
     if (targetStep === 5) {
@@ -1125,9 +1158,10 @@ function VenueSignupFlow({
           amenities: form.amenities,
           house_rules: form.houseRules,
           has_bar: form.isBar,
-          bar_chi_pct: form.isBar ? parseFloat(form.barChiPct) : null,
-          per_head_drink_pct: form.isBar ? parseFloat(form.perHeadDrinkPct) : null,
-          min_bar_spend: form.isBar ? parseFloat(form.minBarSpend) : null,
+          supported_commercial_terms: form.isBar ? form.supportedCommercialTerms : [],
+          bar_chi_pct: null,
+          per_head_drink_pct: null,
+          min_bar_spend: form.isBar && form.supportedCommercialTerms.includes('minimum_spend') ? parseFloat(form.minBarSpend) : null,
           price_per_night: parseFloat(form.pricePerNight) || 0,
           deposit: parseFloat(form.deposit) || 0,
           cancellation_terms: form.cancellationTerms,
@@ -1275,23 +1309,63 @@ function VenueSignupFlow({
         <div className="space-y-6 animate-fade-in">
           <ToggleRow
             checked={form.isBar}
-            onChange={(isBar) => setForm({ ...form, isBar })}
-            title="This venue serves alcohol / has a bar"
-            description="Unlocks Community Host Incentive and per-head drink revenue settings below."
+            onChange={(isBar) => setForm((current) => ({
+              ...current,
+              isBar,
+              supportedCommercialTerms: isBar && current.supportedCommercialTerms.length === 0
+                ? defaultBarCommercialTerms
+                : current.supportedCommercialTerms,
+            }))}
+            title="This venue has bar or beverage sales"
+            description="Lets 3rdPlace recommend supported commercial terms. CHI rates are calculated by the system and approved before settlement."
           />
 
           {form.isBar && (
             <NestedReveal>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Field label="Bar Community Host Incentive to creator (%)">
-                  <Input type="number" value={form.barChiPct} onChange={(e) => setForm({ ...form, barChiPct: e.target.value })} placeholder="10" />
-                </Field>
-                <Field label="Per-head drink sales (%)">
-                  <Input type="number" value={form.perHeadDrinkPct} onChange={(e) => setForm({ ...form, perHeadDrinkPct: e.target.value })} placeholder="15" />
-                </Field>
-                <Field label="Minimum bar spend ($)" error={stepErrors.minBarSpend}>
-                  <Input type="number" value={form.minBarSpend} onChange={(e) => setForm({ ...form, minBarSpend: e.target.value })} placeholder="2000" />
-                </Field>
+              <div className="space-y-4">
+                <div>
+                  <Label className="mb-2 block text-[13px] font-semibold text-ink-soft">Commercial terms you are open to</Label>
+                  <p className="mb-3 text-[14px] leading-relaxed text-ink-soft">
+                    Choose structures your team would consider. 3rdPlace calculates the recommended CHI for each event from attendance, event type, venue fit, and approved benchmarks.
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {venueCommercialTerms.map((term) => {
+                      const active = form.supportedCommercialTerms.includes(term.id)
+                      return (
+                        <button
+                          key={term.id}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => toggleCommercialTerm(term.id)}
+                          className={`rounded-md border p-4 text-left transition-colors ${
+                            active
+                              ? 'border-clay bg-clay-tint text-clay-deep'
+                              : 'border-tan bg-cream text-ink hover:border-clay'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2 text-[14px] font-semibold">
+                            {active ? <Check className="h-4 w-4 text-clay" /> : null}
+                            {term.label}
+                          </span>
+                          <span className="mt-1 block text-[13px] leading-relaxed text-ink-soft">{term.description}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {form.supportedCommercialTerms.includes('minimum_spend') ? (
+                  <Field label="Minimum spend floor ($)" error={stepErrors.minBarSpend}>
+                    <Input type="number" value={form.minBarSpend} onChange={(e) => setForm({ ...form, minBarSpend: e.target.value })} placeholder="2000" />
+                  </Field>
+                ) : null}
+
+                <div className="rounded-md border border-tan bg-cream-deep p-4 text-[14px] leading-relaxed text-ink-soft">
+                  <p className="font-semibold text-ink">3rdPlace calculates CHI.</p>
+                  <p className="mt-1">
+                    These are supported structures, not final rates. The planner recommends terms, the organizer approves the action, and your venue approves the final CHI terms before anything is settled.
+                  </p>
+                </div>
               </div>
             </NestedReveal>
           )}

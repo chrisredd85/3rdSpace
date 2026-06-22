@@ -35,6 +35,7 @@ interface SignupRequest {
   bar_chi_pct?: number | null
   bar_kickback_pct?: number | null
   per_head_drink_pct?: number | null
+  supported_commercial_terms?: string[] | null
   min_bar_spend?: number | null
   price_per_night?: number | null
   deposit?: number | null
@@ -87,6 +88,7 @@ interface VenueSignupDetails {
   bar_chi_pct?: number | null
   bar_kickback_pct?: number | null
   per_head_drink_pct?: number | null
+  supported_commercial_terms?: string[] | null
   min_bar_spend?: number | null
   price_per_night?: number | null
   deposit?: number | null
@@ -288,6 +290,7 @@ function getVenueDetails(body: SignupRequest): VenueSignupDetails | null {
     bar_chi_pct: body.bar_chi_pct ?? body.bar_kickback_pct ?? null,
     bar_kickback_pct: body.bar_kickback_pct ?? null,
     per_head_drink_pct: body.per_head_drink_pct ?? null,
+    supported_commercial_terms: normalizeVenueCommercialTerms(body.supported_commercial_terms),
     min_bar_spend: body.min_bar_spend ?? null,
     price_per_night: body.price_per_night ?? null,
     deposit: body.deposit ?? null,
@@ -392,6 +395,7 @@ async function ensureRoleSetup(
       hasBar: venueDetails.has_bar ?? null,
       barKickbackPct: venueDetails.bar_chi_pct ?? null,
       perHeadDrinkPct: venueDetails.per_head_drink_pct ?? null,
+      supportedCommercialTerms: venueDetails.supported_commercial_terms ?? null,
       minBarSpend: venueDetails.min_bar_spend ?? null,
       pricePerNight: venueDetails.price_per_night ?? null,
       deposit: venueDetails.deposit ?? null,
@@ -474,6 +478,22 @@ function getVenueOpportunityToken(body: SignupRequest) {
   if (body.userType !== 'venue_owner') return null
   const token = body.opportunity_token?.trim()
   return token && token.length <= 256 ? token : null
+}
+
+const supportedVenueCommercialTerms = new Set([
+  'minimum_spend',
+  'bar_consumption_chi',
+  'ticket_chi',
+  'per_attendee_chi',
+])
+
+function normalizeVenueCommercialTerms(value: string[] | null | undefined) {
+  if (!Array.isArray(value)) return []
+  return Array.from(new Set(
+    value
+      .map((term) => typeof term === 'string' ? term.trim() : '')
+      .filter((term) => supportedVenueCommercialTerms.has(term))
+  ))
 }
 
 async function resolveVenueClaimVenueId(

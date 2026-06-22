@@ -36,6 +36,7 @@ export type VenueSetupInput = {
   hasBar?: boolean | null
   barKickbackPct?: number | null
   perHeadDrinkPct?: number | null
+  supportedCommercialTerms?: string[] | null
   minBarSpend?: number | null
   pricePerNight?: number | null
   deposit?: number | null
@@ -100,6 +101,22 @@ function toPositivePercentageOrNull(value: number | null | undefined) {
   const positiveValue = toPositiveNumberOrNull(value)
   if (positiveValue === null || positiveValue > 100) return null
   return Math.round(positiveValue)
+}
+
+const supportedVenueCommercialTerms = new Set([
+  'minimum_spend',
+  'bar_consumption_chi',
+  'ticket_chi',
+  'per_attendee_chi',
+])
+
+function normalizeVenueCommercialTerms(value: string[] | null | undefined) {
+  if (!Array.isArray(value)) return []
+  return Array.from(new Set(
+    value
+      .map((term) => typeof term === 'string' ? term.trim() : '')
+      .filter((term) => supportedVenueCommercialTerms.has(term))
+  ))
 }
 
 function normalizeVendorServiceArea(value: string | null | undefined) {
@@ -265,8 +282,18 @@ export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSe
   let venueId: string
   const depositAmountCents = toIntegerCentsOrNull(input.deposit)
   const pricePerNightCents = toIntegerCentsOrNull(input.pricePerNight)
-  const minimumSpendCents = toIntegerCentsOrNull(input.minBarSpend)
+  const supportedCommercialTerms = normalizeVenueCommercialTerms(input.supportedCommercialTerms)
+  const supportsMinimumSpend = supportedCommercialTerms.includes('minimum_spend')
+  const supportsBarConsumptionChi = supportedCommercialTerms.includes('bar_consumption_chi')
+  const supportsTicketChi = supportedCommercialTerms.includes('ticket_chi')
+  const supportsPerAttendeeChi = supportedCommercialTerms.includes('per_attendee_chi')
+  const minimumSpendCents = supportsMinimumSpend ? toIntegerCentsOrNull(input.minBarSpend) : null
   const autoApproveConditions = {
+    ...(supportedCommercialTerms.length > 0 && {
+      commercial_terms_supported: supportedCommercialTerms,
+      chi_rate_source: 'system_calculated',
+      chi_approval_policy: '3rdPlace recommends CHI from event context; venue approval is required before settlement.',
+    }),
     ...(minimumSpendCents !== null && { minimum_spend_cents: minimumSpendCents }),
     ...(input.neighborhood?.trim() && { neighborhood: input.neighborhood.trim() }),
   }
@@ -296,10 +323,11 @@ export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSe
     hourly_rate_cents: pricePerNightCents,
     daily_rate_cents: pricePerNightCents,
     price_per_night_cents: pricePerNightCents,
-    bar_revenue_share_enabled: hasBar,
-    offers_kickbacks: hasBar,
-    bar_revenue_percentage: hasBar ? input.barKickbackPct ?? null : null,
-    bar_revenue_share_percent: hasBar ? input.perHeadDrinkPct ?? null : null,
+    bar_revenue_share_enabled: hasBar && supportsBarConsumptionChi,
+    ticket_sales_share_enabled: supportsTicketChi,
+    offers_kickbacks: hasBar && (supportsBarConsumptionChi || supportsTicketChi || supportsPerAttendeeChi),
+    bar_revenue_percentage: hasBar && supportsBarConsumptionChi ? input.barKickbackPct ?? null : null,
+    bar_revenue_share_percent: hasBar && supportsBarConsumptionChi ? input.perHeadDrinkPct ?? null : null,
     deposit_amount_cents: depositAmountCents,
     deposit_type: depositAmountCents === null ? null : 'fixed',
     requires_deposit: depositAmountCents !== null,
