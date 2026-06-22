@@ -94,24 +94,24 @@ function PrimaryLink({ href, children }: { href: string; children: ReactNode }) 
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <section className="relative">
-        <div className="mx-auto grid max-w-[1320px] items-start gap-8 px-6 py-8 sm:py-10 lg:grid-cols-12 lg:items-stretch lg:gap-8 lg:py-4 xl:py-5">
-          <div className="animate-entrance lg:col-span-7 lg:flex lg:h-full lg:flex-col">
+      <section className="relative lg:min-h-[calc(100svh-74px)]">
+        <div className="mx-auto grid w-full max-w-[1480px] items-start gap-8 px-5 py-8 sm:px-6 sm:py-10 lg:min-h-[calc(100svh-74px)] lg:grid-cols-[minmax(0,0.98fr)_minmax(380px,0.88fr)] lg:items-center lg:gap-14 lg:px-8 lg:py-8 2xl:max-w-[1600px] 2xl:gap-16 2xl:px-10">
+          <div className="animate-entrance lg:flex lg:h-full lg:flex-col lg:justify-center">
             <Caps className="text-[13px]">Bay Area · 2026</Caps>
-            <h1 className="mt-4 font-display text-[46px] font-medium leading-[0.98] tracking-normal text-ink sm:text-[62px] lg:text-[60px] xl:text-[68px]">
-              <span className="block sm:whitespace-nowrap">Know what worked.</span>
-              <span className="block text-clay sm:whitespace-nowrap">Repeat what paid.</span>
+            <h1 className="mt-4 max-w-[840px] font-display text-[clamp(3rem,4.85vw,5.35rem)] font-medium leading-[0.96] tracking-normal text-ink">
+              <span className="block">Know what worked.</span>
+              <span className="block text-clay">Repeat what paid.</span>
             </h1>
-            <p className="mt-4 max-w-[720px] text-[18px] leading-[1.4] text-ink-soft lg:text-[19px]">
+            <p className="mt-4 max-w-[760px] text-[18px] leading-[1.45] text-ink-soft lg:text-[19px] 2xl:text-[20px]">
               See what every event actually returned — then run the next one.
             </p>
-            <div className="mt-3 max-w-[720px]">
+            <div className="mt-3 max-w-[760px]">
               <HomePlannerStart />
             </div>
           </div>
 
-          <div className="relative hidden animate-entrance md:block lg:col-span-5 lg:h-full" style={{ animationDelay: '120ms' }}>
-            <div className="relative h-[420px] overflow-hidden rounded-md border border-tan shadow-sm md:h-[500px] lg:h-[calc(100vh-116px)] lg:min-h-[560px] lg:max-h-[760px]">
+          <div className="relative hidden animate-entrance md:block lg:h-full" style={{ animationDelay: '120ms' }}>
+            <div className="relative h-[420px] overflow-hidden rounded-md border border-tan shadow-sm md:h-[500px] lg:h-[clamp(560px,calc(100vh-132px),780px)]">
               <Image
                 src="/lovable/hero-venue.jpg"
                 alt="Private dining room in the Mission at golden hour"
@@ -145,7 +145,7 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-tan/70">
-        <div className="mx-auto max-w-[1100px] px-6 py-24">
+        <div className="mx-auto max-w-[1180px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24">
           <Caps>Who it&apos;s for</Caps>
           <h2 className="mt-4 max-w-3xl font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
             Built for hosts who run events on repeat.
@@ -167,7 +167,7 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-tan/70 bg-cream-deep/40">
-        <div className="mx-auto max-w-[1200px] px-6 py-24">
+        <div className="mx-auto max-w-[1480px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24 2xl:px-10">
           <Caps>How it runs</Caps>
           <h2 className="mt-4 max-w-3xl font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
             Three moves. Every event.
@@ -185,7 +185,7 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-tan/70">
-        <div className="mx-auto max-w-[1200px] px-6 py-24">
+        <div className="mx-auto max-w-[1480px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24 2xl:px-10">
           <Caps>What ships in the box</Caps>
           <h2 className="mt-4 max-w-3xl font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
             The operations work, handled.
@@ -202,7 +202,7 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-tan/70 bg-cream-deep/40">
-        <div className="mx-auto max-w-[1000px] px-6 py-24">
+        <div className="mx-auto max-w-[1080px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24">
           <Caps>From the calendar</Caps>
           <blockquote className="mt-5 font-display text-[30px] leading-[1.15] text-ink sm:text-[42px]">
             &ldquo;I used to spend a full day chasing vendors and reconciling receipts
@@ -216,7 +216,7 @@ export default function HomePage() {
       </section>
 
       <section id="pricing" className="border-t border-tan/70">
-        <div className="mx-auto max-w-[1000px] px-6 py-24">
+        <div className="mx-auto max-w-[1120px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24">
           <Caps>Pricing</Caps>
           <h2 className="mt-4 font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
             First 2 events free.
@@ -270,7 +270,7 @@ export default function HomePage() {
       </section>
 
       <section id="faq" className="border-t border-tan/70">
-        <div className="mx-auto max-w-[820px] px-6 py-24">
+        <div className="mx-auto max-w-[860px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24">
           <Caps>Common questions</Caps>
           <h2 className="mt-4 font-display text-[40px] leading-[1.05] text-ink sm:text-[52px]">
             Clear answers. No fine print.
@@ -290,7 +290,7 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-tan/70 bg-cream-deep/50">
-        <div className="mx-auto max-w-[900px] px-6 py-28 text-center">
+        <div className="mx-auto max-w-[980px] px-5 py-24 text-center sm:px-6 lg:px-8 lg:py-28">
           <h2 className="font-display text-[46px] leading-[1.0] text-ink sm:text-[72px]">
             Your next event is already on the calendar.
           </h2>
@@ -307,7 +307,7 @@ export default function HomePage() {
       </section>
 
       <footer className="border-t border-tan/70">
-        <div className="mx-auto grid max-w-[1200px] gap-10 px-6 py-14 sm:grid-cols-4">
+        <div className="mx-auto grid max-w-[1480px] gap-10 px-5 py-14 sm:grid-cols-4 sm:px-6 lg:px-8 2xl:px-10">
           <div>
             <Link href="/" className="font-display text-[24px] text-clay">3rdPlace</Link>
             <p className="mt-3 text-[14px] leading-[1.6] text-ink-soft">The operations agent for Bay Area hosts.</p>
@@ -360,7 +360,7 @@ export default function HomePage() {
           </div>
         </div>
         <div className="border-t border-tan/70">
-          <div className="mx-auto max-w-[1200px] px-6 py-5">
+          <div className="mx-auto max-w-[1480px] px-5 py-5 sm:px-6 lg:px-8 2xl:px-10">
             <p className="font-mono text-[11px] text-ink-faint">
               &copy; 2026 3rdPlace · Built in the Bay Area for hosts who run events on repeat.
             </p>
