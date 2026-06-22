@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { CalendarDays, CheckCircle2, ChevronDown, LayoutTemplate, Loader2, Mail, MessageSquare, RefreshCw, SendHorizontal, Sparkles, X } from 'lucide-react'
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
 import { PlannerDataConnectionPanel } from '@/components/planner/PlannerDataConnectionPanel'
-import { PlannerLivePlanPanel } from '@/components/planner/PlannerLivePlanPanel'
+import { PlannerLivePlanPanel, type PlannerDateChangeRequestInput } from '@/components/planner/PlannerLivePlanPanel'
 import { PostEventReportCard } from '@/components/planner/PostEventReportCard'
 import { PlannerSignupGate } from '@/components/planner/PlannerSignupGate'
 import { PlannerTimelineCountdown } from '@/components/planner/PlannerTimelineCountdown'
@@ -1221,6 +1221,44 @@ export function PlannerWorkspace() {
     }
   }
 
+  async function requestDateChangeOutreach(input: PlannerDateChangeRequestInput) {
+    if (!activePlan || persistenceMode !== 'server' || activePlan.id.startsWith('mock-plan-')) {
+      throw new Error('Save this plan before creating date-change outreach approvals.')
+    }
+
+    const response = await fetch(`/api/planner/plans/${activePlan.id}/date-change`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(input),
+    })
+    const payload = await response.json().catch(() => ({} as {
+      error?: string
+      plan?: Plan
+      messages?: PlanMessage[]
+      approval_message_id?: string
+      target_count?: number
+    }))
+
+    if (!response.ok) {
+      throw new Error(payload.error ?? 'Could not create date-change outreach approval.')
+    }
+
+    if (!payload.plan || !Array.isArray(payload.messages)) {
+      throw new Error('Date-change approval returned an unexpected response.')
+    }
+
+    setActivePlan(payload.plan)
+    setMessages(payload.messages)
+    publishLivePlan(payload.plan, payload.messages)
+    navigateToPlannerTab('approvals', payload.approval_message_id)
+    addToast({
+      title: 'Date-change approval created',
+      description: `Review the Gmail approval before ${payload.target_count ?? 0} partner email${payload.target_count === 1 ? '' : 's'} send.`,
+      variant: 'success',
+    })
+  }
+
   /**
    * Keeps approval card state synced in the local message timeline after a button action.
    */
@@ -1671,7 +1709,7 @@ export function PlannerWorkspace() {
             ) : null}
 
             {activeTab === 'event_plan' ? (
-              <PlannerLivePlanPanel inline />
+              <PlannerLivePlanPanel inline onDateChangeRequest={requestDateChangeOutreach} />
             ) : null}
 
             {activeTab === 'data' && persistenceMode === 'server' ? (

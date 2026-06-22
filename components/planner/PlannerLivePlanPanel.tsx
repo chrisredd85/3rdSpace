@@ -10,9 +10,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
+  CalendarDays,
   Check,
   ChevronRight,
   ClipboardList,
+  Mail,
   MapPin,
   Plus,
   RefreshCw,
@@ -122,6 +124,18 @@ interface PlannerLivePlanPanelProps {
   sources?: string[]
   /** When true, renders as an inline block (no fixed height, no border-l, no shadow). */
   inline?: boolean
+  onDateChangeRequest?: (input: PlannerDateChangeRequestInput) => Promise<void>
+}
+
+export interface PlannerDateChangeRequestInput {
+  dateWindowStart: string
+  dateWindowEnd?: string | null
+  note?: string | null
+  targets?: Array<{
+    kind: 'venue' | 'vendor'
+    name: string
+    email: string
+  }>
 }
 
 interface LivePlanSnapshot {
@@ -782,6 +796,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   spendingRules = defaultRules,
   sources = defaultSources,
   inline = false,
+  onDateChangeRequest,
 }: PlannerLivePlanPanelProps) {
   const [livePayload, setLivePayload] = useState<LivePlanPanelPayload>(emptyPayload)
   const [actionFeedback, setActionFeedback] = useState<Record<string, 'loading' | 'sent' | 'error'>>({})
@@ -795,6 +810,16 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const [newCostAmount, setNewCostAmount] = useState('')
   const [customCostError, setCustomCostError] = useState<string | null>(null)
   const [isSavingCustomCosts, setIsSavingCustomCosts] = useState(false)
+  const [isDateChangeOpen, setIsDateChangeOpen] = useState(false)
+  const [dateChangeStart, setDateChangeStart] = useState('')
+  const [dateChangeEnd, setDateChangeEnd] = useState('')
+  const [dateChangeNote, setDateChangeNote] = useState('')
+  const [dateChangeTargetKind, setDateChangeTargetKind] = useState<'venue' | 'vendor'>('venue')
+  const [dateChangeTargetName, setDateChangeTargetName] = useState('')
+  const [dateChangeTargetEmail, setDateChangeTargetEmail] = useState('')
+  const [dateChangeError, setDateChangeError] = useState<string | null>(null)
+  const [dateChangeSuccess, setDateChangeSuccess] = useState<string | null>(null)
+  const [isSubmittingDateChange, setIsSubmittingDateChange] = useState(false)
   const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const billingGate = usePlannerBillingGate()
 
@@ -858,6 +883,65 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const isComparingCommercialModels = isRecommendBestModel(eventSummary.consumption_share)
   const primaryAuthorization = authorizationCards[0] ?? null
   const shoppingListItems = buildShoppingList(primaryVenue, renderedBudgetLineItems, eventSummary, livePlan?.selectedVendors ?? [])
+  const canRequestDateChange = Boolean(onDateChangeRequest && activePlanId && !activePlanId.startsWith('mock-plan-'))
+
+  useEffect(() => {
+    if (isDateChangeOpen) return
+    setDateChangeStart(livePlan?.dateWindowStart ?? '')
+    setDateChangeEnd(
+      livePlan?.dateWindowEnd && livePlan.dateWindowEnd !== livePlan.dateWindowStart
+        ? livePlan.dateWindowEnd
+        : ''
+    )
+  }, [isDateChangeOpen, livePlan?.dateWindowEnd, livePlan?.dateWindowStart])
+
+  async function handleDateChangeSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!onDateChangeRequest) return
+
+    const proposedStart = dateChangeStart.trim()
+    const proposedEnd = dateChangeEnd.trim()
+    const targetName = dateChangeTargetName.trim()
+    const targetEmail = dateChangeTargetEmail.trim()
+
+    if (!proposedStart) {
+      setDateChangeError('Choose the proposed date before creating the approval.')
+      return
+    }
+
+    if ((targetName && !targetEmail) || (!targetName && targetEmail)) {
+      setDateChangeError('Add both partner name and partner email, or leave both blank to use existing outreach contacts.')
+      return
+    }
+
+    setIsSubmittingDateChange(true)
+    setDateChangeError(null)
+    setDateChangeSuccess(null)
+
+    try {
+      await onDateChangeRequest({
+        dateWindowStart: proposedStart,
+        dateWindowEnd: proposedEnd || proposedStart,
+        note: dateChangeNote.trim() || null,
+        targets: targetName && targetEmail
+          ? [{
+              kind: dateChangeTargetKind,
+              name: targetName,
+              email: targetEmail,
+            }]
+          : [],
+      })
+      setDateChangeSuccess('Date-change approval created. Review it before partner emails send.')
+      setIsDateChangeOpen(false)
+      setDateChangeTargetName('')
+      setDateChangeTargetEmail('')
+      setDateChangeNote('')
+    } catch (error) {
+      setDateChangeError(error instanceof Error ? error.message : 'Could not create the date-change approval.')
+    } finally {
+      setIsSubmittingDateChange(false)
+    }
+  }
 
   async function handleGenerateTimeline() {
     if (!activePlanId || activePlanId.startsWith('mock-plan-') || isGeneratingTimeline) return
@@ -1089,6 +1173,136 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
               error={timelineRetryError}
               onGenerate={handleGenerateTimeline}
             />
+          </div>
+
+          <div className="mt-7 rounded-lg border border-tan bg-cream-deep/75 p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <p className="label-caps text-clay">Date change</p>
+                <h4 className="mt-2 flex items-center gap-2 text-base font-semibold leading-tight text-ink">
+                  <CalendarDays className="h-4 w-4 text-clay" />
+                  Try a new date
+                </h4>
+                <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-soft">
+                  Updates this brief as a proposed change and creates a Gmail approval before any venue or vendor email is sent.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={!onDateChangeRequest}
+                onClick={() => {
+                  setIsDateChangeOpen((current) => !current)
+                  setDateChangeError(null)
+                  setDateChangeSuccess(null)
+                }}
+                className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-clay/40 bg-cream px-4 py-2 text-sm font-bold text-clay transition-colors hover:bg-clay hover:text-cream disabled:cursor-not-allowed disabled:border-tan disabled:text-ink-faint disabled:hover:bg-cream"
+              >
+                <Mail className="h-4 w-4" />
+                {isDateChangeOpen ? 'Close' : 'Create approval'}
+              </button>
+            </div>
+
+            {dateChangeSuccess ? (
+              <p className="mt-4 rounded-md border border-forest/20 bg-forest/10 px-3 py-2 text-sm font-semibold text-forest">
+                {dateChangeSuccess}
+              </p>
+            ) : null}
+
+            {!canRequestDateChange && onDateChangeRequest ? (
+              <p className="mt-4 rounded-md border border-tan bg-cream px-3 py-2 text-sm text-ink-soft">
+                Save this plan before creating date-change outreach approvals.
+              </p>
+            ) : null}
+
+            {isDateChangeOpen ? (
+              <form onSubmit={handleDateChangeSubmit} className="mt-5 space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-xs font-bold uppercase tracking-[0.08em] text-ink-faint">Proposed date</span>
+                    <input
+                      type="date"
+                      value={dateChangeStart}
+                      onChange={(event) => setDateChangeStart(event.target.value)}
+                      className="mt-2 min-h-11 w-full rounded-md border border-tan bg-cream px-3 text-sm font-semibold text-ink outline-none transition-colors focus:border-clay"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-bold uppercase tracking-[0.08em] text-ink-faint">End date optional</span>
+                    <input
+                      type="date"
+                      value={dateChangeEnd}
+                      onChange={(event) => setDateChangeEnd(event.target.value)}
+                      className="mt-2 min-h-11 w-full rounded-md border border-tan bg-cream px-3 text-sm font-semibold text-ink outline-none transition-colors focus:border-clay"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-[0.8fr_1.1fr_1.2fr]">
+                  <label className="block">
+                    <span className="text-xs font-bold uppercase tracking-[0.08em] text-ink-faint">Partner type</span>
+                    <select
+                      value={dateChangeTargetKind}
+                      onChange={(event) => setDateChangeTargetKind(event.target.value === 'vendor' ? 'vendor' : 'venue')}
+                      className="mt-2 min-h-11 w-full rounded-md border border-tan bg-cream px-3 text-sm font-semibold text-ink outline-none transition-colors focus:border-clay"
+                    >
+                      <option value="venue">Venue</option>
+                      <option value="vendor">Vendor</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-bold uppercase tracking-[0.08em] text-ink-faint">Partner name optional</span>
+                    <input
+                      type="text"
+                      value={dateChangeTargetName}
+                      onChange={(event) => setDateChangeTargetName(event.target.value)}
+                      placeholder="Use existing contacts"
+                      className="mt-2 min-h-11 w-full rounded-md border border-tan bg-cream px-3 text-sm font-semibold text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-clay"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-bold uppercase tracking-[0.08em] text-ink-faint">Partner email optional</span>
+                    <input
+                      type="email"
+                      value={dateChangeTargetEmail}
+                      onChange={(event) => setDateChangeTargetEmail(event.target.value)}
+                      placeholder="Use existing outreach contacts"
+                      className="mt-2 min-h-11 w-full rounded-md border border-tan bg-cream px-3 text-sm font-semibold text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-clay"
+                    />
+                  </label>
+                </div>
+
+                <label className="block">
+                  <span className="text-xs font-bold uppercase tracking-[0.08em] text-ink-faint">Organizer note optional</span>
+                  <textarea
+                    value={dateChangeNote}
+                    onChange={(event) => setDateChangeNote(event.target.value)}
+                    rows={3}
+                    placeholder="Mention timing constraints or why the date is moving."
+                    className="mt-2 w-full rounded-md border border-tan bg-cream px-3 py-2 text-sm font-semibold text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-clay"
+                  />
+                </label>
+
+                {dateChangeError ? (
+                  <p className="rounded-md border border-brick/30 bg-brick/10 px-3 py-2 text-sm font-semibold text-brick">
+                    {dateChangeError}
+                  </p>
+                ) : null}
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs leading-relaxed text-ink-faint">
+                    Emails are queued as approvals. Nothing sends until the organizer approves the Gmail card.
+                  </p>
+                  <button
+                    type="submit"
+                    disabled={!canRequestDateChange || isSubmittingDateChange}
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-clay px-4 py-2 text-sm font-bold text-cream transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
+                  >
+                    <RefreshCw className={cn('h-4 w-4', isSubmittingDateChange ? 'animate-spin' : '')} />
+                    {isSubmittingDateChange ? 'Creating approval' : 'Create date-change approval'}
+                  </button>
+                </div>
+              </form>
+            ) : null}
           </div>
 
           <div className="mt-7 rounded-lg border border-clay/25 bg-clay-tint/55 p-5">

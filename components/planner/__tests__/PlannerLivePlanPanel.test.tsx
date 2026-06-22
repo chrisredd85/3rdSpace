@@ -1,4 +1,5 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { PlannerLivePlanPanel } from '@/components/planner/PlannerLivePlanPanel'
 import type { PlanMessage } from '@/lib/types/planner'
 
@@ -144,6 +145,51 @@ describe('PlannerLivePlanPanel', () => {
     expect(screen.getByText('Venue consumption incentive (bar CHI)')).toBeInTheDocument()
     expect(screen.getAllByText('$324').length).toBeGreaterThan(0)
     expect(screen.getByText('Per-attendee net')).toBeInTheDocument()
+  })
+
+  it('creates an approval-gated date-change request from the event brief', async () => {
+    const user = userEvent.setup()
+    const onDateChangeRequest = jest.fn().mockResolvedValue(undefined)
+    window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      plan: makePlanSnapshot({
+        title: 'Founder Dinner',
+        guestCount: 72,
+        neighborhood: 'Mission',
+      }),
+      messages: [
+        makeConfirmationMessage('confirmation-date-change', {
+          event_type: 'dinner',
+          guest_count: 72,
+          area: 'Mission',
+          ticketing_model: 'Ticketed',
+          action_permission: 'Approval required before outreach',
+        }),
+      ],
+      planId: 'plan-date-change-test',
+    }))
+
+    render(<PlannerLivePlanPanel inline onDateChangeRequest={onDateChangeRequest} />)
+
+    expect(await screen.findByRole('heading', { name: 'Founder Dinner' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /create approval/i }))
+    fireEvent.change(screen.getByLabelText(/Proposed date/i), { target: { value: '2026-08-01' } })
+    fireEvent.change(screen.getByLabelText(/Partner name optional/i), { target: { value: 'Moongate Lounge' } })
+    fireEvent.change(screen.getByLabelText(/Partner email optional/i), { target: { value: 'events@moongate.example' } })
+    await user.click(screen.getByRole('button', { name: /create date-change approval/i }))
+
+    await waitFor(() => {
+      expect(onDateChangeRequest).toHaveBeenCalledWith({
+        dateWindowStart: '2026-08-01',
+        dateWindowEnd: '2026-08-01',
+        note: null,
+        targets: [{
+          kind: 'venue',
+          name: 'Moongate Lounge',
+          email: 'events@moongate.example',
+        }],
+      })
+    })
+    expect(screen.getByText('Date-change approval created. Review it before partner emails send.')).toBeInTheDocument()
   })
 })
 
