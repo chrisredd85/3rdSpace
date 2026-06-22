@@ -9,6 +9,7 @@ import {
 } from '@/lib/opportunities/tokenValidate'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json } from '@/lib/types'
+import { handleAcceptedVenueOpportunityRecovery } from '@/lib/venues/venueOpportunityRecovery'
 
 interface RouteContext {
   params: {
@@ -62,10 +63,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (responseContext.isExpired) return NextResponse.json({ error: 'Response link expired' }, { status: 410 })
 
     const invite = await submitOpportunityResponse(admin, responseContext, parsed.data)
+    const recovery =
+      responseContext.kind === 'venue' && parsed.data.action === 'accept'
+        ? await handleAcceptedVenueOpportunityRecovery(admin, context.params.token)
+        : null
+
     return NextResponse.json({
       kind: responseContext.kind,
       status: invite.status,
       invite,
+      recovery: recovery
+        ? {
+            status: recovery.status,
+          }
+        : null,
     })
   } catch (error) {
     console.error('Opportunity response POST error:', error)

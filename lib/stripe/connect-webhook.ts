@@ -6,6 +6,7 @@ import {
   saveVendorStripeAccount,
   saveVenueStripeAccount,
 } from '@/lib/stripe/connect'
+import { handleVenueStripeReadyForOwner } from '@/lib/venues/venueOpportunityRecovery'
 
 type StripeAdminClient = Parameters<typeof saveBuilderStripeAccount>[0] & {
   rpc?: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data?: unknown; error?: { message?: string } | null }>
@@ -19,7 +20,7 @@ export type StripeConnectWebhookResult = {
   reason?: string
 }
 
-type StripeAccountLookup = Record<string, string | null> | null
+type StripeAccountLookup = Record<string, unknown> | null
 
 async function loadStripeAccountRow(
   admin: StripeAdminClient,
@@ -43,30 +44,41 @@ export async function applyStripeConnectAccountUpdated(
   eventId = account.id
 ): Promise<StripeConnectWebhookResult> {
   const vendor = await loadStripeAccountRow(admin, 'vendor_stripe_accounts', 'vendor_id', account.id)
-  if (vendor?.vendor_id) {
-    await saveVendorStripeAccount(admin, vendor.vendor_id, account)
+  const vendorId = readString(vendor?.vendor_id)
+  if (vendorId) {
+    await saveVendorStripeAccount(admin, vendorId, account)
     if (account.charges_enabled) {
-      await clearVendorStripeSkippedAt(admin, vendor.vendor_id)
+      await clearVendorStripeSkippedAt(admin, vendorId)
     }
     await recordStripeConnectAccountEvent(admin, account.id, 'account.updated', eventId)
     return { received: true }
   }
 
-  const venue = await loadStripeAccountRow(admin, 'venue_stripe_accounts', 'owner_id', account.id)
-  if (venue?.owner_id) {
-    await saveVenueStripeAccount(admin, venue.owner_id, account)
+  const venue = await loadStripeAccountRow(admin, 'venue_stripe_accounts', 'owner_id, payouts_enabled', account.id)
+  const venueOwnerId = readString(venue?.owner_id)
+  if (venueOwnerId) {
+    const wasPayoutReady = venue?.payouts_enabled === true
+    await saveVenueStripeAccount(admin, venueOwnerId, account)
+    if (!wasPayoutReady && account.payouts_enabled) {
+      await handleVenueStripeReadyForOwner(admin, venueOwnerId)
+    }
     await recordStripeConnectAccountEvent(admin, account.id, 'account.updated', eventId)
     return { received: true }
   }
 
   const builder = await loadStripeAccountRow(admin, 'builder_stripe_accounts', 'user_id, builder_id', account.id)
-  if (builder?.user_id) {
-    await saveBuilderStripeAccount(admin, builder.user_id, builder.builder_id ?? null, account)
+  const builderUserId = readString(builder?.user_id)
+  if (builderUserId) {
+    await saveBuilderStripeAccount(admin, builderUserId, readString(builder?.builder_id), account)
     await recordStripeConnectAccountEvent(admin, account.id, 'account.updated', eventId)
     return { received: true }
   }
 
   return { received: true, ignored: true, reason: 'unknown_account' }
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
 async function clearVendorStripeSkippedAt(

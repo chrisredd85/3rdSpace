@@ -9,6 +9,7 @@ import {
   matchingFieldSchema,
   archetypeMatchingFieldsSchema,
 } from '@/lib/planner/archetypes/types'
+import { normalizeVendorNeedStatus } from '@/lib/planner/vendorNeedStatus'
 
 const intakeMessageSchema = z.object({
   role: z.string().trim().min(1),
@@ -178,6 +179,10 @@ const nullableMoneyCentsSchema = z.preprocess(coerceNullableMoneyCents, z.number
 const nullableTicketPriceCentsSchema = z.preprocess(coerceNullableTicketPriceCents, z.number().int().nonnegative().nullable())
 const nullableBooleanSchema = z.preprocess(coerceNullableBoolean, z.boolean().nullable())
 const stringArraySchema = z.preprocess(coerceStringArray, z.array(z.string().trim().min(1)))
+const vendorNeedStatusSchema = z.preprocess(
+  (value) => normalizeVendorNeedStatus(value) ?? 'unknown',
+  z.enum(['none', 'optional', 'required', 'unknown'])
+)
 
 export const intakeExtractedFieldsSchema = z.object({
   event_type: z.string().trim().min(1).nullable(),
@@ -256,6 +261,7 @@ export const intakeAgentOutputSchema = z.object({
   next_best_question: nullableStringSchema,
   assumptions_made: stringArraySchema,
   byo_vendors: z.preprocess((v) => Array.isArray(v) ? v : [], z.array(byoVendorSchema)).default([]),
+  vendor_need_status: vendorNeedStatusSchema.default('unknown'),
 })
 
 export type IntakeAgentInput = z.infer<typeof intakeAgentInputSchema>
@@ -306,6 +312,7 @@ const INTAKE_OUTPUT_CONTRACT = {
   confidence_score: 0.75,
   assumptions_made: ['string'],
   byo_vendors: [{ service_type: 'dj', name: 'optional vendor name or null', cost_cents: 50000 }],
+  vendor_need_status: 'unknown',
 }
 
 const INTAKE_SYSTEM_PROMPT = [
@@ -359,6 +366,7 @@ const INTAKE_SYSTEM_PROMPT = [
   'BYO updates — if the user updates an existing BYO entry ("actually the DJ is $700 not $500", "the photographer is named Jane"), keep the same service_type entry and update name or cost_cents instead of adding a duplicate. Merge with current_plan.metadata.byo_vendors when present.',
   'BYO removal — if the user says they no longer have a vendor ("nevermind on the DJ, I will use the platform", "drop my photographer"), remove that entry from byo_vendors. Returning an empty array on a turn means "no BYO vendors known yet"; do NOT use empty array to remove a previously-captured BYO vendor — only omit the specific entry if the user explicitly removed it.',
   'When a BYO vendor exists for a service type, do NOT also ask the user whether they need that service from the catalog. Skip the corresponding archetype question.',
+  'Set vendor_need_status as a durable plan-level vendor sourcing state: "none" when the user says no vendors are needed, the venue handles all vendor-like work, no outside vendors, or the organizer already has everything covered; "required" when 3rdPlace should source or compare vendors; "optional" when vendors are nice-to-have but not required; "unknown" only when the plan lacks enough information. If vendor_need_status is "none", do not ask catalog vendor questions.',
   'Also populate extracted_fields using planner DB field names: event_type, guest_count, neighborhood, date_window_start, date_window_end, budget_cap_cents, ticketed, ticket_price_target, food_responsibility, profit_goal_cents.',
   'All monetary extracted_fields values must be integer cents.',
   'Use monetization_model values like ticketed, free, or sponsored when the user provides enough evidence.',

@@ -28,6 +28,7 @@ import {
   recordWebhookAttendanceForEvent,
 } from '@/lib/finance/settlement-runs'
 import { sendVenueSettlementAcknowledgementEmail } from '@/lib/finance/settlement-checkout'
+import { processVenueStripeSetupReminderJob } from '@/lib/venues/venueOpportunityRecovery'
 
 export const runtime = 'nodejs'
 
@@ -271,6 +272,10 @@ async function processJob(admin: ReturnType<typeof createServiceRoleClient>, job
     job.job_type === 'opportunity_expire_vendor_invite'
   ) {
     return runOpportunityInviteJob(admin, job)
+  }
+
+  if (job.job_type === 'venue.stripe_setup_reminder') {
+    return processVenueStripeSetupReminderJob(admin, job)
   }
 
   throw new Error(`Unsupported job type: ${job.job_type}`)

@@ -70,14 +70,19 @@ export function OpportunityResponseForm({ token, opportunity }: OpportunityRespo
       }),
     })
 
+    const payload = await response.json().catch(() => ({}))
+
     if (!response.ok) {
       setSubmitState('error')
-      setError('Unable to save your response. Try again or contact 3rdPlace.')
+      setError(payload.error || 'Unable to save your response. Try again or contact 3rdPlace.')
       return
     }
 
     setSubmittedQuoteCents(safeQuotedAmountCents)
-    if (action === 'accept' && requiresStripeGate(opportunity, safeQuotedAmountCents)) {
+    if (
+      action === 'accept' &&
+      (payload.recovery?.status === 'pending_stripe_setup' || requiresStripeGate(opportunity, safeQuotedAmountCents))
+    ) {
       setSubmitState('stripe_gate')
       return
     }
@@ -341,8 +346,14 @@ function StripePayoutGate({
   onSkip: () => void
 }) {
   const dashboardPrefix = opportunity.kind === 'venue' ? 'venue' : 'vendor'
-  const setupHref = `/${dashboardPrefix}/payouts?connect=stripe&from_opportunity=${encodeURIComponent(token)}`
-  const signupHref = `/signup/${opportunity.kind}?from_opportunity=${encodeURIComponent(token)}&next=payouts`
+  const setupHref =
+    opportunity.kind === 'venue'
+      ? `/api/venue/opportunity/${encodeURIComponent(token)}/stripe-resume`
+      : `/${dashboardPrefix}/payouts?connect=stripe&from_opportunity=${encodeURIComponent(token)}`
+  const signupHref =
+    opportunity.kind === 'venue'
+      ? `/signup/venue?opportunity_token=${encodeURIComponent(token)}&next=payouts`
+      : `/signup/${opportunity.kind}?from_opportunity=${encodeURIComponent(token)}&next=payouts`
   const amountLabel = amountCents && amountCents > 0 ? formatCurrency(amountCents) : 'this paid opportunity'
 
   return (
@@ -441,12 +452,13 @@ function getPartnerEmail(opportunity: OpportunityResponseContext) {
 }
 
 function requiresStripeGate(opportunity: OpportunityResponseContext, submittedQuoteCents: number | null) {
-  if (hasPartnerStripeAccount(opportunity)) return false
+  if (hasReadyPartnerStripeAccount(opportunity)) return false
   return Boolean(getPaidOpportunityAmountCents(opportunity, submittedQuoteCents))
 }
 
-function hasPartnerStripeAccount(opportunity: OpportunityResponseContext) {
-  return Boolean(readString(opportunity.partner?.stripe_account_id))
+function hasReadyPartnerStripeAccount(opportunity: OpportunityResponseContext) {
+  if (opportunity.partner?.stripe_ready === true) return true
+  return Boolean(readString(opportunity.partner?.stripe_account_id) && opportunity.partner?.payouts_enabled === true)
 }
 
 function getPaidOpportunityAmountCents(opportunity: OpportunityResponseContext, submittedQuoteCents: number | null) {

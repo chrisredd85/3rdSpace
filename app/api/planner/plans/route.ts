@@ -39,6 +39,11 @@ import { hasUnknownBudgetSignal, parseEventIntent } from '@/lib/planner/intentPa
 import { mergeUserPreferenceSignalsIntoMetadata } from '@/lib/planner/userPreferenceSignals'
 import { BYO_VENDORS_METADATA_KEY, mergeByoVendors, readByoVendors } from '@/lib/planner/byoVendors'
 import {
+  mergeVendorNeedStatusMetadata,
+  readPlanVendorNeedStatus,
+  resolveVendorNeedStatusUpdate,
+} from '@/lib/planner/vendorNeedStatus'
+import {
   isIntakeReadyForRecommendations,
   isPlanReadyForRequestedRecommendations,
 } from '@/lib/planner/intakeReadiness'
@@ -320,8 +325,16 @@ function buildPlanInsert(
       : baseMetadata,
     message
   )
-  const metadata =
+  const metadataBeforeVendorNeed =
     mergeUserPreferenceSignalsIntoMetadata(metadataWithRequirements, message) ?? metadataWithRequirements
+  const vendorNeedStatus = resolveVendorNeedStatusUpdate({
+    metadata: metadataBeforeVendorNeed,
+    userMessage: message,
+    agentStatus: null,
+  })
+  const metadata = vendorNeedStatus
+    ? mergeVendorNeedStatusMetadata(metadataBeforeVendorNeed, vendorNeedStatus) ?? metadataBeforeVendorNeed
+    : metadataBeforeVendorNeed
 
   return {
     user_id: userId,
@@ -590,7 +603,10 @@ function buildTransitionPhrase(plan: Plan): string {
   const guestText = typeof plan.guest_count === 'number' && plan.guest_count > 0
     ? ` for ${plan.guest_count.toLocaleString()} guests`
     : ''
-  return `I have enough to start matching ${area} options${guestText} for this ${eventType}. Pulling venue and vendor recommendations now.`
+  const recommendationScope = readPlanVendorNeedStatus(plan) === 'none'
+    ? 'venue and operating recommendations'
+    : 'venue and vendor recommendations'
+  return `I have enough to start matching ${area} options${guestText} for this ${eventType}. Pulling ${recommendationScope} now.`
 }
 
 function hasIntakeCoreFields(output: IntakeAgentOutput, plan: Plan): boolean {
@@ -751,6 +767,19 @@ function buildPlanUpdatesFromIntakeOutput(
     eventTypeDecision.lock
   )
   if (metadata) updates.metadata = metadata
+
+  const vendorNeedStatus = resolveVendorNeedStatusUpdate({
+    metadata: updates.metadata ?? currentPlan.metadata,
+    userMessage,
+    agentStatus: output.vendor_need_status,
+  })
+  if (vendorNeedStatus) {
+    const baseMetadata = (updates.metadata && typeof updates.metadata === 'object' && !Array.isArray(updates.metadata))
+      ? updates.metadata as Record<string, unknown>
+      : (readRecord(currentPlan.metadata) ?? {})
+    const nextMetadata = mergeVendorNeedStatusMetadata(baseMetadata, vendorNeedStatus)
+    if (nextMetadata) updates.metadata = nextMetadata
+  }
 
   // Merge any BYO (bring-your-own) vendors the intake agent surfaced this
   // turn into plan.metadata.byo_vendors so the economics pipeline can fold

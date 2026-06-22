@@ -73,6 +73,7 @@ const validIntakeOutput = {
   confidence_score: 0.72,
   next_best_question: 'What date or date window should I plan around?',
   assumptions_made: ['Founder dinner implies a seated meal.'],
+  vendor_need_status: 'unknown',
   byo_vendors: [],
 }
 

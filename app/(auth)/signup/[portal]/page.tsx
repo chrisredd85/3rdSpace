@@ -10,6 +10,11 @@ function hasSignupOverride(searchParams: Record<string, string | string[] | unde
   return searchParams.force === '1' || searchParams.switch_account === '1'
 }
 
+function readSearchParam(value: string | string[] | undefined) {
+  if (Array.isArray(value)) return value[0] ?? null
+  return value ?? null
+}
+
 /**
  * Renders the scoped signup flow for each portal.
  *
@@ -44,6 +49,7 @@ export default async function ScopedSignupPage({
       <SignupExperience
         initialUserType="venue_owner"
         alreadySignedInWarning={hasSignupOverride(resolvedSearchParams)}
+        opportunityToken={readSearchParam(resolvedSearchParams.opportunity_token)}
       />
     )
   }

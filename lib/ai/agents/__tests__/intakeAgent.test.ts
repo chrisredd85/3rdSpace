@@ -133,6 +133,17 @@ describe('runIntakeAgent', () => {
     expect(parsed.extracted_fields.ticket_price_target).toBe(4000)
   })
 
+  it('defaults unknown vendor need status and normalizes explicit no-vendor values', () => {
+    expect(intakeAgentOutputSchema.parse(founderDinnerOutput).vendor_need_status).toBe('unknown')
+
+    const parsed = intakeAgentOutputSchema.parse({
+      ...founderDinnerOutput,
+      vendor_need_status: 'no vendors',
+    })
+
+    expect(parsed.vendor_need_status).toBe('none')
+  })
+
   it('passes inferred archetype resolution context to the model', async () => {
     const create = jest.fn().mockResolvedValue({
       choices: [{ message: { content: JSON.stringify(founderDinnerOutput) } }],

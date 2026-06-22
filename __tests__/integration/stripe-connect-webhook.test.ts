@@ -26,6 +26,7 @@ import {
   saveVendorStripeAccount,
   saveVenueStripeAccount,
 } from '@/lib/stripe/connect'
+import { handleVenueStripeReadyForOwner } from '@/lib/venues/venueOpportunityRecovery'
 
 jest.mock('@/lib/email', () => ({
   sendBuilderPaidEmail: jest.fn().mockResolvedValue({ sent: true, reason: null }),
@@ -59,6 +60,10 @@ jest.mock('@/lib/stripe/connect', () => ({
   saveBuilderStripeAccount: jest.fn().mockResolvedValue({}),
   saveVendorStripeAccount: jest.fn().mockResolvedValue({}),
   saveVenueStripeAccount: jest.fn().mockResolvedValue({}),
+}))
+
+jest.mock('@/lib/venues/venueOpportunityRecovery', () => ({
+  handleVenueStripeReadyForOwner: jest.fn().mockResolvedValue({ updated: 1 }),
 }))
 
 type Row = Record<string, unknown>
@@ -286,6 +291,40 @@ describe('Stripe platform and Connect webhook routes', () => {
     }))
     expect(saveBuilderStripeAccount).not.toHaveBeenCalled()
     expect(saveVenueStripeAccount).not.toHaveBeenCalled()
+  })
+
+  it('fans out venue payment confirmation when Connect reports payouts ready', async () => {
+    db.rows.venue_stripe_accounts.push({
+      owner_id: 'venue-owner-1',
+      stripe_account_id: 'acct_venue',
+      payouts_enabled: false,
+    })
+    const account = {
+      id: 'acct_venue',
+      charges_enabled: true,
+      payouts_enabled: true,
+      requirements: {
+        currently_due: [],
+        eventually_due: [],
+        past_due: [],
+        pending_verification: [],
+        disabled_reason: null,
+      },
+    }
+    event = {
+      id: 'evt_connect_venue_ready',
+      type: 'account.updated',
+      livemode: false,
+      data: { object: account },
+    }
+
+    const response = await stripeConnectWebhookPost(makeWebhookRequest('/api/webhooks/stripe/connect'))
+
+    expect(response.status).toBe(200)
+    expect(saveVenueStripeAccount).toHaveBeenCalledWith(db, 'venue-owner-1', account)
+    expect(handleVenueStripeReadyForOwner).toHaveBeenCalledWith(db, 'venue-owner-1')
+    expect(saveVendorStripeAccount).not.toHaveBeenCalled()
+    expect(saveBuilderStripeAccount).not.toHaveBeenCalled()
   })
 
   it('rejects Connect webhook requests without a Stripe signature', async () => {
