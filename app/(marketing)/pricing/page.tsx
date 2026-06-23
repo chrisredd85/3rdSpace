@@ -19,7 +19,7 @@ const tiers = [
   },
   {
     label: 'Pro',
-    price: '$69',
+    price: '$79',
     cadence: '/month',
     title: 'Run without the meter.',
     body: 'Unlimited events, full historical margin, priority 3rdPlace team support.',

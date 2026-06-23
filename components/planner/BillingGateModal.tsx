@@ -163,7 +163,7 @@ export function BillingGateModal({
               <BillingChoiceCard
                 icon={<Crown className="h-5 w-5" />}
                 title="Upgrade to Pro"
-                price="$69/month"
+                price="$79/month"
                 description="Unlimited event creation for repeat organizers and recurring series."
                 actionLabel="Upgrade to Pro"
                 isLoading={isStartingCheckout === 'pro_monthly'}
