@@ -35,7 +35,7 @@ describe('PlannerBillingAccessBanner', () => {
     render(<PlannerBillingAccessBanner />)
 
     expect(await screen.findByText('2 free events remaining')).toBeInTheDocument()
-    expect(screen.getByText(/After your free events, planner sessions are \$30 each or \$69\/mo unlimited./)).toBeInTheDocument()
+    expect(screen.getByText(/After your free events, planner sessions are \$30 each or \$79\/mo unlimited./)).toBeInTheDocument()
   })
 
   it('renders upgrade state when free events and paid access are unavailable', async () => {

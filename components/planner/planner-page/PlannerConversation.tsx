@@ -2246,7 +2246,7 @@ export function PlannerApprovalCard({
                   <span className="font-semibold text-ink">
                     {freeEventsRemaining} free event{freeEventsRemaining === 1 ? '' : 's'} remaining.
                   </span>{' '}
-                  Approving outreach consumes one event. After your free events, planner sessions are $30 each or $69/mo unlimited.
+                  Approving outreach consumes one event. After your free events, planner sessions are $30 each or $79/mo unlimited.
                 </div>
               ) : null}
               <div className="flex flex-wrap gap-2">
