@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Image from 'next/image'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
+import { HomePlannerStart } from '@/components/planner/HomePlannerStart'
 
 export const metadata: Metadata = {
   title: '3rdPlace - Your event operating agent.',
@@ -112,9 +113,7 @@ export default function HomePage() {
               Built for Bay Area hosts running dinners, mixers, salons, tastings, community events,
               and ticketed gatherings on repeat.
             </p>
-            <div className="mt-8">
-              <PrimaryLink href="/planner">Start running events -&gt;</PrimaryLink>
-            </div>
+            <HomePlannerStart className="mt-7 max-w-[760px]" />
           </div>
 
           <div className="relative hidden animate-entrance md:block lg:h-full" style={{ animationDelay: '120ms' }}>
