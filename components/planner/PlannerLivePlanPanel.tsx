@@ -67,6 +67,9 @@ interface RecommendationSummary {
   capacity: number | null
   fit: string | null
   holdDurationHours: number | null
+  commercialModelMatch: string | null
+  dealModelSummary: string | null
+  tags: string[]
 }
 
 interface RunOfShowMilestone {
@@ -597,6 +600,20 @@ function deriveRecommendations(messages: PlanMessage[]): RecommendationSummary[]
         capacity: readNumber(record.capacity) ?? readNumber(record.capacity_max),
         fit: readString(record.fit) ?? readString(record.note),
         holdDurationHours: readNumber(record.hold_duration_hours),
+        commercialModelMatch:
+          readString(record.commercial_model_match) ??
+          readString(record.commercialModelMatch) ??
+          readString(record.commercial_model) ??
+          null,
+        dealModelSummary:
+          readString(record.deal_model_summary) ??
+          readString(record.dealModelSummary) ??
+          readString(record.venue_terms) ??
+          null,
+        tags: [
+          ...readStringArray(record.tags),
+          ...readStringArray(record.fit_tags),
+        ].slice(0, 4),
       }
   })
 }
@@ -853,6 +870,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const activeMessages = messages ?? livePayload.messages
   const livePlan = livePayload.plan
   const activePlanId = planId ?? livePayload.planId
+  const recommendationCardRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const runOfShow = livePlan?.runOfShow ?? deriveRunOfShowFromMessages(activeMessages)
   const workspaceSummary = livePlan?.workspaceSummary ?? deriveWorkspaceSummaryFromMessages(activeMessages)
   const updatedAtLabel = useMemo(
@@ -869,7 +887,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
     () => activeMessages.filter(isRecommendationPlanMessage).length,
     [activeMessages]
   )
-  const primaryVenue = renderedRecommendations.find((recommendation) => /venue/i.test(recommendation.type)) ?? null
+  const venueRecommendations = renderedRecommendations.filter((recommendation) => /venue/i.test(recommendation.type))
+  const primaryVenue = venueRecommendations[0] ?? null
   const openQuestions = buildOpenQuestions(eventSummary, renderedRecommendations)
   const authorizationCards = buildAuthorizationCards(renderedApprovals, primaryVenue, renderedBudgetLineItems)
   const profitModel = useMemo(
@@ -890,6 +909,12 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const primaryAuthorization = authorizationCards[0] ?? null
   const shoppingListItems = buildShoppingList(primaryVenue, renderedBudgetLineItems, eventSummary, livePlan?.selectedVendors ?? [])
   const canRequestDateChange = Boolean(onDateChangeRequest && activePlanId && !activePlanId.startsWith('mock-plan-'))
+  const handleVenueComparisonJump = useCallback((venueId: string) => {
+    const target = recommendationCardRefs.current[venueId]
+    if (!target) return
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    target.focus({ preventScroll: true })
+  }, [])
 
   useEffect(() => {
     if (isDateChangeOpen) return
@@ -1324,7 +1349,13 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             ) : null}
           </div>
 
-          <div className="mt-7 rounded-lg border border-clay/25 bg-clay-tint/55 p-5">
+          <div
+            ref={(node) => {
+              if (primaryVenue) recommendationCardRefs.current[primaryVenue.id] = node
+            }}
+            tabIndex={primaryVenue ? -1 : undefined}
+            className="mt-7 rounded-lg border border-clay/25 bg-clay-tint/55 p-5 outline-none focus-visible:ring-2 focus-visible:ring-clay"
+          >
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <p className="label-caps text-clay">Top Venue</p>
@@ -1389,6 +1420,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
               </div>
             )}
           </div>
+
+          <VenueComparisonTable venues={venueRecommendations} onVenueClick={handleVenueComparisonJump} />
         </ArtifactSection>
 
         <ArtifactSection icon={<TrendingUp className="h-5 w-5" />} title="Profit Window" subtitle="Realistic forecast + range">
@@ -1728,6 +1761,94 @@ function ArtifactField({ label, value }: { label: string; value: string }) {
     <div className="min-w-0">
       <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-ink-faint">{label}</p>
       <p className="mt-2 break-words text-lg leading-tight text-ink sm:text-xl" title={value}>{value}</p>
+    </div>
+  )
+}
+
+function VenueComparisonTable({
+  venues,
+  onVenueClick,
+}: {
+  venues: RecommendationSummary[]
+  onVenueClick: (venueId: string) => void
+}) {
+  if (venues.length < 2) return null
+
+  return (
+    <div className="mt-4 rounded-lg border border-tan bg-cream p-5" data-testid="venue-comparison-table">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="label-caps text-ink-soft">Compare venue options</p>
+          <p className="mt-2 text-sm leading-snug text-ink-soft">
+            Use this to compare fit before approving outreach, holds, or payment.
+          </p>
+        </div>
+        <span className="rounded-full border border-tan bg-cream-deep px-3 py-1 text-xs font-bold uppercase tracking-[0.06em] text-forest">
+          {venues.length} options
+        </span>
+      </div>
+
+      <div className="mt-4 overflow-x-auto">
+        <table className="min-w-[760px] w-full border-separate border-spacing-0 text-left text-sm">
+          <caption className="sr-only">Side-by-side comparison of recommended venues</caption>
+          <thead>
+            <tr className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-faint">
+              <th scope="col" className="border-b border-tan px-3 py-3">Venue</th>
+              <th scope="col" className="border-b border-tan px-3 py-3">Capacity</th>
+              <th scope="col" className="border-b border-tan px-3 py-3">Commercial model</th>
+              <th scope="col" className="border-b border-tan px-3 py-3">Estimate</th>
+              <th scope="col" className="border-b border-tan px-3 py-3">Fit</th>
+              <th scope="col" className="border-b border-tan px-3 py-3">Tags</th>
+              <th scope="col" className="border-b border-tan px-3 py-3">Deal model</th>
+            </tr>
+          </thead>
+          <tbody>
+            {venues.map((venue, index) => (
+              <tr key={venue.id} className="align-top">
+                <td className="border-b border-tan/70 px-3 py-4">
+                  <button
+                    type="button"
+                    onClick={() => onVenueClick(venue.id)}
+                    className="text-left font-bold leading-tight text-clay underline-offset-4 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-clay"
+                    aria-label={`View full recommendation for ${venue.name}`}
+                  >
+                    {venue.name}
+                  </button>
+                  {index === 0 ? (
+                    <span className="mt-2 inline-flex rounded-full bg-forest-tint px-2 py-1 text-[11px] font-bold uppercase tracking-[0.06em] text-forest">
+                      Best fit
+                    </span>
+                  ) : null}
+                </td>
+                <td className="border-b border-tan/70 px-3 py-4 font-semibold text-ink">
+                  {venue.capacity ? `${venue.capacity} guests` : 'Pending'}
+                </td>
+                <td className="border-b border-tan/70 px-3 py-4 text-ink-soft">
+                  {venueCommercialModelLabel(venue)}
+                </td>
+                <td className="border-b border-tan/70 px-3 py-4 font-semibold text-ink">
+                  {venueEstimateLabel(venue)}
+                </td>
+                <td className="border-b border-tan/70 px-3 py-4 text-ink-soft">
+                  {venueFitLabel(venue, index)}
+                </td>
+                <td className="border-b border-tan/70 px-3 py-4">
+                  <div className="flex flex-wrap gap-1.5">
+                    {venueFitTags(venue).map((tag) => (
+                      <span key={tag} className="rounded-full border border-tan bg-cream-deep px-2 py-1 text-[11px] font-semibold text-ink-soft">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+                <td className="border-b border-tan/70 px-3 py-4 text-ink-soft">
+                  {venueDealModelLabel(venue)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -2359,6 +2480,54 @@ function venueMetaLabel(recommendation: RecommendationSummary | null, summary: E
   const address = recommendation.address ?? summary.area ?? 'Bay Area'
   const capacity = recommendation.capacity ? `Cap ${recommendation.capacity}` : 'Capacity pending'
   return `${address} · ${capacity}`
+}
+
+function venueCommercialModelLabel(venue: RecommendationSummary) {
+  if (venue.commercialModelMatch) return venue.commercialModelMatch
+  if (typeof venue.priceCents === 'number' && venue.priceCents < 0) return 'CHI incentive'
+  if (typeof venue.priceCents === 'number' && venue.priceCents > 0) return 'Rental or minimum'
+  if (/spend|rental|deposit|fee/i.test(venue.priceLabel)) return 'Rental or minimum'
+  return 'Terms pending'
+}
+
+function venueEstimateLabel(venue: RecommendationSummary) {
+  if (typeof venue.priceCents === 'number') {
+    if (venue.priceCents < 0) return `+${formatCents(Math.abs(venue.priceCents))} back`
+    return formatCents(venue.priceCents)
+  }
+
+  return venue.priceLabel && venue.priceLabel !== 'Pricing pending' ? venue.priceLabel : 'TBD'
+}
+
+function venueFitLabel(venue: RecommendationSummary, index: number) {
+  const fitScore = extractFitScore(venue.fit)
+  if (fitScore) return fitScore
+  return index === 0 ? 'Top ranked' : 'Strong candidate'
+}
+
+function extractFitScore(value: string | null) {
+  if (!value) return null
+  const match = value.match(/\b(\d{1,3})\s*%/)
+  if (!match) return null
+  return `${match[1]}%`
+}
+
+function venueFitTags(venue: RecommendationSummary) {
+  if (venue.tags.length > 0) return venue.tags.slice(0, 3)
+
+  const fallbackTags: string[] = []
+  if (venue.address) fallbackTags.push(venue.address)
+  if (venue.capacity) fallbackTags.push(`${venue.capacity} cap`)
+  if (typeof venue.priceCents === 'number' && venue.priceCents < 0) fallbackTags.push('CHI')
+  if (fallbackTags.length === 0 && venue.fit) fallbackTags.push(venue.fit.slice(0, 48))
+  return fallbackTags.length > 0 ? fallbackTags.slice(0, 3) : ['Needs review']
+}
+
+function venueDealModelLabel(venue: RecommendationSummary) {
+  if (venue.dealModelSummary) return venue.dealModelSummary
+  if (typeof venue.priceCents === 'number' && venue.priceCents < 0) return 'Host receives projected attendance-based CHI after confirmed spend.'
+  if (typeof venue.priceCents === 'number' && venue.priceCents > 0) return 'Host pays this estimate after approval and confirmed terms.'
+  return 'Agent needs partner confirmation before this can be approved.'
 }
 
 function buildShoppingList(
