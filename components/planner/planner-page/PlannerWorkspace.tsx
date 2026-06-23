@@ -23,7 +23,7 @@ import { DraftMatchSignupCard, PlannerApprovalFocusedCard, PlannerFocusedMessage
 import { DemoSessionBanner, PlannerTemplatesModal, ReplyAnalysisResult, isResponseAnalysisOutput, readAgentOutput } from './PlannerTemplatesModal'
 import { applyMockPlanPatch, buildDeterministicDraftExchange, buildDraftMatchHandoff, buildMockMessage, buildMockPlan, hasDraftMatchGateMessage, shouldUseMockReplyPath, tryRunPublicDraftIntake } from './draftMode'
 import { buildEventPlanPayload, clearStoredPlannerConversation, getPendingActionSuccessMessage, getPlannerOrganizationName, getPlannerRoleLabel, getTabCount, getVisibleMessages, hasNewerConfirmationMessage, isApprovalMessage, isNewConversationResetRequest, isPendingConversionAction, isRecommendationMessage, isTimelineOutput, loadPlannerStateFromApiCached, persistStoredPlannerConversation, publishLivePlan, readStoredPlannerConversation, shouldStartNewPlanFromReply } from './plannerState'
-import { planTabs, quickActionChips, type ApprovalUiStatus, type PendingConversionAction, type PlannerAccountSummary, type PlannerAgentActionRequest, type PlannerPersistenceMode, type PlannerTab, type PlannerTemplateSummary, type ResponseAnalysisOutput, type TimelineOutput } from './types'
+import { planTabs, quickActionChips, type ApprovalUiStatus, type PendingConversionAction, type PlannerAccountSummary, type PlannerAgentActionRequest, type PlannerPersistenceMode, type PlannerTab, type PlannerTemplateApplyOptions, type PlannerTemplateSummary, type ResponseAnalysisOutput, type TimelineOutput } from './types'
 
 const gmailSkipReminderStorageKey = 'gmail_skip_reminder_dismissed'
 
@@ -52,6 +52,7 @@ export function PlannerWorkspace() {
   const forceDraftMode = searchParams.get('mock') === '1'
   const isDemoSession = searchParams.get('demo') === '1'
   const shouldHardResetDemo = isDemoSession && searchParams.get('reset') === '1'
+  const isRebookIntent = searchParams.get('intent') === 'rebook'
   const isNewPlanRoute = pathname === '/planner/new-plan'
   const initialDraft = searchParams.get('draft')
   const requestedPlanId = searchParams.get('plan')
@@ -65,6 +66,7 @@ export function PlannerWorkspace() {
   const replyRef = useRef<HTMLTextAreaElement>(null)
   const hasStartedInitialDraftRef = useRef(false)
   const hasTriggeredDemoResetRef = useRef(false)
+  const hasOpenedRebookIntentRef = useRef(false)
   const hasTriedDraftAutoMigrationRef = useRef(false)
   const hasParsedInitialTabRef = useRef(false)
   const pendingDeepLinkScrollMsgIdRef = useRef<string | null>(null)
@@ -82,6 +84,7 @@ export function PlannerWorkspace() {
   const [isSignupGateOpen, setIsSignupGateOpen] = useState(false)
   const [pendingAction, setPendingAction] = useState<PendingConversionAction | null>(null)
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false)
+  const [templatesModalMode, setTemplatesModalMode] = useState<'apply' | 'rebook'>('apply')
   const [plannerTemplates, setPlannerTemplates] = useState<PlannerTemplateSummary[]>([])
   const [hasLoadedTemplates, setHasLoadedTemplates] = useState(false)
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false)
@@ -305,7 +308,7 @@ export function PlannerWorkspace() {
         return
       }
 
-      if (initialDraft && isDesktopPlannerViewport()) {
+      if (initialDraft && !isRebookIntent && isDesktopPlannerViewport()) {
         setIsStartingInitialDraft(true)
         clearStoredPlannerConversation()
         hasStartedInitialDraftRef.current = false
@@ -391,7 +394,7 @@ export function PlannerWorkspace() {
     return () => {
       isCancelled = true
     }
-  }, [forceDraftMode, initialDraft, isNewPlanRoute, pathname, requestedPlanId, requestedTabParam, shouldHardResetDemo])
+  }, [forceDraftMode, initialDraft, isNewPlanRoute, isRebookIntent, pathname, requestedPlanId, requestedTabParam, shouldHardResetDemo])
 
   useEffect(() => {
     if (!hasLoadedStoredConversation) return
@@ -411,14 +414,25 @@ export function PlannerWorkspace() {
   useEffect(() => {
     if (!hasLoadedStoredConversation) return
     if (!isDesktopPlannerViewport()) return
-    if (!initialDraft || hasStartedInitialDraftRef.current || ignoredDraftRef.current === initialDraft) return
+    if (!initialDraft || isRebookIntent || hasStartedInitialDraftRef.current || ignoredDraftRef.current === initialDraft) return
 
     hasStartedInitialDraftRef.current = true
     setIsStartingInitialDraft(true)
     setActivePlan(null)
     setMessages([])
     void startInitialDraftPlan(initialDraft)
-  }, [hasLoadedStoredConversation, initialDraft])
+  }, [hasLoadedStoredConversation, initialDraft, isRebookIntent])
+
+  useEffect(() => {
+    if (!hasLoadedStoredConversation) return
+    if (!isRebookIntent) return
+    if (hasOpenedRebookIntentRef.current) return
+    if (!isDesktopPlannerViewport()) return
+
+    hasOpenedRebookIntentRef.current = true
+    void openTemplatesModal('rebook')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasLoadedStoredConversation, isRebookIntent])
 
   useEffect(() => {
     setTimelineResult(null)
@@ -817,6 +831,7 @@ export function PlannerWorkspace() {
       setPendingAction(null)
       setIsSignupGateOpen(false)
       setIsTemplatesModalOpen(false)
+      setTemplatesModalMode('apply')
       setIsReplyAnalysisOpen(false)
       setReplyAnalysisText('')
       setReplyAnalysisError(null)
@@ -985,7 +1000,8 @@ export function PlannerWorkspace() {
     }
   }
 
-  async function openTemplatesModal() {
+  async function openTemplatesModal(mode: 'apply' | 'rebook' = 'apply') {
+    setTemplatesModalMode(mode)
     setIsTemplatesModalOpen(true)
     if (!hasLoadedTemplates) {
       await loadPlannerTemplates()
@@ -1001,6 +1017,9 @@ export function PlannerWorkspace() {
       const payload = await response.json()
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          throw new Error('Sign in to use saved event templates.')
+        }
         throw new Error(payload?.error ?? 'Unable to load templates')
       }
 
@@ -1014,8 +1033,10 @@ export function PlannerWorkspace() {
     }
   }
 
-  async function applyPlannerTemplate(templateId: string) {
-    if (!activePlan || persistenceMode !== 'server' || activePlan.id.startsWith('mock-plan-')) {
+  async function applyPlannerTemplate(templateId: string, options?: PlannerTemplateApplyOptions) {
+    const shouldCreateNewPlan = options?.create_new_plan === true || templatesModalMode === 'rebook' || !activePlan
+
+    if (!shouldCreateNewPlan && (!activePlan || persistenceMode !== 'server' || activePlan.id.startsWith('mock-plan-'))) {
       addToast({
         title: 'Save the plan first',
         description: 'Templates can only be applied to a saved planner plan.',
@@ -1031,7 +1052,11 @@ export function PlannerWorkspace() {
       const response = await fetch(`/api/planner/templates/${templateId}/apply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan_id: activePlan.id, rerun_recommendations: true }),
+        body: JSON.stringify(
+          shouldCreateNewPlan
+            ? { ...options, create_new_plan: true, rerun_recommendations: true }
+            : { ...options, plan_id: activePlan?.id, rerun_recommendations: true }
+        ),
       })
       const payload = await response.json()
 
@@ -1041,14 +1066,22 @@ export function PlannerWorkspace() {
 
       setIsTemplatesModalOpen(false)
       if (payload?.plan && typeof payload.plan === 'object') {
-        setActivePlan(payload.plan as Plan)
+        const nextPlan = payload.plan as Plan
+        setActivePlan(nextPlan)
+        setPersistenceMode('server')
+        setActiveTab('chat')
+        if (shouldCreateNewPlan && isUuid(nextPlan.id)) {
+          router.replace(`/planner?plan=${nextPlan.id}`, { scroll: false })
+        }
       }
       if (Array.isArray(payload?.messages) && payload.messages.length > 0) {
         setMessages((currentMessages) => [...currentMessages, ...(payload.messages as PlanMessage[])])
       }
       addToast({
-        title: 'Template applied',
-        description: 'Re-checking venues, vendors, and economics for this plan.',
+        title: shouldCreateNewPlan ? 'Rebook plan created' : 'Template applied',
+        description: shouldCreateNewPlan
+          ? 'Built a fresh plan from the saved event shape. Review before any outreach, booking, or payment.'
+          : 'Re-checking venues, vendors, and economics for this plan.',
         variant: 'success',
       })
     } catch (error) {
@@ -1491,6 +1524,25 @@ export function PlannerWorkspace() {
                 title="What should we plan next?"
                 description={`Describe the next event for ${organizationName}. I'll start a new plan without booking, paying, or sending anything until you approve it.`}
                 showTrustSignals={false}
+                onRebook={() => void openTemplatesModal('rebook')}
+                isRebookDisabled={persistenceMode === 'loading' || !hasLoadedStoredConversation}
+              />
+              <PlannerTemplatesModal
+                isOpen={isTemplatesModalOpen}
+                mode={templatesModalMode}
+                templates={plannerTemplates}
+                isLoading={isLoadingTemplates}
+                error={templateError}
+                applyingTemplateId={applyingTemplateId}
+                isSavingTemplate={isSavingTemplate}
+                canSaveCurrentPlan={false}
+                onClose={() => {
+                  setIsTemplatesModalOpen(false)
+                  setTemplatesModalMode('apply')
+                }}
+                onRefresh={() => void loadPlannerTemplates()}
+                onApply={(templateId, options) => void applyPlannerTemplate(templateId, options)}
+                onSaveCurrentPlan={() => void saveActivePlanAsTemplate()}
               />
             </>
           )}
@@ -1866,15 +1918,19 @@ export function PlannerWorkspace() {
       />
       <PlannerTemplatesModal
         isOpen={isTemplatesModalOpen}
+        mode={templatesModalMode}
         templates={plannerTemplates}
         isLoading={isLoadingTemplates}
         error={templateError}
         applyingTemplateId={applyingTemplateId}
         isSavingTemplate={isSavingTemplate}
         canSaveCurrentPlan={persistenceMode === 'server' && Boolean(activePlan) && !activePlan?.id.startsWith('mock-plan-')}
-        onClose={() => setIsTemplatesModalOpen(false)}
+        onClose={() => {
+          setIsTemplatesModalOpen(false)
+          setTemplatesModalMode('apply')
+        }}
         onRefresh={() => void loadPlannerTemplates()}
-        onApply={(templateId) => void applyPlannerTemplate(templateId)}
+        onApply={(templateId, options) => void applyPlannerTemplate(templateId, options)}
         onSaveCurrentPlan={() => void saveActivePlanAsTemplate()}
       />
       {billingGate.modal}

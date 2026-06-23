@@ -1,13 +1,27 @@
 'use client'
 
+import { useState } from 'react'
 import { Copy, LayoutTemplate, Loader2, RefreshCw, Sparkles, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { dollarsToCents } from '@/lib/money'
 import { cn } from '@/lib/utils'
-import type { PlannerTemplateSummary, ResponseAnalysisOutput } from './types'
+import type { PlannerTemplateApplyOptions, PlannerTemplateSummary, ResponseAnalysisOutput } from './types'
 import { formatMockCents } from './draftMode'
+
+type PlannerTemplatesModalMode = 'apply' | 'rebook'
+
+type TemplateRebookDraft = {
+  date: string
+  guestCount: string
+  budgetDollars: string
+  neighborhood: string
+  useSameVenue: boolean
+  useSameVendors: boolean
+}
 
 export function PlannerTemplatesModal(props: {
   isOpen: boolean
+  mode?: PlannerTemplatesModalMode
   templates: PlannerTemplateSummary[]
   isLoading: boolean
   error: string | null
@@ -16,10 +30,63 @@ export function PlannerTemplatesModal(props: {
   canSaveCurrentPlan: boolean
   onClose: () => void
   onRefresh: () => void
-  onApply: (templateId: string) => void
+  onApply: (templateId: string, options?: PlannerTemplateApplyOptions) => void
   onSaveCurrentPlan: () => void
 }) {
+  const mode = props.mode ?? 'apply'
+  const isRebookMode = mode === 'rebook'
+  const [rebookDrafts, setRebookDrafts] = useState<Record<string, TemplateRebookDraft>>({})
+
   if (!props.isOpen) return null
+
+  function readDraft(templateId: string): TemplateRebookDraft {
+    return rebookDrafts[templateId] ?? {
+      date: '',
+      guestCount: '',
+      budgetDollars: '',
+      neighborhood: '',
+      useSameVenue: true,
+      useSameVendors: false,
+    }
+  }
+
+  function updateDraft(templateId: string, patch: Partial<TemplateRebookDraft>) {
+    const defaultDraft: TemplateRebookDraft = {
+      date: '',
+      guestCount: '',
+      budgetDollars: '',
+      neighborhood: '',
+      useSameVenue: true,
+      useSameVendors: false,
+    }
+
+    setRebookDrafts((current) => ({
+      ...current,
+      [templateId]: {
+        ...(current[templateId] ?? defaultDraft),
+        ...patch,
+      },
+    }))
+  }
+
+  function buildRebookOptions(templateId: string): PlannerTemplateApplyOptions {
+    const draft = readDraft(templateId)
+    const guestCount = Number.parseInt(draft.guestCount, 10)
+    const budgetCapCents = draft.budgetDollars.trim() ? dollarsToCents(draft.budgetDollars) : null
+    const date = draft.date.trim()
+    const neighborhood = draft.neighborhood.trim()
+
+    return {
+      create_new_plan: true,
+      date_window_start: date || null,
+      date_window_end: date || null,
+      guest_count: Number.isFinite(guestCount) && guestCount > 0 ? guestCount : null,
+      budget_cap_cents: budgetCapCents && budgetCapCents > 0 ? budgetCapCents : null,
+      neighborhood: neighborhood || null,
+      use_same_venue: draft.useSameVenue,
+      use_same_vendors: draft.useSameVendors,
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 px-4 py-6 backdrop-blur-md">
@@ -27,8 +94,14 @@ export function PlannerTemplatesModal(props: {
         <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-primary">Planner templates</p>
-            <h2 className="mt-1 font-display text-xl font-bold">Use a proven event shape</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Save this plan once the event shape works, then reuse it with fresh dates and headcount.</p>
+            <h2 className="mt-1 font-display text-xl font-bold">
+              {isRebookMode ? 'Repeat a past event' : 'Use a proven event shape'}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {isRebookMode
+                ? 'Pick a saved event, change the numbers, and 3rdPlace will rebuild the plan before any outreach, booking, or payment.'
+                : 'Save this plan once the event shape works, then reuse it with fresh dates and headcount.'}
+            </p>
           </div>
           <button
             type="button"
@@ -54,7 +127,7 @@ export function PlannerTemplatesModal(props: {
             </div>
           ) : null}
 
-          {!props.isLoading && props.templates.length === 0 ? (
+          {!props.error && !props.isLoading && props.templates.length === 0 ? (
             <div className="rounded-2xl border border-border bg-background/60 px-4 py-10 text-center text-sm text-muted-foreground">
               <p>No saved templates yet.</p>
               {props.canSaveCurrentPlan ? (
@@ -91,20 +164,89 @@ export function PlannerTemplatesModal(props: {
                       </p>
                     </div>
                   </div>
+                  {isRebookMode ? (
+                    <div className="mt-4 space-y-3 rounded-2xl border border-border bg-card/60 p-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="space-y-1 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                          New date
+                          <input
+                            type="date"
+                            value={readDraft(template.id).date}
+                            onChange={(event) => updateDraft(template.id, { date: event.target.value })}
+                            className="mt-1 h-10 w-full rounded-xl border border-border bg-background px-3 text-sm font-medium normal-case tracking-normal text-foreground outline-none focus:border-primary"
+                          />
+                        </label>
+                        <label className="space-y-1 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                          Guests
+                          <input
+                            type="number"
+                            min={1}
+                            inputMode="numeric"
+                            value={readDraft(template.id).guestCount}
+                            onChange={(event) => updateDraft(template.id, { guestCount: event.target.value })}
+                            placeholder="Updated count"
+                            className="mt-1 h-10 w-full rounded-xl border border-border bg-background px-3 text-sm font-medium normal-case tracking-normal text-foreground outline-none focus:border-primary"
+                          />
+                        </label>
+                        <label className="space-y-1 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                          Budget
+                          <input
+                            type="number"
+                            min={0}
+                            inputMode="decimal"
+                            value={readDraft(template.id).budgetDollars}
+                            onChange={(event) => updateDraft(template.id, { budgetDollars: event.target.value })}
+                            placeholder="Optional dollars"
+                            className="mt-1 h-10 w-full rounded-xl border border-border bg-background px-3 text-sm font-medium normal-case tracking-normal text-foreground outline-none focus:border-primary"
+                          />
+                        </label>
+                        <label className="space-y-1 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                          Area
+                          <input
+                            type="text"
+                            value={readDraft(template.id).neighborhood}
+                            onChange={(event) => updateDraft(template.id, { neighborhood: event.target.value })}
+                            placeholder="Mission, SoMa..."
+                            className="mt-1 h-10 w-full rounded-xl border border-border bg-background px-3 text-sm font-medium normal-case tracking-normal text-foreground outline-none focus:border-primary"
+                          />
+                        </label>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <label className="inline-flex items-center gap-2 rounded-full border border-border bg-background/70 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            checked={readDraft(template.id).useSameVenue}
+                            onChange={(event) => updateDraft(template.id, { useSameVenue: event.target.checked })}
+                            className="h-3.5 w-3.5 rounded border-border accent-primary"
+                          />
+                          Prefer same venue
+                        </label>
+                        <label className="inline-flex items-center gap-2 rounded-full border border-border bg-background/70 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            checked={readDraft(template.id).useSameVendors}
+                            onChange={(event) => updateDraft(template.id, { useSameVendors: event.target.checked })}
+                            className="h-3.5 w-3.5 rounded border-border accent-primary"
+                          />
+                          Prefer same vendors
+                        </label>
+                      </div>
+                    </div>
+                  ) : null}
                   <Button
                     type="button"
                     variant="hero"
                     size="sm"
                     className="mt-4 w-full"
                     disabled={props.applyingTemplateId !== null}
-                    onClick={() => props.onApply(template.id)}
+                    onClick={() => props.onApply(template.id, isRebookMode ? buildRebookOptions(template.id) : undefined)}
                   >
                     {props.applyingTemplateId === template.id ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <LayoutTemplate className="h-4 w-4" />
                     )}
-                    Use this template
+                    {isRebookMode ? 'Create rebook plan' : 'Use this template'}
                   </Button>
                 </div>
               ))}

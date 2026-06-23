@@ -8,7 +8,7 @@
 'use client'
 
 import { memo, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { Loader2, SendHorizontal, ShieldCheck } from 'lucide-react'
+import { LayoutTemplate, Loader2, SendHorizontal, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -19,6 +19,8 @@ interface PlannerEmptyStateProps {
   title?: string
   description?: string
   showTrustSignals?: boolean
+  onRebook?: () => void
+  isRebookDisabled?: boolean
 }
 
 /**
@@ -31,6 +33,8 @@ export const PlannerEmptyState = memo(function PlannerEmptyState({
   title = 'What 3rdPlace do you want to create?',
   description = 'Describe your event now. Sign in when you save, book, pay, or export.',
   showTrustSignals = true,
+  onRebook,
+  isRebookDisabled = false,
 }: PlannerEmptyStateProps) {
   const [message, setMessage] = useState('')
   const [isHydrated, setIsHydrated] = useState(false)
@@ -119,6 +123,21 @@ export const PlannerEmptyState = memo(function PlannerEmptyState({
             </Button>
           </div>
         </form>
+
+        {onRebook ? (
+          <div className="mt-3 flex justify-center">
+            <Button
+              type="button"
+              variant="glass"
+              size="sm"
+              onClick={onRebook}
+              disabled={isRebookDisabled || isSubmitting || !isHydrated}
+            >
+              <LayoutTemplate className="h-4 w-4" />
+              Repeat a past event
+            </Button>
+          </div>
+        ) : null}
 
         {showTrustSignals ? (
           <div className="mt-4 flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">

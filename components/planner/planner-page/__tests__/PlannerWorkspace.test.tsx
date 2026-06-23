@@ -174,6 +174,70 @@ describe('PlannerWorkspace desktop draft handoff', () => {
     expect(mockPush).toHaveBeenCalledWith('/planner/new-plan')
   })
 
+  it('opens the rebook picker from the new-plan intent and creates a fresh plan from a template', async () => {
+    mockPathname = '/planner/new-plan'
+    mockSearchParams = 'intent=rebook'
+    const user = userEvent.setup()
+    const rebookedPlan = makePlan({
+      id: '22222222-2222-4222-8222-222222222222',
+      title: 'Founder Dinner rebook',
+      status: 'ready',
+    })
+
+    global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+
+      if (url === '/api/auth/user') {
+        return jsonResponse({ user: { organization_name: 'nsbe' } })
+      }
+
+      if (url === '/api/planner/templates') {
+        return jsonResponse({
+          templates: [
+            {
+              id: 'template-founder-dinner',
+              name: 'Founder Dinner',
+              description: 'Dinner template',
+              snapshot: {},
+              created_at: '2026-06-01T12:00:00.000Z',
+            },
+          ],
+        })
+      }
+
+      if (url === '/api/planner/templates/template-founder-dinner/apply' && init?.method === 'POST') {
+        expect(init.body).toBe(JSON.stringify({
+          create_new_plan: true,
+          date_window_start: '2026-07-15',
+          date_window_end: '2026-07-15',
+          guest_count: 44,
+          budget_cap_cents: 500000,
+          neighborhood: 'Mission',
+          use_same_venue: true,
+          use_same_vendors: false,
+          rerun_recommendations: true,
+        }))
+        return jsonResponse({ success: true, plan: rebookedPlan, messages: [] })
+      }
+
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    }) as jest.Mock
+
+    renderPlannerWorkspace()
+
+    expect(await screen.findByRole('heading', { name: 'Repeat a past event' })).toBeInTheDocument()
+    await screen.findByText('Founder Dinner')
+    await user.type(screen.getByLabelText('New date'), '2026-07-15')
+    await user.type(screen.getByLabelText('Guests'), '44')
+    await user.type(screen.getByLabelText('Budget'), '5000')
+    await user.type(screen.getByLabelText('Area'), 'Mission')
+    await user.click(screen.getByRole('button', { name: 'Create rebook plan' }))
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith(`/planner?plan=${rebookedPlan.id}`, { scroll: false })
+    })
+  })
+
   it('treats a literal new chat request as a fresh planner conversation', () => {
     expect(shouldStartNewPlanFromReply('new chat', makePlan())).toBe(true)
     expect(shouldStartNewPlanFromReply('fresh conversation please', makePlan())).toBe(true)
