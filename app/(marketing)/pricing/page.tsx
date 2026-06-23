@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 
 export const metadata: Metadata = {
   title: 'Pricing | 3rdPlace',
-  description: 'Start with 2 free events. Then $30 per event or $69/mo for unlimited.',
+  description: 'Start with 2 free events. Then $30 per event or $79/mo for unlimited.',
 }
 
 const tiers = [
@@ -41,7 +41,7 @@ export default function PricingPage() {
           Start with 2 free events.
         </h1>
         <p className="mt-5 max-w-3xl text-[22px] font-semibold leading-[1.45] text-ink">
-          Then $30 per event or $69/mo for unlimited.
+          Then $30 per event or $79/mo for unlimited.
         </p>
         <p className="mt-4 max-w-3xl text-[18px] leading-[1.6] text-ink-soft">
           Run two events end-to-end before you commit. No card required.
