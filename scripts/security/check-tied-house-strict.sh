@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUTPUT_FILE="${TIED_HOUSE_STRICT_OUTPUT:-$ROOT_DIR/qa-artifacts/tied-house-violations.txt}"
 MIGRATION_CUTOFF="20260601000000"
 
-PATTERN='kickback|kick_back|kick-back|rev_share|revShare|RevShare|revenue_share|revenueShare|bar_split|barSplit|bar_kickback|headcount_kickback|per_head_kickback'
+PATTERN='kickback|kick_back|kick-back|rev_share|revShare|RevShare|revenue_share|revenueShare|revenue[[:space:]-]+share|bar_split|barSplit|bar_kickback|headcount_kickback|per_head_kickback'
 DEFAULT_TARGETS=(
   "app"
   "lib"

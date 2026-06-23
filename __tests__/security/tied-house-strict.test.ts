@@ -40,6 +40,17 @@ describe('strict tied-house compliance script', () => {
     expect(result.stderr).toContain('kickback amount')
   })
 
+  it('fails when a production file contains hyphenated revenue-share language', () => {
+    const filePath = path.join(tempRoot, 'privacy.tsx')
+    writeFileSync(filePath, "export const label = 'revenue-share settlement records'\n")
+
+    const result = runStrictScan(tempRoot)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('Strict tied-house compliance check failed')
+    expect(result.stderr).toContain('revenue-share settlement records')
+  })
+
   it('passes when scanned files contain no forbidden nomenclature', () => {
     const filePath = path.join(tempRoot, 'route.ts')
     writeFileSync(filePath, "export const label = 'Community Host Incentive amount'\n")
