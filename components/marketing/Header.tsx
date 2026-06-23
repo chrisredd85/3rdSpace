@@ -5,8 +5,9 @@ import Link from 'next/link'
 import { Menu, X } from 'lucide-react'
 
 const navLinks = [
-  { label: 'Pricing', href: '/pricing' },
+  { label: 'How it works', href: '/#how-it-works' },
   { label: 'FAQ', href: '/faq' },
+  { label: 'Pricing', href: '/pricing' },
   { label: 'Sign up', href: '/signup' },
   { label: 'Log in', href: '/login' },
 ]
