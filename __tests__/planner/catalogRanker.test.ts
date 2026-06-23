@@ -104,6 +104,108 @@ describe('rankCatalogPartners', () => {
     )
   })
 
+  it('collapses multiple venue candidates from the same Places cluster to one top entry by default', () => {
+    const result = rankCatalogPartners({
+      plan,
+      venues: [
+        {
+          ...baseVenue,
+          id: 'marriott-ballroom',
+          venue_name: 'Marriott Ballroom',
+          city: 'Mission',
+          standing_capacity: 120,
+          hourly_rate_cents: 100_000,
+          minimum_hours: 4,
+          unique_features_tags: ['AV', 'ballroom'],
+          venue_cluster_id: 'hotel_marriott_union_square_san_francisco',
+        },
+        {
+          ...baseVenue,
+          id: 'marriott-rooftop',
+          venue_name: 'Marriott Rooftop',
+          city: 'Mission',
+          standing_capacity: 110,
+          hourly_rate_cents: 100_000,
+          minimum_hours: 4,
+          unique_features_tags: ['AV', 'rooftop'],
+          venue_cluster_id: 'hotel_marriott_union_square_san_francisco',
+        },
+        {
+          ...baseVenue,
+          id: 'marriott-lounge',
+          venue_name: 'Marriott Lounge',
+          city: 'Mission',
+          standing_capacity: 95,
+          hourly_rate_cents: 100_000,
+          minimum_hours: 4,
+          unique_features_tags: ['AV', 'lounge'],
+          venue_cluster_id: 'hotel_marriott_union_square_san_francisco',
+        },
+      ],
+      vendors: [],
+      venueLimit: 3,
+    })
+
+    expect(result.recommendations).toHaveLength(1)
+    expect(['marriott-ballroom', 'marriott-rooftop', 'marriott-lounge']).toContain(result.recommendations[0]?.partner_id)
+    expect(result.recommendations[0]).toEqual(expect.objectContaining({
+      metadata: expect.objectContaining({
+        venue_cluster_id: 'hotel_marriott_union_square_san_francisco',
+        venue_cluster_primary: true,
+        venue_cluster_size: 3,
+        venue_cluster_sibling_ids: expect.any(Array),
+      }),
+    }))
+    expect((result.recommendations[0]?.metadata.venue_cluster_sibling_ids as string[])).toHaveLength(2)
+  })
+
+  it('keeps different venue clusters individually ranked', () => {
+    const result = rankCatalogPartners({
+      plan,
+      venues: [
+        {
+          ...baseVenue,
+          id: 'hotel-one',
+          venue_name: 'Hotel One Ballroom',
+          city: 'Mission',
+          standing_capacity: 120,
+          hourly_rate_cents: 100_000,
+          minimum_hours: 4,
+          unique_features_tags: ['AV', 'ballroom'],
+          venue_cluster_id: 'hotel_one',
+        },
+        {
+          ...baseVenue,
+          id: 'hotel-two',
+          venue_name: 'Hotel Two Rooftop',
+          city: 'Mission',
+          standing_capacity: 110,
+          hourly_rate_cents: 100_000,
+          minimum_hours: 4,
+          unique_features_tags: ['AV', 'rooftop'],
+          venue_cluster_id: 'hotel_two',
+        },
+        {
+          ...baseVenue,
+          id: 'hotel-three',
+          venue_name: 'Hotel Three Lounge',
+          city: 'Mission',
+          standing_capacity: 95,
+          hourly_rate_cents: 100_000,
+          minimum_hours: 4,
+          unique_features_tags: ['AV', 'lounge'],
+          venue_cluster_id: 'hotel_three',
+        },
+      ],
+      vendors: [],
+      venueLimit: 3,
+    })
+
+    expect(result.recommendations.map((recommendation) => recommendation.partner_id)).toEqual(
+      expect.arrayContaining(['hotel-one', 'hotel-two', 'hotel-three'])
+    )
+  })
+
   it('matches multi-area input against both Hayes Valley and Mission venues', () => {
     const result = rankCatalogPartners({
       plan,

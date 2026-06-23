@@ -1,0 +1,553 @@
+
+> 3rdspace-webapp@0.1.0 test
+> jest
+
+(node:81583) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS __tests__/integration/stripe-kickback-invoice-webhook.test.ts
+  ● Console
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_legacy_invoice_paid',
+        eventType: 'invoice.paid',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_chi_invoice_paid',
+        eventType: 'invoice.paid',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Duplicate delivery skipped {
+        eventId: 'evt_chi_invoice_paid',
+        eventType: 'invoice.paid',
+        processedAt: '2026-06-23T22:24:15.274Z'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:833:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_chi_invoice_paid_first',
+        eventType: 'invoice.paid',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_chi_invoice_paid_second',
+        eventType: 'invoice.paid',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'invoice.payment_failed',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'invoice.paid',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'checkout.session.completed',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'invoice.payment_failed',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'charge.refunded',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'checkout.session.completed',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'payment_intent.succeeded',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'payment_intent.payment_failed',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'charge.refunded',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'charge.refunded',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'transfer.created',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'transfer.updated',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'transfer.reversed',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'checkout.session.completed',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'transfer.created',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'transfer.updated',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'transfer.updated',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_test',
+        eventType: 'transfer.reversed',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+PASS __tests__/integration/vendor-payment-end-to-end.test.ts
+(node:81585) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:81588) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS __tests__/planner/catalogRanker.test.ts
+PASS __tests__/integration/venue-payment-checkout-route.test.ts
+(node:81586) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS __tests__/integration/p0-concurrency.test.ts
+PASS __tests__/integration/venue-rental-refund-routes.test.ts
+  ● Console
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_venue_refund_partial',
+        eventType: 'charge.refunded',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_venue_refund_full',
+        eventType: 'charge.refunded',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+PASS lib/finance/__tests__/revenueTerms.test.ts
+(node:81584) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS __tests__/integration/mvp-launch-contracts.test.ts
+  ● Console
+
+    console.info
+      [planner.approvals] Approval cancelled after linked action reached terminal state {
+        approvalStatus: 'cancelled',
+        actionId: '550e8400-e29b-41d4-a716-446655440002',
+        actionStatus: 'complete'
+      }
+
+      at info (app/api/planner/plans/[planId]/approvals/route.ts:609:15)
+
+PASS __tests__/integration/stripe-connect-kyc-failures.test.ts
+(node:81587) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS __tests__/integration/planner-persistence.test.ts
+PASS __tests__/planner/archetypePipelineCoverage.test.ts
+PASS lib/ai/__tests__/agents.test.ts
+PASS __tests__/billing/builder-billing-idempotent.test.ts
+PASS __tests__/integration/live-event-dashboard-route.test.ts
+PASS __tests__/outreach/gmailApprovalFlow.test.ts
+PASS __tests__/payments/legacy-money-route-approval.test.ts
+  ● Console
+
+    console.info
+      [payments.refund.process] Cancellation refund started { bookingId: '33333333-3333-4333-8333-333333333333' }
+
+      at info (app/api/payments/refund/process/route.ts:405:13)
+
+(node:81582) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS __tests__/integration/planner-recommend-agent-route.test.ts
+PASS lib/ai/agents/__tests__/economicsAgent.test.ts
+PASS __tests__/integration/template-rebook-preferences.test.ts
+PASS __tests__/integration/kickback-refund-routes.test.ts
+PASS lib/planner/__tests__/depositPayments.test.ts
+PASS __tests__/integration/capture-reconciler.test.ts
+PASS lib/finance/__tests__/eventActuals.test.ts
+PASS __tests__/integration/posh-webhook-route.test.ts
+PASS __tests__/integration/stripe-connect-webhook.test.ts
+  ● Console
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_platform_payout',
+        eventType: 'payout.paid',
+        outcome: 'observed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+PASS __tests__/integration/stripe-webhook-signed-fixtures.test.ts
+  ● Console
+
+    console.info
+      [stripe.webhook] Processed event {
+        eventId: 'evt_fixture_invoice_paid_kickback',
+        eventType: 'invoice.paid',
+        outcome: 'processed'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:979:13)
+
+    console.info
+      [stripe.webhook] Duplicate delivery skipped {
+        eventId: 'evt_fixture_invoice_paid_kickback',
+        eventType: 'invoice.paid',
+        processedAt: '2027-01-15T08:00:10.000Z'
+      }
+
+      at info (app/api/webhooks/stripe/route.ts:833:13)
+
+    console.info
+      [stripe.connect.webhook] Duplicate delivery skipped {
+        eventId: 'evt_fixture_account_active',
+        eventType: 'account.updated',
+        processedAt: '2027-01-15T08:00:10.000Z'
+      }
+
+      at info (app/api/webhooks/stripe/connect/route.ts:49:13)
+
+PASS __tests__/integration/eventbrite-oauth-webhook.test.ts
+PASS __tests__/integration/admin-catalog.test.ts
+PASS __tests__/integration/venue-spend-report-route.test.ts
+PASS lib/planner/__tests__/timelineDerivation.test.ts
+PASS __tests__/integration/planner-deposit-execution-routes.test.ts
+PASS lib/planner/archetypes/__tests__/intakeQuestions.test.ts
+PASS __tests__/planner/dateChangeOutreach.test.ts
+PASS __tests__/integration/planner-event-report-route.test.ts
+PASS lib/live-events/__tests__/triggers.test.ts
+PASS __tests__/integration/agent-run-route.test.ts
+PASS __tests__/integration/settlement-runs-lifecycle.test.ts
+FAIL lib/server/__tests__/rate-limit-redis.test.ts
+  ● Test suite failed to run
+
+    Cannot find module '@upstash/ratelimit' from 'lib/server/__tests__/rate-limit-redis.test.ts'
+
+      4 | const mockRedisConstructor = jest.fn()
+      5 |
+    > 6 | jest.mock('@upstash/ratelimit', () => ({
+        |      ^
+      7 |   Ratelimit: Object.assign(mockRatelimitConstructor, {
+      8 |     slidingWindow: mockSlidingWindow,
+      9 |   }),
+
+      at Resolver._throwModNotFoundError (../3rdSpace.webapp/node_modules/jest-resolve/build/resolver.js:427:11)
+      at Object.mock (lib/server/__tests__/rate-limit-redis.test.ts:6:6)
+
+PASS lib/server/__tests__/places-outreach.test.ts
+PASS lib/venues/__tests__/venueRanker.test.ts
+PASS __tests__/integration/venue-rental-summary-routes.test.ts
+PASS __tests__/integration/planner-custom-costs.test.ts
+PASS lib/ai/agents/__tests__/intakeAgent.test.ts
+PASS __tests__/integration/places-outreach-routes.test.ts
+PASS __tests__/outreach/gmail.test.ts
+PASS lib/ai/agents/__tests__/venueMatchingAgent.test.ts
+PASS __tests__/planner/mobileReadModels.test.ts
+PASS lib/finance/__tests__/costCommitments.test.ts
+PASS __tests__/integration/venue-overdue-cron-route.test.ts
+PASS lib/ticketing/__tests__/attendancePoll.test.ts
+PASS __tests__/integration/builder-payouts-summary-route.test.ts
+PASS __tests__/integration/gmail-integration-routes.test.ts
+PASS __tests__/planner/intentParser.test.ts
+PASS lib/server/__tests__/venue-website-extractor.test.ts
+PASS lib/billing/__tests__/builder-billing.test.ts
+PASS components/planner/__tests__/PlannerLivePlanPanel.test.tsx
+PASS __tests__/integration/vendor-claim-stripe.test.ts
+PASS components/auth/__tests__/SignupExperience.test.tsx
+PASS __tests__/email/kickback-notifications.test.ts
+PASS lib/finance/__tests__/chi-rate-trueup.test.ts
+PASS lib/ai/__tests__/intakeCompletion.test.ts
+PASS lib/finance/__tests__/eventPlanningEconomics.test.ts
+PASS __tests__/billing/stripeConnectGuard.test.ts
+PASS components/planner/planner-page/__tests__/PlannerWorkspace.test.tsx
+PASS lib/server/__tests__/builderTierElasticity.test.ts
+PASS lib/invoices/__tests__/vendor-invoices.test.ts
+PASS __tests__/integration/vendor-invites.test.ts
+PASS lib/planner/__tests__/intakeReadiness.test.ts
+PASS __tests__/integration/mobile-planner-routes.test.ts
+PASS __tests__/integration/venue-kickbacks-summary-route.test.ts
+PASS lib/planner/archetypes/__tests__/resolveArchetype.test.ts
+PASS lib/planner/__tests__/parser.test.ts
+PASS lib/ai/agents/__tests__/timelineAgent.test.ts
+PASS __tests__/schema/venue-payment-transactions-migration.test.ts
+PASS lib/ai/agents/__tests__/responseAnalysisAgent.test.ts
+PASS __tests__/payments/vendorStripeReconnectRoute.test.ts
+PASS lib/ai/agents/__tests__/documentExtractionAgent.test.ts
+PASS lib/server/__tests__/admin-tasks.test.ts
+PASS lib/finance/community-host-incentive/__tests__/calculate.test.ts
+PASS __tests__/integration/gmail-account-revoke.test.ts
+PASS components/vendor/__tests__/VendorClaimFlow.test.tsx
+PASS lib/planner/__tests__/vendorEconomicsCosts.test.ts
+PASS lib/ai/agents/__tests__/contactDisambiguationAgent.test.ts
+PASS lib/server/__tests__/builderAttendanceHistory.test.ts
+PASS __tests__/planner/opportunityBuilder.test.ts
+PASS scripts/evals/__tests__/run-outreach-evals.test.ts
+PASS lib/server/__tests__/google-places-client.test.ts
+PASS lib/finance/__tests__/chi-rate-resolver.test.ts
+PASS lib/planner/__tests__/venueComplianceGate.test.ts
+PASS __tests__/integration/venue-payouts-rental-ui.test.tsx
+PASS lib/messages/__tests__/vendor-messaging.test.ts
+PASS __tests__/integration/admin-tasks-route.test.ts
+PASS lib/planner/execution/__tests__/paymentApproval.test.ts
+PASS __tests__/planner/mockAgentResponses.test.ts
+PASS lib/ai/agents/__tests__/workspaceAgent.test.ts
+PASS __tests__/integration/settlement-checkout-race.test.ts
+PASS lib/events/__tests__/milestoneTemplates.test.ts
+PASS components/planner/__tests__/PlacesOutreachSearchWorkspace.test.tsx
+PASS __tests__/planner/postEventReport.test.ts
+PASS lib/utils/__tests__/filters.test.ts
+PASS lib/planner/archetypes/__tests__/driftControl.test.ts
+PASS components/planner/__tests__/EventbriteBackfillWizard.test.tsx
+PASS lib/planner/__tests__/specialSupply.test.ts
+PASS lib/finance/__tests__/calculate-event-financials.test.ts
+  ● Console
+
+    console.log
+      [Financials] Recalculating event metrics { eventId: 'event-consumption-profit' }
+
+      at log (lib/finance/calculate-event-financials.ts:259:11)
+
+    console.log
+      [Financials] Saved event metrics {
+        eventId: 'event-consumption-profit',
+        metrics: {
+          tickets_sold: 10,
+          gross_revenue: 1000,
+          total_fees: 50,
+          total_refunds: 0,
+          net_revenue: 950,
+          average_ticket_price: 100,
+          current_attendance: 10,
+          projected_attendance: 8,
+          projected_revenue: 9950,
+          venue_cost: 400,
+          vendor_cost: 100,
+          total_costs: 500,
+          expected_profit: 1469,
+          profit_margin: 74.61,
+          break_even_tickets: 5,
+          venue_chi_projection: 1019,
+          venue_sales_share_projection: 995,
+          per_attendee_value: 95
+        }
+      }
+
+      at log (lib/finance/calculate-event-financials.ts:348:11)
+
+PASS lib/venues/__tests__/venueScoring.test.ts
+PASS components/planner/__tests__/PostEventReportCard.test.tsx
+PASS lib/outreach/__tests__/policyGate.test.ts
+PASS __tests__/integration/settlement-checkout-flow.test.ts
+PASS components/auth/__tests__/RoleLoginPage.test.tsx
+PASS lib/ai/agents/__tests__/outreachAgent.test.ts
+PASS lib/planner/execution/__tests__/reapproval.test.ts
+PASS lib/venues/__tests__/venuePreFilter.test.ts
+PASS lib/planner/__tests__/recommendVendorStack.test.ts
+PASS lib/finance/community-host-incentive/__tests__/renderInvoiceLine.test.ts
+PASS __tests__/billing/stripe-connect-status.test.ts
+PASS lib/ai/agents/__tests__/dataConnectionAgent.test.ts
+PASS lib/server/__tests__/discovery-enrichment.test.ts
+PASS __tests__/launch-copy.test.ts
+PASS components/planner/mobile/__tests__/MobilePlanner.test.tsx
+PASS __tests__/integration/admin-settlement-dispute.test.ts
+PASS components/planner/__tests__/VenueRentalPaymentButton.test.tsx
+PASS lib/planner/__tests__/planVendorSelections.test.ts
+PASS __tests__/schema/community-host-incentive-migration.test.ts
+PASS components/venue/__tests__/VenueSpendReportUpload.test.tsx
+PASS components/planner/__tests__/PlannerBillingAccessBanner.test.tsx
+PASS components/planner/__tests__/PlannerSidebar.test.tsx
+PASS lib/integrations/csv/__tests__/parse.test.ts
+PASS __tests__/planner/partnershipWorkspaces.test.ts
+PASS __tests__/security/tied-house-strict.test.ts
+PASS lib/planner/execution/__tests__/executeApprovedAction.test.ts
+PASS lib/api/__tests__/legacy-key-compat.test.ts
+PASS __tests__/security/chi-settlement-approval-invariant.test.ts
+PASS __tests__/schema/chi-nomenclature-delta-2-migration.test.ts
+PASS __tests__/schema/kickback-settlement-migration.test.ts
+PASS __tests__/integration/settlement-webhook-attendance.test.ts
+PASS lib/payments/__tests__/vendor-payments.test.ts
+PASS __tests__/integration/auth-login-route.test.ts
+PASS lib/server/__tests__/builderPreferences.test.ts
+PASS lib/ai/agents/__tests__/replyClassifier.test.ts
+PASS lib/planner/execution/__tests__/approvalState.test.ts
+PASS lib/planner/__tests__/executionModes.test.ts
+PASS __tests__/integration/community-host-incentive-redirect-routes.test.ts
+PASS lib/admin/__tests__/taskState.test.ts
+PASS __tests__/integration/legacy-chi-checkout-disabled.test.ts
+PASS lib/finance/__tests__/settlement-run-state.test.ts
+PASS lib/finance/__tests__/chi-nomenclature-sync.test.ts
+PASS lib/venues/__tests__/venue-adapter.test.ts
+PASS __tests__/schema/settlement-runs-migration.test.ts
+PASS lib/finance/community-host-incentive/__tests__/stripeMetadata.test.ts
+PASS lib/vendors/__tests__/relationshipRecommendations.test.ts
+PASS lib/vendors/__tests__/rateAgreements.test.ts
+PASS lib/utils/__tests__/formatting.test.ts
+PASS components/planner/__tests__/HomePlannerStart.test.tsx
+PASS __tests__/security/marketing-tied-house.test.ts
+PASS lib/events/__tests__/workspaceHelpers.test.ts
+PASS components/ui/__tests__/button.test.tsx
+PASS __tests__/security/chi-settlement-no-legacy.test.ts
+PASS lib/server/__tests__/eventbriteImport.test.ts
+PASS lib/integrations/eventbrite/__tests__/importState.test.ts
+PASS components/shared/__tests__/ErrorState.test.tsx
+PASS lib/vendors/__tests__/vendorInviteTokens.test.ts
+PASS __tests__/schema/money-cents-migration.test.ts
+PASS lib/finance/community-host-incentive/__tests__/venueEligibility.test.ts
+PASS lib/notifications/__tests__/preferences.test.ts
+PASS lib/vendors/__tests__/vendorClaims.test.ts
+PASS components/forms/__tests__/FormField.test.tsx
+PASS lib/finance/community-host-incentive/__tests__/compliance.test.ts
+PASS lib/finance/__tests__/chi-eligibility.test.ts
+PASS __tests__/planner/experienceGuestStatus.test.ts
+PASS lib/types/__tests__/databaseRows.test.ts
+PASS lib/vendors/__tests__/vendorGates.test.ts
+PASS lib/finance/community-host-incentive/__tests__/featureFlag.test.ts
+PASS __tests__/integration/booking-flow.test.tsx
+PASS components/planner/__tests__/VenueRentalPaymentMethodPicker.test.tsx
+PASS __tests__/integration/planner-public-intake-route.test.ts (9.422 s)
+
+Summary of all failing tests
+FAIL lib/server/__tests__/rate-limit-redis.test.ts
+  ● Test suite failed to run
+
+    Cannot find module '@upstash/ratelimit' from 'lib/server/__tests__/rate-limit-redis.test.ts'
+
+      4 | const mockRedisConstructor = jest.fn()
+      5 |
+    > 6 | jest.mock('@upstash/ratelimit', () => ({
+        |      ^
+      7 |   Ratelimit: Object.assign(mockRatelimitConstructor, {
+      8 |     slidingWindow: mockSlidingWindow,
+      9 |   }),
+
+      at Resolver._throwModNotFoundError (../3rdSpace.webapp/node_modules/jest-resolve/build/resolver.js:427:11)
+      at Object.mock (lib/server/__tests__/rate-limit-redis.test.ts:6:6)
+
+
+Test Suites: 1 failed, 1 skipped, 174 passed, 175 of 176 total
+Tests:       9 skipped, 887 passed, 896 total
+Snapshots:   4 passed, 4 total
+Time:        11.449 s
+Ran all test suites.

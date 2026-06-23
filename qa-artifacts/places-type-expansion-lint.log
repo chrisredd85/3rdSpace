@@ -1,0 +1,47 @@
+
+> 3rdspace-webapp@0.1.0 lint
+> next lint
+
+
+./components/auth/RoleLoginPage.tsx
+91:6  Warning: React Hook useEffect has a missing dependency: 'loginError'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/auth/SignupExperience.tsx
+511:6  Warning: React Hook useEffect has a missing dependency: 'inlineError'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+1046:6  Warning: React Hook useEffect has a missing dependency: 'inlineError'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+1513:6  Warning: React Hook useEffect has a missing dependency: 'inlineError'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/builder/event-wizard/EventVenueStep.tsx
+72:9  Warning: The 'venues' conditional could make the dependencies of useMemo Hook (at line 87) change on every render. To fix this, wrap the initialization of 'venues' in its own useMemo() Hook.  react-hooks/exhaustive-deps
+72:9  Warning: The 'venues' conditional could make the dependencies of useMemo Hook (at line 92) change on every render. To fix this, wrap the initialization of 'venues' in its own useMemo() Hook.  react-hooks/exhaustive-deps
+
+./components/builder/event-wizard/EventbriteImportPanel.tsx
+190:6  Warning: React Hook useEffect has a missing dependency: 'loadIntegration'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+206:6  Warning: React Hook useEffect has missing dependencies: 'addToast' and 'loadImportedAttendees'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+232:6  Warning: React Hook useEffect has a missing dependency: 'loadIntegration'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/planner/planner-page/PlannerWorkspace.tsx
+199:6  Warning: React Hook useEffect has missing dependencies: 'isTimelineLoading', 'loadPlannerTimeline', and 'timelineResult'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+283:6  Warning: React Hook useEffect has a missing dependency: 'resetDemoSession'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+424:6  Warning: React Hook useEffect has a missing dependency: 'startInitialDraftPlan'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+452:6  Warning: React Hook useEffect has a missing dependency: 'triggerRecommendations'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/shared/FilterSidebar.tsx
+91:33  Warning: React Hook useCallback received a function whose dependencies are unknown. Pass an inline function instead.  react-hooks/exhaustive-deps
+
+./components/shared/SearchBar.tsx
+59:27  Warning: React Hook useCallback received a function whose dependencies are unknown. Pass an inline function instead.  react-hooks/exhaustive-deps
+
+./components/venue/AmenitiesSelector.tsx
+155:6  Warning: React Hook useEffect has a missing dependency: 'loadAmenities'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/venue/BulkApprovalDashboard.tsx
+127:6  Warning: React Hook useEffect has a missing dependency: 'loadPendingBookings'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/venue/BulkApprovalSettings.tsx
+82:6  Warning: React Hook useEffect has a missing dependency: 'loadSettings'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/venue/RulesManager.tsx
+131:6  Warning: React Hook useEffect has a missing dependency: 'loadRules'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/basic-features/eslint#disabling-rules

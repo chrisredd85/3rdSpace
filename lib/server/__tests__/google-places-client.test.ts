@@ -3,6 +3,7 @@ jest.mock('server-only', () => ({}))
 import {
   GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK,
   GOOGLE_PLACES_TEXT_SEARCH_URL,
+  GOOGLE_PLACES_INCLUDED_TYPES,
   buildGooglePlacesTextSearchRequest,
   clearGooglePlacesRateLimit,
   searchGooglePlacesText,
@@ -30,6 +31,23 @@ describe('google places client', () => {
     expect(request.maxResultCount).toBe(12)
     expect(GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK).toContain('places.photos')
     expect(GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK).not.toContain('places.emailAddress')
+  })
+
+  it('supports every event-relevant Places includedType without changing the field mask', () => {
+    for (const includedType of GOOGLE_PLACES_INCLUDED_TYPES) {
+      const request = buildGooglePlacesTextSearchRequest({
+        textQuery: `${includedType} in Mission`,
+        includedType,
+        neighborhood: 'Mission',
+      })
+
+      expect(request.includedType).toBe(includedType)
+      expect(request.strictTypeFiltering).toBe(true)
+      expect(request.includePureServiceAreaBusinesses).toBe(false)
+      expect(GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK).toContain('places.primaryType')
+      expect(GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK).toContain('places.types')
+      expect(GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK).not.toContain('places.emailAddress')
+    }
   })
 
   it('searches Places, retries 5xx responses, filters non-operational places, and parses photos', async () => {

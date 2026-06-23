@@ -1,0 +1,29 @@
+
+> 3rdspace-webapp@0.1.0 security:rls
+> npx tsx scripts/security/check-rls.ts
+
+RLS check failed to inspect the database: Command failed: psql postgresql://[redacted]@127.0.0.1:54322/postgres -v ON_ERROR_STOP=1 -Atc 
+COPY (
+  SELECT namespace.nspname || '.' || relation.relname
+  FROM pg_class relation
+  JOIN pg_namespace namespace
+    ON namespace.oid = relation.relnamespace
+  WHERE namespace.nspname = 'public'
+    AND relation.relkind IN ('r', 'p')
+    AND relation.relrowsecurity = false
+    AND NOT EXISTS (
+      SELECT 1
+      FROM pg_depend dependency
+      JOIN pg_extension extension
+        ON extension.oid = dependency.refobjid
+      WHERE dependency.classid = 'pg_class'::regclass
+        AND dependency.objid = relation.oid
+        AND dependency.deptype = 'e'
+    )
+  ORDER BY relation.relname
+) TO STDOUT
+
+psql: error: connection to server at "127.0.0.1", port 54322 failed: server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+

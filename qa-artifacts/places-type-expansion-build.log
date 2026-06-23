@@ -1,0 +1,396 @@
+
+> 3rdspace-webapp@0.1.0 build
+> next build
+
+  ▲ Next.js 14.2.35
+  - Experiments (use with caution):
+    · optimizeCss
+    · instrumentationHook
+
+   Creating an optimized production build ...
+[@sentry/nextjs] DEPRECATION WARNING: It is recommended renaming your `sentry.client.config.ts` file, or moving its content to `instrumentation-client.ts`. When using Turbopack `sentry.client.config.ts` will no longer work. Read more about the `instrumentation-client.ts` file: https://nextjs.org/docs/app/api-reference/file-conventions/instrumentation-client
+(node:8691) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (127kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (139kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (131kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+(node:8691) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+
+./components/auth/RoleLoginPage.tsx
+91:6  Warning: React Hook useEffect has a missing dependency: 'loginError'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/auth/SignupExperience.tsx
+511:6  Warning: React Hook useEffect has a missing dependency: 'inlineError'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+1046:6  Warning: React Hook useEffect has a missing dependency: 'inlineError'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+1513:6  Warning: React Hook useEffect has a missing dependency: 'inlineError'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/builder/event-wizard/EventVenueStep.tsx
+72:9  Warning: The 'venues' conditional could make the dependencies of useMemo Hook (at line 87) change on every render. To fix this, wrap the initialization of 'venues' in its own useMemo() Hook.  react-hooks/exhaustive-deps
+72:9  Warning: The 'venues' conditional could make the dependencies of useMemo Hook (at line 92) change on every render. To fix this, wrap the initialization of 'venues' in its own useMemo() Hook.  react-hooks/exhaustive-deps
+
+./components/builder/event-wizard/EventbriteImportPanel.tsx
+190:6  Warning: React Hook useEffect has a missing dependency: 'loadIntegration'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+206:6  Warning: React Hook useEffect has missing dependencies: 'addToast' and 'loadImportedAttendees'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+232:6  Warning: React Hook useEffect has a missing dependency: 'loadIntegration'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/planner/planner-page/PlannerWorkspace.tsx
+199:6  Warning: React Hook useEffect has missing dependencies: 'isTimelineLoading', 'loadPlannerTimeline', and 'timelineResult'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+283:6  Warning: React Hook useEffect has a missing dependency: 'resetDemoSession'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+424:6  Warning: React Hook useEffect has a missing dependency: 'startInitialDraftPlan'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+452:6  Warning: React Hook useEffect has a missing dependency: 'triggerRecommendations'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/shared/FilterSidebar.tsx
+91:33  Warning: React Hook useCallback received a function whose dependencies are unknown. Pass an inline function instead.  react-hooks/exhaustive-deps
+
+./components/shared/SearchBar.tsx
+59:27  Warning: React Hook useCallback received a function whose dependencies are unknown. Pass an inline function instead.  react-hooks/exhaustive-deps
+
+./components/venue/AmenitiesSelector.tsx
+155:6  Warning: React Hook useEffect has a missing dependency: 'loadAmenities'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/venue/BulkApprovalDashboard.tsx
+127:6  Warning: React Hook useEffect has a missing dependency: 'loadPendingBookings'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/venue/BulkApprovalSettings.tsx
+82:6  Warning: React Hook useEffect has a missing dependency: 'loadSettings'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./components/venue/RulesManager.tsx
+131:6  Warning: React Hook useEffect has a missing dependency: 'loadRules'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/basic-features/eslint#disabling-rules
+   Collecting page data ...
+   Generating static pages (0/84) ...
+Time 4.149375
+Time 2.83925
+   Generating static pages (21/84) 
+   Generating static pages (42/84) 
+   Generating static pages (63/84) 
+ ✓ Generating static pages (84/84)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                                                   Size     First Load JS
+┌ ○ /                                                                         2.23 kB         177 kB
+├ ○ /_not-found                                                               883 B           162 kB
+├ ƒ /[userType]/messages                                                      9.71 kB         244 kB
+├ ƒ /[userType]/notifications                                                 9.84 kB         239 kB
+├ ƒ /[userType]/settings                                                      191 B           178 kB
+├ ƒ /admin                                                                    188 B           163 kB
+├ ƒ /admin/catalog/vendors                                                    143 B           173 kB
+├ ƒ /admin/catalog/venues                                                     143 B           173 kB
+├ ƒ /admin/claims                                                             191 B           161 kB
+├ ƒ /admin/concierge                                                          6.16 kB         174 kB
+├ ƒ /admin/failures                                                           191 B           161 kB
+├ ƒ /admin/health                                                             191 B           161 kB
+├ ƒ /admin/ops                                                                5.18 kB         173 kB
+├ ƒ /admin/overrides                                                          190 B           161 kB
+├ ƒ /admin/settlements                                                        3.12 kB         173 kB
+├ ƒ /admin/stripe                                                             191 B           161 kB
+├ ƒ /admin/tasks                                                              6.61 kB         174 kB
+├ ƒ /api/account/settings                                                     0 B                0 B
+├ ƒ /api/admin/catalog/vendors                                                0 B                0 B
+├ ƒ /api/admin/catalog/venues                                                 0 B                0 B
+├ ƒ /api/admin/concierge/actions                                              0 B                0 B
+├ ƒ /api/admin/concierge/invites/[id]/override                                0 B                0 B
+├ ƒ /api/admin/ops                                                            0 B                0 B
+├ ƒ /api/admin/reconcile/captured-deposits                                    0 B                0 B
+├ ƒ /api/admin/settlements/[runId]/resolve                                    0 B                0 B
+├ ƒ /api/admin/tasks/[id]                                                     0 B                0 B
+├ ƒ /api/ai/agents/run                                                        0 B                0 B
+├ ƒ /api/auth/login                                                           0 B                0 B
+├ ƒ /api/auth/logout                                                          0 B                0 B
+├ ƒ /api/auth/refresh                                                         0 B                0 B
+├ ƒ /api/auth/signup                                                          0 B                0 B
+├ ƒ /api/auth/user                                                            0 B                0 B
+├ ƒ /api/builder/billing/checkout                                             0 B                0 B
+├ ƒ /api/builder/billing/status                                               0 B                0 B
+├ ƒ /api/builder/events                                                       0 B                0 B
+├ ƒ /api/builder/events/[id]                                                  0 B                0 B
+├ ƒ /api/builder/events/[id]/tasks                                            0 B                0 B
+├ ƒ /api/builder/events/[id]/team                                             0 B                0 B
+├ ƒ /api/builder/payouts/summary                                              0 B                0 B
+├ ƒ /api/builder/stats                                                        0 B                0 B
+├ ƒ /api/builder/stripe/callback                                              0 B                0 B
+├ ƒ /api/builder/stripe/connect                                               0 B                0 B
+├ ƒ /api/builder/stripe/dashboard                                             0 B                0 B
+├ ƒ /api/builder/stripe/refresh                                               0 B                0 B
+├ ƒ /api/builder/stripe/status                                                0 B                0 B
+├ ƒ /api/builder/subscription/cancel                                          0 B                0 B
+├ ƒ /api/builder/subscription/create                                          0 B                0 B
+├ ƒ /api/builder/venue-bookings                                               0 B                0 B
+├ ƒ /api/cron/settlement-runs/create                                          0 B                0 B
+├ ƒ /api/demo/reset                                                           0 B                0 B
+├ ƒ /api/errors/log                                                           0 B                0 B
+├ ƒ /api/events/[eventId]/financials                                          0 B                0 B
+├ ƒ /api/events/[eventId]/upload-checkins                                     0 B                0 B
+├ ƒ /api/health                                                               0 B                0 B
+├ ƒ /api/integrations/eventbrite/backfill                                     0 B                0 B
+├ ƒ /api/integrations/eventbrite/callback                                     0 B                0 B
+├ ƒ /api/integrations/eventbrite/connect                                      0 B                0 B
+├ ƒ /api/integrations/eventbrite/events                                       0 B                0 B
+├ ƒ /api/integrations/eventbrite/import                                       0 B                0 B
+├ ƒ /api/integrations/eventbrite/link                                         0 B                0 B
+├ ƒ /api/integrations/gmail/account                                           0 B                0 B
+├ ƒ /api/integrations/gmail/callback                                          0 B                0 B
+├ ƒ /api/integrations/gmail/connect                                           0 B                0 B
+├ ƒ /api/integrations/ticketing/connections                                   0 B                0 B
+├ ƒ /api/integrations/webhooks/luma                                           0 B                0 B
+├ ƒ /api/integrations/webhooks/posh                                           0 B                0 B
+├ ƒ /api/integrations/webhooks/setup                                          0 B                0 B
+├ ƒ /api/internal/cron/venue-overdue-check                                    0 B                0 B
+├ ƒ /api/internal/jobs/live-event-recompute                                   0 B                0 B
+├ ƒ /api/internal/jobs/run                                                    0 B                0 B
+├ ƒ /api/internal/jobs/venue-website-extraction                               0 B                0 B
+├ ƒ /api/invoices/generate                                                    0 B                0 B
+├ ƒ /api/jobs/run                                                             0 B                0 B
+├ ƒ /api/messages/[threadId]                                                  0 B                0 B
+├ ƒ /api/messages/read                                                        0 B                0 B
+├ ƒ /api/messages/send                                                        0 B                0 B
+├ ƒ /api/messages/threads                                                     0 B                0 B
+├ ƒ /api/messages/threads/[threadId]                                          0 B                0 B
+├ ƒ /api/messages/threads/[threadId]/read                                     0 B                0 B
+├ ƒ /api/messages/threads/create                                              0 B                0 B
+├ ƒ /api/messages/typing                                                      0 B                0 B
+├ ƒ /api/messages/unread-count                                                0 B                0 B
+├ ƒ /api/notifications                                                        0 B                0 B
+├ ƒ /api/notifications/mark-all-read                                          0 B                0 B
+├ ƒ /api/notifications/preferences                                            0 B                0 B
+├ ƒ /api/onboarding/builder                                                   0 B                0 B
+├ ƒ /api/onboarding/check                                                     0 B                0 B
+├ ƒ /api/onboarding/vendor                                                    0 B                0 B
+├ ƒ /api/onboarding/venue                                                     0 B                0 B
+├ ƒ /api/opportunities/respond/[token]                                        0 B                0 B
+├ ƒ /api/payments/capture                                                     0 B                0 B
+├ ƒ /api/payments/confirm                                                     0 B                0 B
+├ ƒ /api/payments/create-intent                                               0 B                0 B
+├ ƒ /api/payments/history                                                     0 B                0 B
+├ ƒ /api/payments/platform-fee                                                0 B                0 B
+├ ƒ /api/payments/refund                                                      0 B                0 B
+├ ƒ /api/payments/refund/calculate                                            0 B                0 B
+├ ƒ /api/payments/refund/process                                              0 B                0 B
+├ ƒ /api/payments/vendor                                                      0 B                0 B
+├ ƒ /api/planner/analytics                                                    0 B                0 B
+├ ƒ /api/planner/builder-attendance                                           0 B                0 B
+├ ƒ /api/planner/builder-elasticity                                           0 B                0 B
+├ ƒ /api/planner/data-connections/setup                                       0 B                0 B
+├ ƒ /api/planner/discovery-venues/[venueId]/contact-email                     0 B                0 B
+├ ƒ /api/planner/discovery-venues/[venueId]/photo/[index]                     0 B                0 B
+├ ƒ /api/planner/events/[eventId]/commitments                                 0 B                0 B
+├ ƒ /api/planner/events/[eventId]/commitments/[commitmentId]                  0 B                0 B
+├ ƒ /api/planner/events/[eventId]/live                                        0 B                0 B
+├ ƒ /api/planner/events/[eventId]/receipts                                    0 B                0 B
+├ ƒ /api/planner/events/[eventId]/revenue-terms                               0 B                0 B
+├ ƒ /api/planner/events/import                                                0 B                0 B
+├ ƒ /api/planner/events/import/[importId]/csv                                 0 B                0 B
+├ ƒ /api/planner/events/import/[importId]/finalize                            0 B                0 B
+├ ƒ /api/planner/events/import/[importId]/screenshot                          0 B                0 B
+├ ƒ /api/planner/integrations/posh                                            0 B                0 B
+├ ƒ /api/planner/outreach/gmail-approval                                      0 B                0 B
+├ ƒ /api/planner/outreach/gmail-approval/threads/[threadId]/modify            0 B                0 B
+├ ƒ /api/planner/outreach/gmail-approval/threads/[threadId]/sync              0 B                0 B
+├ ƒ /api/planner/payments/venue-rentals/summary                               0 B                0 B
+├ ƒ /api/planner/plans                                                        0 B                0 B
+├ ƒ /api/planner/plans/[planId]                                               0 B                0 B
+├ ƒ /api/planner/plans/[planId]/activity                                      0 B                0 B
+├ ƒ /api/planner/plans/[planId]/agent-actions                                 0 B                0 B
+├ ƒ /api/planner/plans/[planId]/approvals                                     0 B                0 B
+├ ƒ /api/planner/plans/[planId]/budget                                        0 B                0 B
+├ ƒ /api/planner/plans/[planId]/custom-costs                                  0 B                0 B
+├ ƒ /api/planner/plans/[planId]/date-change                                   0 B                0 B
+├ ƒ /api/planner/plans/[planId]/discover-venues                               0 B                0 B
+├ ƒ /api/planner/plans/[planId]/event-report                                  0 B                0 B
+├ ƒ /api/planner/plans/[planId]/messages                                      0 B                0 B
+├ ƒ /api/planner/plans/[planId]/mobile-home                                   0 B                0 B
+├ ƒ /api/planner/plans/[planId]/opportunities                                 0 B                0 B
+├ ƒ /api/planner/plans/[planId]/opportunities/vendors                         0 B                0 B
+├ ƒ /api/planner/plans/[planId]/opportunities/venues                          0 B                0 B
+├ ƒ /api/planner/plans/[planId]/outreach/approve-batch                        0 B                0 B
+├ ƒ /api/planner/plans/[planId]/partnerships                                  0 B                0 B
+├ ƒ /api/planner/plans/[planId]/payments/authorize                            0 B                0 B
+├ ƒ /api/planner/plans/[planId]/recommend                                     0 B                0 B
+├ ƒ /api/planner/plans/[planId]/recommendations                               0 B                0 B
+├ ƒ /api/planner/plans/[planId]/refund-decision                               0 B                0 B
+├ ƒ /api/planner/plans/[planId]/trigger-recommendations                       0 B                0 B
+├ ƒ /api/planner/plans/[planId]/vendors/[vendorId]/rate                       0 B                0 B
+├ ƒ /api/planner/plans/[planId]/venue-payment/[transactionId]/refund-request  0 B                0 B
+├ ƒ /api/planner/plans/[planId]/venue-payment/checkout                        0 B                0 B
+├ ƒ /api/planner/post-event/report                                            0 B                0 B
+├ ƒ /api/planner/public-intake                                                0 B                0 B
+├ ƒ /api/planner/settlement-runs/[runId]/attendance                           0 B                0 B
+├ ƒ /api/planner/settlement-runs/[runId]/review                               0 B                0 B
+├ ƒ /api/planner/templates                                                    0 B                0 B
+├ ƒ /api/planner/templates/[id]/apply                                         0 B                0 B
+├ ƒ /api/planner/ticketing/analytics                                          0 B                0 B
+├ ƒ /api/vendor/analytics                                                     0 B                0 B
+├ ƒ /api/vendor/availability                                                  0 B                0 B
+├ ƒ /api/vendor/availability/[id]                                             0 B                0 B
+├ ƒ /api/vendor/blocks                                                        0 B                0 B
+├ ƒ /api/vendor/blocks/[id]                                                   0 B                0 B
+├ ƒ /api/vendor/bookings                                                      0 B                0 B
+├ ƒ /api/vendor/bookings/[id]                                                 0 B                0 B
+├ ƒ /api/vendor/bookings/[id]/approve                                         0 B                0 B
+├ ƒ /api/vendor/bookings/[id]/details                                         0 B                0 B
+├ ƒ /api/vendor/bookings/[id]/reject                                          0 B                0 B
+├ ƒ /api/vendor/claim                                                         0 B                0 B
+├ ƒ /api/vendor/conflicts                                                     0 B                0 B
+├ ƒ /api/vendor/deposit                                                       0 B                0 B
+├ ƒ /api/vendor/invoices                                                      0 B                0 B
+├ ƒ /api/vendor/invoices/[id]                                                 0 B                0 B
+├ ƒ /api/vendor/invoices/[id]/pdf                                             0 B                0 B
+├ ƒ /api/vendor/invoices/[id]/send                                            0 B                0 B
+├ ƒ /api/vendor/payouts/summary                                               0 B                0 B
+├ ƒ /api/vendor/reviews                                                       0 B                0 B
+├ ƒ /api/vendor/reviews/[id]/respond                                          0 B                0 B
+├ ƒ /api/vendor/services                                                      0 B                0 B
+├ ƒ /api/vendor/services/[id]                                                 0 B                0 B
+├ ƒ /api/vendor/services/[id]/photos                                          0 B                0 B
+├ ƒ /api/vendor/stats                                                         0 B                0 B
+├ ƒ /api/vendor/stripe/callback                                               0 B                0 B
+├ ƒ /api/vendor/stripe/connect                                                0 B                0 B
+├ ƒ /api/vendor/stripe/dashboard                                              0 B                0 B
+├ ƒ /api/vendor/stripe/refresh                                                0 B                0 B
+├ ƒ /api/vendor/stripe/status                                                 0 B                0 B
+├ ƒ /api/vendors                                                              0 B                0 B
+├ ƒ /api/vendors/[id]                                                         0 B                0 B
+├ ƒ /api/vendors/featured                                                     0 B                0 B
+├ ƒ /api/vendors/search                                                       0 B                0 B
+├ ƒ /api/venue/amenities                                                      0 B                0 B
+├ ƒ /api/venue/availability                                                   0 B                0 B
+├ ƒ /api/venue/blocks                                                         0 B                0 B
+├ ƒ /api/venue/blocks/[id]                                                    0 B                0 B
+├ ƒ /api/venue/bookings/[id]                                                  0 B                0 B
+├ ƒ /api/venue/bulk-approval/approve                                          0 B                0 B
+├ ƒ /api/venue/bulk-approval/pending                                          0 B                0 B
+├ ƒ /api/venue/bulk-approval/reject                                           0 B                0 B
+├ ƒ /api/venue/bulk-approval/settings                                         0 B                0 B
+├ ƒ /api/venue/community-host-incentive/[id]/checkout                         0 B                0 B
+├ ƒ /api/venue/community-host-incentive/[id]/refund-request                   0 B                0 B
+├ ƒ /api/venue/community-host-incentive/[id]/spend-report                     0 B                0 B
+├ ƒ /api/venue/community-host-incentive/summary                               0 B                0 B
+├ ƒ /api/venue/deposit                                                        0 B                0 B
+├ ƒ /api/venue/kickbacks/[id]/checkout                                        0 B                0 B
+├ ƒ /api/venue/kickbacks/[id]/refund-request                                  0 B                0 B
+├ ƒ /api/venue/kickbacks/[id]/spend-report                                    0 B                0 B
+├ ƒ /api/venue/kickbacks/summary                                              0 B                0 B
+├ ƒ /api/venue/opportunity/[token]/claim                                      0 B                0 B
+├ ƒ /api/venue/opportunity/[token]/decline                                    0 B                0 B
+├ ƒ /api/venue/opportunity/[token]/stripe-resume                              0 B                0 B
+├ ƒ /api/venue/profile/complete                                               0 B                0 B
+├ ƒ /api/venue/rentals/[transactionId]/refund-decision                        0 B                0 B
+├ ƒ /api/venue/rentals/summary                                                0 B                0 B
+├ ƒ /api/venue/requests                                                       0 B                0 B
+├ ƒ /api/venue/rules                                                          0 B                0 B
+├ ƒ /api/venue/settlement/[token]/dispute                                     0 B                0 B
+├ ƒ /api/venue/settlement/[token]/pay                                         0 B                0 B
+├ ƒ /api/venue/stats                                                          0 B                0 B
+├ ƒ /api/venue/stripe/callback                                                0 B                0 B
+├ ƒ /api/venue/stripe/connect                                                 0 B                0 B
+├ ƒ /api/venue/stripe/dashboard                                               0 B                0 B
+├ ƒ /api/venue/stripe/refresh                                                 0 B                0 B
+├ ƒ /api/venue/stripe/status                                                  0 B                0 B
+├ ƒ /api/venue/unique-features                                                0 B                0 B
+├ ƒ /api/venues                                                               0 B                0 B
+├ ƒ /api/venues/search                                                        0 B                0 B
+├ ƒ /api/webhooks/eventbrite                                                  0 B                0 B
+├ ƒ /api/webhooks/luma                                                        0 B                0 B
+├ ƒ /api/webhooks/partiful                                                    0 B                0 B
+├ ƒ /api/webhooks/posh                                                        0 B                0 B
+├ ƒ /api/webhooks/stripe                                                      0 B                0 B
+├ ƒ /api/webhooks/stripe/connect                                              0 B                0 B
+├ ƒ /auth/callback                                                            0 B                0 B
+├ ○ /faq                                                                      188 B           163 kB
+├ ƒ /login                                                                    190 B           161 kB
+├ ƒ /login/[portal]                                                           7.79 kB         261 kB
+├ ○ /mobile-mockup                                                            189 B           161 kB
+├ ○ /mobile-mockup/analytics                                                  146 B           184 kB
+├ ○ /mobile-mockup/approvals                                                  145 B           184 kB
+├ ○ /mobile-mockup/billing                                                    146 B           184 kB
+├ ○ /mobile-mockup/messages                                                   146 B           184 kB
+├ ○ /mobile-mockup/new-plan                                                   146 B           184 kB
+├ ○ /mobile-mockup/outreach                                                   146 B           184 kB
+├ ○ /mobile-mockup/planner                                                    145 B           184 kB
+├ ○ /mobile-mockup/settings                                                   146 B           184 kB
+├ ○ /mobile-mockup/ticketing                                                  146 B           184 kB
+├ ○ /mobile-mockup/vendors                                                    146 B           184 kB
+├ ƒ /onboarding                                                               6.07 kB         210 kB
+├ ○ /planner                                                                  352 B           263 kB
+├ ○ /planner/analytics                                                        10.2 kB         190 kB
+├ ○ /planner/billing                                                          6.54 kB         174 kB
+├ ƒ /planner/events/[eventId]/costs                                           7.07 kB         175 kB
+├ ƒ /planner/events/[eventId]/live                                            8.63 kB         230 kB
+├ ƒ /planner/events/[eventId]/report                                          188 B           163 kB
+├ ƒ /planner/events/[eventId]/revenue-terms                                   6.09 kB         174 kB
+├ ƒ /planner/events/import                                                    8.29 kB         176 kB
+├ ƒ /planner/experiences                                                      1.96 kB         172 kB
+├ ƒ /planner/integrations/eventbrite                                          1.76 kB         175 kB
+├ ƒ /planner/integrations/posh                                                5.78 kB         174 kB
+├ ○ /planner/messages                                                         9.66 kB         244 kB
+├ ○ /planner/new-plan                                                         348 B           263 kB
+├ ○ /planner/outreach                                                         7.06 kB         177 kB
+├ ƒ /planner/outreach-search                                                  7.3 kB          177 kB
+├ ○ /planner/payments                                                         8.27 kB         178 kB
+├ ○ /planner/settings                                                         854 B           180 kB
+├ ○ /planner/settings/integrations                                            4.15 kB         174 kB
+├ ƒ /planner/settlements                                                      4.01 kB         172 kB
+├ ○ /planner/templates                                                        7.68 kB         175 kB
+├ ○ /planner/tickets                                                          923 B           189 kB
+├ ○ /planner/vendors                                                          8.34 kB         200 kB
+├ ƒ /planner/vendors/[vendorId]                                               5.78 kB         244 kB
+├ ○ /planner/vendors/marketplace                                              4.68 kB         243 kB
+├ ○ /planner/venues                                                           5.11 kB         196 kB
+├ ƒ /planner/venues/[venueId]                                                 12.2 kB         271 kB
+├ ○ /planner/venues/marketplace                                               7.57 kB         244 kB
+├ ○ /pricing                                                                  188 B           163 kB
+├ ○ /privacy                                                                  191 B           161 kB
+├ ○ /robots.txt                                                               0 B                0 B
+├ ƒ /signup                                                                   156 B           243 kB
+├ ƒ /signup/[portal]                                                          156 B           243 kB
+├ ƒ /sitemap.xml                                                              0 B                0 B
+├ ○ /terms                                                                    190 B           161 kB
+├ ƒ /v/respond/[token]                                                        8.31 kB         186 kB
+├ ƒ /vendor                                                                   3.69 kB         188 kB
+├ ƒ /vendor/analytics                                                         7.05 kB         175 kB
+├ ƒ /vendor/bookings                                                          9.16 kB         238 kB
+├ ƒ /vendor/calendar                                                          4.95 kB         234 kB
+├ ƒ /vendor/claim                                                             7.04 kB         177 kB
+├ ƒ /vendor/claim-pending                                                     191 B           161 kB
+├ ƒ /vendor/payouts                                                           5.26 kB         177 kB
+├ ƒ /vendor/pricing                                                           8.42 kB         267 kB
+├ ƒ /vendor/requests                                                          191 B           161 kB
+├ ƒ /vendor/services                                                          14.6 kB         271 kB
+├ ƒ /venue                                                                    3.4 kB          188 kB
+├ ƒ /venue/calendar                                                           7.67 kB         244 kB
+├ ƒ /venue/claim                                                              4.18 kB         174 kB
+├ ƒ /venue/claim-pending                                                      191 B           161 kB
+├ ƒ /venue/confirmed                                                          6.78 kB         236 kB
+├ ƒ /venue/listing                                                            10.3 kB         274 kB
+├ ƒ /venue/opportunity/[token]/decline                                        3.91 kB         174 kB
+├ ƒ /venue/opportunity/[token]/stripe-complete                                188 B           163 kB
+├ ƒ /venue/payouts                                                            12.5 kB         184 kB
+├ ƒ /venue/pricing                                                            6.39 kB         266 kB
+├ ƒ /venue/profile/complete                                                   3.99 kB         172 kB
+├ ƒ /venue/requests                                                           2.63 kB         249 kB
+├ ƒ /venue/requirements                                                       5.6 kB          243 kB
+├ ƒ /venue/settings                                                           191 B           178 kB
+├ ƒ /venue/settings/amenities                                                 2.42 kB         240 kB
+├ ƒ /venue/settings/bulk-approval                                             740 B           240 kB
+├ ƒ /venue/settings/deposits                                                  678 B           239 kB
+├ ƒ /venue/settings/rules                                                     842 B           238 kB
+├ ƒ /venue/settings/unique-features                                           2.66 kB         238 kB
+└ ƒ /venue/settlement/[token]                                                 3.76 kB         172 kB
++ First Load JS shared by all                                                 161 kB
+  ├ chunks/1357-f03e1b78ce69b2cd.js                                           104 kB
+  ├ chunks/fd9d1056-84cae2a8022e22c3.js                                       53.7 kB
+  └ other shared chunks (total)                                               3.55 kB
+
+
+ƒ Middleware                                                                  137 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

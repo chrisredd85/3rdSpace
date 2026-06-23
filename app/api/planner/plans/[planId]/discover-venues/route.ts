@@ -15,8 +15,11 @@ import {
 import {
   GooglePlacesApiError,
   GooglePlacesConfigurationError,
+  type GooglePlacesIncludedType,
+  type GooglePlacesSearchResult,
   searchGooglePlacesText,
 } from '@/lib/server/google-places-client'
+import { resolvePlacesIntent } from '@/lib/server/places-archetype-intent'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlannerApiErrorResponse } from '@/lib/types'
 
@@ -113,7 +116,13 @@ export async function GET(
 export async function POST(
   request: NextRequest,
   context: RouteContext
-): Promise<NextResponse<{ candidates: ReturnType<typeof buildDiscoveryCandidateResponses>; summary: DiscoverySummary; places_request: Json } | PlannerApiErrorResponse>> {
+): Promise<NextResponse<{
+  candidates: ReturnType<typeof buildDiscoveryCandidateResponses>
+  summary: DiscoverySummary
+  places_request: Json
+  places_requests: Json
+  places_result_counts: PlacesResultCounts
+} | PlannerApiErrorResponse>> {
   try {
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
@@ -135,22 +144,42 @@ export async function POST(
     }
 
     const searchQuery = parsed.data.query ?? buildDefaultDiscoverySearchQuery(plan)
-    const placesResult = await searchGooglePlacesText({
-      apiKey,
-      textQuery: searchQuery,
-      eventType: plan.event_type,
-      neighborhood: plan.neighborhood,
-      city: readPlanCity(plan),
-      maxResultCount: parsed.data.maxResultCount ?? 8,
-    })
+    const maxResultCount = parsed.data.maxResultCount ?? 8
+    const placesIntent = resolvePlacesIntent(plan.event_type, buildPlacesIntentHints(plan))
+    const placesResults = await Promise.all(placesIntent.primary_types.map((includedType) =>
+      searchGooglePlacesText({
+        apiKey,
+        textQuery: searchQuery,
+        eventType: plan.event_type,
+        neighborhood: plan.neighborhood,
+        city: readPlanCity(plan),
+        includedType,
+        maxResultCount,
+      })
+    ))
+    const placesResultCounts = summarizePlacesResults(placesResults)
+    const dedupedPlaces = dedupePlacesByGoogleId(placesResults).slice(0, maxResultCount)
+    const placesRequestBundle = {
+      text_query: searchQuery,
+      intent: {
+        primary_types: [...placesIntent.primary_types],
+        cluster_label: placesIntent.cluster_label,
+        venue_style: placesIntent.venue_style,
+        subspace_keywords: [...placesIntent.subspace_keywords],
+      },
+      result_counts: placesResultCounts,
+      requests: placesResults.map((result) => result.request),
+    }
 
     const admin = createServiceRoleClient()
     const upsertedVenues: DiscoveryVenueRow[] = []
-    for (const place of placesResult.places) {
+    for (const { place, request: placesRequest, matchedIncludedType } of dedupedPlaces) {
       const insert = buildDiscoveryVenueInsert(place, {
-        request: placesResult.request,
+        request: placesRequest,
         searchQuery,
         neighborhood: plan.neighborhood,
+        intent: placesIntent,
+        matchedIncludedType,
       })
       const { data, error } = await admin
         .from('discovery_venues')
@@ -180,7 +209,7 @@ export async function POST(
         fit_score: scoreByVenueId.get(venue.id) ?? null,
         status: 'candidate',
         dismissed_at: null,
-        places_request_json: placesResult.request as Json,
+        places_request_json: placesRequestBundle as unknown as Json,
       }))
 
       const { error } = await admin
@@ -198,7 +227,9 @@ export async function POST(
     return NextResponse.json({
       candidates: responseCandidates,
       summary: summarizeCandidates(responseCandidates),
-      places_request: placesResult.request as Json,
+      places_request: placesRequestBundle as unknown as Json,
+      places_requests: placesResults.map((result) => result.request) as Json,
+      places_result_counts: placesResultCounts,
     })
   } catch (error) {
     if (error instanceof GooglePlacesConfigurationError) {
@@ -338,6 +369,11 @@ type DiscoverySummary = {
   no_contact_available: number
 }
 
+type PlacesResultCounts = {
+  total: number
+  by_type: Partial<Record<GooglePlacesIncludedType, number>>
+}
+
 function summarizeCandidates(candidates: ReturnType<typeof buildDiscoveryCandidateResponses>): DiscoverySummary {
   return {
     total: candidates.length,
@@ -359,4 +395,79 @@ function readPlanCity(plan: Plan) {
     : null
   const city = metadata?.city
   return typeof city === 'string' && city.trim() ? city.trim() : null
+}
+
+function summarizePlacesResults(results: GooglePlacesSearchResult[]): PlacesResultCounts {
+  const byType: PlacesResultCounts['by_type'] = {}
+  for (const result of results) {
+    const type = result.request.includedType
+    if (!type) continue
+    byType[type] = result.places.length
+  }
+  return {
+    total: results.reduce((sum, result) => sum + result.places.length, 0),
+    by_type: byType,
+  }
+}
+
+function dedupePlacesByGoogleId(results: GooglePlacesSearchResult[]) {
+  const byId = new Map<string, {
+    place: GooglePlacesSearchResult['places'][number]
+    request: GooglePlacesSearchResult['request']
+    matchedIncludedType: GooglePlacesIncludedType | null
+  }>()
+
+  for (const result of results) {
+    for (const place of result.places) {
+      if (byId.has(place.id)) continue
+      byId.set(place.id, {
+        place,
+        request: result.request,
+        matchedIncludedType: result.request.includedType ?? null,
+      })
+    }
+  }
+
+  return [...byId.values()]
+}
+
+function buildPlacesIntentHints(plan: Plan) {
+  const metadata = readRecord(plan.metadata)
+  return {
+    venue_style: readString(metadata?.venue_style) ?? readString(metadata?.room_type) ?? readString(metadata?.preferred_venue_style),
+    vibe: [
+      ...readStringArray(metadata?.vibe),
+      ...readStringArray(metadata?.vibes),
+      ...readStringArray(metadata?.vibe_tags),
+    ],
+    subspace_keywords: [
+      ...readStringArray(metadata?.subspace_keywords),
+      ...readStringArray(metadata?.venue_keywords),
+      ...extractSubspaceKeywords([
+        readString(metadata?.venue_style),
+        readString(metadata?.room_type),
+        readString(plan.notes),
+      ].filter(Boolean).join(' ')),
+    ],
+  }
+}
+
+function extractSubspaceKeywords(text: string) {
+  const matches = text.match(/\b(rooftop|ballroom|private dining|lounge|hotel|resort|lodging)\b/gi)
+  return matches ? [...new Set(matches.map((match) => match.toLowerCase()))] : []
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => readString(item)).filter((item): item is string => Boolean(item))
 }
