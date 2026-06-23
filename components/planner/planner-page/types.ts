@@ -51,6 +51,17 @@ export interface PlannerTemplateSummary {
   created_at: string
 }
 
+export interface PlannerTemplateApplyOptions {
+  create_new_plan?: boolean
+  date_window_start?: string | null
+  date_window_end?: string | null
+  guest_count?: number | null
+  budget_cap_cents?: number | null
+  neighborhood?: string | null
+  use_same_venue?: boolean
+  use_same_vendors?: boolean
+}
+
 export interface PlannerAccountSummary {
   email?: string | null
   userType?: string | null

@@ -17,18 +17,19 @@ interface HomePlannerStartProps {
 
 const samplePrompts = [
   {
-    label: 'Founder dinner, 24, Hayes Valley',
-    prompt: 'Monthly founder dinner for 24 in Hayes Valley',
+    label: 'Founder dinner, 36, Mission, $5k budget',
+    prompt: 'Founder dinner for 36 in the Mission with a $5,000 budget',
   },
   {
-    label: 'Supper club, 18, Mission',
-    prompt: 'Supper club for 18 in the Mission, cocktails and a photographer',
+    label: 'Ticketed mixer, 80, SoMa, find 3 venues',
+    prompt: 'Ticketed mixer for 80 in SoMa - find and compare three venue options',
   },
   {
-    label: 'Rebook June rooftop, new date',
-    prompt: 'Rebook my June rooftop mixer — same venue, new date',
+    label: 'Repeat a past event, new date',
+    prompt: 'Repeat a past event with a new date and updated guest count',
+    intent: 'rebook',
   },
-]
+] as const
 
 /**
  * Public event creation composer for the homepage.
@@ -47,7 +48,10 @@ export function HomePlannerStart({ className }: HomePlannerStartProps) {
     if (!trimmed || isSubmitting) return
 
     setIsSubmitting(true)
-    router.push(`/planner?draft=${encodeURIComponent(trimmed)}`)
+    const rebookIntent = /\b(rebook|repeat|reuse)\b.*\b(past|previous|last|saved|template|event)\b/i.test(trimmed)
+    const params = new URLSearchParams({ draft: trimmed })
+    if (rebookIntent) params.set('intent', 'rebook')
+    router.push(rebookIntent ? `/planner/new-plan?${params.toString()}` : `/planner?${params.toString()}`)
   }
 
   /**
@@ -109,14 +113,22 @@ export function HomePlannerStart({ className }: HomePlannerStartProps) {
       </form>
 
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {samplePrompts.map(({ label, prompt }) => (
+        {samplePrompts.map((sample) => (
           <button
-            key={prompt}
+            key={sample.prompt}
             type="button"
-            onClick={() => setDraft(prompt)}
+            onClick={() => {
+              if ('intent' in sample && sample.intent === 'rebook') {
+                setIsSubmitting(true)
+                const params = new URLSearchParams({ draft: sample.prompt, intent: 'rebook' })
+                router.push(`/planner/new-plan?${params.toString()}`)
+                return
+              }
+              setDraft(sample.prompt)
+            }}
             className="rounded-full border border-tan bg-cream px-3.5 py-0.5 text-[13px] font-semibold text-ink-soft transition-colors hover:border-clay hover:text-clay-deep"
           >
-            {label}
+            {sample.label}
           </button>
         ))}
       </div>
