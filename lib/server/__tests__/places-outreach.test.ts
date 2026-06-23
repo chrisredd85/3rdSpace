@@ -9,6 +9,7 @@ jest.mock('@/lib/planner/catalogRanker', () => ({
 
 import {
   buildDefaultOutreachBody,
+  buildDefaultOutreachSubject,
   buildDiscoveryCandidateResponses,
   buildDiscoveryVenueInsert,
   resolveDiscoveryVenueContact,
@@ -134,6 +135,73 @@ describe('places outreach helpers', () => {
     expect(body).toContain('{{sender_email}}')
     expect(body).not.toContain('{{venue_name}}')
     expect(body).not.toMatch(/kickback|rev share|revenue share|bar split/i)
+  })
+
+  it('marks special-supply candidates as quote-required and uses quote-request copy', () => {
+    const plan = fakePlan()
+    plan.metadata = {
+      event_complexity: 'special_supply_required',
+      special_supply: {
+        kind: 'yacht_charter',
+        label: 'Yacht charter',
+        intake_pack_id: 'special_supply_yacht_charter',
+        lead_label: 'Charter operator',
+        candidate_status_label: 'Unverified charter lead - quote required',
+        quote_required: true,
+        verification_status: 'unverified_quote_required',
+        search_terms: ['yacht charter'],
+        intake_questions: ['Which marina should I scout?'],
+        quote_comparison_fields: ['all-in charter price'],
+        outreach_quote_fields: ['capacity', 'total charter price', 'deposit'],
+        execution_modes: ['concierge_queue', 'external_checkout', 'controlled_payment'],
+      },
+    }
+
+    const responses = buildDiscoveryCandidateResponses(plan, [{
+      candidate: {
+        id: 'candidate-1',
+        plan_id: 'plan-1',
+        discovery_venue_id: 'venue-1',
+        searched_by_user_id: 'user-1',
+        search_query: 'yacht charter',
+        archetype_id: 'party',
+        neighborhood: 'San Francisco',
+        fit_score: 75,
+        status: 'candidate',
+        dismissed_at: null,
+        places_request_json: {},
+        outreach_approval_created_at: null,
+        created_at: '2026-06-18T00:00:00.000Z',
+        updated_at: '2026-06-18T00:00:00.000Z',
+      } as PlanDiscoveryVenueCandidateRow,
+      venue: {
+        id: 'venue-1',
+        name: 'Bay Charter Co',
+        address: 'Pier 1',
+        neighborhood: 'Embarcadero',
+        city: 'San Francisco',
+        state: 'CA',
+        contact_email: 'events@charter.example',
+        contact_phone: null,
+        website: 'https://charter.example',
+        organizer_provided_emails: [],
+        extracted_emails: [],
+        website_extraction_status: 'successful',
+        photos: [],
+        google_rating: null,
+        google_user_ratings_total: null,
+        metadata: {},
+      } as DiscoveryVenueRow,
+    }])
+
+    expect(responses[0]).toMatchObject({
+      quote_required: true,
+      verification_status: 'unverified_quote_required',
+      candidate_label: 'Unverified charter lead - quote required',
+    })
+    expect(buildDefaultOutreachSubject(plan)).toBe('Happy hour plan quote request')
+    expect(buildDefaultOutreachBody(plan)).toContain('verified quote before comparing options')
+    expect(buildDefaultOutreachBody(plan)).toContain('No booking or payment happens from this email')
   })
 })
 

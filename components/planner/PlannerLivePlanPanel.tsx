@@ -28,6 +28,7 @@ import Link from 'next/link'
 import { usePlannerBillingGate } from '@/components/planner/usePlannerBillingGate'
 import { humanizeEventType } from '@/lib/planner/archetypes/driftControl'
 import { plannerDraftStorageKey } from '@/lib/planner/migrateDraft'
+import { readSpecialSupplyMetadata, type SpecialSupplyMetadata } from '@/lib/planner/specialSupply'
 import { readVendorNeedStatusFromMetadata } from '@/lib/planner/vendorNeedStatus'
 import type { PlanMessage, VendorNeedStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -111,6 +112,7 @@ interface EventSummary {
   dress_code: string | null
   duration: string | null
   ticketed: boolean | null
+  special_supply: SpecialSupplyMetadata | null
 }
 
 interface PlannerLivePlanPanelProps {
@@ -159,6 +161,7 @@ interface LivePlanSnapshot {
   workspaceSummary: WorkspaceSummarySnapshot | null
   selectedVendors: SelectedPlanVendor[]
   customCosts: CustomCostItem[]
+  specialSupply: SpecialSupplyMetadata | null
   updatedAt: string | null
 }
 
@@ -345,6 +348,7 @@ function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
       readNumber(metadata?.ticket_price_target_cents),
     foodResponsibility: readString(record.foodResponsibility) ?? readString(record.food_responsibility),
     vendorNeedStatus: readVendorNeedStatusFromMetadata(metadata),
+    specialSupply: readSpecialSupplyMetadata(metadata),
     venueTerms: readString(record.venueTerms) ?? readString(record.venue_terms),
     actionPermission: readString(record.actionPermission) ?? readString(record.agent_action),
     notes: readString(record.notes),
@@ -451,6 +455,7 @@ function deriveEventSummary(messages: PlanMessage[], plan: LivePlanSnapshot | nu
     dress_code: null,
     duration: null,
     ticketed,
+    special_supply: plan?.specialSupply ?? null,
   }
 
   const confirmationMessage = [...messages]
@@ -480,6 +485,7 @@ function deriveEventSummary(messages: PlanMessage[], plan: LivePlanSnapshot | nu
       dress_code: readString(summary.dress_code) ?? fallback.dress_code,
       duration: readString(summary.duration) ?? fallback.duration,
       ticketed: fallback.ticketed ?? readBoolean(summary.ticketed) ?? isPaidTicketingModel(readString(summary.ticketing_model)),
+      special_supply: fallback.special_supply,
     }
   }
 
@@ -1140,6 +1146,11 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           <PlanPill>
             {formatTicketingPill(eventSummary, ticketPriceTargetCents)}
           </PlanPill>
+          {eventSummary.special_supply ? (
+            <PlanPill intent="recommended">
+              Quote required
+            </PlanPill>
+          ) : null}
           {statusPillLabel ? (
             <PlanPill intent={recommendationMessageCount > 0 ? 'recommended' : 'neutral'}>
               {statusPillLabel}
@@ -1165,6 +1176,10 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             <ArtifactField label="Venue Terms" value={formatVenueTermsValue(eventSummary)} />
             <ArtifactField label="Revenue Model" value={formatRevenueModelValue(eventSummary)} />
             <ArtifactField label="Agent Action" value={eventSummary.action_permission ?? 'Need approval rules'} />
+            <ArtifactField
+              label="Complexity"
+              value={eventSummary.special_supply ? `${eventSummary.special_supply.label} - verified quote required` : 'Standard event'}
+            />
             <RunOfShowField
               runOfShow={runOfShow}
               eventDate={livePlan?.dateWindowStart ?? livePlan?.dateWindowEnd ?? null}
@@ -1174,6 +1189,10 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
               onGenerate={handleGenerateTimeline}
             />
           </div>
+
+          {eventSummary.special_supply ? (
+            <SpecialSupplyBrief specialSupply={eventSummary.special_supply} />
+          ) : null}
 
           <div className="mt-7 rounded-lg border border-tan bg-cream-deep/75 p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -1709,6 +1728,55 @@ function ArtifactField({ label, value }: { label: string; value: string }) {
     <div className="min-w-0">
       <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-ink-faint">{label}</p>
       <p className="mt-2 break-words text-lg leading-tight text-ink sm:text-xl" title={value}>{value}</p>
+    </div>
+  )
+}
+
+function SpecialSupplyBrief({ specialSupply }: { specialSupply: SpecialSupplyMetadata }) {
+  return (
+    <div className="mt-7 rounded-lg border border-clay/30 bg-cream-deep/85 p-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="label-caps text-clay">Special supply</p>
+          <h4 className="mt-2 flex items-center gap-2 text-base font-semibold leading-tight text-ink">
+            <AlertCircle className="h-4 w-4 text-clay" />
+            {specialSupply.candidate_status_label}
+          </h4>
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-soft">
+            3rdPlace can scout leads, but these are not bookable inventory until a provider confirms terms. Outreach remains approval-gated.
+          </p>
+        </div>
+        <div className="rounded-full border border-tan bg-cream px-3 py-1.5 text-xs font-bold uppercase tracking-[0.06em] text-forest">
+          Verified quote required
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-4 md:grid-cols-2">
+        <div className="rounded-md border border-tan bg-cream p-4">
+          <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-ink-faint">Intake pack</p>
+          <ul className="mt-3 space-y-2 text-sm leading-snug text-ink-soft">
+            {specialSupply.intake_questions.slice(0, 4).map((question) => (
+              <li key={question} className="flex gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-clay" />
+                <span>{question}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="rounded-md border border-tan bg-cream p-4">
+          <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-ink-faint">Compare only confirmed terms</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {specialSupply.quote_comparison_fields.slice(0, 8).map((field) => (
+              <span key={field} className="rounded-full border border-tan bg-cream-deep px-2.5 py-1 text-xs font-semibold text-ink-soft">
+                {field}
+              </span>
+            ))}
+          </div>
+          <p className="mt-4 text-sm leading-relaxed text-ink-soft">
+            Execution stays in the existing lanes: concierge queue first, external checkout if the provider has one, controlled payment only after Stripe onboarding.
+          </p>
+        </div>
+      </div>
     </div>
   )
 }

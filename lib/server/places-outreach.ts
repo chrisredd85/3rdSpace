@@ -2,6 +2,7 @@ import 'server-only'
 
 import { archetypeFor } from '@/lib/planner/archetypes'
 import { rankCatalogPartners, type CatalogPlanRankingInput, type CatalogVenueRankingInput } from '@/lib/planner/catalogRanker'
+import { buildSpecialSupplySearchQuery, readPlanSpecialSupply } from '@/lib/planner/specialSupply'
 import type { Json, Plan, TableRow } from '@/lib/types'
 import type { GooglePlaceCandidate, GooglePlacesTextSearchRequest } from '@/lib/server/google-places-client'
 
@@ -35,6 +36,9 @@ export type DiscoveryCandidateResponse = {
   photo_urls: string[]
   photos: DiscoveryVenuePhoto[]
   metadata: Json
+  quote_required: boolean
+  verification_status: 'unverified_quote_required' | null
+  candidate_label: string | null
 }
 
 export type ContactResolution = {
@@ -138,6 +142,7 @@ export function buildDiscoveryCandidateResponses(
   rows: CandidateWithVenue[]
 ): DiscoveryCandidateResponse[] {
   const scoreByVenueId = rankDiscoveryVenues(plan, rows.map((row) => row.venue))
+  const specialSupply = readPlanSpecialSupply(plan)
 
   return rows
     .map(({ candidate, venue }) => {
@@ -166,6 +171,9 @@ export function buildDiscoveryCandidateResponses(
         photo_urls: buildPhotoUrls(venue.id, venue.photos),
         photos: readPlacesPhotos(venue.photos).slice(0, 3),
         metadata: venue.metadata,
+        quote_required: Boolean(specialSupply?.quote_required),
+        verification_status: specialSupply ? 'unverified_quote_required' : null,
+        candidate_label: specialSupply?.candidate_status_label ?? null,
       } satisfies DiscoveryCandidateResponse
     })
     .sort(compareCandidateResponses)
@@ -222,11 +230,28 @@ export function mapDiscoveryVenueToCatalogVenue(row: DiscoveryVenueRow): Catalog
   }
 }
 
-export function buildDefaultOutreachSubject(plan: Pick<Plan, 'title'>) {
-  return `${plan.title} venue inquiry`
+export function buildDefaultOutreachSubject(plan: Pick<Plan, 'title' | 'metadata'>) {
+  const specialSupply = readPlanSpecialSupply(plan)
+  return specialSupply ? `${plan.title} quote request` : `${plan.title} venue inquiry`
 }
 
-export function buildDefaultOutreachBody() {
+export function buildDefaultOutreachBody(plan?: Pick<Plan, 'metadata'>) {
+  const specialSupply = plan ? readPlanSpecialSupply(plan) : null
+  if (specialSupply) {
+    return [
+      'Hi {{place_name}},',
+      '',
+      `I'm planning a ${specialSupply.label.toLowerCase()} and need a verified quote before comparing options.`,
+      '',
+      `Can you host this event? Please reply with ${formatQuoteFieldsForSentence(specialSupply.outreach_quote_fields)}.`,
+      '',
+      'No booking or payment happens from this email. The organizer reviews confirmed terms in 3rdPlace before approving any next step.',
+      '',
+      'Thanks,',
+      '{{sender_email}}',
+    ].join('\n')
+  }
+
   return [
     'Hi {{place_name}},',
     '',
@@ -239,6 +264,15 @@ export function buildDefaultOutreachBody() {
     'Thanks,',
     '{{sender_email}}',
   ].join('\n')
+}
+
+export function buildDefaultDiscoverySearchQuery(plan: Plan) {
+  const specialSupplySearchQuery = buildSpecialSupplySearchQuery(plan)
+  if (specialSupplySearchQuery) return specialSupplySearchQuery
+
+  const eventText = plan.event_type?.trim() || 'venues'
+  const locationText = plan.neighborhood?.trim() || readPlanCity(plan) || 'Bay Area'
+  return `${eventText} in ${locationText}`
 }
 
 export function compareCandidateResponses(first: DiscoveryCandidateResponse, second: DiscoveryCandidateResponse) {
@@ -261,6 +295,19 @@ function mapPlanToRankingInput(plan: Plan): CatalogPlanRankingInput {
     venue_terms: plan.venue_terms,
     metadata: plan.metadata,
   }
+}
+
+function readPlanCity(plan: Pick<Plan, 'metadata'>) {
+  const metadata = readRecord(plan.metadata)
+  const city = metadata?.city
+  return typeof city === 'string' && city.trim() ? city.trim() : null
+}
+
+function formatQuoteFieldsForSentence(fields: string[]) {
+  const visibleFields = fields.slice(0, 10)
+  if (visibleFields.length <= 1) return visibleFields[0] ?? 'quote terms'
+  if (visibleFields.length === 2) return `${visibleFields[0]} and ${visibleFields[1]}`
+  return `${visibleFields.slice(0, -1).join(', ')}, and ${visibleFields[visibleFields.length - 1]}`
 }
 
 function readLatestOrganizerEmail(value: Json): string | null {

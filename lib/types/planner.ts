@@ -27,6 +27,21 @@ export type RecommendationStatus = 'pending' | 'selected' | 'rejected'
 /** Canonical planner assessment of whether an event needs vendor sourcing. */
 export type VendorNeedStatus = 'none' | 'optional' | 'required' | 'unknown'
 
+/** Planner assessment of whether normal venue/vendor matching is enough. */
+export type EventComplexity = 'standard' | 'special_supply_required'
+
+/** Specialized supply packs for events that require quote-first scouting. */
+export type SpecialSupplyKind =
+  | 'yacht_charter'
+  | 'warehouse_party'
+  | 'private_estate'
+  | 'outdoor_park'
+  | 'rooftop_buyout'
+  | 'nonstandard'
+
+/** Existing execution modes allowed for special supply once terms are verified. */
+export type SpecialSupplyExecutionMode = 'concierge_queue' | 'external_checkout' | 'controlled_payment'
+
 /** Executable action categories created by the planner. */
 export type AgentActionType =
   | 'payment'
