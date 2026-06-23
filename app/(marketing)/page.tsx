@@ -133,9 +133,19 @@ export default function HomePage() {
                   <p className="mt-3 text-[17px] leading-snug text-ink">
                     Three venues fit. Holding The Valencia Room for 24 hours while you authorize.
                   </p>
-                  <div className="mt-3 flex items-center gap-2">
-                    <span className="inline-flex items-center rounded-full bg-forest-tint px-2 py-0.5 text-[10.5px] font-medium tracking-wide text-forest">Verified-attendance incentive</span>
-                    <span className="inline-flex items-center rounded-full bg-cream-deep px-2 py-0.5 text-[10.5px] font-medium tracking-wide text-ink-soft">$1,800 rental</span>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    <div className="rounded-sm border border-forest/15 bg-forest-tint px-2.5 py-2">
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-forest">Incentive</span>
+                      <span className="mt-1 block text-[13px] font-semibold text-forest">$5 / checked-in guest</span>
+                    </div>
+                    <div className="rounded-sm border border-tan bg-cream-deep px-2.5 py-2">
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">Return</span>
+                      <span className="mt-1 block text-[13px] font-semibold text-ink">up to $300 back</span>
+                    </div>
+                    <div className="rounded-sm border border-tan bg-cream-deep px-2.5 py-2">
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">After incentive</span>
+                      <span className="mt-1 block text-[13px] font-semibold text-ink">$1,500 effective cost</span>
+                    </div>
                   </div>
                 </div>
               </div>
