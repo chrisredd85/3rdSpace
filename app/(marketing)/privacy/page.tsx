@@ -29,7 +29,7 @@ const sections = [
       'To monitor Gmail replies to outreach threads so your planner workspace can show partner responses, follow-up needs, and outreach history.',
       "To mark outreach reply threads as read or apply organizational labels in your Gmail account so processed threads do not appear unread, only after you approve the underlying outreach flow.",
       'To classify, summarize, and draft follow-ups for outreach replies using automated systems and service providers acting on our behalf.',
-      'To process subscriptions, venue rental payments, vendor payments, and revenue-share settlement records through Stripe.',
+      'To process subscriptions, venue rental payments, vendor payments, and community host incentive settlement records through Stripe.',
       'To send transactional email through Resend, including account, payment, refund, and operational notifications.',
       'To monitor reliability, debug errors, prevent abuse, and improve the event workspace.',
     ],
