@@ -32,6 +32,7 @@ import {
   type RankedCatalogRecommendation,
 } from '@/lib/planner/catalogRanker'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS, RECOMMENDATION_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import { estimateVenueRecommendationPriceCents } from '@/lib/planner/venueEstimate'
 import {
   buildApprovalSnapshotHash,
   buildLegacyPlanApprovalSnapshotHash,
@@ -633,7 +634,15 @@ export async function POST(
       ip_address: getIpAddress(request),
     })
 
-    const rankedVenueResponses = venueMatch.venueResult.output.ranked_venues.map(withVenueRecommendationCompat)
+    const rankedVenueResponses = venueMatch.venueResult.output.ranked_venues.map((venue) =>
+      withVenueRecommendationCompat(enrichRankedVenuePrice({
+        rankedVenue: venue,
+        candidate: venueMatch.candidateVenues.find((candidate) => candidate.id === venue.venue_id) ?? null,
+        recommendation: null,
+        plan: recommendationPlan,
+        eventPlan,
+      }))
+    )
     return jsonWithDeprecatedKeys({
       resolved_archetype: toResolvedArchetypeSummary(archetype),
       ranked_venues: rankedVenueResponses,
@@ -887,7 +896,20 @@ async function runCatalogFallback(input: {
 
   const catalogTicketingPlatformPrompt = buildTicketingPlatformPrompt(input.plan, input.archetype, input.connectedTicketingPlatforms, input.messages)
 
-  const rankedVenueResponses = rankedVenues.map(withVenueRecommendationCompat)
+  const catalogRecommendationsByVenueId = new Map(
+    recommendationsForPersistence
+      .filter((recommendation) => recommendation.kind === 'venue')
+      .map((recommendation) => [recommendation.partner_id, recommendation])
+  )
+  const rankedVenueResponses = rankedVenues.map((venue) =>
+    withVenueRecommendationCompat(enrichRankedVenuePrice({
+      rankedVenue: venue,
+      candidate: null,
+      recommendation: catalogRecommendationsByVenueId.get(venue.venue_id) ?? null,
+      plan: input.plan,
+      eventPlan,
+    }))
+  )
   return jsonWithDeprecatedKeys({
     resolved_archetype: toResolvedArchetypeSummary(input.archetype),
     ranked_venues: rankedVenueResponses,
@@ -940,6 +962,40 @@ function withVenueRecommendationCompat<T extends Record<string, unknown>>(venue:
     bar_revenue_share_percent: venue.bar_revenue_share_percent ?? barConsumptionSharePercent,
     venue_chi_rate: venue.venue_chi_rate ?? venue.venue_kickback_rate ?? null,
     venue_kickback_rate: venue.venue_kickback_rate ?? venue.venue_chi_rate ?? null,
+  }
+}
+
+function enrichRankedVenuePrice(input: {
+  rankedVenue: VenueMatchingAgentOutput['ranked_venues'][number]
+  candidate: VenueMatchingCandidate | null
+  recommendation: RankedCatalogRecommendation | null
+  plan: Plan
+  eventPlan: ReturnType<typeof buildAgentEventPlan>
+}): VenueMatchingAgentOutput['ranked_venues'][number] & Record<string, unknown> {
+  const source = input.candidate
+    ? {
+        ...input.candidate,
+        commercial_model_match: input.rankedVenue.commercial_model_match,
+        projected_attendance: input.rankedVenue.capacity_calibration?.projected_attendance,
+      }
+    : input.recommendation
+      ? {
+          ...input.recommendation.metadata,
+          price_cents: input.recommendation.estimate_cents,
+          estimate_cents: input.recommendation.estimate_cents,
+          commercial_model_match: input.rankedVenue.commercial_model_match,
+        }
+      : input.rankedVenue
+
+  const priceCents = estimateVenueRecommendationPriceCents(source, {
+    guest_count: input.plan.guest_count,
+    headcount: input.plan.guest_count,
+    expected_attendance: input.eventPlan.expected_attendance,
+  })
+
+  return {
+    ...input.rankedVenue,
+    price_cents: priceCents,
   }
 }
 
