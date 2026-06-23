@@ -56,7 +56,7 @@ export function PlannerBillingAccessBanner() {
       return {
         tone: 'free' as const,
         label: `${freeEventsRemaining} free event${freeEventsRemaining === 1 ? '' : 's'} remaining`,
-        body: 'After your free events, planner sessions are $30 each or $69/mo unlimited.',
+        body: 'After your free events, planner sessions are $30 each or $79/mo unlimited.',
       }
     }
 
@@ -64,7 +64,7 @@ export function PlannerBillingAccessBanner() {
       return {
         tone: 'upgrade' as const,
         label: "You've used your 2 free events.",
-        body: 'Continue for $30 per event or $69/mo unlimited.',
+        body: 'Continue for $30 per event or $79/mo unlimited.',
       }
     }
 

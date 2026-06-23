@@ -67,7 +67,7 @@ In the same “Import” screen (or later in **Project → Settings → Environm
 | `STRIPE_PRICE_PRO_MONTHLY` | Stripe production price id | Builder Pro monthly |
 | `STRIPE_PRICE_PRO_ANNUAL` | Stripe production price id | Builder Pro annual |
 | `PLATFORM_FEE_PER_EVENT` | `30.00` | Pay-per-event fee |
-| `PLATFORM_FEE_PRO_MONTHLY` | `69.00` | Pro monthly amount |
+| `PLATFORM_FEE_PRO_MONTHLY` | `79.00` | Pro monthly amount |
 | `PLATFORM_FEE_PRO_ANNUAL` | `690.00` | Pro annual amount |
 | `NEXT_PUBLIC_SITE_URL` | `https://your-production-domain.com` | Canonical URL |
 | `NEXT_PUBLIC_APP_URL` | `https://your-production-domain.com` | App base URL |
