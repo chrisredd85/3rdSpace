@@ -44,6 +44,11 @@ import {
   resolveVendorNeedStatusUpdate,
 } from '@/lib/planner/vendorNeedStatus'
 import {
+  buildSpecialSupplyTransitionPhrase,
+  mergeSpecialSupplyMetadata,
+  pickSpecialSupplyIntakeQuestion,
+} from '@/lib/planner/specialSupply'
+import {
   isIntakeReadyForRecommendations,
   isPlanReadyForRequestedRecommendations,
 } from '@/lib/planner/intakeReadiness'
@@ -327,14 +332,16 @@ function buildPlanInsert(
   )
   const metadataBeforeVendorNeed =
     mergeUserPreferenceSignalsIntoMetadata(metadataWithRequirements, message) ?? metadataWithRequirements
+  const metadataWithSpecialSupply =
+    mergeSpecialSupplyMetadata(metadataBeforeVendorNeed, message) ?? metadataBeforeVendorNeed
   const vendorNeedStatus = resolveVendorNeedStatusUpdate({
-    metadata: metadataBeforeVendorNeed,
+    metadata: metadataWithSpecialSupply,
     userMessage: message,
     agentStatus: null,
   })
   const metadata = vendorNeedStatus
-    ? mergeVendorNeedStatusMetadata(metadataBeforeVendorNeed, vendorNeedStatus) ?? metadataBeforeVendorNeed
-    : metadataBeforeVendorNeed
+    ? mergeVendorNeedStatusMetadata(metadataWithSpecialSupply, vendorNeedStatus) ?? metadataWithSpecialSupply
+    : metadataWithSpecialSupply
 
   return {
     user_id: userId,
@@ -572,12 +579,13 @@ function buildIntakeAgentDraft(
     : null
   const isReady = isIntakeReadyForRecommendations(output, plan, { conversationText }) && !archetypeQuestion
   const missingCoreQuestion = buildMissingCoreQuestion(output, plan)
+  const specialSupplyQuestion = pickSpecialSupplyIntakeQuestion(plan, conversationText)
   const agentQuestion = [nextBestQuestion, ...missingQuestions]
     .map((candidate) => sanitizeIntakeQuestionCandidate(candidate))
     .find((question): question is string => Boolean(question))
-  const question = archetypeQuestion?.prompt ?? agentQuestion ?? missingCoreQuestion
+  const question = specialSupplyQuestion ?? archetypeQuestion?.prompt ?? agentQuestion ?? missingCoreQuestion
   const canMatchNow = isPlanReadyForRequestedRecommendations(plan, { conversationText })
-  const shouldTransitionToMatch = isReady || (!archetypeQuestion && !missingCoreQuestion && canMatchNow)
+  const shouldTransitionToMatch = !specialSupplyQuestion && (isReady || (!archetypeQuestion && !missingCoreQuestion && canMatchNow))
   const content = shouldTransitionToMatch
     ? `${reflection} ${buildTransitionPhrase(plan)}`
     : question
@@ -598,6 +606,9 @@ function buildIntakeAgentDraft(
 }
 
 function buildTransitionPhrase(plan: Plan): string {
+  const specialSupplyPhrase = buildSpecialSupplyTransitionPhrase(plan)
+  if (specialSupplyPhrase) return specialSupplyPhrase
+
   const area = plan.neighborhood?.trim() || 'your target area'
   const eventType = plan.event_type?.trim().toLowerCase() || 'event'
   const guestText = typeof plan.guest_count === 'number' && plan.guest_count > 0
@@ -938,15 +949,16 @@ function buildMetadataUpdates(
   const withRequirements = mergeEventRequirementSignals(metadata, userMessage)
   const nextMetadata =
     mergeUserPreferenceSignalsIntoMetadata(withRequirements, userMessage) ?? withRequirements
-  if (eventArchetypeLock) nextMetadata[ARCHETYPE_LOCK_METADATA_KEY] = eventArchetypeLock
-  if (intendedPlatform) nextMetadata.intended_platform = intendedPlatform
+  const withSpecialSupply = mergeSpecialSupplyMetadata(nextMetadata, userMessage) ?? nextMetadata
+  if (eventArchetypeLock) withSpecialSupply[ARCHETYPE_LOCK_METADATA_KEY] = eventArchetypeLock
+  if (intendedPlatform) withSpecialSupply.intended_platform = intendedPlatform
   if (ticketed === false) {
-    delete nextMetadata.ticket_price_target_cents
-    delete nextMetadata.ticket_price_target
+    delete withSpecialSupply.ticket_price_target_cents
+    delete withSpecialSupply.ticket_price_target
   } else if (typeof ticketPriceTargetCents === 'number' && ticketPriceTargetCents > 0) {
-    nextMetadata.ticket_price_target_cents = ticketPriceTargetCents
+    withSpecialSupply.ticket_price_target_cents = ticketPriceTargetCents
   }
-  return Object.keys(nextMetadata).some((key) => nextMetadata[key] !== metadata[key]) ? nextMetadata : null
+  return Object.keys(withSpecialSupply).some((key) => withSpecialSupply[key] !== metadata[key]) ? withSpecialSupply : null
 }
 
 function readTicketPriceTargetCents(output: IntakeAgentOutput): number | null {

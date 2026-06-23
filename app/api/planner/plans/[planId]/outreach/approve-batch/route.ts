@@ -86,7 +86,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const subject = parsed.data.custom_subject ?? buildDefaultOutreachSubject(plan)
-    const bodyText = parsed.data.custom_body ?? buildDefaultOutreachBody()
+    const bodyText = parsed.data.custom_body ?? buildDefaultOutreachBody(plan)
     const created = []
 
     for (const venueId of uniqueVenueIds) {

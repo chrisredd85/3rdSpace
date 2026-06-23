@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import {
   buildDiscoveryCandidateResponses,
+  buildDefaultDiscoverySearchQuery,
   buildDiscoveryVenueInsert,
   rankDiscoveryVenues,
   type DiscoveryVenueRow,
@@ -133,7 +134,7 @@ export async function POST(
       return NextResponse.json({ error: 'GOOGLE_PLACES_API_KEY is not configured' }, { status: 500 })
     }
 
-    const searchQuery = parsed.data.query ?? buildDefaultSearchQuery(plan)
+    const searchQuery = parsed.data.query ?? buildDefaultDiscoverySearchQuery(plan)
     const placesResult = await searchGooglePlacesText({
       apiKey,
       textQuery: searchQuery,
@@ -350,12 +351,6 @@ async function readOptionalJsonBody(request: NextRequest) {
   const text = await request.text()
   if (!text.trim()) return {}
   return JSON.parse(text) as unknown
-}
-
-function buildDefaultSearchQuery(plan: Plan) {
-  const eventText = plan.event_type?.trim() || 'venues'
-  const locationText = plan.neighborhood?.trim() || readPlanCity(plan) || 'Bay Area'
-  return `${eventText} in ${locationText}`
 }
 
 function readPlanCity(plan: Plan) {

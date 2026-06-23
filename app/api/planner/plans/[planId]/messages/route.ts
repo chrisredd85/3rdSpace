@@ -56,6 +56,11 @@ import {
   readPlanVendorNeedStatus,
   resolveVendorNeedStatusUpdate,
 } from '@/lib/planner/vendorNeedStatus'
+import {
+  buildSpecialSupplyTransitionPhrase,
+  mergeSpecialSupplyMetadata,
+  pickSpecialSupplyIntakeQuestion,
+} from '@/lib/planner/specialSupply'
 import { createVenueOpportunityBundle } from '@/lib/planner/opportunityBuilder'
 import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
 import { buildOrganizerPreferencePayload, loadBuilderOrganizerPreferences } from '@/lib/server/builderPreferences'
@@ -769,6 +774,7 @@ function buildIntakeAgentDraft(
   const reflection = normalizeAcknowledgementTone(output.reflection.trim(), plan.event_type ?? output.extracted_fields.event_type ?? output.updated_event_plan.event_name)
   const conversationText = buildArchetypeAnswerText(messages)
   const coreFieldsReady = hasIntakeCoreFields(output, plan)
+  const specialSupplyQuestion = pickSpecialSupplyIntakeQuestion(plan, conversationText)
   const archetypeQuestion = coreFieldsReady
     ? getNextArchetypeIntakeQuestion({
         eventType: buildArchetypeSearchText(output, plan),
@@ -783,10 +789,10 @@ function buildIntakeAgentDraft(
     nextBestQuestion,
     ...missingQuestions,
   ])
-  const question = archetypeQuestion?.prompt ?? agentQuestion ?? missingCoreQuestion
+  const question = specialSupplyQuestion ?? archetypeQuestion?.prompt ?? agentQuestion ?? missingCoreQuestion
   const canMatchNow = isPlanReadyForRequestedRecommendations(plan, { conversationText })
-  const fallbackToGuard = !isReady && !archetypeQuestion && !missingCoreQuestion && canMatchNow
-  const shouldTransitionToMatch = isReady || fallbackToGuard
+  const fallbackToGuard = !specialSupplyQuestion && !isReady && !archetypeQuestion && !missingCoreQuestion && canMatchNow
+  const shouldTransitionToMatch = !specialSupplyQuestion && (isReady || fallbackToGuard)
 
   if (fallbackToGuard) {
     console.warn('[planner.intake] Forward-momentum guard promoted no-question intake response to recommendations', {
@@ -821,6 +827,9 @@ function buildIntakeAgentDraft(
 }
 
 function buildTransitionPhrase(plan: Plan): string {
+  const specialSupplyPhrase = buildSpecialSupplyTransitionPhrase(plan)
+  if (specialSupplyPhrase) return specialSupplyPhrase
+
   const area = plan.neighborhood?.trim() || 'your target area'
   const eventType = plan.event_type?.trim().toLowerCase() || 'event'
   const guestText = typeof plan.guest_count === 'number' && plan.guest_count > 0
@@ -866,7 +875,7 @@ function buildRequestedRecommendationDraft(draft: AgentResponseDraft, plan: Plan
 
   return {
     ...draft,
-    content: `I have enough to start matching ${area} options${guestText} for this ${eventType}. I’ll pull ${readPlanVendorNeedStatus(plan) === 'none' ? 'venue and operating recommendations' : 'venue and vendor recommendations'} now.`,
+    content: buildSpecialSupplyTransitionPhrase(plan) ?? `I have enough to start matching ${area} options${guestText} for this ${eventType}. I’ll pull ${readPlanVendorNeedStatus(plan) === 'none' ? 'venue and operating recommendations' : 'venue and vendor recommendations'} now.`,
     message_type: 'recommendation',
     metadata: toJson({
       ...(readRecord(draft.metadata) ?? {}),
@@ -1206,6 +1215,9 @@ function buildPlanUpdates(intent: Partial<PlanIntent>, currentPlan: Plan, userMe
   if (!updates.metadata && hasEventRequirementSignals(userMessage)) {
     updates.metadata = mergeEventRequirementSignals(currentPlan.metadata, userMessage)
   }
+  const specialSupplyMetadata = mergeSpecialSupplyMetadata(updates.metadata ?? currentPlan.metadata, userMessage)
+  if (specialSupplyMetadata) updates.metadata = specialSupplyMetadata
+
   const vendorNeedStatus = resolveVendorNeedStatusUpdate({
     metadata: updates.metadata ?? currentPlan.metadata,
     userMessage,
@@ -1467,6 +1479,7 @@ function buildMetadataUpdates(
 ): Record<string, unknown> | null {
   const metadata = readRecord(currentPlan.metadata) ?? {}
   let nextMetadata = mergeEventRequirementSignals(metadata, userMessage)
+  nextMetadata = mergeSpecialSupplyMetadata(nextMetadata, userMessage) ?? nextMetadata
   if (eventArchetypeLock) {
     nextMetadata[ARCHETYPE_LOCK_METADATA_KEY] = eventArchetypeLock
     nextMetadata = mergeArchetypeDefaultFillMetadata(nextMetadata, eventArchetypeLock)
