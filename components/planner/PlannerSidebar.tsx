@@ -61,6 +61,12 @@ interface LivePlanSidebarPayload {
   }>
 }
 
+interface PlannerAccountState {
+  workspaceName: string
+  workspaceDetail: string
+  membershipLabel: string
+}
+
 /**
  * Returns true when the current pathname should mark a planner nav link active.
  */
@@ -90,19 +96,48 @@ function countApprovalMessages(messages: LivePlanSidebarPayload['messages']) {
   return messages.filter((message) => message.message_type === 'approval_request').length
 }
 
+function titleize(value: string) {
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function readEmailName(email: string | null | undefined) {
+  if (!email) return null
+  const [localPart] = email.split('@')
+  return localPart ? titleize(localPart.replace(/[._+-]+/g, ' ')) : null
+}
+
+function readUserTypeLabel(userType: string | null | undefined) {
+  if (!userType) return 'Creator account'
+  if (userType === 'community_builder' || userType === 'builder') return 'Community builder account'
+  return `${titleize(userType)} account`
+}
+
+function readMembershipLabel(value: unknown) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
 /**
  * Planner sidebar with brand, workspace context, and the full planner nav.
  */
 export const PlannerSidebar = memo(function PlannerSidebar({
   isCollapsed = false,
-  workspaceName = 'Embarcadero Collective',
-  workspaceTier = 'Pro',
+  workspaceName,
+  workspaceTier,
   hasActivePlan,
   planId,
   counts,
 }: PlannerSidebarProps) {
   const pathname = usePathname()
   const [livePayload, setLivePayload] = useState<LivePlanSidebarPayload>({ plan: null, planId: null, messages: [] })
+  const [accountState, setAccountState] = useState<PlannerAccountState>({
+    workspaceName: workspaceName ?? 'Creator account',
+    workspaceDetail: 'Sign in to personalize',
+    membershipLabel: workspaceTier ?? 'Account',
+  })
   const activePlanId = planId ?? livePayload.planId
   const activePlanExists = hasActivePlan ?? Boolean(activePlanId)
   const pendingApprovalCount = counts?.pendingApprovals ?? countApprovalMessages(livePayload.messages)
@@ -143,6 +178,62 @@ export const PlannerSidebar = memo(function PlannerSidebar({
     return () => window.removeEventListener('planner-live-plan:update', handleLivePlanUpdate)
   }, [])
 
+  useEffect(() => {
+    if (workspaceName || workspaceTier) {
+      setAccountState((current) => ({
+        workspaceName: workspaceName ?? current.workspaceName,
+        workspaceDetail: current.workspaceDetail,
+        membershipLabel: workspaceTier ?? current.membershipLabel,
+      }))
+    }
+  }, [workspaceName, workspaceTier])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadAccountContext() {
+      try {
+        const [userResponse, billingResponse] = await Promise.all([
+          fetch('/api/auth/user'),
+          fetch('/api/builder/billing/status'),
+        ])
+
+        const userPayload = userResponse.ok ? await userResponse.json() : null
+        const billingPayload = billingResponse.ok ? await billingResponse.json() : null
+        if (isCancelled) return
+
+        const user = userPayload?.user
+        const builder = billingPayload?.builder
+        const billing = billingPayload?.billing
+        const email = typeof user?.email === 'string' ? user.email : null
+        const companyName = typeof user?.companyName === 'string' ? user.companyName.trim() : ''
+        const builderName = typeof builder?.name === 'string' ? builder.name.trim() : ''
+        const displayName = workspaceName ?? (companyName || builderName || readEmailName(email) || 'Creator account')
+        const detail = email ? `${readUserTypeLabel(user?.userType)} - ${email}` : readUserTypeLabel(user?.userType)
+        const membership = workspaceTier ?? readMembershipLabel(billing?.tierLabel) ?? 'Free Trial'
+
+        setAccountState({
+          workspaceName: displayName,
+          workspaceDetail: detail,
+          membershipLabel: membership,
+        })
+      } catch {
+        if (isCancelled) return
+        setAccountState({
+          workspaceName: workspaceName ?? 'Creator account',
+          workspaceDetail: 'Sign in to personalize',
+          membershipLabel: workspaceTier ?? 'Account',
+        })
+      }
+    }
+
+    void loadAccountContext()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [workspaceName, workspaceTier])
+
   return (
     <aside className="flex h-full w-full min-w-0 flex-col border-r border-tan bg-cream/80 text-ink">
       <div className={cn('border-b border-tan py-5', isCollapsed ? 'px-3' : 'px-4 lg:px-5')}>
@@ -166,11 +257,11 @@ export const PlannerSidebar = memo(function PlannerSidebar({
           )}
         >
           <span className="min-w-0 pr-3">
-            <span className="block truncate text-sm font-semibold text-ink">{workspaceName}</span>
-            <span className="mt-0.5 block text-xs text-ink-soft">Founder workspace</span>
+            <span className="block truncate text-sm font-semibold text-ink">{accountState.workspaceName}</span>
+            <span className="mt-0.5 block truncate text-xs text-ink-soft">{accountState.workspaceDetail}</span>
           </span>
           <span className="shrink-0 whitespace-nowrap rounded-full border border-clay/30 bg-clay-tint px-2.5 py-1 text-[10px] font-bold uppercase leading-none tracking-normal text-clay">
-            {workspaceTier}
+            {accountState.membershipLabel}
           </span>
         </div>
       </div>
