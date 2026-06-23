@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 
 export const metadata: Metadata = {
   title: 'Pricing | 3rdPlace',
-  description: 'First 2 events free. Then pay per event or move to Pro.',
+  description: 'Start with 2 free events. Then $30 per event or $79/mo for unlimited.',
 }
 
 const tiers = [
@@ -38,11 +38,13 @@ export default function PricingPage() {
       <section className="mx-auto max-w-[1000px]">
         <Caps>Pricing</Caps>
         <h1 className="mt-4 font-display text-[46px] leading-[1.02] text-ink sm:text-[68px]">
-          First 2 events free.
+          Start with 2 free events.
         </h1>
-        <p className="mt-5 max-w-3xl text-[18px] leading-[1.6] text-ink-soft">
-          Run two events end-to-end before you commit. No card required. After that, pay per event
-          or move to Pro for unlimited runs and the full margin history.
+        <p className="mt-5 max-w-3xl text-[22px] font-semibold leading-[1.45] text-ink">
+          Then $30 per event or $79/mo for unlimited.
+        </p>
+        <p className="mt-4 max-w-3xl text-[18px] leading-[1.6] text-ink-soft">
+          Run two events end-to-end before you commit. No card required.
         </p>
 
         <div className="mt-10 grid gap-4 md:grid-cols-2">
@@ -61,11 +63,17 @@ export default function PricingPage() {
           ))}
         </div>
 
-        <p className="mt-5 max-w-3xl text-[13px] leading-6 text-ink-faint">
-          Venue rentals, vendor payments, ticketing fees, and payment processing are separate from
-          platform access. The platform fee covers 3rdPlace planning, approvals, execution records,
-          and event margin tools.
-        </p>
+        <div className="mt-8 rounded-md border border-tan bg-cream-deep/70 p-6">
+          <h2 className="font-display text-[28px] leading-tight text-ink">Each event includes</h2>
+          <p className="mt-3 text-[16px] leading-[1.65] text-ink-soft">
+            Each event includes planner chat, event brief, partner outreach approvals, quote
+            tracking, payment coordination, and the final operating record.
+          </p>
+          <p className="mt-4 border-t border-tan pt-4 text-[13px] leading-6 text-ink-faint">
+            Venue rental, vendor invoices, ticketing fees, and payment processing are separate
+            pass-through costs.
+          </p>
+        </div>
 
         <div className="mt-10 flex flex-col gap-3 sm:flex-row">
           <Link

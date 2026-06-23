@@ -5,13 +5,13 @@ import type { ReactNode } from 'react'
 import { HomePlannerStart } from '@/components/planner/HomePlannerStart'
 
 export const metadata: Metadata = {
-  title: '3rdPlace - Know what worked. Repeat what paid.',
+  title: '3rdPlace - Your event operating agent.',
   description:
-    '3rdPlace models event economics, executes event ops, and shows what every event returned.',
+    '3rdPlace plans events, prepares approved outreach, tracks quotes, and keeps the event operating record current.',
   openGraph: {
-    title: '3rdPlace - Know what worked. Repeat what paid.',
+    title: '3rdPlace - Your event operating agent.',
     description:
-      '3rdPlace models event economics, executes event ops, and shows what every event returned.',
+      '3rdPlace plans events, prepares approved outreach, tracks quotes, and keeps the event operating record current.',
   },
 }
 
@@ -27,37 +27,42 @@ const hostTags = [
 const runSteps = [
   {
     n: '01',
-    title: 'Propose',
-    body: 'The agent reads the event, pulls your best venues and vendors from history, and lays out the run with cost, margin, and a working timeline.',
+    title: 'Plan',
+    body: 'The agent turns your chat into an event brief: date, guests, budget, location, partner needs, ticketing, and target economics.',
   },
   {
     n: '02',
-    title: 'Approve',
-    body: 'You see every move before it ships. Holds, deposits, contracts, vendor dispatch: nothing moves until you authorize it.',
+    title: 'Reach out',
+    body: '3rdPlace prepares approved outreach to venues and vendors, tracks replies, and updates the brief as terms change.',
   },
   {
     n: '03',
-    title: 'Settle',
-    body: 'After the event, 3rdPlace closes the books. Refunds reviewed, Community Host Incentives reconciled, margin recorded, next event pre-loaded.',
+    title: 'Approve',
+    body: 'You approve every message, hold, payment, date change, and booking step before it executes.',
+  },
+  {
+    n: '04',
+    title: 'Operate',
+    body: 'The system keeps the event record current: quotes, deposits, payments, guest counts, margin, and follow-up tasks.',
   },
 ]
 
 const featureCards = [
   {
-    title: 'Venue holds, locked in writing',
-    body: 'The agent reaches your shortlist, negotiates terms, and locks holds with deposit windows you can authorize in one click.',
+    title: 'Approved outreach, not cold chaos',
+    body: 'The agent finds likely partners, drafts the message, and sends only after you approve.',
   },
   {
-    title: 'Vendors dispatched on your terms',
-    body: 'Photo, catering, bar, AV, DJ. The agent finds the right vendor for the budget, sends the brief, and gets the quote signed off. Your approval required at every step.',
+    title: 'Verified quotes before decisions',
+    body: 'Compare real terms: price, deposit, capacity, deadlines, food/bar rules, cancellation, and payment path.',
   },
   {
-    title: 'Money settled, cents-accurate',
-    body: 'Deposits collected, vendor payments routed through Stripe Connect, refunds handled, Community Host Incentives reconciled. Every dollar tagged to an event.',
+    title: 'Event brief that stays current',
+    body: 'Replies, date changes, guest count shifts, and partner terms update the operating record.',
   },
   {
-    title: 'Margin on every event',
-    body: 'A real P&L per event the moment it closes. Know which formats actually paid, which ones leaked, and which ones to run again.',
+    title: 'Payments with guardrails',
+    body: 'Venue and vendor payments run through approved flows. Nothing books or pays without an approval record.',
   },
 ]
 
@@ -97,17 +102,18 @@ export default function HomePage() {
       <section className="relative lg:min-h-[calc(100svh-74px)]">
         <div className="mx-auto grid w-full max-w-[1480px] items-start gap-8 px-5 py-8 sm:px-6 sm:py-10 lg:min-h-[calc(100svh-74px)] lg:grid-cols-[minmax(0,0.98fr)_minmax(380px,0.88fr)] lg:items-center lg:gap-14 lg:px-8 lg:py-8 2xl:max-w-[1600px] 2xl:gap-16 2xl:px-10">
           <div className="animate-entrance lg:flex lg:h-full lg:flex-col lg:justify-center">
-            <Caps className="text-[13px]">Bay Area · 2026</Caps>
             <h1 className="mt-4 max-w-[840px] font-display text-[clamp(3rem,4.85vw,5.35rem)] font-medium leading-[0.96] tracking-normal text-ink">
-              <span className="block">Know what worked.</span>
-              <span className="block text-clay">Repeat what paid.</span>
+              Your event operating agent.
             </h1>
             <p className="mt-4 max-w-[760px] text-[18px] leading-[1.45] text-ink-soft lg:text-[19px] 2xl:text-[20px]">
-              See what every event actually returned — then run the next one.
+              Describe the event. The agent builds the plan, finds partners, prepares the outreach.
+              You approve every move before it ships.
             </p>
-            <div className="mt-3 max-w-[760px]">
-              <HomePlannerStart />
-            </div>
+            <p className="mt-5 max-w-[720px] text-[15.5px] leading-[1.65] text-ink-soft">
+              Built for Bay Area hosts running dinners, mixers, salons, tastings, community events,
+              and ticketed gatherings on repeat.
+            </p>
+            <HomePlannerStart className="mt-7 max-w-[760px]" />
           </div>
 
           <div className="relative hidden animate-entrance md:block lg:h-full" style={{ animationDelay: '120ms' }}>
@@ -131,11 +137,11 @@ export default function HomePage() {
                     <span className="font-mono text-[11px] text-ink-faint">14:02</span>
                   </div>
                   <p className="mt-3 text-[17px] leading-snug text-ink">
-                    Three venues fit. Holding The Valencia Room for 24 hours while you authorize.
+                    3 venues fit. 2 need quotes. 1 can hold the date. Review before we send outreach.
                   </p>
                   <div className="mt-3 flex items-center gap-2">
-                    <span className="inline-flex items-center rounded-full bg-forest-tint px-2 py-0.5 text-[10.5px] font-medium tracking-wide text-forest">Verified-attendance incentive</span>
-                    <span className="inline-flex items-center rounded-full bg-cream-deep px-2 py-0.5 text-[10.5px] font-medium tracking-wide text-ink-soft">$1,800 rental</span>
+                    <span className="inline-flex items-center rounded-full bg-forest-tint px-2 py-0.5 text-[10.5px] font-medium tracking-wide text-forest">Review required</span>
+                    <span className="inline-flex items-center rounded-full bg-cream-deep px-2 py-0.5 text-[10.5px] font-medium tracking-wide text-ink-soft">Quote tracking</span>
                   </div>
                 </div>
               </div>
@@ -166,13 +172,12 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="border-t border-tan/70 bg-cream-deep/40">
+      <section id="how-it-works" className="border-t border-tan/70 bg-cream-deep/40">
         <div className="mx-auto max-w-[1480px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24 2xl:px-10">
-          <Caps>How it runs</Caps>
-          <h2 className="mt-4 max-w-3xl font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
-            Three moves. Every event.
+          <h2 className="max-w-3xl font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
+            How it runs
           </h2>
-          <div className="mt-12 grid gap-5 md:grid-cols-3">
+          <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             {runSteps.map((step) => (
               <article key={step.n} className="rounded-md border border-tan bg-cream p-7 shadow-sm">
                 <span className="font-mono text-[12px] tracking-[0.18em] text-clay">{step.n}</span>
@@ -181,6 +186,9 @@ export default function HomePage() {
               </article>
             ))}
           </div>
+          <p className="mt-8 max-w-3xl text-[16px] leading-[1.65] text-ink-soft">
+            Built for hosts running events on repeat — each event leaves a playbook for the next.
+          </p>
         </div>
       </section>
 
@@ -198,6 +206,20 @@ export default function HomePage() {
               </article>
             ))}
           </div>
+        </div>
+      </section>
+
+      <section className="border-t border-tan/70 bg-cream-deep/40">
+        <div className="mx-auto max-w-[1080px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24">
+          <h2 className="font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
+            Nonstandard event? 3rdPlace switches modes.
+          </h2>
+          <p className="mt-6 text-[18px] leading-[1.65] text-ink-soft">
+            Yacht parties, rooftops, warehouses, private estates, and outdoor events require verified
+            quotes. The agent gathers the right intake details, labels leads as quote-required, and
+            routes execution through concierge, external checkout, or controlled payment only when
+            the provider is ready.
+          </p>
         </div>
       </section>
 

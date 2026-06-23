@@ -21,6 +21,26 @@ const questions = [
     a: 'Through Stripe Connect. Venues, vendors, and you each have your own connected account. 3rdPlace never holds funds.',
   },
   {
+    q: 'Can 3rdPlace email venues and vendors for me?',
+    a: 'Yes, after you connect Gmail and approve the outreach. 3rdPlace drafts messages, sends approved emails, tracks replies, and updates your event brief.',
+  },
+  {
+    q: 'What happens if the date changes?',
+    a: 'The event brief updates, and any affected venue/vendor outreach, quotes, holds, or payment terms require re-approval.',
+  },
+  {
+    q: 'Can 3rdPlace handle nonstandard events like yacht parties or rooftops?',
+    a: 'Yes, but those are treated as special-supply events. 3rdPlace gathers extra details, requests verified quotes, and does not treat leads as bookable inventory until terms are confirmed.',
+  },
+  {
+    q: 'Does 3rdPlace guarantee a venue or vendor is available?',
+    a: 'No. The agent can find leads, request quotes, and compare replies. Availability becomes real only when the partner confirms terms and you approve the next step.',
+  },
+  {
+    q: 'How do venues get compensated?',
+    a: "Two ways. At rental venues, the organizer pays the venue's quoted rate. At consumption venues (bars, restaurants, coffee shops), 3rdPlace runs a community host incentive — a per-attendee settlement that pays the venue for verified attendance. Both models keep the math transparent and the approval gate intact.",
+  },
+  {
     q: 'Can I start with an event that is already on the calendar?',
     a: 'Yes. Describe the event, current holds, budget, expected guests, and any signed terms. The agent starts from what is already true.',
   },
