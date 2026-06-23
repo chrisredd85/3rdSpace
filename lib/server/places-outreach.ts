@@ -5,6 +5,7 @@ import { rankCatalogPartners, type CatalogPlanRankingInput, type CatalogVenueRan
 import { buildSpecialSupplySearchQuery, readPlanSpecialSupply } from '@/lib/planner/specialSupply'
 import type { Json, Plan, TableRow } from '@/lib/types'
 import type { GooglePlaceCandidate, GooglePlacesTextSearchRequest } from '@/lib/server/google-places-client'
+import type { PlacesIntent } from '@/lib/server/places-archetype-intent'
 
 export type DiscoveryVenueRow = TableRow<'discovery_venues'>
 export type PlanDiscoveryVenueCandidateRow = TableRow<'plan_discovery_venue_candidates'>
@@ -69,8 +70,12 @@ export function buildDiscoveryVenueInsert(
     request: GooglePlacesTextSearchRequest
     searchQuery: string
     neighborhood: string | null
+    intent?: PlacesIntent
+    matchedIncludedType?: string | null
   }
 ) {
+  const venueClusterId = computeVenueCluster(place)
+  const subspaceHint = computeSubspaceHint(place)
   return {
     name: place.displayName.text,
     address: place.formattedAddress ?? null,
@@ -93,9 +98,39 @@ export function buildDiscoveryVenueInsert(
       google_business_status: place.businessStatus ?? null,
       places_search_query: input.searchQuery,
       places_request: input.request,
-    } as Json,
+      places_primary_type_match: place.primaryType ?? null,
+      places_all_types: place.types ?? [],
+      places_intent_cluster_label: input.intent?.cluster_label ?? null,
+      places_intent_requested_types: input.intent ? [...input.intent.primary_types] : [],
+      places_intent_matched_type: input.matchedIncludedType ?? input.request.includedType ?? null,
+      venue_cluster_id: venueClusterId,
+      subspace_hint: subspaceHint,
+    } as unknown as Json,
     website_extraction_status: place.websiteUri ? 'never_attempted' : null,
   }
+}
+
+export type DiscoveryVenueSubspaceHint = 'ballroom' | 'rooftop' | 'private_dining' | 'lounge' | 'main_floor' | null
+
+export function computeVenueCluster(place: Pick<GooglePlaceCandidate, 'id' | 'displayName' | 'formattedAddress' | 'primaryType' | 'types'>): string {
+  const types = new Set([place.primaryType, ...(place.types ?? [])].filter((type): type is string => Boolean(type)))
+  if (!types.has('hotel') && !types.has('lodging') && !types.has('resort_hotel')) return place.id
+
+  const parentName = stripSubspaceWords(place.displayName.text)
+  const city = inferCity(place.formattedAddress) ?? null
+  const clusterText = [parentName, city].filter(Boolean).join(' ')
+  const slug = slugifyVenueCluster(clusterText)
+  return slug ? `hotel_${slug}` : place.id
+}
+
+export function computeSubspaceHint(place: Pick<GooglePlaceCandidate, 'displayName' | 'primaryType' | 'types'>): DiscoveryVenueSubspaceHint {
+  const text = `${place.displayName.text} ${place.primaryType ?? ''} ${(place.types ?? []).join(' ')}`
+  if (/\brooftop|roof top|terrace|sky\s?deck\b/i.test(text)) return 'rooftop'
+  if (/\bballroom|banquet\b/i.test(text)) return 'ballroom'
+  if (/\bprivate\s+dining|private\s+room|dining\s+room\b/i.test(text)) return 'private_dining'
+  if (/\blounge\b/i.test(text)) return 'lounge'
+  if (/\blobby|main\s+floor|ground\s+floor\b/i.test(text)) return 'main_floor'
+  return null
 }
 
 export function resolveDiscoveryVenueContact(venue: DiscoveryVenueRow): ContactResolution {
@@ -202,6 +237,8 @@ export function rankDiscoveryVenues(plan: Plan, venues: DiscoveryVenueRow[]): Ma
 
 export function mapDiscoveryVenueToCatalogVenue(row: DiscoveryVenueRow): CatalogVenueRankingInput {
   const metadata = readRecord(row.metadata)
+  const venueClusterId = readString(metadata?.venue_cluster_id)
+  const subspaceHint = readString(metadata?.subspace_hint)
   return {
     id: row.id,
     name: row.name,
@@ -215,6 +252,8 @@ export function mapDiscoveryVenueToCatalogVenue(row: DiscoveryVenueRow): Catalog
     unique_features_tags: [
       ...(row.vibe_tags ?? []),
       ...readStringArray(metadata?.google_types),
+      ...readStringArray(metadata?.places_all_types),
+      ...(subspaceHint ? [subspaceHint] : []),
     ],
     capacity: row.capacity_cocktail ?? row.capacity_standing ?? row.capacity_seated ?? null,
     standing_capacity: row.capacity_standing,
@@ -224,6 +263,9 @@ export function mapDiscoveryVenueToCatalogVenue(row: DiscoveryVenueRow): Catalog
     review_count: row.google_user_ratings_total,
     source: row.source,
     source_external_id: row.source_external_id,
+    metadata: row.metadata,
+    venue_cluster_id: venueClusterId,
+    subspace_hint: subspaceHint,
     is_claimed: row.is_claimed,
     website: row.website,
     contact_phone: row.contact_phone,
@@ -438,4 +480,21 @@ function inferCity(address?: string | null) {
   if (/oakland/i.test(address)) return 'Oakland'
   if (/san francisco|\bsf\b/i.test(address)) return 'San Francisco'
   return null
+}
+
+function stripSubspaceWords(name: string) {
+  return name
+    .replace(/\b(rooftop|roof top|terrace|sky\s?deck|ballroom|banquet hall|private dining|private room|lounge|bar|restaurant|cafe|event space|events?)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function slugifyVenueCluster(value: string) {
+  return value
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80)
 }

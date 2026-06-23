@@ -12,6 +12,8 @@ import {
   buildDefaultOutreachSubject,
   buildDiscoveryCandidateResponses,
   buildDiscoveryVenueInsert,
+  computeSubspaceHint,
+  computeVenueCluster,
   resolveDiscoveryVenueContact,
   type DiscoveryVenueRow,
   type PlanDiscoveryVenueCandidateRow,
@@ -77,6 +79,49 @@ describe('places outreach helpers', () => {
       widthPx: 1200,
       authorAttributions: [{ displayName: 'Moongate Lounge', uri: 'https://maps.example/photo' }],
     }])
+  })
+
+  it('stores Places intent, cluster, and subspace metadata on discovery venue inserts', () => {
+    const place = {
+      id: 'places/hotel-ballroom',
+      displayName: { text: 'Marriott Union Square Ballroom' },
+      formattedAddress: '480 Sutter St, San Francisco, CA',
+      primaryType: 'hotel',
+      types: ['hotel', 'lodging', 'banquet_hall'],
+      businessStatus: 'OPERATIONAL',
+      websiteUri: 'https://marriott.example',
+    }
+    const insert = buildDiscoveryVenueInsert(place, {
+      request: {
+        textQuery: 'conference in San Francisco',
+        includedType: 'hotel',
+        maxResultCount: 8,
+        languageCode: 'en',
+        regionCode: 'US',
+        includePureServiceAreaBusinesses: false,
+      },
+      searchQuery: 'conference in San Francisco',
+      neighborhood: 'San Francisco',
+      matchedIncludedType: 'hotel',
+      intent: {
+        primary_types: ['convention_center', 'hotel', 'event_venue', 'banquet_hall'],
+        cluster_label: 'event_space',
+        venue_style: null,
+        subspace_keywords: [],
+      },
+    })
+
+    expect(computeVenueCluster(place)).toBe('hotel_marriott_union_square_san_francisco')
+    expect(computeSubspaceHint(place)).toBe('ballroom')
+    expect(insert.metadata).toMatchObject({
+      places_intent_cluster_label: 'event_space',
+      places_intent_requested_types: ['convention_center', 'hotel', 'event_venue', 'banquet_hall'],
+      places_intent_matched_type: 'hotel',
+      places_primary_type_match: 'hotel',
+      places_all_types: ['hotel', 'lodging', 'banquet_hall'],
+      venue_cluster_id: 'hotel_marriott_union_square_san_francisco',
+      subspace_hint: 'ballroom',
+    })
   })
 
   it('builds response candidates with proxied photo urls and ready contact status', () => {

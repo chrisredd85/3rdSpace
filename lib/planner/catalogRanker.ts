@@ -165,7 +165,7 @@ export function rankCatalogPartners(input: RankCatalogPartnersInput): CatalogRan
   const rejected: RankedCatalogRecommendation[] = []
   const archetype = input.archetype ?? archetypeFor(input.plan.event_type ?? null)
 
-  const venueRecommendations = attachCategoryRanks(input.venues
+  const venueCandidates = input.venues
     .map((venue) => rankVenue(input.plan, venue, archetype, input.builderAttendance ?? null))
     .filter((recommendation) => {
       if (recommendation.blocking_issues.length === 0) return true
@@ -173,7 +173,7 @@ export function rankCatalogPartners(input: RankCatalogPartnersInput): CatalogRan
       return false
     })
     .sort(compareRecommendations)
-    .slice(0, venueLimit))
+  const venueRecommendations = attachCategoryRanks(selectTopVenuesByCluster(input.plan, venueCandidates, venueLimit))
 
   const vendorCandidates = input.vendors
     .map((vendor) => rankVendor(input.plan, vendor))
@@ -354,6 +354,8 @@ function rankVenue(
       commercial_model_match: archetypeScore.commercial_model_match,
       primary_commercial_model: archetypeScore.primary_commercial_model,
       budget_allocation_cents: budgetAllocationCents,
+      venue_cluster_id: readVenueClusterId(venue),
+      subspace_hint: readVenueSubspaceHint(venue),
     },
   }
 }
@@ -497,6 +499,70 @@ function selectTopVendorsByCategory(
   }
 
   return attachCategoryRanks(selected)
+}
+
+function selectTopVenuesByCluster(
+  plan: CatalogPlanRankingInput,
+  candidates: RankedCatalogRecommendation[],
+  venueLimit: number
+): RankedCatalogRecommendation[] {
+  if (venueLimit <= 0) return []
+  if (allowsBroadVenueExploration(plan)) return candidates.slice(0, venueLimit)
+
+  const groups = new Map<string, RankedCatalogRecommendation[]>()
+  for (const candidate of candidates) {
+    const clusterId = readString(candidate.metadata.venue_cluster_id) ?? candidate.partner_id
+    const existing = groups.get(clusterId) ?? []
+    existing.push(candidate)
+    groups.set(clusterId, existing)
+  }
+
+  return Array.from(groups.entries())
+    .map(([clusterId, group]) => {
+      const sortedGroup = [...group].sort(compareRecommendations)
+      const primary = sortedGroup[0]
+      return {
+        ...primary,
+        metadata: {
+          ...primary.metadata,
+          venue_cluster_id: clusterId,
+          venue_cluster_primary: true,
+          venue_cluster_size: group.length,
+          venue_cluster_sibling_ids: sortedGroup.slice(1).map((sibling) => sibling.partner_id),
+        },
+      }
+    })
+    .sort(compareRecommendations)
+    .slice(0, venueLimit)
+}
+
+function allowsBroadVenueExploration(plan: CatalogPlanRankingInput) {
+  const metadata = readRecord(plan.metadata)
+  return (
+    metadata?.places_broad_exploration === true ||
+    metadata?.broad_venue_exploration === true ||
+    /\b(broad|explore|all options|compare all|show all)\b/i.test(
+      [
+        readString(plan.room_type),
+        readString(plan.venue_terms),
+        readString(plan.consumption_share),
+      ].filter(Boolean).join(' ')
+    )
+  )
+}
+
+function readVenueClusterId(venue: CatalogVenueRankingInput): string | null {
+  const direct = readString(venue.venue_cluster_id)
+  if (direct) return direct
+  const metadata = readRecord(venue.metadata)
+  return readString(metadata?.venue_cluster_id)
+}
+
+function readVenueSubspaceHint(venue: CatalogVenueRankingInput): string | null {
+  const direct = readString(venue.subspace_hint)
+  if (direct) return direct
+  const metadata = readRecord(venue.metadata)
+  return readString(metadata?.subspace_hint)
 }
 
 function readCapacity(row: Record<string, unknown>): number | null {

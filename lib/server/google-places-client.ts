@@ -29,7 +29,32 @@ let nextRequestAt = 0
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>
 
-export type GooglePlacesIncludedType = 'bar' | 'restaurant' | 'cafe' | 'event_venue' | 'night_club'
+export const GOOGLE_PLACES_INCLUDED_TYPES = [
+  'bar',
+  'cocktail_bar',
+  'lounge_bar',
+  'restaurant',
+  'fine_dining_restaurant',
+  'cafe',
+  'coffee_shop',
+  'brewery',
+  'winery',
+  'night_club',
+  'hotel',
+  'lodging',
+  'resort_hotel',
+  'event_venue',
+  'banquet_hall',
+  'wedding_venue',
+  'convention_center',
+  'community_center',
+  'cultural_center',
+  'art_gallery',
+  'museum',
+  'performing_arts_theater',
+] as const
+
+export type GooglePlacesIncludedType = typeof GOOGLE_PLACES_INCLUDED_TYPES[number]
 
 export type GooglePlacesSearchInput = {
   apiKey: string
@@ -37,6 +62,7 @@ export type GooglePlacesSearchInput = {
   eventType?: string | null
   neighborhood?: string | null
   city?: string | null
+  includedType?: GooglePlacesIncludedType | null
   maxResultCount?: number
   fetchImpl?: FetchLike
   sleep?: (ms: number) => Promise<void>
@@ -297,11 +323,12 @@ export function buildGooglePlacesTextSearchRequest(input: {
   eventType?: string | null
   neighborhood?: string | null
   city?: string | null
+  includedType?: GooglePlacesIncludedType | null
   maxResultCount?: number
 }): GooglePlacesTextSearchRequest {
   const textQuery = input.textQuery.trim()
   const maxResultCount = clampResultCount(input.maxResultCount)
-  const includedType = mapPlannerIntentToGooglePlaceType(input.eventType, textQuery)
+  const includedType = input.includedType ?? mapPlannerIntentToGooglePlaceType(input.eventType, textQuery)
   const geography = resolveSearchGeography(input.neighborhood, input.city)
 
   const request: GooglePlacesTextSearchRequest = {
@@ -353,10 +380,20 @@ export function mapPlannerIntentToGooglePlaceType(
 ): GooglePlacesIncludedType | undefined {
   const text = normalizeSearchText(`${eventType ?? ''} ${query ?? ''}`)
   if (!text) return undefined
-  if (/\b(bar|bars|pub|pubs|lounge|lounges|wine|cocktail|happy hour)\b/.test(text)) return 'bar'
-  if (/\b(cafe|cafes|coffee)\b/.test(text)) return 'cafe'
+  if (/\b(cocktail|cocktails|speakeasy)\b/.test(text)) return 'cocktail_bar'
+  if (/\b(lounge|lounges)\b/.test(text)) return 'lounge_bar'
+  if (/\b(bar|bars|pub|pubs|wine|happy hour)\b/.test(text)) return 'bar'
+  if (/\b(coffee|coffee shop|coffee shops)\b/.test(text)) return 'coffee_shop'
+  if (/\b(cafe|cafes)\b/.test(text)) return 'cafe'
   if (/\b(nightclub|night club|club)\b/.test(text)) return 'night_club'
-  if (/\b(event venue|event space|venue|gallery|hall)\b/.test(text)) return 'event_venue'
+  if (/\b(wedding|wedding venue)\b/.test(text)) return 'wedding_venue'
+  if (/\b(ballroom|banquet|banquet hall)\b/.test(text)) return 'banquet_hall'
+  if (/\b(conference|convention|convention center)\b/.test(text)) return 'convention_center'
+  if (/\b(hotel|lodging|resort)\b/.test(text)) return 'hotel'
+  if (/\b(community center|community hall)\b/.test(text)) return 'community_center'
+  if (/\b(cultural center|arts center|gallery)\b/.test(text)) return 'cultural_center'
+  if (/\b(event venue|event space|venue|hall)\b/.test(text)) return 'event_venue'
+  if (/\b(fine dining|tasting menu)\b/.test(text)) return 'fine_dining_restaurant'
   if (/\b(dinner|restaurant|restaurants|dining|private dining|food|brunch|lunch)\b/.test(text)) return 'restaurant'
   if (/\b(mixer|meetup|networking|workshop|panel|speaker|offsite)\b/.test(text)) return 'bar'
   return undefined
