@@ -49,6 +49,16 @@ export const metadata: Metadata = {
   authors: [{ name: "3rdPlace" }],
   creator: "3rdPlace",
   publisher: "3rdPlace",
+  icons: {
+    icon: [
+      { url: "/favicon-48x48.png", sizes: "48x48", type: "image/png" },
+      { url: "/favicon.svg", type: "image/svg+xml" },
+    ],
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+    shortcut: ["/favicon-48x48.png"],
+  },
   formatDetection: {
     email: false,
     address: false,

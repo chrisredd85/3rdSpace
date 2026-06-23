@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="3rdPlace">
+  <rect width="512" height="512" rx="128" fill="#f8f3ea"/>
+  <text
+    x="50%"
+    y="55%"
+    dominant-baseline="middle"
+    text-anchor="middle"
+    fill="#d06b4a"
+    font-family="Fraunces, 'Fraunces Fallback', Georgia, 'Times New Roman', serif"
+    font-size="295"
+    font-weight="700"
+  >3</text>
+</svg>
