@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { PLAN_MESSAGE_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import { estimateVenueRecommendationPriceCents } from '@/lib/planner/venueEstimate'
 import type { Json, PlanMessage } from '@/lib/types'
 
 type PlanMessageInsertDb = {
@@ -279,6 +280,10 @@ function buildDisplayRecommendations(data: Record<string, unknown>): Array<Recor
     const archetypeReasons = readStringArray(venue.archetype_reasons)
     const commercialModelMatch = readString(venue.commercial_model_match)
     const capacityCalibration = readRecord(venue.capacity_calibration) ?? readRecord(data.capacity_calibration)
+    const priceCents = estimateVenueRecommendationPriceCents(
+      { ...venue, ...(capacityCalibration ? { projected_attendance: capacityCalibration.projected_attendance } : {}) },
+      buildVenueEstimatePlanSummary(data, venue, capacityCalibration)
+    )
 
     return {
       name: readString(venue.venue_name) ?? `Venue option ${index + 1}`,
@@ -286,7 +291,7 @@ function buildDisplayRecommendations(data: Record<string, unknown>): Array<Recor
       fit: `${readNumber(venue.fit_score) ?? 0}% fit`,
       action: 'Review venue',
       note: [intro, ...pros, ...cons].filter((value): value is string => Boolean(value)).join(' '),
-      price_cents: null,
+      price_cents: priceCents,
       matched_archetype: archetypeLabel,
       commercial_model_match: commercialModelMatch,
       capacity_calibration: capacityCalibration,
@@ -313,6 +318,47 @@ function buildDisplayRecommendations(data: Record<string, unknown>): Array<Recor
   })
 
   return [...venues, ...vendors]
+}
+
+function buildVenueEstimatePlanSummary(
+  data: Record<string, unknown>,
+  venue: Record<string, unknown>,
+  capacityCalibration: Record<string, unknown> | null
+) {
+  const plan = readRecord(data.plan)
+  const eventPlan = readRecord(data.event_plan)
+  const workspaceSummary = readRecord(readRecord(data.workspace_summary)?.output)
+
+  return {
+    guest_count:
+      readNumber(data.guest_count) ??
+      readNumber(plan?.guest_count) ??
+      readNumber(eventPlan?.expected_attendance) ??
+      readNumber(workspaceSummary?.guest_count) ??
+      readNumber(capacityCalibration?.projected_attendance) ??
+      readNumber(venue.projected_attendance),
+    headcount:
+      readNumber(data.headcount) ??
+      readNumber(plan?.headcount) ??
+      readNumber(eventPlan?.headcount_max),
+    expected_attendance:
+      readNumber(data.expected_attendance) ??
+      readNumber(eventPlan?.expected_attendance) ??
+      readNumber(capacityCalibration?.projected_attendance),
+    duration_hours:
+      readNumber(data.duration_hours) ??
+      readNumber(plan?.duration_hours) ??
+      readNumber(eventPlan?.duration_hours) ??
+      readDurationHours(readString(data.duration) ?? readString(plan?.duration) ?? readString(eventPlan?.duration)),
+  }
+}
+
+function readDurationHours(value: string | null): number | null {
+  if (!value) return null
+  const match = value.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/i)
+  if (!match) return null
+  const parsed = Number(match[1])
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {
