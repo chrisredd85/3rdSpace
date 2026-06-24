@@ -257,7 +257,7 @@ export default function HomePage() {
                   <h3 className="mt-3 font-display text-[30px] leading-tight text-ink">Run without the meter.</h3>
                 </div>
                 <div className="sm:text-right">
-                  <p className="font-display text-[46px] leading-none text-ink">$69</p>
+                  <p className="font-display text-[46px] leading-none text-ink">$79</p>
                   <p className="mt-1 text-[13px] font-semibold text-ink-soft">/month</p>
                 </div>
               </div>
