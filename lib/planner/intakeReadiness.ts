@@ -3,7 +3,7 @@ import {
   getNextArchetypeIntakeQuestion,
   hasAnsweredRequiredArchetypeQuestions,
 } from '@/lib/planner/archetypes'
-import type { Plan } from '@/lib/types'
+import type { Plan, PlanMessage } from '@/lib/types'
 
 export function isIntakeReadyForRecommendations(
   output: IntakeAgentOutput,
@@ -45,7 +45,7 @@ export function isRecommendationRequest(message: string): boolean {
 
 export function isPlanReadyForRequestedRecommendations(
   plan: Partial<Plan>,
-  options: { conversationText?: string } = {}
+  options: { conversationText?: string; messages?: PlanMessage[] } = {}
 ): boolean {
   const eventType = readString(plan.event_type)
   const headcount = readNumber(plan.guest_count)
@@ -63,7 +63,21 @@ export function isPlanReadyForRequestedRecommendations(
     conversationText,
   })
 
-  return nextArchetypeQuestion === null
+  return nextArchetypeQuestion === null && !hasPendingAgentResponse(options.messages ?? [])
+}
+
+export function hasPendingAgentResponse(messages: PlanMessage[]): boolean {
+  const sortedMessages = [...messages].sort((first, second) => first.created_at.localeCompare(second.created_at))
+  const latestAgentMessage = [...sortedMessages].reverse().find((message) => message.role === 'agent')
+  if (!latestAgentMessage) return false
+
+  const metadata = readRecord(latestAgentMessage.metadata)
+  if (metadata?.requires_response !== true) return false
+
+  return !sortedMessages.some((message) =>
+    message.role === 'user' &&
+    new Date(message.created_at).getTime() > new Date(latestAgentMessage.created_at).getTime()
+  )
 }
 
 function readString(value: unknown): string | null {
@@ -72,4 +86,8 @@ function readString(value: unknown): string | null {
 
 function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
 }

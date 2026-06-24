@@ -7,6 +7,7 @@ import { runAgent } from '@/lib/ai/agents'
 import { runEconomicsAgent } from '@/lib/ai/agents/economicsAgent'
 import { runVenueMatchingAgent } from '@/lib/ai/agents/venueMatchingAgent'
 import { ARCHETYPES } from '@/lib/planner/archetypes'
+import { searchPlacesForPlan } from '@/lib/server/places-outreach'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 jest.mock('@/lib/ai/agents', () => ({
@@ -27,6 +28,14 @@ jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
   createServiceRoleClient: jest.fn(),
 }))
+
+jest.mock('@/lib/server/places-outreach', () => {
+  const actual = jest.requireActual('@/lib/server/places-outreach')
+  return {
+    ...actual,
+    searchPlacesForPlan: jest.fn(),
+  }
+})
 
 jest.mock('next/server', () => ({
   NextResponse: {
@@ -200,6 +209,7 @@ const mockRunEconomicsAgent = runEconomicsAgent as jest.Mock
 const mockRunAgent = runAgent as jest.Mock
 const mockCreateClient = createClient as jest.Mock
 const mockCreateServiceRoleClient = createServiceRoleClient as jest.Mock
+const mockSearchPlacesForPlan = searchPlacesForPlan as jest.Mock
 
 function makeRequest(
   body: Row = {},
@@ -219,11 +229,13 @@ async function readJson(response: Response) {
 
 describe('POST /api/planner/plans/[planId]/recommend', () => {
   const previousOpenAIKey = process.env.OPENAI_API_KEY
+  const previousPlacesKey = process.env.GOOGLE_PLACES_API_KEY
   let db: MemoryDb
 
   beforeEach(() => {
     jest.clearAllMocks()
     process.env.OPENAI_API_KEY = 'test-openai-key'
+    delete process.env.GOOGLE_PLACES_API_KEY
     db = new MemoryDb()
     db.rows.plans.push({
       id: 'plan-1',
@@ -315,6 +327,12 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       from: db.from.bind(db),
     })
     mockCreateServiceRoleClient.mockReturnValue({ from: db.from.bind(db) })
+    mockSearchPlacesForPlan.mockResolvedValue({
+      venues: [],
+      search_query: 'venues in Mission',
+      places_requests: [],
+      places_result_counts: { total: 0, by_type: {} },
+    })
 
     mockRunVenueMatchingAgent.mockResolvedValue({
       agent_name: 'venue_matching',
@@ -427,6 +445,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
 
   afterEach(() => {
     process.env.OPENAI_API_KEY = previousOpenAIKey
+    process.env.GOOGLE_PLACES_API_KEY = previousPlacesKey
   })
 
   it('runs venue matching and economics agents for a ready plan and persists recommendations', async () => {
@@ -693,6 +712,93 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
         after_state: expect.objectContaining({
           fallback_reason: 'invalid api key',
         }),
+      }),
+    ]))
+  })
+
+  it('uses Places discovery when the catalog is sparse for split Oakland areas', async () => {
+    process.env.GOOGLE_PLACES_API_KEY = 'test-places-key'
+    db.rows.plans[0] = {
+      ...db.rows.plans[0],
+      title: 'Oakland happy hour',
+      event_type: 'networking_mixer',
+      guest_count: 40,
+      neighborhood: 'Downtown or Uptown Oakland',
+      food_responsibility: 'venue',
+    }
+    db.rows.venues = []
+    const discoveryVenue = {
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Moongate Lounge',
+      address: '123 Broadway, Oakland, CA',
+      neighborhood: 'Downtown Oakland',
+      city: 'Oakland',
+      state: 'CA',
+      capacity_cocktail: null,
+      capacity_standing: null,
+      capacity_seated: null,
+      vibe_tags: ['bar', 'lounge'],
+      source: 'google_places',
+      source_external_id: 'places/moongate',
+      google_rating: 4.6,
+      google_user_ratings_total: 120,
+      metadata: {
+        google_primary_type: 'bar',
+        google_types: ['bar', 'lounge_bar'],
+      },
+      is_claimed: false,
+      website: 'https://example.com/moongate',
+      contact_phone: '555-0100',
+    }
+    mockSearchPlacesForPlan.mockResolvedValue({
+      venues: [discoveryVenue],
+      search_query: 'networking_mixer in downtown oakland or uptown oakland',
+      places_requests: [],
+      places_result_counts: { total: 1, by_type: { bar: 1 } },
+    })
+    mockRunVenueMatchingAgent.mockResolvedValueOnce({
+      agent_name: 'venue_matching',
+      status: 'succeeded',
+      model: 'gpt-4o',
+      prompt_tokens: 100,
+      completion_tokens: 20,
+      messages_payload: [{ role: 'system', content: 'Rank venues.' }],
+      raw_model_output: '{"ranked_venues":[]}',
+      duration_ms: 50,
+      output: {
+        ranked_venues: [{
+          venue_id: discoveryVenue.id,
+          venue_name: discoveryVenue.name,
+          fit_score: 82,
+          pros: ['Discovered from Places and needs capacity confirmation.'],
+          cons: [],
+          questions_to_ask_venue: ['Can you confirm capacity and minimum spend?'],
+        }],
+        best_recommendation: 'Moongate Lounge is the strongest discovered fit.',
+        reason_summary: 'Places fallback found an Oakland candidate.',
+        no_match: false,
+      },
+    })
+
+    const response = await recommendPlan(makeRequest(), { params: { planId: 'plan-1' } })
+    const json = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(mockSearchPlacesForPlan).toHaveBeenCalledTimes(1)
+    expect(mockSearchPlacesForPlan).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'plan-1',
+      neighborhood: 'Downtown or Uptown Oakland',
+    }), expect.objectContaining({
+      apiKey: 'test-places-key',
+      areas: ['downtown oakland', 'uptown oakland'],
+      searchedByUserId: 'user-1',
+    }))
+    expect(json.ranked_venues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        venue_id: discoveryVenue.id,
+        venue_name: discoveryVenue.name,
+        capacity: null,
+        capacity_known: false,
       }),
     ]))
   })

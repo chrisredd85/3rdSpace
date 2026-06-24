@@ -13,6 +13,7 @@ import {
 } from '@/lib/ai/agents/economicsAgent'
 import type { WorkspaceAgentInput, WorkspaceAgentOutput } from '@/lib/ai/agents/workspaceAgent'
 import type { TimelineAgentInput, TimelineAgentOutput } from '@/lib/ai/agents/timelineAgent'
+import { areaAliasesForIds, parseNeighborhoodPhrase } from '@/lib/planner/areaParsing'
 import {
   runVenueMatchingAgent,
   venueMatchingAgentDefinition,
@@ -65,6 +66,11 @@ import {
   type ElasticitySignal,
 } from '@/lib/server/builderTierElasticity'
 import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
+import {
+  mapDiscoveryVenueToCatalogVenue,
+  searchPlacesForPlan,
+  type SearchPlacesForPlanResult,
+} from '@/lib/server/places-outreach'
 import { readCents } from '@/lib/money'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlanMessage, PlannerApiErrorResponse, Recommendation } from '@/lib/types'
@@ -75,6 +81,7 @@ import {
 import { rankVendorsForPlan, type RankedVendor } from '@/lib/vendors/vendorRanker'
 
 type PlannerDb = { from: (table: string) => any }
+type PlacesFallbackCache = Map<string, Promise<SearchPlacesForPlanResult>>
 type PlannerAuth =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
@@ -210,6 +217,8 @@ const RECOMMEND_DEPRECATED_KEYS = [
   'venue_kickback_rate',
   'revenue_share',
 ]
+
+const SPARSE_CATALOG_VENUE_THRESHOLD = 5
 
 type RecommendedVenueContext = {
   venue_id: string
@@ -393,6 +402,7 @@ export async function POST(
     const connectedTicketingPlatforms = await getBuilderConnectedTicketingPlatforms(auth.db, auth.userId)
     const elasticity = await loadBuilderElasticityForPlan(auth.db, auth.userId, archetype.key)
     const capacityCalibration = buildCapacityCalibrationSummary(recommendationPlan, builderAttendance)
+    const placesFallbackCache: PlacesFallbackCache = new Map()
 
     if (!hasOpenAIKey()) {
       return runCatalogFallback({
@@ -412,6 +422,7 @@ export async function POST(
         venueLimit: body.data.venueLimit,
         vendorLimit: body.data.vendorLimit,
         fallbackReason: 'OPENAI_API_KEY is not configured',
+        placesFallbackCache,
       })
     }
 
@@ -419,6 +430,8 @@ export async function POST(
     const eventPlan = buildAgentEventPlan(recommendationPlan, rankingInput)
     const candidateVenues = await loadVenueAgentCandidates(auth.db, recommendationPlan, rankingInput, {
       neighborhoodMode: 'strict',
+      userId: auth.userId,
+      placesFallbackCache,
     })
     const compliantCandidateVenues = await filterCompliantVenueCandidates(
       createServiceRoleClient() as any,
@@ -451,6 +464,7 @@ export async function POST(
       baseVenueResult: venueResult,
       baseCandidateVenues: compliantCandidateVenues,
       basePayload: venuePayload,
+      placesFallbackCache,
     })
     // TODO(ticket-data): plug ticket sales/history lookup here once the surfaced data contract is defined.
     const venueCostCents = chooseVenueCostCents(
@@ -684,6 +698,7 @@ export async function POST(
         venueLimit: body.data.venueLimit,
         vendorLimit: body.data.vendorLimit,
         fallbackReason: error instanceof Error ? error.message : 'Agent-backed recommendation pipeline failed',
+        placesFallbackCache,
       })
     }
   } catch (error) {
@@ -709,11 +724,20 @@ async function runCatalogFallback(input: {
   venueLimit: number
   vendorLimit: number
   fallbackReason: string
+  placesFallbackCache: PlacesFallbackCache
 }): Promise<NextResponse<PlannerRecommendResponse>> {
-  const [venues, vendors] = await Promise.all([
+  const [catalogVenues, vendors] = await Promise.all([
     loadCatalogVenues(input.auth.db),
     loadCatalogVendors(input.auth.db),
   ])
+  const placesVenues = await loadPlacesCatalogVenues({
+    plan: input.plan,
+    rankingInput: input.rankingInput,
+    userId: input.auth.userId,
+    existingVenueCount: catalogVenues.length,
+    placesFallbackCache: input.placesFallbackCache,
+  })
+  const venues = dedupeCatalogVenueRows([...catalogVenues, ...placesVenues])
   const ranking = rankCatalogPartners({
     plan: input.rankingInput,
     venues,
@@ -992,10 +1016,22 @@ function enrichRankedVenuePrice(input: {
     headcount: input.plan.guest_count,
     expected_attendance: input.eventPlan.expected_attendance,
   })
+  const capacityKnown = input.candidate
+    ? input.candidate.standing_capacity !== null || input.candidate.seated_capacity !== null
+    : input.recommendation
+      ? input.recommendation.capacity_known
+      : true
+  const capacity = input.candidate
+    ? [input.candidate.standing_capacity, input.candidate.seated_capacity]
+        .filter((value): value is number => typeof value === 'number')
+        .sort((first, second) => second - first)[0] ?? null
+    : input.recommendation?.capacity ?? null
 
   return {
     ...input.rankedVenue,
     price_cents: priceCents,
+    capacity,
+    capacity_known: capacityKnown,
   }
 }
 
@@ -1276,6 +1312,7 @@ async function resolveVenueMatches(input: {
   baseVenueResult: VenueMatchingAgentResult
   baseCandidateVenues: VenueMatchingCandidate[]
   basePayload: Record<string, unknown>
+  placesFallbackCache: PlacesFallbackCache
 }): Promise<{
   venueResult: VenueMatchingAgentResult
   candidateVenues: VenueMatchingCandidate[]
@@ -1291,6 +1328,8 @@ async function resolveVenueMatches(input: {
 
   const broaderCandidateVenues = await loadVenueAgentCandidates(input.auth.db, input.plan, input.rankingInput, {
     neighborhoodMode: 'broader',
+    userId: input.auth.userId,
+    placesFallbackCache: input.placesFallbackCache,
   })
   const broaderPayload: Record<string, unknown> = {
     ...input.basePayload,
@@ -2486,7 +2525,7 @@ async function loadVenueAgentCandidates(
   db: PlannerDb,
   plan: Plan,
   rankingInput: CatalogPlanRankingInput,
-  options: { neighborhoodMode?: VenueCandidateSearchMode } = {}
+  options: { neighborhoodMode?: VenueCandidateSearchMode; userId?: string; placesFallbackCache?: PlacesFallbackCache } = {}
 ): Promise<VenueMatchingCandidate[]> {
   let query = db
     .from('venues')
@@ -2518,10 +2557,141 @@ async function loadVenueAgentCandidates(
         : true
     )
 
-  return rows
+  const catalogCandidates = rows
     .map(toVenueMatchingCandidate)
     .filter((candidate): candidate is VenueMatchingCandidate => candidate !== null)
     .filter((candidate) => venueFitsBudget(candidate, budgetCents))
+  const placesCandidates = await loadPlacesVenueAgentCandidates({
+    plan,
+    rankingInput,
+    userId: options.userId,
+    existingVenueCount: catalogCandidates.length,
+    placesFallbackCache: options.placesFallbackCache,
+  })
+  return dedupeVenueMatchingCandidates([...catalogCandidates, ...placesCandidates])
+}
+
+async function loadPlacesVenueAgentCandidates(input: {
+  plan: Plan
+  rankingInput: CatalogPlanRankingInput
+  userId?: string
+  existingVenueCount: number
+  placesFallbackCache?: PlacesFallbackCache
+}): Promise<VenueMatchingCandidate[]> {
+  const rows = await loadPlacesDiscoveryVenues(input)
+  return rows
+    .map((row) => toVenueMatchingCandidate(mapDiscoveryVenueToCatalogVenue(row) as Record<string, unknown>))
+    .filter((candidate): candidate is VenueMatchingCandidate => candidate !== null)
+}
+
+async function loadPlacesCatalogVenues(input: {
+  plan: Plan
+  rankingInput: CatalogPlanRankingInput
+  userId?: string
+  existingVenueCount: number
+  placesFallbackCache?: PlacesFallbackCache
+}): Promise<CatalogVenueRankingInput[]> {
+  const rows = await loadPlacesDiscoveryVenues(input)
+  return rows.map(mapDiscoveryVenueToCatalogVenue)
+}
+
+async function loadPlacesDiscoveryVenues(input: {
+  plan: Plan
+  rankingInput: CatalogPlanRankingInput
+  userId?: string
+  existingVenueCount: number
+  placesFallbackCache?: PlacesFallbackCache
+}) {
+  if (input.existingVenueCount >= SPARSE_CATALOG_VENUE_THRESHOLD) return []
+
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY?.trim()
+  if (!apiKey) return []
+
+  const neighborhood = readString(input.rankingInput.neighborhood ?? input.rankingInput.area ?? input.plan.neighborhood)
+  const areas = buildPlacesSearchAreas(neighborhood)
+
+  try {
+    const maxResultCount = Math.max(8, SPARSE_CATALOG_VENUE_THRESHOLD)
+    const cacheKey = JSON.stringify({
+      plan_id: input.plan.id,
+      event_type: input.plan.event_type,
+      areas,
+      max_result_count: maxResultCount,
+    })
+    let searchPromise = input.placesFallbackCache?.get(cacheKey)
+    if (!searchPromise) {
+      console.info('[planner.recommend] Sparse catalog detected; searching Places', {
+        plan_id: input.plan.id,
+        event_type: input.plan.event_type,
+        neighborhood,
+        catalog_count: input.existingVenueCount,
+        areas,
+      })
+      searchPromise = searchPlacesForPlan(input.plan, {
+        admin: createServiceRoleClient() as any,
+        apiKey,
+        areas,
+        maxResultCount,
+        searchedByUserId: input.userId,
+      })
+      input.placesFallbackCache?.set(cacheKey, searchPromise)
+    } else {
+      console.info('[planner.recommend] Reusing Places fallback results', {
+        plan_id: input.plan.id,
+        areas,
+      })
+    }
+    const result = await searchPromise
+    console.info('[planner.recommend] Places fallback completed', {
+      plan_id: input.plan.id,
+      areas_searched: areas,
+      places_result_count: result.places_result_counts.total,
+      discovery_venue_count: result.venues.length,
+    })
+    return result.venues
+  } catch (error) {
+    console.error('[planner.recommend] Places fallback failed; continuing with catalog results', {
+      plan_id: input.plan.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return []
+  }
+}
+
+function buildPlacesSearchAreas(neighborhood: string | null): string[] {
+  const parsed = parseNeighborhoodPhrase(neighborhood)
+  if (parsed.length > 0) return parsed.map((areaId) => areaId.replace(/_/g, ' '))
+  return neighborhood ? [neighborhood] : []
+}
+
+function dedupeVenueMatchingCandidates(candidates: VenueMatchingCandidate[]): VenueMatchingCandidate[] {
+  const seen = new Set<string>()
+  return candidates.filter((candidate) => {
+    const key = normalizeText([
+      candidate.venue_name,
+      candidate.city,
+    ].filter(Boolean).join('|'))
+    if (!key) return true
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function dedupeCatalogVenueRows(rows: CatalogVenueRankingInput[]): CatalogVenueRankingInput[] {
+  const seen = new Set<string>()
+  return rows.filter((row) => {
+    const record = row as Record<string, unknown>
+    const key = normalizeText([
+      readString(record.venue_name) ?? readString(record.name),
+      readString(record.address),
+      readString(record.city),
+    ].filter(Boolean).join('|'))
+    if (!key) return true
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 async function filterCompliantVenueCandidates(
@@ -2838,6 +3008,7 @@ async function persistRecommendations(
         reasoning: recommendation.reasoning,
         blocking_issues: recommendation.blocking_issues,
         capacity: recommendation.capacity,
+        capacity_known: recommendation.capacity_known,
         tags: recommendation.tags,
         ranker: recommendation.metadata,
       }),
@@ -2897,6 +3068,7 @@ async function persistAgentRecommendations(
       reason_summary: venueResult.output.reason_summary,
       venue_match_notice: venueMatchNotice,
       capacity_calibration: venue.capacity_calibration ?? capacityCalibration,
+      capacity_known: (venue as Record<string, unknown>).capacity_known ?? true,
       elasticity,
     }),
   }))
@@ -3727,6 +3899,10 @@ function isCityLevelArea(normalizedValue: string): boolean {
 }
 
 function getNeighborhoodAliases(normalizedNeighborhood: string): string[] {
+  const areaIds = parseNeighborhoodPhrase(normalizedNeighborhood)
+  if (areaIds.length > 0) {
+    return areaAliasesForIds(areaIds)
+  }
   if (normalizedNeighborhood === 'mission district') return ['mission', 'mission district']
   if (normalizedNeighborhood === 'south of market') return ['soma', 'south of market']
   if (normalizedNeighborhood === 'fidi') return ['fidi', 'financial district']

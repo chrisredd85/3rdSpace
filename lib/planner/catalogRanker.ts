@@ -1,6 +1,7 @@
 import { rankVenueCommercialModels } from '@/lib/planner/commercialModelRanker'
 import { archetypeFor } from '@/lib/planner/archetypes'
 import type { EventArchetypeConfig } from '@/lib/planner/archetypes'
+import { parseNeighborhoodPhrase } from '@/lib/planner/areaParsing'
 import type { BuilderAttendanceSummary } from '@/lib/server/builderAttendanceHistory'
 import { readCents } from '@/lib/money'
 import { scoreVenueAgainstArchetype } from '@/lib/venues/venueRanker'
@@ -54,6 +55,7 @@ export interface RankedCatalogRecommendation {
   reasoning: string[]
   blocking_issues: string[]
   capacity: number | null
+  capacity_known: boolean
   tags: string[]
   metadata: Record<string, unknown>
 }
@@ -101,7 +103,8 @@ const AREA_GROUPS: AreaGroup[] = [
   { id: 'fillmore', parent: 'sf', aliases: ['fillmore'] },
   { id: 'pac_heights', parent: 'sf', aliases: ['pac heights', 'pacific heights'] },
   { id: 'embarcadero', parent: 'sf', aliases: ['embarcadero'] },
-  { id: 'oakland', aliases: ['oakland', 'downtown oakland'] },
+  { id: 'oakland', aliases: ['oakland'] },
+  { id: 'downtown_oakland', parent: 'oakland', aliases: ['downtown oakland'] },
   { id: 'uptown_oakland', parent: 'oakland', aliases: ['uptown oakland'] },
   { id: 'east_oakland', parent: 'oakland', aliases: ['east oakland'] },
   { id: 'jack_london', parent: 'oakland', aliases: ['jack london square', 'jack london'] },
@@ -195,6 +198,7 @@ export function rankCatalogPartners(input: RankCatalogPartnersInput): CatalogRan
 /** Score bonus applied to preferred (previously-used) partners that still pass all hard gates. */
 const REBOOK_PREFERENCE_SCORE_BOOST = 12
 const ORGANIZER_AMENITY_PREFERENCE_SCORE_BOOST = 8
+const UNKNOWN_CAPACITY_SCORE_PENALTY = 15
 
 function rankVenue(
   plan: CatalogPlanRankingInput,
@@ -209,6 +213,7 @@ function rankVenue(
   const mustHaves = normalizeStringArray(plan.must_haves)
   const organizerPreferredAmenities = normalizeStringArray(plan.organizer_preferred_amenities)
   const capacity = readCapacity(venue)
+  const capacityKnown = capacity !== null
   const baselineEstimateCents = estimateVenueCents(venue)
   const commercialRanking = rankVenueCommercialModels(
     { ...plan, venue_terms: getCommercialModelPreference(plan) },
@@ -273,6 +278,7 @@ function rankVenue(
     plan.preferred_venue_ids.includes(venue.id)
   )
   const rebookScore = isPreferred ? REBOOK_PREFERENCE_SCORE_BOOST : 0
+  const unknownCapacityPenalty = capacityKnown ? 0 : UNKNOWN_CAPACITY_SCORE_PENALTY
   const score = Math.round(
     budgetScore +
       amenity.score +
@@ -283,7 +289,8 @@ function rankVenue(
       archetypeScore.venue_type_score +
       archetypeScore.commercial_model_alignment_score +
       rebookScore +
-      organizerAmenityPreference.score
+      organizerAmenityPreference.score -
+      unknownCapacityPenalty
   )
   const overBudget = budgetAllocationCents > 0 && estimateCents > budgetAllocationCents
   const fitLabel = chooseFitLabel(score, overBudget, false)
@@ -313,6 +320,7 @@ function rankVenue(
     reasoning,
     blocking_issues: blockingIssues,
     capacity,
+    capacity_known: capacityKnown,
     tags: readTags(venue, ['unique_features_tags', 'amenities', 'tags']),
     metadata: {
       category: commercialRanking.recommended.model,
@@ -335,6 +343,8 @@ function rankVenue(
       is_rebook_preferred: isPreferred,
       organizer_amenity_preference_score: organizerAmenityPreference.score,
       organizer_amenity_preference_matches: organizerAmenityPreference.matched,
+      capacity_known: capacityKnown,
+      capacity_score_penalty: unknownCapacityPenalty,
       archetype: {
         key: archetype.key,
         display_name: archetype.display_name,
@@ -419,6 +429,7 @@ function rankVendor(
     }),
     blocking_issues: [],
     capacity: null,
+    capacity_known: false,
     tags: readTags(vendor, ['services_offered', 'compatible_features', 'tags']),
     metadata: {
       category,
@@ -1020,6 +1031,12 @@ function detectAreaIds(value: string): Set<string> {
   const normalized = normalizeText(value)
   const ids = new Set<string>()
 
+  parseNeighborhoodPhrase(normalized).forEach((areaId) => {
+    ids.add(areaId)
+    const group = AREA_GROUPS.find((candidate) => candidate.id === areaId)
+    if (group?.parent) ids.add(group.parent)
+  })
+
   for (const group of AREA_GROUPS) {
     if (group.aliases.some((alias) => includesLoose(normalized, alias))) {
       ids.add(group.id)
@@ -1132,6 +1149,8 @@ function areaLabelMatchesRequested(requestedArea: string, candidateArea: string)
 function detectExplicitAreaIds(value: string): Set<string> {
   const normalized = normalizeText(value)
   const ids = new Set<string>()
+
+  parseNeighborhoodPhrase(normalized).forEach((areaId) => ids.add(areaId))
 
   for (const group of AREA_GROUPS) {
     if (group.aliases.some((alias) => includesLoose(normalized, alias))) {

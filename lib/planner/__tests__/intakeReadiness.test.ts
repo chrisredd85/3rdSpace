@@ -2,11 +2,12 @@ jest.mock('server-only', () => ({}))
 
 import type { IntakeAgentOutput } from '@/lib/ai/agents/intakeAgent'
 import {
+  hasPendingAgentResponse,
   isIntakeReadyForRecommendations,
   isPlanReadyForRequestedRecommendations,
   isRecommendationRequest,
 } from '@/lib/planner/intakeReadiness'
-import type { Plan } from '@/lib/types'
+import type { Plan, PlanMessage } from '@/lib/types'
 
 const baseOutput: IntakeAgentOutput = {
   reflection: 'Locked in.',
@@ -162,4 +163,123 @@ describe('requested recommendations readiness', () => {
       ].join('\n'),
     })).toBe(true)
   })
+
+  it('blocks recommendation movement while the latest agent question is unanswered', () => {
+    const messages = [
+      makeMessage('agent-question', 'agent', 'Do you need a full bar or beverage program?', '2026-05-01T10:00:00Z', {
+        requires_response: true,
+      }),
+    ]
+
+    expect(isPlanReadyForRequestedRecommendations({
+      event_type: 'Founder/operator dinner',
+      guest_count: 20,
+      neighborhood: 'Hayes Valley',
+      date_window_start: '2026-05-20',
+      date_window_end: '2026-05-20',
+      ticketed: false,
+      ticketing_model: 'rsvp',
+      food_responsibility: 'Seated dining',
+      venue_terms: 'Semi-private space',
+      metadata: {
+        event_requirements: {
+          privacy: true,
+          timing: true,
+        },
+      },
+    }, {
+      conversationText: [
+        'Founder dinner for 20 in Hayes Valley.',
+        'semi private',
+        'May 20th',
+        'venue handles food and bar',
+        'no photographer',
+        'budget around $3k',
+        'where should I book it?',
+      ].join('\n'),
+      messages,
+    })).toBe(false)
+  })
+
+  it('allows recommendation movement after the user replies to the pending question', () => {
+    const messages = [
+      makeMessage('agent-question', 'agent', 'Do you need a full bar or beverage program?', '2026-05-01T10:00:00Z', {
+        requires_response: true,
+      }),
+      makeMessage('user-answer', 'user', 'Yes, full bar is required.', '2026-05-01T10:01:00Z'),
+    ]
+
+    expect(hasPendingAgentResponse(messages)).toBe(false)
+    expect(isPlanReadyForRequestedRecommendations({
+      event_type: 'Founder/operator dinner',
+      guest_count: 20,
+      neighborhood: 'Hayes Valley',
+      date_window_start: '2026-05-20',
+      date_window_end: '2026-05-20',
+      ticketed: false,
+      ticketing_model: 'rsvp',
+      food_responsibility: 'Seated dining',
+      venue_terms: 'Semi-private space',
+      metadata: {
+        event_requirements: {
+          privacy: true,
+          timing: true,
+        },
+      },
+    }, {
+      conversationText: [
+        'Founder dinner for 20 in Hayes Valley.',
+        'semi private',
+        'May 20th',
+        'venue handles food and bar',
+        'no photographer',
+        'budget around $3k',
+        'where should I book it?',
+      ].join('\n'),
+      messages,
+    })).toBe(true)
+  })
 })
+
+describe('hasPendingAgentResponse', () => {
+  it('defaults old messages without requires_response metadata to non-blocking', () => {
+    expect(hasPendingAgentResponse([
+      makeMessage('agent-narration', 'agent', 'I have enough detail to start matching venues.', '2026-05-01T10:00:00Z'),
+    ])).toBe(false)
+  })
+
+  it('detects an unanswered agent question', () => {
+    expect(hasPendingAgentResponse([
+      makeMessage('agent-question', 'agent', 'Do you need a full bar?', '2026-05-01T10:00:00Z', {
+        requires_response: true,
+      }),
+    ])).toBe(true)
+  })
+
+  it('ignores answered agent questions', () => {
+    expect(hasPendingAgentResponse([
+      makeMessage('agent-question', 'agent', 'Do you need a full bar?', '2026-05-01T10:00:00Z', {
+        requires_response: true,
+      }),
+      makeMessage('user-answer', 'user', 'No full bar needed.', '2026-05-01T10:01:00Z'),
+    ])).toBe(false)
+  })
+})
+
+function makeMessage(
+  id: string,
+  role: PlanMessage['role'],
+  content: string,
+  createdAt: string,
+  metadata: PlanMessage['metadata'] = {}
+): PlanMessage {
+  return {
+    id,
+    plan_id: 'plan_1',
+    role,
+    content,
+    message_type: 'text',
+    metadata,
+    created_at: createdAt,
+  }
+}

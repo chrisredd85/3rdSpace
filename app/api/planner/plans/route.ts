@@ -601,6 +601,7 @@ function buildIntakeAgentDraft(
       archetype_question: archetypeQuestion,
       can_match_now: canMatchNow,
       transition_to_match: shouldTransitionToMatch,
+      requires_response: !shouldTransitionToMatch && Boolean(question),
     }),
   }
 }

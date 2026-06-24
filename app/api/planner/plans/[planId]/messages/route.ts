@@ -822,6 +822,7 @@ function buildIntakeAgentDraft(
       can_match_now: canMatchNow,
       forward_momentum_guard: fallbackToGuard,
       transition_to_match: shouldTransitionToMatch,
+      requires_response: !shouldTransitionToMatch && Boolean(question),
     }),
   }
 }
@@ -865,6 +866,7 @@ function shouldForceRequestedRecommendations(input: {
 
   return isPlanReadyForRequestedRecommendations(input.plan, {
     conversationText: buildArchetypeAnswerText(input.messages),
+    messages: input.messages,
   })
 }
 

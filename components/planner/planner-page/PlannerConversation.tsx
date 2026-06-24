@@ -647,6 +647,7 @@ export function PlannerMessageMetadata({
             )
             const priceCents = typeof recommendation.price_cents === 'number' ? recommendation.price_cents : 0
             const capacity = typeof recommendation.capacity === 'number' ? recommendation.capacity : null
+            const capacityKnown = typeof recommendation.capacity_known === 'boolean' ? recommendation.capacity_known : capacity !== null
             const tags = Array.isArray(recommendation.tags)
               ? recommendation.tags.filter((tag): tag is string => typeof tag === 'string')
               : []
@@ -680,6 +681,11 @@ export function PlannerMessageMetadata({
                     <div className="flex min-w-0 items-center justify-between gap-3">
                       <span className="text-muted-foreground">Capacity</span>
                       <span className="shrink-0 font-semibold text-foreground">{capacity}</span>
+                    </div>
+                  ) : !capacityKnown ? (
+                    <div className="flex min-w-0 items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Capacity</span>
+                      <span className="shrink-0 font-semibold text-foreground">TBD — confirm</span>
                     </div>
                   ) : null}
                   {commercialModelMatch ? (
@@ -1378,7 +1384,12 @@ export function sanitizeRecommendationDisplayText(value: string, recommendation:
   const type = readRecommendationString(recommendation, 'type') || 'Option'
   const name = readRecommendationString(recommendation, 'name') || 'This option'
   const capacity = readRecommendationNumber(recommendation, 'capacity')
-  const capacityLabel = capacity ? ` with capacity for ${capacity}` : ''
+  const capacityKnown = readRecommendationBoolean(recommendation, 'capacity_known')
+  const capacityLabel = capacity
+    ? ` with capacity for ${capacity}`
+    : capacityKnown === false
+      ? ' with capacity still to confirm'
+      : ''
 
   if (/venue/i.test(type)) {
     return `${name} is the best current venue fit${capacityLabel}. It is matched on the stated budget, required setup, and booking terms.`
@@ -1744,6 +1755,14 @@ export function readRecommendationString(recommendation: Record<string, unknown>
 export function readRecommendationNumber(recommendation: Record<string, unknown>, key: string) {
   const value = recommendation[key]
   return typeof value === 'number' ? value : null
+}
+
+/**
+ * Reads a boolean field from recommendation metadata.
+ */
+export function readRecommendationBoolean(recommendation: Record<string, unknown>, key: string) {
+  const value = recommendation[key]
+  return typeof value === 'boolean' ? value : null
 }
 
 /**
