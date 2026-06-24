@@ -10,7 +10,6 @@ import {
   Ticket,
   Building2,
   Music2,
-  Camera,
   Eye,
   EyeOff,
   Zap,
@@ -110,6 +109,49 @@ function AlreadySignedInBanner() {
       </div>
     </div>
   )
+}
+
+function getSignupAnonymousId() {
+  if (typeof window === 'undefined') return null
+  const storageKey = 'thirdplace_signup_anonymous_id'
+  const existing = window.localStorage.getItem(storageKey)
+  if (existing) return existing
+  const next = window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  window.localStorage.setItem(storageKey, next)
+  return next
+}
+
+function trackSignupStep(input: {
+  role: UserType
+  eventName: 'signup_step_viewed' | 'signup_step_completed'
+  step: number
+  totalSteps: number
+  method?: 'email' | 'google'
+  metadata?: Record<string, unknown>
+}) {
+  if (typeof window === 'undefined') return
+  const payload = JSON.stringify({
+    role: input.role,
+    event_name: input.eventName,
+    step: input.step,
+    total_steps: input.totalSteps,
+    method: input.method,
+    anonymous_id: getSignupAnonymousId(),
+    metadata: input.metadata ?? {},
+  })
+
+  if (navigator.sendBeacon) {
+    const blob = new Blob([payload], { type: 'application/json' })
+    navigator.sendBeacon('/api/auth/signup/events', blob)
+    return
+  }
+
+  void fetch('/api/auth/signup/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: payload,
+    keepalive: true,
+  }).catch(() => undefined)
 }
 
 function Stepper({ step, total }: { step: number; total: number }) {
@@ -507,7 +549,17 @@ function BuilderSignupFlow({
 
   useEffect(() => {
     if (inlineError) setInlineError(null)
-  }, [form])
+  }, [form, inlineError])
+
+  useEffect(() => {
+    trackSignupStep({
+      role: 'community_builder',
+      eventName: 'signup_step_viewed',
+      step,
+      totalSteps: total,
+      method: 'email',
+    })
+  }, [step, total])
 
   const toggle = (key: 'eventTypes' | 'amenities' | 'platforms', value: string) => {
     setForm((f) => ({
@@ -535,13 +587,7 @@ function BuilderSignupFlow({
       if (form.amenities.length === 0) errors.amenities = 'Select at least one preferred amenity.'
       return errors
     }
-    if (targetStep === 4) {
-      const errors: FieldErrors = {}
-      if (selectedTicketPlatforms.length === 0) {
-        errors.platforms = 'Select at least one supported ticketing platform.'
-      }
-      return errors
-    }
+    if (targetStep === 4) return {}
     return {}
   }
   const stepErrors = getStepErrors()
@@ -555,6 +601,13 @@ function BuilderSignupFlow({
       return
     }
     setInlineError(null)
+    trackSignupStep({
+      role: 'community_builder',
+      eventName: 'signup_step_completed',
+      step,
+      totalSteps: total,
+      method: 'email',
+    })
     setStep((s) => Math.min(total, s + 1))
   }
   const back = () => {
@@ -585,6 +638,14 @@ function BuilderSignupFlow({
       if (error) {
         setInlineError(error.message)
         setIsGoogleLoading(false)
+      } else {
+        trackSignupStep({
+          role: 'community_builder',
+          eventName: 'signup_step_completed',
+          step: 1,
+          totalSteps: total,
+          method: 'google',
+        })
       }
     } catch {
       setInlineError('Connection failed. Please try again.')
@@ -627,12 +688,6 @@ function BuilderSignupFlow({
         return
       }
 
-      if (selectedTicketPlatforms.length === 0) {
-        showInlineError('Connect at least one supported ticketing platform (Eventbrite, Luma, Posh, or Partiful)', 4)
-        setIsLoading(false)
-        return
-      }
-
       const response = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -651,6 +706,7 @@ function BuilderSignupFlow({
           preferred_amenities: form.amenities,
           ticket_platforms: selectedTicketPlatforms,
           bulk_booking_enabled: form.bulkBooking,
+          invite_collaborators: form.inviteCollaborators,
         }),
       })
       const result = await response.json()
@@ -682,6 +738,18 @@ function BuilderSignupFlow({
         ticketingConnections,
         migratedPlanId,
         migrationFailed,
+      })
+      trackSignupStep({
+        role: 'community_builder',
+        eventName: 'signup_step_completed',
+        step: 4,
+        totalSteps: total,
+        method: 'email',
+        metadata: {
+          selected_ticket_platform_count: selectedTicketPlatforms.length,
+          bulk_booking_enabled: form.bulkBooking,
+          gmail_prompt_shown: true,
+        },
       })
       addToast({
         title: result.requiresEmailConfirmation ? 'Check your email' : 'Account created',
@@ -806,8 +874,10 @@ function BuilderSignupFlow({
       {step === 4 && (
         <div className="space-y-6 animate-fade-in">
           <div>
-            <Label className="mb-2 block text-[13px] font-semibold text-ink-soft">Connect your ticketing platforms</Label>
-            <p className="mb-3 text-[13px] text-ink-soft">We&apos;ll auto-import sales totals and attendee counts.</p>
+            <Label className="mb-2 block text-[13px] font-semibold text-ink-soft">Ticketing platforms (optional)</Label>
+            <p className="mb-3 text-[13px] text-ink-soft">
+              Select platforms you already use so Tickets can tailor setup later. You can skip this and connect Eventbrite, Luma, Posh, or Partiful from Tickets.
+            </p>
             <ChipGroup options={ticketPlatforms} selected={form.platforms} onToggle={(v) => toggle('platforms', v)} />
             {stepErrors.platforms ? (
               <p className="mt-1.5 text-xs font-medium text-destructive" role="alert">
@@ -895,7 +965,9 @@ function BuilderSignupFlow({
 
           {activationState ? (
             <div className="rounded-md border border-tan bg-cream-deep p-4 text-[13px] leading-5 text-ink-soft">
-              Ticketing setup is saved. You can finish Eventbrite OAuth, webhook URLs, Partiful links, and ticket imports from Tickets after entering the planner.
+              {selectedTicketPlatforms.length > 0
+                ? 'Ticketing preferences are saved. You can finish Eventbrite OAuth, webhook URLs, Partiful links, and ticket imports from Tickets after entering the planner.'
+                : 'Ticketing setup was skipped. You can connect Eventbrite, Luma, Posh, or Partiful from Tickets when you need imports.'}
             </div>
           ) : null}
 
@@ -1046,7 +1118,17 @@ function VenueSignupFlow({
 
   useEffect(() => {
     if (inlineError) setInlineError(null)
-  }, [form])
+  }, [form, inlineError])
+
+  useEffect(() => {
+    trackSignupStep({
+      role: 'venue_owner',
+      eventName: 'signup_step_viewed',
+      step,
+      totalSteps: total,
+      method: 'email',
+    })
+  }, [step, total])
 
   const toggle = (key: 'amenities' | 'openDays', v: string) => {
     setForm((f) => ({ ...f, [key]: f[key].includes(v) ? f[key].filter((x) => x !== v) : [...f[key], v] }))
@@ -1119,6 +1201,13 @@ function VenueSignupFlow({
       return
     }
     setInlineError(null)
+    trackSignupStep({
+      role: 'venue_owner',
+      eventName: 'signup_step_completed',
+      step,
+      totalSteps: total,
+      method: 'email',
+    })
     setStep((s) => Math.min(total, s + 1))
   }
   const back = () => {
@@ -1180,6 +1269,17 @@ function VenueSignupFlow({
         setIsLoading(false)
         return
       }
+      trackSignupStep({
+        role: 'venue_owner',
+        eventName: 'signup_step_completed',
+        step: total,
+        totalSteps: total,
+        method: 'email',
+        metadata: {
+          venue_type: form.venueType,
+          supported_commercial_terms: form.isBar ? form.supportedCommercialTerms : [],
+        },
+      })
       if (result.requiresEmailConfirmation) {
         addToast({ title: 'Check your email', description: 'Confirm your email address, then log in to manage your venue.' })
         router.push(getStripeLoginRedirect('venue_owner'))
@@ -1289,11 +1389,15 @@ function VenueSignupFlow({
           </div>
           <div>
             <Label className="mb-2 block">Photos of the space</Label>
-            <div className="flex h-32 cursor-pointer items-center justify-center rounded-2xl border-2 border-dashed border-border bg-card/40 text-sm text-muted-foreground transition-smooth hover:border-primary/40">
-              <div className="flex flex-col items-center gap-2">
-                <Camera className="h-6 w-6" />
-                <span>Drop photos here or click to upload</span>
-                <span className="text-xs">Interior, exterior, stage, bar, loading area</span>
+            <div className="rounded-md border border-tan bg-cream-deep p-4 text-[14px] leading-relaxed text-ink-soft">
+              <div className="flex items-start gap-3">
+                <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-clay" />
+                <div>
+                  <p className="font-semibold text-ink">Add photos after signup.</p>
+                  <p className="mt-1">
+                    Your listing can be created now. After signup, upload interior, exterior, stage, bar, and loading-area photos from your venue profile.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -1513,7 +1617,17 @@ function VendorSignupFlow({
 
   useEffect(() => {
     if (inlineError) setInlineError(null)
-  }, [form])
+  }, [form, inlineError])
+
+  useEffect(() => {
+    trackSignupStep({
+      role: 'vendor',
+      eventName: 'signup_step_viewed',
+      step,
+      totalSteps: total,
+      method: 'email',
+    })
+  }, [step, total])
 
   const toggle = (key: 'services' | 'availableDays', v: string) => {
     setForm((f) => ({ ...f, [key]: f[key].includes(v) ? f[key].filter((x) => x !== v) : [...f[key], v] }))
@@ -1572,6 +1686,13 @@ function VendorSignupFlow({
       return
     }
     setInlineError(null)
+    trackSignupStep({
+      role: 'vendor',
+      eventName: 'signup_step_completed',
+      step,
+      totalSteps: total,
+      method: 'email',
+    })
     setStep((s) => Math.min(total, s + 1))
   }
   const back = () => {
@@ -1624,6 +1745,17 @@ function VendorSignupFlow({
         setIsLoading(false)
         return
       }
+      trackSignupStep({
+        role: 'vendor',
+        eventName: 'signup_step_completed',
+        step: total,
+        totalSteps: total,
+        method: 'email',
+        metadata: {
+          selected_service_count: form.services.length,
+          emergency_available: form.emergencyAvailable,
+        },
+      })
       if (result.requiresEmailConfirmation) {
         addToast({ title: 'Check your email', description: 'Confirm your email address, then log in to manage your vendor profile.' })
         router.push(getStripeLoginRedirect('vendor'))

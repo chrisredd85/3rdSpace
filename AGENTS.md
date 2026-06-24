@@ -129,12 +129,12 @@ The `/signup` chooser ("Which one are you?") presents three role cards: Creator,
 1. Name, email, password
 2. Org name, type, social handle, website, bio
 3. Event types, avg attendance, preferred amenities
-4. Ticketing platforms, bulk booking toggle, invite collaborators
+4. Optional ticketing platforms/templates, Gmail outreach permission, invite collaborators
 
 ### Venue (5 steps)
 1. Contact name, role, booking email, phone, password
 2. Venue name, type, address, loading dock, capacity, prep time
-3. Amenities, photo upload, house rules
+3. Amenities, post-signup photo guidance, house rules
 4. Bar toggle + revenue settings, base price, deposit, cancellation terms
 5. Available days, open hours, calendar sync note
 

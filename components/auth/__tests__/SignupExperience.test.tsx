@@ -16,6 +16,7 @@ const mockCreateClient = createClient as jest.Mock
 const mockMigratePlannerDraftToServer = migratePlannerDraftToServer as jest.Mock
 const mockSignInWithOAuth = jest.fn()
 const originalFetch = global.fetch
+const originalSendBeacon = navigator.sendBeacon
 
 function renderSignup(initialUserType: 'community_builder' | 'venue_owner' | 'vendor') {
   return render(
@@ -33,6 +34,10 @@ describe('SignupExperience step validation', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     global.fetch = originalFetch
+    Object.defineProperty(navigator, 'sendBeacon', {
+      configurable: true,
+      value: jest.fn().mockReturnValue(true),
+    })
     mockCreateClient.mockReturnValue({
       auth: {
         signInWithOAuth: mockSignInWithOAuth.mockResolvedValue({ error: null }),
@@ -43,6 +48,10 @@ describe('SignupExperience step validation', () => {
 
   afterAll(() => {
     global.fetch = originalFetch
+    Object.defineProperty(navigator, 'sendBeacon', {
+      configurable: true,
+      value: originalSendBeacon,
+    })
   })
 
   it('shows creator as a 4-step flow and gates each signup step', async () => {
@@ -80,7 +89,7 @@ describe('SignupExperience step validation', () => {
 
     fireEvent.click(continueButton())
     expect(screen.getByText(/Creator sign-up · Step 4 of 4/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Create account/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Create account/i })).toBeEnabled()
 
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       success: true,
@@ -88,11 +97,6 @@ describe('SignupExperience step validation', () => {
       user: { email: 'alex@example.com' },
       ticketingConnections: [],
     }), { status: 200 })) as jest.Mock
-
-    fireEvent.click(screen.getByRole('button', { name: /Eventbrite/i }))
-    expect(screen.getByRole('button', { name: /Create account/i })).toBeEnabled()
-    fireEvent.click(screen.getByRole('button', { name: /^Partiful$/i }))
-    expect(screen.getByText('Partiful event link')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Create account/i }))
 
@@ -104,6 +108,15 @@ describe('SignupExperience step validation', () => {
       '/api/integrations/gmail/connect?returnTo=%2Fplanner%3Fsignup%3Dcomplete%26gmail%3Dconnected'
     )
     expect(screen.getByRole('button', { name: /I'll connect later/i })).toBeInTheDocument()
+    const payload = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
+    expect(payload).toEqual(expect.objectContaining({
+      organization_name: 'Sunset Social Club',
+      org_type: 'Social group / Community',
+      bio: 'Recurring community dinners and talks.',
+      avg_attendance: '150',
+      ticket_platforms: [],
+      invite_collaborators: '',
+    }))
   })
 
   it('starts creator Google signup with the signup callback flags', async () => {
@@ -255,5 +268,58 @@ describe('SignupExperience step validation', () => {
       target: { value: 'Open-format DJ for founder events.' },
     })
     expect(continueButton()).toBeEnabled()
+  })
+
+  it('submits all selected vendor services and the starter package', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      requiresEmailConfirmation: true,
+      user: { email: 'hello@example.com' },
+    }), { status: 200 })) as jest.Mock
+
+    renderSignup('vendor')
+
+    fireEvent.change(screen.getByPlaceholderText('Sam Carter'), { target: { value: 'Sam Carter' } })
+    fireEvent.change(screen.getByPlaceholderText('DJ Solstice'), { target: { value: 'DJ Solstice' } })
+    fireEvent.change(screen.getByPlaceholderText('hello@vendor.com'), { target: { value: 'hello@example.com' } })
+    fireEvent.change(screen.getByPlaceholderText('+1 (555) 555-5555'), { target: { value: '555-555-5555' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password123' } })
+    fireEvent.click(continueButton())
+
+    fireEvent.click(screen.getByRole('button', { name: /^DJ$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Photographer/i }))
+    fireEvent.change(screen.getByPlaceholderText('NYC + tri-state, will travel'), { target: { value: 'Bay Area' } })
+    fireEvent.change(screen.getByPlaceholderText('https://instagram.com/...'), { target: { value: 'https://instagram.com/djsolstice' } })
+    fireEvent.change(screen.getByPlaceholderText('What do you bring to a room? Notable past gigs, vibe, specialties...'), {
+      target: { value: 'Open-format DJ and photo coverage for founder events.' },
+    })
+    fireEvent.click(continueButton())
+
+    fireEvent.change(screen.getByPlaceholderText('800'), { target: { value: '1200' } })
+    fireEvent.change(screen.getByPlaceholderText('4-hour open format set'), { target: { value: 'DJ + photo starter' } })
+    fireEvent.change(screen.getByPlaceholderText('4 hours of music, basic lighting, custom playlist consult...'), {
+      target: { value: 'Four hours of DJ coverage, arrival photos, and basic lighting.' },
+    })
+    fireEvent.change(screen.getByPlaceholderText(/Deposit non-refundable/i), {
+      target: { value: 'Deposit refundable 30+ days out.' },
+    })
+    fireEvent.click(continueButton())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fri' }))
+    fireEvent.click(screen.getByRole('button', { name: /Publish my vendor profile/i }))
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith('/api/auth/signup', expect.objectContaining({
+        method: 'POST',
+      }))
+    })
+    const payload = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
+    expect(payload).toEqual(expect.objectContaining({
+      userType: 'vendor',
+      service_type: 'dj',
+      services: ['DJ', 'Photographer'],
+      package_name: 'DJ + photo starter',
+      package_details: 'Four hours of DJ coverage, arrival photos, and basic lighting.',
+    }))
   })
 })

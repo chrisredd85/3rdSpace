@@ -5,10 +5,19 @@ type SupabaseLikeClient = { from: (table: string) => any }
 
 export type BuilderOrganizerPreferences = {
   builder_id: string
+  organization_name: string | null
+  organization_type: string | null
+  social_handle: string | null
+  website: string | null
+  bio: string | null
   event_archetype_keys: string[]
   event_type_labels: string[]
   preferred_amenities: string[]
   preferred_ticket_platforms: TicketPlatform[]
+  self_reported_typical_attendance: {
+    min: number | null
+    max: number | null
+  }
 }
 
 const LEGACY_EVENT_TYPE_MAP: Record<string, string> = {
@@ -69,7 +78,7 @@ export async function loadBuilderOrganizerPreferences(
 ): Promise<BuilderOrganizerPreferences | null> {
   const { data, error } = await db
     .from('builder_profiles')
-    .select('id, event_types, priorities, preferred_ticket_platforms')
+    .select('id, organization_name, organization_type, social_handle, website, bio, event_types, priorities, preferred_ticket_platforms, typical_attendance_min, typical_attendance_max')
     .eq('user_id', userId)
     .maybeSingle()
 
@@ -80,9 +89,16 @@ export async function loadBuilderOrganizerPreferences(
 
   const row = data as {
     id?: unknown
+    organization_name?: unknown
+    organization_type?: unknown
+    social_handle?: unknown
+    website?: unknown
+    bio?: unknown
     event_types?: unknown
     priorities?: unknown
     preferred_ticket_platforms?: unknown
+    typical_attendance_min?: unknown
+    typical_attendance_max?: unknown
   } | null
 
   if (!row || typeof row.id !== 'string') return null
@@ -94,12 +110,21 @@ export async function loadBuilderOrganizerPreferences(
 
   return {
     builder_id: row.id,
+    organization_name: readNullableString(row.organization_name),
+    organization_type: readNullableString(row.organization_type),
+    social_handle: readNullableString(row.social_handle),
+    website: readNullableString(row.website),
+    bio: readNullableString(row.bio),
     event_archetype_keys: eventArchetypeKeys,
     event_type_labels: eventArchetypeKeys
       .map((key) => getArchetypeByKey(key)?.display_name)
       .filter((label): label is string => Boolean(label)),
     preferred_amenities: preferredAmenities,
     preferred_ticket_platforms: preferredTicketPlatforms,
+    self_reported_typical_attendance: {
+      min: readNumber(row.typical_attendance_min),
+      max: readNumber(row.typical_attendance_max),
+    },
   }
 }
 
@@ -107,10 +132,16 @@ export function buildOrganizerPreferencePayload(preferences: BuilderOrganizerPre
   if (!preferences) return null
   return {
     builder_id: preferences.builder_id,
+    organization_name: preferences.organization_name,
+    organization_type: preferences.organization_type,
+    social_handle: preferences.social_handle,
+    website: preferences.website,
+    bio: preferences.bio,
     event_archetype_keys: preferences.event_archetype_keys,
     event_type_labels: preferences.event_type_labels,
     preferred_amenities: preferences.preferred_amenities,
     preferred_ticket_platforms: preferences.preferred_ticket_platforms,
+    self_reported_typical_attendance: preferences.self_reported_typical_attendance,
   }
 }
 
@@ -138,6 +169,19 @@ function readStringArray(value: unknown): string[] {
     .split(/[,;|]/)
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+function readNullableString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function readNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
 }
 
 function normalizePreferenceText(value: string): string {

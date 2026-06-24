@@ -7,9 +7,17 @@ import type { TicketPlatform } from '@/lib/constants/account-setup'
 interface BuilderOnboardingRequest {
   name: string
   organization_name: string
+  organization_type?: string | null
+  social_handle?: string | null
+  website?: string | null
+  bio?: string | null
   event_types: string[]
   preferred_amenities?: string[]
-  ticket_platforms: TicketPlatform[]
+  ticket_platforms?: TicketPlatform[]
+  typical_attendance_min?: number | null
+  typical_attendance_max?: number | null
+  bulk_booking_enabled?: boolean | null
+  invite_collaborators?: string[]
 }
 
 export async function POST(request: NextRequest) {
@@ -31,9 +39,23 @@ export async function POST(request: NextRequest) {
     }
 
     const body: BuilderOnboardingRequest = await request.json()
-    const { name, organization_name, event_types, preferred_amenities, ticket_platforms } = body
+    const {
+      name,
+      organization_name,
+      organization_type,
+      social_handle,
+      website,
+      bio,
+      event_types,
+      preferred_amenities,
+      ticket_platforms,
+      typical_attendance_min,
+      typical_attendance_max,
+      bulk_booking_enabled,
+      invite_collaborators,
+    } = body
 
-    if (!name || !organization_name || !event_types?.length || !ticket_platforms?.length) {
+    if (!name || !organization_name || !event_types?.length) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
@@ -50,9 +72,17 @@ export async function POST(request: NextRequest) {
       userId: user.id,
       name,
       organizationName: organization_name,
+      organizationType: organization_type ?? null,
+      socialHandle: social_handle ?? null,
+      website: website ?? null,
+      bio: bio ?? null,
       eventTypes: event_types,
       preferredAmenities: preferred_amenities,
-      ticketPlatforms: ticket_platforms,
+      ticketPlatforms: ticket_platforms ?? [],
+      typicalAttendanceMin: typical_attendance_min ?? null,
+      typicalAttendanceMax: typical_attendance_max ?? null,
+      bulkBookingEnabled: bulk_booking_enabled ?? false,
+      inviteCollaborators: invite_collaborators ?? [],
       origin: request.nextUrl.origin,
     })
 

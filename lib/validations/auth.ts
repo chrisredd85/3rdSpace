@@ -20,7 +20,7 @@ export const builderSignupSchema = z.object({
   email: z.string().email("Invalid email address"),
   organization_name: z.string().min(2, "Organization name is required"),
   event_types: z.array(z.enum(BUILDER_EVENT_TYPE_OPTIONS)).min(1, "Select at least one event type"),
-  ticket_platforms: z.array(z.enum(TICKET_PLATFORM_OPTIONS.map((platform) => platform.id) as [string, ...string[]])).min(1, "Select at least one ticket platform"),
+  ticket_platforms: z.array(z.enum(TICKET_PLATFORM_OPTIONS.map((platform) => platform.id) as [string, ...string[]])).default([]),
   password: z.string().min(6, "Password must be at least 6 characters"),
 })
 
