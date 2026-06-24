@@ -217,6 +217,8 @@ interface ProfitModel {
   realisticCents: number
   rangeLowCents: number
   rangeHighCents: number
+  baselineSource: 'personal' | 'archetype' | 'default'
+  baselineBasisLabel: string
   perAttendeeNetCents: number | null
   lineItems: Array<{ label: string; amountCents: number; negative?: boolean }>
   paidAverage: number
@@ -237,6 +239,17 @@ interface TicketPricingModel {
   targetProfitCents: number
   projectedMarginCents: number
   rationale: string
+}
+
+interface PlannerProjectionBaseline {
+  source: 'personal' | 'archetype' | 'default'
+  avgSellThrough: number
+  avgNoShowRate: number
+  avgAttendanceRate: number
+  avgMarginCents: number | null
+  stddevMarginCents: number | null
+  nEvents: number
+  basisLabel: string
 }
 
 interface ShoppingListItem {
@@ -753,10 +766,14 @@ function buildProfitModel(
   summary: EventSummary,
   recommendations: RecommendationSummary[],
   budgetItems: BudgetLineItem[],
-  customCosts: CustomCostItem[] = []
+  customCosts: CustomCostItem[] = [],
+  baseline: PlannerProjectionBaseline | null = null
 ): ProfitModel {
   const guestCount = summary.guest_count ?? 0
-  const paidAverage = guestCount > 0 ? Math.max(1, Math.round(guestCount * 0.87)) : 0
+  const sellThrough = clampRate(baseline?.avgSellThrough ?? 0.87, 0, 1.5)
+  const noShowRate = clampRate(baseline?.avgNoShowRate ?? 0.15, 0, 1)
+  const paidAverage = guestCount > 0 ? Math.max(1, Math.round(guestCount * sellThrough)) : 0
+  const projectedAttendance = paidAverage > 0 ? Math.max(1, Math.round(paidAverage * (1 - noShowRate))) : 0
   const venueCostCents = recommendations.find((item) => /venue/i.test(item.type))?.priceCents ?? budgetItems[0]?.amountCents ?? 0
   const vendorCostCents =
     budgetItems.find((item) => /vendor|dinner/i.test(item.label))?.amountCents ??
@@ -776,7 +793,7 @@ function buildProfitModel(
   const expectedCents = ticketRevenueCents + venueIncentive.amountCents - venueCostCents - vendorCostCents - customCostsTotalCents - feesCents
   const conservativeCents = Math.round(expectedCents * 0.6)
   const upsideCents = Math.round(expectedCents * 1.45)
-  const attendeeBasis = paidAverage || guestCount
+  const attendeeBasis = projectedAttendance || paidAverage || guestCount
   const perAttendeeNetCents = attendeeBasis > 0 ? Math.round(expectedCents / attendeeBasis) : null
   const totalCostCents = venueCostCents + vendorCostCents + customCostsTotalCents + feesCents
   const breakEvenCostCents = Math.max(0, totalCostCents - venueIncentive.amountCents)
@@ -784,6 +801,10 @@ function buildProfitModel(
     summary.ticketed && ticketPricing.recommendedCents > 0 && breakEvenCostCents > 0
       ? Math.ceil(breakEvenCostCents / ticketPricing.recommendedCents)
       : null
+
+  const baselineStddev = baseline?.stddevMarginCents && baseline.stddevMarginCents > 0 ? baseline.stddevMarginCents : null
+  const rangeLowCents = baselineStddev ? expectedCents - baselineStddev : Math.min(conservativeCents, upsideCents)
+  const rangeHighCents = baselineStddev ? expectedCents + baselineStddev : Math.max(conservativeCents, upsideCents)
 
   const lineItems: ProfitModel['lineItems'] = [
     { label: `Ticket revenue (${paidAverage || 'TBD'} paid avg × ${formatCents(ticketPricing.recommendedCents)})`, amountCents: ticketRevenueCents },
@@ -805,8 +826,10 @@ function buildProfitModel(
     expectedCents,
     upsideCents,
     realisticCents: expectedCents,
-    rangeLowCents: Math.min(conservativeCents, upsideCents),
-    rangeHighCents: Math.max(conservativeCents, upsideCents),
+    rangeLowCents,
+    rangeHighCents,
+    baselineSource: baseline?.source ?? 'default',
+    baselineBasisLabel: baseline?.basisLabel ?? 'Industry default',
     perAttendeeNetCents,
     paidAverage,
     venueChiCents,
@@ -821,6 +844,28 @@ function buildProfitModel(
       projectedMarginCents: expectedCents,
     },
     lineItems,
+  }
+}
+
+function clampRate(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min
+  return Math.min(max, Math.max(min, value))
+}
+
+function readProjectionBaseline(value: unknown): PlannerProjectionBaseline | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const source = readString(record.source)
+  if (source !== 'personal' && source !== 'archetype' && source !== 'default') return null
+  return {
+    source,
+    avgSellThrough: clampRate(readNumber(record.avgSellThrough) ?? 0.85, 0, 1.5),
+    avgNoShowRate: clampRate(readNumber(record.avgNoShowRate) ?? 0.15, 0, 1),
+    avgAttendanceRate: clampRate(readNumber(record.avgAttendanceRate) ?? 0.85, 0, 1.5),
+    avgMarginCents: readNumber(record.avgMarginCents),
+    stddevMarginCents: readNumber(record.stddevMarginCents),
+    nEvents: Math.max(0, Math.floor(readNumber(record.nEvents) ?? 0)),
+    basisLabel: readString(record.basisLabel) ?? 'Industry default',
   }
 }
 
@@ -942,6 +987,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const [contactEmailDrafts, setContactEmailDrafts] = useState<Record<string, string>>({})
   const [contactEmailFeedback, setContactEmailFeedback] = useState<Record<string, 'saving' | 'saved' | 'draft_created' | 'error'>>({})
   const [contactDraftMessageIds, setContactDraftMessageIds] = useState<Record<string, string | null>>({})
+  const [projectionBaseline, setProjectionBaseline] = useState<PlannerProjectionBaseline | null>(null)
   const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const billingGate = usePlannerBillingGate()
 
@@ -995,8 +1041,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const openQuestions = buildOpenQuestions(eventSummary, renderedRecommendations)
   const authorizationCards = buildAuthorizationCards(renderedApprovals, primaryVenue, renderedBudgetLineItems)
   const profitModel = useMemo(
-    () => buildProfitModel(eventSummary, renderedRecommendations, renderedBudgetLineItems, customCosts),
-    [eventSummary, renderedBudgetLineItems, renderedRecommendations, customCosts]
+    () => buildProfitModel(eventSummary, renderedRecommendations, renderedBudgetLineItems, customCosts, projectionBaseline),
+    [eventSummary, renderedBudgetLineItems, renderedRecommendations, customCosts, projectionBaseline]
   )
   const renderedEstimatedTotal =
     estimatedTotalCents !== undefined ? formatCents(estimatedTotalCents) : formatCents(eventSummary.budget_cents)
@@ -1028,6 +1074,37 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         : ''
     )
   }, [isDateChangeOpen, livePlan?.dateWindowEnd, livePlan?.dateWindowStart])
+
+  useEffect(() => {
+    if (!activePlanId || activePlanId.startsWith('mock-plan-')) {
+      setProjectionBaseline(null)
+      return
+    }
+
+    let cancelled = false
+    async function loadBaseline() {
+      try {
+        const response = await fetch(`/api/planner/plans/${activePlanId}/baseline`, {
+          method: 'GET',
+          credentials: 'same-origin',
+          headers: { Accept: 'application/json' },
+        })
+        if (!response.ok) {
+          if (!cancelled) setProjectionBaseline(null)
+          return
+        }
+        const json = await response.json()
+        if (!cancelled) setProjectionBaseline(readProjectionBaseline(json?.baseline))
+      } catch {
+        if (!cancelled) setProjectionBaseline(null)
+      }
+    }
+
+    void loadBaseline()
+    return () => {
+      cancelled = true
+    }
+  }, [activePlanId])
 
   async function handleDateChangeSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -1613,6 +1690,12 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         </ArtifactSection>
 
         <ArtifactSection icon={<TrendingUp className="h-5 w-5" />} title="Profit Window" subtitle="Realistic forecast + range">
+          {profitModel.baselineSource !== 'default' ? (
+            <div className="mb-4 inline-flex max-w-full items-center gap-2 rounded-full border border-forest/20 bg-forest/10 px-3 py-1 text-xs font-semibold text-forest">
+              <TrendingUp className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{profitModel.baselineBasisLabel}</span>
+            </div>
+          ) : null}
           <div className="mb-5 rounded-lg border border-tan bg-cream-deep/50 p-5">
             <p className="label-caps text-ink-soft">Ticket Pricing</p>
             <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(118px,1fr))]">
@@ -1626,7 +1709,11 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           </div>
           <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
             <ProfitCard label="Realistic" value={profitModel.realisticCents} featured />
-            <ProfitRangeCard label="Range" low={profitModel.rangeLowCents} high={profitModel.rangeHighCents} />
+            <ProfitRangeCard
+              label={profitModel.baselineSource === 'default' ? 'Range' : 'Historical range'}
+              low={profitModel.rangeLowCents}
+              high={profitModel.rangeHighCents}
+            />
             <ProfitCard label="Per-attendee net" value={profitModel.perAttendeeNetCents} />
           </div>
 

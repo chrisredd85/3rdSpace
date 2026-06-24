@@ -8,11 +8,15 @@ describe('PlannerLivePlanPanel', () => {
 
   beforeEach(() => {
     window.localStorage.clear()
-    global.fetch = originalFetch
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ baseline: null }), { status: 200 }))
     Object.defineProperty(window.HTMLElement.prototype, 'scrollIntoView', {
       configurable: true,
       value: jest.fn(),
     })
+  })
+
+  afterAll(() => {
+    global.fetch = originalFetch
   })
 
   it('updates the event brief when outreach and partner confirmations publish new plan data', async () => {
@@ -152,6 +156,49 @@ describe('PlannerLivePlanPanel', () => {
     expect(screen.getByText('Venue consumption incentive (bar CHI)')).toBeInTheDocument()
     expect(screen.getAllByText('$324').length).toBeGreaterThan(0)
     expect(screen.getByText('Per-attendee net')).toBeInTheDocument()
+  })
+
+  it('renders projection source badge and historical range when a baseline is available', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      baseline: {
+        source: 'personal',
+        avgSellThrough: 0.75,
+        avgNoShowRate: 0.1,
+        avgAttendanceRate: 0.9,
+        avgMarginCents: 180000,
+        stddevMarginCents: 30000,
+        nEvents: 5,
+        basisLabel: 'Based on your last 5 events',
+      },
+    }), { status: 200 }))
+
+    window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      plan: makePlanSnapshot({
+        title: 'Baseline founder dinner',
+        guestCount: 80,
+        neighborhood: 'Mission',
+        budgetCapCents: 500000,
+        ticketed: true,
+        ticketingModel: 'Ticketed',
+      }),
+      messages: [
+        makeConfirmationMessage('confirmation-baseline', {
+          event_type: 'founder_dinner',
+          guest_count: 80,
+          area: 'Mission',
+          budget_cents: 500000,
+          ticketing_model: 'Ticketed',
+          ticketed: true,
+        }),
+      ],
+      planId: 'plan-baseline-test',
+    }))
+
+    render(<PlannerLivePlanPanel inline />)
+
+    expect(await screen.findByRole('heading', { name: 'Baseline founder dinner' })).toBeInTheDocument()
+    expect(await screen.findByText('Based on your last 5 events')).toBeInTheDocument()
+    expect(screen.getByText('Historical range')).toBeInTheDocument()
   })
 
   it('shows ticket sales and checked-in counts in the event brief', async () => {
