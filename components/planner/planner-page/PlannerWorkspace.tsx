@@ -1763,7 +1763,11 @@ export function PlannerWorkspace() {
             ) : null}
 
             {activeTab === 'event_plan' ? (
-              <PlannerLivePlanPanel inline onDateChangeRequest={requestDateChangeOutreach} />
+              <PlannerLivePlanPanel
+                inline
+                onDateChangeRequest={requestDateChangeOutreach}
+                onNavigateToTab={navigateToPlannerTab}
+              />
             ) : null}
 
             {activeTab === 'data' && persistenceMode === 'server' ? (

@@ -30,6 +30,7 @@ import {
 import { planApprovedActionExecution } from '@/lib/planner/execution/executeApprovedAction'
 import { approvalRequiresReapproval } from '@/lib/planner/execution/reapproval'
 import { executeApprovedGmailOutreach } from '@/lib/outreach/gmailApprovalFlow'
+import { enqueueDraftsAfterVenueApproval } from '@/lib/planner/discoveryOutreachDrafts'
 import {
   BuilderBillingRequiredError,
   consumeBuilderEventAccess,
@@ -788,8 +789,12 @@ type OutreachPreparationSummary = {
   reason?: string
   venue_invite_count?: number
   vendor_invite_count?: number
+  gmail_draft_count?: number
+  contact_extraction_pending_count?: number
+  contact_email_required_count?: number
   opportunity_brief_id?: string | null
   vendor_opportunity_brief_id?: string | null
+  discovery_outreach_results?: unknown[]
 }
 
 async function syncOpportunityInviteStatuses(
@@ -1031,6 +1036,86 @@ async function syncVenueOpportunitySendApproval(
     return { prepared: false, reason: 'missing_venue_ids' }
   }
 
+  const discoveryDrafts = await enqueueDraftsAfterVenueApproval({
+    db,
+    planId: plan.id,
+    userId,
+    venueIds,
+  })
+
+  if (discoveryDrafts.prepared) {
+    await updateActionPayload(db, approval.agent_action_id, {
+      ...payload,
+      venue_ids: discoveryDrafts.unhandledVenueIds,
+      discovery_outreach_results: discoveryDrafts.results,
+      queued_gmail_approval_count: discoveryDrafts.draftCreatedCount,
+      contact_extraction_pending_count: discoveryDrafts.extractionPendingCount,
+      contact_email_required_count: discoveryDrafts.emailRequiredCount,
+    })
+    await insertOpportunityStatusMessage(db, plan.id, {
+      opportunity_brief_id: approval.id,
+      approval_id: approval.id,
+      status: 'drafts_prepared',
+      content: buildDiscoveryOutreachStatusMessage(discoveryDrafts),
+    })
+
+    let legacySummary: OutreachPreparationSummary = { prepared: false }
+    if (discoveryDrafts.unhandledVenueIds.length > 0) {
+      const result = await createVenueOpportunityBrief({
+        db,
+        plan,
+        userId,
+        venueIds: discoveryDrafts.unhandledVenueIds,
+        summary: readString(payload.summary) ?? `${plan.title} venue opportunity`,
+        requirements: readRecord(payload.requirements) ?? {},
+        responseDeadline: readString(payload.response_deadline),
+        issueTokens: true,
+      })
+
+      await updateActionPayload(db, approval.agent_action_id, {
+        ...payload,
+        venue_ids: discoveryDrafts.unhandledVenueIds,
+        opportunity_brief_id: result.brief.id,
+        invite_ids: result.invites.map((invite) => invite.id),
+        queued_invite_count: result.invites.length,
+        discovery_outreach_results: discoveryDrafts.results,
+        queued_gmail_approval_count: discoveryDrafts.draftCreatedCount,
+        contact_extraction_pending_count: discoveryDrafts.extractionPendingCount,
+        contact_email_required_count: discoveryDrafts.emailRequiredCount,
+      })
+
+      await insertOpportunityStatusMessage(db, plan.id, {
+        opportunity_brief_id: String(result.brief.id),
+        approval_id: approval.id,
+        status: 'drafts_prepared',
+        content: `Prepared ${result.invites.length} venue outreach draft${result.invites.length === 1 ? '' : 's'} for review.`,
+      })
+
+      legacySummary = {
+        prepared: true,
+        venue_invite_count: result.invites.length,
+        opportunity_brief_id: String(result.brief.id),
+      }
+    }
+
+    let vendorSummary: OutreachPreparationSummary = { prepared: false }
+    if (hasVendorOutreachPayload(payload)) {
+      vendorSummary = await syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
+    }
+
+    return {
+      prepared: true,
+      venue_invite_count: (legacySummary.venue_invite_count ?? 0) + discoveryDrafts.draftCreatedCount,
+      vendor_invite_count: vendorSummary.vendor_invite_count,
+      gmail_draft_count: discoveryDrafts.draftCreatedCount,
+      contact_extraction_pending_count: discoveryDrafts.extractionPendingCount,
+      contact_email_required_count: discoveryDrafts.emailRequiredCount,
+      opportunity_brief_id: legacySummary.opportunity_brief_id,
+      vendor_opportunity_brief_id: vendorSummary.vendor_opportunity_brief_id,
+      discovery_outreach_results: discoveryDrafts.results,
+    }
+  }
+
   const result = await createVenueOpportunityBrief({
     db,
     plan,
@@ -1069,6 +1154,24 @@ async function syncVenueOpportunitySendApproval(
     opportunity_brief_id: String(result.brief.id),
     vendor_opportunity_brief_id: vendorSummary.vendor_opportunity_brief_id,
   }
+}
+
+function buildDiscoveryOutreachStatusMessage(summary: Awaited<ReturnType<typeof enqueueDraftsAfterVenueApproval>>) {
+  const parts = [
+    summary.draftCreatedCount > 0
+      ? `${summary.draftCreatedCount} Gmail outreach draft${summary.draftCreatedCount === 1 ? '' : 's'} ready for approval`
+      : null,
+    summary.extractionPendingCount > 0
+      ? `${summary.extractionPendingCount} venue${summary.extractionPendingCount === 1 ? '' : 's'} checking website contact details`
+      : null,
+    summary.emailRequiredCount > 0
+      ? `${summary.emailRequiredCount} venue${summary.emailRequiredCount === 1 ? '' : 's'} need a contact email`
+      : null,
+  ].filter((part): part is string => Boolean(part))
+
+  return parts.length > 0
+    ? `${parts.join('; ')}.`
+    : 'Prepared venue outreach for review.'
 }
 
 function hasVendorOutreachPayload(payload: Record<string, unknown>): boolean {

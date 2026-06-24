@@ -86,7 +86,21 @@ class MemoryQuery {
     return this
   }
 
+  order(_field: string, _options?: Record<string, unknown>) {
+    return this
+  }
+
+  limit(_count: number) {
+    return this
+  }
+
   async maybeSingle() {
+    const result = await this.execute()
+    const row = Array.isArray(result.data) ? result.data[0] : result.data
+    return { data: row ?? null, error: null }
+  }
+
+  async single() {
     const result = await this.execute()
     const row = Array.isArray(result.data) ? result.data[0] : result.data
     return { data: row ?? null, error: null }
@@ -164,6 +178,7 @@ function makeDb() {
         discovery_venue_id: '11111111-1111-4111-8111-111111111111',
         dismissed_at: null,
         fit_score: 91,
+        places_request_json: {},
       },
       {
         id: 'candidate-pending',
@@ -171,6 +186,7 @@ function makeDb() {
         discovery_venue_id: '22222222-2222-4222-8222-222222222222',
         dismissed_at: null,
         fit_score: 82,
+        places_request_json: {},
       },
     ],
     discovery_venues: [
@@ -195,6 +211,7 @@ function makeDb() {
         photos: [],
       },
     ],
+    plan_messages: [],
   })
 }
 

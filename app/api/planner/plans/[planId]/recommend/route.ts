@@ -67,8 +67,11 @@ import {
 } from '@/lib/server/builderTierElasticity'
 import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
 import {
+  DISCOVERY_VENUE_SELECT,
   mapDiscoveryVenueToCatalogVenue,
+  resolveDiscoveryVenueContact,
   searchPlacesForPlan,
+  type DiscoveryVenueRow,
   type SearchPlacesForPlanResult,
 } from '@/lib/server/places-outreach'
 import { readCents } from '@/lib/money'
@@ -657,10 +660,14 @@ export async function POST(
         eventPlan,
       }))
     )
+    const rankedVenueResponsesWithContact = await attachDiscoveryContactMetadata(
+      recommendationPlan.id,
+      rankedVenueResponses
+    )
     return jsonWithDeprecatedKeys({
       resolved_archetype: toResolvedArchetypeSummary(archetype),
-      ranked_venues: rankedVenueResponses,
-      recommendations: rankedVenueResponses,
+      ranked_venues: rankedVenueResponsesWithContact,
+      recommendations: rankedVenueResponsesWithContact,
       venue_match_notice: venueMatch.notice,
       vendor_recommendations: suggestedVendors,
       vendor_recommendation_groups: vendorRecommendationGroups,
@@ -934,10 +941,14 @@ async function runCatalogFallback(input: {
       eventPlan,
     }))
   )
+  const rankedVenueResponsesWithContact = await attachDiscoveryContactMetadata(
+    input.plan.id,
+    rankedVenueResponses
+  )
   return jsonWithDeprecatedKeys({
     resolved_archetype: toResolvedArchetypeSummary(input.archetype),
-    ranked_venues: rankedVenueResponses,
-    recommendations: rankedVenueResponses,
+    ranked_venues: rankedVenueResponsesWithContact,
+    recommendations: rankedVenueResponsesWithContact,
     venue_match_notice: catalogVenueMatch.notice,
     vendor_recommendations: vendorRecommendations,
     vendor_recommendation_groups: vendorRecommendationGroups,
@@ -987,6 +998,76 @@ function withVenueRecommendationCompat<T extends Record<string, unknown>>(venue:
     venue_chi_rate: venue.venue_chi_rate ?? venue.venue_kickback_rate ?? null,
     venue_kickback_rate: venue.venue_kickback_rate ?? venue.venue_chi_rate ?? null,
   }
+}
+
+async function attachDiscoveryContactMetadata<T extends Record<string, unknown>>(
+  planId: string,
+  venues: T[]
+): Promise<T[]> {
+  const venueIds = venues.map((venue) => readString(venue.venue_id)).filter((id): id is string => Boolean(id))
+  if (venueIds.length === 0) return venues
+
+  const admin = createServiceRoleClient()
+  const { data: candidates, error } = await admin
+    .from('plan_discovery_venue_candidates')
+    .select('id,discovery_venue_id,status,places_request_json,outreach_approval_created_at')
+    .eq('plan_id', planId)
+    .in('discovery_venue_id', venueIds)
+
+  if (error || !Array.isArray(candidates) || candidates.length === 0) {
+    if (error) console.error('[planner.recommend] discovery candidate metadata lookup failed', error)
+    return venues
+  }
+
+  const candidateByVenueId = new Map(candidates.map((candidate) => [
+    String(candidate.discovery_venue_id),
+    candidate as {
+      id: string
+      discovery_venue_id: string
+      status: string
+      places_request_json: Json | null
+      outreach_approval_created_at: string | null
+    },
+  ]))
+  const { data: discoveryVenues, error: venueError } = await admin
+    .from('discovery_venues')
+    .select(DISCOVERY_VENUE_SELECT)
+    .in('id', [...candidateByVenueId.keys()])
+    .returns<DiscoveryVenueRow[]>()
+
+  if (venueError || !Array.isArray(discoveryVenues)) {
+    if (venueError) console.error('[planner.recommend] discovery venue contact metadata lookup failed', venueError)
+    return venues
+  }
+
+  const discoveryById = new Map(discoveryVenues.map((venue) => [venue.id, venue]))
+  return venues.map((venue) => {
+    const venueId = readString(venue.venue_id)
+    if (!venueId) return venue
+    const candidate = candidateByVenueId.get(venueId)
+    const discoveryVenue = discoveryById.get(venueId)
+    if (!candidate || !discoveryVenue) return venue
+
+    const contact = resolveDiscoveryVenueContact(discoveryVenue)
+    const draftRequest = readRecord(readRecord(candidate.places_request_json)?.outreach_draft_request)
+    return {
+      ...venue,
+      discovery_venue_id: discoveryVenue.id,
+      discovery_candidate_id: candidate.id,
+      discovery_candidate_status: candidate.status,
+      contact_status: contact.status,
+      contact_email_source: contact.source,
+      contact_email_confidence: contact.confidence,
+      contact_email: contact.email,
+      contact_phone: discoveryVenue.contact_phone,
+      website: discoveryVenue.website,
+      extraction_status: discoveryVenue.website_extraction_status,
+      outreach_approval_created_at: candidate.outreach_approval_created_at,
+      outreach_draft_request_status: readString(draftRequest?.status),
+      outreach_draft_approval_message_id: readString(draftRequest?.approval_message_id),
+      outreach_draft_approval_id: readString(draftRequest?.approval_id),
+    }
+  })
 }
 
 function enrichRankedVenuePrice(input: {
