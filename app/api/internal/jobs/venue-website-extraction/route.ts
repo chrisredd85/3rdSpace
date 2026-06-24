@@ -11,6 +11,7 @@ import {
 } from '@/lib/server/discovery-enrichment'
 import { getWorkerOrAdminContext } from '@/lib/server/admin-auth'
 import { extractVenueContacts } from '@/lib/server/venue-website-extractor'
+import { enqueuePendingDraftsForDiscoveryVenue } from '@/lib/planner/discoveryOutreachDrafts'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import type { Database } from '@/lib/types/database-generated'
 
@@ -109,7 +110,7 @@ async function runVenueWebsiteExtraction() {
     timeout: 0,
     skipped: 0,
   }
-  const results: Array<{ id: string; status: string; emails: number; error?: string }> = []
+  const results: Array<{ id: string; status: string; emails: number; draft_approvals?: number; error?: string }> = []
 
   for (const batch of chunk(venues, BATCH_SIZE)) {
     const batchResults = await Promise.all(batch.map((venue) => processVenue(admin, venue)))
@@ -162,7 +163,16 @@ async function processVenue(admin: SupabaseAdminClient, venue: DiscoveryVenueExt
       return { id: venue.id, status: 'fetch_failed', emails: result.emails.length, error: error.message }
     }
 
-    return { id: venue.id, status: result.status, emails: result.emails.length }
+    let draftApprovals = 0
+    if (result.emails.length > 0) {
+      const draftResults = await enqueuePendingDraftsForDiscoveryVenue({
+        db: admin,
+        discoveryVenueId: venue.id,
+      })
+      draftApprovals = draftResults.filter((draft) => draft.status === 'draft_created').length
+    }
+
+    return { id: venue.id, status: result.status, emails: result.emails.length, draft_approvals: draftApprovals }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Website extraction failed'
     Sentry.captureException(error, {

@@ -4,8 +4,11 @@ import { PlannerLivePlanPanel } from '@/components/planner/PlannerLivePlanPanel'
 import type { PlanMessage } from '@/lib/types/planner'
 
 describe('PlannerLivePlanPanel', () => {
+  const originalFetch = global.fetch
+
   beforeEach(() => {
     window.localStorage.clear()
+    global.fetch = originalFetch
     Object.defineProperty(window.HTMLElement.prototype, 'scrollIntoView', {
       configurable: true,
       value: jest.fn(),
@@ -259,6 +262,88 @@ describe('PlannerLivePlanPanel', () => {
     expect(screen.getByText('Date-change approval created. Review it before partner emails send.')).toBeInTheDocument()
   })
 
+  it('shows pending Gmail outreach drafts as an approvals chip and venue status', async () => {
+    const onNavigateToTab = jest.fn()
+    window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      plan: makePlanSnapshot({ title: 'Outreach draft review' }),
+      messages: [
+        makeRecommendationMessage('recommendation-draft-status', [
+          makeVenueRecommendation({
+            id: 'venue-1',
+            name: 'Moongate Lounge',
+            discovery_venue_id: 'venue-1',
+            contact_status: 'ready_to_reach_out',
+            contact_email: 'events@moongate.example',
+          }),
+        ]),
+        makeGmailApprovalMessage('gmail-approval-1', {
+          approvalId: 'approval-1',
+          discoveryVenueId: 'venue-1',
+          venueName: 'Moongate Lounge',
+          status: 'pending',
+        }),
+      ],
+      planId: 'plan-draft-status',
+    }))
+
+    render(<PlannerLivePlanPanel inline onNavigateToTab={onNavigateToTab} />)
+
+    const chip = await screen.findByRole('button', { name: /1 outreach draft ready for review/i })
+    expect(screen.getByRole('button', { name: /draft pending approval/i })).toBeInTheDocument()
+    await userEvent.click(chip)
+
+    expect(onNavigateToTab).toHaveBeenCalledWith('approvals', 'gmail-approval-1')
+  })
+
+  it('lets organizers add a missing venue email and keeps draft review in approvals', async () => {
+    const user = userEvent.setup()
+    const onNavigateToTab = jest.fn()
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        draft_results: [{
+          status: 'draft_created',
+          discoveryVenueId: 'venue-1',
+          approvalMessageId: 'gmail-approval-created',
+        }],
+      }),
+    } as Response)
+    window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      plan: makePlanSnapshot({ title: 'Contact rescue review' }),
+      messages: [
+        makeRecommendationMessage('recommendation-email-required', [
+          makeVenueRecommendation({
+            id: 'venue-1',
+            name: 'Moongate Lounge',
+            discovery_venue_id: 'venue-1',
+            contact_status: 'no_contact_available',
+            outreach_draft_request_status: 'email_required',
+          }),
+        ]),
+      ],
+      planId: 'plan-contact-rescue',
+    }))
+
+    render(<PlannerLivePlanPanel inline onNavigateToTab={onNavigateToTab} />)
+
+    await user.type(await screen.findByLabelText(/contact email for moongate lounge/i), 'events@moongate.example')
+    await user.click(screen.getByRole('button', { name: /add contact email/i }))
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/planner/discovery-venues/venue-1/contact-email',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ email: 'events@moongate.example' }),
+        })
+      )
+    })
+
+    const draftStatus = await screen.findByRole('button', { name: /draft pending approval/i })
+    await user.click(draftStatus)
+    expect(onNavigateToTab).toHaveBeenCalledWith('approvals', 'gmail-approval-created')
+  })
+
   it('hides venue comparison when fewer than two venue recommendations are available', async () => {
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
       plan: makePlanSnapshot({ title: 'Single venue review' }),
@@ -432,6 +517,41 @@ function makeRecommendationMessage(id: string, recommendations: Array<Record<str
     message_type: 'recommendation',
     metadata: { recommendations },
     created_at: '2026-06-16T16:05:00.000Z',
+  }
+}
+
+function makeGmailApprovalMessage(
+  id: string,
+  input: {
+    approvalId: string
+    discoveryVenueId: string
+    venueName: string
+    status: string
+  }
+): PlanMessage {
+  return {
+    id,
+    plan_id: 'plan-brief-test',
+    role: 'agent',
+    content: 'Review this Gmail outreach batch before anything sends.',
+    message_type: 'approval_request',
+    metadata: {
+      kind: 'gmail_approved_outreach',
+      status: input.status,
+      discovery_venue_ids: [input.discoveryVenueId],
+      partner_targets: [{
+        kind: 'venue',
+        name: input.venueName,
+        email: 'events@example.com',
+        discovery_venue_id: input.discoveryVenueId,
+      }],
+      approval: {
+        id: input.approvalId,
+        status: input.status,
+        action_label: 'Send outreach',
+      },
+    },
+    created_at: '2026-06-16T16:10:00.000Z',
   }
 }
 

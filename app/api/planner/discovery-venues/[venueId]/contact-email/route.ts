@@ -3,6 +3,7 @@ export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { enqueuePendingDraftsForUserVenue } from '@/lib/planner/discoveryOutreachDrafts'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json } from '@/lib/types'
 
@@ -89,7 +90,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Failed to save contact email' }, { status: 500 })
     }
 
-    return NextResponse.json({ venue: updated })
+    const draftResults = await enqueuePendingDraftsForUserVenue({
+      db: admin as unknown as { from: (table: string) => any },
+      userId: user.id,
+      discoveryVenueId: context.params.venueId,
+    })
+
+    return NextResponse.json({ venue: updated, draft_results: draftResults })
   } catch (error) {
     console.error('[planner.discovery-venues.contact-email] POST failed', error)
     return NextResponse.json({ error: 'Failed to save contact email' }, { status: 500 })

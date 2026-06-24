@@ -3,7 +3,8 @@ export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { createOrReuseGmailOutreachApproval, GmailConnectionRequiredError } from '@/lib/outreach/gmailApprovalFlow'
+import { GmailConnectionRequiredError } from '@/lib/outreach/gmailApprovalFlow'
+import { enqueueDraftAfterVenueApproval } from '@/lib/planner/discoveryOutreachDrafts'
 import { PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import {
   buildDefaultOutreachBody,
@@ -92,30 +93,23 @@ export async function POST(request: NextRequest, context: RouteContext) {
     for (const venueId of uniqueVenueIds) {
       const row = rowByVenueId.get(venueId)
       if (!row) continue
-      const contact = resolveDiscoveryVenueContact(row.venue)
-      if (!contact.email) continue
 
-      const result = await createOrReuseGmailOutreachApproval(supabase as unknown as { from: (table: string) => any }, {
-        userId: user.id,
+      const result = await enqueueDraftAfterVenueApproval({
+        db: supabase as unknown as { from: (table: string) => any },
         planId: plan.id,
-        reuseExisting: false,
-        targets: [{
-          kind: 'venue',
-          name: row.venue.name,
-          email: contact.email,
-          discoveryVenueId: row.venue.id,
-        }],
+        userId: user.id,
+        discoveryVenueId: row.venue.id,
         subject,
         bodyText,
       })
 
-      await markCandidateApprovalCreated(row.candidate.id)
       created.push({
         discovery_venue_id: row.venue.id,
         venue_name: row.venue.name,
-        approval_id: result.approval.id,
+        approval_id: result.gmailApprovalId,
         approval_message_id: result.approvalMessageId,
-        redirect_url: result.redirectUrl,
+        redirect_url: result.redirectUrl ?? null,
+        status: result.status,
       })
     }
 
@@ -183,22 +177,4 @@ async function loadCandidateRows(planId: string, venueIds: string[]): Promise<Ca
     const venue = venueById.get(candidate.discovery_venue_id)
     return venue ? [{ candidate, venue }] : []
   })
-}
-
-async function markCandidateApprovalCreated(candidateId: string) {
-  const admin = createServiceRoleClient()
-  const { error } = await admin
-    .from('plan_discovery_venue_candidates')
-    .update({
-      status: 'approval_created',
-      outreach_approval_created_at: new Date().toISOString(),
-    })
-    .eq('id', candidateId)
-
-  if (error) {
-    console.error('[planner.outreach.approve-batch] candidate_status_update_failed', {
-      error: error.message,
-      candidate_id: candidateId,
-    })
-  }
 }

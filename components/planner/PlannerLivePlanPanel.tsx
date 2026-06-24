@@ -76,6 +76,19 @@ interface RecommendationSummary {
   commercialModelMatch: string | null
   dealModelSummary: string | null
   tags: string[]
+  discoveryVenueId: string | null
+  contactStatus: string | null
+  contactEmail: string | null
+  contactEmailSource: string | null
+  contactEmailConfidence: string | null
+  contactPhone: string | null
+  website: string | null
+  extractionStatus: string | null
+  discoveryCandidateStatus: string | null
+  outreachDraftRequestStatus: string | null
+  outreachDraftApprovalMessageId: string | null
+  outreachDraftApprovalId: string | null
+  outreachApprovalCreatedAt: string | null
 }
 
 interface RunOfShowMilestone {
@@ -137,6 +150,7 @@ interface PlannerLivePlanPanelProps {
   /** When true, renders as an inline block (no fixed height, no border-l, no shadow). */
   inline?: boolean
   onDateChangeRequest?: (input: PlannerDateChangeRequestInput) => Promise<void>
+  onNavigateToTab?: (tabId: 'approvals', messageId?: string) => void
 }
 
 export interface PlannerDateChangeRequestInput {
@@ -600,6 +614,10 @@ function deriveRecommendations(messages: PlanMessage[]): RecommendationSummary[]
       const type = readString(record.type) ?? readString(record.recommendation_type) ?? 'Option'
       const priceCents = readNumber(record.price_cents) ?? readNumber(record.price)
       const priceTier = readString(record.price_tier) ?? readString(record.fit)
+      const contactStatus = readString(record.contact_status)
+      const discoveryVenueId =
+        readString(record.discovery_venue_id) ??
+        (contactStatus || readString(record.discovery_candidate_id) ? readString(record.venue_id) : null)
 
       return {
         id: readString(record.id) ?? `${latestRecommendationMessage.id}-${index}`,
@@ -626,8 +644,73 @@ function deriveRecommendations(messages: PlanMessage[]): RecommendationSummary[]
           ...readStringArray(record.tags),
           ...readStringArray(record.fit_tags),
         ].slice(0, 4),
+        discoveryVenueId,
+        contactStatus,
+        contactEmail: readString(record.contact_email),
+        contactEmailSource: readString(record.contact_email_source),
+        contactEmailConfidence: readString(record.contact_email_confidence),
+        contactPhone: readString(record.contact_phone),
+        website: readString(record.website),
+        extractionStatus: readString(record.extraction_status),
+        discoveryCandidateStatus: readString(record.discovery_candidate_status),
+        outreachDraftRequestStatus: readString(record.outreach_draft_request_status),
+        outreachDraftApprovalMessageId: readString(record.outreach_draft_approval_message_id),
+        outreachDraftApprovalId: readString(record.outreach_draft_approval_id),
+        outreachApprovalCreatedAt: readString(record.outreach_approval_created_at),
       }
   })
+}
+
+type GmailOutreachDraftSummary = {
+  pendingCount: number
+  firstMessageId: string | null
+  pendingByVenueId: Map<string, { messageId: string; approvalId: string | null }>
+  sentByVenueId: Map<string, { messageId: string; approvalId: string | null }>
+}
+
+function deriveGmailOutreachDraftSummary(messages: PlanMessage[]): GmailOutreachDraftSummary {
+  const summary: GmailOutreachDraftSummary = {
+    pendingCount: 0,
+    firstMessageId: null,
+    pendingByVenueId: new Map(),
+    sentByVenueId: new Map(),
+  }
+
+  for (const message of messages) {
+    if (String(message.message_type) !== 'approval_request') continue
+    const metadata = asRecord(message.metadata)
+    if (readString(metadata?.kind) !== 'gmail_approved_outreach') continue
+
+    const approval = asRecord(metadata?.approval)
+    const status = readString(approval?.status) ?? readString(metadata?.status) ?? 'pending'
+    const approvalId = readString(approval?.id)
+    const targets = Array.isArray(metadata?.partner_targets) ? metadata.partner_targets : []
+    const venueIds = new Set([
+      ...readStringArray(metadata?.discovery_venue_ids),
+      ...targets.flatMap((target) => {
+        const record = asRecord(target)
+        const id = readString(record?.discovery_venue_id)
+        return id ? [id] : []
+      }),
+    ])
+    if (venueIds.size === 0) continue
+
+    for (const venueId of venueIds) {
+      if (status === 'pending') {
+        if (!summary.pendingByVenueId.has(venueId)) {
+          summary.pendingByVenueId.set(venueId, { messageId: String(message.id), approvalId })
+          summary.pendingCount += 1
+          summary.firstMessageId ??= String(message.id)
+        }
+      } else if (status === 'authorized' || status === 'approved' || status === 'complete') {
+        if (!summary.sentByVenueId.has(venueId)) {
+          summary.sentByVenueId.set(venueId, { messageId: String(message.id), approvalId })
+        }
+      }
+    }
+  }
+
+  return summary
 }
 
 /**
@@ -832,6 +915,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   sources = defaultSources,
   inline = false,
   onDateChangeRequest,
+  onNavigateToTab,
 }: PlannerLivePlanPanelProps) {
   const [livePayload, setLivePayload] = useState<LivePlanPanelPayload>(emptyPayload)
   const [actionFeedback, setActionFeedback] = useState<Record<string, 'loading' | 'sent' | 'error'>>({})
@@ -855,6 +939,9 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const [dateChangeError, setDateChangeError] = useState<string | null>(null)
   const [dateChangeSuccess, setDateChangeSuccess] = useState<string | null>(null)
   const [isSubmittingDateChange, setIsSubmittingDateChange] = useState(false)
+  const [contactEmailDrafts, setContactEmailDrafts] = useState<Record<string, string>>({})
+  const [contactEmailFeedback, setContactEmailFeedback] = useState<Record<string, 'saving' | 'saved' | 'draft_created' | 'error'>>({})
+  const [contactDraftMessageIds, setContactDraftMessageIds] = useState<Record<string, string | null>>({})
   const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const billingGate = usePlannerBillingGate()
 
@@ -895,6 +982,10 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const renderedBudgetLineItems = budgetLineItems ?? buildBudgetItems(eventSummary, livePlan)
   const renderedApprovals = approvals ?? deriveApprovals(activeMessages)
   const renderedRecommendations = deriveRecommendations(activeMessages)
+  const outreachDraftSummary = useMemo(
+    () => deriveGmailOutreachDraftSummary(activeMessages),
+    [activeMessages]
+  )
   const recommendationMessageCount = useMemo(
     () => activeMessages.filter(isRecommendationPlanMessage).length,
     [activeMessages]
@@ -983,6 +1074,53 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
       setDateChangeError(error instanceof Error ? error.message : 'Could not create the date-change approval.')
     } finally {
       setIsSubmittingDateChange(false)
+    }
+  }
+
+  async function handleVenueContactEmailSubmit(venue: RecommendationSummary) {
+    const discoveryVenueId = venue.discoveryVenueId
+    if (!discoveryVenueId) return
+
+    const email = contactEmailDrafts[discoveryVenueId]?.trim()
+    if (!email) {
+      setContactEmailFeedback((current) => ({ ...current, [discoveryVenueId]: 'error' }))
+      return
+    }
+
+    setContactEmailFeedback((current) => ({ ...current, [discoveryVenueId]: 'saving' }))
+    try {
+      const response = await fetch(`/api/planner/discovery-venues/${encodeURIComponent(discoveryVenueId)}/contact-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email }),
+      })
+      const payload = await response.json().catch(() => ({})) as {
+        error?: string
+        draft_results?: Array<{
+          status?: string
+          discoveryVenueId?: string
+          approvalMessageId?: string | null
+        }>
+      }
+      if (!response.ok) throw new Error(payload.error ?? 'Unable to save contact email')
+
+      const createdDraft = payload.draft_results?.find((result) =>
+        result.discoveryVenueId === discoveryVenueId && result.status === 'draft_created'
+      )
+      if (createdDraft) {
+        setContactDraftMessageIds((current) => ({
+          ...current,
+          [discoveryVenueId]: createdDraft.approvalMessageId ?? null,
+        }))
+        setContactEmailFeedback((current) => ({ ...current, [discoveryVenueId]: 'draft_created' }))
+      } else {
+        setContactEmailFeedback((current) => ({ ...current, [discoveryVenueId]: 'saved' }))
+      }
+      setContactEmailDrafts((current) => ({ ...current, [discoveryVenueId]: '' }))
+    } catch (error) {
+      console.error('[planner.live-plan] contact_email_save_failed', error)
+      setContactEmailFeedback((current) => ({ ...current, [discoveryVenueId]: 'error' }))
     }
   }
 
@@ -1194,6 +1332,19 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             </PlanPill>
           ) : null}
         </div>
+        {outreachDraftSummary.pendingCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => onNavigateToTab?.('approvals', outreachDraftSummary.firstMessageId ?? undefined)}
+            className="mt-4 inline-flex max-w-full items-center gap-2 rounded-full border border-clay/35 bg-clay-tint px-3 py-2 text-left text-xs font-bold uppercase tracking-[0.06em] text-clay transition-colors hover:border-clay hover:bg-clay hover:text-cream focus:outline-none focus-visible:ring-2 focus-visible:ring-clay"
+          >
+            <Mail className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 truncate">
+              {outreachDraftSummary.pendingCount} outreach draft{outreachDraftSummary.pendingCount === 1 ? '' : 's'} ready for review
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0" />
+          </button>
+        ) : null}
       </div>
 
       <div
@@ -1406,6 +1557,18 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                     ))}
                   </div>
                 ) : null}
+                {primaryVenue ? (
+                  <VenueOutreachStatus
+                    venue={primaryVenue}
+                    draftSummary={outreachDraftSummary}
+                    emailDrafts={contactEmailDrafts}
+                    emailFeedback={contactEmailFeedback}
+                    localDraftMessageIds={contactDraftMessageIds}
+                    onEmailChange={(venueId, value) => setContactEmailDrafts((current) => ({ ...current, [venueId]: value }))}
+                    onEmailSubmit={handleVenueContactEmailSubmit}
+                    onNavigateToApprovals={(messageId) => onNavigateToTab?.('approvals', messageId ?? undefined)}
+                  />
+                ) : null}
               </div>
               <Link
                 href="/planner/venues"
@@ -1436,7 +1599,17 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             )}
           </div>
 
-          <VenueComparisonTable venues={venueRecommendations} onVenueClick={handleVenueComparisonJump} />
+          <VenueComparisonTable
+            venues={venueRecommendations}
+            draftSummary={outreachDraftSummary}
+            emailDrafts={contactEmailDrafts}
+            emailFeedback={contactEmailFeedback}
+            localDraftMessageIds={contactDraftMessageIds}
+            onVenueClick={handleVenueComparisonJump}
+            onEmailChange={(venueId, value) => setContactEmailDrafts((current) => ({ ...current, [venueId]: value }))}
+            onEmailSubmit={handleVenueContactEmailSubmit}
+            onNavigateToApprovals={(messageId) => onNavigateToTab?.('approvals', messageId ?? undefined)}
+          />
         </ArtifactSection>
 
         <ArtifactSection icon={<TrendingUp className="h-5 w-5" />} title="Profit Window" subtitle="Realistic forecast + range">
@@ -1780,12 +1953,179 @@ function ArtifactField({ label, value }: { label: string; value: string }) {
   )
 }
 
+function VenueOutreachStatus({
+  venue,
+  draftSummary,
+  emailDrafts,
+  emailFeedback,
+  localDraftMessageIds,
+  compact = false,
+  onEmailChange,
+  onEmailSubmit,
+  onNavigateToApprovals,
+}: {
+  venue: RecommendationSummary
+  draftSummary: GmailOutreachDraftSummary
+  emailDrafts: Record<string, string>
+  emailFeedback: Record<string, 'saving' | 'saved' | 'draft_created' | 'error'>
+  localDraftMessageIds: Record<string, string | null>
+  compact?: boolean
+  onEmailChange: (venueId: string, value: string) => void
+  onEmailSubmit: (venue: RecommendationSummary) => void
+  onNavigateToApprovals: (messageId?: string | null) => void
+}) {
+  const venueId = venue.discoveryVenueId
+  if (!venueId) return null
+
+  const pendingDraft = draftSummary.pendingByVenueId.get(venueId)
+  const sentInquiry = draftSummary.sentByVenueId.get(venueId)
+  const localDraftMessageId = localDraftMessageIds[venueId]
+  const feedback = emailFeedback[venueId]
+  const inputValue = emailDrafts[venueId] ?? ''
+  const hasLocalDraft = feedback === 'draft_created'
+  const isDraftPending = Boolean(pendingDraft || localDraftMessageId || hasLocalDraft || venue.outreachDraftRequestStatus === 'draft_created')
+  const isExtractionPending = venue.outreachDraftRequestStatus === 'extraction_pending'
+  const needsEmail = venue.outreachDraftRequestStatus === 'email_required' ||
+    (venue.contactStatus === 'no_contact_available' && !venue.contactEmail)
+
+  if (isDraftPending) {
+    const messageId = pendingDraft?.messageId ?? localDraftMessageId ?? venue.outreachDraftApprovalMessageId
+    return (
+      <button
+        type="button"
+        onClick={() => onNavigateToApprovals(messageId)}
+        className={cn(
+          'inline-flex max-w-full items-center gap-2 rounded-full border border-clay/30 bg-cream px-3 py-1.5 text-left text-xs font-bold uppercase tracking-[0.06em] text-clay transition-colors hover:border-clay hover:bg-clay hover:text-cream focus:outline-none focus-visible:ring-2 focus-visible:ring-clay',
+          compact ? 'text-[11px]' : 'mt-3'
+        )}
+      >
+        <Mail className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">Draft pending approval</span>
+        <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+      </button>
+    )
+  }
+
+  if (sentInquiry) {
+    return (
+      <button
+        type="button"
+        onClick={() => onNavigateToApprovals(sentInquiry.messageId)}
+        className={cn(
+          'inline-flex max-w-full items-center gap-2 rounded-full border border-forest/25 bg-forest-tint px-3 py-1.5 text-left text-xs font-bold uppercase tracking-[0.06em] text-forest',
+          compact ? 'text-[11px]' : 'mt-3'
+        )}
+      >
+        <Check className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">Inquiry sent</span>
+      </button>
+    )
+  }
+
+  if (isExtractionPending) {
+    return (
+      <div className={cn(
+        'inline-flex max-w-full items-center gap-2 rounded-full border border-tan bg-cream px-3 py-1.5 text-xs font-semibold text-ink-soft',
+        compact ? 'text-[11px]' : 'mt-3'
+      )}>
+        <RefreshCw className="h-3.5 w-3.5 shrink-0 animate-spin text-clay" />
+        <span className="min-w-0 truncate">Checking website for contact email</span>
+      </div>
+    )
+  }
+
+  if (needsEmail) {
+    return (
+      <form
+        className={cn('grid gap-2', compact ? 'max-w-[260px]' : 'mt-3 max-w-md sm:grid-cols-[minmax(0,1fr)_auto]')}
+        onSubmit={(event) => {
+          event.preventDefault()
+          onEmailSubmit(venue)
+        }}
+      >
+        <input
+          type="email"
+          value={inputValue}
+          onChange={(event) => onEmailChange(venueId, event.target.value)}
+          placeholder="booking@example.com"
+          aria-label={`Contact email for ${venue.name}`}
+          className="min-h-9 min-w-0 rounded-md border border-tan bg-cream px-3 text-sm font-semibold text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-clay"
+        />
+        <button
+          type="submit"
+          disabled={feedback === 'saving'}
+          className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-clay/35 bg-cream px-3 text-xs font-bold uppercase tracking-[0.06em] text-clay transition-colors hover:bg-clay hover:text-cream disabled:cursor-wait disabled:opacity-60"
+        >
+          {feedback === 'saving' ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
+          Add contact email
+        </button>
+        {feedback === 'error' ? (
+          <p className="text-xs font-semibold text-brick sm:col-span-2">Enter a valid contact email.</p>
+        ) : null}
+        {feedback === 'saved' ? (
+          <p className="text-xs font-semibold text-forest sm:col-span-2">Contact saved. Select this venue from outreach search to create a draft.</p>
+        ) : null}
+      </form>
+    )
+  }
+
+  if (venue.contactStatus === 'contact_pending') {
+    return (
+      <div className={cn(
+        'inline-flex max-w-full items-center gap-2 rounded-full border border-tan bg-cream px-3 py-1.5 text-xs font-semibold text-ink-soft',
+        compact ? 'text-[11px]' : 'mt-3'
+      )}>
+        <RefreshCw className="h-3.5 w-3.5 shrink-0 text-clay" />
+        <span className="min-w-0 truncate">Contact lookup available after approval</span>
+      </div>
+    )
+  }
+
+  if (venue.contactStatus === 'ready_to_reach_out') {
+    return (
+      <div className={cn(
+        'inline-flex max-w-full items-center gap-2 rounded-full border border-forest/20 bg-forest-tint px-3 py-1.5 text-xs font-semibold text-forest',
+        compact ? 'text-[11px]' : 'mt-3'
+      )}>
+        <Mail className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">
+          Contact on file{venue.contactEmailSource ? ` · ${venue.contactEmailSource.replace(/_/g, ' ')}` : ''}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className={cn(
+      'inline-flex max-w-full items-center gap-2 rounded-full border border-tan bg-cream px-3 py-1.5 text-xs font-semibold text-ink-soft',
+      compact ? 'text-[11px]' : 'mt-3'
+    )}>
+      <AlertCircle className="h-3.5 w-3.5 shrink-0 text-ochre" />
+      <span className="min-w-0 truncate">Contact status pending</span>
+    </div>
+  )
+}
+
 function VenueComparisonTable({
   venues,
+  draftSummary,
+  emailDrafts,
+  emailFeedback,
+  localDraftMessageIds,
   onVenueClick,
+  onEmailChange,
+  onEmailSubmit,
+  onNavigateToApprovals,
 }: {
   venues: RecommendationSummary[]
+  draftSummary: GmailOutreachDraftSummary
+  emailDrafts: Record<string, string>
+  emailFeedback: Record<string, 'saving' | 'saved' | 'draft_created' | 'error'>
+  localDraftMessageIds: Record<string, string | null>
   onVenueClick: (venueId: string) => void
+  onEmailChange: (venueId: string, value: string) => void
+  onEmailSubmit: (venue: RecommendationSummary) => void
+  onNavigateToApprovals: (messageId?: string | null) => void
 }) {
   if (venues.length < 2) return null
 
@@ -1834,6 +2174,19 @@ function VenueComparisonTable({
                       Best fit
                     </span>
                   ) : null}
+                  <div className="mt-3">
+                    <VenueOutreachStatus
+                      venue={venue}
+                      draftSummary={draftSummary}
+                      emailDrafts={emailDrafts}
+                      emailFeedback={emailFeedback}
+                      localDraftMessageIds={localDraftMessageIds}
+                      compact
+                      onEmailChange={onEmailChange}
+                      onEmailSubmit={onEmailSubmit}
+                      onNavigateToApprovals={onNavigateToApprovals}
+                    />
+                  </div>
                 </td>
                 <td className="border-b border-tan/70 px-3 py-4 font-semibold text-ink">
                   {venue.capacity ? `${venue.capacity} guests` : 'Pending'}
