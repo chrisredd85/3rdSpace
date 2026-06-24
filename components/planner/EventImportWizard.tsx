@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, ImagePlus, Loader2, PlugZap, RefreshCw, Ticket, UploadCloud } from 'lucide-react'
 import { CsvColumnMapper } from '@/components/planner/CsvColumnMapper'
 import { Button } from '@/components/ui/button'
@@ -53,13 +54,23 @@ const sources: Array<{ id: ImportSource; label: string; mode: string }> = [
   { id: 'posh', label: 'Posh', mode: 'Webhook or CSV' },
   { id: 'eventbrite', label: 'Eventbrite', mode: 'OAuth or CSV' },
   { id: 'luma', label: 'Luma', mode: 'Guest list CSV' },
-  { id: 'partiful', label: 'Partiful', mode: 'Screenshot or manual' },
+  { id: 'partiful', label: 'Partiful', mode: 'Event link or CSV' },
   { id: 'other', label: 'Other', mode: 'Manual import' },
 ]
 
+const sourceIds = new Set<ImportSource>(sources.map((source) => source.id))
+
+function normalizeImportSource(value: string | null): ImportSource | null {
+  if (!value) return null
+  const normalized = value.toLowerCase()
+  return sourceIds.has(normalized as ImportSource) ? (normalized as ImportSource) : null
+}
+
 export function EventImportWizard() {
+  const searchParams = useSearchParams()
+  const requestedSource = normalizeImportSource(searchParams.get('source'))
   const [connections, setConnections] = useState<Connection[]>([])
-  const [source, setSource] = useState<ImportSource>('luma')
+  const [source, setSource] = useState<ImportSource>(requestedSource ?? 'luma')
   const [eventUrl, setEventUrl] = useState('')
   const [eventShell, setEventShell] = useState<ImportEventShell>({
     event_name: '',
@@ -90,6 +101,10 @@ export function EventImportWizard() {
   useEffect(() => {
     void loadConnections()
   }, [])
+
+  useEffect(() => {
+    if (requestedSource) setSource(requestedSource)
+  }, [requestedSource])
 
   const connectedSource = connections.find((connection) => connection.platform === source && isConnected(connection.status))
   const missingFields = useMemo(() => {
@@ -289,6 +304,7 @@ export function EventImportWizard() {
             <button
               key={item.id}
               type="button"
+              aria-pressed={source === item.id}
               onClick={() => setSource(item.id)}
               className={cn(
                 'rounded-md border px-4 py-3 text-left transition-smooth',
