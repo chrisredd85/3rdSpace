@@ -45,11 +45,10 @@ describe('SignupExperience step validation', () => {
     global.fetch = originalFetch
   })
 
-  it('shows creator as a 5-step flow and gates each signup step', async () => {
+  it('shows creator as a 4-step flow and gates each signup step', async () => {
     renderSignup('community_builder')
 
-    expect(screen.getByText(/Creator sign-up · Step 1 of 5/i)).toBeInTheDocument()
-    expect(screen.queryByText(/Step 1 of 4/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Creator sign-up · Step 1 of 4/i)).toBeInTheDocument()
     expect(continueButton()).toBeDisabled()
     expect(screen.getByText('Name is required.')).toBeInTheDocument()
 
@@ -59,7 +58,7 @@ describe('SignupExperience step validation', () => {
     expect(continueButton()).toBeEnabled()
 
     fireEvent.click(continueButton())
-    expect(screen.getByText(/Creator sign-up · Step 2 of 5/i)).toBeInTheDocument()
+    expect(screen.getByText(/Creator sign-up · Step 2 of 4/i)).toBeInTheDocument()
     expect(continueButton()).toBeDisabled()
     expect(screen.getByText('Organization name is required.')).toBeInTheDocument()
 
@@ -71,7 +70,7 @@ describe('SignupExperience step validation', () => {
     expect(continueButton()).toBeEnabled()
 
     fireEvent.click(continueButton())
-    expect(screen.getByText(/Creator sign-up · Step 3 of 5/i)).toBeInTheDocument()
+    expect(screen.getByText(/Creator sign-up · Step 3 of 4/i)).toBeInTheDocument()
     expect(continueButton()).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: /Networking mixer/i }))
@@ -80,8 +79,8 @@ describe('SignupExperience step validation', () => {
     expect(continueButton()).toBeEnabled()
 
     fireEvent.click(continueButton())
-    expect(screen.getByText(/Creator sign-up · Step 4 of 5/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Create account & activate/i })).toBeDisabled()
+    expect(screen.getByText(/Creator sign-up · Step 4 of 4/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Create account/i })).toBeDisabled()
 
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       success: true,
@@ -91,14 +90,15 @@ describe('SignupExperience step validation', () => {
     }), { status: 200 })) as jest.Mock
 
     fireEvent.click(screen.getByRole('button', { name: /Eventbrite/i }))
-    expect(screen.getByRole('button', { name: /Create account & activate/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /Create account/i })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: /^Partiful$/i }))
+    expect(screen.getByText('Partiful event link')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Create account & activate/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Create account/i }))
 
-    await waitFor(() => {
-      expect(screen.getByText(/Creator sign-up · Step 5 of 5/i)).toBeInTheDocument()
-    })
-    expect(screen.getByRole('heading', { name: /Connect Gmail to send outreach/i })).toBeInTheDocument()
+    expect(await screen.findByText('Creator workspace')).toBeInTheDocument()
+    expect(screen.getByText(/Creator sign-up · Step 4 of 4/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Connect Gmail for approved outreach/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Connect Gmail/i })).toHaveAttribute(
       'href',
       '/api/integrations/gmail/connect?returnTo=%2Fplanner%3Fsignup%3Dcomplete%26gmail%3Dconnected'
