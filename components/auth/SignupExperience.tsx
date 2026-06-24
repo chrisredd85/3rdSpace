@@ -482,8 +482,7 @@ function BuilderSignupFlow({
   const router = useRouter()
   const { addToast } = useToast()
   const [step, setStep] = useState(1)
-  const total = 5
-  const activationStep = total
+  const total = 4
   const [isLoading, setIsLoading] = useState(false)
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
   const [inlineError, setInlineError] = useState<string | null>(null)
@@ -595,7 +594,6 @@ function BuilderSignupFlow({
 
   const createAccountForActivation = async () => {
     if (activationState) {
-      setStep(activationStep)
       return
     }
 
@@ -685,7 +683,6 @@ function BuilderSignupFlow({
         migratedPlanId,
         migrationFailed,
       })
-      setStep(activationStep)
       addToast({
         title: result.requiresEmailConfirmation ? 'Check your email' : 'Account created',
         description: result.requiresEmailConfirmation
@@ -722,7 +719,7 @@ function BuilderSignupFlow({
               {isGoogleLoading ? 'Connecting...' : 'Continue with Google'}
             </Button>
             <p className="text-center text-xs leading-relaxed text-ink-soft">
-              Google creates your 3rdPlace creator account, then continues into Gmail outreach permissions for approved sends and replies.
+              Google creates your 3rdPlace creator account first. Gmail outreach permission is requested separately before 3rdPlace can send or read approved event outreach.
             </p>
           </div>
 
@@ -819,7 +816,11 @@ function BuilderSignupFlow({
             ) : null}
           </div>
 
-          <TicketingSetupGuide selectedPlatforms={form.platforms} compact />
+          <TicketingSetupGuide
+            selectedPlatforms={form.platforms}
+            compact
+            persistConnections={Boolean(activationState && !activationState.requiresEmailConfirmation)}
+          />
 
           <ToggleRow
             checked={form.bulkBooking}
@@ -845,21 +846,17 @@ function BuilderSignupFlow({
               placeholder="co-host@brand.com, manager@brand.com"
             />
           </Field>
-        </div>
-      )}
 
-      {step === 5 && (
-        <div className="space-y-5 animate-fade-in">
           <div className="rounded-md border border-tan bg-cream-deep p-5">
             <div className="flex items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-tan bg-cream text-clay">
                 <Mail className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="font-display text-[24px] font-semibold leading-tight text-ink">Connect Gmail to send outreach</h2>
+                <h2 className="font-display text-[24px] font-semibold leading-tight text-ink">Connect Gmail for approved outreach</h2>
                 <p className="mt-2 text-[14px] leading-6 text-ink-soft">
                   3rdPlace sends approved venue and vendor outreach from your Gmail and reads replies into your event plan.
-                  We never read your general inbox, and you must approve every message before it sends.
+                  We never read your general inbox, and every outbound message still requires approval unless you later set an explicit outreach policy.
                 </p>
               </div>
             </div>
@@ -881,57 +878,63 @@ function BuilderSignupFlow({
           <div className="rounded-md border border-tan bg-cream p-4">
             <div className="flex items-start gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-cream-deep text-clay">
-                <Check className="h-5 w-5" />
+                {activationState ? <Check className="h-5 w-5" /> : <Mail className="h-5 w-5" />}
               </div>
               <div>
-                <p className="font-semibold text-ink">Creator workspace</p>
+                <p className="font-semibold text-ink">{activationState ? 'Creator workspace' : 'Available after account creation'}</p>
                 <p className="mt-1 text-sm text-ink-soft">
-                  {activationState?.requiresEmailConfirmation
+                  {!activationState
+                    ? 'Create your account on this step, then choose whether to connect Gmail now or finish it later from Settings.'
+                    : activationState.requiresEmailConfirmation
                     ? `Check ${activationState.email} and confirm your email before signing in.`
-                    : `${activationState?.email ?? form.email} is ready for this workspace session.`}
+                    : `${activationState.email ?? form.email} is ready for this workspace session.`}
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="rounded-md border border-tan bg-cream-deep p-4 text-[13px] leading-5 text-ink-soft">
-            Ticketing setup is saved. You can finish Eventbrite OAuth, webhook URLs, and ticket imports from Tickets after entering the planner.
-          </div>
-
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-[13px] text-ink-soft">You can disconnect anytime from Settings → Integrations.</p>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              {activationState?.requiresEmailConfirmation ? (
-                <Button type="button" onClick={() => router.push(getStripeLoginRedirect('community_builder'))}>
-                  Go to sign in
-                  <ExternalLink className="h-4 w-4" />
-                </Button>
-              ) : (
-                <>
-                  <Button asChild type="button">
-                    <Link href={`/api/integrations/gmail/connect?returnTo=${encodeURIComponent(gmailSignupReturnTo)}`}>
-                      Connect Gmail
-                      <ExternalLink className="h-4 w-4" />
-                    </Link>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => router.push('/planner?signup=complete&gmail_skipped=1')}
-                  >
-                    I&apos;ll connect later
-                  </Button>
-                </>
-              )}
+          {activationState ? (
+            <div className="rounded-md border border-tan bg-cream-deep p-4 text-[13px] leading-5 text-ink-soft">
+              Ticketing setup is saved. You can finish Eventbrite OAuth, webhook URLs, Partiful links, and ticket imports from Tickets after entering the planner.
             </div>
-          </div>
+          ) : null}
+
+          {activationState ? (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[13px] text-ink-soft">You can disconnect anytime from Settings → Integrations.</p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                {activationState.requiresEmailConfirmation ? (
+                  <Button type="button" onClick={() => router.push(getStripeLoginRedirect('community_builder'))}>
+                    Go to sign in
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
+                ) : (
+                  <>
+                    <Button asChild type="button">
+                      <Link href={`/api/integrations/gmail/connect?returnTo=${encodeURIComponent(gmailSignupReturnTo)}`}>
+                        Connect Gmail
+                        <ExternalLink className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => router.push('/planner?signup=complete&gmail_skipped=1')}
+                    >
+                      I&apos;ll connect later
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 
       <div className="mt-8 space-y-4 sm:mt-10">
         <InlineFormError message={inlineError} />
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-          {step <= total ? (
+          {!activationState ? (
             <Button variant="glass" onClick={back} className="w-full sm:w-auto">
               <ArrowLeft className="h-4 w-4" /> Back
             </Button>
@@ -942,10 +945,10 @@ function BuilderSignupFlow({
             <Button variant="hero" onClick={next} disabled={!isCurrentStepValid} className="w-full sm:w-auto">
               Continue <ArrowRight className="h-4 w-4" />
             </Button>
-          ) : step === 4 ? (
+          ) : step === 4 && !activationState ? (
             <Button variant="hero" onClick={createAccountForActivation} disabled={isLoading || !isCurrentStepValid} className="w-full sm:w-auto">
               <Ticket className="h-4 w-4" />
-              {isLoading ? 'Creating account...' : 'Create account & activate'}
+              {isLoading ? 'Creating account...' : 'Create account'}
             </Button>
           ) : (
             <div />

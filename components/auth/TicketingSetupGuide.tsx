@@ -6,12 +6,13 @@ import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
 
-type TicketingPlatform = 'eventbrite' | 'posh' | 'luma'
+type TicketingPlatform = 'eventbrite' | 'posh' | 'luma' | 'partiful'
 
 const platformAliases: Record<string, TicketingPlatform> = {
   eventbrite: 'eventbrite',
   posh: 'posh',
   luma: 'luma',
+  partiful: 'partiful',
 }
 
 const setupCards: Record<
@@ -66,6 +67,19 @@ const setupCards: Record<
     ],
     icon: Webhook,
     videoLabel: 'Luma webhook how-to video',
+  },
+  partiful: {
+    title: 'Partiful event link',
+    eyebrow: 'Event link import',
+    description: 'Paste a Partiful event link from Tickets when the event page exists. 3rdPlace uses it for RSVP context and manual import checks.',
+    urlLabel: 'Event link',
+    steps: [
+      'Create your 3rdPlace account first so the ticketing preference is saved.',
+      'Paste the Partiful event link from Tickets after the event page is live.',
+      'Import or confirm RSVP totals so the planner can compare attendance and sales history.',
+    ],
+    icon: Link2,
+    videoLabel: 'Partiful import how-to video',
   },
 }
 
@@ -271,7 +285,14 @@ export function TicketingSetupGuide({
               ) : (
                 <div className="mt-4 space-y-2">
                   <p className="text-xs font-semibold uppercase text-muted-foreground">{setup.urlLabel}</p>
-                  {!persistConnections ? (
+                  {platform === 'partiful' ? (
+                    <div className="rounded-lg border border-border bg-background/70 px-3 py-3">
+                      <p className="text-sm font-semibold text-foreground">Saved from Tickets later</p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        Partiful uses an event link import path today. After signup, paste the live Partiful URL in Tickets so 3rdPlace can keep the event brief aligned with RSVP activity.
+                      </p>
+                    </div>
+                  ) : !persistConnections ? (
                     <div className="rounded-lg border border-border bg-background/70 px-3 py-3">
                       <p className="text-sm font-semibold text-foreground">Generated after account creation</p>
                       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
