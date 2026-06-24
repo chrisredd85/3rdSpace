@@ -218,7 +218,7 @@ const RECOMMEND_DEPRECATED_KEYS = [
   'revenue_share',
 ]
 
-const SPARSE_CATALOG_VENUE_THRESHOLD = 5
+const DEFAULT_PLACES_RESULT_COUNT = 8
 
 type RecommendedVenueContext = {
   venue_id: string
@@ -737,7 +737,7 @@ async function runCatalogFallback(input: {
     existingVenueCount: catalogVenues.length,
     placesFallbackCache: input.placesFallbackCache,
   })
-  const venues = dedupeCatalogVenueRows([...catalogVenues, ...placesVenues])
+  const venues = dedupeCatalogVenueRows([...placesVenues, ...catalogVenues])
   const ranking = rankCatalogPartners({
     plan: input.rankingInput,
     venues,
@@ -2568,7 +2568,7 @@ async function loadVenueAgentCandidates(
     existingVenueCount: catalogCandidates.length,
     placesFallbackCache: options.placesFallbackCache,
   })
-  return dedupeVenueMatchingCandidates([...catalogCandidates, ...placesCandidates])
+  return dedupeVenueMatchingCandidates([...placesCandidates, ...catalogCandidates])
 }
 
 async function loadPlacesVenueAgentCandidates(input: {
@@ -2602,8 +2602,6 @@ async function loadPlacesDiscoveryVenues(input: {
   existingVenueCount: number
   placesFallbackCache?: PlacesFallbackCache
 }) {
-  if (input.existingVenueCount >= SPARSE_CATALOG_VENUE_THRESHOLD) return []
-
   const apiKey = process.env.GOOGLE_PLACES_API_KEY?.trim()
   if (!apiKey) return []
 
@@ -2611,7 +2609,7 @@ async function loadPlacesDiscoveryVenues(input: {
   const areas = buildPlacesSearchAreas(neighborhood)
 
   try {
-    const maxResultCount = Math.max(8, SPARSE_CATALOG_VENUE_THRESHOLD)
+    const maxResultCount = DEFAULT_PLACES_RESULT_COUNT
     const cacheKey = JSON.stringify({
       plan_id: input.plan.id,
       event_type: input.plan.event_type,
@@ -2620,11 +2618,11 @@ async function loadPlacesDiscoveryVenues(input: {
     })
     let searchPromise = input.placesFallbackCache?.get(cacheKey)
     if (!searchPromise) {
-      console.info('[planner.recommend] Sparse catalog detected; searching Places', {
+      console.info('[planner.recommend] Searching Places for venue recommendations', {
         plan_id: input.plan.id,
         event_type: input.plan.event_type,
         neighborhood,
-        catalog_count: input.existingVenueCount,
+        supplemental_catalog_count: input.existingVenueCount,
         areas,
       })
       searchPromise = searchPlacesForPlan(input.plan, {
@@ -2636,13 +2634,13 @@ async function loadPlacesDiscoveryVenues(input: {
       })
       input.placesFallbackCache?.set(cacheKey, searchPromise)
     } else {
-      console.info('[planner.recommend] Reusing Places fallback results', {
+      console.info('[planner.recommend] Reusing Places venue search results', {
         plan_id: input.plan.id,
         areas,
       })
     }
     const result = await searchPromise
-    console.info('[planner.recommend] Places fallback completed', {
+    console.info('[planner.recommend] Places venue search completed', {
       plan_id: input.plan.id,
       areas_searched: areas,
       places_result_count: result.places_result_counts.total,
@@ -2650,7 +2648,7 @@ async function loadPlacesDiscoveryVenues(input: {
     })
     return result.venues
   } catch (error) {
-    console.error('[planner.recommend] Places fallback failed; continuing with catalog results', {
+    console.error('[planner.recommend] Places venue search failed; continuing with supplemental catalog results', {
       plan_id: input.plan.id,
       error: error instanceof Error ? error.message : String(error),
     })
