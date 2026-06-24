@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic'
 const adminLinks = [
   ['Catalog venues', '/admin/catalog/venues', 'Seed spaces, bars, rooftops, and claim-ready venue records.'],
   ['Catalog vendors', '/admin/catalog/vendors', 'Seed caterers, AV teams, photographers, DJs, and service partners.'],
+  ['Vendor rate review', '/admin/discovery/vendor-rate-review', 'Review inferred discovery vendor rates before they become trusted planning estimates.'],
   ['Claims', '/admin/claims', 'Review unclaimed catalog listings and pending approval work.'],
   ['Tasks', '/admin/tasks', 'Work general planner handoffs, catalog gaps, confirmations, receipts, and compliance tasks.'],
   ['Concierge', '/admin/concierge', 'Handle opportunity invites that need manual outreach.'],

@@ -7,6 +7,7 @@ import {
   sendGmailMessage,
   type ParsedGmailMessage,
 } from '@/lib/outreach/gmail'
+import { extractReplyTerms } from '@/lib/ai/agents/extractReplyTerms'
 import { APPROVAL_SELECT_COLUMNS, PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import type { AgentAction, Approval, Json, Plan } from '@/lib/types'
 import type { Database } from '@/lib/types/database-generated'
@@ -41,6 +42,7 @@ export type GmailOutreachTarget = {
   email: string
   kind?: 'venue' | 'vendor'
   discoveryVenueId?: string | null
+  discoveryVendorId?: string | null
 }
 
 export type GmailApprovalState = {
@@ -378,6 +380,14 @@ export async function syncGmailOutreachThread(
   const accessToken = await getUsableGmailAccessToken({ db, account })
   const messages = await listGmailThreadMessages({ accessToken, gmailThreadId })
   const inserted = await insertMissingGmailMessages(db, thread, messages, account.email_address)
+  if (inserted > 0) {
+    await analyzeInboundReplyTerms(db, thread, messages).catch((error) => {
+      console.error('[gmail-approval] reply_terms_extraction_failed', {
+        thread_id: input.threadId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+  }
   const refreshed = await loadGmailOutreachThreads(db, input.userId, input.threadId)
 
   return {
@@ -496,6 +506,7 @@ function buildApprovalMessageMetadata(
     kind: GMAIL_APPROVED_OUTREACH_KIND,
     venue_ids: targets.map((target) => target.discoveryVenueId).filter(Boolean),
     discovery_venue_ids: targets.map((target) => target.discoveryVenueId).filter(Boolean),
+    discovery_vendor_ids: targets.map((target) => target.discoveryVendorId).filter(Boolean),
     projected_costs_cents: 0,
     requires_user_action: true,
     summary: `Approved Gmail send for ${plan.title}`,
@@ -507,6 +518,7 @@ function buildApprovalMessageMetadata(
       name: target.name,
       email: target.email,
       discovery_venue_id: target.discoveryVenueId ?? null,
+      discovery_vendor_id: target.discoveryVendorId ?? null,
     })),
     comparison_goal: readString(payload.comparison_goal),
     invites: targets.map((target) => ({
@@ -516,6 +528,7 @@ function buildApprovalMessageMetadata(
         target_name: target.name,
         target_email: target.email,
         discovery_venue_id: target.discoveryVenueId ?? null,
+        discovery_vendor_id: target.discoveryVendorId ?? null,
       },
     })),
     opportunity: {
@@ -761,6 +774,7 @@ async function insertOutreachThread(
       target_type: input.target.kind ?? 'venue',
       target_source: GMAIL_APPROVAL_DEMO_TARGET_SOURCE,
       discovery_venue_id: input.target.discoveryVenueId ?? null,
+      discovery_vendor_id: input.target.discoveryVendorId ?? null,
       target_email: input.target.email,
       channel: 'email',
       channel_strategy: {
@@ -865,6 +879,229 @@ async function insertMissingGmailMessages(
   return inserted
 }
 
+async function analyzeInboundReplyTerms(
+  db: PlannerDb,
+  thread: Record<string, unknown>,
+  messages: ParsedGmailMessage[]
+) {
+  const planId = readString(thread.plan_id)
+  const threadId = readString(thread.id)
+  const targetName = readString(thread.target_name) ?? 'Partner'
+  const targetType = readString(thread.target_type) === 'vendor' ? 'vendor' : 'venue'
+  const discoveryVenueId = readUuid(thread.discovery_venue_id)
+  const discoveryVendorId = readUuid(thread.discovery_vendor_id)
+  const inboundMessages = messages.filter((message) => {
+    const fromEmail = extractEmail(message.from)?.toLowerCase()
+    const targetEmail = readString(thread.target_email)?.toLowerCase()
+    return Boolean(fromEmail && targetEmail && fromEmail === targetEmail)
+  })
+  const latestInbound = inboundMessages[inboundMessages.length - 1]
+  if (!planId || !threadId || !latestInbound) return
+
+  const threadText = messages.map((message) => [
+    `From: ${message.from}`,
+    `Subject: ${message.subject}`,
+    message.bodyText,
+  ].join('\n')).join('\n\n---\n\n')
+  const gmailThreadId = latestInbound.gmailThreadId
+
+  if (targetType === 'vendor' && discoveryVendorId) {
+    const serviceType = await loadDiscoveryVendorServiceType(db, discoveryVendorId)
+    const terms = await extractReplyTerms({
+      entityType: 'vendor',
+      entityName: targetName,
+      serviceType,
+      planTitle: readString(thread.plan_title),
+      threadText,
+    })
+
+    const row = {
+      plan_id: planId,
+      discovery_vendor_id: discoveryVendorId,
+      outreach_thread_id: threadId,
+      gmail_thread_id: gmailThreadId,
+      classification: terms.classification,
+      classification_confidence: terms.confidence,
+      quoted_hourly_cents: terms.quoted_hourly_cents,
+      quoted_package_cents: terms.quoted_package_cents,
+      quoted_minimum_cents: terms.quoted_minimum_cents,
+      quoted_deposit_pct: terms.quoted_deposit_pct,
+      availability_confirmed: terms.availability_confirmed,
+      conditions: terms.conditions as unknown as Json,
+      raw_response_excerpt: terms.raw_response_excerpt,
+      model: terms.model,
+    }
+
+    const { data, error } = await db
+      .from('vendor_outreach_responses')
+      .upsert(row, { onConflict: 'plan_id,discovery_vendor_id,gmail_thread_id' })
+      .select('*')
+      .single()
+
+    if (error) throw new Error(error.message)
+    if (terms.confidence >= 0.5) {
+      await updatePlanOutreachResponseSummary(db, {
+        planId,
+        entityType: 'vendor',
+        response: {
+          id: readString(data?.id),
+          discovery_vendor_id: discoveryVendorId,
+          name: targetName,
+          service_type: serviceType,
+          classification: terms.classification,
+          confidence: terms.confidence,
+          quoted_hourly_cents: terms.quoted_hourly_cents,
+          quoted_package_cents: terms.quoted_package_cents,
+          quoted_minimum_cents: terms.quoted_minimum_cents,
+          availability_confirmed: terms.availability_confirmed,
+          conditions: terms.conditions,
+          raw_response_excerpt: terms.raw_response_excerpt,
+          updated_at: new Date().toISOString(),
+        },
+      })
+    }
+    return
+  }
+
+  if (discoveryVenueId) {
+    const terms = await extractReplyTerms({
+      entityType: 'venue',
+      entityName: targetName,
+      planTitle: readString(thread.plan_title),
+      threadText,
+    })
+
+    const row = {
+      plan_id: planId,
+      discovery_venue_id: discoveryVenueId,
+      outreach_thread_id: threadId,
+      gmail_thread_id: gmailThreadId,
+      classification: terms.classification,
+      classification_confidence: terms.confidence,
+      quoted_price_cents: terms.quoted_price_cents,
+      quoted_deal_model: terms.quoted_deal_model,
+      availability_confirmed: terms.availability_confirmed,
+      capacity_confirmed: terms.capacity_confirmed,
+      conditions: terms.conditions as unknown as Json,
+      raw_response_excerpt: terms.raw_response_excerpt,
+      model: terms.model,
+    }
+
+    const { data, error } = await db
+      .from('venue_outreach_responses')
+      .upsert(row, { onConflict: 'plan_id,discovery_venue_id,gmail_thread_id' })
+      .select('*')
+      .single()
+
+    if (error) throw new Error(error.message)
+    if (terms.confidence >= 0.5) {
+      await updatePlanOutreachResponseSummary(db, {
+        planId,
+        entityType: 'venue',
+        response: {
+          id: readString(data?.id),
+          discovery_venue_id: discoveryVenueId,
+          name: targetName,
+          classification: terms.classification,
+          confidence: terms.confidence,
+          quoted_price_cents: terms.quoted_price_cents,
+          quoted_deal_model: terms.quoted_deal_model,
+          availability_confirmed: terms.availability_confirmed,
+          capacity_confirmed: terms.capacity_confirmed,
+          conditions: terms.conditions,
+          raw_response_excerpt: terms.raw_response_excerpt,
+          updated_at: new Date().toISOString(),
+        },
+      })
+    }
+  }
+}
+
+async function loadDiscoveryVendorServiceType(db: PlannerDb, discoveryVendorId: string) {
+  const { data } = await db
+    .from('discovery_vendors')
+    .select('service_type')
+    .eq('id', discoveryVendorId)
+    .maybeSingle()
+  return readString(data?.service_type)
+}
+
+async function updatePlanOutreachResponseSummary(
+  db: PlannerDb,
+  input: {
+    planId: string
+    entityType: 'venue' | 'vendor'
+    response: Record<string, unknown>
+  }
+) {
+  const { data: plan, error } = await db
+    .from('plans')
+    .select('id,title,metadata')
+    .eq('id', input.planId)
+    .maybeSingle()
+
+  if (error || !plan) return
+
+  const metadata = readRecord(plan.metadata) ?? {}
+  const current = readRecord(metadata.outreach_response_summary) ?? {}
+  const key = input.entityType === 'venue' ? 'venues' : 'vendors'
+  const existing = Array.isArray(current[key]) ? current[key] as unknown[] : []
+  const idKey = input.entityType === 'venue' ? 'discovery_venue_id' : 'discovery_vendor_id'
+  const responseId = readString(input.response[idKey])
+  const nextResponses = [
+    input.response,
+    ...existing.filter((item) => {
+      const record = readRecord(item)
+      return !responseId || readString(record?.[idKey]) !== responseId
+    }),
+  ].slice(0, 12)
+
+  const nextMetadata = {
+    ...metadata,
+    outreach_response_summary: {
+      ...current,
+      [key]: nextResponses,
+      updated_at: new Date().toISOString(),
+    },
+  }
+
+  await db.from('plans').update({ metadata: nextMetadata as Json }).eq('id', input.planId)
+
+  if (isFavorableReply(readString(input.response.classification))) {
+    const quoteLabel = formatResponseQuote(input.entityType, input.response)
+    await db.from('plan_messages').insert({
+      plan_id: input.planId,
+      role: 'agent',
+      content: `Heard back from ${readString(input.response.name) ?? 'a partner'}${quoteLabel ? ` — ${quoteLabel}` : ''}. I updated the brief so you can compare options before accepting anything.`,
+      message_type: 'status_update',
+      metadata: {
+        kind: 'outreach_response_received',
+        entity_type: input.entityType,
+        response: input.response,
+      } as Json,
+    })
+  }
+}
+
+function isFavorableReply(classification: string | null) {
+  return classification === 'yes' || classification === 'quote_received' || classification === 'conditional'
+}
+
+function formatResponseQuote(entityType: 'venue' | 'vendor', response: Record<string, unknown>) {
+  const cents = entityType === 'venue'
+    ? readInteger(response.quoted_price_cents)
+    : readInteger(response.quoted_package_cents) ?? readInteger(response.quoted_minimum_cents) ?? readInteger(response.quoted_hourly_cents)
+  return cents === null ? null : `${formatCents(cents)} quoted`
+}
+
+function formatCents(cents: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(cents / 100)
+}
+
 async function gmailMessageExists(db: PlannerDb, gmailMessageId: string) {
   const { data, error } = await db
     .from('outreach_messages')
@@ -911,6 +1148,7 @@ function normalizeTargets(targets: GmailOutreachTarget[]) {
       email: target.email.trim().toLowerCase(),
       kind: target.kind === 'vendor' ? 'vendor' as const : 'venue' as const,
       discoveryVenueId: readUuid(target.discoveryVenueId),
+      discoveryVendorId: readUuid(target.discoveryVendorId),
     }))
     .filter((target) => target.name && isValidEmail(target.email))
 
@@ -929,7 +1167,8 @@ function readTargets(payload: Record<string, unknown> | null): GmailOutreachTarg
     const email = readString(record.email)
     const kind = readString(record.kind) === 'vendor' ? 'vendor' : 'venue'
     const discoveryVenueId = readUuid(record.discoveryVenueId ?? record.discovery_venue_id)
-    return name && email ? [{ name, email, kind, discoveryVenueId }] : []
+    const discoveryVendorId = readUuid(record.discoveryVendorId ?? record.discovery_vendor_id)
+    return name && email ? [{ name, email, kind, discoveryVenueId, discoveryVendorId }] : []
   })
 }
 
@@ -993,6 +1232,10 @@ function readRecord(value: unknown): Record<string, unknown> | null {
 
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function readInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : null
 }
 
 function textToHtml(value: string) {

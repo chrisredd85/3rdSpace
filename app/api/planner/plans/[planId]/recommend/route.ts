@@ -74,6 +74,13 @@ import {
   type DiscoveryVenueRow,
   type SearchPlacesForPlanResult,
 } from '@/lib/server/places-outreach'
+import {
+  normalizeVendorServiceType,
+  resolveDiscoveryVendorRate,
+  searchPlacesForVendor,
+  type DiscoveryVendorRow,
+  type VendorServiceType,
+} from '@/lib/server/places-vendor-search'
 import { readCents } from '@/lib/money'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlanMessage, PlannerApiErrorResponse, Recommendation } from '@/lib/types'
@@ -151,6 +158,13 @@ type SuggestedVendorRecommendation = {
   fit_score: number
   pros: string[]
   cons: string[]
+  source?: 'catalog' | 'google_places'
+  discovery_vendor_id?: string | null
+  contact_email?: string | null
+  contact_phone?: string | null
+  website?: string | null
+  rate_confidence_label?: 'quoted' | 'estimated' | 'rate_tbd'
+  rate_inference_confidence?: number | null
 }
 
 type OutreachDisplayTarget = {
@@ -2304,7 +2318,10 @@ async function loadSuggestedVendors(
     const rankedSuggestions = Object.values(ranked.by_service_type)
       .flat()
       .map(toSuggestedVendorFromRanked)
-    if (rankedSuggestions.length > 0) return rankedSuggestions
+    const placesSuggestions = await loadSparseDiscoveryVendorSuggestions(db, plan, archetype, rankedSuggestions)
+    if (rankedSuggestions.length > 0 || placesSuggestions.length > 0) {
+      return mergeVendorSuggestions(rankedSuggestions, placesSuggestions).filter(limitTwoPerServiceType)
+    }
   } catch (error) {
     console.warn('[planner.recommend] Vendor ranker failed; falling back to base-rate vendor lookup', error)
   }
@@ -2339,7 +2356,7 @@ async function loadSuggestedVendors(
     return []
   }
 
-  return ((data ?? []) as Record<string, unknown>[])
+  const catalogSuggestions = ((data ?? []) as Record<string, unknown>[])
     .filter((row) => {
       const serviceType = readString(row.service_type)
       return serviceType ? dbServiceTypes.some((type) => type === serviceType) : false
@@ -2356,6 +2373,127 @@ async function loadSuggestedVendors(
     })
     .filter((vendor): vendor is SuggestedVendorRecommendation => vendor !== null)
     .filter(limitTwoPerServiceType)
+
+  const placesSuggestions = await loadSparseDiscoveryVendorSuggestions(db, plan, archetype, catalogSuggestions)
+  return mergeVendorSuggestions(catalogSuggestions, placesSuggestions).filter(limitTwoPerServiceType)
+}
+
+async function loadSparseDiscoveryVendorSuggestions(
+  db: PlannerDb,
+  plan: Plan,
+  archetype: EventArchetypeConfig,
+  existingSuggestions: SuggestedVendorRecommendation[]
+): Promise<SuggestedVendorRecommendation[]> {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY
+  if (!apiKey) return []
+
+  const resolvedStack = resolveConditionalVendors(archetype.vendor_stack, plan)
+  const requiredAndRecommended = resolvedStack.filter((item) =>
+    item.necessity === 'required' || item.necessity === 'recommended'
+  )
+  if (requiredAndRecommended.length === 0) return []
+
+  const areas = buildPlacesSearchAreas(plan.neighborhood)
+  const searchedByUserId = readString((plan as unknown as Record<string, unknown>).user_id)
+  const suggestions: SuggestedVendorRecommendation[] = []
+  const SPARSE_THRESHOLD_PER_SERVICE = 2
+
+  for (const stackItem of requiredAndRecommended) {
+    const serviceType = normalizeVendorServiceType(stackItem.service_type)
+    if (!serviceType) continue
+
+    const existingForService = existingSuggestions.filter((vendor) =>
+      normalizeVendorServiceType(vendor.service_type ?? '') === serviceType
+    )
+    if (existingForService.length >= SPARSE_THRESHOLD_PER_SERVICE) continue
+
+    try {
+      const result = await searchPlacesForVendor({
+        serviceType,
+        areas,
+        admin: db,
+        apiKey,
+        maxResults: 4,
+        planId: plan.id,
+        searchedByUserId,
+      })
+      suggestions.push(...result.vendors.map((vendor) => toSuggestedVendorFromDiscovery(vendor, stackItem, serviceType)))
+    } catch (error) {
+      console.warn('[planner.recommend] Vendor Places fallback failed', {
+        service_type: serviceType,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  return suggestions
+}
+
+function toSuggestedVendorFromDiscovery(
+  vendor: DiscoveryVendorRow,
+  stackItem: VendorStackItem,
+  serviceType: VendorServiceType
+): SuggestedVendorRecommendation {
+  const rate = resolveDiscoveryVendorRate(vendor)
+  const contactEmail = normalizeDiscoveryVendorEmail(vendor)
+  const fitScore = Math.max(45, Math.min(82, 68 + (rate.cents ? 8 : -6) + (contactEmail ? 6 : 0)))
+  return {
+    vendor_id: vendor.id,
+    discovery_vendor_id: vendor.id,
+    name: vendor.name,
+    service_type: serviceType,
+    necessity: stackItem.necessity,
+    service_note: stackItem.notes ?? null,
+    base_rate_cents: rate.cents,
+    fit_score: fitScore,
+    source: 'google_places',
+    contact_email: contactEmail,
+    contact_phone: vendor.phone,
+    website: vendor.website,
+    rate_confidence_label: rate.confidenceLabel,
+    rate_inference_confidence: rate.confidence,
+    pros: [
+      `${toTitleCase(serviceType.replace(/_/g, ' '))} lead discovered from Google Places.`,
+      rate.cents ? `${formatCurrency(rate.cents)} estimated rate; confirm by reply before accepting.` : 'Rate TBD — request a quote before accepting.',
+      contactEmail ? 'Contact email available for approval-gated outreach.' : vendor.website ? 'Website available for contact extraction or manual email rescue.' : null,
+    ].filter((item): item is string => Boolean(item)),
+    cons: [
+      'Unclaimed vendor lead — quote and availability must be verified before booking or payment.',
+      rate.confidenceLabel === 'rate_tbd' ? 'Pricing unknown until website extraction or reply.' : null,
+    ].filter((item): item is string => Boolean(item)),
+  }
+}
+
+function mergeVendorSuggestions(
+  catalogSuggestions: SuggestedVendorRecommendation[],
+  discoverySuggestions: SuggestedVendorRecommendation[]
+): SuggestedVendorRecommendation[] {
+  const seen = new Set<string>()
+  const merged: SuggestedVendorRecommendation[] = []
+  for (const vendor of [...catalogSuggestions, ...discoverySuggestions]) {
+    const key = normalizeText([
+      vendor.service_type,
+      vendor.name,
+      vendor.website,
+    ].filter(Boolean).join('|'))
+    if (key && seen.has(key)) continue
+    if (key) seen.add(key)
+    merged.push(vendor)
+  }
+  return merged.sort((first, second) => second.fit_score - first.fit_score)
+}
+
+function normalizeDiscoveryVendorEmail(vendor: DiscoveryVendorRow): string | null {
+  const direct = readString(vendor.contact_email) ?? readString(vendor.organizer_provided_email)
+  if (direct) return direct
+  if (!Array.isArray(vendor.extracted_emails)) return null
+  const emails = vendor.extracted_emails.flatMap((entry) => {
+    const record = readRecord(entry)
+    const email = readString(record?.email)
+    const confidence = readNumber(record?.confidence) ?? 0
+    return email ? [{ email, confidence }] : []
+  }).sort((a, b) => b.confidence - a.confidence)
+  return emails[0]?.email ?? null
 }
 
 function toSuggestedVendorFromRanked(vendor: RankedVendor): SuggestedVendorRecommendation {
@@ -2369,6 +2507,7 @@ function toSuggestedVendorFromRanked(vendor: RankedVendor): SuggestedVendorRecom
     service_note: vendor.service_note,
     base_rate_cents: baseRateCents,
     fit_score: vendor.total_score,
+    source: 'catalog',
     pros: [
       vendor.user_facing_intro,
       `${vendor.total_score}/100 vendor fit score.`,
@@ -3389,6 +3528,7 @@ function toSuggestedVendorFromCatalog(
     service_note: stackItem?.notes ?? null,
     base_rate_cents: baseRateCents,
     fit_score: recommendation.score,
+    source: 'catalog',
     pros: recommendation.reasoning.length > 0
       ? recommendation.reasoning
       : [`${recommendation.name} is a practical vendor fit for this event.`],

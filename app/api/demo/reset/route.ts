@@ -122,7 +122,7 @@ export async function POST(): Promise<NextResponse> {
       return NextResponse.json({ error: 'Failed to seed demo plan' }, { status: 500 })
     }
 
-    const plan = planData as Plan
+    const plan = planData as unknown as Plan
     const now = Date.now()
     const messageInserts = seedMessages.map((message, index) => ({
       plan_id: plan.id,
