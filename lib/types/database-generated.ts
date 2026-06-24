@@ -989,6 +989,8 @@ export type Database = {
       builder_profiles: {
         Row: {
           billing_tier: string | null
+          bio: string | null
+          bulk_booking_enabled: boolean
           created_at: string | null
           event_types: string[] | null
           eventbrite_connected: boolean | null
@@ -996,9 +998,12 @@ export type Database = {
           free_events_granted: number | null
           free_events_used: number | null
           id: string
+          invite_collaborators: string[]
           luma_calendar_id: string | null
           luma_connected: boolean | null
           name: string
+          organization_name: string | null
+          organization_type: string | null
           paid_event_credits: number | null
           phone: string | null
           photo_url: string | null
@@ -1006,6 +1011,8 @@ export type Database = {
           posh_organizer_id: string | null
           preferred_ticket_platforms: string[] | null
           priorities: string[] | null
+          signup_metadata: Json
+          social_handle: string | null
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
           subscription_ends_at: string | null
@@ -1013,11 +1020,16 @@ export type Database = {
           subscription_status: string | null
           total_attendance: number | null
           total_events_hosted: number | null
+          typical_attendance_max: number | null
+          typical_attendance_min: number | null
           updated_at: string | null
           user_id: string
+          website: string | null
         }
         Insert: {
           billing_tier?: string | null
+          bio?: string | null
+          bulk_booking_enabled?: boolean
           created_at?: string | null
           event_types?: string[] | null
           eventbrite_connected?: boolean | null
@@ -1025,9 +1037,12 @@ export type Database = {
           free_events_granted?: number | null
           free_events_used?: number | null
           id?: string
+          invite_collaborators?: string[]
           luma_calendar_id?: string | null
           luma_connected?: boolean | null
           name: string
+          organization_name?: string | null
+          organization_type?: string | null
           paid_event_credits?: number | null
           phone?: string | null
           photo_url?: string | null
@@ -1035,6 +1050,8 @@ export type Database = {
           posh_organizer_id?: string | null
           preferred_ticket_platforms?: string[] | null
           priorities?: string[] | null
+          signup_metadata?: Json
+          social_handle?: string | null
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
           subscription_ends_at?: string | null
@@ -1042,11 +1059,16 @@ export type Database = {
           subscription_status?: string | null
           total_attendance?: number | null
           total_events_hosted?: number | null
+          typical_attendance_max?: number | null
+          typical_attendance_min?: number | null
           updated_at?: string | null
           user_id: string
+          website?: string | null
         }
         Update: {
           billing_tier?: string | null
+          bio?: string | null
+          bulk_booking_enabled?: boolean
           created_at?: string | null
           event_types?: string[] | null
           eventbrite_connected?: boolean | null
@@ -1054,9 +1076,12 @@ export type Database = {
           free_events_granted?: number | null
           free_events_used?: number | null
           id?: string
+          invite_collaborators?: string[]
           luma_calendar_id?: string | null
           luma_connected?: boolean | null
           name?: string
+          organization_name?: string | null
+          organization_type?: string | null
           paid_event_credits?: number | null
           phone?: string | null
           photo_url?: string | null
@@ -1064,6 +1089,8 @@ export type Database = {
           posh_organizer_id?: string | null
           preferred_ticket_platforms?: string[] | null
           priorities?: string[] | null
+          signup_metadata?: Json
+          social_handle?: string | null
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
           subscription_ends_at?: string | null
@@ -1071,8 +1098,11 @@ export type Database = {
           subscription_status?: string | null
           total_attendance?: number | null
           total_events_hosted?: number | null
+          typical_attendance_max?: number | null
+          typical_attendance_min?: number | null
           updated_at?: string | null
           user_id?: string
+          website?: string | null
         }
         Relationships: [
           {

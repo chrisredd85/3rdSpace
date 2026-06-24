@@ -12,9 +12,17 @@ export type BuilderSetupInput = {
   userId: string
   name: string
   organizationName: string
+  organizationType?: string | null
+  socialHandle?: string | null
+  website?: string | null
+  bio?: string | null
   eventTypes: string[]
   preferredAmenities?: string[]
   ticketPlatforms: TicketPlatform[]
+  typicalAttendanceMin?: number | null
+  typicalAttendanceMax?: number | null
+  bulkBookingEnabled?: boolean | null
+  inviteCollaborators?: string[]
   origin?: string
 }
 
@@ -53,6 +61,7 @@ export type VendorSetupInput = {
   name: string
   businessName?: string | null
   serviceType: ServiceType
+  servicesOffered?: string[]
   bankAccountHolderName?: string | null
   bankName?: string | null
   availabilityNotes: string
@@ -134,6 +143,34 @@ function normalizeVendorServiceArea(value: string | null | undefined) {
   if (/\bsan francisco\b|\bsf\b|\bsoma\b|\bdowntown\b|\bmission\b/.test(normalized)) return 'sf_only'
 
   return 'all_bay_area'
+}
+
+function cleanStringOrNull(value: string | null | undefined) {
+  const trimmed = value?.trim()
+  return trimmed || null
+}
+
+function normalizeCollaboratorEmails(values: string[] | null | undefined) {
+  if (!Array.isArray(values)) return []
+  return Array.from(new Set(
+    values
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
+  ))
+}
+
+function normalizeServicesOffered(input: VendorSetupInput) {
+  const serviceLabels = Array.isArray(input.servicesOffered) ? input.servicesOffered : []
+  const values = serviceLabels
+    .map((service) => service.trim())
+    .filter(Boolean)
+
+  if (values.length === 0) {
+    const fallback = SERVICE_TYPE_LABELS[input.serviceType]
+    return fallback ? [fallback] : [input.serviceType]
+  }
+
+  return Array.from(new Set(values))
 }
 
 export async function ensureBuilderTicketingConnections(
@@ -239,9 +276,22 @@ export async function ensureBuilderProfile(admin: SupabaseLikeClient, input: Bui
       {
         user_id: input.userId,
         name: input.name,
+        organization_name: input.organizationName,
+        organization_type: cleanStringOrNull(input.organizationType),
+        social_handle: cleanStringOrNull(input.socialHandle),
+        website: cleanStringOrNull(input.website),
+        bio: cleanStringOrNull(input.bio),
         event_types: eventTypes,
         priorities: preferredAmenities,
         preferred_ticket_platforms: input.ticketPlatforms,
+        typical_attendance_min: input.typicalAttendanceMin ?? null,
+        typical_attendance_max: input.typicalAttendanceMax ?? null,
+        bulk_booking_enabled: Boolean(input.bulkBookingEnabled),
+        invite_collaborators: normalizeCollaboratorEmails(input.inviteCollaborators),
+        signup_metadata: {
+          ticketing_setup_optional: true,
+          gmail_permission_requested_separately: true,
+        },
         updated_at: now,
       } as never,
       { onConflict: 'user_id' }
@@ -439,6 +489,7 @@ export async function ensureVendorProfile(admin: SupabaseLikeClient, input: Vend
   const vendorType = SERVICE_TYPE_LABELS[input.serviceType]
   const depositPercentage = toPositivePercentageOrNull(input.depositPct)
   const displayName = input.businessName?.trim() || input.name
+  const servicesOffered = normalizeServicesOffered(input)
 
   const vendorPayload = {
     user_id: input.userId,
@@ -446,6 +497,7 @@ export async function ensureVendorProfile(admin: SupabaseLikeClient, input: Vend
     phone: input.phone ?? null,
     vendor_type: vendorType,
     service_type: input.serviceType,
+    services_offered: servicesOffered,
     bank_account_holder_name: input.bankAccountHolderName?.trim() || null,
     bank_name: input.bankName?.trim() || null,
     availability_notes: input.availabilityNotes,
@@ -479,23 +531,78 @@ export async function ensureVendorProfile(admin: SupabaseLikeClient, input: Vend
   }
 
   if ((existingVendor as { id: string } | null)?.id) {
+    const vendorId = (existingVendor as { id: string }).id
     const { error } = await admin
       .from('vendor_profiles')
       .update(vendorPayload as never)
-      .eq('id', (existingVendor as { id: string }).id)
+      .eq('id', vendorId)
 
     if (error) {
       throw new Error(`Failed to update vendor profile: ${error.message}`)
     }
+    await ensureVendorStarterPackage(admin, vendorId, input)
+    return
+  }
+
+  const { data, error } = await admin
+    .from('vendor_profiles')
+    .insert(vendorPayload as never)
+    .select('id')
+    .single()
+
+  if (error) {
+    throw new Error(`Failed to create vendor profile: ${error.message}`)
+  }
+
+  await ensureVendorStarterPackage(admin, (data as { id: string }).id, input)
+}
+
+async function ensureVendorStarterPackage(admin: SupabaseLikeClient, vendorId: string, input: VendorSetupInput) {
+  const packageName = cleanStringOrNull(input.packageName)
+  if (!packageName) return
+
+  const { data: existingPackage, error: existingError } = await admin
+    .from('vendor_packages')
+    .select('id')
+    .eq('vendor_id', vendorId)
+    .eq('display_order', 0)
+    .maybeSingle()
+
+  if (existingError) {
+    throw new Error(`Failed to verify starter package: ${existingError.message}`)
+  }
+
+  const packagePayload = {
+    vendor_id: vendorId,
+    package_name: packageName,
+    description: cleanStringOrNull(input.packageDetails),
+    price: input.basePrice ?? null,
+    inclusions: input.packageDetails
+      ? input.packageDetails
+        .split(/\n|,/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+      : [],
+    is_active: true,
+    display_order: 0,
+  }
+
+  if ((existingPackage as { id: string } | null)?.id) {
+    const { error } = await admin
+      .from('vendor_packages')
+      .update(packagePayload as never)
+      .eq('id', (existingPackage as { id: string }).id)
+
+    if (error) throw new Error(`Failed to update starter package: ${error.message}`)
     return
   }
 
   const { error } = await admin
-    .from('vendor_profiles')
-    .insert(vendorPayload as never)
+    .from('vendor_packages')
+    .insert(packagePayload as never)
 
   if (error) {
-    throw new Error(`Failed to create vendor profile: ${error.message}`)
+    throw new Error(`Failed to create starter package: ${error.message}`)
   }
 }
 
@@ -508,19 +615,18 @@ export async function getOnboardingStatus(
   if (userType === 'community_builder') {
     const { data: profile } = await supabase
       .from('builder_profiles')
-      .select('id, event_types, preferred_ticket_platforms')
+      .select('id, event_types')
       .eq('user_id', userId)
       .maybeSingle()
 
     const builder = profile as
-      | { id: string; event_types?: string[] | null; preferred_ticket_platforms?: string[] | null }
+      | { id: string; event_types?: string[] | null }
       | null
 
     const isOnboarded =
       !!builder?.id &&
       !!companyName &&
-      (builder.event_types?.length ?? 0) > 0 &&
-      (builder.preferred_ticket_platforms?.length ?? 0) > 0
+      (builder.event_types?.length ?? 0) > 0
 
     return { isOnboarded, redirectPath: isOnboarded ? '/planner' : '/onboarding' }
   }

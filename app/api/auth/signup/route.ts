@@ -18,6 +18,15 @@ interface SignupRequest {
   name: string
   phone?: string
   organization_name?: string
+  org_type?: string | null
+  organization_type?: string | null
+  social_handle?: string | null
+  website?: string | null
+  avg_attendance?: string | number | null
+  typical_attendance_min?: number | string | null
+  typical_attendance_max?: number | string | null
+  bulk_booking_enabled?: boolean | null
+  invite_collaborators?: string | string[] | null
   event_types?: string[]
   preferred_amenities?: string[]
   ticket_platforms?: TicketPlatform[]
@@ -47,6 +56,7 @@ interface SignupRequest {
   prep_time?: number | null
   business_name?: string | null
   service_type?: ServiceType
+  services?: string[] | null
   service_area?: string | null
   portfolio_url?: string | null
   bio?: string | null
@@ -66,9 +76,17 @@ interface SignupRequest {
 
 interface BuilderSignupDetails {
   organization_name: string
+  organization_type?: string | null
+  social_handle?: string | null
+  website?: string | null
+  bio?: string | null
   event_types: string[]
   preferred_amenities: string[]
   ticket_platforms: TicketPlatform[]
+  typical_attendance_min?: number | null
+  typical_attendance_max?: number | null
+  bulk_booking_enabled?: boolean | null
+  invite_collaborators: string[]
 }
 
 interface VenueSignupDetails {
@@ -104,6 +122,7 @@ interface VendorSignupDetails {
   name: string
   business_name?: string | null
   service_type: ServiceType
+  services?: string[]
   bank_account_holder_name?: string | null
   bank_name?: string | null
   availability_notes: string
@@ -168,6 +187,7 @@ function getBuilderDetails(body: SignupRequest): BuilderSignupDetails | null {
   if (body.userType !== 'community_builder') return null
 
   const organizationName = body.organization_name?.trim()
+  const attendanceRange = parseAttendanceRange(body)
   const eventTypes = body.event_types
     ?.map((eventType) => eventType.trim())
     .filter(Boolean)
@@ -177,16 +197,25 @@ function getBuilderDetails(body: SignupRequest): BuilderSignupDetails | null {
   const ticketPlatforms = body.ticket_platforms
     ?.map((platform) => platform.trim())
     .filter((platform): platform is TicketPlatform => VALID_TICKETING_PLATFORMS.has(platform as TicketPlatform))
+    ?? []
 
-  if (!organizationName || !eventTypes?.length || !ticketPlatforms?.length) {
+  if (!organizationName || !eventTypes?.length) {
     return null
   }
 
   return {
     organization_name: organizationName,
+    organization_type: body.organization_type?.trim() || body.org_type?.trim() || null,
+    social_handle: body.social_handle?.trim() || null,
+    website: body.website?.trim() || null,
+    bio: body.bio?.trim() || null,
     event_types: eventTypes,
     preferred_amenities: preferredAmenities,
     ticket_platforms: ticketPlatforms,
+    typical_attendance_min: attendanceRange.min,
+    typical_attendance_max: attendanceRange.max,
+    bulk_booking_enabled: body.bulk_booking_enabled ?? false,
+    invite_collaborators: normalizeCollaboratorInput(body.invite_collaborators),
   }
 }
 
@@ -199,11 +228,6 @@ function getBuilderSignupValidationError(body: SignupRequest): string | null {
     ?.map((eventType) => eventType.trim())
     .filter(Boolean)
   if (!eventTypes?.length) return 'Select at least one event type'
-
-  const ticketPlatforms = body.ticket_platforms
-    ?.map((platform) => platform.trim())
-    .filter((platform): platform is TicketPlatform => VALID_TICKETING_PLATFORMS.has(platform as TicketPlatform))
-  if (!ticketPlatforms?.length) return 'Connect at least one supported ticketing platform (Eventbrite, Luma, Posh, or Partiful)'
 
   return null
 }
@@ -243,6 +267,58 @@ function parseOptionalNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null
   }
   return null
+}
+
+function parseAttendanceRange(body: SignupRequest): { min: number | null; max: number | null } {
+  const explicitMin = parseOptionalNumber(body.typical_attendance_min)
+  const explicitMax = parseOptionalNumber(body.typical_attendance_max)
+  if (explicitMin !== null || explicitMax !== null) {
+    const min = explicitMin === null ? explicitMax : explicitMin
+    const max = explicitMax === null ? explicitMin : explicitMax
+    return normalizeRange(min, max)
+  }
+
+  const value = body.avg_attendance
+  if (value === null || value === undefined || value === '') return { min: null, max: null }
+  if (typeof value === 'number') return normalizeRange(value, value)
+
+  const normalized = value.replace(/,/g, '').trim()
+  const range = normalized.match(/(\d+(?:\.\d+)?)\s*(?:-|to|–|—)\s*(\d+(?:\.\d+)?)/i)
+  if (range) {
+    return normalizeRange(Number.parseFloat(range[1]), Number.parseFloat(range[2]))
+  }
+
+  const openEnded = normalized.match(/(\d+(?:\.\d+)?)\s*\+/)
+  if (openEnded) {
+    const min = Number.parseFloat(openEnded[1])
+    return normalizeRange(min, null)
+  }
+
+  const single = parseOptionalNumber(normalized)
+  return single === null ? { min: null, max: null } : normalizeRange(single, single)
+}
+
+function normalizeRange(minValue: number | null, maxValue: number | null) {
+  const min = minValue === null ? null : Math.max(0, Math.round(minValue))
+  const max = maxValue === null ? null : Math.max(0, Math.round(maxValue))
+  if (min !== null && max !== null && min > max) {
+    return { min: max, max: min }
+  }
+  return { min, max }
+}
+
+function normalizeCollaboratorInput(value: SignupRequest['invite_collaborators']) {
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(/[,;\n]/)
+      : []
+
+  return Array.from(new Set(
+    values
+      .map((item) => item.trim().toLowerCase())
+      .filter((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item))
+  ))
 }
 
 function getRoleSignupValidationError(body: SignupRequest): string | null {
@@ -319,6 +395,7 @@ function getVendorDetails(body: SignupRequest): VendorSignupDetails | null {
     name,
     business_name: business_name?.trim() || null,
     service_type,
+    services: body.services?.map((service) => service.trim()).filter(Boolean) ?? [],
     bank_account_holder_name: bank_account_holder_name?.trim() || null,
     bank_name: bank_name?.trim() || null,
     availability_notes: availabilityNotes,
@@ -353,9 +430,17 @@ async function ensureRoleSetup(
       userId,
       name: body.name,
       organizationName: builderDetails.organization_name,
+      organizationType: builderDetails.organization_type ?? null,
+      socialHandle: builderDetails.social_handle ?? null,
+      website: builderDetails.website ?? null,
+      bio: builderDetails.bio ?? null,
       eventTypes: builderDetails.event_types,
       preferredAmenities: builderDetails.preferred_amenities,
       ticketPlatforms: builderDetails.ticket_platforms,
+      typicalAttendanceMin: builderDetails.typical_attendance_min ?? null,
+      typicalAttendanceMax: builderDetails.typical_attendance_max ?? null,
+      bulkBookingEnabled: builderDetails.bulk_booking_enabled ?? false,
+      inviteCollaborators: builderDetails.invite_collaborators,
       origin,
     })
     return
@@ -415,6 +500,7 @@ async function ensureRoleSetup(
       name: vendorDetails.name,
       businessName: vendorDetails.business_name ?? null,
       serviceType: vendorDetails.service_type,
+      servicesOffered: vendorDetails.services ?? [],
       bankAccountHolderName: vendorDetails.bank_account_holder_name,
       bankName: vendorDetails.bank_name,
       availabilityNotes: vendorDetails.availability_notes,
@@ -594,7 +680,7 @@ export async function POST(request: NextRequest) {
 
     if (userType === 'community_builder' && !builderDetails) {
       return NextResponse.json(
-        { error: 'Creator signup details are invalid. Check event types and ticketing platforms.' },
+        { error: 'Creator signup details are invalid. Check organization and event types.' },
         { status: 400 }
       )
     }

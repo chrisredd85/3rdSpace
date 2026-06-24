@@ -54,18 +54,36 @@ describe('builderPreferences', () => {
   it('builds a compact organizer preference payload for planner agents', () => {
     const payload = buildOrganizerPreferencePayload({
       builder_id: 'builder-1',
+      organization_name: 'Sunset Social Club',
+      organization_type: 'Community',
+      social_handle: '@sunsetsocial',
+      website: 'https://sunsetsocial.example.com',
+      bio: 'Recurring founder dinners.',
       event_archetype_keys: ['networking_mixer'],
       event_type_labels: ['Networking mixer'],
       preferred_amenities: ['full bar'],
       preferred_ticket_platforms: ['posh'],
+      self_reported_typical_attendance: {
+        min: 80,
+        max: 120,
+      },
     })
 
     expect(payload).toEqual({
       builder_id: 'builder-1',
+      organization_name: 'Sunset Social Club',
+      organization_type: 'Community',
+      social_handle: '@sunsetsocial',
+      website: 'https://sunsetsocial.example.com',
+      bio: 'Recurring founder dinners.',
       event_archetype_keys: ['networking_mixer'],
       event_type_labels: ['Networking mixer'],
       preferred_amenities: ['full bar'],
       preferred_ticket_platforms: ['posh'],
+      self_reported_typical_attendance: {
+        min: 80,
+        max: 120,
+      },
     })
     expect(firstKnownBuilderArchetype(payload)).toBe('networking_mixer')
   })
