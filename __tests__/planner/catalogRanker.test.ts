@@ -51,6 +51,74 @@ describe('rankCatalogPartners', () => {
     )
   })
 
+  it('keeps venues with missing capacity with a confirmation penalty', () => {
+    const result = rankCatalogPartners({
+      plan,
+      venues: [
+        {
+          ...baseVenue,
+          id: 'venue-unknown-capacity',
+          venue_name: 'Mission Discovery Bar',
+          city: 'Mission',
+          standing_capacity: null,
+          seated_capacity: null,
+          hourly_rate_cents: 50_000,
+          minimum_hours: 4,
+          unique_features_tags: ['AV', 'rooftop'],
+        },
+      ],
+      vendors: [],
+    })
+
+    expect(result.recommendations[0]).toEqual(expect.objectContaining({
+      partner_id: 'venue-unknown-capacity',
+      capacity: null,
+      capacity_known: false,
+      blocking_issues: [],
+      metadata: expect.objectContaining({
+        capacity_known: false,
+        capacity_score_penalty: 15,
+      }),
+    }))
+  })
+
+  it('scores known-capacity venues above otherwise similar unknown-capacity venues', () => {
+    const result = rankCatalogPartners({
+      plan,
+      venues: [
+        {
+          ...baseVenue,
+          id: 'venue-known-capacity',
+          venue_name: 'Mission Known Bar',
+          city: 'Mission',
+          standing_capacity: 80,
+          hourly_rate_cents: 50_000,
+          minimum_hours: 4,
+          unique_features_tags: ['AV', 'rooftop'],
+        },
+        {
+          ...baseVenue,
+          id: 'venue-unknown-capacity',
+          venue_name: 'Mission Unknown Bar',
+          city: 'Mission',
+          standing_capacity: null,
+          seated_capacity: null,
+          hourly_rate_cents: 50_000,
+          minimum_hours: 4,
+          unique_features_tags: ['AV', 'rooftop'],
+        },
+      ],
+      vendors: [],
+      venueLimit: 2,
+    })
+
+    expect(result.recommendations.map((recommendation) => recommendation.partner_id)).toEqual([
+      'venue-known-capacity',
+      'venue-unknown-capacity',
+    ])
+    expect(result.recommendations[0].score).toBeGreaterThan(result.recommendations[1].score)
+  })
+
   it('labels over-budget venue matches as Stretch, not Best fit', () => {
     const result = rankCatalogPartners({
       plan,

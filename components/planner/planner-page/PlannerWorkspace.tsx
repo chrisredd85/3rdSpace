@@ -15,6 +15,7 @@ import { usePlannerBillingGate } from '@/components/planner/usePlannerBillingGat
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/components/ui/toast'
+import { hasPendingAgentResponse } from '@/lib/planner/intakeReadiness'
 import { migratePlannerDraftToServer } from '@/lib/planner/migrateDraft'
 import type { DerivationAgentAction } from '@/lib/planner/timelineDerivation'
 import type { Plan, PlanMessage, PlannerCreatePlanResponse, PlannerPostMessageResponse } from '@/lib/types'
@@ -444,6 +445,7 @@ export function PlannerWorkspace() {
     if (persistenceMode !== 'server') return
     if (!activePlan || activePlan.status !== 'ready') return
     if (isAwaitingRecommendations) return
+    if (hasPendingAgentResponse(messages)) return
     if (!hasDraftMatchGateMessage(messages) || messages.some(isRecommendationMessage)) return
     if (autoTriggeredDraftRecommendationPlanRef.current === activePlan.id) return
 

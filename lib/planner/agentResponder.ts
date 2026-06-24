@@ -103,6 +103,7 @@ export function determineNextResponse(plan: Plan, messages: PlanMessage[]): Agen
         plan_updates: latestIntent,
         missing_fields: missingFields,
         confirmation_items: confirmationItems,
+        requires_response: true,
       }),
     }
   }
@@ -121,6 +122,7 @@ export function determineNextResponse(plan: Plan, messages: PlanMessage[]): Agen
         plan_updates: latestIntent,
         missing_fields: [archetypeQuestion.id],
         archetype_question: archetypeQuestion,
+        requires_response: true,
       }),
     }
   }
@@ -134,6 +136,7 @@ export function determineNextResponse(plan: Plan, messages: PlanMessage[]): Agen
       missing_fields: [],
       recommendation_type: 'venue',
       next_action: 'generate_recommendations',
+      requires_response: false,
     }),
   }
 }

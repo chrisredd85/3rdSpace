@@ -9,6 +9,7 @@ import {
 
 const MAX_VENUE_CANDIDATES = 10
 const DEFAULT_EVENT_HOURS = 4
+const UNKNOWN_CAPACITY_SCORE = 18
 
 const nullableStringSchema = z.string().trim().min(1).nullable()
 const nullableNonnegativeNumberSchema = z.number().nonnegative().nullable()
@@ -181,7 +182,7 @@ function getVenueCapacity(venue: VenueMatchingCandidate): number | null {
 function passesCapacityFilter(venue: VenueMatchingCandidate, headcount: number | null): boolean {
   if (headcount === null) return true
   const capacity = getVenueCapacity(venue)
-  if (capacity === null) return false
+  if (capacity === null) return true
   return capacity >= headcount
 }
 
@@ -227,7 +228,7 @@ function scoreCapacityFit(
   }
 
   if (capacity === null) {
-    return { score: 0, reason: 'Capacity is missing.' }
+    return { score: UNKNOWN_CAPACITY_SCORE, reason: 'Capacity TBD — confirm with venue.' }
   }
 
   const ratio = capacity / headcount

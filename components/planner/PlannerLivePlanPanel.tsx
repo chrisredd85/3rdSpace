@@ -70,6 +70,7 @@ interface RecommendationSummary {
   priceCents: number | null
   address: string | null
   capacity: number | null
+  capacityKnown: boolean
   fit: string | null
   holdDurationHours: number | null
   commercialModelMatch: string | null
@@ -608,6 +609,7 @@ function deriveRecommendations(messages: PlanMessage[]): RecommendationSummary[]
         priceCents: priceCents ?? null,
         address: readString(record.address) ?? readString(record.location) ?? null,
         capacity: readNumber(record.capacity) ?? readNumber(record.capacity_max),
+        capacityKnown: readBoolean(record.capacity_known) ?? (readNumber(record.capacity) ?? readNumber(record.capacity_max)) !== null,
         fit: readString(record.fit) ?? readString(record.note),
         holdDurationHours: readNumber(record.hold_duration_hours),
         commercialModelMatch:
@@ -2529,7 +2531,11 @@ function parseDateOnly(value: string): Date | null {
 function venueMetaLabel(recommendation: RecommendationSummary | null, summary: EventSummary) {
   if (!recommendation) return summary.area ? `${summary.area} · recommendation pending` : 'Recommendation pending'
   const address = recommendation.address ?? summary.area ?? 'Bay Area'
-  const capacity = recommendation.capacity ? `Cap ${recommendation.capacity}` : 'Capacity pending'
+  const capacity = recommendation.capacity
+    ? `Cap ${recommendation.capacity}`
+    : recommendation.capacityKnown === false
+      ? 'Capacity TBD — confirm with venue'
+      : 'Capacity pending'
   return `${address} · ${capacity}`
 }
 
@@ -2569,6 +2575,7 @@ function venueFitTags(venue: RecommendationSummary) {
   const fallbackTags: string[] = []
   if (venue.address) fallbackTags.push(venue.address)
   if (venue.capacity) fallbackTags.push(`${venue.capacity} cap`)
+  if (!venue.capacity && venue.capacityKnown === false) fallbackTags.push('Capacity TBD')
   if (typeof venue.priceCents === 'number' && venue.priceCents < 0) fallbackTags.push('CHI')
   if (fallbackTags.length === 0 && venue.fit) fallbackTags.push(venue.fit.slice(0, 48))
   return fallbackTags.length > 0 ? fallbackTags.slice(0, 3) : ['Needs review']

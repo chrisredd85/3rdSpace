@@ -55,6 +55,20 @@ describe('preFilterVenues', () => {
     expect(result.map((venue) => venue.id)).toEqual(['matching'])
   })
 
+  it('keeps venues with unknown capacity but scores them below known-capacity venues', () => {
+    const result = preFilterVenues({
+      event_plan: baseEventPlan,
+      candidate_venues: [
+        makeVenue({ id: 'known-capacity', standing_capacity: 100, seated_capacity: 85 }),
+        makeVenue({ id: 'unknown-capacity', standing_capacity: null, seated_capacity: null }),
+      ],
+    })
+
+    expect(result.map((venue) => venue.id)).toEqual(['known-capacity', 'unknown-capacity'])
+    expect(result[0].deterministic_score).toBeGreaterThan(result[1].deterministic_score)
+    expect(result[1].score_reasons).toContain('Capacity TBD — confirm with venue.')
+  })
+
   it('caps the LLM candidate set at 10 venues after deterministic scoring', () => {
     const candidates = Array.from({ length: 20 }, (_, index) => makeVenue({
       id: `venue-${index}`,
