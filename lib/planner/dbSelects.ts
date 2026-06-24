@@ -16,6 +16,12 @@ export const PLAN_SELECT_COLUMNS = `
   agent_action,
   profit_goal_cents,
   notes,
+  committed_venue_id,
+  committed_venue_quoted_price_cents,
+  committed_venue_quoted_deal_model,
+  committed_venue_quoted_terms,
+  committed_venue_at,
+  committed_vendors,
   metadata,
   created_at,
   updated_at

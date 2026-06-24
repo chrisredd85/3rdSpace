@@ -52,6 +52,10 @@ export const GOOGLE_PLACES_INCLUDED_TYPES = [
   'art_gallery',
   'museum',
   'performing_arts_theater',
+  'photographer',
+  'caterer',
+  'florist',
+  'security_service',
 ] as const
 
 export type GooglePlacesIncludedType = typeof GOOGLE_PLACES_INCLUDED_TYPES[number]

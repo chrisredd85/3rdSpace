@@ -184,10 +184,51 @@ interface LivePlanSnapshot {
   runOfShow: RunOfShowSnapshot | null
   workspaceSummary: WorkspaceSummarySnapshot | null
   selectedVendors: SelectedPlanVendor[]
+  outreachResponses: OutreachResponseSummary
+  committedVenue: CommittedVenueQuote | null
+  committedVendors: CommittedVendorQuote[]
   customCosts: CustomCostItem[]
   attendance: PlanAttendanceSnapshot
   specialSupply: SpecialSupplyMetadata | null
   updatedAt: string | null
+}
+
+interface OutreachReplyOption {
+  kind: 'venue' | 'vendor'
+  discoveryId: string
+  name: string
+  serviceType: string | null
+  status: string
+  quoteCents: number | null
+  confidence: number | null
+  summary: string | null
+  updatedAt: string | null
+}
+
+interface OutreachResponseSummary {
+  venues: OutreachReplyOption[]
+  vendors: OutreachReplyOption[]
+}
+
+interface CommittedVenueQuote {
+  discoveryVenueId: string
+  name: string | null
+  quotedPriceCents: number | null
+  quotedDealModel: string | null
+  quotedTerms: Record<string, unknown>
+  committedAt: string | null
+}
+
+interface CommittedVendorQuote {
+  discoveryVendorId: string
+  name: string | null
+  serviceType: string
+  quotedHourlyCents: number | null
+  quotedPackageCents: number | null
+  quotedMinimumCents: number | null
+  quotedDepositPct: number | null
+  quotedTerms: Record<string, unknown>
+  committedAt: string | null
 }
 
 interface SelectedPlanVendor {
@@ -292,6 +333,8 @@ const emptyPayload: LivePlanPanelPayload = {
   planId: null,
 }
 
+const emptyOutreachResponseSummary: OutreachResponseSummary = { venues: [], vendors: [] }
+
 const defaultRules: SpendingRule[] = [
   { label: 'Organizer approval required for deposits', enabled: true },
   { label: 'Only contact capacity-fit venues', enabled: true },
@@ -368,6 +411,8 @@ function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
   const agentCache = asRecord(metadata?.agent_cache)
   const cachedTimeline = asRecord(agentCache?.timeline)
   const cachedWorkspace = asRecord(agentCache?.workspace_summary)
+  const acceptedQuoteState = asRecord(metadata?.accepted_quote_state)
+  const shoppingList = asRecord(metadata?.shopping_list)
 
   return {
     title: readString(record.title) ?? 'Untitled plan',
@@ -401,12 +446,137 @@ function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
     selectedVendors: normalizeSelectedVendors(
       record.selectedVendors ??
       record.selected_vendors ??
-      asRecord(metadata?.shopping_list)?.selected_vendors
+      shoppingList?.selected_vendors
+    ),
+    outreachResponses: normalizeOutreachResponseSummary(metadata?.outreach_response_summary),
+    committedVenue: normalizeCommittedVenueQuote(
+      record.committedVenue ??
+      record.committed_venue ??
+      acceptedQuoteState?.venue ??
+      {
+        discovery_venue_id: record.committed_venue_id,
+        quoted_price_cents: record.committed_venue_quoted_price_cents,
+        quoted_deal_model: record.committed_venue_quoted_deal_model,
+        quoted_terms: record.committed_venue_quoted_terms,
+        committed_at: record.committed_venue_at,
+      }
+    ),
+    committedVendors: normalizeCommittedVendorQuotes(
+      record.committedVendors ??
+      record.committed_vendors ??
+      acceptedQuoteState?.vendors ??
+      metadata?.committed_vendors
     ),
     customCosts: normalizeCustomCosts(metadata?.custom_costs),
     attendance: normalizePlanAttendanceSnapshot(record, metadata),
     updatedAt: readString(record.updatedAt) ?? readString(record.updated_at),
   }
+}
+
+function normalizeOutreachResponseSummary(value: unknown): OutreachResponseSummary {
+  const record = asRecord(value)
+  if (!record) return emptyOutreachResponseSummary
+  return {
+    venues: normalizeOutreachReplyOptions(record.venues, 'venue'),
+    vendors: normalizeOutreachReplyOptions(record.vendors, 'vendor'),
+  }
+}
+
+function normalizeOutreachReplyOptions(value: unknown, kind: 'venue' | 'vendor'): OutreachReplyOption[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((item) => {
+    const record = asRecord(item)
+    if (!record) return []
+    const discoveryId =
+      readString(record.discovery_venue_id) ??
+      readString(record.discoveryVendorId) ??
+      readString(record.discovery_vendor_id) ??
+      readString(record.discoveryId)
+    if (!discoveryId) return []
+    const name =
+      readString(record.venue_name) ??
+      readString(record.vendor_name) ??
+      readString(record.name) ??
+      (kind === 'venue' ? 'Venue response' : 'Vendor response')
+
+    return [{
+      kind,
+      discoveryId,
+      name,
+      serviceType: readString(record.service_type),
+      status: readString(record.status) ?? 'reply_received',
+      quoteCents:
+        readNumber(record.quote_cents) ??
+        readNumber(record.quoted_price_cents) ??
+        readNumber(record.quoted_package_cents) ??
+        readNumber(record.quoted_minimum_cents),
+      confidence: readNumber(record.confidence),
+      summary: readString(record.summary),
+      updatedAt: readString(record.updated_at) ?? readString(record.updatedAt),
+    }]
+  }).sort((first, second) => {
+    const firstScore = outreachReplyFitScore(first)
+    const secondScore = outreachReplyFitScore(second)
+    if (secondScore !== firstScore) return secondScore - firstScore
+    return (first.quoteCents ?? Number.POSITIVE_INFINITY) - (second.quoteCents ?? Number.POSITIVE_INFINITY)
+  })
+}
+
+function normalizeCommittedVenueQuote(value: unknown): CommittedVenueQuote | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const discoveryVenueId =
+    readString(record.discoveryVenueId) ??
+    readString(record.discovery_venue_id) ??
+    readString(record.id)
+  if (!discoveryVenueId) return null
+  return {
+    discoveryVenueId,
+    name: readString(record.name) ?? readString(record.venue_name),
+    quotedPriceCents:
+      readNumber(record.quotedPriceCents) ??
+      readNumber(record.quoted_price_cents),
+    quotedDealModel:
+      readString(record.quotedDealModel) ??
+      readString(record.quoted_deal_model),
+    quotedTerms: asRecord(record.quotedTerms) ?? asRecord(record.quoted_terms) ?? {},
+    committedAt: readString(record.committedAt) ?? readString(record.committed_at),
+  }
+}
+
+function normalizeCommittedVendorQuotes(value: unknown): CommittedVendorQuote[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((item) => {
+    const record = asRecord(item)
+    if (!record) return []
+    const discoveryVendorId =
+      readString(record.discoveryVendorId) ??
+      readString(record.discovery_vendor_id) ??
+      readString(record.id)
+    const serviceType = readString(record.serviceType) ?? readString(record.service_type)
+    if (!discoveryVendorId || !serviceType) return []
+    return [{
+      discoveryVendorId,
+      name: readString(record.name) ?? readString(record.vendor_name),
+      serviceType,
+      quotedHourlyCents:
+        readNumber(record.quotedHourlyCents) ??
+        readNumber(record.quoted_hourly_cents),
+      quotedPackageCents:
+        readNumber(record.quotedPackageCents) ??
+        readNumber(record.quoted_package_cents),
+      quotedMinimumCents:
+        readNumber(record.quotedMinimumCents) ??
+        readNumber(record.quoted_minimum_cents),
+      quotedDepositPct:
+        readNumber(record.quotedDepositPct) ??
+        readNumber(record.quoted_deposit_pct),
+      quotedTerms: asRecord(record.quotedTerms) ?? asRecord(record.quoted_terms) ?? {},
+      committedAt: readString(record.committedAt) ?? readString(record.committed_at),
+    }]
+  })
 }
 
 function normalizeSelectedVendors(value: unknown): SelectedPlanVendor[] {
@@ -767,15 +937,23 @@ function buildProfitModel(
   recommendations: RecommendationSummary[],
   budgetItems: BudgetLineItem[],
   customCosts: CustomCostItem[] = [],
-  baseline: PlannerProjectionBaseline | null = null
+  baseline: PlannerProjectionBaseline | null = null,
+  livePlan: LivePlanSnapshot | null = null
 ): ProfitModel {
   const guestCount = summary.guest_count ?? 0
   const sellThrough = clampRate(baseline?.avgSellThrough ?? 0.87, 0, 1.5)
   const noShowRate = clampRate(baseline?.avgNoShowRate ?? 0.15, 0, 1)
   const paidAverage = guestCount > 0 ? Math.max(1, Math.round(guestCount * sellThrough)) : 0
   const projectedAttendance = paidAverage > 0 ? Math.max(1, Math.round(paidAverage * (1 - noShowRate))) : 0
-  const venueCostCents = recommendations.find((item) => /venue/i.test(item.type))?.priceCents ?? budgetItems[0]?.amountCents ?? 0
+  const committedVenueCostCents = livePlan?.committedVenue?.quotedPriceCents ?? null
+  const committedVendorCostCents = sumCommittedVendorQuotes(livePlan?.committedVendors ?? [])
+  const venueCostCents =
+    committedVenueCostCents ??
+    recommendations.find((item) => /venue/i.test(item.type))?.priceCents ??
+    budgetItems[0]?.amountCents ??
+    0
   const vendorCostCents =
+    (committedVendorCostCents > 0 ? committedVendorCostCents : null) ??
     budgetItems.find((item) => /vendor|dinner/i.test(item.label))?.amountCents ??
     Math.max(0, Math.round((summary.budget_cents ?? 0) * 0.3))
   const customCostsTotalCents = Math.round(customCosts.reduce((sum, c) => sum + c.amount * 100, 0))
@@ -809,12 +987,16 @@ function buildProfitModel(
   const lineItems: ProfitModel['lineItems'] = [
     { label: `Ticket revenue (${paidAverage || 'TBD'} paid avg × ${formatCents(ticketPricing.recommendedCents)})`, amountCents: ticketRevenueCents },
     { label: venueIncentive.label, amountCents: venueIncentive.amountCents },
-    { label: `Venue cost (${recommendations[0]?.name ?? 'target'})`, amountCents: venueCostCents, negative: true },
+    { label: `Venue cost (${livePlan?.committedVenue?.name ?? recommendations[0]?.name ?? 'target'})`, amountCents: venueCostCents, negative: true },
     { label: 'Platform + payment fees (4.9%)', amountCents: feesCents, negative: true },
   ]
 
   if (summary.vendor_need_status !== 'none') {
-    lineItems.splice(3, 0, { label: 'Vendor cost (catering, DJ, AV, security)', amountCents: vendorCostCents, negative: true })
+    lineItems.splice(3, 0, {
+      label: committedVendorCostCents > 0 ? 'Accepted vendor quotes' : 'Vendor cost (catering, DJ, AV, security)',
+      amountCents: vendorCostCents,
+      negative: true,
+    })
   }
 
   if (customCostsTotalCents > 0) {
@@ -850,6 +1032,54 @@ function buildProfitModel(
 function clampRate(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min
   return Math.min(max, Math.max(min, value))
+}
+
+function sumCommittedVendorQuotes(vendors: CommittedVendorQuote[]): number {
+  return vendors.reduce((sum, vendor) => sum + (committedVendorQuoteCents(vendor) ?? 0), 0)
+}
+
+function committedVendorQuoteCents(vendor: CommittedVendorQuote): number | null {
+  return vendor.quotedPackageCents ?? vendor.quotedMinimumCents ?? vendor.quotedHourlyCents
+}
+
+function upsertCommittedVendor(
+  current: CommittedVendorQuote[],
+  next: CommittedVendorQuote
+): CommittedVendorQuote[] {
+  const filtered = current.filter((vendor) =>
+    vendor.discoveryVendorId !== next.discoveryVendorId &&
+    vendor.serviceType !== next.serviceType
+  )
+  return [...filtered, next]
+}
+
+function outreachReplyFitScore(option: OutreachReplyOption): number {
+  const normalized = option.status.toLowerCase()
+  const statusScore =
+    normalized.includes('quote') || normalized.includes('yes') || normalized.includes('available')
+      ? 30
+      : normalized.includes('conditional')
+        ? 20
+        : normalized.includes('no')
+          ? -30
+          : 0
+  const priceScore = option.quoteCents !== null ? 10 : 0
+  const confidenceScore = option.confidence !== null ? Math.round(option.confidence * 10) : 0
+  return statusScore + priceScore + confidenceScore
+}
+
+function isActionableOutreachReply(option: OutreachReplyOption): boolean {
+  const normalized = option.status.toLowerCase()
+  if (normalized.includes('no') || normalized.includes('declin')) return false
+  return normalized.includes('yes') ||
+    normalized.includes('quote') ||
+    normalized.includes('available') ||
+    normalized.includes('conditional') ||
+    option.quoteCents !== null
+}
+
+function quoteFeedbackKey(option: OutreachReplyOption): string {
+  return `${option.kind}:${option.discoveryId}:${option.serviceType ?? 'default'}`
 }
 
 function readProjectionBaseline(value: unknown): PlannerProjectionBaseline | null {
@@ -987,6 +1217,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const [contactEmailDrafts, setContactEmailDrafts] = useState<Record<string, string>>({})
   const [contactEmailFeedback, setContactEmailFeedback] = useState<Record<string, 'saving' | 'saved' | 'draft_created' | 'error'>>({})
   const [contactDraftMessageIds, setContactDraftMessageIds] = useState<Record<string, string | null>>({})
+  const [quoteCommitFeedback, setQuoteCommitFeedback] = useState<Record<string, 'saving' | 'saved' | 'error'>>({})
   const [projectionBaseline, setProjectionBaseline] = useState<PlannerProjectionBaseline | null>(null)
   const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const billingGate = usePlannerBillingGate()
@@ -1041,8 +1272,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const openQuestions = buildOpenQuestions(eventSummary, renderedRecommendations)
   const authorizationCards = buildAuthorizationCards(renderedApprovals, primaryVenue, renderedBudgetLineItems)
   const profitModel = useMemo(
-    () => buildProfitModel(eventSummary, renderedRecommendations, renderedBudgetLineItems, customCosts, projectionBaseline),
-    [eventSummary, renderedBudgetLineItems, renderedRecommendations, customCosts, projectionBaseline]
+    () => buildProfitModel(eventSummary, renderedRecommendations, renderedBudgetLineItems, customCosts, projectionBaseline, livePlan),
+    [eventSummary, renderedBudgetLineItems, renderedRecommendations, customCosts, projectionBaseline, livePlan]
   )
   const renderedEstimatedTotal =
     estimatedTotalCents !== undefined ? formatCents(estimatedTotalCents) : formatCents(eventSummary.budget_cents)
@@ -1056,7 +1287,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   })
   const isComparingCommercialModels = isRecommendBestModel(eventSummary.consumption_share)
   const primaryAuthorization = authorizationCards[0] ?? null
-  const shoppingListItems = buildShoppingList(primaryVenue, renderedBudgetLineItems, eventSummary, livePlan?.selectedVendors ?? [])
+  const outreachReplyOptions = livePlan?.outreachResponses ?? emptyOutreachResponseSummary
+  const shoppingListItems = buildShoppingList(primaryVenue, renderedBudgetLineItems, eventSummary, livePlan?.selectedVendors ?? [], livePlan)
   const canRequestDateChange = Boolean(onDateChangeRequest && activePlanId && !activePlanId.startsWith('mock-plan-'))
   const handleVenueComparisonJump = useCallback((venueId: string) => {
     const target = recommendationCardRefs.current[venueId]
@@ -1198,6 +1430,109 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
     } catch (error) {
       console.error('[planner.live-plan] contact_email_save_failed', error)
       setContactEmailFeedback((current) => ({ ...current, [discoveryVenueId]: 'error' }))
+    }
+  }
+
+  async function handleCommitOutreachReply(option: OutreachReplyOption) {
+    if (!activePlanId || activePlanId.startsWith('mock-plan-')) return
+
+    const feedbackKey = `${option.kind}:${option.discoveryId}:${option.serviceType ?? 'default'}`
+    setQuoteCommitFeedback((current) => ({ ...current, [feedbackKey]: 'saving' }))
+
+    try {
+      const response = await fetch(
+        option.kind === 'venue'
+          ? `/api/planner/plans/${activePlanId}/commit-venue`
+          : `/api/planner/plans/${activePlanId}/commit-vendor`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(
+            option.kind === 'venue'
+              ? {
+                  discovery_venue_id: option.discoveryId,
+                  quoted_price_cents: option.quoteCents,
+                  quoted_deal_model: option.status,
+                  quoted_terms: {
+                    source: 'outreach_reply',
+                    status: option.status,
+                    summary: option.summary,
+                    confidence: option.confidence,
+                    updated_at: option.updatedAt,
+                  },
+                }
+              : {
+                  discovery_vendor_id: option.discoveryId,
+                  service_type: option.serviceType ?? 'other',
+                  quoted_package_cents: option.quoteCents,
+                  quoted_terms: {
+                    source: 'outreach_reply',
+                    status: option.status,
+                    summary: option.summary,
+                    confidence: option.confidence,
+                    updated_at: option.updatedAt,
+                  },
+                }
+          ),
+        }
+      )
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(payload.error ?? 'Could not accept quote')
+
+      setLivePayload((current) => {
+        if (!current.plan) return current
+        const now = new Date().toISOString()
+        const nextPlan: LivePlanSnapshot = option.kind === 'venue'
+          ? {
+              ...current.plan,
+              committedVenue: {
+                discoveryVenueId: option.discoveryId,
+                name: option.name,
+                quotedPriceCents: option.quoteCents,
+                quotedDealModel: option.status,
+                quotedTerms: {
+                  source: 'outreach_reply',
+                  status: option.status,
+                  summary: option.summary,
+                  confidence: option.confidence,
+                  updated_at: option.updatedAt,
+                },
+                committedAt: now,
+              },
+              updatedAt: now,
+            }
+          : {
+              ...current.plan,
+              committedVendors: upsertCommittedVendor(current.plan.committedVendors, {
+                discoveryVendorId: option.discoveryId,
+                name: option.name,
+                serviceType: option.serviceType ?? 'other',
+                quotedHourlyCents: null,
+                quotedPackageCents: option.quoteCents,
+                quotedMinimumCents: null,
+                quotedDepositPct: null,
+                quotedTerms: {
+                  source: 'outreach_reply',
+                  status: option.status,
+                  summary: option.summary,
+                  confidence: option.confidence,
+                  updated_at: option.updatedAt,
+                },
+                committedAt: now,
+              }),
+              updatedAt: now,
+            }
+        const nextPayload = { ...current, plan: nextPlan }
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('planner-live-plan', JSON.stringify(nextPayload))
+        }
+        return nextPayload
+      })
+      setQuoteCommitFeedback((current) => ({ ...current, [feedbackKey]: 'saved' }))
+    } catch (error) {
+      console.error('[planner.live-plan] quote_commit_failed', error)
+      setQuoteCommitFeedback((current) => ({ ...current, [feedbackKey]: 'error' }))
     }
   }
 
@@ -1686,6 +2021,13 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             onEmailChange={(venueId, value) => setContactEmailDrafts((current) => ({ ...current, [venueId]: value }))}
             onEmailSubmit={handleVenueContactEmailSubmit}
             onNavigateToApprovals={(messageId) => onNavigateToTab?.('approvals', messageId ?? undefined)}
+          />
+          <OutreachQuoteComparison
+            responses={outreachReplyOptions}
+            committedVenue={livePlan?.committedVenue ?? null}
+            committedVendors={livePlan?.committedVendors ?? []}
+            feedback={quoteCommitFeedback}
+            onCommit={handleCommitOutreachReply}
           />
         </ArtifactSection>
 
@@ -2303,6 +2645,125 @@ function VenueComparisonTable({
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  )
+}
+
+function OutreachQuoteComparison({
+  responses,
+  committedVenue,
+  committedVendors,
+  feedback,
+  onCommit,
+}: {
+  responses: OutreachResponseSummary
+  committedVenue: CommittedVenueQuote | null
+  committedVendors: CommittedVendorQuote[]
+  feedback: Record<string, 'saving' | 'saved' | 'error'>
+  onCommit: (option: OutreachReplyOption) => void
+}) {
+  const venueOptions = responses.venues.filter(isActionableOutreachReply)
+  const vendorOptions = responses.vendors.filter(isActionableOutreachReply)
+  const hasContent = venueOptions.length > 0 || vendorOptions.length > 0 || committedVenue || committedVendors.length > 0
+  if (!hasContent) return null
+
+  return (
+    <div className="mt-4 rounded-lg border border-forest/20 bg-forest/5 p-5" data-testid="outreach-quote-comparison">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="label-caps text-forest">Reply quotes</p>
+          <p className="mt-2 text-sm leading-snug text-ink-soft">
+            Compare verified replies before updating the brief. Booking and payment still need separate approvals.
+          </p>
+        </div>
+        <span className="rounded-full border border-forest/20 bg-cream px-3 py-1 text-xs font-bold uppercase tracking-[0.06em] text-forest">
+          {venueOptions.length + vendorOptions.length} reply option{venueOptions.length + vendorOptions.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {venueOptions.map((option) => (
+          <OutreachQuoteCard
+            key={`venue-${option.discoveryId}`}
+            option={option}
+            isCommitted={committedVenue?.discoveryVenueId === option.discoveryId}
+            feedback={feedback[quoteFeedbackKey(option)]}
+            onCommit={onCommit}
+          />
+        ))}
+        {vendorOptions.map((option) => (
+          <OutreachQuoteCard
+            key={`vendor-${option.discoveryId}-${option.serviceType ?? 'default'}`}
+            option={option}
+            isCommitted={committedVendors.some((vendor) =>
+              vendor.discoveryVendorId === option.discoveryId ||
+              vendor.serviceType === (option.serviceType ?? 'other')
+            )}
+            feedback={feedback[quoteFeedbackKey(option)]}
+            onCommit={onCommit}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function OutreachQuoteCard({
+  option,
+  isCommitted,
+  feedback,
+  onCommit,
+}: {
+  option: OutreachReplyOption
+  isCommitted: boolean
+  feedback?: 'saving' | 'saved' | 'error'
+  onCommit: (option: OutreachReplyOption) => void
+}) {
+  const isSaving = feedback === 'saving'
+  return (
+    <div className="rounded-md border border-tan bg-cream p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-ink-faint">
+            {option.kind === 'venue' ? 'Venue' : formatVendorServiceCategory(option.serviceType)}
+          </p>
+          <h3 className="mt-1 break-words text-base font-bold leading-tight text-ink" title={option.name}>
+            {option.name}
+          </h3>
+        </div>
+        <span className={cn(
+          'shrink-0 rounded-full px-2 py-1 text-[11px] font-bold uppercase tracking-[0.06em]',
+          isCommitted ? 'bg-forest-tint text-forest' : 'bg-clay-tint text-clay'
+        )}>
+          {isCommitted ? 'Accepted' : option.status.replace(/_/g, ' ')}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div className="rounded-md border border-tan/70 bg-cream-deep px-3 py-2">
+          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-faint">Quote</p>
+          <p className="mt-1 font-semibold tabular-nums text-ink">{formatCents(option.quoteCents)}</p>
+        </div>
+        <div className="rounded-md border border-tan/70 bg-cream-deep px-3 py-2">
+          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-faint">Confidence</p>
+          <p className="mt-1 font-semibold text-ink">{option.confidence !== null ? `${Math.round(option.confidence * 100)}%` : 'Review'}</p>
+        </div>
+      </div>
+      {option.summary ? (
+        <p className="mt-3 text-sm leading-snug text-ink-soft">{option.summary}</p>
+      ) : null}
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <p className="text-xs leading-snug text-ink-faint">
+          {option.updatedAt ? `Updated ${formatRelativeTime(option.updatedAt, Date.now())}` : 'Reply parsed from outreach.'}
+        </p>
+        <button
+          type="button"
+          disabled={isCommitted || isSaving}
+          onClick={() => onCommit(option)}
+          className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-md bg-clay px-3 py-2 text-sm font-bold text-cream transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
+        >
+          {isCommitted ? 'Accepted' : isSaving ? 'Saving' : feedback === 'error' ? 'Retry' : 'Accept quote'}
+        </button>
       </div>
     </div>
   )
@@ -3032,9 +3493,10 @@ function buildShoppingList(
   primaryVenue: RecommendationSummary | null,
   budgetItems: BudgetLineItem[],
   summary: EventSummary,
-  selectedVendors: SelectedPlanVendor[] = []
+  selectedVendors: SelectedPlanVendor[] = [],
+  livePlan: LivePlanSnapshot | null = null
 ): ShoppingListItem[] {
-  const venueCost = primaryVenue?.priceCents ?? budgetItems[0]?.amountCents ?? null
+  const venueCost = livePlan?.committedVenue?.quotedPriceCents ?? primaryVenue?.priceCents ?? budgetItems[0]?.amountCents ?? null
   const vendorCost = budgetItems.find((item) => /vendor|dinner|food/i.test(item.label))?.amountCents ?? null
   const guestCount = summary.guest_count ?? 0
   const noOrganizerFoodCost = hasNoOrganizerFoodCost(summary)
@@ -3042,9 +3504,12 @@ function buildShoppingList(
 
   addShoppingItem(items, {
     category: 'Venue',
-    label: primaryVenue?.name ?? deriveVenueShoppingLabel(summary),
+    label: livePlan?.committedVenue?.name ?? primaryVenue?.name ?? deriveVenueShoppingLabel(summary),
     amountLabel: formatVenueShoppingAmount(summary, venueCost),
-    note: primaryVenue?.fit ?? deriveVenueShoppingNote(summary),
+    note: livePlan?.committedVenue
+      ? `Accepted reply${livePlan.committedVenue.quotedDealModel ? ` · ${livePlan.committedVenue.quotedDealModel}` : ''}.`
+      : primaryVenue?.fit ?? deriveVenueShoppingNote(summary),
+    badge: livePlan?.committedVenue ? 'Accepted quote' : undefined,
   })
 
   if (shouldIncludeFood(summary)) {
@@ -3059,6 +3524,16 @@ function buildShoppingList(
   }
 
   if (summary.vendor_need_status !== 'none') {
+    for (const vendor of livePlan?.committedVendors ?? []) {
+      addShoppingItem(items, {
+        category: formatVendorServiceCategory(vendor.serviceType),
+        label: vendor.name ?? formatVendorServiceCategory(vendor.serviceType),
+        amountLabel: formatCents(committedVendorQuoteCents(vendor)),
+        note: 'Accepted reply. Payment or booking still requires a separate approval.',
+        badge: 'Accepted quote',
+      })
+    }
+
     for (const vendor of selectedVendors) {
       addShoppingItem(items, {
         category: formatVendorServiceCategory(vendor.serviceType),
