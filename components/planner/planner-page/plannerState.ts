@@ -1,6 +1,7 @@
 'use client'
 
 import type { Plan, PlanMessage, PlannerFullPlanResponse, PlannerListPlansResponse } from '@/lib/types'
+import { normalizePlanAttendanceSnapshot } from '@/lib/planner/attendanceSummary'
 import { activeConversationStorageKey, planTabs, type EventPlanPayload, type PendingConversionAction, type PendingConversionActionType, type PlannerAccountSummary, type PlannerStateLoadResult, type PlannerTab, type TimelineOutput } from './types'
 
 const PLANNER_STATE_CACHE_TTL_MS = 5_000
@@ -248,6 +249,7 @@ export function publishLivePlan(plan: Plan | null, messages: PlanMessage[]) {
     runOfShow: readPlanAgentCacheOutput(plan, 'timeline'),
     workspaceSummary: readPlanAgentCacheOutput(plan, 'workspace_summary'),
     selectedVendors: readPlanSelectedVendors(plan),
+    attendance: normalizePlanAttendanceSnapshot(plan, plan.metadata),
     updatedAt: plan.updated_at,
   }
 

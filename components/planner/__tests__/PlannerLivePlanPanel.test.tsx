@@ -151,6 +151,69 @@ describe('PlannerLivePlanPanel', () => {
     expect(screen.getByText('Per-attendee net')).toBeInTheDocument()
   })
 
+  it('shows ticket sales and checked-in counts in the event brief', async () => {
+    window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      plan: makePlanSnapshot({
+        title: 'Ticketed founder dinner',
+        guestCount: 80,
+        neighborhood: 'Mission',
+        attendance: {
+          ticketsSold: 54,
+          ticketsRefunded: 2,
+          checkedIn: 41,
+          sourceLabel: 'Eventbrite',
+          updatedAt: '2026-06-16T17:00:00.000Z',
+        },
+      }),
+      messages: [
+        makeConfirmationMessage('confirmation-attendance', {
+          event_type: 'founder_dinner',
+          guest_count: 80,
+          area: 'Mission',
+          ticketing_model: 'Ticketed',
+        }),
+      ],
+      planId: 'plan-attendance-brief',
+    }))
+
+    render(<PlannerLivePlanPanel inline />)
+
+    expect(await screen.findByRole('heading', { name: 'Ticketed founder dinner' })).toBeInTheDocument()
+    expect(screen.getByText('52 active (54 sold)')).toBeInTheDocument()
+    expect(screen.getByText('41 checked in')).toBeInTheDocument()
+    expect(screen.getByText('28 remaining')).toBeInTheDocument()
+  })
+
+  it('uses confirmation summary attendance when it supersedes the plan snapshot', async () => {
+    window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      plan: makePlanSnapshot({
+        title: 'Imported ticketing plan',
+        guestCount: 60,
+        attendance: {
+          ticketsSold: 18,
+          checkedIn: 0,
+        },
+      }),
+      messages: [
+        makeConfirmationMessage('confirmation-attendance-update', {
+          event_type: 'happy_hour',
+          guest_count: 60,
+          ticketing_model: 'Ticketed',
+          tickets_sold: 33,
+          checked_in_count: 12,
+        }),
+      ],
+      planId: 'plan-attendance-summary',
+    }))
+
+    render(<PlannerLivePlanPanel inline />)
+
+    expect(await screen.findByRole('heading', { name: 'Imported ticketing plan' })).toBeInTheDocument()
+    expect(screen.getByText('33 sold')).toBeInTheDocument()
+    expect(screen.getByText('12 checked in')).toBeInTheDocument()
+    expect(screen.getByText('27 remaining')).toBeInTheDocument()
+  })
+
   it('creates an approval-gated date-change request from the event brief', async () => {
     const user = userEvent.setup()
     const onDateChangeRequest = jest.fn().mockResolvedValue(undefined)

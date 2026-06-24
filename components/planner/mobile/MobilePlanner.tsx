@@ -15,11 +15,17 @@ import {
   MessageSquare,
   Pencil,
   ShieldCheck,
+  Ticket,
   Users,
   X,
 } from 'lucide-react'
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  hasAttendanceSignal,
+  normalizePlanAttendanceSnapshot,
+  type PlanAttendanceSnapshot,
+} from '@/lib/planner/attendanceSummary'
 import { cn } from '@/lib/utils'
 import { applyMockPlanPatch, buildDeterministicDraftExchange, buildDraftMatchHandoff, buildMockMessage, buildMockPlan, tryRunPublicDraftIntake } from '../planner-page/draftMode'
 import { mobileSpacing as spacing } from './mobileSpacing'
@@ -1099,12 +1105,38 @@ function EventProgressCard({
 }
 
 function BriefView({ plan, onNavigate }: { plan: Plan; onNavigate: (view: MobileView) => void }) {
+  const attendance = normalizePlanAttendanceSnapshot(plan, plan.metadata)
+  const planDateWindow = dateWindow(plan)
   const facts = [
-    { icon: <Pencil className="h-5 w-5" />, label: 'Event', value: plan.title },
-    { icon: <Users className="h-5 w-5" />, label: 'Guests', value: plan.guest_count ? String(plan.guest_count) : null },
-    { icon: <DollarSign className="h-5 w-5" />, label: 'Budget', value: money(plan.budget_cap_cents) },
-    { icon: <Building2 className="h-5 w-5" />, label: 'Location', value: plan.neighborhood },
-    { icon: <CalendarDays className="h-5 w-5" />, label: 'Date', value: dateWindow(plan) },
+    { icon: <Pencil className="h-5 w-5" />, label: 'Event', value: plan.title, isSet: Boolean(plan.title) },
+    {
+      icon: <Users className="h-5 w-5" />,
+      label: 'Guest target',
+      value: plan.guest_count ? String(plan.guest_count) : null,
+      isSet: Boolean(plan.guest_count),
+    },
+    {
+      icon: <Ticket className="h-5 w-5" />,
+      label: 'Tickets / RSVPs',
+      value: formatMobileTicketsOrRsvps(attendance),
+      isSet:
+        hasAttendanceSignal(attendance) &&
+        (attendance.ticketsSold !== null || attendance.currentAttendance !== null),
+    },
+    {
+      icon: <ShieldCheck className="h-5 w-5" />,
+      label: 'Checked in',
+      value: formatMobileCheckedIn(attendance),
+      isSet: attendance.checkedIn !== null,
+    },
+    {
+      icon: <DollarSign className="h-5 w-5" />,
+      label: 'Budget',
+      value: money(plan.budget_cap_cents),
+      isSet: plan.budget_cap_cents !== null && plan.budget_cap_cents !== undefined,
+    },
+    { icon: <Building2 className="h-5 w-5" />, label: 'Location', value: plan.neighborhood, isSet: Boolean(plan.neighborhood) },
+    { icon: <CalendarDays className="h-5 w-5" />, label: 'Date', value: planDateWindow, isSet: Boolean(planDateWindow) },
   ]
 
   return (
@@ -1127,8 +1159,8 @@ function BriefView({ plan, onNavigate }: { plan: Plan; onNavigate: (view: Mobile
               icon={fact.icon}
               label={fact.label}
               value={fact.value ?? 'Missing'}
-              status={fact.value ? 'Set' : 'Needed'}
-              tone={fact.value ? 'forest' : 'ochre'}
+              status={fact.isSet ? 'Set' : 'Needed'}
+              tone={fact.isSet ? 'forest' : 'ochre'}
             />
           ))}
         </div>
@@ -2283,6 +2315,26 @@ function money(cents: number | null | undefined): string | null {
   const sign = cents < 0 ? '-' : ''
   const absolute = Math.abs(cents)
   return `${sign}$${Math.round(absolute / 100).toLocaleString()}`
+}
+
+function formatMobileTicketsOrRsvps(attendance: PlanAttendanceSnapshot) {
+  if (attendance.ticketsSold !== null) {
+    const refunds = attendance.ticketsRefunded ?? 0
+    if (refunds > 0) {
+      const activeTickets = Math.max(attendance.ticketsSold - refunds, 0)
+      return `${activeTickets.toLocaleString()} active (${attendance.ticketsSold.toLocaleString()} sold)`
+    }
+
+    return `${attendance.ticketsSold.toLocaleString()} sold`
+  }
+
+  if (attendance.currentAttendance !== null) return `${attendance.currentAttendance.toLocaleString()} confirmed`
+  return 'No signal yet'
+}
+
+function formatMobileCheckedIn(attendance: PlanAttendanceSnapshot) {
+  if (attendance.checkedIn !== null) return `${attendance.checkedIn.toLocaleString()} checked in`
+  return 'No check-ins yet'
 }
 
 function formatDate(value: string | null | undefined): string | null {

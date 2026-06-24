@@ -26,6 +26,11 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePlannerBillingGate } from '@/components/planner/usePlannerBillingGate'
+import {
+  hasAttendanceSignal,
+  normalizePlanAttendanceSnapshot,
+  type PlanAttendanceSnapshot,
+} from '@/lib/planner/attendanceSummary'
 import { humanizeEventType } from '@/lib/planner/archetypes/driftControl'
 import { plannerDraftStorageKey } from '@/lib/planner/migrateDraft'
 import { readSpecialSupplyMetadata, type SpecialSupplyMetadata } from '@/lib/planner/specialSupply'
@@ -115,6 +120,7 @@ interface EventSummary {
   dress_code: string | null
   duration: string | null
   ticketed: boolean | null
+  attendance: PlanAttendanceSnapshot
   special_supply: SpecialSupplyMetadata | null
 }
 
@@ -164,6 +170,7 @@ interface LivePlanSnapshot {
   workspaceSummary: WorkspaceSummarySnapshot | null
   selectedVendors: SelectedPlanVendor[]
   customCosts: CustomCostItem[]
+  attendance: PlanAttendanceSnapshot
   specialSupply: SpecialSupplyMetadata | null
   updatedAt: string | null
 }
@@ -369,6 +376,7 @@ function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
       asRecord(metadata?.shopping_list)?.selected_vendors
     ),
     customCosts: normalizeCustomCosts(metadata?.custom_costs),
+    attendance: normalizePlanAttendanceSnapshot(record, metadata),
     updatedAt: readString(record.updatedAt) ?? readString(record.updated_at),
   }
 }
@@ -458,6 +466,7 @@ function deriveEventSummary(messages: PlanMessage[], plan: LivePlanSnapshot | nu
     dress_code: null,
     duration: null,
     ticketed,
+    attendance: plan?.attendance ?? normalizePlanAttendanceSnapshot(null),
     special_supply: plan?.specialSupply ?? null,
   }
 
@@ -488,6 +497,7 @@ function deriveEventSummary(messages: PlanMessage[], plan: LivePlanSnapshot | nu
       dress_code: readString(summary.dress_code) ?? fallback.dress_code,
       duration: readString(summary.duration) ?? fallback.duration,
       ticketed: fallback.ticketed ?? readBoolean(summary.ticketed) ?? isPaidTicketingModel(readString(summary.ticketing_model)),
+      attendance: normalizePlanAttendanceSnapshot(summary, metadata, fallback.attendance),
       special_supply: fallback.special_supply,
     }
   }
@@ -1194,6 +1204,9 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             <ArtifactField label="Date Window" value={eventSummary.date ?? 'Need date'} />
             <ArtifactField label="Neighborhood" value={eventSummary.area ?? 'Need area'} />
             <ArtifactField label="Guest Target" value={eventSummary.guest_count ? String(eventSummary.guest_count) : 'Guests TBD'} />
+            <ArtifactField label="Tickets / RSVPs" value={formatTicketsOrRsvps(eventSummary.attendance)} />
+            <ArtifactField label="Checked In" value={formatCheckedInCount(eventSummary.attendance)} />
+            <ArtifactField label="Remaining" value={formatRemainingCapacity(eventSummary.attendance, eventSummary.guest_count)} />
             <ArtifactField label="Ticketing" value={formatTicketingModel(eventSummary, ticketPriceTargetCents)} />
             <ArtifactField label="Suggested Price" value={formatSuggestedPrice(eventSummary, ticketPriceTargetCents, suggestedTicketPriceCents)} />
             <ArtifactField label="Budget" value={livePlan?.budgetCapCents && livePlan.budgetCapCents > 0 ? formatCents(livePlan.budgetCapCents) : 'No cap set'} />
@@ -2090,6 +2103,44 @@ function formatTicketingModel(summary: EventSummary, ticketPriceTargetCents: num
 
   if (ticketed === false) return 'RSVP only'
   return 'Need ticketing model'
+}
+
+function formatTicketsOrRsvps(attendance: PlanAttendanceSnapshot) {
+  if (attendance.ticketsSold !== null) {
+    const refunds = attendance.ticketsRefunded ?? 0
+    if (refunds > 0) {
+      const activeTickets = Math.max(attendance.ticketsSold - refunds, 0)
+      return `${formatWholeNumber(activeTickets)} active (${formatWholeNumber(attendance.ticketsSold)} sold)`
+    }
+
+    return `${formatWholeNumber(attendance.ticketsSold)} sold`
+  }
+
+  if (attendance.currentAttendance !== null) {
+    return `${formatWholeNumber(attendance.currentAttendance)} confirmed`
+  }
+
+  return 'No ticketing signal yet'
+}
+
+function formatCheckedInCount(attendance: PlanAttendanceSnapshot) {
+  if (attendance.checkedIn !== null) return `${formatWholeNumber(attendance.checkedIn)} checked in`
+  return 'No check-ins yet'
+}
+
+function formatRemainingCapacity(attendance: PlanAttendanceSnapshot, guestTarget: number | null) {
+  if (!guestTarget || guestTarget <= 0) return 'Set guest target'
+  if (!hasAttendanceSignal(attendance)) return 'No sales signal yet'
+  const committed = attendance.ticketsSold !== null
+    ? Math.max(attendance.ticketsSold - (attendance.ticketsRefunded ?? 0), 0)
+    : attendance.currentAttendance ?? attendance.checkedIn
+  if (committed === null) return 'No sales signal yet'
+  const remaining = Math.max(guestTarget - committed, 0)
+  return `${formatWholeNumber(remaining)} remaining`
+}
+
+function formatWholeNumber(value: number) {
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value)
 }
 
 function formatSuggestedPrice(
