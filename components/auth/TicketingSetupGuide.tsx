@@ -1,7 +1,8 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Copy, Film, Link2, Loader2, Ticket, Upload, Webhook } from 'lucide-react'
+import { CheckCircle2, Copy, FileSpreadsheet, Film, Link2, Loader2, Ticket, Upload, Webhook } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
@@ -24,6 +25,9 @@ const setupCards: Record<
     urlLabel?: string
     getUrl?: (origin: string) => string
     steps: string[]
+    csvInstructions: string[]
+    csvNote?: string
+    uploadSource: TicketingPlatform
     icon: typeof Ticket
     videoLabel: string
   }
@@ -37,6 +41,13 @@ const setupCards: Record<
       'Authorize Eventbrite when prompted.',
       'Choose the matching Eventbrite event before importing attendees.',
     ],
+    csvInstructions: [
+      'Open the Eventbrite event dashboard.',
+      'Go to Manage attendees or Orders and exports.',
+      'Export attendees or orders as CSV for historical sales, refunds, and check-ins.',
+    ],
+    csvNote: 'Use CSV when OAuth is not connected yet or when importing older Eventbrite events.',
+    uploadSource: 'eventbrite',
     icon: Ticket,
     videoLabel: 'Eventbrite how-to video',
   },
@@ -51,33 +62,55 @@ const setupCards: Record<
       'Keep the Posh event id available; you will use it when linking a 3rdPlace event.',
       'Send a test webhook after your event is linked.',
     ],
+    csvInstructions: [
+      'Open the Posh event dashboard.',
+      'Use the ticket or reporting export for attendee and order CSV files.',
+      'Upload the CSV to backfill sales, refunds, and attendance if webhook history is incomplete.',
+    ],
+    csvNote: 'Webhook sync handles new activity; CSV fills older or missing event history.',
+    uploadSource: 'posh',
     icon: Webhook,
     videoLabel: 'Posh webhook how-to video',
   },
   luma: {
-    title: 'Luma webhook',
-    eyebrow: 'Registration activity',
-    description: 'Use this endpoint when Luma asks where to send ticket registration updates.',
+    title: 'Luma webhook + API refresh',
+    eyebrow: 'Registration + RSVP activity',
+    description: 'Use the webhook for live registrations. 3rdPlace can also refresh RSVP counts through the Luma API when a linked event id is available.',
     urlLabel: 'Webhook endpoint',
     getUrl: (origin) => `${origin}/api/webhooks/luma`,
     steps: [
       'Paste the endpoint into Luma webhook settings.',
-      'Keep the Luma event id available; you will use it when linking a 3rdPlace event.',
-      'Send a test webhook after your event is linked.',
+      'Keep the Luma event API id available; it lets 3rdPlace refresh RSVP counts when needed.',
+      'Send a test webhook or import a guest list after your event is linked.',
     ],
+    csvInstructions: [
+      'Open the Luma event guest list.',
+      'Export guests or registrations as CSV.',
+      'Upload the guest list to backfill RSVPs, ticket tiers, and attendance snapshots.',
+    ],
+    csvNote: 'Luma supports live webhook intake in 3rdPlace, and the event report can poll Luma for RSVP counts when API credentials are configured.',
+    uploadSource: 'luma',
     icon: Webhook,
     videoLabel: 'Luma webhook how-to video',
   },
   partiful: {
-    title: 'Partiful event link',
-    eyebrow: 'Event link import',
-    description: 'Paste a Partiful event link from Tickets when the event page exists. 3rdPlace uses it for RSVP context and manual import checks.',
-    urlLabel: 'Event link',
+    title: 'Partiful CSV / event link',
+    eyebrow: 'CSV-first RSVP import',
+    description: 'Partiful setup is CSV and event-link first. 3rdPlace has an advanced webhook endpoint, but most hosts should import the guest list CSV from Partiful.',
+    urlLabel: 'Advanced webhook endpoint',
+    getUrl: (origin) => `${origin}/api/webhooks/partiful`,
     steps: [
       'Create your 3rdPlace account first so the ticketing preference is saved.',
       'Paste the Partiful event link from Tickets after the event page is live.',
-      'Import or confirm RSVP totals so the planner can compare attendance and sales history.',
+      'Export the Partiful guest list CSV and upload it so the planner can compare RSVP history.',
     ],
+    csvInstructions: [
+      'Open the Partiful event and go to the Guest List.',
+      'Use Export CSV, then choose the RSVP types you want included.',
+      'Upload the CSV to 3rdPlace for historical RSVPs, names, and check-in context.',
+    ],
+    csvNote: 'Only use the webhook endpoint if Partiful exposes webhook settings for your account. CSV import remains the default path.',
+    uploadSource: 'partiful',
     icon: Link2,
     videoLabel: 'Partiful import how-to video',
   },
@@ -287,10 +320,21 @@ export function TicketingSetupGuide({
                   <p className="text-xs font-semibold uppercase text-muted-foreground">{setup.urlLabel}</p>
                   {platform === 'partiful' ? (
                     <div className="rounded-lg border border-border bg-background/70 px-3 py-3">
-                      <p className="text-sm font-semibold text-foreground">Saved from Tickets later</p>
+                      <p className="text-sm font-semibold text-foreground">Event link and CSV are the default</p>
                       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                        Partiful uses an event link import path today. After signup, paste the live Partiful URL in Tickets so 3rdPlace can keep the event brief aligned with RSVP activity.
+                        Paste the live Partiful URL in Tickets, then upload the Partiful guest list CSV. Use the advanced webhook endpoint only if Partiful exposes webhook settings for your account.
                       </p>
+                      {persistConnections && setupUrl ? (
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                          <p className="min-w-0 flex-1 break-all rounded-lg border border-border bg-background/70 px-3 py-2 text-xs text-foreground">
+                            {setupUrl}
+                          </p>
+                          <Button type="button" variant="outline" size="sm" onClick={() => copySetupUrl(platform)} disabled={!origin || !setupUrl}>
+                            <Copy className="mr-2 h-4 w-4" />
+                            Copy
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
                   ) : !persistConnections ? (
                     <div className="rounded-lg border border-border bg-background/70 px-3 py-3">
@@ -321,6 +365,34 @@ export function TicketingSetupGuide({
                   </li>
                 ))}
               </ul>
+
+              <div className={cn('mt-4 rounded-lg border border-border bg-background/60 p-3', compact && 'hidden sm:block')}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                      <FileSpreadsheet className="h-4 w-4 text-primary" />
+                      Download attendee CSV
+                    </div>
+                    <ul className="mt-3 space-y-1.5 text-xs leading-relaxed text-muted-foreground sm:text-sm">
+                      {setup.csvInstructions.map((instruction) => (
+                        <li key={instruction} className="flex gap-2">
+                          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                          <span>{instruction}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {setup.csvNote ? (
+                      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{setup.csvNote}</p>
+                    ) : null}
+                  </div>
+                  <Button asChild variant="outline" size="sm" className="shrink-0">
+                    <Link href={`/planner/events/import?source=${setup.uploadSource}`}>
+                      <Upload className="mr-2 h-4 w-4" />
+                      Upload historical data via CSV
+                    </Link>
+                  </Button>
+                </div>
+              </div>
 
               <div className={cn('mt-4 rounded-lg border border-dashed border-border bg-background/40 p-3', compact && 'hidden sm:block')}>
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">

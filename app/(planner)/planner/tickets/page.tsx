@@ -1,6 +1,7 @@
 import { BarChart3, Link2, Ticket } from 'lucide-react'
 import { PlannerTicketingImportSection } from '@/components/planner/PlannerTicketingImportSection'
 import { PlannerTicketingConnectPanel } from '@/components/planner/PlannerTicketingConnectPanel'
+import { PlannerTicketingSetupGuideSection } from '@/components/planner/PlannerTicketingSetupGuideSection'
 
 /**
  * Ticketing setup and analytics route for the planner shell.
@@ -16,6 +17,8 @@ export default function TicketsPage() {
       </div>
 
       <div className="mx-auto max-w-6xl px-6 py-6">
+        <PlannerTicketingSetupGuideSection className="mb-6" />
+
         <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
           <PlannerTicketingConnectPanel mode="full" ticketed />
 
