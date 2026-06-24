@@ -817,6 +817,8 @@ function mapLumaSale(context: IntegrationContext, payload: JsonObject, webhookId
     'data.ticket_type',
   ]) ?? 'Unknown'
   const ticketPriceCents = centsFromMajorAmount(ticketPrice)
+  const totalAmountCents = centsFromMajorAmount(signedTotalAmount) ?? 0
+  const receivedAt = new Date().toISOString()
   const buyerName = asString(payload.ticket_buyer_name) ?? firstString(payload, [
     'data.guest.name',
     'data.guest.full_name',
@@ -845,7 +847,7 @@ function mapLumaSale(context: IntegrationContext, payload: JsonObject, webhookId
     ticket_price: ticketPrice,
     ticket_price_cents: ticketPriceCents,
     total_amount: signedTotalAmount,
-    total_amount_cents: centsFromMajorAmount(signedTotalAmount) ?? 0,
+    total_amount_cents: totalAmountCents,
     fees: feeAmount,
     fees_cents: centsFromMajorAmount(feeAmount) ?? 0,
     currency: normalizeCurrency(firstString(payload, ['currency', 'data.currency', 'data.ticket.currency', 'data.order.currency'])),
@@ -868,6 +870,10 @@ function mapLumaSale(context: IntegrationContext, payload: JsonObject, webhookId
       'data.ticket.ticket_type_id',
     ]),
     sales_channel: firstString(payload, ['data.source', 'data.channel', 'source', 'channel']),
+    source: 'luma_webhook',
+    received_at: receivedAt,
+    gross_cents: Math.max(totalAmountCents, 0),
+    tier_name: ticketTierName,
     raw_data: data,
   }
 }

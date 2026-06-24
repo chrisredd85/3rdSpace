@@ -159,6 +159,7 @@ function summarizeRollups(rollups: ReturnType<typeof buildTicketTierRollups>) {
       tickets_sold: summary.tickets_sold + rollup.tickets_sold,
       tickets_refunded: summary.tickets_refunded + rollup.tickets_refunded,
       gross_revenue_cents: summary.gross_revenue_cents + rollup.gross_revenue_cents,
+      refund_amount_cents: summary.refund_amount_cents + rollup.refund_amount_cents,
       fees_cents: summary.fees_cents + rollup.fees_cents,
       net_revenue_cents: summary.net_revenue_cents + rollup.net_revenue_cents,
       average_ticket_price_cents:
@@ -175,6 +176,7 @@ function emptySummary() {
     tickets_sold: 0,
     tickets_refunded: 0,
     gross_revenue_cents: 0,
+    refund_amount_cents: 0,
     fees_cents: 0,
     net_revenue_cents: 0,
     average_ticket_price_cents: 0,

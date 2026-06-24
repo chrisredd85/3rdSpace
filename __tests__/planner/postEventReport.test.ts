@@ -116,6 +116,7 @@ describe('post-event report', () => {
       gross_revenue_cents: 8000,
       refund_amount_cents: 4000,
       net_revenue_cents: 4000,
+      average_ticket_price_cents: 4000,
       venue_foot_traffic_proxy: 1,
     }))
     expect(json.tier_velocity).toEqual([

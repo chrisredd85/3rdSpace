@@ -174,9 +174,54 @@ describe('Eventbrite OAuth and webhooks', () => {
       expect.objectContaining({ id: 'eventbrite-event-1' }),
     ])
     expect(fetchImpl).toHaveBeenCalledTimes(3)
-    expect(String(fetchImpl.mock.calls[1][0])).toContain('page_size=10')
+    expect(String(fetchImpl.mock.calls[1][0])).toContain('page_size=50')
     expect(String(fetchImpl.mock.calls[2][0])).not.toContain('page_size=')
     expect(String(fetchImpl.mock.calls[2][0])).toContain('order_by=start_desc')
+  })
+
+  it('paginates Eventbrite organization event lists instead of returning only the first page', async () => {
+    const fetchImpl = jest.fn(async (url: string) => {
+      if (url === 'https://www.eventbriteapi.com/v3/users/me/organizations/') {
+        return jsonResponse({
+          organizations: [{ id: 'eventbrite-org-1', name: 'Backfill Org' }],
+          pagination: { has_more_items: false },
+        })
+      }
+
+      if (url.startsWith('https://www.eventbriteapi.com/v3/organizations/eventbrite-org-1/events/')) {
+        const requestUrl = new URL(url)
+        if (!requestUrl.searchParams.has('continuation')) {
+          return jsonResponse({
+            events: Array.from({ length: 50 }, (_, index) => ({
+              id: `eventbrite-event-${index + 1}`,
+              name: { text: `Event ${index + 1}` },
+            })),
+            pagination: { has_more_items: true, continuation: 'page-2' },
+          })
+        }
+
+        return jsonResponse({
+          events: [
+            { id: 'eventbrite-event-51', name: { text: 'Event 51' } },
+            { id: 'eventbrite-event-52', name: { text: 'Event 52' } },
+          ],
+          pagination: { has_more_items: false },
+        })
+      }
+
+      return jsonResponse({ error: 'unexpected endpoint' }, 500)
+    }) as jest.MockedFunction<typeof fetch>
+    const client = new EventbriteClient({
+      accessToken: 'access-token',
+      fetchImpl,
+    })
+
+    const result = await client.listOwnedEvents()
+
+    expect(result.events).toHaveLength(52)
+    expect(result.events?.at(-1)).toEqual(expect.objectContaining({ id: 'eventbrite-event-52' }))
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(String(fetchImpl.mock.calls[2][0])).toContain('continuation=page-2')
   })
 
   it('falls back to the legacy owned events endpoint when organizations are unavailable', async () => {

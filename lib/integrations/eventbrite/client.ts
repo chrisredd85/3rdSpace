@@ -43,6 +43,16 @@ export type EventbriteOrganization = {
   name?: string | null
 }
 
+type EventbriteEventsResponse = {
+  events?: EventbriteEvent[]
+  pagination?: EventbritePagination | null
+}
+
+type EventbriteOrganizationsResponse = {
+  organizations?: EventbriteOrganization[]
+  pagination?: EventbritePagination | null
+}
+
 export type EventbriteAttendee = {
   id: string
   event_id?: string | null
@@ -180,35 +190,28 @@ export class EventbriteClient {
 
   async listOwnedEvents() {
     const query = {
-      page_size: '10',
+      page_size: '50',
       order_by: 'start_desc',
       status: 'live,started,ended,draft',
       expand: 'ticket_classes,venue',
     }
 
     try {
-      // Eventbrite's organizations endpoint rejects page_size in production.
-      const organizations = await this.request<{
-        organizations?: EventbriteOrganization[]
-        pagination?: EventbritePagination | null
-      }>('/v3/users/me/organizations/')
+      const organizations = await this.listOrganizations()
       const organizationIds = (organizations.organizations ?? [])
         .map((organization) => organization.id)
         .filter(Boolean)
-        .slice(0, 5)
 
       if (organizationIds.length > 0) {
         const eventPages = await Promise.all(
           organizationIds.map((organizationId) =>
-            this.requestWithQueryParamRetry<{
-              events?: EventbriteEvent[]
-              pagination?: EventbritePagination | null
-            }>(`/v3/organizations/${encodeURIComponent(organizationId)}/events/`, query, 'page_size')
+            this.listPaginatedEvents(`/v3/organizations/${encodeURIComponent(organizationId)}/events/`, query)
           )
         )
 
+        const events = eventPages.flatMap((page) => page.events ?? [])
         return {
-          events: eventPages.flatMap((page) => page.events ?? []).slice(0, 10),
+          events,
           pagination: {
             has_more_items: eventPages.some((page) => Boolean(page.pagination?.has_more_items)),
           },
@@ -218,10 +221,7 @@ export class EventbriteClient {
       if (!shouldFallbackToOwnedEvents(error)) throw error
     }
 
-    return this.requestWithQueryParamRetry<{
-      events?: EventbriteEvent[]
-      pagination?: EventbritePagination | null
-    }>('/v3/users/me/owned_events/', query, 'page_size')
+    return this.listPaginatedEvents('/v3/users/me/owned_events/', query)
   }
 
   getEvent(eventId: string) {
@@ -270,6 +270,68 @@ export class EventbriteClient {
       const fallbackQuery = { ...query }
       delete fallbackQuery[rejectedParam]
       return this.request<T>(path, fallbackQuery)
+    }
+  }
+
+  private async listOrganizations(): Promise<EventbriteOrganizationsResponse> {
+    const organizations: EventbriteOrganization[] = []
+    let continuation: string | null | undefined
+    let hasMore = true
+    let lastPagination: EventbritePagination | null | undefined = null
+    const seenContinuations = new Set<string>()
+
+    while (hasMore) {
+      const page = await this.request<EventbriteOrganizationsResponse>('/v3/users/me/organizations/', {
+        ...(continuation ? { continuation } : {}),
+      })
+      organizations.push(...(page.organizations ?? []))
+      lastPagination = page.pagination
+      continuation = page.pagination?.continuation ?? null
+      hasMore = Boolean(page.pagination?.has_more_items && continuation && !seenContinuations.has(continuation))
+      if (continuation) seenContinuations.add(continuation)
+    }
+
+    return {
+      organizations,
+      pagination: {
+        ...(lastPagination ?? {}),
+        has_more_items: false,
+      },
+    }
+  }
+
+  private async listPaginatedEvents(
+    path: string,
+    query: Record<string, string | undefined>
+  ): Promise<EventbriteEventsResponse> {
+    const events: EventbriteEvent[] = []
+    let continuation: string | null | undefined
+    let hasMore = true
+    let lastPagination: EventbritePagination | null | undefined = null
+    const seenContinuations = new Set<string>()
+
+    while (hasMore) {
+      const page = await this.requestWithQueryParamRetry<EventbriteEventsResponse>(
+        path,
+        {
+          ...query,
+          ...(continuation ? { continuation } : {}),
+        },
+        'page_size'
+      )
+      events.push(...(page.events ?? []))
+      lastPagination = page.pagination
+      continuation = page.pagination?.continuation ?? null
+      hasMore = Boolean(page.pagination?.has_more_items && continuation && !seenContinuations.has(continuation))
+      if (continuation) seenContinuations.add(continuation)
+    }
+
+    return {
+      events,
+      pagination: {
+        ...(lastPagination ?? {}),
+        has_more_items: false,
+      },
     }
   }
 
