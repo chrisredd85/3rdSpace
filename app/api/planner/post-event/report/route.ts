@@ -172,6 +172,7 @@ function buildReport(input: {
   const denominator = Math.max(attendeeCount, salesSummary.tickets_sold)
   const hasAttendance = attendeeCount > 0 || salesSummary.tickets_sold > 0
   const netRevenueCents = salesSummary.gross_revenue_cents - salesSummary.refund_amount_cents
+  // Proxy is intentionally conservative: prefer real check-ins, then imported attendee rows, then net sold tickets.
   const venueFootTrafficProxy = checkedIn || attendeeCount || Math.max(0, salesSummary.tickets_sold - salesSummary.tickets_refunded)
 
   return {
@@ -187,7 +188,7 @@ function buildReport(input: {
       net_revenue_cents: netRevenueCents,
       average_ticket_price_cents:
         salesSummary.tickets_sold > 0
-          ? Math.round(netRevenueCents / Math.max(1, salesSummary.tickets_sold - salesSummary.tickets_refunded))
+          ? Math.round(salesSummary.gross_revenue_cents / salesSummary.tickets_sold)
           : 0,
       peak_arrival_hour: peakBucket?.label ?? null,
       venue_foot_traffic_proxy: venueFootTrafficProxy,

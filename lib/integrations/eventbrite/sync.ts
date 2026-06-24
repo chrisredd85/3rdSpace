@@ -169,7 +169,7 @@ export async function listEventbriteBackfillEvents(db: SupabaseAdminClient, buil
 
   return {
     connection: publicEventbriteConnectionState(connection),
-    events: (response.events ?? []).slice(0, 10).map((event) => ({
+    events: (response.events ?? []).map((event) => ({
       id: event.id,
       name: event.name?.text ?? 'Untitled Eventbrite event',
       start: event.start?.local ?? event.start?.utc ?? null,

@@ -27,14 +27,15 @@ export interface TicketTierRollup {
   tickets_sold: number
   tickets_refunded: number
   gross_revenue_cents: number
+  refund_amount_cents: number
   fees_cents: number
   net_revenue_cents: number
   average_ticket_price_cents: number
 }
 
 const categoryPatterns: Array<{ category: TicketTierCategory; pattern: RegExp }> = [
-  { category: 'early_bird', pattern: /\b(early\s*bird|presale|pre[-\s]?sale|first\s*release|first\s*tier|tier\s*1)\b/i },
-  { category: 'vip', pattern: /\b(vip|premium|reserved|backstage|table|bottle|priority|all[-\s]?access)\b/i },
+  { category: 'early_bird', pattern: /\b(early\s*bird|bird|presale|pre[-\s]?sale|first\s*release|first\s*tier|tier\s*1)\b/i },
+  { category: 'vip', pattern: /\b(vip|founder|premium|reserved|backstage|table|bottle|priority|all[-\s]?access)\b/i },
   { category: 'add_on', pattern: /\b(add[-\s]?on|addon|merch|parking|meal\s*add[-\s]?on|drink\s*ticket|extra)\b/i },
   { category: 'comp', pattern: /\b(comp|complimentary|free|guest\s*list|invite|invited)\b/i },
   { category: 'promo', pattern: /\b(promo|discount|code|waitlist|wait\s*list|standby|student|member)\b/i },
@@ -105,6 +106,8 @@ export function buildTicketTierRollups(rows: NormalizedTicketSaleRow[]): TicketT
     const quantity = Number.isFinite(row.ticket_quantity) ? row.ticket_quantity : 0
     const positiveQuantity = row.is_refund ? 0 : Math.max(quantity, 0)
     const refundedQuantity = row.is_refund ? Math.abs(quantity) : 0
+    const totalAmountCents = row.total_amount_cents || 0
+    const feesCents = row.fees_cents || 0
     const existing = rollups.get(key) ?? {
       platform: row.platform,
       ticket_tier_category: category,
@@ -112,6 +115,7 @@ export function buildTicketTierRollups(rows: NormalizedTicketSaleRow[]): TicketT
       tickets_sold: 0,
       tickets_refunded: 0,
       gross_revenue_cents: 0,
+      refund_amount_cents: 0,
       fees_cents: 0,
       net_revenue_cents: 0,
       average_ticket_price_cents: 0,
@@ -119,9 +123,13 @@ export function buildTicketTierRollups(rows: NormalizedTicketSaleRow[]): TicketT
 
     existing.tickets_sold += positiveQuantity
     existing.tickets_refunded += refundedQuantity
-    existing.gross_revenue_cents += row.total_amount_cents || 0
-    existing.fees_cents += row.fees_cents || 0
-    existing.net_revenue_cents = existing.gross_revenue_cents - existing.fees_cents
+    if (row.is_refund) {
+      existing.refund_amount_cents += Math.abs(totalAmountCents)
+    } else {
+      existing.gross_revenue_cents += Math.max(totalAmountCents, 0)
+      existing.fees_cents += Math.max(feesCents, 0)
+    }
+    existing.net_revenue_cents = existing.gross_revenue_cents - existing.fees_cents - existing.refund_amount_cents
     existing.average_ticket_price_cents =
       existing.tickets_sold > 0 ? Math.round(existing.gross_revenue_cents / existing.tickets_sold) : 0
 

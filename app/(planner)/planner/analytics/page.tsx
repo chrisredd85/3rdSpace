@@ -49,6 +49,7 @@ type TicketingSummary = {
   tickets_sold: number
   tickets_refunded: number
   gross_revenue_cents: number
+  refund_amount_cents?: number
   fees_cents: number
   net_revenue_cents: number
   average_ticket_price_cents: number
@@ -61,6 +62,7 @@ type TicketTierRollup = {
   tickets_sold: number
   tickets_refunded: number
   gross_revenue_cents: number
+  refund_amount_cents?: number
   fees_cents: number
   net_revenue_cents: number
   average_ticket_price_cents: number

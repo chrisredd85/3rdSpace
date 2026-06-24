@@ -55,6 +55,10 @@ type ImportedSalePayload = {
   purchase_timestamp: string | null
   raw_ticket_class_id: string | null
   sales_channel: string | null
+  source: string
+  received_at: string
+  gross_cents: number
+  tier_name: string
   raw_data: Record<string, any>
 }
 
@@ -127,6 +131,7 @@ export function mapEventbriteSale(
   const tierName = attendee.ticket_class_name ?? 'Unknown'
   const isRefund = isEventbriteRefundOrCancellation(attendee)
   const direction = isRefund ? -1 : 1
+  const receivedAt = new Date().toISOString()
   const orderId = attendee.order_id
     ? `${attendee.order_id}:${attendee.id}`
     : `${eventId}:${attendee.id}`
@@ -154,6 +159,10 @@ export function mapEventbriteSale(
     purchase_timestamp: attendee.refunded_at ?? attendee.cancelled_at ?? attendee.canceled_at ?? attendee.created ?? attendee.changed ?? attendee.checked_in_at ?? null,
     raw_ticket_class_id: attendee.ticket_class_id ?? null,
     sales_channel: 'eventbrite_import',
+    source: 'eventbrite_import',
+    received_at: receivedAt,
+    gross_cents: isRefund ? 0 : ticketPriceCents,
+    tier_name: tierName,
     raw_data: attendee as Record<string, any>,
   }
 }
@@ -212,7 +221,7 @@ async function upsertSaleChunks(
     const results = await Promise.all(
       chunkGroup.map((saleChunk) =>
         admin.from('event_sales_data').upsert(saleChunk as never, {
-          onConflict: 'platform,order_id',
+          onConflict: 'event_id,platform,order_id',
         })
       )
     )

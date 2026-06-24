@@ -803,17 +803,22 @@ describe('MVP launch API contracts', () => {
   it('normalizes Eventbrite tier data into rollups used by analytics', () => {
     const rows = [
       ...Array.from({ length: 5 }, () => ({ platform: 'eventbrite', ticket_tier_name: 'Early Bird', ticket_tier_category: classifyTicketTier('Early Bird'), ticket_quantity: 1, total_amount_cents: 2500, fees_cents: 250, currency: 'usd' })),
+      { platform: 'eventbrite', ticket_tier_name: 'Bird', ticket_tier_category: classifyTicketTier('Bird'), ticket_quantity: 1, total_amount_cents: 3000, fees_cents: 300, currency: 'usd' },
       ...Array.from({ length: 10 }, () => ({ platform: 'eventbrite', ticket_tier_name: 'GA', ticket_tier_category: classifyTicketTier('GA'), ticket_quantity: 1, total_amount_cents: 4000, fees_cents: 400, currency: 'usd' })),
       ...Array.from({ length: 5 }, () => ({ platform: 'eventbrite', ticket_tier_name: 'VIP Table', ticket_tier_category: classifyTicketTier('VIP Table'), ticket_quantity: 1, total_amount_cents: 9000, fees_cents: 900, currency: 'usd' })),
+      { platform: 'eventbrite', ticket_tier_name: 'Founder Circle', ticket_tier_category: classifyTicketTier('Founder Circle'), ticket_quantity: 1, total_amount_cents: 12000, fees_cents: 1200, currency: 'usd' },
+      { platform: 'eventbrite', ticket_tier_name: 'GA', ticket_tier_category: classifyTicketTier('GA'), ticket_quantity: -2, total_amount_cents: -8000, fees_cents: 0, currency: 'usd', is_refund: true },
     ]
 
     const rollups = buildTicketTierRollups(rows)
 
     expect(rollups).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ ticket_tier_category: 'early_bird', tickets_sold: 5, gross_revenue_cents: 12_500 }),
-        expect.objectContaining({ ticket_tier_category: 'ga', tickets_sold: 10, gross_revenue_cents: 40_000 }),
-        expect.objectContaining({ ticket_tier_category: 'vip', tickets_sold: 5, gross_revenue_cents: 45_000 }),
+        expect.objectContaining({ ticket_tier_name: 'Early Bird', ticket_tier_category: 'early_bird', tickets_sold: 5, gross_revenue_cents: 12_500 }),
+        expect.objectContaining({ ticket_tier_name: 'Bird', ticket_tier_category: 'early_bird', tickets_sold: 1, gross_revenue_cents: 3_000 }),
+        expect.objectContaining({ ticket_tier_name: 'GA', ticket_tier_category: 'ga', tickets_sold: 10, tickets_refunded: 2, gross_revenue_cents: 40_000, refund_amount_cents: 8_000, net_revenue_cents: 28_000 }),
+        expect.objectContaining({ ticket_tier_name: 'VIP Table', ticket_tier_category: 'vip', tickets_sold: 5, gross_revenue_cents: 45_000 }),
+        expect.objectContaining({ ticket_tier_name: 'Founder Circle', ticket_tier_category: 'vip', tickets_sold: 1, gross_revenue_cents: 12_000 }),
       ])
     )
   })

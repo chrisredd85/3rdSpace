@@ -38,7 +38,11 @@ describe('Eventbrite import mapping', () => {
       ticket_quantity: -1,
       total_amount_cents: -4000,
       fees_cents: -400,
+      source: 'eventbrite_import',
+      gross_cents: 0,
+      tier_name: 'GA',
       purchase_timestamp: '2026-07-05T18:00:00.000Z',
     }))
+    expect(sale.received_at).toEqual(expect.any(String))
   })
 })
