@@ -40,8 +40,19 @@ type ExtractionSummary = {
 }
 
 const QUERY_LIMIT = 200
-const PROCESS_LIMIT = 50
+const PROCESS_LIMIT = 5
 const BATCH_SIZE = 5
+
+export async function GET(request: NextRequest) {
+  const expectedSecret = process.env.CRON_SECRET
+  const authorization = request.headers.get('authorization')
+
+  if (!expectedSecret || authorization !== `Bearer ${expectedSecret}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  return runVenueWebsiteExtraction()
+}
 
 export async function POST(request: NextRequest) {
   const context = await getWorkerOrAdminContext(request)
@@ -49,12 +60,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: context.error }, { status: context.status })
   }
 
-  if (process.env.OUTREACH_AUTONOMOUS_ENABLED !== 'true') {
-    return NextResponse.json({
-      skipped: true,
-      reason: 'outreach_autonomy_disabled',
-    })
-  }
+  return runVenueWebsiteExtraction()
+}
+
+async function runVenueWebsiteExtraction() {
+  const startedAt = Date.now()
+  console.info('[venue-website-extraction] invocation_started', {
+    started_at: new Date(startedAt).toISOString(),
+    process_limit: PROCESS_LIMIT,
+    batch_size: BATCH_SIZE,
+  })
 
   const admin = createServiceRoleClient() as SupabaseAdminClient
   const { data, error } = await admin
@@ -79,6 +94,11 @@ export async function POST(request: NextRequest) {
     .filter((row) => shouldAttemptWebsiteExtraction(row as DiscoveryVenueRow))
     .slice(0, PROCESS_LIMIT)
 
+  console.info('[venue-website-extraction] batch_selected', {
+    queried: data?.length ?? 0,
+    selected: venues.length,
+  })
+
   const summary: ExtractionSummary = {
     processed: 0,
     successful: 0,
@@ -102,11 +122,17 @@ export async function POST(request: NextRequest) {
       else if (result.status === 'blocked_by_robots') summary.blocked_by_robots += 1
       else if (result.status === 'timeout') summary.timeout += 1
       else summary.failed += 1
+      console.info('[venue-website-extraction] venue_processed', result)
     }
   }
 
   summary.skipped = Math.max(0, (data?.length ?? 0) - venues.length)
-  return NextResponse.json({ ...summary, results })
+  const durationMs = Date.now() - startedAt
+  console.info('[venue-website-extraction] invocation_completed', {
+    duration_ms: durationMs,
+    ...summary,
+  })
+  return NextResponse.json({ ...summary, duration_ms: durationMs, results })
 }
 
 async function processVenue(admin: SupabaseAdminClient, venue: DiscoveryVenueExtractionCandidate) {

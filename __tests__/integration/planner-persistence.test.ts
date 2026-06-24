@@ -400,6 +400,89 @@ describe('Planner persistence integration', () => {
     }
   })
 
+  it('does not auto-trigger recommendations while a fresh agent question is pending', async () => {
+    const oldOpenAIKey = process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_API_KEY
+
+    db.rows.plans.push({
+      id: 'pending-question-plan',
+      user_id: 'user-1',
+      title: 'Networking mixer plan',
+      event_type: 'Networking mixer',
+      status: 'ready',
+      guest_count: 40,
+      budget_cap_cents: null,
+      neighborhood: 'Oakland',
+      date_window_start: '2026-07-10',
+      date_window_end: '2026-07-10',
+      ticketed: false,
+      ticketing_model: 'rsvp',
+      food_responsibility: null,
+      venue_terms: null,
+      agent_action: null,
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {},
+      created_at: '2026-05-10T10:00:00Z',
+      updated_at: '2026-05-10T10:00:00Z',
+    })
+    db.rows.recommendations.push({
+      id: 'pending-question-rec',
+      plan_id: 'pending-question-plan',
+      type: 'venue',
+      reference_id: 'venue-1',
+      external_name: 'Old Oakland Bar',
+      price_cents: null,
+      notes: null,
+      rank: 1,
+      is_best_fit: true,
+      status: 'pending',
+      metadata: {},
+      created_at: '2026-05-10T10:05:00Z',
+    })
+    db.rows.plan_messages.push(
+      {
+        id: 'pending-question-m1',
+        plan_id: 'pending-question-plan',
+        role: 'user',
+        content: 'I want to host a happy hour on July 10th for 40 people',
+        message_type: 'text',
+        metadata: {},
+        created_at: '2026-05-10T10:00:00Z',
+      },
+      {
+        id: 'pending-question-m2',
+        plan_id: 'pending-question-plan',
+        role: 'agent',
+        content: 'I have enough to start matching Oakland options.',
+        message_type: 'recommendation',
+        metadata: {
+          next_action: 'generate_recommendations',
+          requires_response: false,
+        },
+        created_at: '2026-05-10T10:01:00Z',
+      }
+    )
+
+    try {
+      const response = await postMessage(makeRequest('/api/planner/plans/pending-question-plan/messages', {
+        message: 'I want it in Downtown or Uptown Oakland',
+      }), {
+        params: { planId: 'pending-question-plan' },
+      })
+      const json = await readJson(response)
+
+      expect(response.status).toBe(200)
+      expect(json.agent_message.message_type).toBe('text')
+      expect(json.agent_message.metadata).toEqual(expect.objectContaining({
+        requires_response: true,
+      }))
+      expect(json.needs_recommendations).toBeUndefined()
+    } finally {
+      process.env.OPENAI_API_KEY = oldOpenAIKey
+    }
+  })
+
   it('triggers recommendations when the agent pivots on an already-ready plan with no recommendation artifacts', async () => {
     const oldOpenAIKey = process.env.OPENAI_API_KEY
     process.env.OPENAI_API_KEY = 'test-openai-key'

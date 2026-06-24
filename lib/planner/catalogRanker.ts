@@ -199,6 +199,7 @@ export function rankCatalogPartners(input: RankCatalogPartnersInput): CatalogRan
 const REBOOK_PREFERENCE_SCORE_BOOST = 12
 const ORGANIZER_AMENITY_PREFERENCE_SCORE_BOOST = 8
 const UNKNOWN_CAPACITY_SCORE_PENALTY = 15
+const UNKNOWN_AMENITY_SCORE_PENALTY = 10
 
 function rankVenue(
   plan: CatalogPlanRankingInput,
@@ -214,6 +215,7 @@ function rankVenue(
   const organizerPreferredAmenities = normalizeStringArray(plan.organizer_preferred_amenities)
   const capacity = readCapacity(venue)
   const capacityKnown = capacity !== null
+  const amenityDataKnown = hasVenueAmenityEvidence(venue)
   const baselineEstimateCents = estimateVenueCents(venue)
   const commercialRanking = rankVenueCommercialModels(
     { ...plan, venue_terms: getCommercialModelPreference(plan) },
@@ -261,11 +263,14 @@ function rankVenue(
     blockingIssues.push(`Does not support ${plan.venue_terms}`)
   }
 
-  const cateringBlock = getCateringBlockingIssue(archetypeScore.warnings)
+  const cateringBlock = amenityDataKnown ? getCateringBlockingIssue(archetypeScore.warnings) : null
   if (cateringBlock) blockingIssues.push(cateringBlock)
-  blockingIssues.push(...archetypeScore.hard_gate_failures)
+  if (amenityDataKnown) blockingIssues.push(...archetypeScore.hard_gate_failures)
 
   const amenity = scoreAmenityCoverage(mustHaves, searchText)
+  if (mustHaves.length > 0 && amenityDataKnown && amenity.missing.length > 0) {
+    blockingIssues.push(`Missing required amenities: ${amenity.missing.join(', ')}`)
+  }
   const organizerAmenityPreference = scoreSoftAmenityPreference(organizerPreferredAmenities, searchText)
   const budgetScore = scoreBudgetFit(estimateCents, budgetAllocationCents)
   const foodScore = scoreFoodAlignment(plan.food_responsibility, searchText)
@@ -279,6 +284,8 @@ function rankVenue(
   )
   const rebookScore = isPreferred ? REBOOK_PREFERENCE_SCORE_BOOST : 0
   const unknownCapacityPenalty = capacityKnown ? 0 : UNKNOWN_CAPACITY_SCORE_PENALTY
+  const unknownAmenityPenalty =
+    mustHaves.length > 0 && !amenityDataKnown ? UNKNOWN_AMENITY_SCORE_PENALTY : 0
   const score = Math.round(
     budgetScore +
       amenity.score +
@@ -290,7 +297,8 @@ function rankVenue(
       archetypeScore.commercial_model_alignment_score +
       rebookScore +
       organizerAmenityPreference.score -
-      unknownCapacityPenalty
+      unknownCapacityPenalty -
+      unknownAmenityPenalty
   )
   const overBudget = budgetAllocationCents > 0 && estimateCents > budgetAllocationCents
   const fitLabel = chooseFitLabel(score, overBudget, false)
@@ -335,6 +343,9 @@ function rankVenue(
       compared_models: commercialRanking.compared_models,
       budget_score: budgetScore,
       amenity_score: amenity.score,
+      amenity_known: amenityDataKnown,
+      amenity_missing: amenity.missing,
+      amenity_score_penalty: unknownAmenityPenalty,
       food_score: foodScore,
       date_score: dateScore,
       partner_score: partnerScore,
@@ -668,6 +679,19 @@ function scoreAmenityCoverage(
     matched,
     missing,
   }
+}
+
+function hasVenueAmenityEvidence(row: Record<string, unknown>): boolean {
+  return buildSearchText(row, [
+    'description',
+    'unique_features',
+    'unique_features_tags',
+    'amenities',
+    'venue_amenities',
+    'layout_options',
+    'production_capabilities',
+    'auto_approve_conditions',
+  ]).length > 0
 }
 
 function scoreSoftAmenityPreference(
