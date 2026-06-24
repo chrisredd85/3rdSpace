@@ -29,6 +29,7 @@ import {
 } from '@/lib/finance/settlement-runs'
 import { sendVenueSettlementAcknowledgementEmail } from '@/lib/finance/settlement-checkout'
 import { processVenueStripeSetupReminderJob } from '@/lib/venues/venueOpportunityRecovery'
+import { runVenueCapacityInferenceJob, type VenueCapacityJobClient } from '@/lib/discovery/venueCapacityJobs'
 
 export const runtime = 'nodejs'
 
@@ -276,6 +277,16 @@ async function processJob(admin: ReturnType<typeof createServiceRoleClient>, job
 
   if (job.job_type === 'venue.stripe_setup_reminder') {
     return processVenueStripeSetupReminderJob(admin, job)
+  }
+
+  if (job.job_type === 'infer_venue_capacity') {
+    const discoveryVenueId = job.payload.discoveryVenueId ?? job.payload.discovery_venue_id
+    const websiteSnippet = job.payload.websiteSnippet ?? job.payload.website_snippet
+    if (typeof discoveryVenueId !== 'string') throw new Error('Missing discoveryVenueId')
+    return runVenueCapacityInferenceJob(admin as unknown as VenueCapacityJobClient, {
+      discoveryVenueId,
+      websiteSnippet: typeof websiteSnippet === 'string' ? websiteSnippet : null,
+    })
   }
 
   throw new Error(`Unsupported job type: ${job.job_type}`)

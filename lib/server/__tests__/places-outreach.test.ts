@@ -14,6 +14,7 @@ import {
   buildDiscoveryVenueInsert,
   computeSubspaceHint,
   computeVenueCluster,
+  mapDiscoveryVenueToCatalogVenue,
   resolveDiscoveryVenueContact,
   type DiscoveryVenueRow,
   type PlanDiscoveryVenueCandidateRow,
@@ -169,6 +170,48 @@ describe('places outreach helpers', () => {
       contact_status: 'ready_to_reach_out',
       fit_score: 87,
       photo_urls: ['/api/planner/discovery-venues/venue-1/photo/0'],
+    })
+  })
+
+  it('passes inferred capacity fields through to catalog ranking inputs', () => {
+    const mapped = mapDiscoveryVenueToCatalogVenue({
+      id: 'venue-1',
+      name: 'Moongate Lounge',
+      address: '123 Broadway',
+      neighborhood: 'Uptown Oakland',
+      city: 'Oakland',
+      state: 'CA',
+      capacity_seated: null,
+      capacity_standing: null,
+      capacity_cocktail: null,
+      inferred_capacity_standing: 110,
+      inferred_capacity_seated: 64,
+      capacity_inference_confidence: 0.82,
+      capacity_inference_admin_status: 'pending',
+      capacity_inference_source_quote: 'Events up to 110 guests.',
+      capacity_inference_model: 'gpt-4o-mini',
+      capacity_inference_extracted_at: '2026-06-24T00:00:00.000Z',
+      contact_email: null,
+      contact_phone: null,
+      website: 'https://moongate.example',
+      vibe_tags: [],
+      alcohol_policy: null,
+      price_hint_cents_low: null,
+      price_hint_cents_high: null,
+      google_rating: 4.7,
+      google_user_ratings_total: 80,
+      source: 'google_places',
+      source_external_id: 'places/moongate',
+      metadata: { google_types: ['bar'] },
+      is_claimed: false,
+      claimed_venue_id: null,
+    } as DiscoveryVenueRow)
+
+    expect(mapped).toMatchObject({
+      inferred_capacity_standing: 110,
+      inferred_capacity_seated: 64,
+      capacity_inference_confidence: 0.82,
+      capacity_inference_admin_status: 'pending',
     })
   })
 

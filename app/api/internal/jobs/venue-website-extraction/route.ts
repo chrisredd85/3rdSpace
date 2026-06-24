@@ -10,10 +10,12 @@ import {
   type DiscoveryVenueRow,
 } from '@/lib/server/discovery-enrichment'
 import { inferVendorRate, shouldSkipVendorRateInference } from '@/lib/discovery/inferVendorRate'
+import { enqueueVenueCapacityInferenceJob, hasKnownCapacity } from '@/lib/discovery/venueCapacityJobs'
 import { getWorkerOrAdminContext } from '@/lib/server/admin-auth'
 import { extractVenueContacts } from '@/lib/server/venue-website-extractor'
 import { enqueuePendingDraftsForDiscoveryVenue } from '@/lib/planner/discoveryOutreachDrafts'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import type { SupabaseJobClient } from '@/lib/server/job-queue'
 import type { Database, Json } from '@/lib/types/database-generated'
 
 type SupabaseAdminClient = SupabaseClient<any, 'public'>
@@ -28,7 +30,12 @@ type DiscoveryVenueExtractionCandidate = Pick<
   | 'website_extraction_status'
   | 'website_extraction_attempts'
   | 'metadata'
->
+  | 'capacity_seated'
+  | 'capacity_standing'
+  | 'capacity_cocktail'
+> & {
+  capacity_inference_extracted_at?: string | null
+}
 
 type DiscoveryVendorExtractionCandidate = {
   id: string
@@ -91,7 +98,7 @@ async function runVenueWebsiteExtraction() {
   const admin = createServiceRoleClient() as SupabaseAdminClient
   const { data, error } = await admin
     .from('discovery_venues')
-    .select('id,name,website,contact_email,extracted_emails,website_extraction_status,website_extraction_attempts,metadata')
+    .select('id,name,website,contact_email,extracted_emails,website_extraction_status,website_extraction_attempts,metadata,capacity_seated,capacity_standing,capacity_cocktail,capacity_inference_extracted_at')
     .not('website', 'is', null)
     .order('website_extraction_attempted_at', { ascending: true, nullsFirst: true })
     .limit(QUERY_LIMIT)
@@ -148,7 +155,7 @@ async function runVenueWebsiteExtraction() {
     timeout: 0,
     skipped: 0,
   }
-  const results: Array<{ id: string; status: string; emails: number; draft_approvals?: number; error?: string }> = []
+  const results: Array<{ id: string; status: string; emails: number; draft_approvals?: number; capacity_job_queued?: boolean; error?: string }> = []
   const vendorSummary: ExtractionSummary = {
     processed: 0,
     successful: 0,
@@ -237,8 +244,15 @@ async function processVenue(admin: SupabaseAdminClient, venue: DiscoveryVenueExt
       })
       draftApprovals = draftResults.filter((draft) => draft.status === 'draft_created').length
     }
+    const capacityJobQueued = await maybeEnqueueVenueCapacityInference(admin, venue)
 
-    return { id: venue.id, status: result.status, emails: result.emails.length, draft_approvals: draftApprovals }
+    return {
+      id: venue.id,
+      status: result.status,
+      emails: result.emails.length,
+      draft_approvals: draftApprovals,
+      capacity_job_queued: capacityJobQueued,
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Website extraction failed'
     Sentry.captureException(error, {
@@ -267,6 +281,27 @@ async function processVenue(admin: SupabaseAdminClient, venue: DiscoveryVenueExt
       .eq('id', venue.id)
 
     return { id: venue.id, status: 'fetch_failed', emails: 0, error: message }
+  }
+}
+
+async function maybeEnqueueVenueCapacityInference(admin: SupabaseAdminClient, venue: DiscoveryVenueExtractionCandidate) {
+  if (venue.capacity_inference_extracted_at) return false
+  if (hasKnownCapacity(venue)) return false
+  if (!process.env.OPENAI_API_KEY?.trim()) return false
+
+  try {
+    await enqueueVenueCapacityInferenceJob(admin as unknown as SupabaseJobClient, venue.id)
+    return true
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { component: 'venue_website_extraction_cron', phase: 'venue_capacity_job_enqueue' },
+      extra: { discovery_venue_id: venue.id },
+    })
+    console.error('[venue-website-extraction] capacity_inference_enqueue_failed', {
+      discovery_venue_id: venue.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return false
   }
 }
 

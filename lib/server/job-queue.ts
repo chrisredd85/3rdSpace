@@ -59,6 +59,7 @@ export type AppJobType =
   | 'opportunity_remind_vendor_invite'
   | 'opportunity_expire_vendor_invite'
   | 'venue.stripe_setup_reminder'
+  | 'infer_venue_capacity'
 
 export type AppJobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'dead'
 
