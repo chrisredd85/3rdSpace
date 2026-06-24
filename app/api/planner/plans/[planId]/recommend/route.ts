@@ -2603,7 +2603,13 @@ async function loadPlacesDiscoveryVenues(input: {
   placesFallbackCache?: PlacesFallbackCache
 }) {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY?.trim()
-  if (!apiKey) return []
+  if (!apiKey) {
+    console.error('[discovery] GOOGLE_PLACES_API_KEY missing - discovery degraded to catalog-only', {
+      planId: input.plan.id,
+      archetype: input.plan.event_type,
+    })
+    return []
+  }
 
   const neighborhood = readString(input.rankingInput.neighborhood ?? input.rankingInput.area ?? input.plan.neighborhood)
   const areas = buildPlacesSearchAreas(neighborhood)

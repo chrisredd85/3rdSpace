@@ -119,6 +119,68 @@ describe('rankCatalogPartners', () => {
     expect(result.recommendations[0].score).toBeGreaterThan(result.recommendations[1].score)
   })
 
+  it('keeps venues with no amenity data with a confirmation penalty', () => {
+    const result = rankCatalogPartners({
+      plan,
+      venues: [
+        {
+          ...baseVenue,
+          id: 'venue-thin-places-lead',
+          venue_name: 'Downtown Places Bar',
+          city: 'Mission',
+          standing_capacity: 80,
+          hourly_rate_cents: 50_000,
+          minimum_hours: 4,
+        },
+      ],
+      vendors: [],
+    })
+
+    expect(result.recommendations[0]).toEqual(expect.objectContaining({
+      partner_id: 'venue-thin-places-lead',
+      blocking_issues: [],
+      metadata: expect.objectContaining({
+        amenity_known: false,
+        amenity_score_penalty: 10,
+      }),
+    }))
+  })
+
+  it('rejects venues with known amenity data missing required amenities', () => {
+    const result = rankCatalogPartners({
+      plan,
+      venues: [
+        {
+          ...baseVenue,
+          id: 'venue-known-missing-rooftop',
+          venue_name: 'Mission Known Room',
+          city: 'Mission',
+          description: 'Private event room with AV, projector, and bar service.',
+          standing_capacity: 80,
+          hourly_rate_cents: 50_000,
+          minimum_hours: 4,
+        },
+      ],
+      vendors: [],
+    })
+
+    expect(result.recommendations.map((recommendation) => recommendation.partner_id)).not.toContain(
+      'venue-known-missing-rooftop'
+    )
+    expect(result.rejected).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          partner_id: 'venue-known-missing-rooftop',
+          blocking_issues: expect.arrayContaining(['Missing required amenities: rooftop']),
+          metadata: expect.objectContaining({
+            amenity_known: true,
+            amenity_score_penalty: 0,
+          }),
+        }),
+      ])
+    )
+  })
+
   it('labels over-budget venue matches as Stretch, not Best fit', () => {
     const result = rankCatalogPartners({
       plan,
@@ -184,7 +246,7 @@ describe('rankCatalogPartners', () => {
           standing_capacity: 120,
           hourly_rate_cents: 100_000,
           minimum_hours: 4,
-          unique_features_tags: ['AV', 'ballroom'],
+          unique_features_tags: ['AV', 'rooftop', 'ballroom'],
           venue_cluster_id: 'hotel_marriott_union_square_san_francisco',
         },
         {
@@ -206,7 +268,7 @@ describe('rankCatalogPartners', () => {
           standing_capacity: 95,
           hourly_rate_cents: 100_000,
           minimum_hours: 4,
-          unique_features_tags: ['AV', 'lounge'],
+          unique_features_tags: ['AV', 'rooftop', 'lounge'],
           venue_cluster_id: 'hotel_marriott_union_square_san_francisco',
         },
       ],
@@ -239,7 +301,7 @@ describe('rankCatalogPartners', () => {
           standing_capacity: 120,
           hourly_rate_cents: 100_000,
           minimum_hours: 4,
-          unique_features_tags: ['AV', 'ballroom'],
+          unique_features_tags: ['AV', 'rooftop', 'ballroom'],
           venue_cluster_id: 'hotel_one',
         },
         {
@@ -261,7 +323,7 @@ describe('rankCatalogPartners', () => {
           standing_capacity: 95,
           hourly_rate_cents: 100_000,
           minimum_hours: 4,
-          unique_features_tags: ['AV', 'lounge'],
+          unique_features_tags: ['AV', 'rooftop', 'lounge'],
           venue_cluster_id: 'hotel_three',
         },
       ],

@@ -47,6 +47,7 @@ import type { EventArchetypeConfig } from '@/lib/planner/archetypes'
 // /trigger-recommendations endpoint so the long AI pipeline doesn't timeout this route.
 import { hasUnknownBudgetSignal, parseEventIntent, parseStandaloneGuestCountReply } from '@/lib/planner/intentParser'
 import {
+  hasPendingAgentResponse,
   isIntakeReadyForRecommendations,
   isPlanReadyForRequestedRecommendations,
   isRecommendationRequest,
@@ -306,6 +307,7 @@ export async function POST(
     const followUpMessages: PlanMessage[] = []
     const didMarkPlanReady = agentResponse.plan.status !== finalPlan.status && finalPlan.status === 'ready'
     const didRefreshRecommendations = didMatchAffectingFieldsChange(existingPlan, finalPlan)
+    const hasUnansweredAgentQuestion = hasPendingAgentResponse([...messages, agentMessage])
     if (didRefreshRecommendations) {
       const refreshStatusMessages = await invalidateRecommendationsForPlanChange({
         db: auth.db,
@@ -325,10 +327,13 @@ export async function POST(
       messages
     )
     const shouldCreateAutoRecommendations =
-      didMarkPlanReady ||
-      shouldForceRecommendation ||
-      didRefreshRecommendations ||
-      (agentMessage.message_type === 'recommendation' && !hasRecommendationPipelineArtifacts)
+      !hasUnansweredAgentQuestion &&
+      (
+        didMarkPlanReady ||
+        shouldForceRecommendation ||
+        didRefreshRecommendations ||
+        (agentMessage.message_type === 'recommendation' && !hasRecommendationPipelineArtifacts)
+      )
 
     if (!shouldCreateAutoRecommendations && agentMessage.message_type === 'recommendation') {
       const opportunityBundle = await createVenueOpportunityBundle({
@@ -883,6 +888,7 @@ function buildRequestedRecommendationDraft(draft: AgentResponseDraft, plan: Plan
       ...(readRecord(draft.metadata) ?? {}),
       source: 'user_requested_recommendations',
       recommendation_request: true,
+      requires_response: false,
     }),
   }
 }
