@@ -716,7 +716,91 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
     ]))
   })
 
-  it('uses Places discovery when the catalog is sparse for split Oakland areas', async () => {
+  it('uses Places discovery by default even when catalog venue candidates exist', async () => {
+    process.env.GOOGLE_PLACES_API_KEY = 'test-places-key'
+    const baseVenue = db.rows.venues[0]
+    db.rows.venues = Array.from({ length: 5 }, (_, index) => ({
+      ...baseVenue,
+      id: `catalog-venue-${index}`,
+      venue_name: `Mission Hall ${index + 1}`,
+    }))
+    const discoveryVenue = {
+      id: '22222222-2222-4222-8222-222222222222',
+      name: 'Places First Lounge',
+      address: '456 Valencia St, San Francisco, CA',
+      neighborhood: 'Mission',
+      city: 'San Francisco',
+      state: 'CA',
+      capacity_cocktail: null,
+      capacity_standing: null,
+      capacity_seated: null,
+      vibe_tags: ['bar', 'lounge'],
+      source: 'google_places',
+      source_external_id: 'places/places-first',
+      google_rating: 4.7,
+      google_user_ratings_total: 90,
+      metadata: {
+        google_primary_type: 'bar',
+        google_types: ['bar', 'lounge_bar'],
+      },
+      is_claimed: false,
+      website: 'https://example.com/places-first',
+      contact_phone: '555-0101',
+    }
+    mockSearchPlacesForPlan.mockResolvedValue({
+      venues: [discoveryVenue],
+      search_query: 'dinner in Mission',
+      places_requests: [],
+      places_result_counts: { total: 1, by_type: { bar: 1 } },
+    })
+    mockRunVenueMatchingAgent.mockResolvedValueOnce({
+      agent_name: 'venue_matching',
+      status: 'succeeded',
+      model: 'gpt-4o',
+      prompt_tokens: 100,
+      completion_tokens: 20,
+      messages_payload: [{ role: 'system', content: 'Rank venues.' }],
+      raw_model_output: '{"ranked_venues":[]}',
+      duration_ms: 50,
+      output: {
+        ranked_venues: [{
+          venue_id: discoveryVenue.id,
+          venue_name: discoveryVenue.name,
+          fit_score: 88,
+          pros: ['Live Places result can be contacted after approval.'],
+          cons: [],
+          questions_to_ask_venue: ['Can you confirm capacity and pricing?'],
+        }],
+        best_recommendation: 'Places First Lounge is the strongest discovered fit.',
+        reason_summary: 'Places discovery is the default search source.',
+        no_match: false,
+      },
+    })
+
+    const response = await recommendPlan(makeRequest(), { params: { planId: 'plan-1' } })
+
+    expect(response.status).toBe(200)
+    expect(mockSearchPlacesForPlan).toHaveBeenCalledTimes(1)
+    expect(mockRunVenueMatchingAgent).toHaveBeenCalledWith(expect.objectContaining({
+      candidate_venues: expect.arrayContaining([
+        expect.objectContaining({
+          id: discoveryVenue.id,
+          venue_name: discoveryVenue.name,
+        }),
+        expect.objectContaining({
+          id: 'catalog-venue-0',
+          venue_name: 'Mission Hall 1',
+        }),
+      ]),
+    }))
+    const candidateVenues = mockRunVenueMatchingAgent.mock.calls[0][0].candidate_venues
+    expect(candidateVenues[0]).toEqual(expect.objectContaining({
+      id: discoveryVenue.id,
+      venue_name: discoveryVenue.name,
+    }))
+  })
+
+  it('uses Places discovery for split Oakland areas', async () => {
     process.env.GOOGLE_PLACES_API_KEY = 'test-places-key'
     db.rows.plans[0] = {
       ...db.rows.plans[0],
