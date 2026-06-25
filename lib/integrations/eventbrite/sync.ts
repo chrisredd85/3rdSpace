@@ -29,7 +29,7 @@ import {
 
 type SupabaseAdminClient = any
 
-export type EventbriteConnectionStatus = 'not_connected' | 'pending' | 'connected' | 'failed' | 'disabled'
+export type EventbriteConnectionStatus = 'not_connected' | 'setup_required' | 'pending' | 'connected' | 'failed' | 'disabled'
 
 export type EventbriteConnectionRow = {
   id: string

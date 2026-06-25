@@ -22,6 +22,10 @@ jest.mock('@/lib/finance/calculate-event-financials', () => ({
   recalculateEventFinancials: jest.fn().mockResolvedValue({}),
 }))
 
+jest.mock('@sentry/nextjs', () => ({
+  captureException: jest.fn(),
+}))
+
 import { POST } from '@/app/api/webhooks/posh/route'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { encryptSecret } from '@/lib/server/token-crypto'
@@ -100,6 +104,75 @@ describe('Posh webhook route', () => {
     expect(db.rows.event_cost_commitments).toHaveLength(0)
     expect(db.rows.unlinked_ticket_events).toHaveLength(0)
     expect(db.rows.builder_ticketing_connections[0].status).toBe('awaiting_test')
+  })
+
+  it('marks stale encrypted webhook secrets setup_required and ignores the delivery without a 500', async () => {
+    const db = new MemoryDb()
+    db.rows.builder_ticketing_connections[0].webhook_secret_encrypted = 'stale.ciphertext.value'
+    db.rows.builder_profiles = [{
+      id: BUILDER_ID,
+      user_id: '99999999-9999-4999-8999-999999999999',
+    }]
+    db.rows.provider_connections = [{
+      id: 'provider-connection-1',
+      user_id: '99999999-9999-4999-8999-999999999999',
+      builder_id: BUILDER_ID,
+      provider: 'posh',
+      status: 'connected',
+      plan_id: null,
+      encrypted_credentials: { webhook_secret: 'stale.ciphertext.value' },
+      last_error: null,
+    }]
+    ;(createServiceRoleClient as jest.Mock).mockReturnValue(db)
+
+    const response = await POST(makeRequest(makeOrderPayload(), SECRET))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toMatchObject({ received: true, ignored: true, reason: 'stale_secret' })
+    expect(db.rows.event_sales_data).toHaveLength(0)
+    expect(db.rows.event_cost_commitments).toHaveLength(0)
+    expect(db.rows.builder_ticketing_connections[0]).toMatchObject({
+      status: 'setup_required',
+      last_error: 'stale_encryption',
+    })
+    expect(db.rows.provider_connections[0]).toMatchObject({
+      status: 'setup_required',
+      last_error: 'stale_encryption',
+    })
+    expect(db.rows.notifications).toHaveLength(1)
+    expect(db.rows.notifications[0]).toMatchObject({
+      user_id: '99999999-9999-4999-8999-999999999999',
+      notification_type: 'ticketing_reconnect_required',
+      group_key: `ticketing-stale-secret:posh:${db.rows.builder_ticketing_connections[0].id}`,
+    })
+  })
+
+  it('does not re-attempt decrypt or duplicate notifications after stale secret was already marked', async () => {
+    const db = new MemoryDb()
+    db.rows.builder_ticketing_connections[0].status = 'setup_required'
+    db.rows.builder_ticketing_connections[0].last_error = 'stale_encryption'
+    db.rows.builder_ticketing_connections[0].webhook_secret_encrypted = 'stale.ciphertext.value'
+    db.rows.builder_profiles = [{
+      id: BUILDER_ID,
+      user_id: '99999999-9999-4999-8999-999999999999',
+    }]
+    db.rows.notifications = [{
+      id: 'notification-1',
+      user_id: '99999999-9999-4999-8999-999999999999',
+      group_key: `ticketing-stale-secret:posh:${db.rows.builder_ticketing_connections[0].id}`,
+      notification_type: 'ticketing_reconnect_required',
+      created_at: new Date().toISOString(),
+    }]
+    ;(createServiceRoleClient as jest.Mock).mockReturnValue(db)
+
+    const response = await POST(makeRequest(makeOrderPayload(), SECRET))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toMatchObject({ received: true, ignored: true, reason: 'stale_secret' })
+    expect(db.rows.event_sales_data).toHaveLength(0)
+    expect(db.rows.notifications).toHaveLength(1)
   })
 
   it('quarantines a valid Posh order when the Posh event id is not linked', async () => {
@@ -214,6 +287,9 @@ class MemoryDb {
       event_cost_commitments: [],
       unlinked_ticket_events: [],
       event_webhook_events: [],
+      provider_connections: [],
+      builder_profiles: [],
+      notifications: [],
     }
   }
 
@@ -242,6 +318,16 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
 
   eq(field: string, value: unknown) {
     this.filters.push((row) => row[field] === value)
+    return this
+  }
+
+  is(field: string, value: unknown) {
+    this.filters.push((row) => row[field] === value)
+    return this
+  }
+
+  gte(field: string, value: unknown) {
+    this.filters.push((row) => typeof row[field] === 'string' && typeof value === 'string' && row[field] >= value)
     return this
   }
 

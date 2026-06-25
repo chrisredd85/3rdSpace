@@ -8,6 +8,8 @@ import {
   recordPoshWebhookHeartbeat,
   recordWebhookDelivery,
   resolveIntegrationContext,
+  isStaleWebhookSecretContext,
+  staleWebhookSecretResponse,
   verifyConfiguredTicketWebhook,
 } from '@/lib/server/ticket-webhooks'
 import { allowWebhookRequest, getWebhookRateLimitKey } from '@/lib/server/webhook-rate-limit'
@@ -46,6 +48,10 @@ export async function POST(request: NextRequest) {
   }
 
   const context = await resolveIntegrationContext(admin, 'posh', payload, request.nextUrl.searchParams)
+  if (isStaleWebhookSecretContext(context)) {
+    return NextResponse.json(staleWebhookSecretResponse(), { status: 200 })
+  }
+
   const configuredSecret = getConfiguredTicketWebhookSecret(context, process.env.POSH_WEBHOOK_SECRET)
   if (!verifyConfiguredTicketWebhook('posh', configuredSecret, request.headers, rawBody)) {
     return NextResponse.json({ error: 'Invalid Posh webhook secret' }, { status: 401 })
