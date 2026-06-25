@@ -6,6 +6,11 @@ import type Stripe from 'stripe'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { sendEmailNotification } from '@/lib/email'
+import {
+  SETTLEMENT_CURRENCY,
+  assertSettlementChargeAmounts,
+  calculateSettlementChargeAmounts,
+} from '@/lib/finance/settlement-fees'
 import { updateChiRateFromSettlement } from '@/lib/finance/chi-rate-trueup'
 import {
   transitionSettlementRunStatus,
@@ -114,7 +119,6 @@ type BuilderStripeAccountRow = {
 }
 
 const TOKEN_TTL_DAYS = 14
-const PLATFORM_FEE_CENTS = 0
 
 export function hashSettlementToken(rawToken: string) {
   return createHmac('sha256', getSettlementTokenSecret()).update(rawToken).digest('hex')
@@ -365,6 +369,7 @@ export async function startSettlementCheckout(
   }
 
   const existing = await loadActiveSettlementCharge(admin, run.id)
+  if (existing) assertSettlementChargeAmounts(existing)
   if (existing?.status === 'paid') {
     return { status: 200 as const, body: { already_paid: true, charge_id: existing.id } }
   }
@@ -375,6 +380,8 @@ export async function startSettlementCheckout(
     return { status: 409 as const, body: { error: 'Checkout is being prepared. Try again.', code: 'checkout_in_progress' } }
   }
 
+  const amounts = calculateSettlementChargeAmounts(amountCents)
+
   const { data: chargeData, error: chargeError } = await (admin as any)
     .from('settlement_charges')
     .insert({
@@ -382,10 +389,10 @@ export async function startSettlementCheckout(
       approval_id: approval.id,
       organizer_id: run.organizer_id,
       venue_id: run.venue_id,
-      amount_cents: amountCents,
-      platform_fee_cents: PLATFORM_FEE_CENTS,
-      organizer_payout_cents: amountCents - PLATFORM_FEE_CENTS,
-      currency: 'usd',
+      amount_cents: amounts.amountCents,
+      platform_fee_cents: amounts.platformFeeCents,
+      organizer_payout_cents: amounts.organizerPayoutCents,
+      currency: amounts.currency,
       status: 'checkout_created',
       stripe_connected_account_id: account.stripe_account_id,
       metadata: {
@@ -409,6 +416,7 @@ export async function startSettlementCheckout(
   }
 
   const charge = normalizeCharge(chargeData)
+  assertSettlementChargeAmounts(charge)
   const session = await createStripeCheckoutSession({
     request,
     charge,
@@ -615,6 +623,7 @@ async function createStripeCheckoutSession(input: {
   connectedAccountId: string
   rawToken: string
 }) {
+  assertSettlementChargeAmounts(input.charge)
   const stripe = getStripeClient()
   const baseUrl = getAppBaseUrl(input.request)
   const metadata = {
@@ -634,7 +643,7 @@ async function createStripeCheckoutSession(input: {
         {
           quantity: 1,
           price_data: {
-            currency: 'usd',
+            currency: SETTLEMENT_CURRENCY,
             unit_amount: input.charge.amount_cents,
             product_data: {
               name: `3rdPlace CHI settlement - ${input.context.venue.venue_name}`,
