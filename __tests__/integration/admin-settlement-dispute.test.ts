@@ -44,7 +44,7 @@ describe('admin settlement dispute resolution route', () => {
     const response = await POST(
       new Request('https://www.3rdplace.io/api/admin/settlements/run-1/resolve', {
         method: 'POST',
-        body: JSON.stringify({ note: 'Reviewed' }),
+        body: JSON.stringify({ reason: 'Reviewed' }),
       }) as never,
       { params: { runId: 'run-1' } },
     )
@@ -54,14 +54,35 @@ describe('admin settlement dispute resolution route', () => {
     expect(mockResolve).not.toHaveBeenCalled()
   })
 
-  it('submits resolution note for disputed settlements', async () => {
-    mockGetAdminContext.mockResolvedValue({ authorized: true, status: 200 })
+  it('requires a resolution reason', async () => {
+    mockGetAdminContext.mockResolvedValue({
+      authorized: true,
+      user: { id: 'admin-1', email: 'admin@example.com' },
+    })
+
+    const response = await POST(
+      new Request('https://www.3rdplace.io/api/admin/settlements/run-1/resolve', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      }) as never,
+      { params: { runId: 'run-1' } },
+    )
+
+    expect(response.status).toBe(422)
+    expect(mockResolve).not.toHaveBeenCalled()
+  })
+
+  it('submits resolution reason and admin actor for disputed settlements', async () => {
+    mockGetAdminContext.mockResolvedValue({
+      authorized: true,
+      user: { id: 'admin-1', email: 'admin@example.com' },
+    })
     mockResolve.mockResolvedValue({ status: 200, body: { status: 'awaiting_organizer_review' } })
 
     const response = await POST(
       new Request('https://www.3rdplace.io/api/admin/settlements/run-1/resolve', {
         method: 'POST',
-        body: JSON.stringify({ note: 'Venue and host aligned on attendee count.' }),
+        body: JSON.stringify({ reason: 'Venue and host aligned on attendee count.' }),
       }) as never,
       { params: { runId: 'run-1' } },
     )
@@ -71,7 +92,10 @@ describe('admin settlement dispute resolution route', () => {
     expect(mockResolve).toHaveBeenCalledWith(
       expect.anything(),
       'run-1',
-      'Venue and host aligned on attendee count.',
+      {
+        actor: { id: 'admin-1', type: 'admin' },
+        reason: 'Venue and host aligned on attendee count.',
+      },
     )
   })
 })

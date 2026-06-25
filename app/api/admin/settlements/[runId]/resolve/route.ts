@@ -9,7 +9,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const BodySchema = z.object({
-  note: z.string().max(2000).optional().nullable(),
+  reason: z.string().trim().min(1, 'Resolution reason is required').max(2000),
 })
 
 type RouteContext = {
@@ -27,7 +27,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const body = BodySchema.parse(await request.json().catch(() => ({})))
     const admin = createServiceRoleClient()
-    const result = await resolveDisputedSettlement(admin, context.params.runId, body.note ?? null)
+    const result = await resolveDisputedSettlement(admin, context.params.runId, {
+      actor: { id: adminContext.user.id, type: 'admin' },
+      reason: body.reason,
+    })
     return NextResponse.json(result.body, { status: result.status })
   } catch (error) {
     if (error instanceof z.ZodError) {

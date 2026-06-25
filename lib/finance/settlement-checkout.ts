@@ -8,7 +8,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { sendEmailNotification } from '@/lib/email'
 import { updateChiRateFromSettlement } from '@/lib/finance/chi-rate-trueup'
 import {
+  transitionSettlementCharge,
+  transitionSettlementRun,
   transitionSettlementRunStatus,
+  type SettlementTransitionActor,
   type SettlementRunStatus,
 } from '@/lib/finance/settlement-run-state'
 import { getAppBaseUrl, getStripeClient, isConnectedStripeAccountBlocked } from '@/lib/stripe/connect'
@@ -501,11 +504,16 @@ export async function startSettlementCheckout(
   if (run.status === 'awaiting_venue_ack') {
     const transition = transitionSettlementRunStatus(run.status, 'venue_payment_initiated')
     if (transition.ok) {
-      await (admin as any)
-        .from('settlement_runs')
-        .update({ status: transition.to })
-        .eq('id', run.id)
-        .eq('status', run.status)
+      await transitionSettlementRun({
+        db: admin,
+        runId: run.id,
+        fromStatus: run.status,
+        toStatus: transition.to,
+        action: 'venue_payment_initiated',
+        actor: { id: null, type: 'venue' },
+        reason: 'Venue initiated CHI settlement checkout.',
+        metadata: { settlement_charge_id: charge.id },
+      })
     }
   }
 
@@ -542,30 +550,36 @@ export async function disputeSettlementFromVenueToken(
   if (!transition.ok) throw new Error(transition.reason)
 
   const now = new Date().toISOString()
-  const { data, error } = await (admin as any)
-    .from('settlement_runs')
-    .update({
-      status: transition.to,
+  const transitioned = await transitionSettlementRun({
+    db: admin,
+    runId: run.id,
+    fromStatus: run.status,
+    toStatus: transition.to,
+    action: 'venue_disputed',
+    actor: { id: null, type: 'venue' },
+    reason: reason?.trim() || 'Venue disputed the CHI settlement.',
+    patch: {
       disputed_at: now,
       dispute_reason: reason?.trim() || 'Venue disputed the CHI settlement.',
-    })
-    .eq('id', run.id)
-    .eq('status', run.status)
-    .select('*')
-    .maybeSingle()
+    },
+  })
 
-  if (error) throw new Error(error.message ?? 'Failed to dispute settlement')
-  if (!data) return { status: 409 as const, body: { error: 'Settlement was updated by another request', code: 'settlement_stale' } }
+  if (!transitioned.success) {
+    return { status: 409 as const, body: { error: 'Settlement was updated by another request', code: 'settlement_stale' } }
+  }
 
   await revokeVenueSettlementToken(admin, verified.token.id, now)
 
-  return { status: 200 as const, body: { status: data.status } }
+  return { status: 200 as const, body: { status: transitioned.run.status } }
 }
 
 export async function resolveDisputedSettlement(
   admin: SupabaseAdminClient,
   runId: string,
-  note: string | null,
+  input: {
+    actor: SettlementTransitionActor
+    reason: string
+  },
 ) {
   const run = await loadRun(admin, runId)
   if (!run) return { status: 404 as const, body: { error: 'Settlement run not found' } }
@@ -576,23 +590,40 @@ export async function resolveDisputedSettlement(
   const transition = transitionSettlementRunStatus(run.status, 'admin_resolved')
   if (!transition.ok) throw new Error(transition.reason)
 
-  const { data, error } = await (admin as any)
-    .from('settlement_runs')
-    .update({
-      status: transition.to,
-      dispute_reason: note?.trim()
-        ? `${runDisputeReason(run)}\n\nAdmin resolution: ${note.trim()}`
-        : runDisputeReason(run),
-    })
-    .eq('id', run.id)
-    .eq('status', run.status)
-    .select('*')
-    .maybeSingle()
+  const reason = input.reason.trim()
+  const beforeState = { status: run.status, dispute_reason: runDisputeReason(run) }
+  const disputeReason = `${runDisputeReason(run)}\n\nAdmin resolution: ${reason}`
+  const transitioned = await transitionSettlementRun({
+    db: admin,
+    runId: run.id,
+    fromStatus: run.status,
+    toStatus: transition.to,
+    action: 'admin_resolved',
+    actor: input.actor,
+    reason,
+    patch: { dispute_reason: disputeReason },
+  })
 
-  if (error) throw new Error(error.message ?? 'Failed to resolve settlement dispute')
-  if (!data) return { status: 409 as const, body: { error: 'Settlement was updated by another request', code: 'settlement_stale' } }
+  if (!transitioned.success) {
+    return { status: 409 as const, body: { error: 'Settlement was updated by another request', code: 'settlement_stale' } }
+  }
 
-  return { status: 200 as const, body: { status: data.status } }
+  const { error: adminAuditError } = await (admin as any).from('admin_audit_log').insert({
+    admin_user_id: input.actor.id,
+    action: 'dispute_resolved',
+    entity_type: 'settlement_run',
+    entity_id: run.id,
+    before_state: beforeState,
+    after_state: { status: transitioned.run.status },
+    reason,
+    metadata: {
+      reason,
+      dispute_reason: disputeReason,
+    },
+  })
+  if (adminAuditError) throw new Error(adminAuditError.message ?? 'Failed to write admin settlement audit log')
+
+  return { status: 200 as const, body: { status: transitioned.run.status } }
 }
 
 export async function handleSettlementCheckoutCompleted(
@@ -613,32 +644,39 @@ export async function handleSettlementCheckoutCompleted(
     ? session.payment_intent
     : session.payment_intent?.id ?? null
 
-  const { data: paidChargeData, error: paidError } = await (admin as any)
-    .from('settlement_charges')
-    .update({
-      status: 'paid',
+  const paidTransition = await transitionSettlementCharge({
+    db: admin,
+    chargeId: charge.id,
+    fromStatus: 'checkout_created',
+    toStatus: 'paid',
+    action: 'checkout.session.completed',
+    actor: { id: null, type: 'stripe_webhook' },
+    reason: 'Stripe Checkout completed for CHI settlement charge.',
+    metadata: { checkout_session_id: session.id },
+    patch: {
       stripe_payment_intent_id: paymentIntentId,
       paid_at: now,
       failure_reason: null,
-    })
-    .eq('id', charge.id)
-    .eq('status', 'checkout_created')
-    .select('*')
-    .maybeSingle()
+    },
+  })
 
-  if (paidError) throw new Error(paidError.message ?? 'Failed to mark settlement charge paid')
-  if (!paidChargeData) return { handled: true, idempotent: true }
+  if (!paidTransition.success) return { handled: true, idempotent: true }
 
-  const paidCharge = normalizeCharge(paidChargeData)
+  const paidCharge = normalizeCharge(paidTransition.charge)
   const run = await loadRun(admin, paidCharge.settlement_run_id)
   if (run && run.status === 'awaiting_venue_payment') {
     const transition = transitionSettlementRunStatus(run.status, 'venue_paid')
     if (transition.ok) {
-      await (admin as any)
-        .from('settlement_runs')
-        .update({ status: transition.to })
-        .eq('id', run.id)
-        .eq('status', run.status)
+      await transitionSettlementRun({
+        db: admin,
+        runId: run.id,
+        fromStatus: run.status,
+        toStatus: transition.to,
+        action: 'venue_paid',
+        actor: { id: null, type: 'stripe_webhook' },
+        reason: 'Stripe Checkout marked CHI settlement charge paid.',
+        metadata: { settlement_charge_id: paidCharge.id, checkout_session_id: session.id },
+      })
     }
   }
 
@@ -670,17 +708,25 @@ export async function handleSettlementPaymentIntentFailed(
   if (!data) return { handled: false, reason: 'charge_not_found' }
 
   const message = paymentIntent.last_payment_error?.message ?? 'Stripe payment failed'
-  await (admin as any)
-    .from('settlement_charges')
-    .update({
-      status: 'failed',
+  const failedTransition = await transitionSettlementCharge({
+    db: admin,
+    chargeId: data.id,
+    fromStatus: 'checkout_created',
+    toStatus: 'failed',
+    action: 'payment_intent.payment_failed',
+    actor: { id: null, type: 'stripe_webhook' },
+    reason: message,
+    metadata: { payment_intent_id: paymentIntent.id },
+    patch: {
       stripe_payment_intent_id: paymentIntent.id,
       failed_at: new Date().toISOString(),
       failure_reason: message,
-    })
-    .eq('id', data.id)
+    },
+  })
 
-  await notifyVenuePaymentFailed(admin, normalizeCharge(data), message)
+  if (!failedTransition.success) return { handled: true, idempotent: true }
+
+  await notifyVenuePaymentFailed(admin, normalizeCharge(failedTransition.charge), message)
   return { handled: true, charge_id: data.id }
 }
 

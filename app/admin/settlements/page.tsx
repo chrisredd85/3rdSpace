@@ -73,7 +73,10 @@ export default async function AdminSettlementsPage() {
                   </p>
                   <h2 className="mt-2 font-display text-2xl font-bold">{formatCents(row.total_cents ?? 0)}</h2>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Run {row.id} · Event {row.event_id}
+                    <Link href={`/admin/settlements/${row.id}`} className="font-semibold text-primary hover:underline">
+                      Run {row.id}
+                    </Link>
+                    {' '}· Event {row.event_id}
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     Attendance {row.attendance_count ?? 'pending'} · Updated {formatDate(row.updated_at)}

@@ -18,7 +18,7 @@ export function SettlementDisputeResolver({ runId }: { runId: string }) {
       const response = await fetch(`/api/admin/settlements/${encodeURIComponent(runId)}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note }),
+        body: JSON.stringify({ reason: note }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -40,11 +40,12 @@ export function SettlementDisputeResolver({ runId }: { runId: string }) {
       </label>
       <textarea
         id={`resolve-${runId}`}
+        required
         className="mt-2 min-h-20 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary"
         value={note}
         onChange={(event) => setNote(event.target.value)}
       />
-      <Button type="submit" size="sm" className="mt-3" disabled={loading}>
+      <Button type="submit" size="sm" className="mt-3" disabled={loading || note.trim().length === 0}>
         {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
         Resolve to organizer review
       </Button>
