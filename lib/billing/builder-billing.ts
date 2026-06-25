@@ -120,15 +120,27 @@ export function loadBuilderBillingProfileByUserId(supabase: any, userId: string)
 
 function getPriceId(type: BuilderCheckoutType) {
   if (type === 'pay_per_event') {
-    return process.env.STRIPE_PRICE_PAY_PER_EVENT || process.env.STRIPE_PAY_PER_EVENT_PRICE_ID
+    return (
+      process.env.STRIPE_PRICE_PAY_PER_EVENT ||
+      process.env.STRIPE_PRICE_PER_EVENT ||
+      process.env.STRIPE_PAY_PER_EVENT_PRICE_ID
+    )
   }
 
   if (type === 'pro_monthly') {
-    return process.env.STRIPE_PRICE_PRO_MONTHLY || process.env.STRIPE_BUILDER_PRO_MONTHLY_PRICE_ID
+    return (
+      process.env.STRIPE_PRICE_PRO_MONTHLY ||
+      process.env.STRIPE_PRICE_MONTHLY ||
+      process.env.STRIPE_BUILDER_PRO_MONTHLY_PRICE_ID
+    )
   }
 
   if (type === 'pro_annual') {
-    return process.env.STRIPE_PRICE_PRO_ANNUAL || process.env.STRIPE_BUILDER_PRO_ANNUAL_PRICE_ID
+    return (
+      process.env.STRIPE_PRICE_PRO_ANNUAL ||
+      process.env.STRIPE_PRICE_ANNUAL ||
+      process.env.STRIPE_BUILDER_PRO_ANNUAL_PRICE_ID
+    )
   }
 
   return null
@@ -453,6 +465,26 @@ export async function createBuilderCheckoutSession(params: {
       idempotencyKey: `builder_checkout_${params.builder.id}_${params.type}`,
     }
   )
+}
+
+export async function createBuilderBillingPortalSession(params: {
+  admin: any
+  request: Request
+  builder: BuilderBillingProfile
+  userEmail?: string | null
+}) {
+  const customerId = await ensureStripeCustomerForBuilder({
+    admin: params.admin,
+    builder: params.builder,
+    email: params.userEmail,
+  })
+  const stripe = getStripeClient()
+  const baseUrl = getAppBaseUrl(params.request)
+
+  return stripe.billingPortal.sessions.create({
+    customer: customerId,
+    return_url: `${baseUrl}/planner/billing`,
+  })
 }
 
 function toIntegerCents(amount: number) {

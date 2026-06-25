@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Calendar, Check, Crown, Loader2, Zap } from 'lucide-react'
+import { AlertTriangle, Calendar, Check, Crown, ExternalLink, Loader2, Zap } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
@@ -38,6 +38,7 @@ export default function BuilderBillingPage() {
   const [loading, setLoading] = useState(true)
   const [checkoutLoading, setCheckoutLoading] = useState<CheckoutType | null>(null)
   const [cancelLoading, setCancelLoading] = useState(false)
+  const [portalLoading, setPortalLoading] = useState(false)
   const [proBilling, setProBilling] = useState<'monthly' | 'annual'>('monthly')
 
   useEffect(() => {
@@ -108,6 +109,26 @@ export default function BuilderBillingPage() {
       })
     } finally {
       setCancelLoading(false)
+    }
+  }
+
+  async function openBillingPortal() {
+    setPortalLoading(true)
+    try {
+      const response = await fetch('/api/builder/billing/portal', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Could not open billing portal')
+      window.location.href = data.portalUrl
+    } catch (error) {
+      addToast({
+        title: 'Billing portal unavailable',
+        description: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      })
+      setPortalLoading(false)
     }
   }
 
@@ -285,7 +306,7 @@ export default function BuilderBillingPage() {
                 type="button"
                 className="w-full"
                 variant="secondary"
-                disabled={Boolean(checkoutLoading) || cancelLoading}
+                disabled={Boolean(checkoutLoading) || cancelLoading || portalLoading}
                 onClick={() => startCheckout('pay_per_event')}
               >
                 {checkoutLoading === 'pay_per_event' ? (
@@ -373,12 +394,12 @@ export default function BuilderBillingPage() {
                 <li className="flex items-center gap-2"><Check className="h-4 w-4 text-clay" />Cancel anytime</li>
               </ul>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <Button
                   type="button"
                   className="flex-1"
                   variant={isCurrentProPlan ? 'outline' : 'hero'}
-                  disabled={Boolean(checkoutLoading) || cancelLoading || isCurrentProPlan}
+                  disabled={Boolean(checkoutLoading) || cancelLoading || portalLoading || isCurrentProPlan}
                   onClick={() => startCheckout(proCheckoutType)}
                 >
                   {checkoutLoading === proCheckoutType ? (
@@ -388,15 +409,30 @@ export default function BuilderBillingPage() {
                 </Button>
 
                 {isProActive && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={cancelLoading || Boolean(checkoutLoading)}
-                    onClick={cancelSubscription}
-                    className="text-brick hover:bg-brick-tint hover:text-brick"
-                  >
-                    {cancelLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Cancel'}
-                  </Button>
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={portalLoading || cancelLoading || Boolean(checkoutLoading)}
+                      onClick={openBillingPortal}
+                    >
+                      {portalLoading ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <ExternalLink className="mr-2 h-4 w-4" />
+                      )}
+                      Manage in Stripe
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={cancelLoading || portalLoading || Boolean(checkoutLoading)}
+                      onClick={cancelSubscription}
+                      className="text-brick hover:bg-brick-tint hover:text-brick"
+                    >
+                      {cancelLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Cancel'}
+                    </Button>
+                  </>
                 )}
               </div>
             </CardContent>
