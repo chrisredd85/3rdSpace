@@ -753,8 +753,10 @@ async function runSettlementTrueUpOnce(admin: SupabaseAdminClient, charge: Settl
   if (!context) return
   await updateChiRateFromSettlement(admin, {
     organizerId: context.run.organizer_id,
+    venueId: context.run.venue_id,
     archetype: context.run.archetype,
     venueType: context.run.venue_type,
+    settlementRunId: context.run.id,
   })
 }
 
