@@ -22,6 +22,10 @@ jest.mock('@/lib/server/job-queue', () => ({
   enqueueJob: jest.fn(),
 }))
 
+jest.mock('@sentry/nextjs', () => ({
+  captureException: jest.fn(),
+}))
+
 import { createHmac } from 'crypto'
 import { POST } from '@/app/api/webhooks/eventbrite/route'
 import { EventbriteClient, verifyEventbriteWebhookSignature } from '@/lib/integrations/eventbrite/client'
@@ -271,6 +275,72 @@ describe('Eventbrite OAuth and webhooks', () => {
     expect(db.rows.event_webhook_events).toHaveLength(0)
     expect(enqueueJob).not.toHaveBeenCalled()
   })
+
+  it('marks stale encrypted Eventbrite webhook secrets setup_required and ignores the delivery', async () => {
+    const db = new MemoryDb()
+    db.rows.builder_ticketing_connections[0].webhook_secret_encrypted = 'stale.ciphertext.value'
+    db.rows.builder_profiles = [{
+      id: BUILDER_ID,
+      user_id: '99999999-9999-4999-8999-999999999999',
+    }]
+    db.rows.provider_connections = [{
+      id: 'provider-connection-1',
+      user_id: '99999999-9999-4999-8999-999999999999',
+      builder_id: BUILDER_ID,
+      provider: 'eventbrite',
+      status: 'connected',
+      plan_id: null,
+      encrypted_credentials: { access_token: 'stale.ciphertext.value' },
+      last_error: null,
+    }]
+    ;(createServiceRoleClient as jest.Mock).mockReturnValue(db)
+
+    const response = await POST(makeWebhookRequest('sha256=irrelevant'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toMatchObject({ received: true, ignored: true, reason: 'stale_secret' })
+    expect(db.rows.event_webhook_events).toHaveLength(0)
+    expect(enqueueJob).not.toHaveBeenCalled()
+    expect(db.rows.builder_ticketing_connections[0]).toMatchObject({
+      status: 'setup_required',
+      last_error: 'stale_encryption',
+    })
+    expect(db.rows.provider_connections[0]).toMatchObject({
+      status: 'setup_required',
+      last_error: 'stale_encryption',
+    })
+    expect(db.rows.notifications).toHaveLength(1)
+    expect(db.rows.notifications[0]).toMatchObject({
+      user_id: '99999999-9999-4999-8999-999999999999',
+      notification_type: 'ticketing_reconnect_required',
+      group_key: `ticketing-stale-secret:eventbrite:${CONNECTION_ID}`,
+    })
+  })
+
+  it('ignores already-marked stale Eventbrite connections without duplicating notifications', async () => {
+    const db = new MemoryDb()
+    db.rows.builder_ticketing_connections[0].status = 'setup_required'
+    db.rows.builder_ticketing_connections[0].last_error = 'stale_encryption'
+    db.rows.builder_ticketing_connections[0].webhook_secret_encrypted = 'stale.ciphertext.value'
+    db.rows.notifications = [{
+      id: 'notification-1',
+      user_id: '99999999-9999-4999-8999-999999999999',
+      group_key: `ticketing-stale-secret:eventbrite:${CONNECTION_ID}`,
+      notification_type: 'ticketing_reconnect_required',
+      created_at: new Date().toISOString(),
+    }]
+    ;(createServiceRoleClient as jest.Mock).mockReturnValue(db)
+
+    const response = await POST(makeWebhookRequest('sha256=irrelevant'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toMatchObject({ received: true, ignored: true, reason: 'stale_secret' })
+    expect(db.rows.event_webhook_events).toHaveLength(0)
+    expect(db.rows.notifications).toHaveLength(1)
+    expect(enqueueJob).not.toHaveBeenCalled()
+  })
 })
 
 function makeWebhookRequest(signature: string) {
@@ -328,6 +398,9 @@ class MemoryDb {
         last_webhook_event_type: null,
       }],
       event_webhook_events: [],
+      provider_connections: [],
+      builder_profiles: [],
+      notifications: [],
     }
   }
 
@@ -339,6 +412,9 @@ class MemoryDb {
 
 class MemoryQuery {
   private filters: Array<(row: Row) => boolean> = []
+  private pendingUpdate: Row | null = null
+  private pendingInsert: Row | Row[] | null = null
+  private limitCount: number | null = null
 
   constructor(private db: MemoryDb, private table: string) {}
 
@@ -351,7 +427,62 @@ class MemoryQuery {
     return this
   }
 
+  is(field: string, value: unknown) {
+    this.filters.push((row) => row[field] === value)
+    return this
+  }
+
+  gte(field: string, value: unknown) {
+    this.filters.push((row) => typeof row[field] === 'string' && typeof value === 'string' && row[field] >= value)
+    return this
+  }
+
+  limit(count: number) {
+    this.limitCount = count
+    return this
+  }
+
+  update(value: Row) {
+    this.pendingUpdate = value
+    return this
+  }
+
+  insert(value: Row | Row[]) {
+    this.pendingInsert = value
+    return this
+  }
+
   async maybeSingle() {
-    return { data: this.db.rows[this.table].find((row) => this.filters.every((filter) => filter(row))) ?? null, error: null }
+    return { data: this.execute().data[0] ?? null, error: null }
+  }
+
+  then<TResult1 = { data: unknown; error: null }, TResult2 = never>(
+    onfulfilled?: ((value: { data: unknown; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+  ): PromiseLike<TResult1 | TResult2> {
+    return Promise.resolve(this.execute()).then(onfulfilled, onrejected)
+  }
+
+  private execute() {
+    if (this.pendingInsert) {
+      const rows = (Array.isArray(this.pendingInsert) ? this.pendingInsert : [this.pendingInsert])
+        .map((value) => ({
+          id: `${this.table}-${this.db.rows[this.table].length + 1}`,
+          created_at: new Date().toISOString(),
+          ...value,
+        }))
+      this.db.rows[this.table].push(...rows)
+      return { data: rows, error: null }
+    }
+
+    const rows = this.db.rows[this.table]
+      .filter((row) => this.filters.every((filter) => filter(row)))
+      .slice(0, this.limitCount ?? undefined)
+
+    if (this.pendingUpdate) {
+      rows.forEach((row) => Object.assign(row, this.pendingUpdate))
+    }
+
+    return { data: rows, error: null }
   }
 }

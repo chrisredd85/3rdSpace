@@ -18,6 +18,8 @@ import {
   recordPoshWebhookHeartbeat,
   recordWebhookDelivery,
   resolveIntegrationContext,
+  isStaleWebhookSecretContext,
+  staleWebhookSecretResponse,
   verifyLumaSignature,
   verifyPoshSecret,
 } from '@/lib/server/ticket-webhooks'
@@ -61,6 +63,15 @@ async function processPoshWebhookJob(admin: ReturnType<typeof createServiceRoleC
   const headers = headersFromPayload(job.payload.headers)
   const searchParams = searchParamsFromPayload(job.payload.searchParams)
   const context = await resolveIntegrationContext(admin, 'posh', payload, searchParams)
+  if (isStaleWebhookSecretContext(context)) {
+    return {
+      ...staleWebhookSecretResponse(),
+      processed: false,
+      integrationId: context.integrationId,
+      eventId: context.eventId,
+    }
+  }
+
   const configuredSecret =
     typeof context.config?.webhook_secret === 'string'
       ? context.config.webhook_secret
@@ -102,6 +113,15 @@ async function processLumaWebhookJob(admin: ReturnType<typeof createServiceRoleC
   const headers = headersFromPayload(job.payload.headers)
   const searchParams = searchParamsFromPayload(job.payload.searchParams)
   const context = await resolveIntegrationContext(admin, 'luma', payload, searchParams)
+  if (isStaleWebhookSecretContext(context)) {
+    return {
+      ...staleWebhookSecretResponse(),
+      processed: false,
+      integrationId: context.integrationId,
+      eventId: context.eventId,
+    }
+  }
+
   const configuredSecret =
     typeof context.config?.webhook_secret === 'string'
       ? context.config.webhook_secret
@@ -141,6 +161,15 @@ async function processPartifulWebhookJob(admin: ReturnType<typeof createServiceR
   const headers = headersFromPayload(job.payload.headers)
   const searchParams = searchParamsFromPayload(job.payload.searchParams)
   const context = await resolveIntegrationContext(admin, 'partiful', payload, searchParams)
+  if (isStaleWebhookSecretContext(context)) {
+    return {
+      ...staleWebhookSecretResponse(),
+      processed: false,
+      integrationId: context.integrationId,
+      eventId: context.eventId,
+    }
+  }
+
   const configuredSecret =
     typeof context.config?.webhook_secret === 'string'
       ? context.config.webhook_secret

@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 import { recalculateEventFinancials } from '@/lib/finance/calculate-event-financials'
 import { upsertCommitment } from '@/lib/finance/costCommitments'
+import * as Sentry from '@sentry/nextjs'
 import {
   markPoshHeartbeat,
   quarantineUnlinkedPoshEvent,
@@ -26,12 +27,23 @@ type IntegrationContext = {
   builderConnectionId: string | null
   externalEventId: string | null
   config: JsonObject
+  staleWebhookSecret?: StaleWebhookSecretContext | null
 }
 
 type BuilderConnectionRow = {
   id: string
+  builder_id?: string | null
   config?: JsonObject | null
+  status?: string | null
+  last_error?: string | null
   webhook_secret_encrypted?: string | null
+}
+
+type StaleWebhookSecretContext = {
+  provider: WebhookPlatform
+  builderConnectionId: string
+  builderId: string | null
+  reason: 'stale_secret'
 }
 
 type SalesPayload = {
@@ -98,6 +110,7 @@ export type ProcessWebhookResult = {
 
 const POSH_REFUND_TYPES = new Set(['order_updated'])
 const POSH_SALE_TYPES = new Set(['new_order', 'pending_order_actioned'])
+const STALE_SECRET_ERROR = 'stale_encryption'
 
 /**
  * Checks whether an unknown value is a plain JSON object.
@@ -367,6 +380,18 @@ export function verifyConfiguredTicketWebhook(
   return verifyPoshSecret(configuredSecret, headers.get('posh-secret'))
 }
 
+export function isStaleWebhookSecretContext(context: IntegrationContext) {
+  return context.staleWebhookSecret?.reason === 'stale_secret'
+}
+
+export function staleWebhookSecretResponse() {
+  return {
+    received: true,
+    ignored: true,
+    reason: 'stale_secret',
+  }
+}
+
 /**
  * Finds the internal 3rdPlace event/integration associated with a webhook.
  *
@@ -401,7 +426,7 @@ export async function resolveIntegrationContext(
   if (builderConnectionId || builderOrgIntegrationId) {
     let connectionQuery = admin
       .from('builder_ticketing_connections')
-      .select('id, builder_id, config, webhook_secret_encrypted')
+      .select('id, builder_id, config, status, last_error, webhook_secret_encrypted')
       .eq('platform', platform)
 
     if (builderConnectionId) {
@@ -414,15 +439,56 @@ export async function resolveIntegrationContext(
       .maybeSingle()
 
     if (error) throw error
-    const builderConnection = data as (BuilderConnectionRow & { builder_id?: string | null }) | null
+    const builderConnection = data as BuilderConnectionRow | null
     if (builderConnection) {
       resolvedBuilderId = builderConnection.builder_id ?? resolvedBuilderId
       builderConnectionConfig = {
         ...(builderConnection.config ?? {}),
       }
 
+      if (builderConnection.status === 'setup_required' && builderConnection.last_error === STALE_SECRET_ERROR) {
+        return {
+          integrationId: null,
+          eventId,
+          builderId: builderConnection.builder_id ?? resolvedBuilderId,
+          builderConnectionId: builderConnection.id,
+          externalEventId,
+          config: builderConnectionConfig,
+          staleWebhookSecret: {
+            provider: platform,
+            builderConnectionId: builderConnection.id,
+            builderId: builderConnection.builder_id ?? null,
+            reason: 'stale_secret',
+          },
+        }
+      }
+
       if (builderConnection.webhook_secret_encrypted) {
-        builderConnectionConfig.webhook_secret = decryptSecret(builderConnection.webhook_secret_encrypted)
+        try {
+          builderConnectionConfig.webhook_secret = decryptSecret(builderConnection.webhook_secret_encrypted)
+        } catch (error) {
+          await markBuilderConnectionWebhookSecretStale(admin, {
+            provider: platform,
+            connectionId: builderConnection.id,
+            builderId: builderConnection.builder_id ?? null,
+            error,
+          })
+
+          return {
+            integrationId: null,
+            eventId,
+            builderId: builderConnection.builder_id ?? resolvedBuilderId,
+            builderConnectionId: builderConnection.id,
+            externalEventId,
+            config: builderConnectionConfig,
+            staleWebhookSecret: {
+              provider: platform,
+              builderConnectionId: builderConnection.id,
+              builderId: builderConnection.builder_id ?? null,
+              reason: 'stale_secret',
+            },
+          }
+        }
       }
     }
   }
@@ -504,6 +570,166 @@ export async function resolveIntegrationContext(
     externalEventId,
     config: builderConnectionConfig,
   }
+}
+
+async function markBuilderConnectionWebhookSecretStale(
+  admin: SupabaseAdminClient,
+  input: {
+    provider: WebhookPlatform
+    connectionId: string
+    builderId: string | null
+    error: unknown
+  }
+) {
+  const message = input.error instanceof Error ? input.error.message : String(input.error)
+  console.error('[ticket-webhooks] Webhook secret decryption failed - likely stale ciphertext', {
+    action: 'webhook_decryption_stale',
+    provider: input.provider,
+    table: 'builder_ticketing_connections',
+    row_id: input.connectionId,
+    builder_id: input.builderId,
+    error: message,
+  })
+  Sentry.captureException(input.error, {
+    tags: {
+      action: 'webhook_decryption_stale',
+      provider: input.provider,
+    },
+    extra: {
+      table: 'builder_ticketing_connections',
+      row_id: input.connectionId,
+      builder_id: input.builderId,
+    },
+  })
+
+  const now = new Date().toISOString()
+  const update = {
+    status: 'setup_required',
+    last_error: STALE_SECRET_ERROR,
+    updated_at: now,
+  }
+
+  const { error } = await admin
+    .from('builder_ticketing_connections')
+    .update(update as never)
+    .eq('id', input.connectionId)
+
+  if (error) {
+    console.error('[ticket-webhooks] Failed to mark ticketing connection setup_required after stale secret', {
+      provider: input.provider,
+      row_id: input.connectionId,
+      error: error.message,
+    })
+  }
+
+  if (input.builderId) {
+    const { error: providerError } = await admin
+      .from('provider_connections')
+      .update({
+        status: 'setup_required',
+        last_error: STALE_SECRET_ERROR,
+        updated_at: now,
+      } as never)
+      .eq('builder_id', input.builderId)
+      .eq('provider', input.provider)
+      .is('plan_id', null)
+
+    if (providerError) {
+      console.warn('[ticket-webhooks] Failed to sync provider connection stale-secret state', {
+        provider: input.provider,
+        builder_id: input.builderId,
+        error: providerError.message,
+      })
+    }
+
+    await notifyBuilderWebhookSecretStale(admin, {
+      provider: input.provider,
+      builderId: input.builderId,
+      connectionId: input.connectionId,
+    })
+  }
+}
+
+async function notifyBuilderWebhookSecretStale(
+  admin: SupabaseAdminClient,
+  input: {
+    provider: WebhookPlatform
+    builderId: string
+    connectionId: string
+  }
+) {
+  const { data: builder, error: builderError } = await admin
+    .from('builder_profiles')
+    .select('user_id')
+    .eq('id', input.builderId)
+    .maybeSingle()
+
+  if (builderError || !builder?.user_id) {
+    if (builderError) {
+      console.warn('[ticket-webhooks] Failed to load builder for stale-secret notification', {
+        builder_id: input.builderId,
+        error: builderError.message,
+      })
+    }
+    return
+  }
+
+  const userId = String(builder.user_id)
+  const groupKey = `ticketing-stale-secret:${input.provider}:${input.connectionId}`
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const { data: existing, error: existingError } = await admin
+    .from('notifications')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('group_key', groupKey)
+    .gte('created_at', cutoff)
+    .limit(1)
+    .maybeSingle()
+
+  if (existingError) {
+    console.warn('[ticket-webhooks] Failed to check stale-secret notification rate limit', {
+      user_id: userId,
+      provider: input.provider,
+      error: existingError.message,
+    })
+    return
+  }
+
+  if (existing) return
+
+  const providerLabel = labelTicketProvider(input.provider)
+  const { error } = await admin.from('notifications').insert({
+    user_id: userId,
+    type: 'ticketing_reconnect_required',
+    notification_type: 'ticketing_reconnect_required',
+    title: `${providerLabel} needs reconnecting`,
+    message: `We upgraded token security and need you to reconnect ${providerLabel} before ticketing data can sync again.`,
+    action_url: '/planner/tickets',
+    link_url: '/planner/tickets',
+    group_key: groupKey,
+    related_id: input.connectionId,
+    metadata: {
+      provider: input.provider,
+      builder_id: input.builderId,
+      connection_id: input.connectionId,
+      reason: STALE_SECRET_ERROR,
+    },
+    created_at: new Date().toISOString(),
+  } as never)
+
+  if (error) {
+    console.warn('[ticket-webhooks] Failed to insert stale-secret notification', {
+      user_id: userId,
+      provider: input.provider,
+      error: error.message,
+    })
+  }
+}
+
+function labelTicketProvider(provider: WebhookPlatform) {
+  if (provider === 'posh') return 'Posh'
+  if (provider === 'luma') return 'Luma'
+  return 'Partiful'
 }
 
 /**
