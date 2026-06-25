@@ -42,6 +42,33 @@ const runSteps = [
   },
 ]
 
+const capabilityShowcases = [
+  {
+    eyebrow: 'Step one',
+    title: 'Describe what you are running.',
+    body: 'Drop in the brief the way you would tell a chief of staff. Date, headcount, budget, and the room you want. 3rdPlace turns it into an operating plan.',
+    visual: 'brief',
+  },
+  {
+    eyebrow: 'Step two',
+    title: 'Authorize the moves.',
+    body: 'Every venue, vendor, message, and payment surfaces as an approval card with plain-English terms. You read, you authorize. Nothing executes without you.',
+    visual: 'approval',
+  },
+  {
+    eyebrow: 'Step three',
+    title: 'Compare the real replies.',
+    body: 'When venues and vendors answer, 3rdPlace pulls out price, capacity, terms, availability, and risk so you can choose the strongest option.',
+    visual: 'compare',
+  },
+  {
+    eyebrow: 'Step four',
+    title: 'Close the loop.',
+    body: 'After the event, payments, ticketing, check-ins, incentives, and margin roll into the event brief so the next run starts smarter.',
+    visual: 'settle',
+  },
+]
+
 const featureCards = [
   {
     title: 'Venue holds, locked in writing',
@@ -88,6 +115,138 @@ function PrimaryLink({ href, children }: { href: string; children: ReactNode }) 
     >
       {children}
     </Link>
+  )
+}
+
+function ProductPanel({ type }: { type: string }) {
+  if (type === 'approval') {
+    return (
+      <div className="rounded-md border border-tan bg-cream p-5 shadow-sm sm:p-7">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Caps>Authorization required</Caps>
+          <span className="w-fit rounded-full bg-forest-tint px-3 py-1.5 text-[12px] font-semibold text-forest">
+            Hold expires 19:00
+          </span>
+        </div>
+        <h3 className="mt-5 font-display text-[26px] leading-tight text-ink sm:text-[32px]">
+          Lock in venue rental — The Valencia Room
+        </h3>
+        <p className="mt-2 text-[15px] text-ink-soft">June 12, 6:00pm-11:00pm · 60 guests · CHI eligible</p>
+        <div className="mt-7 grid gap-3 sm:grid-cols-3">
+          <Metric label="Rental" value="$1,800.00" />
+          <Metric label="Deposit" value="$600.00" />
+          <Metric label="Potential incentive" value="up to $300" tone="forest" />
+        </div>
+        <button className="mt-7 inline-flex rounded-md bg-clay px-5 py-3 text-[15px] font-semibold text-primary-foreground">
+          Authorize $1,800
+        </button>
+        <p className="mt-5 font-mono text-[12px] text-ink-faint">
+          Authorization layer · 3rdPlace never executes without your approval.
+        </p>
+      </div>
+    )
+  }
+
+  if (type === 'compare') {
+    return (
+      <div className="rounded-md border border-tan bg-cream p-5 shadow-sm sm:p-7">
+        <Caps>Best fit based on responses</Caps>
+        <div className="mt-5 space-y-3">
+          <QuoteRow
+            name="Moongate Lounge"
+            meta="$1,800 rental · 70 cap · private room"
+            note="Best fit for intimate dinner. Needs final date confirmation."
+            active
+          />
+          <QuoteRow
+            name="Stable Cafe"
+            meta="$1,200 minimum · 45 cap · patio"
+            note="Lower cost, but capacity is tight for the guest target."
+          />
+          <QuoteRow
+            name="Mission Social Hall"
+            meta="$2,400 rental · 90 cap · AV included"
+            note="Strong logistics, but above target budget."
+          />
+        </div>
+      </div>
+    )
+  }
+
+  if (type === 'settle') {
+    return (
+      <div className="rounded-md border border-tan bg-cream p-5 shadow-sm sm:p-7">
+        <div className="flex items-center justify-between gap-4">
+          <Caps>Run sheet</Caps>
+          <span className="font-mono text-[12px] tracking-[0.16em] text-clay">T-21 DAYS</span>
+        </div>
+        <h3 className="mt-5 font-display text-[28px] leading-tight text-ink sm:text-[34px]">
+          Founders Dinner — June 12
+        </h3>
+        <div className="mt-6 divide-y divide-tan">
+          <RunRow day="T-21" task="The Valencia Room — rental settled" state="Settled" />
+          <RunRow day="T-14" task="Photographer — deposit dispatched" state="Settled" />
+          <RunRow day="T-7" task="Guest count and ticketing import checked" state="In flight" tone="clay" />
+          <RunRow day="T+1" task="Margin, check-ins, and incentives recorded" state="Ready" />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-md border border-tan bg-cream p-5 shadow-sm sm:p-7">
+      <div className="rounded-md border border-clay/20 bg-clay/5 p-4 text-[16px] leading-[1.5] text-ink">
+        Founders dinner, about 60, Mission, evening of June 12. Budget around $5k all-in. I want the room to feel like a private supper, not a conference dinner.
+      </div>
+      <Caps className="mt-7 block text-ink-faint">Operator</Caps>
+      <div className="mt-3 rounded-md border border-tan bg-cream-deep p-4 text-[16px] leading-[1.5] text-ink">
+        Reading you. Three Mission venues fit 60 for a private dinner under $2k rental. Pulling terms now — I will surface them as approvals.
+      </div>
+      <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-tan bg-cream-deep px-4 py-2 text-[13px] text-ink-soft">
+        <span className="h-2 w-2 rounded-full bg-clay" />
+        Preparing outreach to 3 venues
+      </div>
+    </div>
+  )
+}
+
+function Metric({ label, value, tone = 'ink' }: { label: string; value: string; tone?: 'ink' | 'forest' }) {
+  return (
+    <div className="rounded-sm border border-tan bg-cream-deep px-4 py-3">
+      <span className="block font-mono text-[12px] uppercase tracking-[0.14em] text-ink-faint">{label}</span>
+      <span className={`mt-2 block font-mono text-[17px] font-semibold ${tone === 'forest' ? 'text-forest' : 'text-ink'}`}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
+function QuoteRow({ name, meta, note, active = false }: { name: string; meta: string; note: string; active?: boolean }) {
+  return (
+    <div className={`rounded-md border p-4 ${active ? 'border-forest/35 bg-forest-tint/70' : 'border-tan bg-cream-deep'}`}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h4 className="font-display text-[22px] leading-tight text-ink">{name}</h4>
+          <p className="mt-1 text-[13px] font-semibold text-ink-soft">{meta}</p>
+        </div>
+        <span className={`w-fit rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${active ? 'bg-forest text-primary-foreground' : 'bg-cream text-ink-soft'}`}>
+          {active ? 'Best fit' : 'Compare'}
+        </span>
+      </div>
+      <p className="mt-3 text-[14px] leading-[1.55] text-ink-soft">{note}</p>
+    </div>
+  )
+}
+
+function RunRow({ day, task, state, tone = 'forest' }: { day: string; task: string; state: string; tone?: 'forest' | 'clay' }) {
+  return (
+    <div className="grid gap-3 py-4 sm:grid-cols-[80px_minmax(0,1fr)_auto] sm:items-center">
+      <span className="font-mono text-[12px] uppercase tracking-[0.16em] text-ink-faint">{day}</span>
+      <span className="text-[15px] font-medium text-ink">{task}</span>
+      <span className={`w-fit rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] ${tone === 'forest' ? 'bg-forest-tint text-forest' : 'bg-clay/10 text-clay-deep'}`}>
+        {state}
+      </span>
+    </div>
   )
 }
 
@@ -184,6 +343,36 @@ export default function HomePage() {
                 <span className="font-mono text-[12px] tracking-[0.18em] text-clay">{step.n}</span>
                 <h3 className="mt-5 font-display text-[30px] leading-tight text-ink">{step.title}</h3>
                 <p className="mt-4 text-[16px] leading-[1.6] text-ink-soft">{step.body}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-tan/70">
+        <div className="mx-auto max-w-[1480px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24 2xl:px-10">
+          <Caps>Operating system</Caps>
+          <h2 className="mt-4 max-w-4xl font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
+            See the agent turn intent into approved action.
+          </h2>
+          <div className="mt-12 space-y-14 lg:space-y-20">
+            {capabilityShowcases.map((item, index) => (
+              <article
+                key={item.title}
+                className="grid gap-8 lg:grid-cols-[minmax(0,0.72fr)_minmax(520px,1fr)] lg:items-center lg:gap-12"
+              >
+                <div className={index % 2 === 1 ? 'lg:order-2' : undefined}>
+                  <Caps>{item.eyebrow}</Caps>
+                  <h3 className="mt-4 max-w-xl font-display text-[38px] leading-[1.03] text-ink sm:text-[52px]">
+                    {item.title}
+                  </h3>
+                  <p className="mt-5 max-w-xl text-[18px] leading-[1.65] text-ink-soft">
+                    {item.body}
+                  </p>
+                </div>
+                <div className={index % 2 === 1 ? 'lg:order-1' : undefined}>
+                  <ProductPanel type={item.visual} />
+                </div>
               </article>
             ))}
           </div>
