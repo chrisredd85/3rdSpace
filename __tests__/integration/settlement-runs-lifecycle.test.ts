@@ -124,6 +124,7 @@ function createSettlementDb(initialRun: SettlementRunRow, options: { staleUpdate
     ] as Array<Record<string, unknown>>,
     jobs: [] as Array<Record<string, unknown>>,
     actions: [] as Array<Record<string, unknown>>,
+    audit: [] as Array<Record<string, unknown>>,
   }
 
   return {
@@ -199,6 +200,10 @@ function createSettlementDb(initialRun: SettlementRunRow, options: { staleUpdate
             }
             if (table === 'approvals') {
               state.approvals.push(row)
+              return { data: [row], error: null }
+            }
+            if (table === 'settlement_audit_log') {
+              state.audit.push(row)
               return { data: [row], error: null }
             }
 

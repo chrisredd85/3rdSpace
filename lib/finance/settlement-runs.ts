@@ -7,6 +7,7 @@ import { isChiEligibleVenueType } from '@/lib/finance/chi-eligibility'
 import { resolveChiRate } from '@/lib/finance/chi-rate-resolver'
 import { ensureSettlementApproval } from '@/lib/finance/settlement-checkout'
 import {
+  transitionSettlementRun,
   transitionSettlementRunStatus,
   type SettlementRunStatus,
 } from '@/lib/finance/settlement-run-state'
@@ -233,25 +234,32 @@ export async function recordAttendanceForRun(
   const status = nextAttendanceStatus(run.status)
   const now = new Date().toISOString()
 
-  const { data, error } = await (admin as any)
-    .from('settlement_runs')
-    .update({
+  const transitioned = await transitionSettlementRun({
+    db: admin,
+    runId: run.id,
+    fromStatus: run.status,
+    toStatus: status,
+    action: 'attendance_recorded',
+    actor: {
+      id: input.uploadedBy ?? null,
+      type: input.uploadedBy ? 'organizer' : 'system',
+    },
+    reason: input.notes ?? 'Attendance recorded for CHI settlement.',
+    metadata: {
+      evidence_kind: input.evidenceKind,
+      attendance_source: input.source,
+    },
+    patch: {
       attendance_count: attendanceCount,
       attendance_source: input.source,
       attendance_recorded_at: now,
       total_cents: totalCents,
-      status,
-      updated_at: now,
-    })
-    .eq('id', run.id)
-    .eq('status', run.status)
-    .select('*')
-    .maybeSingle()
+    },
+  })
 
-  if (error) throw new Error(error.message ?? 'Failed to record settlement attendance')
-  if (!data) throw new Error('Settlement run was updated by another request')
+  if (!transitioned.success) throw new Error('Settlement run was updated by another request')
 
-  const updated = normalizeRun(data)
+  const updated = normalizeRun(transitioned.run)
   await insertEvidence(admin, updated.id, {
     evidenceKind: input.evidenceKind,
     storagePath: input.storagePath ?? null,
@@ -323,30 +331,30 @@ export async function reviewSettlementRun(
   const now = new Date().toISOString()
   const patch = input.action === 'approve'
     ? {
-        status: transition.to,
         organizer_reviewed_at: now,
         organizer_reviewed_by: input.organizerId,
-        updated_at: now,
       }
     : {
-        status: transition.to,
         disputed_at: now,
         dispute_reason: input.disputeReason ?? null,
-        updated_at: now,
       }
 
-  const { data, error } = await (admin as any)
-    .from('settlement_runs')
-    .update(patch)
-    .eq('id', input.runId)
-    .eq('status', run.status)
-    .select('*')
-    .maybeSingle()
+  const transitioned = await transitionSettlementRun({
+    db: admin,
+    runId: input.runId,
+    fromStatus: run.status,
+    toStatus: transition.to,
+    action: input.action === 'approve' ? 'organizer_approved' : 'organizer_disputed',
+    actor: { id: input.organizerId, type: 'organizer' },
+    reason: input.action === 'approve'
+      ? 'Organizer approved CHI settlement.'
+      : (input.disputeReason ?? 'Organizer disputed CHI settlement.'),
+    patch,
+  })
 
-  if (error) throw new Error(error.message ?? 'Failed to review settlement run')
-  if (!data) return null
+  if (!transitioned.success) return null
 
-  const updatedRun = normalizeRun(data)
+  const updatedRun = normalizeRun(transitioned.run)
 
   if (input.action === 'approve') {
     await ensureSettlementApproval(admin, {
@@ -545,16 +553,17 @@ async function loadEventbriteAttendanceContext(admin: SupabaseAdminClient, event
 
 async function markAwaitingAttendance(admin: SupabaseAdminClient, run: SettlementRunRow, reason: string) {
   if (!['pending', 'awaiting_attendance'].includes(run.status)) return
-  const { error } = await (admin as any)
-    .from('settlement_runs')
-    .update({
-      status: 'awaiting_attendance',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', run.id)
-    .eq('status', run.status)
+  const transitioned = await transitionSettlementRun({
+    db: admin,
+    runId: run.id,
+    fromStatus: run.status,
+    toStatus: 'awaiting_attendance',
+    action: 'attendance_waiting',
+    actor: { id: null, type: 'system' },
+    reason,
+  })
 
-  if (error) throw new Error(error.message ?? `Failed to mark settlement awaiting attendance: ${reason}`)
+  if (!transitioned.success) throw new Error(`Failed to mark settlement awaiting attendance: ${reason}`)
 }
 
 async function applyCachedAttendance(
