@@ -158,6 +158,37 @@ describe('PlannerLivePlanPanel', () => {
     expect(screen.getByText('Per-attendee net')).toBeInTheDocument()
   })
 
+  it('shows venue Stripe readiness in the brief when recommendation state includes it', async () => {
+    window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      plan: makePlanSnapshot({
+        title: 'Stripe-ready venue plan',
+        guestCount: 50,
+        neighborhood: 'Mission',
+      }),
+      messages: [
+        makeRecommendationMessage('recommendation-stripe-ready', [
+          {
+            id: 'venue-stripe-ready',
+            name: 'Moongate Lounge',
+            type: 'venue',
+            price_cents: 320000,
+            address: 'Mission',
+            capacity: 80,
+            fit: 'Capacity-fit lounge with a connected payout account.',
+            is_claimed: true,
+            stripe_connect_status: 'connected',
+          },
+        ]),
+      ],
+      planId: 'plan-stripe-ready-brief',
+    }))
+
+    render(<PlannerLivePlanPanel inline />)
+
+    expect(await screen.findByRole('heading', { name: 'Stripe-ready venue plan' })).toBeInTheDocument()
+    expect(screen.getAllByText('Stripe-ready').length).toBeGreaterThan(0)
+  })
+
   it('renders projection source badge and historical range when a baseline is available', async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       baseline: {

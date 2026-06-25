@@ -25,6 +25,7 @@ import {
   WalletCards,
 } from 'lucide-react'
 import Link from 'next/link'
+import { EntityReadinessBadge } from '@/components/planner/EntityReadinessBadge'
 import { usePlannerBillingGate } from '@/components/planner/usePlannerBillingGate'
 import {
   hasAttendanceSignal,
@@ -34,6 +35,11 @@ import {
 import { humanizeEventType } from '@/lib/planner/archetypes/driftControl'
 import { plannerDraftStorageKey } from '@/lib/planner/migrateDraft'
 import { readSpecialSupplyMetadata, type SpecialSupplyMetadata } from '@/lib/planner/specialSupply'
+import {
+  resolveEntityReadiness,
+  type EntityReadinessIndicator,
+  type EntityStripeReadinessInput,
+} from '@/lib/planner/entityStripeReadiness'
 import { readVendorNeedStatusFromMetadata } from '@/lib/planner/vendorNeedStatus'
 import type { PlanMessage, VendorNeedStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -89,6 +95,12 @@ interface RecommendationSummary {
   outreachDraftApprovalMessageId: string | null
   outreachDraftApprovalId: string | null
   outreachApprovalCreatedAt: string | null
+  isClaimed: boolean | null
+  claimStatus: string | null
+  invitedAt: string | null
+  stripeConnectStatus: string | null
+  settledAt: string | null
+  settledAmountCents: number | null
 }
 
 interface RunOfShowMilestone {
@@ -217,6 +229,8 @@ interface CommittedVenueQuote {
   quotedDealModel: string | null
   quotedTerms: Record<string, unknown>
   committedAt: string | null
+  settledAt: string | null
+  settledAmountCents: number | null
 }
 
 interface CommittedVendorQuote {
@@ -229,6 +243,8 @@ interface CommittedVendorQuote {
   quotedDepositPct: number | null
   quotedTerms: Record<string, unknown>
   committedAt: string | null
+  settledAt: string | null
+  settledAmountCents: number | null
 }
 
 interface SelectedPlanVendor {
@@ -241,6 +257,10 @@ interface SelectedPlanVendor {
   rateType: string | null
   claimStatus: string | null
   isClaimed: boolean | null
+  invitedAt: string | null
+  stripeConnectStatus: string | null
+  settledAt: string | null
+  settledAmountCents: number | null
   rateSource: string | null
   provenanceLabel: string | null
 }
@@ -299,6 +319,7 @@ interface ShoppingListItem {
   amountLabel: string
   note?: string
   badge?: string
+  readinessIndicator?: EntityReadinessIndicator | null
 }
 
 interface AuthorizationCardModel {
@@ -542,6 +563,14 @@ function normalizeCommittedVenueQuote(value: unknown): CommittedVenueQuote | nul
       readString(record.quoted_deal_model),
     quotedTerms: asRecord(record.quotedTerms) ?? asRecord(record.quoted_terms) ?? {},
     committedAt: readString(record.committedAt) ?? readString(record.committed_at),
+    settledAt:
+      readString(record.settledAt) ??
+      readString(record.settled_at) ??
+      readString(record.paidAt) ??
+      readString(record.paid_at),
+    settledAmountCents:
+      readNumber(record.settledAmountCents) ??
+      readNumber(record.settled_amount_cents),
   }
 }
 
@@ -575,6 +604,14 @@ function normalizeCommittedVendorQuotes(value: unknown): CommittedVendorQuote[] 
         readNumber(record.quoted_deposit_pct),
       quotedTerms: asRecord(record.quotedTerms) ?? asRecord(record.quoted_terms) ?? {},
       committedAt: readString(record.committedAt) ?? readString(record.committed_at),
+      settledAt:
+        readString(record.settledAt) ??
+        readString(record.settled_at) ??
+        readString(record.paidAt) ??
+        readString(record.paid_at),
+      settledAmountCents:
+        readNumber(record.settledAmountCents) ??
+        readNumber(record.settled_amount_cents),
     }]
   })
 }
@@ -598,6 +635,20 @@ function normalizeSelectedVendors(value: unknown): SelectedPlanVendor[] {
       rateType: readString(record.rate_type),
       claimStatus: readString(record.claim_status),
       isClaimed: readBoolean(record.is_claimed),
+      invitedAt: readString(record.invited_at) ?? readString(record.invitedAt),
+      stripeConnectStatus:
+        readString(record.stripe_connect_status) ??
+        readString(record.stripeConnectStatus) ??
+        readString(record.stripe_account_status) ??
+        readString(record.account_status),
+      settledAt:
+        readString(record.settled_at) ??
+        readString(record.settledAt) ??
+        readString(record.paid_at) ??
+        readString(record.paidAt),
+      settledAmountCents:
+        readNumber(record.settled_amount_cents) ??
+        readNumber(record.settledAmountCents),
       rateSource: readString(record.rate_source),
       provenanceLabel: readString(record.rate_provenance_label),
     }]
@@ -840,6 +891,22 @@ function deriveRecommendations(messages: PlanMessage[]): RecommendationSummary[]
         outreachDraftApprovalMessageId: readString(record.outreach_draft_approval_message_id),
         outreachDraftApprovalId: readString(record.outreach_draft_approval_id),
         outreachApprovalCreatedAt: readString(record.outreach_approval_created_at),
+        isClaimed: readBoolean(record.is_claimed) ?? readBoolean(record.isClaimed),
+        claimStatus: readString(record.claim_status) ?? readString(record.claimStatus),
+        invitedAt: readString(record.invited_at) ?? readString(record.invitedAt),
+        stripeConnectStatus:
+          readString(record.stripe_connect_status) ??
+          readString(record.stripeConnectStatus) ??
+          readString(record.stripe_account_status) ??
+          readString(record.account_status),
+        settledAt:
+          readString(record.settled_at) ??
+          readString(record.settledAt) ??
+          readString(record.paid_at) ??
+          readString(record.paidAt),
+        settledAmountCents:
+          readNumber(record.settled_amount_cents) ??
+          readNumber(record.settledAmountCents),
       }
   })
 }
@@ -1269,6 +1336,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   )
   const venueRecommendations = renderedRecommendations.filter((recommendation) => /venue/i.test(recommendation.type))
   const primaryVenue = venueRecommendations[0] ?? null
+  const primaryVenueReadiness = resolveVenueReadiness(primaryVenue, livePlan, relativeNowMs)
   const openQuestions = buildOpenQuestions(eventSummary, renderedRecommendations)
   const authorizationCards = buildAuthorizationCards(renderedApprovals, primaryVenue, renderedBudgetLineItems)
   const profitModel = useMemo(
@@ -1288,7 +1356,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const isComparingCommercialModels = isRecommendBestModel(eventSummary.consumption_share)
   const primaryAuthorization = authorizationCards[0] ?? null
   const outreachReplyOptions = livePlan?.outreachResponses ?? emptyOutreachResponseSummary
-  const shoppingListItems = buildShoppingList(primaryVenue, renderedBudgetLineItems, eventSummary, livePlan?.selectedVendors ?? [], livePlan)
+  const shoppingListItems = buildShoppingList(primaryVenue, renderedBudgetLineItems, eventSummary, livePlan?.selectedVendors ?? [], livePlan, relativeNowMs)
   const canRequestDateChange = Boolean(onDateChangeRequest && activePlanId && !activePlanId.startsWith('mock-plan-'))
   const handleVenueComparisonJump = useCallback((venueId: string) => {
     const target = recommendationCardRefs.current[venueId]
@@ -1499,6 +1567,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                   updated_at: option.updatedAt,
                 },
                 committedAt: now,
+                settledAt: null,
+                settledAmountCents: null,
               },
               updatedAt: now,
             }
@@ -1520,6 +1590,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                   updated_at: option.updatedAt,
                 },
                 committedAt: now,
+                settledAt: null,
+                settledAmountCents: null,
               }),
               updatedAt: now,
             }
@@ -1934,7 +2006,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             tabIndex={primaryVenue ? -1 : undefined}
             className="mt-7 rounded-lg border border-clay/25 bg-clay-tint/55 p-5 outline-none focus-visible:ring-2 focus-visible:ring-clay"
           >
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <p className="label-caps text-clay">Top Venue</p>
                 <p className="mt-3 break-words text-lg font-semibold leading-tight text-ink sm:text-xl" title={primaryVenue?.name ?? 'Recommendation pending'}>
@@ -1982,13 +2054,16 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                   />
                 ) : null}
               </div>
-              <Link
-                href="/planner/venues"
-                className="inline-flex shrink-0 items-center gap-1 text-sm font-bold text-clay transition-colors hover:text-clay-deep"
-              >
-                View
-                <ChevronRight className="h-4 w-4" />
-              </Link>
+              <div className="flex shrink-0 flex-col items-end gap-3">
+                <EntityReadinessBadge indicator={primaryVenueReadiness} className="items-end text-right" />
+                <Link
+                  href="/planner/venues"
+                  className="inline-flex items-center gap-1 text-sm font-bold text-clay transition-colors hover:text-clay-deep"
+                >
+                  View
+                  <ChevronRight className="h-4 w-4" />
+                </Link>
+              </div>
             </div>
           </div>
 
@@ -2201,6 +2276,9 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                       </span>
                     ) : null}
                   </div>
+                  {item.readinessIndicator ? (
+                    <EntityReadinessBadge indicator={item.readinessIndicator} className="mt-2" />
+                  ) : null}
                   {item.note ? (
                     <p className="mt-1 break-words text-sm leading-snug text-ink-soft" title={item.note}>{item.note}</p>
                   ) : null}
@@ -3494,7 +3572,8 @@ function buildShoppingList(
   budgetItems: BudgetLineItem[],
   summary: EventSummary,
   selectedVendors: SelectedPlanVendor[] = [],
-  livePlan: LivePlanSnapshot | null = null
+  livePlan: LivePlanSnapshot | null = null,
+  nowMs = Date.now()
 ): ShoppingListItem[] {
   const venueCost = livePlan?.committedVenue?.quotedPriceCents ?? primaryVenue?.priceCents ?? budgetItems[0]?.amountCents ?? null
   const vendorCost = budgetItems.find((item) => /vendor|dinner|food/i.test(item.label))?.amountCents ?? null
@@ -3510,6 +3589,7 @@ function buildShoppingList(
       ? `Accepted reply${livePlan.committedVenue.quotedDealModel ? ` · ${livePlan.committedVenue.quotedDealModel}` : ''}.`
       : primaryVenue?.fit ?? deriveVenueShoppingNote(summary),
     badge: livePlan?.committedVenue ? 'Accepted quote' : undefined,
+    readinessIndicator: resolveVenueReadiness(primaryVenue, livePlan, nowMs, Boolean(livePlan?.committedVenue)),
   })
 
   if (shouldIncludeFood(summary)) {
@@ -3531,6 +3611,7 @@ function buildShoppingList(
         amountLabel: formatCents(committedVendorQuoteCents(vendor)),
         note: 'Accepted reply. Payment or booking still requires a separate approval.',
         badge: 'Accepted quote',
+        readinessIndicator: resolveCommittedVendorReadiness(vendor, nowMs),
       })
     }
 
@@ -3541,6 +3622,7 @@ function buildShoppingList(
         amountLabel: typeof vendor.priceCents === 'number' ? formatCents(vendor.priceCents) : formatVendorRateAmount(vendor),
         note: vendor.provenanceLabel ?? deriveSelectedVendorNote(vendor),
         badge: vendor.claimStatus === 'invited_unclaimed' ? 'Invited — pending signup' : undefined,
+        readinessIndicator: resolveSelectedVendorReadiness(vendor, nowMs),
       })
     }
   }
@@ -3623,6 +3705,80 @@ function deriveSelectedVendorNote(vendor: SelectedPlanVendor) {
   if (vendor.rateSource === 'confirmed_private_rate') return 'Using your last confirmed private rate with this vendor.'
   if (vendor.rateSource === 'organizer_entered') return 'Organizer-entered rate; vendor confirmation may create a new agreement.'
   return 'Confirm availability and final quote before approval.'
+}
+
+function resolveVenueReadiness(
+  primaryVenue: RecommendationSummary | null,
+  livePlan: LivePlanSnapshot | null,
+  nowMs: number,
+  forceCommitted = false
+) {
+  const committedVenue = livePlan?.committedVenue ?? null
+  const committedApplies = Boolean(
+    committedVenue && (forceCommitted || !primaryVenue || isCommittedVenueForRecommendation(committedVenue, primaryVenue))
+  )
+  const entity: EntityStripeReadinessInput | null =
+    primaryVenue
+      ? {
+        name: primaryVenue.name,
+        isClaimed: primaryVenue.isClaimed,
+        claimStatus: primaryVenue.claimStatus,
+        invitedAt: primaryVenue.invitedAt,
+        stripeConnectStatus: primaryVenue.stripeConnectStatus,
+      }
+      : committedVenue
+        ? { name: committedVenue.name }
+        : null
+
+  if (!entity && !committedVenue) return null
+
+  return resolveEntityReadiness({
+    entityType: 'venue',
+    entity,
+    committedAmount: committedApplies ? committedVenue?.quotedPriceCents ?? null : null,
+    committedAt: committedApplies ? committedVenue?.committedAt ?? null : null,
+    settledAmount: committedApplies
+      ? committedVenue?.settledAmountCents ?? committedVenue?.quotedPriceCents ?? null
+      : primaryVenue?.settledAmountCents ?? null,
+    settledAt: committedApplies ? committedVenue?.settledAt ?? null : primaryVenue?.settledAt ?? null,
+    nowMs,
+  })
+}
+
+function resolveSelectedVendorReadiness(vendor: SelectedPlanVendor, nowMs: number) {
+  return resolveEntityReadiness({
+    entityType: 'vendor',
+    entity: {
+      name: vendor.name,
+      isClaimed: vendor.isClaimed,
+      claimStatus: vendor.claimStatus,
+      invitedAt: vendor.invitedAt,
+      stripeConnectStatus: vendor.stripeConnectStatus,
+    },
+    settledAmount: vendor.settledAmountCents ?? vendor.priceCents,
+    settledAt: vendor.settledAt,
+    nowMs,
+  })
+}
+
+function resolveCommittedVendorReadiness(vendor: CommittedVendorQuote, nowMs: number) {
+  return resolveEntityReadiness({
+    entityType: 'vendor',
+    entity: { name: vendor.name },
+    committedAmount: committedVendorQuoteCents(vendor),
+    committedAt: vendor.committedAt,
+    settledAmount: vendor.settledAmountCents ?? committedVendorQuoteCents(vendor),
+    settledAt: vendor.settledAt,
+    nowMs,
+  })
+}
+
+function isCommittedVenueForRecommendation(committedVenue: CommittedVenueQuote, venue: RecommendationSummary) {
+  return (
+    committedVenue.discoveryVenueId === venue.discoveryVenueId ||
+    committedVenue.discoveryVenueId === venue.id ||
+    Boolean(committedVenue.name && committedVenue.name === venue.name)
+  )
 }
 
 function addShoppingItem(items: ShoppingListItem[], item: ShoppingListItem) {
