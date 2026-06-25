@@ -41,6 +41,7 @@ import {
   PlannerProductAccessRequiredError,
   productAccessErrorResponse,
 } from '@/lib/planner/productAccess'
+import { getRequestLogger } from '@/lib/server/logger'
 import { notifyEntityStripeSetup } from '@/lib/server/notifyEntityStripeSetup'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type {
@@ -154,6 +155,7 @@ export async function GET(
   request: NextRequest,
   context: RouteContext
 ): Promise<NextResponse<PlannerApprovalsResponse | PlannerApiErrorResponse>> {
+  const logger = getRequestLogger(request).child({ plan_id: context.params.planId })
   try {
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
@@ -169,13 +171,13 @@ export async function GET(
       .order('created_at', { ascending: true })
 
     if (error) {
-      console.error('Planner approvals list error:', error)
+      logger.error('Planner approvals list failed', error, { user_id: auth.userId })
       return NextResponse.json({ error: 'Failed to fetch approvals' }, { status: 500 })
     }
 
     return NextResponse.json({ approvals: (data ?? []) as Approval[] })
   } catch (error) {
-    console.error('Planner approvals GET error:', error)
+    logger.error('Planner approvals GET failed', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
   }
 }
@@ -191,6 +193,7 @@ export async function PATCH(
   request: NextRequest,
   context: RouteContext
 ): Promise<NextResponse<{ approval: Approval } | PlannerApiErrorResponse>> {
+  const logger = getRequestLogger(request).child({ plan_id: context.params.planId })
   try {
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
@@ -253,7 +256,12 @@ export async function PATCH(
       .maybeSingle()
 
     if (error) {
-      console.error('Planner approval update error:', error)
+      logger.error('Planner approval update failed', error, {
+        user_id: auth.userId,
+        approval_id: parsed.data.approvalId,
+        previous_status: existingApproval.status,
+        attempted_status: approvalTransition.to,
+      })
       return NextResponse.json({ error: 'Failed to update approval' }, { status: 500 })
     }
 
@@ -313,7 +321,7 @@ export async function PATCH(
 
     return NextResponse.json({ approval })
   } catch (error) {
-    console.error('Planner approvals PATCH error:', error)
+    logger.error('Planner approvals PATCH failed', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
   }
 }

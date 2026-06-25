@@ -3,10 +3,14 @@ export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
 
+import { getRequestLogger } from '@/lib/server/logger'
 import { releaseStaleStripeWebhookReservations } from '@/lib/stripe/webhookLedger'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 
 export async function GET(request: NextRequest) {
+  const logger = getRequestLogger(request).child({
+    cron_job: 'stripe_webhooks_release_stale',
+  })
   const expectedSecret = process.env.CRON_SECRET
   const authorization = request.headers.get('authorization')
 
@@ -23,7 +27,7 @@ export async function GET(request: NextRequest) {
       released_count: result.releasedCount,
     })
   } catch (error) {
-    console.error('[stripe.webhook.release-stale] Cron failed', error)
+    logger.error('Stripe webhook reservation release cron failed', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Stripe webhook reservation release failed' },
       { status: 500 },

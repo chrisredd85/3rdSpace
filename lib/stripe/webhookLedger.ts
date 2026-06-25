@@ -1,4 +1,5 @@
 import 'server-only'
+import { rootLogger } from '@/lib/server/logger'
 
 type WebhookLedgerDb = {
   from: (table: string) => any
@@ -73,9 +74,9 @@ export async function reserveStripeWebhookEvent(
       const row = Array.isArray(data) ? data[0] : data
       return normalizeReservation(row)
     }
-    console.warn('[stripe.webhook] Failed to reserve webhook event through RPC', {
-      eventId: input.event.id,
-      eventType: input.event.type,
+    rootLogger.warn('Stripe webhook reservation RPC failed', {
+      stripe_event_id: input.event.id,
+      stripe_event_type: input.event.type,
       endpointPath: input.endpointPath,
       error: error.message,
     })
@@ -88,12 +89,12 @@ async function releaseStaleReservationsBestEffort(db: WebhookLedgerDb) {
   try {
     const result = await releaseStaleStripeWebhookReservations(db)
     if (result.releasedCount > 0) {
-      console.info('[stripe.webhook] Released stale webhook reservations before processing', {
+      rootLogger.info('Stripe webhook stale reservations released before processing', {
         releasedCount: result.releasedCount,
       })
     }
   } catch (error) {
-    console.warn('[stripe.webhook] Failed to release stale reservations before processing', {
+    rootLogger.warn('Stripe webhook stale reservation release failed before processing', {
       error: error instanceof Error ? error.message : error,
     })
   }
@@ -131,9 +132,9 @@ export async function recordStripeWebhookProcessingResult(
     })
 
     if (!error) return
-    console.warn('[stripe.webhook] Failed to record webhook result through RPC', {
-      eventId: input.event.id,
-      eventType: input.event.type,
+    rootLogger.warn('Stripe webhook result RPC failed', {
+      stripe_event_id: input.event.id,
+      stripe_event_type: input.event.type,
       error: error.message,
     })
   }
@@ -212,7 +213,7 @@ export async function releaseStaleStripeWebhookReservations(
       const row = Array.isArray(data) ? data[0] : data
       return { releasedCount: Number((row as any)?.released_count ?? 0) }
     }
-    console.warn('[stripe.webhook] Failed to release stale reservations through RPC', {
+    rootLogger.warn('Stripe webhook stale reservation release RPC failed', {
       error: error.message,
     })
   }
@@ -242,8 +243,8 @@ async function incrementDuplicateCount(db: WebhookLedgerDb, eventId: string, end
     })
 
     if (!error) return
-    console.warn('[stripe.webhook] Failed to increment duplicate delivery count', {
-      eventId,
+    rootLogger.warn('Stripe webhook duplicate count increment failed', {
+      stripe_event_id: eventId,
       error: error.message,
     })
   }
