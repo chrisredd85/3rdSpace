@@ -44,7 +44,7 @@ describe('inviteVendor server action', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
-    process.env.VENDOR_INVITE_SECRET = 'test-vendor-invite-secret'
+    process.env.VENDOR_INVITE_SECRET = 'test-vendor-invite-secret-32-chars-minimum'
     mockHeaders.mockReturnValue(new Map([['origin', 'http://localhost:3000']]))
     mockCreateClient.mockReturnValue({
       auth: {

@@ -6,16 +6,21 @@ const ALGORITHM = 'aes-256-gcm'
  * Builds a deterministic 32-byte encryption key from server-only environment variables.
  */
 function getEncryptionKey(): Buffer {
-  const material =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.EVENTBRITE_CLIENT_SECRET ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL
+  return createHash('sha256').update(getTokenCryptoKey()).digest()
+}
 
-  if (!material) {
-    throw new Error('Missing server encryption material for integration tokens')
+export function getTokenCryptoKey(): string {
+  const key = process.env.TOKEN_CRYPTO_KEY
+  if (!key) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('TOKEN_CRYPTO_KEY required in production')
+    }
+    return 'local-dev-only-do-not-use-in-prod'
   }
-
-  return createHash('sha256').update(material).digest()
+  if (key.length < 32) {
+    throw new Error('TOKEN_CRYPTO_KEY must be at least 32 chars')
+  }
+  return key
 }
 
 /**

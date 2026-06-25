@@ -53,23 +53,22 @@ export function verifyVenueClaimToken(token: string, now = Math.floor(Date.now()
 
 function sign(value: string) {
   return crypto
-    .createHmac('sha256', getInviteSecret())
+    .createHmac('sha256', getVenueInviteSecret())
     .update(value)
     .digest('base64url')
 }
 
-function getInviteSecret() {
-  const secret =
-    process.env.VENUE_INVITE_SECRET ||
-    process.env.VENDOR_INVITE_SECRET ||
-    process.env.NEXTAUTH_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL
-
+export function getVenueInviteSecret(): string {
+  const secret = process.env.VENUE_INVITE_SECRET
   if (!secret) {
-    throw new Error('VENUE_INVITE_SECRET or another server secret is required for venue invite links')
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('VENUE_INVITE_SECRET required in production')
+    }
+    return 'local-dev-only-do-not-use-in-prod'
   }
-
+  if (secret.length < 32) {
+    throw new Error('VENUE_INVITE_SECRET must be at least 32 chars')
+  }
   return secret
 }
 

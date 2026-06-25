@@ -6,7 +6,7 @@ describe('vendor invite claim tokens', () => {
   const originalSecret = process.env.VENDOR_INVITE_SECRET
 
   beforeEach(() => {
-    process.env.VENDOR_INVITE_SECRET = 'test-vendor-invite-secret'
+    process.env.VENDOR_INVITE_SECRET = 'test-vendor-invite-secret-32-chars-minimum'
   })
 
   afterAll(() => {
