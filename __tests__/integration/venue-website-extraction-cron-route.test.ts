@@ -15,6 +15,7 @@ jest.mock('next/server', () => ({
 }))
 
 import { GET } from '@/app/api/internal/jobs/venue-website-extraction/route'
+import { enqueueVenueCapacityInferenceJob } from '@/lib/discovery/venueCapacityJobs'
 import { extractVenueContacts } from '@/lib/server/venue-website-extractor'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 
@@ -24,6 +25,13 @@ jest.mock('@/lib/server/venue-website-extractor', () => ({
 
 jest.mock('@/lib/supabase/server', () => ({
   createServiceRoleClient: jest.fn(),
+}))
+
+jest.mock('@/lib/discovery/venueCapacityJobs', () => ({
+  enqueueVenueCapacityInferenceJob: jest.fn(),
+  hasKnownCapacity: (venue: Record<string, unknown>) =>
+    [venue.capacity_cocktail, venue.capacity_standing, venue.capacity_seated]
+      .some((value) => typeof value === 'number' && Number.isFinite(value) && value > 0),
 }))
 
 type Row = Record<string, unknown>
@@ -139,13 +147,16 @@ function discoveryVenue(id: number, overrides: Row = {}): Row {
 
 describe('GET /api/internal/jobs/venue-website-extraction', () => {
   const originalSecret = process.env.CRON_SECRET
+  const originalOpenAIKey = process.env.OPENAI_API_KEY
   let db: MemoryDb
 
   beforeEach(() => {
     jest.clearAllMocks()
     process.env.CRON_SECRET = 'cron-secret'
+    delete process.env.OPENAI_API_KEY
     db = new MemoryDb()
     ;(createServiceRoleClient as jest.Mock).mockReturnValue(db)
+    ;(enqueueVenueCapacityInferenceJob as jest.Mock).mockResolvedValue({ id: 'job-1' })
     ;(extractVenueContacts as jest.Mock).mockResolvedValue({
       status: 'successful',
       emails: [{
@@ -166,6 +177,8 @@ describe('GET /api/internal/jobs/venue-website-extraction', () => {
 
   afterEach(() => {
     process.env.CRON_SECRET = originalSecret
+    if (originalOpenAIKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = originalOpenAIKey
   })
 
   it('rejects requests without the cron bearer secret', async () => {
@@ -215,6 +228,21 @@ describe('GET /api/internal/jobs/venue-website-extraction', () => {
       id: 'venue-6',
       website_extraction_status: null,
     }))
+  })
+
+  it('queues venue capacity inference after website extraction when capacity is unknown', async () => {
+    process.env.OPENAI_API_KEY = 'openai-key'
+    db.rows.discovery_venues = [discoveryVenue(1)]
+
+    const response = await GET(makeRequest('cron-secret'))
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(enqueueVenueCapacityInferenceJob).toHaveBeenCalledWith(expect.anything(), 'venue-1')
+    expect(json.results[0]).toMatchObject({
+      id: 'venue-1',
+      capacity_job_queued: true,
+    })
   })
 
   it('skips venues that already have contact data or exhausted extraction attempts', async () => {

@@ -200,6 +200,7 @@ const REBOOK_PREFERENCE_SCORE_BOOST = 12
 const ORGANIZER_AMENITY_PREFERENCE_SCORE_BOOST = 8
 const UNKNOWN_CAPACITY_SCORE_PENALTY = 15
 const UNKNOWN_AMENITY_SCORE_PENALTY = 10
+export const CAPACITY_INFERENCE_CONFIDENCE_THRESHOLD = 0.7
 
 function rankVenue(
   plan: CatalogPlanRankingInput,
@@ -587,19 +588,44 @@ function readVenueSubspaceHint(venue: CatalogVenueRankingInput): string | null {
   return readString(metadata?.subspace_hint)
 }
 
-function readCapacity(row: Record<string, unknown>): number | null {
+export function resolveVenueCapacityForRanking(row: Record<string, unknown>): number | null {
   const values = [
     row.capacity,
     row.standing_capacity,
+    row.capacity_standing,
+    row.capacity_cocktail,
     row.capacity_max,
     row.max_capacity,
     row.seated_capacity,
+    row.capacity_seated,
   ]
     .map(readNumber)
     .filter((value): value is number => value !== null)
 
-  if (values.length === 0) return null
-  return Math.max(...values)
+  if (values.length > 0) return Math.max(...values)
+
+  const adminStatus = readString(row.capacity_inference_admin_status)
+  const confidence = readNumber(row.capacity_inference_confidence)
+  const shouldTrustInference =
+    adminStatus === 'approved' ||
+    adminStatus === 'edited' ||
+    (adminStatus !== 'rejected' && confidence !== null && confidence >= CAPACITY_INFERENCE_CONFIDENCE_THRESHOLD)
+
+  if (!shouldTrustInference) return null
+
+  const inferredValues = [
+    row.inferred_capacity_standing,
+    row.inferred_capacity_seated,
+  ]
+    .map(readNumber)
+    .filter((value): value is number => value !== null)
+
+  if (inferredValues.length === 0) return null
+  return Math.max(...inferredValues)
+}
+
+function readCapacity(row: Record<string, unknown>): number | null {
+  return resolveVenueCapacityForRanking(row)
 }
 
 function estimateVenueCents(row: Record<string, unknown>): number {

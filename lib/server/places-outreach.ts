@@ -13,8 +13,20 @@ import {
 } from '@/lib/server/google-places-client'
 import type { PlacesIntent } from '@/lib/server/places-archetype-intent'
 import { resolvePlacesIntent } from '@/lib/server/places-archetype-intent'
+import { enqueueVenueCapacityInferenceJob, hasKnownCapacity } from '@/lib/discovery/venueCapacityJobs'
+import type { SupabaseJobClient } from '@/lib/server/job-queue'
 
-export type DiscoveryVenueRow = TableRow<'discovery_venues'>
+export type DiscoveryVenueCapacityInferenceFields = {
+  inferred_capacity_standing?: number | null
+  inferred_capacity_seated?: number | null
+  capacity_inference_confidence?: number | null
+  capacity_inference_source_quote?: string | null
+  capacity_inference_model?: string | null
+  capacity_inference_extracted_at?: string | null
+  capacity_inference_admin_status?: 'pending' | 'approved' | 'rejected' | 'edited' | string | null
+}
+
+export type DiscoveryVenueRow = TableRow<'discovery_venues'> & DiscoveryVenueCapacityInferenceFields
 export type PlanDiscoveryVenueCandidateRow = TableRow<'plan_discovery_venue_candidates'>
 
 export const DISCOVERY_VENUE_SELECT = `
@@ -33,6 +45,13 @@ export const DISCOVERY_VENUE_SELECT = `
   capacity_seated,
   capacity_standing,
   capacity_cocktail,
+  inferred_capacity_standing,
+  inferred_capacity_seated,
+  capacity_inference_confidence,
+  capacity_inference_source_quote,
+  capacity_inference_model,
+  capacity_inference_extracted_at,
+  capacity_inference_admin_status,
   vibe_tags,
   alcohol_policy,
   av_available,
@@ -318,6 +337,13 @@ export function mapDiscoveryVenueToCatalogVenue(row: DiscoveryVenueRow): Catalog
     capacity: row.capacity_cocktail ?? row.capacity_standing ?? row.capacity_seated ?? null,
     standing_capacity: row.capacity_standing,
     seated_capacity: row.capacity_seated,
+    inferred_capacity_standing: row.inferred_capacity_standing ?? null,
+    inferred_capacity_seated: row.inferred_capacity_seated ?? null,
+    capacity_inference_confidence: row.capacity_inference_confidence ?? null,
+    capacity_inference_admin_status: row.capacity_inference_admin_status ?? null,
+    capacity_inference_source_quote: row.capacity_inference_source_quote ?? null,
+    capacity_inference_model: row.capacity_inference_model ?? null,
+    capacity_inference_extracted_at: row.capacity_inference_extracted_at ?? null,
     estimate_cents: row.price_hint_cents_high ?? row.price_hint_cents_low ?? null,
     rating: row.google_rating,
     review_count: row.google_user_ratings_total,
@@ -454,6 +480,7 @@ export async function searchPlacesForPlan(
       continue
     }
     upsertedVenues.push(data as DiscoveryVenueRow)
+    await enqueueCapacityInferenceForSearchResult(options.admin, data as DiscoveryVenueRow)
   }
 
   if (upsertedVenues.length > 0 && options.searchedByUserId) {
@@ -489,6 +516,21 @@ export async function searchPlacesForPlan(
     search_query: searchQuery,
     places_requests: allResults.map((result) => result.request),
     places_result_counts: placesResultCounts,
+  }
+}
+
+async function enqueueCapacityInferenceForSearchResult(admin: PlannerDbLike, venue: DiscoveryVenueRow) {
+  if (venue.capacity_inference_extracted_at) return
+  if (hasKnownCapacity(venue)) return
+  if (!process.env.OPENAI_API_KEY?.trim()) return
+
+  try {
+    await enqueueVenueCapacityInferenceJob(admin as unknown as SupabaseJobClient, venue.id)
+  } catch (error) {
+    console.warn('[places.outreach] capacity_inference_enqueue_failed', {
+      discovery_venue_id: venue.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
   }
 }
 

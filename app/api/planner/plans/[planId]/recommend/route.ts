@@ -75,6 +75,10 @@ import {
   type SearchPlacesForPlanResult,
 } from '@/lib/server/places-outreach'
 import {
+  buildPlacesSearchAreas,
+  classifyPlacesSearchFailure,
+} from '@/lib/server/places-recommendation-helpers'
+import {
   normalizeVendorServiceType,
   resolveDiscoveryVendorRate,
   searchPlacesForVendor,
@@ -2876,16 +2880,11 @@ async function loadPlacesDiscoveryVenues(input: {
   } catch (error) {
     console.error('[planner.recommend] Places venue search failed; continuing with supplemental catalog results', {
       plan_id: input.plan.id,
+      reason: classifyPlacesSearchFailure(error),
       error: error instanceof Error ? error.message : String(error),
     })
     return []
   }
-}
-
-function buildPlacesSearchAreas(neighborhood: string | null): string[] {
-  const parsed = parseNeighborhoodPhrase(neighborhood)
-  if (parsed.length > 0) return parsed.map((areaId) => areaId.replace(/_/g, ' '))
-  return neighborhood ? [neighborhood] : []
 }
 
 function dedupeVenueMatchingCandidates(candidates: VenueMatchingCandidate[]): VenueMatchingCandidate[] {
