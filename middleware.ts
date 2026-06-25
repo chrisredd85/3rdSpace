@@ -11,6 +11,7 @@
  */
 import { type NextRequest, NextResponse } from 'next/server'
 import { protectRoute, getAuthUser } from '@/lib/supabase/middleware'
+import { ensureRequestIdHeaders } from '@/lib/server/request-id'
 import type { UserType } from '@/lib/types'
 
 type EdgeRateLimitEntry = {
@@ -39,6 +40,7 @@ function isAdminUser(user: { email?: string | null; app_metadata?: Record<string
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+  const requestId = ensureRequestIdHeaders(request.headers)
 
   const settlementToken = extractVenueSettlementToken(pathname)
   if (settlementToken && request.method === 'GET') {
@@ -83,7 +85,9 @@ export async function middleware(request: NextRequest) {
 
   // Allow API routes and static files
   if (pathname.startsWith('/api/') || pathname.startsWith('/_next/') || pathname.startsWith('/favicon')) {
-    return NextResponse.next()
+    const response = NextResponse.next({ request: { headers: requestId.headers } })
+    response.headers.set('x-request-id', requestId.requestId)
+    return response
   }
 
   // Auth routes - redirect to appropriate dashboard if already authenticated

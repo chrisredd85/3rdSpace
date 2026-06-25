@@ -9,6 +9,7 @@ import {
 } from '@/lib/outreach/gmail'
 import { extractReplyTerms } from '@/lib/ai/agents/extractReplyTerms'
 import { APPROVAL_SELECT_COLUMNS, PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import { rootLogger } from '@/lib/server/logger'
 import type { AgentAction, Approval, Json, Plan } from '@/lib/types'
 import type { Database } from '@/lib/types/database-generated'
 
@@ -382,9 +383,8 @@ export async function syncGmailOutreachThread(
   const inserted = await insertMissingGmailMessages(db, thread, messages, account.email_address)
   if (inserted > 0) {
     await analyzeInboundReplyTerms(db, thread, messages).catch((error) => {
-      console.error('[gmail-approval] reply_terms_extraction_failed', {
+      rootLogger.error('Gmail outreach reply terms extraction failed', error, {
         thread_id: input.threadId,
-        error: error instanceof Error ? error.message : String(error),
       })
     })
   }

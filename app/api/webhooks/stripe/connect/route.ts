@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import type Stripe from 'stripe'
 import { allowWebhookRequest, getWebhookRateLimitKey } from '@/lib/server/webhook-rate-limit'
+import { getRequestLogger } from '@/lib/server/logger'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getStripeClient } from '@/lib/stripe/connect'
 import { processStripeConnectWebhookEvent } from '@/lib/stripe/connect-webhook'
@@ -20,12 +21,13 @@ export const runtime = 'nodejs'
  * each other.
  */
 export async function POST(request: NextRequest) {
+  const logger = getRequestLogger(request).child({ stripe_source: 'connect' })
   const admin = createServiceRoleClient()
   const rawBody = await request.text()
   const webhookSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET
 
   if (!webhookSecret) {
-    console.error('[Stripe Connect Webhook] Missing Connect webhook secret')
+    logger.error('Stripe Connect webhook missing secret')
     return NextResponse.json({ error: 'Stripe Connect webhook secret is not configured' }, { status: 500 })
   }
 
@@ -40,9 +42,11 @@ export async function POST(request: NextRequest) {
   try {
     event = getStripeClient().webhooks.constructEvent(rawBody, signature, webhookSecret)
   } catch (error) {
-    console.error('[Stripe Connect Webhook] Invalid signature', error)
+    logger.error('Stripe Connect webhook invalid signature', error)
     return NextResponse.json({ error: 'Invalid Stripe signature' }, { status: 400 })
   }
+
+  const eventLogger = logger.child({ stripe_event_id: event.id, stripe_event_type: event.type })
 
   const reservation = await reserveStripeWebhookEvent(admin as any, {
     event,
@@ -50,31 +54,24 @@ export async function POST(request: NextRequest) {
     endpointPath: '/api/webhooks/stripe/connect',
   })
   if ('completed' in reservation && reservation.completed) {
-    console.info('[stripe.connect.webhook] Duplicate delivery skipped', {
-      eventId: event.id,
-      eventType: event.type,
+    eventLogger.info('Stripe Connect webhook duplicate delivery skipped', {
       processedAt: reservation.processedAt,
     })
     return NextResponse.json({ received: true, duplicate: true })
   }
   if ('inFlight' in reservation && reservation.inFlight) {
-    console.info('[stripe.connect.webhook] Concurrent duplicate delivery skipped', {
-      eventId: event.id,
-      eventType: event.type,
-    })
+    eventLogger.info('Stripe Connect webhook concurrent duplicate delivery skipped')
     return NextResponse.json({ received: true, in_flight: true }, { status: 409 })
   }
   if (!('reservedNow' in reservation) || !reservation.reservedNow) {
-    console.error('[stripe.connect.webhook] Failed to reserve event', {
-      eventId: event.id,
-      eventType: event.type,
+    eventLogger.error('Stripe Connect webhook reservation failed', undefined, {
       reservation,
     })
     return NextResponse.json({ error: 'reservation_failed' }, { status: 500 })
   }
 
   if (!(await allowWebhookRequest(admin, getWebhookRateLimitKey('stripe-connect', request.headers)))) {
-    console.warn('[Stripe Connect Webhook] Rate limit exceeded', { eventId: event.id, eventType: event.type })
+    eventLogger.warn('Stripe Connect webhook rate limit exceeded')
     await recordStripeWebhookProcessingResult(admin as any, {
       event,
       source: 'connect',
@@ -94,14 +91,14 @@ export async function POST(request: NextRequest) {
     })
     return NextResponse.json(result)
   } catch (error) {
-    console.error('[Stripe Connect Webhook] Processing failed', error)
+    eventLogger.error('Stripe Connect webhook processing failed', error)
     await failStripeWebhookProcessing(admin as any, {
       event,
       source: 'connect',
       endpointPath: '/api/webhooks/stripe/connect',
       error,
     }).catch((ledgerError) => {
-      console.error('[Stripe Connect Webhook] Failed to save webhook failure state', ledgerError)
+      eventLogger.error('Stripe Connect webhook failed to save failure state', ledgerError)
     })
     return NextResponse.json({ received: true, processed: false }, { status: 500 })
   }
