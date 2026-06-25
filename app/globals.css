@@ -215,6 +215,17 @@
   .border-tan { border-color: hsl(var(--tan)); }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .homepage-scroll-snap {
+    scroll-snap-type: none !important;
+  }
+
+  .homepage-scroll-snap > section {
+    scroll-snap-align: none !important;
+    scroll-snap-stop: normal !important;
+  }
+}
+
 @keyframes entrance {
   from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
