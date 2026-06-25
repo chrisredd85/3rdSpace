@@ -100,4 +100,48 @@ describe('CHI settlement checkout flow', () => {
     })
     expect(db.rows.settlement_runs[0].status).toBe('awaiting_venue_payment')
   })
+
+  it('blocks checkout when the organizer Stripe account is restricted', async () => {
+    const db = new SettlementMemoryDb()
+    db.rows.builder_stripe_accounts[0].account_status = 'restricted'
+    db.rows.builder_stripe_accounts[0].charges_enabled = false
+    db.rows.builder_stripe_accounts[0].payouts_enabled = false
+    db.rows.venue_settlement_tokens.push({
+      id: 'token-1',
+      settlement_run_id: SETTLEMENT_RUN_ID,
+      token_hash: hashSettlementToken('settlement-token'),
+      venue_email: 'venue@example.com',
+      expires_at: '2099-01-01T00:00:00Z',
+      first_viewed_at: null,
+      revoked_at: null,
+    })
+
+    const stripe = {
+      checkout: {
+        sessions: {
+          create: jest.fn(),
+        },
+      },
+    }
+    mockGetStripeClient.mockReturnValue(stripe)
+
+    const result = await startSettlementCheckout(
+      db as never,
+      'settlement-token',
+      new Request('https://www.3rdplace.io/api/venue/settlement/token/pay'),
+    )
+
+    expect(result.status).toBe(409)
+    expect(result.body).toEqual({
+      error: 'Stripe account is blocked. Reconnect Stripe before continuing this settlement.',
+      code: 'account_blocked',
+    })
+    expect(stripe.checkout.sessions.create).not.toHaveBeenCalled()
+    expect(db.rows.settlement_runs[0]).toEqual(expect.objectContaining({
+      status: 'blocked',
+      blocked_previous_status: 'awaiting_venue_ack',
+      blocked_stripe_account_id: 'acct_builder',
+      account_state_block_reason: 'checkout_account_blocked',
+    }))
+  })
 })

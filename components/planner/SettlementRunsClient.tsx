@@ -42,8 +42,9 @@ export function SettlementRunsClient({ initialRuns }: SettlementRunsClientProps)
   const [disputeReason, setDisputeReason] = useState('')
 
   const grouped = useMemo(() => ({
+    blocked: runs.filter((run) => run.status === 'blocked'),
     actionNeeded: runs.filter((run) => run.status === 'awaiting_organizer_review'),
-    inProgress: runs.filter((run) => ['pending', 'awaiting_attendance', 'awaiting_venue_ack', 'ready_to_settle'].includes(run.status)),
+    inProgress: runs.filter((run) => ['pending', 'awaiting_attendance', 'awaiting_venue_ack', 'awaiting_venue_payment', 'ready_to_settle'].includes(run.status)),
     complete: runs.filter((run) => run.status === 'settled'),
     other: runs.filter((run) => ['disputed', 'cancelled'].includes(run.status)),
   }), [runs])
@@ -113,6 +114,30 @@ export function SettlementRunsClient({ initialRuns }: SettlementRunsClientProps)
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-clay" />
           <p>{error}</p>
         </div>
+      ) : null}
+
+      {grouped.blocked.length > 0 ? (
+        <section className="space-y-4 rounded-xl border border-clay/30 bg-clay-tint/50 p-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h2 className="font-display text-2xl font-bold text-ink">Blocked: Stripe account needs attention</h2>
+              <p className="mt-1 max-w-2xl text-sm text-ink-soft">
+                These settlement runs are paused because Stripe reported that your connected payout account is restricted or disabled.
+              </p>
+            </div>
+            <a
+              href="/planner/settings/stripe"
+              className="inline-flex shrink-0 items-center justify-center rounded-md bg-clay px-4 py-2 text-sm font-semibold text-cream"
+            >
+              Reconnect Stripe
+            </a>
+          </div>
+          <div className="space-y-3">
+            {grouped.blocked.map((run) => (
+              <SettlementRunCard key={run.id} run={run} busy={null} />
+            ))}
+          </div>
+        </section>
       ) : null}
 
       <SettlementSection
@@ -376,6 +401,7 @@ function rateCopy(run: SettlementRunViewModel) {
 
 function statusClass(status: string) {
   if (status === 'awaiting_organizer_review') return 'bg-clay-tint text-clay'
+  if (status === 'blocked') return 'bg-clay text-cream'
   if (status === 'settled') return 'bg-forest/10 text-forest'
   if (status === 'disputed') return 'bg-amber-100 text-amber-900'
   if (status === 'cancelled') return 'bg-cream-deep text-ink-faint'

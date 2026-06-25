@@ -20,6 +20,7 @@ import { applyCheckoutSessionCompleted, applyInvoicePayment, applyInvoicePayment
 import { applyPlannerStripePaymentIntentWebhook, applyPlannerStripeRefundWebhook } from '@/lib/planner/depositPayments'
 import { allowWebhookRequest, getWebhookRateLimitKey } from '@/lib/server/webhook-rate-limit'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { sendEmailNotification } from '@/lib/email'
 import {
   getStripeClient,
   saveBuilderStripeAccount,
@@ -29,6 +30,7 @@ import {
 import { handleVenueStripeReadyForOwner } from '@/lib/venues/venueOpportunityRecovery'
 
 jest.mock('@/lib/email', () => ({
+  sendEmailNotification: jest.fn().mockResolvedValue({ sent: true }),
   sendBuilderPaidEmail: jest.fn().mockResolvedValue({ sent: true, reason: null }),
   sendRefundCompletedEmail: jest.fn().mockResolvedValue({ sent: true, reason: null }),
   sendVenuePaymentFailedEmail: jest.fn().mockResolvedValue({ sent: true, reason: null }),
@@ -56,7 +58,15 @@ jest.mock('@/lib/supabase/server', () => ({
 }))
 
 jest.mock('@/lib/stripe/connect', () => ({
+  getStripeAccountStatus: jest.fn((account: { charges_enabled?: boolean; payouts_enabled?: boolean; requirements?: { disabled_reason?: string | null; past_due?: unknown[]; currently_due?: unknown[] }; details_submitted?: boolean }) => {
+    if (account.charges_enabled && account.payouts_enabled) return 'active'
+    if (account.requirements?.disabled_reason) return 'disabled'
+    if ((account.requirements?.past_due?.length ?? 0) > 0) return 'restricted'
+    if ((account.requirements?.currently_due?.length ?? 0) > 0) return 'capabilities_pending'
+    return account.details_submitted ? 'onboarding_started' : 'pending_onboarding'
+  }),
   getStripeClient: jest.fn(),
+  isConnectedStripeAccountBlocked: jest.fn((status: string | null | undefined) => status === 'restricted' || status === 'disabled'),
   saveBuilderStripeAccount: jest.fn().mockResolvedValue({}),
   saveVendorStripeAccount: jest.fn().mockResolvedValue({}),
   saveVenueStripeAccount: jest.fn().mockResolvedValue({}),
@@ -78,14 +88,104 @@ class MemoryDb {
         user_id: 'builder-user-1',
         builder_id: 'builder-profile-1',
         stripe_account_id: 'acct_builder',
+        account_status: 'active',
       },
     ],
+    users: [
+      {
+        id: 'builder-user-1',
+        email: 'builder@example.com',
+      },
+    ],
+    settlement_runs: [],
+    settlement_charges: [],
     stripe_webhook_events: [],
   }
 
   from(table: string) {
     if (!this.rows[table]) this.rows[table] = []
     return new MemoryQuery(this, table)
+  }
+
+  rpc(fn: string, args: Record<string, unknown>) {
+    if (fn === 'block_inflight_stripe_account_payments') {
+      const accountId = String(args.p_stripe_account_id)
+      const reason = String(args.p_reason)
+      const eventId = String(args.p_event_id)
+      const now = new Date().toISOString()
+      const builderUserIds = this.rows.builder_stripe_accounts
+        .filter((row) => row.stripe_account_id === accountId)
+        .map((row) => row.user_id)
+      let settlementRuns = 0
+      let settlementCharges = 0
+
+      this.rows.settlement_runs.forEach((row) => {
+        if (
+          builderUserIds.includes(row.organizer_id) &&
+          ['pending', 'awaiting_attendance', 'awaiting_organizer_review', 'awaiting_venue_ack', 'awaiting_venue_payment', 'ready_to_settle'].includes(String(row.status))
+        ) {
+          row.blocked_previous_status = row.status
+          row.status = 'blocked'
+          row.blocked_at = now
+          row.blocked_stripe_account_id = accountId
+          row.account_state_blocked_at = now
+          row.account_state_block_reason = reason
+          row.account_state_blocked_event_id = eventId
+          settlementRuns += 1
+        }
+      })
+
+      this.rows.settlement_charges.forEach((row) => {
+        if (row.stripe_connected_account_id === accountId && row.status === 'checkout_created') {
+          row.blocked_previous_status = row.status
+          row.status = 'blocked'
+          row.blocked_at = now
+          row.blocked_stripe_account_id = accountId
+          row.account_state_blocked_at = now
+          row.account_state_block_reason = reason
+          row.account_state_blocked_event_id = eventId
+          settlementCharges += 1
+        }
+      })
+
+      return Promise.resolve({
+        data: { settlement_runs: settlementRuns, settlement_charges: settlementCharges },
+        error: null,
+      })
+    }
+
+    if (fn === 'unblock_stripe_account_settlements') {
+      const accountId = String(args.p_stripe_account_id)
+      let settlementRuns = 0
+      let settlementCharges = 0
+
+      this.rows.settlement_runs.forEach((row) => {
+        if (row.status === 'blocked' && row.blocked_stripe_account_id === accountId && row.blocked_previous_status) {
+          row.status = row.blocked_previous_status
+          row.blocked_previous_status = null
+          row.blocked_at = null
+          row.blocked_stripe_account_id = null
+          settlementRuns += 1
+        }
+      })
+
+      this.rows.settlement_charges.forEach((row) => {
+        if (row.status === 'blocked' && row.blocked_stripe_account_id === accountId && row.blocked_previous_status === 'checkout_created') {
+          row.status = row.blocked_previous_status
+          row.blocked_previous_status = null
+          row.blocked_at = null
+          row.blocked_stripe_account_id = null
+          settlementCharges += 1
+        }
+      })
+
+      return Promise.resolve({
+        data: { settlement_runs: settlementRuns, settlement_charges: settlementCharges },
+        error: null,
+      })
+    }
+
+    return Promise.resolve({ data: null, error: null })
   }
 }
 
@@ -94,6 +194,7 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
   private operation: 'select' | 'insert' | 'update' = 'select'
   private payload: Row | null = null
   private selectedColumns: string | null = null
+  private rowLimit: number | null = null
 
   constructor(private db: MemoryDb, private table: string) {}
 
@@ -116,6 +217,16 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
 
   eq(field: string, value: unknown) {
     this.filters.push((row) => row[field] === value)
+    return this
+  }
+
+  gt(field: string, value: unknown) {
+    this.filters.push((row) => String(row[field] ?? '') > String(value))
+    return this
+  }
+
+  limit(count: number) {
+    this.rowLimit = count
     return this
   }
 
@@ -150,7 +261,8 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
   }
 
   private applyFilters() {
-    return (this.db.rows[this.table] ?? []).filter((row) => this.filters.every((filter) => filter(row)))
+    const rows = (this.db.rows[this.table] ?? []).filter((row) => this.filters.every((filter) => filter(row)))
+    return this.rowLimit == null ? rows : rows.slice(0, this.rowLimit)
   }
 
   private projectRows(rows: Row[]) {
@@ -251,6 +363,195 @@ describe('Stripe platform and Connect webhook routes', () => {
     expect(saveBuilderStripeAccount).toHaveBeenCalledWith(db, 'builder-user-1', 'builder-profile-1', account)
     expect(saveVendorStripeAccount).not.toHaveBeenCalled()
     expect(saveVenueStripeAccount).not.toHaveBeenCalled()
+  })
+
+  it('blocks in-flight settlement runs and notifies the organizer when account.updated restricts a builder account', async () => {
+    db.rows.settlement_runs.push({
+      id: 'settlement-run-1',
+      organizer_id: 'builder-user-1',
+      status: 'awaiting_venue_ack',
+    })
+    const account = {
+      id: 'acct_builder',
+      charges_enabled: false,
+      payouts_enabled: false,
+      details_submitted: true,
+      requirements: {
+        currently_due: [],
+        eventually_due: [],
+        past_due: ['external_account'],
+        pending_verification: [],
+        disabled_reason: null,
+      },
+    }
+    event = {
+      id: 'evt_connect_builder_restricted',
+      type: 'account.updated',
+      livemode: false,
+      data: { object: account },
+    }
+
+    const response = await stripeConnectWebhookPost(makeWebhookRequest('/api/webhooks/stripe/connect'))
+
+    expect(response.status).toBe(200)
+    expect(db.rows.settlement_runs[0]).toEqual(expect.objectContaining({
+      status: 'blocked',
+      blocked_previous_status: 'awaiting_venue_ack',
+      blocked_stripe_account_id: 'acct_builder',
+      account_state_block_reason: 'account.updated',
+    }))
+    expect(sendEmailNotification).toHaveBeenCalledTimes(1)
+    expect(sendEmailNotification).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'builder@example.com',
+      subject: 'Action needed: your Stripe account needs attention',
+      actionUrl: 'https://www.3rdplace.io/planner/settings/stripe',
+    }))
+  })
+
+  it('blocks settlement charges when account.updated disables a builder account', async () => {
+    db.rows.settlement_charges.push({
+      id: 'settlement-charge-1',
+      settlement_run_id: 'settlement-run-1',
+      stripe_connected_account_id: 'acct_builder',
+      status: 'checkout_created',
+    })
+    db.rows.settlement_runs.push({
+      id: 'settlement-run-1',
+      organizer_id: 'builder-user-1',
+      status: 'awaiting_venue_payment',
+    })
+    const account = {
+      id: 'acct_builder',
+      charges_enabled: false,
+      payouts_enabled: false,
+      details_submitted: true,
+      requirements: {
+        currently_due: [],
+        eventually_due: [],
+        past_due: [],
+        pending_verification: [],
+        disabled_reason: 'requirements.past_due',
+      },
+    }
+    event = {
+      id: 'evt_connect_builder_disabled',
+      type: 'account.updated',
+      livemode: false,
+      data: { object: account },
+    }
+
+    const response = await stripeConnectWebhookPost(makeWebhookRequest('/api/webhooks/stripe/connect'))
+
+    expect(response.status).toBe(200)
+    expect(db.rows.settlement_charges[0]).toEqual(expect.objectContaining({
+      status: 'blocked',
+      blocked_previous_status: 'checkout_created',
+      blocked_stripe_account_id: 'acct_builder',
+    }))
+    expect(db.rows.settlement_runs[0]).toEqual(expect.objectContaining({
+      status: 'blocked',
+      blocked_previous_status: 'awaiting_venue_payment',
+    }))
+    expect(sendEmailNotification).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores account-state-blocked settlement rows when a builder account becomes active again', async () => {
+    db.rows.builder_stripe_accounts[0].account_status = 'restricted'
+    db.rows.settlement_runs.push({
+      id: 'settlement-run-1',
+      organizer_id: 'builder-user-1',
+      status: 'blocked',
+      blocked_previous_status: 'awaiting_venue_ack',
+      blocked_stripe_account_id: 'acct_builder',
+      account_state_blocked_at: '2026-06-24T12:00:00.000Z',
+    })
+    db.rows.settlement_charges.push({
+      id: 'settlement-charge-1',
+      settlement_run_id: 'settlement-run-1',
+      stripe_connected_account_id: 'acct_builder',
+      status: 'blocked',
+      blocked_previous_status: 'checkout_created',
+      blocked_stripe_account_id: 'acct_builder',
+      account_state_blocked_at: '2026-06-24T12:00:00.000Z',
+    })
+    const account = {
+      id: 'acct_builder',
+      charges_enabled: true,
+      payouts_enabled: true,
+      details_submitted: true,
+      requirements: {
+        currently_due: [],
+        eventually_due: [],
+        past_due: [],
+        pending_verification: [],
+        disabled_reason: null,
+      },
+    }
+    event = {
+      id: 'evt_connect_builder_active',
+      type: 'account.updated',
+      livemode: false,
+      data: { object: account },
+    }
+
+    const response = await stripeConnectWebhookPost(makeWebhookRequest('/api/webhooks/stripe/connect'))
+
+    expect(response.status).toBe(200)
+    expect(db.rows.settlement_runs[0]).toEqual(expect.objectContaining({
+      status: 'awaiting_venue_ack',
+      blocked_previous_status: null,
+      blocked_stripe_account_id: null,
+    }))
+    expect(db.rows.settlement_charges[0]).toEqual(expect.objectContaining({
+      status: 'checkout_created',
+      blocked_previous_status: null,
+      blocked_stripe_account_id: null,
+    }))
+    expect(sendEmailNotification).not.toHaveBeenCalled()
+  })
+
+  it('rate-limits Stripe recovery notification email to one per account within six hours', async () => {
+    db.rows.settlement_runs.push({
+      id: 'settlement-run-1',
+      organizer_id: 'builder-user-1',
+      status: 'awaiting_venue_ack',
+    })
+    const account = {
+      id: 'acct_builder',
+      charges_enabled: false,
+      payouts_enabled: false,
+      details_submitted: true,
+      requirements: {
+        currently_due: [],
+        eventually_due: [],
+        past_due: ['external_account'],
+        pending_verification: [],
+        disabled_reason: null,
+      },
+    }
+    event = {
+      id: 'evt_connect_builder_restricted_1',
+      type: 'account.updated',
+      livemode: false,
+      data: { object: account },
+    }
+
+    await stripeConnectWebhookPost(makeWebhookRequest('/api/webhooks/stripe/connect'))
+
+    db.rows.settlement_runs.push({
+      id: 'settlement-run-2',
+      organizer_id: 'builder-user-1',
+      status: 'awaiting_venue_ack',
+    })
+    event = {
+      ...event,
+      id: 'evt_connect_builder_restricted_2',
+    }
+
+    await stripeConnectWebhookPost(makeWebhookRequest('/api/webhooks/stripe/connect'))
+
+    expect(sendEmailNotification).toHaveBeenCalledTimes(1)
+    expect(db.rows.settlement_runs.filter((row) => row.status === 'blocked')).toHaveLength(2)
   })
 
   it('clears vendor Stripe skipped state when account.updated enables charges', async () => {

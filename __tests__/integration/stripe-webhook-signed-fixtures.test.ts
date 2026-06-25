@@ -39,6 +39,7 @@ import {
 Object.assign(global, { TextDecoder, TextEncoder })
 
 jest.mock('@/lib/email', () => ({
+  sendEmailNotification: jest.fn().mockResolvedValue({ sent: true }),
   sendBuilderPaidEmail: jest.fn().mockResolvedValue({ sent: true, reason: null }),
   sendRefundCompletedEmail: jest.fn().mockResolvedValue({ sent: true, reason: null }),
   sendVenuePaymentFailedEmail: jest.fn().mockResolvedValue({ sent: true, reason: null }),
@@ -66,7 +67,15 @@ jest.mock('@/lib/supabase/server', () => ({
 }))
 
 jest.mock('@/lib/stripe/connect', () => ({
+  getStripeAccountStatus: jest.fn((account: { charges_enabled?: boolean; payouts_enabled?: boolean; requirements?: { disabled_reason?: string | null; past_due?: unknown[]; currently_due?: unknown[] }; details_submitted?: boolean }) => {
+    if (account.charges_enabled && account.payouts_enabled) return 'active'
+    if (account.requirements?.disabled_reason) return 'disabled'
+    if ((account.requirements?.past_due?.length ?? 0) > 0) return 'restricted'
+    if ((account.requirements?.currently_due?.length ?? 0) > 0) return 'capabilities_pending'
+    return account.details_submitted ? 'onboarding_started' : 'pending_onboarding'
+  }),
   getStripeClient: jest.fn(),
+  isConnectedStripeAccountBlocked: jest.fn((status: string | null | undefined) => status === 'restricted' || status === 'disabled'),
   saveBuilderStripeAccount: jest.fn().mockResolvedValue({}),
   saveVendorStripeAccount: jest.fn().mockResolvedValue({}),
   saveVenueStripeAccount: jest.fn().mockResolvedValue({}),
@@ -89,6 +98,7 @@ class MemoryDb {
         user_id: 'builder-user-1',
         builder_id: 'builder-profile-1',
         stripe_account_id: 'acct_builder',
+        account_status: 'active',
       },
     ],
     vendor_stripe_accounts: [],

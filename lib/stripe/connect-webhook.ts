@@ -1,7 +1,11 @@
 import 'server-only'
 
 import type Stripe from 'stripe'
+import * as Sentry from '@sentry/nextjs'
+import { sendEmailNotification } from '@/lib/email'
 import {
+  getStripeAccountStatus,
+  isConnectedStripeAccountBlocked,
   saveBuilderStripeAccount,
   saveVendorStripeAccount,
   saveVenueStripeAccount,
@@ -66,10 +70,29 @@ export async function applyStripeConnectAccountUpdated(
     return { received: true }
   }
 
-  const builder = await loadStripeAccountRow(admin, 'builder_stripe_accounts', 'user_id, builder_id', account.id)
+  const builder = await loadStripeAccountRow(admin, 'builder_stripe_accounts', 'user_id, builder_id, account_status', account.id)
   const builderUserId = readString(builder?.user_id)
   if (builderUserId) {
+    const previousStatus = readString(builder?.account_status)
+    const nextStatus = getStripeAccountStatus(account)
     await saveBuilderStripeAccount(admin, builderUserId, readString(builder?.builder_id), account)
+    if (isConnectedStripeAccountBlocked(nextStatus)) {
+      const blockResult = await blockInFlightStripeAccountPayments(admin, account.id, 'account.updated', eventId)
+      await notifyOrganizerStripeAccountBlocked(admin, {
+        accountId: account.id,
+        organizerId: builderUserId,
+        blockResult,
+      })
+    } else if (isConnectedStripeAccountBlocked(previousStatus)) {
+      const unblockResult = await unblockStripeAccountSettlements(admin, account.id, eventId)
+      if (unblockResult) {
+        console.info('stripe_account_settlements_unblocked', {
+          account_id: account.id,
+          event_id: eventId,
+          ...unblockResult,
+        })
+      }
+    }
     await recordStripeConnectAccountEvent(admin, account.id, 'account.updated', eventId)
     return { received: true }
   }
@@ -200,15 +223,106 @@ async function blockInFlightStripeAccountPayments(
   reason: string,
   eventId: string
 ) {
-  if (typeof admin.rpc !== 'function') return
+  if (typeof admin.rpc !== 'function') return null
 
-  const { error } = await admin.rpc('block_inflight_stripe_account_payments', {
+  const { data, error } = await admin.rpc('block_inflight_stripe_account_payments', {
     p_stripe_account_id: accountId,
     p_reason: reason,
     p_event_id: eventId,
   })
 
   if (error) throw new Error(`Failed to block in-flight Stripe account payments: ${error.message}`)
+  return readRpcCounts(data)
+}
+
+async function unblockStripeAccountSettlements(
+  admin: StripeAdminClient,
+  accountId: string,
+  eventId: string
+) {
+  if (typeof admin.rpc !== 'function') return null
+
+  const { data, error } = await admin.rpc('unblock_stripe_account_settlements', {
+    p_stripe_account_id: accountId,
+    p_event_id: eventId,
+  })
+
+  if (error) throw new Error(`Failed to unblock Stripe account settlements: ${error.message}`)
+  return readRpcCounts(data)
+}
+
+async function notifyOrganizerStripeAccountBlocked(
+  admin: StripeAdminClient,
+  input: {
+    accountId: string
+    organizerId: string
+    blockResult: Record<string, number> | null
+  }
+) {
+  const blockedRuns = input.blockResult?.settlement_runs ?? 0
+  const blockedCharges = input.blockResult?.settlement_charges ?? 0
+  if (blockedRuns + blockedCharges <= 0) return
+
+  const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
+  const { data: recent, error: recentError } = await admin
+    .from('settlement_runs')
+    .select('id')
+    .eq('blocked_stripe_account_id', input.accountId)
+    .gt('stripe_account_recovery_notified_at', cutoff)
+    .limit(1)
+
+  if (recentError) throw new Error(`Failed to check Stripe recovery notification state: ${recentError.message}`)
+  if (Array.isArray(recent) && recent.length > 0) return
+
+  const { data: user, error: userError } = await admin
+    .from('users')
+    .select('email')
+    .eq('id', input.organizerId)
+    .maybeSingle()
+
+  if (userError) throw new Error(`Failed to load organizer email for Stripe recovery notification: ${userError.message}`)
+
+  const email = readString((user as Record<string, unknown> | null)?.email)
+  if (!email) return
+
+  try {
+    await sendEmailNotification({
+      to: email,
+      subject: 'Action needed: your Stripe account needs attention',
+      body: [
+        'Stripe reported that your connected payout account needs attention before CHI settlement payments can continue.',
+        'We paused affected settlement runs so venues cannot pay into an account that is restricted or disabled.',
+        'Reconnect Stripe, then return to settlements to continue.',
+      ].join('\n\n'),
+      actionUrl: `${getConfiguredAppBaseUrl()}/planner/settings/stripe`,
+    })
+
+    await admin
+      .from('settlement_runs')
+      .update({ stripe_account_recovery_notified_at: new Date().toISOString() })
+      .eq('blocked_stripe_account_id', input.accountId)
+      .eq('status', 'blocked')
+  } catch (error) {
+    Sentry.captureException(error, { tags: { area: 'stripe_account_recovery_email' } })
+  }
+}
+
+function readRpcCounts(data: unknown): Record<string, number> {
+  if (!data || typeof data !== 'object') return {}
+  return Object.fromEntries(
+    Object.entries(data as Record<string, unknown>).map(([key, value]) => [
+      key,
+      typeof value === 'number' ? value : Number(value ?? 0),
+    ])
+  )
+}
+
+function getConfiguredAppBaseUrl() {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.3rdplace.io')
+  ).replace(/\/$/, '')
 }
 
 function readEventAccountId(event: Stripe.Event) {
