@@ -9,6 +9,7 @@ const adminLinks = [
   ['Catalog vendors', '/admin/catalog/vendors', 'Seed caterers, AV teams, photographers, DJs, and service partners.'],
   ['Vendor rate review', '/admin/discovery/vendor-rate-review', 'Review inferred discovery vendor rates before they become trusted planning estimates.'],
   ['Venue capacity review', '/admin/discovery/capacity-review', 'Review inferred discovery venue capacity before it affects venue fit ranking.'],
+  ['CHI true-up review', '/admin/chi-trueup-review', 'Approve, reject, or adjust capped CHI rate movements before they affect future events.'],
   ['Claims', '/admin/claims', 'Review unclaimed catalog listings and pending approval work.'],
   ['Tasks', '/admin/tasks', 'Work general planner handoffs, catalog gaps, confirmations, receipts, and compliance tasks.'],
   ['Concierge', '/admin/concierge', 'Handle opportunity invites that need manual outreach.'],
