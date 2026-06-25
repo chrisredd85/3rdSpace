@@ -158,6 +158,20 @@ describe('token secret hardening', () => {
     )
   })
 
+  it('allows the Playwright production server to boot without live secrets', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    expect(() =>
+      validateRequiredProductionSecrets({
+        NODE_ENV: 'production',
+        PLAYWRIGHT_TEST: '1',
+      })
+    ).not.toThrow()
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[required-secrets] Skipping production secret validation for Playwright test server.'
+    )
+  })
+
   it('warns but does not throw for missing production-required secrets outside production', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 

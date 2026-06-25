@@ -25,6 +25,11 @@ export function validateRequiredProductionSecrets(env: NodeJS.ProcessEnv = proce
   const missing = listMissingRequiredProductionSecrets(env)
   if (missing.length === 0) return
 
+  if (env.PLAYWRIGHT_TEST === '1') {
+    console.warn('[required-secrets] Skipping production secret validation for Playwright test server.')
+    return
+  }
+
   if (env.NODE_ENV === 'production') {
     throw new Error(`Missing required production secrets: ${missing.join(', ')}`)
   }
