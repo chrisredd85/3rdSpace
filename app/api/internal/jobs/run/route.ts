@@ -29,6 +29,7 @@ import {
 } from '@/lib/finance/settlement-runs'
 import { sendVenueSettlementAcknowledgementEmail } from '@/lib/finance/settlement-checkout'
 import { processVenueStripeSetupReminderJob } from '@/lib/venues/venueOpportunityRecovery'
+import { runVenueCapacityInferenceJob } from '@/lib/discovery/inferVenueCapacity'
 
 export const runtime = 'nodejs'
 
@@ -276,6 +277,12 @@ async function processJob(admin: ReturnType<typeof createServiceRoleClient>, job
 
   if (job.job_type === 'venue.stripe_setup_reminder') {
     return processVenueStripeSetupReminderJob(admin, job)
+  }
+
+  if (job.job_type === 'venue.capacity_infer') {
+    const discoveryVenueId = job.payload.discovery_venue_id ?? job.payload.discoveryVenueId
+    if (typeof discoveryVenueId !== 'string') throw new Error('Missing discovery_venue_id')
+    return runVenueCapacityInferenceJob(admin as never, discoveryVenueId)
   }
 
   throw new Error(`Unsupported job type: ${job.job_type}`)

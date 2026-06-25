@@ -1975,6 +1975,13 @@ export type Database = {
           contact_phone: string | null
           created_at: string
           extracted_emails: Json
+          inferred_capacity_seated: number | null
+          inferred_capacity_standing: number | null
+          capacity_inference_admin_status: string | null
+          capacity_inference_confidence: number | null
+          capacity_inference_extracted_at: string | null
+          capacity_inference_model: string | null
+          capacity_inference_source_quote: string | null
           google_photo_names: string[]
           photos: Json
           google_rating: number | null
@@ -2021,6 +2028,13 @@ export type Database = {
           contact_phone?: string | null
           created_at?: string
           extracted_emails?: Json
+          inferred_capacity_seated?: number | null
+          inferred_capacity_standing?: number | null
+          capacity_inference_admin_status?: string | null
+          capacity_inference_confidence?: number | null
+          capacity_inference_extracted_at?: string | null
+          capacity_inference_model?: string | null
+          capacity_inference_source_quote?: string | null
           google_photo_names?: string[]
           photos?: Json
           google_rating?: number | null
@@ -2067,6 +2081,13 @@ export type Database = {
           contact_phone?: string | null
           created_at?: string
           extracted_emails?: Json
+          inferred_capacity_seated?: number | null
+          inferred_capacity_standing?: number | null
+          capacity_inference_admin_status?: string | null
+          capacity_inference_confidence?: number | null
+          capacity_inference_extracted_at?: string | null
+          capacity_inference_model?: string | null
+          capacity_inference_source_quote?: string | null
           google_photo_names?: string[]
           photos?: Json
           google_rating?: number | null

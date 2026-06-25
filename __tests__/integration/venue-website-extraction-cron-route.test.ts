@@ -15,8 +15,25 @@ jest.mock('next/server', () => ({
 }))
 
 import { GET } from '@/app/api/internal/jobs/venue-website-extraction/route'
+import { inferVenueCapacity } from '@/lib/discovery/inferVenueCapacity'
 import { extractVenueContacts } from '@/lib/server/venue-website-extractor'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+
+jest.mock('@/lib/discovery/inferVenueCapacity', () => ({
+  buildVenueCapacityInferenceUpdate: jest.fn((inference, inferredAt) => ({
+    inferred_capacity_standing: inference?.standing ?? null,
+    inferred_capacity_seated: inference?.seated ?? null,
+    capacity_inference_confidence: inference?.confidence ?? 0,
+    capacity_inference_source_quote: inference?.source_quote ?? null,
+    capacity_inference_model: inference?.model ?? 'gpt-4o-mini',
+    capacity_inference_admin_status: 'pending',
+    capacity_inference_extracted_at: inferredAt,
+    updated_at: inferredAt,
+  })),
+  inferVenueCapacity: jest.fn(),
+  readVenuePlaceTypes: jest.fn(() => ['bar']),
+  shouldSkipVenueCapacityInference: jest.fn((venue) => Boolean(venue.capacity_inference_extracted_at)),
+}))
 
 jest.mock('@/lib/server/venue-website-extractor', () => ({
   extractVenueContacts: jest.fn(),
@@ -126,12 +143,14 @@ function discoveryVenue(id: number, overrides: Row = {}): Row {
   return {
     id: `venue-${id}`,
     name: `Venue ${id}`,
+    address: null,
     website: `https://venue-${id}.example.com`,
     contact_email: null,
     extracted_emails: [],
     website_extraction_status: null,
     website_extraction_attempts: 0,
     website_extraction_attempted_at: null,
+    capacity_inference_extracted_at: null,
     metadata: { venue_type: 'bar' },
     ...overrides,
   }
@@ -139,11 +158,13 @@ function discoveryVenue(id: number, overrides: Row = {}): Row {
 
 describe('GET /api/internal/jobs/venue-website-extraction', () => {
   const originalSecret = process.env.CRON_SECRET
+  const originalOpenAiKey = process.env.OPENAI_API_KEY
   let db: MemoryDb
 
   beforeEach(() => {
     jest.clearAllMocks()
     process.env.CRON_SECRET = 'cron-secret'
+    delete process.env.OPENAI_API_KEY
     db = new MemoryDb()
     ;(createServiceRoleClient as jest.Mock).mockReturnValue(db)
     ;(extractVenueContacts as jest.Mock).mockResolvedValue({
@@ -166,6 +187,11 @@ describe('GET /api/internal/jobs/venue-website-extraction', () => {
 
   afterEach(() => {
     process.env.CRON_SECRET = originalSecret
+    if (originalOpenAiKey === undefined) {
+      delete process.env.OPENAI_API_KEY
+    } else {
+      process.env.OPENAI_API_KEY = originalOpenAiKey
+    }
   })
 
   it('rejects requests without the cron bearer secret', async () => {
@@ -203,6 +229,7 @@ describe('GET /api/internal/jobs/venue-website-extraction', () => {
       failed: 0,
     })
     expect(extractVenueContacts).toHaveBeenCalledTimes(5)
+    expect(inferVenueCapacity).not.toHaveBeenCalled()
     expect(db.rows.discovery_venues.slice(0, 5)).toEqual(expect.arrayContaining([
       expect.objectContaining({
         website_extraction_status: 'successful',
@@ -239,5 +266,44 @@ describe('GET /api/internal/jobs/venue-website-extraction', () => {
       skipped: 4,
     })
     expect(extractVenueContacts).not.toHaveBeenCalled()
+  })
+
+  it('persists capacity inference fields when OpenAI is configured for queued venues', async () => {
+    process.env.OPENAI_API_KEY = 'test-openai-key'
+    ;(inferVenueCapacity as jest.Mock).mockResolvedValue({
+      standing: 80,
+      seated: 36,
+      confidence: 0.76,
+      source_quote: 'Private events up to 80 guests.',
+      model: 'gpt-4o-mini',
+    })
+    db.rows.discovery_venues = [discoveryVenue(1, { name: 'Moongate Lounge' })]
+
+    const response = await GET(makeRequest('cron-secret'))
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.results).toEqual([
+      expect.objectContaining({
+        id: 'venue-1',
+        status: 'successful',
+        capacity_inferred: true,
+      }),
+    ])
+    expect(inferVenueCapacity).toHaveBeenCalledWith({
+      name: 'Moongate Lounge',
+      place_types: ['bar'],
+      website_url: 'https://venue-1.example.com',
+      formatted_address: null,
+    }, null)
+    expect(db.rows.discovery_venues[0]).toEqual(expect.objectContaining({
+      inferred_capacity_standing: 80,
+      inferred_capacity_seated: 36,
+      capacity_inference_confidence: 0.76,
+      capacity_inference_source_quote: 'Private events up to 80 guests.',
+      capacity_inference_model: 'gpt-4o-mini',
+      capacity_inference_admin_status: 'pending',
+      website_extraction_status: 'successful',
+    }))
   })
 })

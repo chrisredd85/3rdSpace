@@ -200,6 +200,7 @@ const REBOOK_PREFERENCE_SCORE_BOOST = 12
 const ORGANIZER_AMENITY_PREFERENCE_SCORE_BOOST = 8
 const UNKNOWN_CAPACITY_SCORE_PENALTY = 15
 const UNKNOWN_AMENITY_SCORE_PENALTY = 10
+const INFERRED_CAPACITY_CONFIDENCE_THRESHOLD = 0.7
 
 function rankVenue(
   plan: CatalogPlanRankingInput,
@@ -356,6 +357,9 @@ function rankVenue(
       organizer_amenity_preference_matches: organizerAmenityPreference.matched,
       capacity_known: capacityKnown,
       capacity_score_penalty: unknownCapacityPenalty,
+      capacity_source: readCapacitySource(venue),
+      capacity_inference_confidence: readNumber(venue.capacity_inference_confidence),
+      capacity_inference_admin_status: readString(venue.capacity_inference_admin_status),
       archetype: {
         key: archetype.key,
         display_name: archetype.display_name,
@@ -588,7 +592,7 @@ function readVenueSubspaceHint(venue: CatalogVenueRankingInput): string | null {
 }
 
 function readCapacity(row: Record<string, unknown>): number | null {
-  const values = [
+  const knownValues = [
     row.capacity,
     row.standing_capacity,
     row.capacity_max,
@@ -598,8 +602,39 @@ function readCapacity(row: Record<string, unknown>): number | null {
     .map(readNumber)
     .filter((value): value is number => value !== null)
 
-  if (values.length === 0) return null
-  return Math.max(...values)
+  if (knownValues.length > 0) return Math.max(...knownValues)
+  return readInferredCapacity(row)
+}
+
+function readInferredCapacity(row: Record<string, unknown>): number | null {
+  const status = readString(row.capacity_inference_admin_status)
+  if (status === 'rejected') return null
+
+  const inferredValues = [
+    row.inferred_capacity_standing,
+    row.inferred_capacity_seated,
+  ]
+    .map(readNumber)
+    .filter((value): value is number => value !== null)
+  if (inferredValues.length === 0) return null
+
+  if (status === 'approved' || status === 'edited') return Math.max(...inferredValues)
+
+  const confidence = readNumber(row.capacity_inference_confidence) ?? 0
+  if (confidence >= INFERRED_CAPACITY_CONFIDENCE_THRESHOLD) return Math.max(...inferredValues)
+  return null
+}
+
+function readCapacitySource(row: Record<string, unknown>): 'direct' | 'inferred' | null {
+  const directCapacity = [
+    row.capacity,
+    row.standing_capacity,
+    row.capacity_max,
+    row.max_capacity,
+    row.seated_capacity,
+  ].some((value) => readNumber(value) !== null)
+  if (directCapacity) return 'direct'
+  return readInferredCapacity(row) !== null ? 'inferred' : null
 }
 
 function estimateVenueCents(row: Record<string, unknown>): number {

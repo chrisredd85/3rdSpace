@@ -9,6 +9,12 @@ import {
   shouldAttemptWebsiteExtraction,
   type DiscoveryVenueRow,
 } from '@/lib/server/discovery-enrichment'
+import {
+  buildVenueCapacityInferenceUpdate,
+  inferVenueCapacity,
+  readVenuePlaceTypes,
+  shouldSkipVenueCapacityInference,
+} from '@/lib/discovery/inferVenueCapacity'
 import { inferVendorRate, shouldSkipVendorRateInference } from '@/lib/discovery/inferVendorRate'
 import { getWorkerOrAdminContext } from '@/lib/server/admin-auth'
 import { extractVenueContacts } from '@/lib/server/venue-website-extractor'
@@ -22,12 +28,14 @@ type DiscoveryVenueExtractionCandidate = Pick<
   DiscoveryVenue,
   | 'id'
   | 'name'
+  | 'address'
   | 'website'
   | 'contact_email'
   | 'extracted_emails'
   | 'website_extraction_status'
   | 'website_extraction_attempts'
   | 'metadata'
+  | 'capacity_inference_extracted_at'
 >
 
 type DiscoveryVendorExtractionCandidate = {
@@ -91,7 +99,7 @@ async function runVenueWebsiteExtraction() {
   const admin = createServiceRoleClient() as SupabaseAdminClient
   const { data, error } = await admin
     .from('discovery_venues')
-    .select('id,name,website,contact_email,extracted_emails,website_extraction_status,website_extraction_attempts,metadata')
+    .select('id,name,address,website,contact_email,extracted_emails,website_extraction_status,website_extraction_attempts,metadata,capacity_inference_extracted_at')
     .not('website', 'is', null)
     .order('website_extraction_attempted_at', { ascending: true, nullsFirst: true })
     .limit(QUERY_LIMIT)
@@ -148,7 +156,7 @@ async function runVenueWebsiteExtraction() {
     timeout: 0,
     skipped: 0,
   }
-  const results: Array<{ id: string; status: string; emails: number; draft_approvals?: number; error?: string }> = []
+  const results: Array<{ id: string; status: string; emails: number; draft_approvals?: number; capacity_inferred?: boolean; error?: string }> = []
   const vendorSummary: ExtractionSummary = {
     processed: 0,
     successful: 0,
@@ -210,7 +218,11 @@ async function processVenue(admin: SupabaseAdminClient, venue: DiscoveryVenueExt
       venueName: venue.name,
       venueType: readVenueType(venue.metadata),
     })
-    const update = buildWebsiteExtractionUpdate(result, venue.website_extraction_attempts, attemptedAt)
+    const capacityInference = await maybeInferVenueCapacity(venue, null)
+    const update = {
+      ...buildWebsiteExtractionUpdate(result, venue.website_extraction_attempts, attemptedAt),
+      ...(capacityInference ? buildVenueCapacityInferenceUpdate(capacityInference, attemptedAt) : {}),
+    }
     const { error } = await admin
       .from('discovery_venues')
       .update(update)
@@ -226,7 +238,7 @@ async function processVenue(admin: SupabaseAdminClient, venue: DiscoveryVenueExt
         status: result.status,
         error: error.message,
       })
-      return { id: venue.id, status: 'fetch_failed', emails: result.emails.length, error: error.message }
+      return { id: venue.id, status: 'fetch_failed', emails: result.emails.length, capacity_inferred: Boolean(capacityInference), error: error.message }
     }
 
     let draftApprovals = 0
@@ -238,7 +250,7 @@ async function processVenue(admin: SupabaseAdminClient, venue: DiscoveryVenueExt
       draftApprovals = draftResults.filter((draft) => draft.status === 'draft_created').length
     }
 
-    return { id: venue.id, status: result.status, emails: result.emails.length, draft_approvals: draftApprovals }
+    return { id: venue.id, status: result.status, emails: result.emails.length, draft_approvals: draftApprovals, capacity_inferred: Boolean(capacityInference) }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Website extraction failed'
     Sentry.captureException(error, {
@@ -336,6 +348,30 @@ function readVenueType(metadata: unknown) {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return 'venue'
   const value = (metadata as Record<string, unknown>).venue_type
   return typeof value === 'string' && value.trim() ? value : 'venue'
+}
+
+async function maybeInferVenueCapacity(venue: DiscoveryVenueExtractionCandidate, websiteSnippet: string | null) {
+  if (shouldSkipVenueCapacityInference(venue)) return null
+  if (!process.env.OPENAI_API_KEY?.trim()) return null
+
+  try {
+    return await inferVenueCapacity({
+      name: venue.name,
+      place_types: readVenuePlaceTypes(venue.metadata),
+      website_url: venue.website,
+      formatted_address: venue.address,
+    }, websiteSnippet)
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { component: 'venue_website_extraction_cron', phase: 'venue_capacity_inference' },
+      extra: { discovery_venue_id: venue.id },
+    })
+    console.error('[venue-website-extraction] venue_capacity_inference_failed', {
+      discovery_venue_id: venue.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return null
+  }
 }
 
 function shouldAttemptVendorWebsiteExtraction(row: DiscoveryVendorExtractionCandidate) {

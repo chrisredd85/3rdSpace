@@ -82,6 +82,119 @@ describe('rankCatalogPartners', () => {
     }))
   })
 
+  it('uses high-confidence inferred capacity when direct capacity is missing', () => {
+    const result = rankCatalogPartners({
+      plan,
+      venues: [
+        {
+          ...baseVenue,
+          id: 'venue-inferred-capacity',
+          venue_name: 'Downtown Discovery Lounge',
+          city: 'Mission',
+          standing_capacity: null,
+          seated_capacity: null,
+          inferred_capacity_standing: 90,
+          inferred_capacity_seated: 42,
+          capacity_inference_confidence: 0.82,
+          capacity_inference_admin_status: 'pending',
+          hourly_rate_cents: 50_000,
+          minimum_hours: 4,
+          unique_features_tags: ['AV', 'rooftop'],
+        },
+      ],
+      vendors: [],
+    })
+
+    expect(result.recommendations[0]).toEqual(expect.objectContaining({
+      partner_id: 'venue-inferred-capacity',
+      capacity: 90,
+      capacity_known: true,
+      blocking_issues: [],
+      metadata: expect.objectContaining({
+        capacity_known: true,
+        capacity_source: 'inferred',
+        capacity_inference_confidence: 0.82,
+        capacity_inference_admin_status: 'pending',
+        capacity_score_penalty: 0,
+      }),
+    }))
+  })
+
+  it('does not trust low-confidence inferred capacity until reviewed', () => {
+    const result = rankCatalogPartners({
+      plan,
+      venues: [
+        {
+          ...baseVenue,
+          id: 'venue-low-confidence-capacity',
+          venue_name: 'Downtown Thin Lead',
+          city: 'Mission',
+          standing_capacity: null,
+          seated_capacity: null,
+          inferred_capacity_standing: 90,
+          inferred_capacity_seated: 42,
+          capacity_inference_confidence: 0.45,
+          capacity_inference_admin_status: 'pending',
+          hourly_rate_cents: 50_000,
+          minimum_hours: 4,
+          unique_features_tags: ['AV', 'rooftop'],
+        },
+      ],
+      vendors: [],
+    })
+
+    expect(result.recommendations[0]).toEqual(expect.objectContaining({
+      partner_id: 'venue-low-confidence-capacity',
+      capacity: null,
+      capacity_known: false,
+      blocking_issues: [],
+      metadata: expect.objectContaining({
+        capacity_known: false,
+        capacity_source: null,
+        capacity_inference_confidence: 0.45,
+        capacity_inference_admin_status: 'pending',
+        capacity_score_penalty: 15,
+      }),
+    }))
+  })
+
+  it('uses admin-approved inferred capacity even when model confidence is low', () => {
+    const result = rankCatalogPartners({
+      plan,
+      venues: [
+        {
+          ...baseVenue,
+          id: 'venue-approved-inferred-capacity',
+          venue_name: 'Downtown Reviewed Lead',
+          city: 'Mission',
+          standing_capacity: null,
+          seated_capacity: null,
+          inferred_capacity_standing: 78,
+          inferred_capacity_seated: 36,
+          capacity_inference_confidence: 0.48,
+          capacity_inference_admin_status: 'approved',
+          hourly_rate_cents: 50_000,
+          minimum_hours: 4,
+          unique_features_tags: ['AV', 'rooftop'],
+        },
+      ],
+      vendors: [],
+    })
+
+    expect(result.recommendations[0]).toEqual(expect.objectContaining({
+      partner_id: 'venue-approved-inferred-capacity',
+      capacity: 78,
+      capacity_known: true,
+      blocking_issues: [],
+      metadata: expect.objectContaining({
+        capacity_known: true,
+        capacity_source: 'inferred',
+        capacity_inference_admin_status: 'approved',
+        capacity_score_penalty: 0,
+      }),
+    }))
+  })
+
   it('scores known-capacity venues above otherwise similar unknown-capacity venues', () => {
     const result = rankCatalogPartners({
       plan,

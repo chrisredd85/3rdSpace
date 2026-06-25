@@ -13,6 +13,7 @@ import {
 } from '@/lib/server/google-places-client'
 import type { PlacesIntent } from '@/lib/server/places-archetype-intent'
 import { resolvePlacesIntent } from '@/lib/server/places-archetype-intent'
+import { enqueueVenueCapacityInferenceJob } from '@/lib/discovery/inferVenueCapacity'
 
 export type DiscoveryVenueRow = TableRow<'discovery_venues'>
 export type PlanDiscoveryVenueCandidateRow = TableRow<'plan_discovery_venue_candidates'>
@@ -61,7 +62,14 @@ export const DISCOVERY_VENUE_SELECT = `
   website_extraction_attempted_at,
   website_extraction_attempts,
   website_extraction_metadata,
-  website_extraction_status
+  website_extraction_status,
+  inferred_capacity_standing,
+  inferred_capacity_seated,
+  capacity_inference_confidence,
+  capacity_inference_source_quote,
+  capacity_inference_model,
+  capacity_inference_extracted_at,
+  capacity_inference_admin_status
 `
 
 export type ContactStatus = 'ready_to_reach_out' | 'contact_pending' | 'no_contact_available'
@@ -324,6 +332,10 @@ export function mapDiscoveryVenueToCatalogVenue(row: DiscoveryVenueRow): Catalog
     source: row.source,
     source_external_id: row.source_external_id,
     metadata: row.metadata,
+    inferred_capacity_standing: row.inferred_capacity_standing,
+    inferred_capacity_seated: row.inferred_capacity_seated,
+    capacity_inference_confidence: row.capacity_inference_confidence,
+    capacity_inference_admin_status: row.capacity_inference_admin_status,
     venue_cluster_id: venueClusterId,
     subspace_hint: subspaceHint,
     is_claimed: row.is_claimed,
@@ -453,7 +465,16 @@ export async function searchPlacesForPlan(
       })
       continue
     }
-    upsertedVenues.push(data as DiscoveryVenueRow)
+    const discoveryVenue = data as DiscoveryVenueRow
+    upsertedVenues.push(discoveryVenue)
+    if (!discoveryVenue.capacity_inference_extracted_at) {
+      await enqueueVenueCapacityInferenceJob(options.admin as never, discoveryVenue.id).catch((jobError) => {
+        console.error('[places.outreach] capacity_inference_enqueue_failed', {
+          discovery_venue_id: discoveryVenue.id,
+          error: jobError instanceof Error ? jobError.message : String(jobError),
+        })
+      })
+    }
   }
 
   if (upsertedVenues.length > 0 && options.searchedByUserId) {
