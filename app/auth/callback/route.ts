@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { LEGAL_TERMS_VERSION } from '@/lib/legal/constants'
 import type { UserType } from '@/lib/types'
 
 function getLoginPath(userType: UserType) {
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
   const next = getSafeInternalRedirect(requestUrl.searchParams.get('next'))
   const expectedUserType = requestUrl.searchParams.get('expected_user_type') as UserType | null
   const authFlow = requestUrl.searchParams.get('auth_flow')
+  const termsVersion = requestUrl.searchParams.get('terms_version')
   const error = requestUrl.searchParams.get('error')
   const errorDescription = requestUrl.searchParams.get('error_description')
 
@@ -90,6 +92,14 @@ export async function GET(request: NextRequest) {
     }
 
     if (!userType && expectedUserType && authFlow === 'signup') {
+      if (termsVersion !== LEGAL_TERMS_VERSION) {
+        await supabase.auth.signOut()
+        const signupUrl = new URL('/signup/builder', request.url)
+        signupUrl.searchParams.set('error', 'terms_required')
+        signupUrl.searchParams.set('message', 'Accept the current Terms of Service and Privacy Policy before creating an account.')
+        return NextResponse.redirect(signupUrl)
+      }
+
       if (expectedUserType === 'venue_owner') {
         await supabase.auth.signOut()
         const venueSignupUrl = new URL('/signup/venue', request.url)
@@ -112,6 +122,8 @@ export async function GET(request: NextRequest) {
           user_type: expectedUserType,
           company_name: companyName,
           email_verified: Boolean(data.user.email_confirmed_at),
+          signup_terms_version: LEGAL_TERMS_VERSION,
+          signup_terms_accepted_at: new Date().toISOString(),
         } as never, { onConflict: 'id' })
 
       if (profileCreateError) {

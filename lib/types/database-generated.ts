@@ -6788,6 +6788,8 @@ export type Database = {
           monthly_revenue: number | null
           platform_fee_percentage: number | null
           role: string
+          signup_terms_accepted_at: string | null
+          signup_terms_version: string | null
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
           subscription_ends_at: string | null
@@ -6812,6 +6814,8 @@ export type Database = {
           monthly_revenue?: number | null
           platform_fee_percentage?: number | null
           role: string
+          signup_terms_accepted_at?: string | null
+          signup_terms_version?: string | null
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
           subscription_ends_at?: string | null
@@ -6836,6 +6840,8 @@ export type Database = {
           monthly_revenue?: number | null
           platform_fee_percentage?: number | null
           role?: string
+          signup_terms_accepted_at?: string | null
+          signup_terms_version?: string | null
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
           subscription_ends_at?: string | null

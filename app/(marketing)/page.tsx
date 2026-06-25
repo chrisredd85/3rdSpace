@@ -523,7 +523,7 @@ export default function HomePage() {
             <Caps>Company</Caps>
             <ul className="mt-4 space-y-2 text-[14px] text-ink-soft">
               <li><a href="mailto:hello@3rdplace.io" className="hover:text-ink">Contact</a></li>
-              <li><a href="mailto:hello@3rdplace.io" className="hover:text-ink">3rdPlace support</a></li>
+              <li><Link href="/support" className="hover:text-ink">3rdPlace support</Link></li>
             </ul>
           </div>
           <div>

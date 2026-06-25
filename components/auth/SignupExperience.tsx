@@ -27,6 +27,7 @@ import { InlineFormError } from '@/components/ui/inline-form-error'
 import { TicketingSetupGuide } from '@/components/auth/TicketingSetupGuide'
 import { migratePlannerDraftToServer } from '@/lib/planner/migrateDraft'
 import { createClient } from '@/lib/supabase/client'
+import { LEGAL_TERMS_VERSION } from '@/lib/legal/constants'
 import type { ServiceType, UserType, VenueType } from '@/lib/types'
 
 // ─── Shared primitives ───────────────────────────────────────────────────────
@@ -190,6 +191,45 @@ function Field({
       {children}
       {error ? (
         <p className="mt-1.5 text-xs font-medium text-destructive" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function LegalAgreementCheckbox({
+  checked,
+  onChange,
+  error,
+}: {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  error?: string
+}) {
+  return (
+    <div className="rounded-md border border-tan bg-cream-deep p-4">
+      <label className="flex items-start gap-3 text-[14px] leading-6 text-ink-soft">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(event) => onChange(event.target.checked)}
+          className="mt-1 h-4 w-4 rounded border-tan text-clay focus:ring-clay"
+        />
+        <span>
+          I agree to the{' '}
+          <Link href="/terms" target="_blank" className="font-semibold text-clay underline-offset-4 hover:underline">
+            Terms of Service
+          </Link>{' '}
+          and{' '}
+          <Link href="/privacy" target="_blank" className="font-semibold text-clay underline-offset-4 hover:underline">
+            Privacy Policy
+          </Link>
+          .
+        </span>
+      </label>
+      {error ? (
+        <p className="mt-2 text-xs font-medium text-destructive" role="alert">
           {error}
         </p>
       ) : null}
@@ -545,6 +585,7 @@ function BuilderSignupFlow({
     platforms: [] as string[],
     bulkBooking: false,
     inviteCollaborators: '',
+    termsAccepted: false,
   })
 
   useEffect(() => {
@@ -587,7 +628,11 @@ function BuilderSignupFlow({
       if (form.amenities.length === 0) errors.amenities = 'Select at least one preferred amenity.'
       return errors
     }
-    if (targetStep === 4) return {}
+    if (targetStep === 4) {
+      const errors: FieldErrors = {}
+      if (!form.termsAccepted && !activationState) errors.termsAccepted = 'Accept the Terms of Service and Privacy Policy to create your account.'
+      return errors
+    }
     return {}
   }
   const stepErrors = getStepErrors()
@@ -620,6 +665,11 @@ function BuilderSignupFlow({
   }
 
   const startGoogleSignup = async () => {
+    if (!form.termsAccepted) {
+      setInlineError('Accept the Terms of Service and Privacy Policy before continuing with Google.')
+      return
+    }
+
     setIsGoogleLoading(true)
     setInlineError(null)
 
@@ -629,6 +679,7 @@ function BuilderSignupFlow({
       callbackUrl.searchParams.set('expected_user_type', 'community_builder')
       callbackUrl.searchParams.set('auth_flow', 'signup')
       callbackUrl.searchParams.set('next', creatorGoogleSignupNext)
+      callbackUrl.searchParams.set('terms_version', LEGAL_TERMS_VERSION)
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -707,6 +758,8 @@ function BuilderSignupFlow({
           ticket_platforms: selectedTicketPlatforms,
           bulk_booking_enabled: form.bulkBooking,
           invite_collaborators: form.inviteCollaborators,
+          signup_terms_version: LEGAL_TERMS_VERSION,
+          signup_terms_accepted: form.termsAccepted,
         }),
       })
       const result = await response.json()
@@ -781,7 +834,7 @@ function BuilderSignupFlow({
               variant="outline"
               className="w-full rounded-md border-tan bg-cream text-ink hover:border-clay hover:bg-cream"
               onClick={startGoogleSignup}
-              disabled={isGoogleLoading || isLoading}
+              disabled={isGoogleLoading || isLoading || !form.termsAccepted}
             >
               <GoogleIcon />
               {isGoogleLoading ? 'Connecting...' : 'Continue with Google'}
@@ -789,6 +842,11 @@ function BuilderSignupFlow({
             <p className="text-center text-xs leading-relaxed text-ink-soft">
               Google creates your 3rdPlace creator account first. Gmail outreach permission is requested separately before 3rdPlace can send or read approved event outreach.
             </p>
+            <LegalAgreementCheckbox
+              checked={form.termsAccepted}
+              onChange={(termsAccepted) => setForm({ ...form, termsAccepted })}
+              error={inlineError?.includes('Terms of Service') ? inlineError : undefined}
+            />
           </div>
 
           <div className="relative py-1">
@@ -916,6 +974,14 @@ function BuilderSignupFlow({
               placeholder="co-host@brand.com, manager@brand.com"
             />
           </Field>
+
+          {!activationState ? (
+            <LegalAgreementCheckbox
+              checked={form.termsAccepted}
+              onChange={(termsAccepted) => setForm({ ...form, termsAccepted })}
+              error={stepErrors.termsAccepted}
+            />
+          ) : null}
 
           <div className="rounded-md border border-tan bg-cream-deep p-5">
             <div className="flex items-start gap-3">
@@ -1114,6 +1180,7 @@ function VenueSignupFlow({
     openDays: [] as string[],
     openFrom: '18:00',
     openTo: '02:00',
+    termsAccepted: false,
   })
 
   useEffect(() => {
@@ -1186,6 +1253,7 @@ function VenueSignupFlow({
     if (targetStep === 5) {
       const errors: FieldErrors = {}
       if (form.openDays.length === 0) errors.openDays = 'Select at least one available booking day.'
+      if (!form.termsAccepted) errors.termsAccepted = 'Accept the Terms of Service and Privacy Policy to create your account.'
       return errors
     }
     return {}
@@ -1261,6 +1329,8 @@ function VenueSignupFlow({
           open_from: form.openFrom,
           open_to: form.openTo,
           opportunity_token: opportunityToken,
+          signup_terms_version: LEGAL_TERMS_VERSION,
+          signup_terms_accepted: form.termsAccepted,
         }),
       })
       const result = await response.json()
@@ -1537,6 +1607,12 @@ function VenueSignupFlow({
             <p className="font-semibold text-ink">Calendar sync</p>
             <p className="mt-1 text-ink-soft">After signup, connect Google Calendar or import an .ics feed to prevent double-bookings automatically.</p>
           </div>
+
+          <LegalAgreementCheckbox
+            checked={form.termsAccepted}
+            onChange={(termsAccepted) => setForm({ ...form, termsAccepted })}
+            error={stepErrors.termsAccepted}
+          />
         </div>
       )}
 
@@ -1613,6 +1689,7 @@ function VendorSignupFlow({
     availableDays: [] as string[],
     emergencyAvailable: false,
     emergencyRate: '',
+    termsAccepted: false,
   })
 
   useEffect(() => {
@@ -1671,6 +1748,7 @@ function VendorSignupFlow({
       if (form.emergencyAvailable && !hasPositiveNumber(form.emergencyRate)) {
         errors.emergencyRate = 'Emergency-rate uplift is required when emergency availability is enabled.'
       }
+      if (!form.termsAccepted) errors.termsAccepted = 'Accept the Terms of Service and Privacy Policy to create your account.'
       return errors
     }
     return {}
@@ -1737,6 +1815,8 @@ function VendorSignupFlow({
           emergency_available: form.emergencyAvailable,
           emergency_rate_uplift: form.emergencyAvailable ? parseFloat(form.emergencyRate) : null,
           availability_notes: `Available: ${form.availableDays.join(', ')}. Lead time: ${form.leadTimeDays} days.`,
+          signup_terms_version: LEGAL_TERMS_VERSION,
+          signup_terms_accepted: form.termsAccepted,
         }),
       })
       const result = await response.json()
@@ -1918,6 +1998,12 @@ function VendorSignupFlow({
               </Field>
             </NestedReveal>
           )}
+
+          <LegalAgreementCheckbox
+            checked={form.termsAccepted}
+            onChange={(termsAccepted) => setForm({ ...form, termsAccepted })}
+            error={stepErrors.termsAccepted}
+          />
         </div>
       )}
 
