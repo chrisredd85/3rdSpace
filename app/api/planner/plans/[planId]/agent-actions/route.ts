@@ -12,8 +12,13 @@ import { z } from 'zod'
 import { readIntegerCents } from '@/lib/planner/execution/approvalState'
 import { classifyExecutionMode, requiresApprovalForAgentAction } from '@/lib/planner/executionModes'
 import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
+import {
+  checkAuthorizationActionStripeGate,
+  getStripeGateErrorMessage,
+} from '@/lib/planner/stripeReadinessGate'
 import { checkRateLimit, rateLimitHeaders } from '@/lib/server/rate-limit'
-import { createClient } from '@/lib/supabase/server'
+import { notifyEntityStripeSetup } from '@/lib/server/notifyEntityStripeSetup'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { AgentAction, Approval, Json, PlannerApiErrorResponse, Plan } from '@/lib/types'
 import type { JsonObject, TableInsert, TableUpdate } from '@/lib/types'
 
@@ -237,6 +242,18 @@ export async function POST(
         readBoolean(payload.route_to_concierge),
     })
 
+    const stripeGate = await checkAgentActionStripeGate({
+      actionType: parsed.data.actionType,
+      targetType,
+      targetId,
+      requestedAmountCents,
+      payload,
+      executionMode,
+      planId: context.params.planId,
+      organizerId: auth.userId,
+    })
+    if (stripeGate) return stripeGate
+
     const agentActionInsert: TableInsert<'agent_actions'> = {
       plan_id: context.params.planId,
       action_type: parsed.data.actionType,
@@ -342,6 +359,59 @@ export async function POST(
     console.error('Planner agent action POST error:', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
   }
+}
+
+async function checkAgentActionStripeGate(input: {
+  actionType: z.infer<typeof createAgentActionSchema>['actionType']
+  targetType?: string | null
+  targetId?: string | null
+  requestedAmountCents: number | null
+  payload: JsonObject
+  executionMode: string
+  planId: string
+  organizerId: string
+}): Promise<NextResponse<PlannerApiErrorResponse> | null> {
+  const admin = createServiceRoleClient()
+  const gateResult = await checkAuthorizationActionStripeGate({
+    supabase: admin as any,
+    actionType: input.actionType,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    amountCents: input.requestedAmountCents,
+    payload: {
+      ...input.payload,
+      execution_mode: input.executionMode,
+    },
+  })
+  if (!gateResult || gateResult.gate.ready) return null
+
+  if (gateResult.target.entityType === 'venue' || gateResult.target.entityType === 'vendor') {
+    notifyEntityStripeSetup({
+      supabase: admin as any,
+      entityType: gateResult.target.entityType,
+      entityId: gateResult.target.entityId,
+      planId: input.planId,
+      organizerId: input.organizerId,
+      reason: gateResult.gate.reason,
+    }).catch((error) => {
+      console.error('Planner agent-action Stripe setup notification failed:', error)
+    })
+  }
+
+  return NextResponse.json(
+    {
+      error: getStripeGateErrorMessage({
+        entityType: gateResult.target.entityType,
+        reason: gateResult.gate.reason,
+      }),
+      details: {
+        code: 'stripe_recipient_not_ready',
+        stripe_gate: gateResult.gate,
+        target: gateResult.target,
+      } as Json,
+    },
+    { status: 409 }
+  )
 }
 
 async function getPlannerAuth(): Promise<PlannerAuth> {

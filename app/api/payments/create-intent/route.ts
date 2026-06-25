@@ -20,6 +20,11 @@ import {
   validatePaymentApprovalForExecution,
   type PaymentApprovalRow,
 } from '@/lib/planner/execution/paymentApproval'
+import {
+  checkStripeReadinessForAuthorization,
+  getStripeGateErrorMessage,
+} from '@/lib/planner/stripeReadinessGate'
+import { notifyEntityStripeSetup } from '@/lib/server/notifyEntityStripeSetup'
 
 export const runtime = 'nodejs'
 
@@ -54,6 +59,35 @@ export async function POST(request: NextRequest) {
 
     if (booking.status !== 'confirmed') {
       return NextResponse.json({ error: 'Vendor bookings must be confirmed before payment.' }, { status: 400 })
+    }
+
+    const readinessGate = await checkStripeReadinessForAuthorization({
+      supabase: admin as any,
+      entityType: 'vendor',
+      entityId: booking.vendor_id,
+    })
+    if (!readinessGate.ready) {
+      notifyEntityStripeSetup({
+        supabase: admin as any,
+        entityType: 'vendor',
+        entityId: booking.vendor_id,
+        organizerId: null,
+        reason: readinessGate.reason,
+      }).catch((notifyError) => {
+        console.error('[payments.create-intent] Stripe setup notification failed', notifyError)
+      })
+
+      return NextResponse.json(
+        {
+          error: getStripeGateErrorMessage({
+            entityType: 'vendor',
+            reason: readinessGate.reason,
+          }),
+          code: 'stripe_recipient_not_ready',
+          stripe_gate: readinessGate,
+        },
+        { status: 409 }
+      )
     }
 
     const connectedAccountId = await ensureVendorCanReceivePayments(admin as any, booking.vendor_id)
