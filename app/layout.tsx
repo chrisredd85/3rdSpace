@@ -3,6 +3,7 @@ import { Fraunces, Inter, JetBrains_Mono } from "next/font/google"
 import "./globals.css"
 import { Providers } from "./providers"
 import { ErrorBoundary } from "@/components/shared/ErrorBoundary"
+import { CookieBanner } from "@/components/marketing/CookieBanner"
 
 const inter = Inter({ 
   subsets: ["latin"],
@@ -138,7 +139,10 @@ export default function RootLayout({
       </head>
       <body className="font-sans antialiased">
         <ErrorBoundary>
-          <Providers>{children}</Providers>
+          <Providers>
+            {children}
+            <CookieBanner />
+          </Providers>
         </ErrorBoundary>
       </body>
     </html>

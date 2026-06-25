@@ -89,6 +89,9 @@ describe('SignupExperience step validation', () => {
 
     fireEvent.click(continueButton())
     expect(screen.getByText(/Creator sign-up · Step 4 of 4/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Create account/i })).toBeDisabled()
+    expect(screen.getByText(/Accept the Terms of Service and Privacy Policy/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText(/I agree to the Terms of Service/i))
     expect(screen.getByRole('button', { name: /Create account/i })).toBeEnabled()
 
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
@@ -116,12 +119,17 @@ describe('SignupExperience step validation', () => {
       avg_attendance: '150',
       ticket_platforms: [],
       invite_collaborators: '',
+      signup_terms_version: '2026-06-25',
+      signup_terms_accepted: true,
     }))
   })
 
   it('starts creator Google signup with the signup callback flags', async () => {
     renderSignup('community_builder')
 
+    expect(screen.getByRole('button', { name: /Continue with Google/i })).toBeDisabled()
+    fireEvent.click(screen.getByLabelText(/I agree to the Terms of Service/i))
+    expect(screen.getByRole('button', { name: /Continue with Google/i })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: /Continue with Google/i }))
 
     await waitFor(() => {
@@ -140,6 +148,7 @@ describe('SignupExperience step validation', () => {
     expect(callbackUrl.searchParams.get('next')).toBe(
       '/api/integrations/gmail/connect?returnTo=%2Fplanner%3Fsignup%3Dcomplete%26gmail%3Dconnected'
     )
+    expect(callbackUrl.searchParams.get('terms_version')).toBe('2026-06-25')
   })
 
   it('does not show Google signup on venue or vendor signup forms', () => {
@@ -224,6 +233,7 @@ describe('SignupExperience step validation', () => {
     fireEvent.click(continueButton())
 
     fireEvent.click(screen.getByRole('button', { name: 'Fri' }))
+    fireEvent.click(screen.getByLabelText(/I agree to the Terms of Service/i))
     fireEvent.click(screen.getByRole('button', { name: /Publish my venue listing/i }))
 
     await waitFor(() => {
@@ -239,6 +249,8 @@ describe('SignupExperience step validation', () => {
       bar_chi_pct: null,
       per_head_drink_pct: null,
       min_bar_spend: 2000,
+      signup_terms_version: '2026-06-25',
+      signup_terms_accepted: true,
     }))
   })
 
@@ -306,6 +318,7 @@ describe('SignupExperience step validation', () => {
     fireEvent.click(continueButton())
 
     fireEvent.click(screen.getByRole('button', { name: 'Fri' }))
+    fireEvent.click(screen.getByLabelText(/I agree to the Terms of Service/i))
     fireEvent.click(screen.getByRole('button', { name: /Publish my vendor profile/i }))
 
     await waitFor(() => {
@@ -320,6 +333,8 @@ describe('SignupExperience step validation', () => {
       services: ['DJ', 'Photographer'],
       package_name: 'DJ + photo starter',
       package_details: 'Four hours of DJ coverage, arrival photos, and basic lighting.',
+      signup_terms_version: '2026-06-25',
+      signup_terms_accepted: true,
     }))
   })
 })

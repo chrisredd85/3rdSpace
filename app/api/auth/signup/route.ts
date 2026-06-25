@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { normalizeLegacyKeys } from '@/lib/api/legacy-key-compat'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { ensureBuilderProfile, ensureOwnerProfile, ensureVenueSetup, ensureVendorProfile } from '@/lib/server/account-setup'
+import { LEGAL_TERMS_VERSION } from '@/lib/legal/constants'
 import type { TicketPlatform } from '@/lib/constants/account-setup'
 import type { UserType } from '@/lib/types'
 import type { ServiceType, VenueType } from '@/lib/types'
@@ -72,6 +73,8 @@ interface SignupRequest {
   bank_name?: string
   availability_notes?: string
   opportunity_token?: string | null
+  signup_terms_version?: string | null
+  signup_terms_accepted?: boolean | null
 }
 
 interface BuilderSignupDetails {
@@ -660,6 +663,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (body.signup_terms_accepted !== true || body.signup_terms_version !== LEGAL_TERMS_VERSION) {
+      return NextResponse.json(
+        { error: 'You must accept the current Terms of Service and Privacy Policy to create an account.' },
+        { status: 400 }
+      )
+    }
+
     const roleValidationError = getRoleSignupValidationError(body)
     if (roleValidationError) {
       return NextResponse.json(
@@ -753,6 +763,8 @@ export async function POST(request: NextRequest) {
               user_type: userType,
               company_name: companyName,
               email_verified: Boolean(signInData.user.email_confirmed_at),
+              signup_terms_version: LEGAL_TERMS_VERSION,
+              signup_terms_accepted_at: new Date().toISOString(),
             } as never)
 
           if (recoveredUserError) {
@@ -824,6 +836,8 @@ export async function POST(request: NextRequest) {
         user_type: userType,
         company_name: companyName,
         email_verified: false,
+        signup_terms_version: LEGAL_TERMS_VERSION,
+        signup_terms_accepted_at: new Date().toISOString(),
       } as never)
 
     if (userError) {
