@@ -27,20 +27,20 @@ interface PlannerMessageBubbleProps {
 
 export function DraftMatchSignupCard({ onContinue }: { onContinue: () => void }) {
   return (
-    <div className="rounded-3xl border border-primary/30 bg-gradient-card p-5 shadow-card">
+    <div className="rounded-lg border border-clay/30 bg-cream-deep p-5 shadow-sm">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+          <div className="flex items-center gap-2 text-sm font-semibold text-clay-deep">
             <Sparkles className="h-4 w-4" />
-            Ready to make your event happen
+            Free draft complete
           </div>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            I can save this draft and run the live planner pipeline for venue matches, vendor picks,
-            financial projections, and approval cards after you create your planner account.
+          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+            Create a planner account to save this event, access the details later, and continue into
+            real venue matches, vendor picks, financial projections, and approval cards.
           </p>
         </div>
-        <Button type="button" variant="hero" className="shrink-0 rounded-2xl" onClick={onContinue}>
-          Save draft & show matches
+        <Button type="button" className="shrink-0 rounded-md" onClick={onContinue}>
+          Sign up to continue
         </Button>
       </div>
     </div>
