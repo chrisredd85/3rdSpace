@@ -7,9 +7,9 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getStripeClient } from '@/lib/stripe/connect'
 import { processStripeConnectWebhookEvent } from '@/lib/stripe/connect-webhook'
 import {
-  checkStripeWebhookLedger,
   failStripeWebhookProcessing,
   recordStripeWebhookProcessingResult,
+  reserveStripeWebhookEvent,
 } from '@/lib/stripe/webhookLedger'
 
 export const runtime = 'nodejs'
@@ -44,14 +44,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid Stripe signature' }, { status: 400 })
   }
 
-  const reservation = await checkStripeWebhookLedger(admin as any, { eventId: event.id })
-  if (reservation.duplicate) {
+  const reservation = await reserveStripeWebhookEvent(admin as any, {
+    event,
+    source: 'connect',
+    endpointPath: '/api/webhooks/stripe/connect',
+  })
+  if ('completed' in reservation && reservation.completed) {
     console.info('[stripe.connect.webhook] Duplicate delivery skipped', {
       eventId: event.id,
       eventType: event.type,
       processedAt: reservation.processedAt,
     })
     return NextResponse.json({ received: true, duplicate: true })
+  }
+  if ('inFlight' in reservation && reservation.inFlight) {
+    console.info('[stripe.connect.webhook] Concurrent duplicate delivery skipped', {
+      eventId: event.id,
+      eventType: event.type,
+    })
+    return NextResponse.json({ received: true, in_flight: true }, { status: 409 })
+  }
+  if (!('reservedNow' in reservation) || !reservation.reservedNow) {
+    console.error('[stripe.connect.webhook] Failed to reserve event', {
+      eventId: event.id,
+      eventType: event.type,
+      reservation,
+    })
+    return NextResponse.json({ error: 'reservation_failed' }, { status: 500 })
   }
 
   if (!(await allowWebhookRequest(admin, getWebhookRateLimitKey('stripe-connect', request.headers)))) {

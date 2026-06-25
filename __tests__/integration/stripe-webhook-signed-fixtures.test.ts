@@ -148,15 +148,106 @@ class MemoryDb {
   }
 
   async rpc(fn: string, args: Record<string, unknown>) {
+    if (fn === 'reserve_stripe_webhook_event') {
+      const existing = this.rows.stripe_webhook_events.find((event) => (
+        event.stripe_event_id === args.p_stripe_event_id &&
+        event.endpoint_path === args.p_endpoint_path
+      ))
+
+      if (!existing) {
+        this.rows.stripe_webhook_events.push({
+          id: `stripe_webhook_events-${this.rows.stripe_webhook_events.length + 1}`,
+          stripe_event_id: args.p_stripe_event_id,
+          event_type: args.p_event_type,
+          payload: args.p_payload,
+          source: args.p_source,
+          endpoint_path: args.p_endpoint_path,
+          livemode: args.p_livemode,
+          processed: false,
+          processed_at: null,
+          completed_at: null,
+          in_flight: true,
+          reserved_at: new Date().toISOString(),
+          processing_outcome: 'received',
+          duplicate_count: 0,
+          received_at: new Date().toISOString(),
+        })
+        return {
+          data: [{
+            existed: false,
+            in_flight: true,
+            completed: false,
+            reserved_now: true,
+            processed_at: null,
+          }],
+          error: null,
+        }
+      }
+
+      if (existing.completed_at || existing.processed) {
+        existing.duplicate_count = Number(existing.duplicate_count ?? 0) + 1
+        return {
+          data: [{
+            existed: true,
+            in_flight: false,
+            completed: true,
+            reserved_now: false,
+            processed_at: existing.completed_at ?? existing.processed_at ?? null,
+          }],
+          error: null,
+        }
+      }
+
+      if (existing.in_flight) {
+        return {
+          data: [{
+            existed: true,
+            in_flight: true,
+            completed: false,
+            reserved_now: false,
+            processed_at: null,
+          }],
+          error: null,
+        }
+      }
+
+      Object.assign(existing, {
+        event_type: args.p_event_type,
+        payload: args.p_payload,
+        source: args.p_source,
+        endpoint_path: args.p_endpoint_path,
+        livemode: args.p_livemode,
+        processing_outcome: 'received',
+        in_flight: true,
+        reserved_at: new Date().toISOString(),
+        last_error: null,
+        error: null,
+      })
+      return {
+        data: [{
+          existed: true,
+          in_flight: true,
+          completed: false,
+          reserved_now: true,
+          processed_at: null,
+        }],
+        error: null,
+      }
+    }
+
     if (fn === 'increment_stripe_webhook_duplicate_count') {
-      const row = this.rows.stripe_webhook_events.find((event) => event.stripe_event_id === args.p_stripe_event_id)
+      const row = this.rows.stripe_webhook_events.find((event) => (
+        event.stripe_event_id === args.p_stripe_event_id &&
+        (!args.p_endpoint_path || event.endpoint_path === args.p_endpoint_path)
+      ))
       if (row) row.duplicate_count = Number(row.duplicate_count ?? 0) + 1
       return { data: null, error: null }
     }
 
     if (fn === 'record_stripe_webhook_event_result') {
       const existing = this.rows.stripe_webhook_events.find((event) => (
-        event.stripe_event_id === args.p_stripe_event_id
+        event.stripe_event_id === args.p_stripe_event_id &&
+        event.endpoint_path === args.p_endpoint_path
       ))
       const row = {
         id: existing?.id ?? `stripe_webhook_events-${this.rows.stripe_webhook_events.length + 1}`,
@@ -168,6 +259,8 @@ class MemoryDb {
         livemode: args.p_livemode,
         processed: args.p_processed,
         processed_at: args.p_processed ? new Date().toISOString() : null,
+        completed_at: args.p_processed ? new Date().toISOString() : null,
+        in_flight: false,
         processing_outcome: args.p_processing_outcome,
         duplicate_count: existing?.duplicate_count ?? 0,
         last_error: args.p_error ?? null,
