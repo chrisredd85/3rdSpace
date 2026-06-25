@@ -1,9 +1,11 @@
 jest.mock('server-only', () => ({}))
 
 import {
+  createBuilderBillingPortalSession,
   createBuilderCheckoutSession,
   ensureStripeCustomerForBuilder,
   getBuilderBillingSummary,
+  getBuilderStripePriceId,
 } from '@/lib/billing/builder-billing'
 import { getStripeClient } from '@/lib/stripe/connect'
 
@@ -43,8 +45,15 @@ const builder = {
 }
 
 describe('builder billing Stripe customer resolution', () => {
+  const originalEnv = process.env
+
   beforeEach(() => {
     jest.clearAllMocks()
+    process.env = { ...originalEnv }
+  })
+
+  afterAll(() => {
+    process.env = originalEnv
   })
 
   it('reuses a stored Stripe customer when it exists in the active Stripe mode', async () => {
@@ -154,6 +163,53 @@ describe('builder billing Stripe customer resolution', () => {
         idempotencyKey: `builder_checkout_${builder.id}_pay_per_event`,
       })
     )
+  })
+
+  it('creates a Stripe billing portal session for the stored customer', async () => {
+    const stripe = {
+      customers: {
+        retrieve: jest.fn().mockResolvedValue({ id: 'cus_existing' }),
+        create: jest.fn(),
+      },
+      billingPortal: {
+        sessions: {
+          create: jest.fn().mockResolvedValue({
+            id: 'bps_test',
+            url: 'https://billing.stripe.test/session',
+          }),
+        },
+      },
+    }
+    ;(getStripeClient as jest.Mock).mockReturnValue(stripe)
+    const { admin } = createAdminMock()
+
+    await expect(
+      createBuilderBillingPortalSession({
+        admin,
+        request: new Request('https://3rdplace.test/planner/billing'),
+        builder,
+        userEmail: 'qa@example.com',
+      })
+    ).resolves.toEqual({
+      id: 'bps_test',
+      url: 'https://billing.stripe.test/session',
+    })
+
+    expect(stripe.billingPortal.sessions.create).toHaveBeenCalledWith({
+      customer: 'cus_existing',
+      return_url: 'https://3rdplace.test/planner/billing',
+    })
+  })
+
+  it('accepts canonical and shorter Stripe price id environment names', () => {
+    delete process.env.STRIPE_PRICE_PRO_MONTHLY
+    process.env.STRIPE_PRICE_MONTHLY = 'price_short_monthly'
+
+    expect(getBuilderStripePriceId('pro_monthly')).toBe('price_short_monthly')
+
+    process.env.STRIPE_PRICE_PRO_MONTHLY = 'price_canonical_monthly'
+
+    expect(getBuilderStripePriceId('pro_monthly')).toBe('price_canonical_monthly')
   })
 })
 
