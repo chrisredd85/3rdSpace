@@ -62,6 +62,8 @@ type VenueSettlementTokenRow = {
   revoked_at: string | null
 }
 
+export type VenueSettlementTokenState = 'valid' | 'revoked' | 'expired' | 'missing'
+
 type VenueRow = {
   id: string
   venue_name: string
@@ -181,6 +183,52 @@ export async function verifyVenueSettlementToken(admin: SupabaseAdminClient, raw
 
   const context = await loadSettlementContext(admin, token.settlement_run_id)
   return context ? { token, context } : null
+}
+
+export async function getVenueSettlementTokenState(
+  admin: SupabaseAdminClient,
+  rawToken: string,
+): Promise<VenueSettlementTokenState> {
+  const tokenHash = hashSettlementToken(rawToken)
+  const { data, error } = await (admin as any)
+    .from('venue_settlement_tokens')
+    .select('expires_at, revoked_at')
+    .eq('token_hash', tokenHash)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to load settlement token state')
+  if (!data) return 'missing'
+  if (data.revoked_at) return 'revoked'
+  if (String(data.expires_at) <= new Date().toISOString()) return 'expired'
+  return 'valid'
+}
+
+async function revokeVenueSettlementToken(
+  admin: SupabaseAdminClient,
+  tokenId: string,
+  revokedAt = new Date().toISOString(),
+) {
+  const { error } = await (admin as any)
+    .from('venue_settlement_tokens')
+    .update({ revoked_at: revokedAt })
+    .eq('id', tokenId)
+    .is('revoked_at', null)
+
+  if (error) throw new Error(error.message ?? 'Failed to revoke settlement token')
+}
+
+async function revokeVenueSettlementTokensForRun(
+  admin: SupabaseAdminClient,
+  settlementRunId: string,
+  revokedAt = new Date().toISOString(),
+) {
+  const { error } = await (admin as any)
+    .from('venue_settlement_tokens')
+    .update({ revoked_at: revokedAt })
+    .eq('settlement_run_id', settlementRunId)
+    .is('revoked_at', null)
+
+  if (error) throw new Error(error.message ?? 'Failed to revoke settlement tokens')
 }
 
 export async function loadSettlementContext(
@@ -459,6 +507,7 @@ export async function disputeSettlementFromVenueToken(
 
   const { run } = verified.context
   if (run.status === 'disputed') {
+    await revokeVenueSettlementToken(admin, verified.token.id)
     return { status: 200 as const, body: { status: 'disputed' } }
   }
   if (!['awaiting_venue_ack', 'awaiting_venue_payment'].includes(run.status)) {
@@ -486,6 +535,8 @@ export async function disputeSettlementFromVenueToken(
 
   if (error) throw new Error(error.message ?? 'Failed to dispute settlement')
   if (!data) return { status: 409 as const, body: { error: 'Settlement was updated by another request', code: 'settlement_stale' } }
+
+  await revokeVenueSettlementToken(admin, verified.token.id, now)
 
   return { status: 200 as const, body: { status: data.status } }
 }
@@ -531,7 +582,10 @@ export async function handleSettlementCheckoutCompleted(
 
   const charge = await loadChargeForCheckoutSession(admin, session)
   if (!charge) return { handled: false, reason: 'charge_not_found' }
-  if (charge.status === 'paid') return { handled: true, idempotent: true }
+  if (charge.status === 'paid') {
+    await revokeVenueSettlementTokensForRun(admin, charge.settlement_run_id)
+    return { handled: true, idempotent: true }
+  }
 
   const now = new Date().toISOString()
   const paymentIntentId = typeof session.payment_intent === 'string'
@@ -569,6 +623,7 @@ export async function handleSettlementCheckoutCompleted(
 
   await runSettlementTrueUpOnce(admin, paidCharge)
   await notifyOrganizerPaid(admin, paidCharge)
+  await revokeVenueSettlementTokensForRun(admin, paidCharge.settlement_run_id, now)
 
   return { handled: true, charge_id: paidCharge.id }
 }
@@ -900,14 +955,17 @@ function normalizeCharge(row: any): SettlementChargeRow {
 }
 
 function getSettlementTokenSecret() {
-  return (
-    process.env.SETTLEMENT_ACK_TOKEN_SECRET ||
-    process.env.VENDOR_INVITE_SECRET ||
-    process.env.NEXTAUTH_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    'local-settlement-token-secret'
-  )
+  const secret = process.env.SETTLEMENT_ACK_TOKEN_SECRET
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('SETTLEMENT_ACK_TOKEN_SECRET required in production')
+    }
+    return 'local-dev-only-do-not-use-in-prod'
+  }
+  if (secret.length < 32) {
+    throw new Error('SETTLEMENT_ACK_TOKEN_SECRET must be at least 32 chars')
+  }
+  return secret
 }
 
 function getConfiguredAppBaseUrl() {

@@ -13,6 +13,17 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { protectRoute, getAuthUser } from '@/lib/supabase/middleware'
 import type { UserType } from '@/lib/types'
 
+type EdgeRateLimitEntry = {
+  count: number
+  resetAt: number
+}
+
+const settlementViewBuckets = new Map<string, EdgeRateLimitEntry>()
+const SETTLEMENT_VIEW_LIMIT_PER_MINUTE = 10
+const SETTLEMENT_TOTAL_LIMIT_PER_HOUR = 100
+const MINUTE_MS = 60_000
+const HOUR_MS = 60 * MINUTE_MS
+
 function isAdminUser(user: { email?: string | null; app_metadata?: Record<string, unknown> | null }) {
   const configuredAdmins = new Set(
     (process.env.ADMIN_EMAILS || process.env.INTERNAL_ADMIN_EMAILS || '')
@@ -28,6 +39,43 @@ function isAdminUser(user: { email?: string | null; app_metadata?: Record<string
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+
+  const settlementToken = extractVenueSettlementToken(pathname)
+  if (settlementToken && request.method === 'GET') {
+    const rateLimit = enforceSettlementTokenViewRateLimit(request, settlementToken)
+    if (rateLimit) return rateLimit
+
+    const tokenStatus = await fetch(
+      new URL(`/api/venue/settlement/${encodeURIComponent(settlementToken)}/status`, request.nextUrl.origin),
+      { cache: 'no-store' }
+    )
+    if (tokenStatus.status === 429) {
+      return new NextResponse(await tokenStatus.text(), {
+        status: 429,
+        headers: {
+          'content-type': tokenStatus.headers.get('content-type') ?? 'application/json',
+          'Retry-After': tokenStatus.headers.get('Retry-After') ?? '60',
+          'X-RateLimit-Limit': tokenStatus.headers.get('X-RateLimit-Limit') ?? '',
+          'X-RateLimit-Remaining': tokenStatus.headers.get('X-RateLimit-Remaining') ?? '',
+          'X-RateLimit-Reset': tokenStatus.headers.get('X-RateLimit-Reset') ?? '',
+        },
+      })
+    }
+    if (tokenStatus.status === 410) {
+      return new NextResponse('Settlement token revoked', {
+        status: 410,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      })
+    }
+    if (tokenStatus.status === 404) {
+      return new NextResponse('Settlement token invalid or expired', {
+        status: 404,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      })
+    }
+
+    return NextResponse.next()
+  }
 
   // Public routes that don't require authentication
   const publicRoutes = ['/login', '/signup', '/', '/api/auth/login', '/api/auth/signup', '/api/auth/callback']
@@ -162,6 +210,84 @@ export async function middleware(request: NextRequest) {
   // For all other routes, just refresh the session
   const { response } = await getAuthUser(request)
   return response
+}
+
+function enforceSettlementTokenViewRateLimit(request: NextRequest, token: string): NextResponse | null {
+  const ip = getRequesterIp(request.headers)
+  const tokenPrefix = token.slice(0, 8) || 'missing'
+
+  const minute = consumeEdgeRateLimit(`settlement-token:view:${ip}`, SETTLEMENT_VIEW_LIMIT_PER_MINUTE, MINUTE_MS)
+  if (!minute.allowed) {
+    return settlementTokenRateLimitResponse(minute, { ip, tokenPrefix, window: 'minute' })
+  }
+
+  const hourly = consumeEdgeRateLimit(`settlement-token:total:${ip}`, SETTLEMENT_TOTAL_LIMIT_PER_HOUR, HOUR_MS)
+  if (!hourly.allowed) {
+    return settlementTokenRateLimitResponse(hourly, { ip, tokenPrefix, window: 'hour' })
+  }
+
+  return null
+}
+
+function consumeEdgeRateLimit(key: string, limit: number, windowMs: number) {
+  const now = Date.now()
+  const current = settlementViewBuckets.get(key)
+
+  if (!current || current.resetAt <= now) {
+    const resetAt = now + windowMs
+    settlementViewBuckets.set(key, { count: 1, resetAt })
+    return { allowed: true, limit, remaining: Math.max(limit - 1, 0), resetAt }
+  }
+
+  if (current.count >= limit) {
+    return { allowed: false, limit, remaining: 0, resetAt: current.resetAt }
+  }
+
+  current.count += 1
+  return { allowed: true, limit, remaining: Math.max(limit - current.count, 0), resetAt: current.resetAt }
+}
+
+function settlementTokenRateLimitResponse(
+  result: { limit: number; remaining: number; resetAt: number },
+  context: { ip: string; tokenPrefix: string; window: 'minute' | 'hour' }
+) {
+  const retryAfter = Math.max(1, Math.ceil((result.resetAt - Date.now()) / 1000))
+  console.warn('[settlement-token-rate-limit] Rate limit exceeded', {
+    ip: context.ip,
+    token_prefix: context.tokenPrefix,
+    kind: 'view',
+    window: context.window,
+    retry_after_seconds: retryAfter,
+  })
+
+  return NextResponse.json(
+    {
+      error: 'Too many settlement link requests. Try again shortly.',
+      code: 'settlement_token_rate_limited',
+    },
+    {
+      status: 429,
+      headers: {
+        'Retry-After': String(retryAfter),
+        'X-RateLimit-Limit': String(result.limit),
+        'X-RateLimit-Remaining': String(result.remaining),
+        'X-RateLimit-Reset': String(Math.ceil(result.resetAt / 1000)),
+      },
+    }
+  )
+}
+
+function getRequesterIp(headers: Headers): string {
+  return (
+    headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    headers.get('x-real-ip') ||
+    'unknown'
+  )
+}
+
+function extractVenueSettlementToken(pathname: string): string | null {
+  const match = pathname.match(/^\/venue\/settlement\/([^/]+)$/)
+  return match?.[1] ? decodeURIComponent(match[1]) : null
 }
 
 export const config = {
