@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 
 import { disputeSettlementFromVenueToken } from '@/lib/finance/settlement-checkout'
+import { enforceSettlementTokenRateLimit } from '@/lib/server/settlement-token-rate-limit'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
@@ -19,6 +20,12 @@ type RouteContext = {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
+    const rateLimit = await enforceSettlementTokenRateLimit(request, {
+      token: context.params.token,
+      kind: 'action',
+    })
+    if (rateLimit.limited) return rateLimit.response
+
     const body = BodySchema.parse(await request.json().catch(() => ({})))
     const admin = createServiceRoleClient()
     const result = await disputeSettlementFromVenueToken(admin, context.params.token, body.reason ?? null)

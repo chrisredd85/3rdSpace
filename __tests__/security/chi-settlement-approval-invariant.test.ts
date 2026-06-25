@@ -33,7 +33,7 @@ const mockGetStripeClient = getStripeClient as jest.Mock
 describe('CHI settlement approval invariant', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    process.env.SETTLEMENT_ACK_TOKEN_SECRET = 'test-secret'
+    process.env.SETTLEMENT_ACK_TOKEN_SECRET = 'test-settlement-secret-32-characters'
   })
 
   it('does not create Stripe Checkout without an authorized settlement approval', async () => {

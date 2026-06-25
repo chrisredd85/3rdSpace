@@ -34,7 +34,7 @@ const mockGetStripeClient = getStripeClient as jest.Mock
 describe('CHI settlement checkout flow', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    process.env.SETTLEMENT_ACK_TOKEN_SECRET = 'test-secret'
+    process.env.SETTLEMENT_ACK_TOKEN_SECRET = 'test-settlement-secret-32-characters'
   })
 
   it('creates a Stripe Checkout session only after approval and records the session', async () => {

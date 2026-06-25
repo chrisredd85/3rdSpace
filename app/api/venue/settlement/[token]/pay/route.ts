@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { startSettlementCheckout } from '@/lib/finance/settlement-checkout'
+import { enforceSettlementTokenRateLimit } from '@/lib/server/settlement-token-rate-limit'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
@@ -14,6 +15,12 @@ type RouteContext = {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
+    const rateLimit = await enforceSettlementTokenRateLimit(request, {
+      token: context.params.token,
+      kind: 'action',
+    })
+    if (rateLimit.limited) return rateLimit.response
+
     const admin = createServiceRoleClient()
     const result = await startSettlementCheckout(admin, context.params.token, request)
     return NextResponse.json(result.body, { status: result.status })

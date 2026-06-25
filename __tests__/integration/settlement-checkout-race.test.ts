@@ -50,7 +50,7 @@ function dbWithToken() {
 describe('CHI settlement checkout race handling', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    process.env.SETTLEMENT_ACK_TOKEN_SECRET = 'test-secret'
+    process.env.SETTLEMENT_ACK_TOKEN_SECRET = 'test-settlement-secret-32-characters'
   })
 
   it('returns an existing checkout session instead of creating a second one', async () => {
