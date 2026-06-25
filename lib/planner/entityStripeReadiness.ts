@@ -146,10 +146,10 @@ function normalizeStripeStatus(value: string | null | undefined): 'connected' | 
   const normalized = normalizeStatusText(value)
   if (!normalized) return null
 
-  if (/(connected|complete|enabled|active|ready)/.test(normalized)) return 'connected'
   if (/(restricted|requirements_due|requirements_past_due|past_due|payouts_blocked|charges_blocked)/.test(normalized)) return 'restricted'
   if (/(disabled|deauthorized|disconnected|rejected)/.test(normalized)) return 'disabled'
   if (/(pending|in_progress|onboarding|incomplete|verification)/.test(normalized)) return 'pending'
+  if (/(connected|complete|enabled|active|ready)/.test(normalized)) return 'connected'
   return null
 }
 
