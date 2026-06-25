@@ -9,6 +9,7 @@ import {
   CalendarDays,
   ChevronRight,
   DollarSign,
+  ExternalLink,
   Loader2,
   Mail,
   Menu,
@@ -21,6 +22,12 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { EntityReadinessBadge } from '@/components/planner/EntityReadinessBadge'
+import { PlannerTicketingSetupGuideSection } from '@/components/planner/PlannerTicketingSetupGuideSection'
+import {
+  resolveEntityReadiness,
+  type EntityReadinessIndicator,
+} from '@/lib/planner/entityStripeReadiness'
 import {
   hasAttendanceSignal,
   normalizePlanAttendanceSnapshot,
@@ -77,6 +84,12 @@ interface Plan {
   agent_action?: string | null
   profit_goal_cents: number | null
   notes: string | null
+  committed_venue_id?: string | null
+  committed_venue_quoted_price_cents?: number | null
+  committed_venue_quoted_deal_model?: string | null
+  committed_venue_quoted_terms?: unknown
+  committed_venue_at?: string | null
+  committed_vendors?: unknown
   metadata?: unknown
   created_at: string
   updated_at: string
@@ -101,6 +114,7 @@ interface Recommendation {
   rank: number
   status: string
   is_best_fit: boolean
+  metadata?: unknown
 }
 
 interface Approval {
@@ -212,6 +226,56 @@ interface AnalyticsSummary {
     profit_cents: number
     margin_percent: number | null
   }>
+}
+
+type ContactStatus = 'ready_to_reach_out' | 'contact_pending' | 'no_contact_available' | 'inquiry_sent' | 'awaiting_claim'
+
+interface MobilePartnerOption {
+  id: string
+  kind: 'venue' | 'vendor'
+  discoveryId: string | null
+  name: string
+  price_cents: number | null
+  rank: number
+  status: string
+  reference_id: string | null
+  metadata: Record<string, unknown> | null
+  contactStatus: ContactStatus | null
+  contactEmail: string | null
+  contactSource: string | null
+  website: string | null
+  extractionStatus: string | null
+  sourceLabel: string
+  capacityLabel: string | null
+  readiness: EntityReadinessIndicator | null
+}
+
+interface MobileQuoteOption {
+  kind: 'venue' | 'vendor'
+  discoveryId: string
+  name: string
+  serviceType: string | null
+  status: string
+  quoteCents: number | null
+  summary: string | null
+  confidence: number | null
+  updatedAt: string | null
+}
+
+interface CommittedVenueState {
+  discoveryId: string | null
+  quotedPriceCents: number | null
+  quotedDealModel: string | null
+  committedAt: string | null
+}
+
+interface CommittedVendorState {
+  discoveryId: string | null
+  serviceType: string
+  quotedPackageCents: number | null
+  quotedHourlyCents: number | null
+  quotedMinimumCents: number | null
+  committedAt: string | null
 }
 
 interface PlannerPayload {
@@ -346,6 +410,10 @@ export function MobilePlanner({
   const [newPlanDraft, setNewPlanDraft] = useState(initialEntry.draft)
   const [isSubmittingMessage, setIsSubmittingMessage] = useState(false)
   const [isCreatingPlan, setIsCreatingPlan] = useState(false)
+  const [contactEmailDrafts, setContactEmailDrafts] = useState<Record<string, string>>({})
+  const [contactEmailFeedback, setContactEmailFeedback] = useState<Record<string, string>>({})
+  const [batchFeedback, setBatchFeedback] = useState<string | null>(null)
+  const [quoteFeedback, setQuoteFeedback] = useState<Record<string, string>>({})
   const hasAutoStartedInitialDraftRef = useRef(false)
 
   const reload = useCallback(async () => {
@@ -488,6 +556,137 @@ export function MobilePlanner({
     }
   }
 
+  async function handleSaveContactEmail(option: MobilePartnerOption) {
+    if (option.kind !== 'venue' || !option.discoveryId) return
+    const email = contactEmailDrafts[option.discoveryId]?.trim()
+    if (!email) {
+      setContactEmailFeedback((current) => ({ ...current, [option.discoveryId!]: 'Enter an email first.' }))
+      return
+    }
+
+    setContactEmailFeedback((current) => ({ ...current, [option.discoveryId!]: 'Saving contact email...' }))
+    try {
+      const response = await fetch(`/api/planner/discovery-venues/${encodeURIComponent(option.discoveryId)}/contact-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email }),
+      })
+      const payload = await response.json().catch(() => ({})) as { error?: string; draft_results?: Array<{ status?: string }> }
+      if (!response.ok) throw new Error(payload.error ?? 'Could not save contact email')
+      const createdDraft = payload.draft_results?.some((result) => result.status === 'draft_created')
+      setContactEmailDrafts((current) => ({ ...current, [option.discoveryId!]: '' }))
+      setContactEmailFeedback((current) => ({
+        ...current,
+        [option.discoveryId!]: createdDraft ? 'Contact saved. Outreach draft created for approval.' : 'Contact saved.',
+      }))
+      await reload()
+    } catch (error) {
+      setContactEmailFeedback((current) => ({
+        ...current,
+        [option.discoveryId!]: error instanceof Error ? error.message : 'Could not save contact email',
+      }))
+    }
+  }
+
+  async function handleCreateVenueOutreachApprovals(options: MobilePartnerOption[]) {
+    if (!data.activePlanId) return
+    const venueIds = options
+      .filter((option) => option.kind === 'venue' && option.discoveryId && option.contactStatus === 'ready_to_reach_out')
+      .map((option) => option.discoveryId!)
+    if (venueIds.length === 0) {
+      setBatchFeedback('Add at least one ready venue contact before creating outreach approvals.')
+      return
+    }
+
+    setBatchFeedback('Creating outreach approvals...')
+    try {
+      const response = await fetch(`/api/planner/plans/${encodeURIComponent(data.activePlanId)}/outreach/approve-batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ discovery_venue_ids: venueIds }),
+      })
+      const payload = await response.json().catch(() => ({})) as { error?: string; created_count?: number }
+      if (!response.ok) throw new Error(payload.error ?? 'Could not create outreach approvals')
+      setBatchFeedback(`${payload.created_count ?? venueIds.length} outreach approval${(payload.created_count ?? venueIds.length) === 1 ? '' : 's'} created. Review before send.`)
+      await reload()
+      setView('approval')
+    } catch (error) {
+      setBatchFeedback(error instanceof Error ? error.message : 'Could not create outreach approvals')
+    }
+  }
+
+  async function handleCommitQuote(option: MobileQuoteOption) {
+    if (!data.activePlanId) return
+    const key = quoteKey(option)
+    setQuoteFeedback((current) => ({ ...current, [key]: 'Saving...' }))
+    try {
+      const response = await fetch(
+        option.kind === 'venue'
+          ? `/api/planner/plans/${encodeURIComponent(data.activePlanId)}/commit-venue`
+          : `/api/planner/plans/${encodeURIComponent(data.activePlanId)}/commit-vendor`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(option.kind === 'venue'
+            ? {
+                discovery_venue_id: option.discoveryId,
+                quoted_price_cents: option.quoteCents,
+                quoted_deal_model: option.status,
+                quoted_terms: quoteTerms(option),
+              }
+            : {
+                discovery_vendor_id: option.discoveryId,
+                service_type: option.serviceType ?? 'other',
+                quoted_package_cents: option.quoteCents,
+                quoted_terms: quoteTerms(option),
+              }),
+        }
+      )
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(payload.error ?? 'Could not accept quote')
+      setQuoteFeedback((current) => ({ ...current, [key]: 'Accepted.' }))
+      await reload()
+    } catch (error) {
+      setQuoteFeedback((current) => ({
+        ...current,
+        [key]: error instanceof Error ? error.message : 'Could not accept quote',
+      }))
+    }
+  }
+
+  async function handleCancelQuote(option: MobileQuoteOption) {
+    if (!data.activePlanId) return
+    const key = quoteKey(option)
+    setQuoteFeedback((current) => ({ ...current, [key]: 'Cancelling...' }))
+    try {
+      const response = await fetch(
+        option.kind === 'venue'
+          ? `/api/planner/plans/${encodeURIComponent(data.activePlanId)}/commit-venue`
+          : `/api/planner/plans/${encodeURIComponent(data.activePlanId)}/commit-vendor`,
+        {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: option.kind === 'venue'
+            ? undefined
+            : JSON.stringify({ discovery_vendor_id: option.discoveryId, service_type: option.serviceType ?? 'other' }),
+        }
+      )
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(payload.error ?? 'Could not cancel acceptance')
+      setQuoteFeedback((current) => ({ ...current, [key]: 'Acceptance cancelled.' }))
+      await reload()
+    } catch (error) {
+      setQuoteFeedback((current) => ({
+        ...current,
+        [key]: error instanceof Error ? error.message : 'Could not cancel acceptance',
+      }))
+    }
+  }
+
   async function saveLocalDraftInstruction(trimmed: string, currentData: MobileData) {
     const currentPlan = currentData.planPayload?.plan
     if (!currentPlan) throw new Error('Unable to save instruction')
@@ -592,6 +791,15 @@ export function MobilePlanner({
             onSendMessage={handleSendMessage}
             onStartPlan={handleStartPlan}
             onNavigate={navigate}
+            contactEmailDrafts={contactEmailDrafts}
+            contactEmailFeedback={contactEmailFeedback}
+            batchFeedback={batchFeedback}
+            quoteFeedback={quoteFeedback}
+            onContactEmailDraftChange={(id, value) => setContactEmailDrafts((current) => ({ ...current, [id]: value }))}
+            onSaveContactEmail={handleSaveContactEmail}
+            onCreateVenueOutreachApprovals={handleCreateVenueOutreachApprovals}
+            onCommitQuote={handleCommitQuote}
+            onCancelQuote={handleCancelQuote}
           />
         </div>
       </div>
@@ -612,6 +820,15 @@ function MobileContent({
   onSendMessage,
   onStartPlan,
   onNavigate,
+  contactEmailDrafts,
+  contactEmailFeedback,
+  batchFeedback,
+  quoteFeedback,
+  onContactEmailDraftChange,
+  onSaveContactEmail,
+  onCreateVenueOutreachApprovals,
+  onCommitQuote,
+  onCancelQuote,
 }: {
   activeSection: MobileSection
   view: MobileView
@@ -625,6 +842,15 @@ function MobileContent({
   onSendMessage: () => void
   onStartPlan: (event: FormEvent<HTMLFormElement>) => void
   onNavigate: (view: MobileView) => void
+  contactEmailDrafts: Record<string, string>
+  contactEmailFeedback: Record<string, string>
+  batchFeedback: string | null
+  quoteFeedback: Record<string, string>
+  onContactEmailDraftChange: (id: string, value: string) => void
+  onSaveContactEmail: (option: MobilePartnerOption) => void
+  onCreateVenueOutreachApprovals: (options: MobilePartnerOption[]) => void
+  onCommitQuote: (option: MobileQuoteOption) => void
+  onCancelQuote: (option: MobileQuoteOption) => void
 }) {
   if (data.state === 'loading') return <LoadingView />
   if (data.state === 'error') return <ErrorView onRetry={() => window.location.reload()} />
@@ -644,21 +870,77 @@ function MobileContent({
 
   if (!data.planPayload) return <EmptyState title="No active plan" description="Start a private plan to use the mobile planner." />
 
-  if (view === 'brief') return <BriefView plan={data.planPayload.plan} onNavigate={onNavigate} />
-  if (view === 'venues' || view === 'venue-detail') return <VenuesView data={data} detail={view === 'venue-detail'} onNavigate={onNavigate} />
+  if (view === 'brief') return <BriefView plan={data.planPayload.plan} approvals={data.planPayload.approvals} onNavigate={onNavigate} />
+  if (view === 'venues' || view === 'venue-detail') {
+    return (
+      <VenuesView
+        data={data}
+        detail={view === 'venue-detail'}
+        contactEmailDrafts={contactEmailDrafts}
+        contactEmailFeedback={contactEmailFeedback}
+        batchFeedback={batchFeedback}
+        quoteFeedback={quoteFeedback}
+        onContactEmailDraftChange={onContactEmailDraftChange}
+        onSaveContactEmail={onSaveContactEmail}
+        onCreateVenueOutreachApprovals={onCreateVenueOutreachApprovals}
+        onCommitQuote={onCommitQuote}
+        onCancelQuote={onCancelQuote}
+        onNavigate={onNavigate}
+      />
+    )
+  }
   if (view === 'budget') return <BudgetView budget={data.budget} plan={data.planPayload.plan} onNavigate={onNavigate} />
-  if (view === 'draft') return <SkippedOutreachView title="Outreach drafts" description={skippedSurfaceCopy.draft} onNavigate={onNavigate} />
+  if (view === 'draft') return <ApprovalsSection approvals={data.planPayload.approvals} onNavigate={onNavigate} />
   if (view === 'approval') return <ApprovalPolicyView onNavigate={onNavigate} />
-  if (view === 'deposit') return <DepositApprovalView approvals={data.planPayload.approvals} onNavigate={onNavigate} />
-  if (view === 'sent') return <SkippedOutreachView title="Sent outreach" description={skippedSurfaceCopy.sent} onNavigate={onNavigate} />
-  if (view === 'reply') return <SkippedOutreachView title="Parsed replies" description={skippedSurfaceCopy.reply} onNavigate={onNavigate} />
-  if (view === 'vendor-detail') return <VendorsSection data={data} detail onNavigate={onNavigate} />
-  if (view === 'outreach-thread') return <SkippedOutreachView title="Outreach thread" description={skippedSurfaceCopy.outreach} onNavigate={onNavigate} />
+  if (view === 'deposit') return <DepositApprovalView approvals={data.planPayload.approvals} data={data} onNavigate={onNavigate} />
+  if (view === 'sent' || view === 'reply' || view === 'outreach-thread') {
+    return (
+      <OutreachSection
+        data={data}
+        quoteFeedback={quoteFeedback}
+        onCommitQuote={onCommitQuote}
+        onCancelQuote={onCancelQuote}
+        onNavigate={onNavigate}
+      />
+    )
+  }
+  if (view === 'vendor-detail') {
+    return (
+      <VendorsSection
+        data={data}
+        detail
+        quoteFeedback={quoteFeedback}
+        onCommitQuote={onCommitQuote}
+        onCancelQuote={onCancelQuote}
+        onNavigate={onNavigate}
+      />
+    )
+  }
 
   if (activeSection === 'approvals') return <ApprovalsSection approvals={data.planPayload.approvals} onNavigate={onNavigate} />
   if (activeSection === 'messages') return <MessagesSection messages={data.planPayload.messages} activity={data.activity} />
-  if (activeSection === 'vendors') return <VendorsSection data={data} onNavigate={onNavigate} />
-  if (activeSection === 'outreach') return <OutreachSection onNavigate={onNavigate} />
+  if (activeSection === 'vendors') {
+    return (
+      <VendorsSection
+        data={data}
+        quoteFeedback={quoteFeedback}
+        onCommitQuote={onCommitQuote}
+        onCancelQuote={onCancelQuote}
+        onNavigate={onNavigate}
+      />
+    )
+  }
+  if (activeSection === 'outreach') {
+    return (
+      <OutreachSection
+        data={data}
+        quoteFeedback={quoteFeedback}
+        onCommitQuote={onCommitQuote}
+        onCancelQuote={onCancelQuote}
+        onNavigate={onNavigate}
+      />
+    )
+  }
   if (activeSection === 'analytics') return <AnalyticsSection analytics={data.analytics} />
   if (activeSection === 'ticketing') return <TicketingSection ticketing={data.ticketing} connections={data.connections} onNavigate={onNavigate} />
   if (activeSection === 'billing') return <BillingSection billing={data.billing} onNavigate={onNavigate} />
@@ -1104,9 +1386,20 @@ function EventProgressCard({
   )
 }
 
-function BriefView({ plan, onNavigate }: { plan: Plan; onNavigate: (view: MobileView) => void }) {
+function BriefView({
+  plan,
+  approvals,
+  onNavigate,
+}: {
+  plan: Plan
+  approvals: Approval[]
+  onNavigate: (view: MobileView) => void
+}) {
   const attendance = normalizePlanAttendanceSnapshot(plan, plan.metadata)
   const planDateWindow = dateWindow(plan)
+  const committedVenue = readCommittedVenue(plan)
+  const committedVendors = readCommittedVendors(plan)
+  const pendingOutreachApprovals = approvals.filter(isOutreachApproval)
   const facts = [
     { icon: <Pencil className="h-5 w-5" />, label: 'Event', value: plan.title, isSet: Boolean(plan.title) },
     {
@@ -1166,6 +1459,39 @@ function BriefView({ plan, onNavigate }: { plan: Plan; onNavigate: (view: Mobile
         </div>
       </Panel>
 
+      {(committedVenue || committedVendors.length > 0 || pendingOutreachApprovals.length > 0) && (
+        <Panel className={cn(spacing.cardGap, 'border-forest/20 bg-forest-tint')}>
+          <p className="label-caps text-forest">Operating loop</p>
+          <div className={cn(spacing.labelToHeadline, 'space-y-3')}>
+            {committedVenue ? (
+              <div>
+                <p className="font-display text-[22px] leading-tight text-ink">Committed: venue quote accepted</p>
+                <p className="mt-1 text-sm leading-6 text-ink-soft">
+                  {money(committedVenue.quotedPriceCents) ?? 'Quote saved'}{committedVenue.quotedDealModel ? ` · ${committedVenue.quotedDealModel}` : ''}. Booking and payment still require separate approval.
+                </p>
+              </div>
+            ) : null}
+            {committedVendors.map((vendor) => (
+              <div key={`${vendor.discoveryId ?? 'vendor'}-${vendor.serviceType}`}>
+                <p className="font-display text-[20px] leading-tight text-ink">Committed: {titleize(vendor.serviceType)} quote</p>
+                <p className="mt-1 text-sm leading-6 text-ink-soft">
+                  {money(committedVendorAmount(vendor)) ?? 'Quote saved'}. Payment or booking still requires a separate approval.
+                </p>
+              </div>
+            ))}
+            {pendingOutreachApprovals.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => onNavigate('approval')}
+                className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-forest/25 bg-cream px-4 text-sm font-bold text-forest"
+              >
+                {pendingOutreachApprovals.length} outreach draft{pendingOutreachApprovals.length === 1 ? '' : 's'} pending approval
+              </button>
+            ) : null}
+          </div>
+        </Panel>
+      )}
+
       <Panel className={spacing.cardGap}>
         <p className="label-caps text-clay">Notes and assumptions</p>
         {plan.notes ? (
@@ -1178,7 +1504,7 @@ function BriefView({ plan, onNavigate }: { plan: Plan; onNavigate: (view: Mobile
       <Panel className={spacing.cardGap}>
         <p className="label-caps text-clay">Used externally</p>
         <p className={cn(spacing.labelToHeadline, 'text-base leading-7 text-ink-soft')}>
-          No external outreach is enabled in this mobile v1. Any future outbound message must be reviewed before it sends.
+          Outreach, holds, bookings, and payments all stay behind approval records. If dates, price, venue, vendor, or terms change, 3rdPlace requires re-approval before execution.
         </p>
       </Panel>
     </section>
@@ -1188,14 +1514,34 @@ function BriefView({ plan, onNavigate }: { plan: Plan; onNavigate: (view: Mobile
 function VenuesView({
   data,
   detail,
+  contactEmailDrafts,
+  contactEmailFeedback,
+  batchFeedback,
+  quoteFeedback,
+  onContactEmailDraftChange,
+  onSaveContactEmail,
+  onCreateVenueOutreachApprovals,
+  onCommitQuote,
+  onCancelQuote,
   onNavigate,
 }: {
   data: MobileData
   detail?: boolean
+  contactEmailDrafts: Record<string, string>
+  contactEmailFeedback: Record<string, string>
+  batchFeedback: string | null
+  quoteFeedback: Record<string, string>
+  onContactEmailDraftChange: (id: string, value: string) => void
+  onSaveContactEmail: (option: MobilePartnerOption) => void
+  onCreateVenueOutreachApprovals: (options: MobilePartnerOption[]) => void
+  onCommitQuote: (option: MobileQuoteOption) => void
+  onCancelQuote: (option: MobileQuoteOption) => void
   onNavigate: (view: MobileView) => void
 }) {
   const venues = useMemo(() => venueRecommendations(data.planPayload?.recommendations ?? []), [data.planPayload?.recommendations])
   const selected = venues[0]
+  const quotes = mobileQuoteOptions(data.planPayload?.plan).filter((quote) => quote.kind === 'venue')
+  const readyVenues = venues.filter((venue) => venue.contactStatus === 'ready_to_reach_out')
 
   if (detail) {
     return (
@@ -1207,14 +1553,28 @@ function VenuesView({
           description="Venue drilldowns show available plan data only. Outreach fit notes wait for the outreach pipeline."
         />
         {selected ? (
-          <Panel className={spacing.sectionGap}>
-            <div className="grid grid-cols-2 gap-3">
-              <Metric label="Rank" value={`#${selected.rank}`} />
-              <Metric label="Estimate" value={money(selected.price_cents) ?? 'Missing'} />
-              <Metric label="Status" value={titleize(selected.status)} />
-              <Metric label="Source" value={selected.reference_id ? 'Catalog' : 'External'} />
-            </div>
-          </Panel>
+          <>
+            <Panel className={spacing.sectionGap}>
+              <div className="grid grid-cols-2 gap-3">
+                <Metric label="Rank" value={`#${selected.rank}`} />
+                <Metric label="Estimate" value={money(selected.price_cents) ?? 'Missing'} />
+                <Metric label="Status" value={contactStatusLabel(selected)} />
+                <Metric label="Source" value={selected.sourceLabel} />
+              </div>
+              {selected.readiness ? (
+                <div className="mt-4">
+                  <EntityReadinessBadge indicator={selected.readiness} />
+                </div>
+              ) : null}
+            </Panel>
+            <ContactRescuePanel
+              option={selected}
+              value={selected.discoveryId ? contactEmailDrafts[selected.discoveryId] ?? '' : ''}
+              feedback={selected.discoveryId ? contactEmailFeedback[selected.discoveryId] : null}
+              onChange={onContactEmailDraftChange}
+              onSave={onSaveContactEmail}
+            />
+          </>
         ) : (
           <EmptyState title="No venue detail" description="Venue recommendations appear after the planner creates them." />
         )}
@@ -1228,35 +1588,78 @@ function VenuesView({
       <SectionIntro
         eyebrow="Venues"
         title={venues.length > 0 ? 'Venue options ready.' : 'No venue options yet.'}
-        description="This mobile view uses planner recommendations, not a browseable marketplace."
+        description="Review contact readiness, create outreach approvals, and compare returned quotes without switching to desktop."
       />
+
+      {readyVenues.length > 0 ? (
+        <Panel className={cn(spacing.sectionGap, 'border-forest/20 bg-forest-tint')}>
+          <div className="flex flex-col gap-3">
+            <div>
+              <p className="label-caps text-forest">Outreach approvals</p>
+              <p className="mt-2 text-sm leading-6 text-ink-soft">
+                {readyVenues.length} venue{readyVenues.length === 1 ? '' : 's'} have contact emails. Create one approval per venue before anything sends.
+              </p>
+            </div>
+            <PrimaryButton onClick={() => onCreateVenueOutreachApprovals(venues)}>
+              Create outreach approvals
+            </PrimaryButton>
+            {batchFeedback ? <p className="text-sm font-semibold leading-6 text-forest">{batchFeedback}</p> : null}
+          </div>
+        </Panel>
+      ) : batchFeedback ? (
+        <Panel className={cn(spacing.sectionGap, 'border-ochre/25 bg-ochre-tint')}>
+          <p className="text-sm font-semibold leading-6 text-ink-soft">{batchFeedback}</p>
+        </Panel>
+      ) : null}
 
       <Panel className={cn(spacing.sectionGap, spacing.cardPaddingNone)}>
         {venues.length > 0 ? (
           <div className="divide-y divide-tan">
             {venues.map((venue) => (
-              <button
+              <div
                 key={venue.id}
-                type="button"
-                onClick={() => onNavigate('venue-detail')}
-                className={cn('grid w-full grid-cols-[40px_minmax(0,1fr)_16px] items-center gap-3 text-left transition-colors hover:bg-cream-deep', spacing.compactRowPadding)}
+                className={cn(spacing.compactRowPadding, 'space-y-3')}
               >
-                <IconBox><Building2 className="h-5 w-5" /></IconBox>
-                <div className="min-w-0">
-                  <p className="truncate font-display text-[18px] font-semibold leading-tight text-ink">{venue.name}</p>
-                  <div className="mt-1 flex min-w-0 items-center gap-2">
-                    <p className="min-w-0 truncate text-sm text-ink-soft">{money(venue.price_cents) ?? 'Estimate missing'}</p>
-                    <StatusPill tone="muted">{titleize(venue.status)}</StatusPill>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('venue-detail')}
+                  className="grid w-full grid-cols-[40px_minmax(0,1fr)_16px] items-center gap-3 text-left"
+                >
+                  <IconBox><Building2 className="h-5 w-5" /></IconBox>
+                  <div className="min-w-0">
+                    <p className="truncate font-display text-[18px] font-semibold leading-tight text-ink">{venue.name}</p>
+                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
+                      <p className="min-w-0 truncate text-sm text-ink-soft">{money(venue.price_cents) ?? 'Estimate missing'}</p>
+                      <StatusPill tone={contactStatusTone(venue)}>{contactStatusLabel(venue)}</StatusPill>
+                    </div>
                   </div>
-                </div>
-                <ChevronRight className="h-4 w-4 text-ink-soft" />
-              </button>
+                  <ChevronRight className="h-4 w-4 text-ink-soft" />
+                </button>
+                {venue.readiness ? <EntityReadinessBadge indicator={venue.readiness} /> : null}
+                {venue.capacityLabel ? <p className="text-xs font-semibold text-ink-faint">{venue.capacityLabel}</p> : null}
+                <ContactRescuePanel
+                  option={venue}
+                  value={venue.discoveryId ? contactEmailDrafts[venue.discoveryId] ?? '' : ''}
+                  feedback={venue.discoveryId ? contactEmailFeedback[venue.discoveryId] : null}
+                  onChange={onContactEmailDraftChange}
+                  onSave={onSaveContactEmail}
+                />
+              </div>
             ))}
           </div>
         ) : (
           <EmptyPanelMessage description="Venue recommendations appear here after the planner has enough event facts." />
         )}
       </Panel>
+
+      <QuoteComparisonPanel
+        title="Best fit based on responses"
+        quotes={quotes}
+        plan={data.planPayload?.plan ?? null}
+        feedback={quoteFeedback}
+        onCommit={onCommitQuote}
+        onCancel={onCancelQuote}
+      />
     </section>
   )
 }
@@ -1329,8 +1732,18 @@ function ApprovalPolicyView({ onNavigate }: { onNavigate: (view: MobileView) => 
   )
 }
 
-function DepositApprovalView({ approvals, onNavigate }: { approvals: Approval[]; onNavigate: (view: MobileView) => void }) {
+function DepositApprovalView({
+  approvals,
+  data,
+  onNavigate,
+}: {
+  approvals: Approval[]
+  data: MobileData
+  onNavigate: (view: MobileView) => void
+}) {
   const moneyApproval = approvals.find((approval) => (approval.price_cents ?? approval.requested_amount_cents ?? 0) > 0)
+  const readiness = primaryReadinessForMoneyApproval(data)
+  const isBlocked = Boolean(readiness && !['stripe_ready', 'committed', 'settled'].includes(readiness.status))
 
   return (
     <section>
@@ -1360,6 +1773,26 @@ function DepositApprovalView({ approvals, onNavigate }: { approvals: Approval[];
               <SimpleRow label="Refund terms" value={moneyApproval.refund_terms ?? 'Missing'} />
             </div>
           </Panel>
+          {readiness ? (
+            <Panel className={cn(spacing.cardGap, isBlocked ? 'border-ochre/25 bg-ochre-tint' : 'border-forest/20 bg-forest-tint')}>
+              <div className="flex flex-col gap-4">
+                <div>
+                  <p className="label-caps text-clay">{isBlocked ? 'Recipient setup required' : 'Recipient ready'}</p>
+                  <div className={spacing.labelToHeadline}>
+                    <EntityReadinessBadge indicator={readiness} />
+                  </div>
+                </div>
+                <p className="text-sm leading-6 text-ink-soft">
+                  {isBlocked
+                    ? 'Approving from mobile is blocked until this partner finishes setup. Notify them, then retry once Stripe is ready.'
+                    : 'Stripe readiness is clear. Final payment still requires the explicit approval flow.'}
+                </p>
+                {isBlocked ? (
+                  <SecondaryLink href="/planner/payments">Notify recipient from approvals</SecondaryLink>
+                ) : null}
+              </div>
+            </Panel>
+          ) : null}
           <Panel className={spacing.cardGap}>
             <p className="label-caps text-clay">Before approving</p>
             <p className={cn(spacing.headlineToBody, 'text-base leading-7 text-ink-soft')}>
@@ -1446,14 +1879,21 @@ function MessagesSection({ messages, activity }: { messages: PlanMessage[]; acti
 function VendorsSection({
   data,
   detail,
+  quoteFeedback,
+  onCommitQuote,
+  onCancelQuote,
   onNavigate,
 }: {
   data: MobileData
   detail?: boolean
+  quoteFeedback: Record<string, string>
+  onCommitQuote: (option: MobileQuoteOption) => void
+  onCancelQuote: (option: MobileQuoteOption) => void
   onNavigate: (view: MobileView) => void
 }) {
   const vendors = vendorRecommendations(data.planPayload?.recommendations ?? [])
   const selected = vendors[0]
+  const quotes = mobileQuoteOptions(data.planPayload?.plan).filter((quote) => quote.kind === 'vendor')
 
   if (detail) {
     return (
@@ -1465,14 +1905,27 @@ function VendorsSection({
           description="Vendor drilldowns show category, estimate, guests, and status. Reply parsing is not enabled in this mobile v1."
         />
         {selected ? (
-          <Panel className={spacing.sectionGap}>
-            <div className="grid grid-cols-2 gap-3">
-              <Metric label="Category" value="Vendor" />
-              <Metric label="Estimate" value={money(selected.price_cents) ?? 'Missing'} />
-              <Metric label="Guests" value={data.planPayload?.plan.guest_count ? String(data.planPayload.plan.guest_count) : 'Missing'} />
-              <Metric label="Status" value={titleize(selected.status)} />
-            </div>
-          </Panel>
+          <>
+            <Panel className={spacing.sectionGap}>
+              <div className="grid grid-cols-2 gap-3">
+                <Metric label="Category" value="Vendor" />
+                <Metric label="Estimate" value={money(selected.price_cents) ?? 'Missing'} />
+                <Metric label="Guests" value={data.planPayload?.plan.guest_count ? String(data.planPayload.plan.guest_count) : 'Missing'} />
+                <Metric label="Status" value={contactStatusLabel(selected)} />
+              </div>
+              {selected.readiness ? (
+                <div className="mt-4">
+                  <EntityReadinessBadge indicator={selected.readiness} />
+                </div>
+              ) : null}
+            </Panel>
+            <Panel className={cn(spacing.cardGap, 'border-ochre/25 bg-ochre-tint')}>
+              <p className="label-caps text-clay">Vendor outreach</p>
+              <p className={cn(spacing.labelToHeadline, 'text-sm leading-6 text-ink-soft')}>
+                Mobile shows vendor readiness and returned quotes. Batch vendor outreach approval needs a backend route before mobile can create those approvals directly.
+              </p>
+            </Panel>
+          </>
         ) : (
           <EmptyState title="No vendor detail" description="Vendor recommendations appear after the planner creates them." />
         )}
@@ -1485,7 +1938,7 @@ function VendorsSection({
       <SectionIntro
         eyebrow="Vendors"
         title={vendors.length > 0 ? 'Vendor options ready.' : 'No vendor options yet.'}
-        description="The host sees real planner recommendations by category, not a marketplace shelf."
+        description="Review vendor readiness and returned quotes. Booking and payment still require separate approvals."
       />
 
       <Panel className={cn(spacing.sectionGap, spacing.cardPaddingNone)}>
@@ -1501,10 +1954,11 @@ function VendorsSection({
                 <IconBox><Users className="h-5 w-5" /></IconBox>
                 <div className="min-w-0">
                   <p className="truncate font-display text-[18px] font-semibold leading-tight text-ink">{vendor.name}</p>
-                  <div className="mt-1 flex min-w-0 items-center gap-2">
+                  <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
                     <p className="min-w-0 truncate text-sm text-ink-soft">{money(vendor.price_cents) ?? 'Estimate missing'}</p>
-                    <StatusPill tone="muted">{titleize(vendor.status)}</StatusPill>
+                    <StatusPill tone={contactStatusTone(vendor)}>{contactStatusLabel(vendor)}</StatusPill>
                   </div>
+                  {vendor.readiness ? <div className="mt-2"><EntityReadinessBadge indicator={vendor.readiness} /></div> : null}
                 </div>
                 <ChevronRight className="h-4 w-4 text-ink-soft" />
               </button>
@@ -1514,12 +1968,66 @@ function VendorsSection({
           <EmptyPanelMessage description="Vendor recommendations appear here after the planner has enough event facts." />
         )}
       </Panel>
+
+      <QuoteComparisonPanel
+        title="Vendor quotes from replies"
+        quotes={quotes}
+        plan={data.planPayload?.plan ?? null}
+        feedback={quoteFeedback}
+        onCommit={onCommitQuote}
+        onCancel={onCancelQuote}
+      />
     </section>
   )
 }
 
-function OutreachSection({ onNavigate }: { onNavigate: (view: MobileView) => void }) {
-  return <SkippedOutreachView title="Outreach" description={skippedSurfaceCopy.outreach} onNavigate={onNavigate} />
+function OutreachSection({
+  data,
+  quoteFeedback,
+  onCommitQuote,
+  onCancelQuote,
+  onNavigate,
+}: {
+  data: MobileData
+  quoteFeedback: Record<string, string>
+  onCommitQuote: (option: MobileQuoteOption) => void
+  onCancelQuote: (option: MobileQuoteOption) => void
+  onNavigate: (view: MobileView) => void
+}) {
+  const quotes = mobileQuoteOptions(data.planPayload?.plan)
+  const pendingOutreachApprovals = data.planPayload?.approvals.filter(isOutreachApproval) ?? []
+  return (
+    <section>
+      <BackButton label="Back to plan" onClick={() => onNavigate('planner')} />
+      <SectionIntro
+        eyebrow="Outreach"
+        title="Review outreach and replies."
+        description="Outbound messages still require approval. Returned quotes can update the brief, but booking and payment remain separate approvals."
+      />
+      {pendingOutreachApprovals.length > 0 ? (
+        <Panel className={cn(spacing.sectionGap, 'border-clay/25 bg-clay-tint')}>
+          <p className="label-caps text-clay">Drafts pending</p>
+          <p className={cn(spacing.labelToHeadline, 'text-base leading-7 text-ink-soft')}>
+            {pendingOutreachApprovals.length} outreach draft{pendingOutreachApprovals.length === 1 ? '' : 's'} need review before Gmail sends.
+          </p>
+          <div className={spacing.bodyToAction}>
+            <PrimaryButton onClick={() => onNavigate('approval')}>Review drafts</PrimaryButton>
+          </div>
+        </Panel>
+      ) : null}
+      <QuoteComparisonPanel
+        title="Best fit based on responses"
+        quotes={quotes}
+        plan={data.planPayload?.plan ?? null}
+        feedback={quoteFeedback}
+        onCommit={onCommitQuote}
+        onCancel={onCancelQuote}
+      />
+      {quotes.length === 0 && pendingOutreachApprovals.length === 0 ? (
+        <EmptyState title="No outreach activity yet" description="Create outreach approvals from venue options once contacts are ready. Replies and quote comparisons appear here after Gmail sync parses responses." />
+      ) : null}
+    </section>
+  )
 }
 
 function SettingsSection({ billing, connections }: { billing: BillingStatus | null; connections: TicketingConnection[] }) {
@@ -1641,6 +2149,8 @@ function TicketingSection({
             : 'Connect or import ticketing data to use attendance pace in planner decisions.'}
         </p>
       </Panel>
+
+      <PlannerTicketingSetupGuideSection className={cn(spacing.cardGap, 'shadow-none')} />
 
       <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
         <PrimaryButton onClick={() => onNavigate('planner')}>Use in planner</PrimaryButton>
@@ -2220,27 +2730,220 @@ function ThreadRow({
 function venueRecommendations(recommendations: Recommendation[]) {
   return recommendations
     .filter((recommendation) => recommendation.type === 'venue')
-    .map((recommendation) => ({
-      id: recommendation.id,
-      name: recommendation.external_name ?? 'Venue recommendation',
-      price_cents: recommendation.price_cents,
-      rank: recommendation.rank,
-      status: recommendation.status,
-      reference_id: recommendation.reference_id,
-    }))
+    .map((recommendation) => recommendationToPartnerOption(recommendation, 'venue'))
 }
 
 function vendorRecommendations(recommendations: Recommendation[]) {
   return recommendations
     .filter((recommendation) => recommendation.type === 'vendor')
-    .map((recommendation) => ({
-      id: recommendation.id,
-      name: recommendation.external_name ?? 'Vendor recommendation',
-      price_cents: recommendation.price_cents,
-      rank: recommendation.rank,
-      status: recommendation.status,
-      reference_id: recommendation.reference_id,
-    }))
+    .map((recommendation) => recommendationToPartnerOption(recommendation, 'vendor'))
+}
+
+function recommendationToPartnerOption(recommendation: Recommendation, kind: 'venue' | 'vendor'): MobilePartnerOption {
+  const metadata = asRecord(recommendation.metadata)
+  const discoveryId = readString(
+    metadata?.discovery_venue_id ??
+    metadata?.discoveryVenueId ??
+    metadata?.discovery_vendor_id ??
+    metadata?.discoveryVendorId ??
+    metadata?.discovery_id ??
+    metadata?.discoveryId
+  ) ?? (isUuidLike(recommendation.reference_id) ? recommendation.reference_id : null)
+  const contactStatus = normalizeContactStatus(
+    readString(metadata?.contact_status ?? metadata?.contactStatus ?? metadata?.website_extraction_status)
+  )
+  const contactEmail = readString(metadata?.contact_email ?? metadata?.contactEmail ?? metadata?.email)
+  const extractionStatus = readString(metadata?.website_extraction_status ?? metadata?.websiteExtractionStatus)
+  const capacityKnown = readBoolean(metadata?.capacity_known ?? metadata?.capacityKnown)
+  const capacity = readNumber(metadata?.capacity ?? metadata?.capacity_max ?? metadata?.standing_capacity ?? metadata?.seated_capacity)
+  const entity = {
+    name: recommendation.external_name,
+    is_claimed: readBoolean(metadata?.is_claimed ?? metadata?.isClaimed),
+    claim_status: readString(metadata?.claim_status ?? metadata?.claimStatus),
+    stripe_connect_status: readString(metadata?.stripe_connect_status ?? metadata?.stripeConnectStatus ?? metadata?.stripe_account_status),
+    invited_at: readString(metadata?.invited_at ?? metadata?.invitedAt),
+  }
+
+  return {
+    id: recommendation.id,
+    kind,
+    discoveryId,
+    name: recommendation.external_name ?? (kind === 'venue' ? 'Venue recommendation' : 'Vendor recommendation'),
+    price_cents: recommendation.price_cents,
+    rank: recommendation.rank,
+    status: recommendation.status,
+    reference_id: recommendation.reference_id,
+    metadata,
+    contactStatus: contactEmail ? 'ready_to_reach_out' : contactStatus,
+    contactEmail,
+    contactSource: readString(metadata?.contact_email_source ?? metadata?.contactEmailSource),
+    website: readString(metadata?.website ?? metadata?.url),
+    extractionStatus,
+    sourceLabel: readString(metadata?.source_label ?? metadata?.source ?? metadata?.provider) ?? (recommendation.reference_id ? 'Catalog' : 'Discovery'),
+    capacityLabel: capacityLabel(capacityKnown, capacity),
+    readiness: resolveEntityReadiness({
+      entityType: kind,
+      entity,
+      committedAmount: null,
+    }),
+  }
+}
+
+function contactStatusLabel(option: MobilePartnerOption) {
+  if (option.contactStatus === 'ready_to_reach_out') return 'Ready'
+  if (option.contactStatus === 'contact_pending') return option.extractionStatus ? 'Checking website' : 'Contact pending'
+  if (option.contactStatus === 'no_contact_available') return 'Add email'
+  if (option.contactStatus === 'inquiry_sent') return 'Inquiry sent'
+  if (option.contactStatus === 'awaiting_claim') return 'Awaiting claim'
+  if (option.readiness?.status === 'invited') return 'Awaiting claim'
+  return titleize(option.status)
+}
+
+function contactStatusTone(option: MobilePartnerOption): StatusTone {
+  if (option.contactStatus === 'ready_to_reach_out' || option.contactStatus === 'inquiry_sent') return 'forest'
+  if (option.contactStatus === 'no_contact_available' || option.contactStatus === 'contact_pending') return 'ochre'
+  if (option.readiness?.tone === 'destructive') return 'brick'
+  return 'muted'
+}
+
+function ContactRescuePanel({
+  option,
+  value,
+  feedback,
+  onChange,
+  onSave,
+}: {
+  option: MobilePartnerOption
+  value: string
+  feedback?: string | null
+  onChange: (id: string, value: string) => void
+  onSave: (option: MobilePartnerOption) => void
+}) {
+  if (option.kind !== 'venue' || !option.discoveryId) return null
+  if (option.contactStatus === 'ready_to_reach_out' && option.contactEmail) {
+    return (
+      <div className="rounded-lg border border-forest/20 bg-forest-tint p-3">
+        <p className="text-xs font-bold uppercase tracking-[0.1em] text-forest">Contact on file</p>
+        <p className="mt-1 truncate text-sm font-semibold text-ink">{option.contactEmail}</p>
+      </div>
+    )
+  }
+
+  return (
+    <details className="rounded-lg border border-tan bg-cream-deep p-3">
+      <summary className="cursor-pointer list-none text-sm font-bold text-ink [&::-webkit-details-marker]:hidden">
+        {option.contactStatus === 'contact_pending' ? 'Website check pending' : 'Add contact email'}
+      </summary>
+      <div className="mt-3 space-y-3">
+        {option.website ? (
+          <Link href={option.website} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-2 text-sm font-bold text-clay">
+            Open website <ExternalLink className="h-4 w-4" />
+          </Link>
+        ) : null}
+        <input
+          type="email"
+          value={value}
+          onChange={(event) => onChange(option.discoveryId!, event.target.value)}
+          placeholder="booking@example.com"
+          className="min-h-12 w-full rounded-lg border border-tan bg-cream px-3 text-base text-ink outline-none focus:border-clay"
+        />
+        <button
+          type="button"
+          onClick={() => onSave(option)}
+          className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-clay px-4 text-sm font-bold text-cream"
+        >
+          Save and create draft
+        </button>
+        {feedback ? <p className="text-sm font-semibold leading-6 text-ink-soft">{feedback}</p> : null}
+      </div>
+    </details>
+  )
+}
+
+function QuoteComparisonPanel({
+  title,
+  quotes,
+  plan,
+  feedback,
+  onCommit,
+  onCancel,
+}: {
+  title: string
+  quotes: MobileQuoteOption[]
+  plan: Plan | null
+  feedback: Record<string, string>
+  onCommit: (option: MobileQuoteOption) => void
+  onCancel: (option: MobileQuoteOption) => void
+}) {
+  const actionable = quotes.filter((quote) => quote.quoteCents !== null || /favorable|available|quoted|reply/i.test(quote.status))
+  if (actionable.length === 0) return null
+
+  return (
+    <Panel className={cn(spacing.cardGap, 'border-forest/20 bg-forest/5')}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="label-caps text-forest">Reply quotes</p>
+          <h2 className={cn(spacing.labelToHeadline, 'font-display text-[24px] leading-tight text-ink')}>{title}</h2>
+          <p className={cn(spacing.headlineToBody, 'text-sm leading-6 text-ink-soft')}>
+            Compare verified replies before updating the brief. Booking and payment still need separate approvals.
+          </p>
+        </div>
+        <StatusPill tone="forest">{actionable.length} option{actionable.length === 1 ? '' : 's'}</StatusPill>
+      </div>
+      <div className={cn(spacing.bodyToAction, 'space-y-3')}>
+        {actionable.map((quote) => (
+          <MobileQuoteCard
+            key={quoteKey(quote)}
+            quote={quote}
+            isCommitted={isQuoteCommitted(plan, quote)}
+            feedback={feedback[quoteKey(quote)]}
+            onCommit={onCommit}
+            onCancel={onCancel}
+          />
+        ))}
+      </div>
+    </Panel>
+  )
+}
+
+function MobileQuoteCard({
+  quote,
+  isCommitted,
+  feedback,
+  onCommit,
+  onCancel,
+}: {
+  quote: MobileQuoteOption
+  isCommitted: boolean
+  feedback?: string
+  onCommit: (option: MobileQuoteOption) => void
+  onCancel: (option: MobileQuoteOption) => void
+}) {
+  return (
+    <div className="rounded-lg border border-tan bg-cream p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="label-caps text-clay">{quote.kind === 'venue' ? 'Venue' : titleize(quote.serviceType ?? 'vendor')}</p>
+          <h3 className="mt-1 truncate font-display text-[21px] leading-tight text-ink">{quote.name}</h3>
+        </div>
+        <StatusPill tone={isCommitted ? 'forest' : 'clay'}>{isCommitted ? 'Accepted' : titleize(quote.status)}</StatusPill>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <Metric label="Quote" value={money(quote.quoteCents) ?? 'Review'} />
+        <Metric label="Confidence" value={quote.confidence !== null ? `${Math.round(quote.confidence * 100)}%` : 'Review'} />
+      </div>
+      {quote.summary ? <p className="mt-3 text-sm leading-6 text-ink-soft">{quote.summary}</p> : null}
+      <div className="mt-4 grid gap-2">
+        <PrimaryButton disabled={isCommitted} onClick={() => onCommit(quote)}>
+          {isCommitted ? 'Accepted' : `Accept this ${quote.kind}`}
+        </PrimaryButton>
+        {isCommitted ? (
+          <SecondaryButton onClick={() => onCancel(quote)}>Cancel acceptance</SecondaryButton>
+        ) : null}
+        {feedback ? <p className="text-sm font-semibold leading-6 text-ink-soft">{feedback}</p> : null}
+      </div>
+    </div>
+  )
 }
 
 function approvalIcon(approval: Approval) {
@@ -2261,6 +2964,179 @@ function approvalStatusLabel(approval: Approval) {
   if (approval.action_label.toLowerCase().includes('hold')) return 'Hold'
   if (approval.action_label.toLowerCase().includes('send')) return 'Send'
   return titleize(approval.status)
+}
+
+function isOutreachApproval(approval: Approval) {
+  const text = `${approval.action_label} ${approval.package_details ?? ''}`.toLowerCase()
+  return text.includes('outreach') || text.includes('gmail') || text.includes('send')
+}
+
+function primaryReadinessForMoneyApproval(data: MobileData) {
+  const venues = venueRecommendations(data.planPayload?.recommendations ?? [])
+  const vendors = vendorRecommendations(data.planPayload?.recommendations ?? [])
+  return venues.find((venue) => venue.readiness)?.readiness ?? vendors.find((vendor) => vendor.readiness)?.readiness ?? null
+}
+
+function mobileQuoteOptions(plan: Plan | null | undefined): MobileQuoteOption[] {
+  const metadata = asRecord(plan?.metadata)
+  const summary = asRecord(metadata?.outreach_response_summary)
+  return [
+    ...readQuoteList(summary?.venues, 'venue'),
+    ...readQuoteList(summary?.vendors, 'vendor'),
+  ]
+}
+
+function readQuoteList(value: unknown, kind: 'venue' | 'vendor'): MobileQuoteOption[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    const record = asRecord(item)
+    if (!record) return []
+    const discoveryId = readString(
+      record.discovery_venue_id ??
+      record.discoveryVenueId ??
+      record.discovery_vendor_id ??
+      record.discoveryVendorId ??
+      record.discovery_id ??
+      record.discoveryId
+    )
+    if (!discoveryId) return []
+    return [{
+      kind,
+      discoveryId,
+      name:
+        readString(record.venue_name) ??
+        readString(record.vendor_name) ??
+        readString(record.name) ??
+        (kind === 'venue' ? 'Venue response' : 'Vendor response'),
+      serviceType: readString(record.service_type ?? record.serviceType),
+      status: readString(record.status) ?? 'reply_received',
+      quoteCents:
+        readNumber(record.quote_cents) ??
+        readNumber(record.quoted_price_cents) ??
+        readNumber(record.quoted_package_cents) ??
+        readNumber(record.price_cents) ??
+        readNumber(record.amount_cents),
+      summary: readString(record.summary ?? record.notes ?? record.reply_summary),
+      confidence: readNumber(record.confidence ?? record.extraction_confidence),
+      updatedAt: readString(record.updated_at ?? record.created_at),
+    }]
+  })
+}
+
+function quoteKey(option: MobileQuoteOption) {
+  return `${option.kind}:${option.discoveryId}:${option.serviceType ?? 'default'}`
+}
+
+function quoteTerms(option: MobileQuoteOption) {
+  return {
+    source: 'outreach_reply',
+    status: option.status,
+    summary: option.summary,
+    confidence: option.confidence,
+    updated_at: option.updatedAt,
+  }
+}
+
+function isQuoteCommitted(plan: Plan | null, option: MobileQuoteOption) {
+  if (!plan) return false
+  if (option.kind === 'venue') {
+    return readCommittedVenue(plan)?.discoveryId === option.discoveryId
+  }
+  return readCommittedVendors(plan).some((vendor) =>
+    vendor.discoveryId === option.discoveryId ||
+    vendor.serviceType === (option.serviceType ?? 'other')
+  )
+}
+
+function readCommittedVenue(plan: Plan | null | undefined): CommittedVenueState | null {
+  const metadata = asRecord(plan?.metadata)
+  const acceptedQuoteState = asRecord(metadata?.accepted_quote_state)
+  const raw = asRecord(metadata?.committed_venue) ?? asRecord(acceptedQuoteState?.venue) ?? {
+    discovery_venue_id: plan?.committed_venue_id,
+    quoted_price_cents: plan?.committed_venue_quoted_price_cents,
+    quoted_deal_model: plan?.committed_venue_quoted_deal_model,
+    committed_at: plan?.committed_venue_at,
+  }
+  const discoveryId = readString(raw.discovery_venue_id ?? raw.discoveryVenueId)
+  const quotedPriceCents = readNumber(raw.quoted_price_cents ?? raw.quotedPriceCents)
+  const committedAt = readString(raw.committed_at ?? raw.committedAt)
+  if (!discoveryId && quotedPriceCents === null && !committedAt) return null
+  return {
+    discoveryId,
+    quotedPriceCents,
+    quotedDealModel: readString(raw.quoted_deal_model ?? raw.quotedDealModel),
+    committedAt,
+  }
+}
+
+function readCommittedVendors(plan: Plan | null | undefined): CommittedVendorState[] {
+  const metadata = asRecord(plan?.metadata)
+  const acceptedQuoteState = asRecord(metadata?.accepted_quote_state)
+  const raw = Array.isArray(plan?.committed_vendors)
+    ? plan?.committed_vendors
+    : Array.isArray(metadata?.committed_vendors)
+      ? metadata?.committed_vendors
+      : Array.isArray(acceptedQuoteState?.vendors)
+        ? acceptedQuoteState?.vendors
+        : []
+  return raw.flatMap((item) => {
+    const record = asRecord(item)
+    if (!record) return []
+    return [{
+      discoveryId: readString(record.discovery_vendor_id ?? record.discoveryVendorId ?? record.vendor_id),
+      serviceType: readString(record.service_type ?? record.serviceType) ?? 'other',
+      quotedPackageCents: readNumber(record.quoted_package_cents ?? record.quotedPackageCents),
+      quotedHourlyCents: readNumber(record.quoted_hourly_cents ?? record.quotedHourlyCents),
+      quotedMinimumCents: readNumber(record.quoted_minimum_cents ?? record.quotedMinimumCents),
+      committedAt: readString(record.committed_at ?? record.committedAt),
+    }]
+  })
+}
+
+function committedVendorAmount(vendor: CommittedVendorState) {
+  return vendor.quotedPackageCents ?? vendor.quotedMinimumCents ?? vendor.quotedHourlyCents
+}
+
+function normalizeContactStatus(value: string | null): ContactStatus | null {
+  const normalized = String(value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+  if (!normalized) return null
+  if (normalized.includes('ready')) return 'ready_to_reach_out'
+  if (normalized.includes('pending') || normalized.includes('extract') || normalized.includes('checking')) return 'contact_pending'
+  if (normalized.includes('sent') || normalized.includes('inquiry')) return 'inquiry_sent'
+  if (normalized.includes('claim')) return 'awaiting_claim'
+  if (normalized.includes('no_contact') || normalized.includes('missing') || normalized.includes('unavailable')) return 'no_contact_available'
+  return null
+}
+
+function capacityLabel(capacityKnown: boolean | null, capacity: number | null) {
+  if (capacity !== null) return `${capacity.toLocaleString()} capacity`
+  if (capacityKnown === false) return 'Capacity TBD — confirm with venue'
+  return null
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function readNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function readBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null
+}
+
+function isUuidLike(value: string | null | undefined) {
+  return Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value))
 }
 
 function fallbackProgress(plan: Plan): ProgressItem[] {
