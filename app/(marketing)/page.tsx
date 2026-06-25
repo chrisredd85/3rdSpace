@@ -529,6 +529,7 @@ export default function HomePage() {
           <div>
             <Caps>Legal</Caps>
             <ul className="mt-4 space-y-2 text-[14px] text-ink-soft">
+              <li><Link href="/support" className="hover:text-ink">Support</Link></li>
               <li><Link href="/terms" className="hover:text-ink">Terms</Link></li>
               <li><Link href="/privacy" className="hover:text-ink">Privacy</Link></li>
             </ul>

@@ -16,6 +16,7 @@ import {
   CreditCard,
   FileText,
   Handshake,
+  LifeBuoy,
   Mail,
   MessageSquare,
   Settings,
@@ -154,6 +155,7 @@ export const PlannerSidebar = memo(function PlannerSidebar({
     { label: 'Settlements', href: '/planner/settlements', icon: Handshake },
     { label: 'Billing', href: '/planner/billing', icon: WalletCards },
     { label: 'Analytics', href: '/planner/analytics', icon: BarChart3 },
+    { label: 'Support', href: '/planner/support', icon: LifeBuoy },
     { label: 'Settings', href: '/planner/settings', icon: Settings },
   ]
 
