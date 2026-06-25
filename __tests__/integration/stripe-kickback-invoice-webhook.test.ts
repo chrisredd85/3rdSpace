@@ -517,6 +517,52 @@ describe('Stripe kickback invoice webhook routing', () => {
     })
   })
 
+  it('rejects non-USD CHI invoices without creating a transfer', async () => {
+    event = {
+      id: 'evt_chi_invoice_paid_eur',
+      type: 'invoice.paid',
+      data: {
+        object: {
+          id: 'in_chi_eur',
+          currency: 'eur',
+          amount_paid: 200000,
+          metadata: {
+            payment_type: 'community_host_incentive',
+            chi_settlement_id: CHI_SETTLEMENT_ID,
+            chi_agreement_id: CHI_AGREEMENT_ID,
+            builder_stripe_account_id: 'acct_builder',
+            principal_cents: '200000',
+          },
+        },
+      },
+    }
+
+    const response = await POST(makeWebhookRequest())
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json).toEqual({ received: true, ignored: true, reason: 'non_usd_currency' })
+    expect(stripe.transfers.create).not.toHaveBeenCalled()
+    expect(db.rows.community_host_incentive_settlements[0]).toMatchObject({
+      status: 'invoice_sent',
+      stripe_transfer_id: null,
+    })
+    expect(mockCaptureMessage).toHaveBeenCalledWith('CHI invoice non-USD', {
+      level: 'error',
+      extra: {
+        invoice_id: 'in_chi_eur',
+        currency: 'eur',
+        amount: 200000,
+      },
+    })
+    expect(db.rows.stripe_webhook_events[0]).toMatchObject({
+      stripe_event_id: 'evt_chi_invoice_paid_eur',
+      event_type: 'invoice.paid',
+      processing_outcome: 'ignored',
+      processed: true,
+    })
+  })
+
   it('does not create a second CHI transfer when Stripe redelivers the same invoice under a new event id', async () => {
     const invoice = {
       id: 'in_chi',

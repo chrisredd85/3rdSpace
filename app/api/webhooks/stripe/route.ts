@@ -46,6 +46,12 @@ export const runtime = 'nodejs'
 const KICKBACK_TRANSFER_NAMESPACE = 'venue_builder_kickback'
 const CHI_PAYMENT_TYPE = 'community_host_incentive'
 
+type CHIInvoicePaidResult = {
+  handled: boolean
+  ignored?: boolean
+  reason?: string
+}
+
 function captureLegacyCHIWebhook(stripeEventId: string, eventType: string, stripeObjectId: string) {
   Sentry.captureMessage('legacy_chi_webhook_received', {
     level: 'warning',
@@ -95,6 +101,10 @@ function isKickbackTransferEvent(transfer: Stripe.Transfer) {
 
 function isCommunityHostIncentiveInvoice(invoice: Stripe.Invoice) {
   return invoice.metadata?.payment_type === CHI_PAYMENT_TYPE
+}
+
+function assertUsdInvoice(invoice: Stripe.Invoice) {
+  return !invoice.currency || invoice.currency.toLowerCase() === 'usd'
 }
 
 function isCommunityHostIncentiveTransferEvent(transfer: Stripe.Transfer) {
@@ -250,8 +260,25 @@ async function applyKickbackTransferEvent(admin: any, transfer: Stripe.Transfer,
   return true
 }
 
-async function applyCommunityHostIncentiveInvoicePaid(admin: any, invoice: Stripe.Invoice) {
-  if (!isCommunityHostIncentiveInvoice(invoice)) return false
+async function applyCommunityHostIncentiveInvoicePaid(admin: any, invoice: Stripe.Invoice): Promise<CHIInvoicePaidResult> {
+  if (!isCommunityHostIncentiveInvoice(invoice)) return { handled: false }
+
+  if (!assertUsdInvoice(invoice)) {
+    console.error('[stripe webhook] non-USD CHI invoice rejected', {
+      invoice_id: invoice.id,
+      currency: invoice.currency,
+      amount: invoice.amount_paid,
+    })
+    Sentry.captureMessage('CHI invoice non-USD', {
+      level: 'error',
+      extra: {
+        invoice_id: invoice.id,
+        currency: invoice.currency,
+        amount: invoice.amount_paid,
+      },
+    })
+    return { handled: true, ignored: true, reason: 'non_usd_currency' }
+  }
 
   const settlementId = invoice.metadata?.chi_settlement_id
   const agreementId = invoice.metadata?.chi_agreement_id
@@ -264,7 +291,7 @@ async function applyCommunityHostIncentiveInvoicePaid(admin: any, invoice: Strip
       settlementId,
       agreementId,
     })
-    return true
+    return { handled: true }
   }
 
   const { data: settlement, error: settlementError } = await admin
@@ -274,8 +301,8 @@ async function applyCommunityHostIncentiveInvoicePaid(admin: any, invoice: Strip
     .maybeSingle()
 
   if (settlementError) throw new Error(settlementError.message)
-  if (!settlement?.id) return true
-  if (settlement.status === 'paid' || settlement.stripe_transfer_id) return true
+  if (!settlement?.id) return { handled: true }
+  if (settlement.status === 'paid' || settlement.stripe_transfer_id) return { handled: true }
 
   const stripe = getStripeClient()
   const transfer = await stripe.transfers.create(
@@ -346,7 +373,7 @@ async function applyCommunityHostIncentiveInvoicePaid(admin: any, invoice: Strip
     )
   }
 
-  return true
+  return { handled: true }
 }
 
 async function applyCommunityHostIncentiveInvoicePaymentFailed(admin: any, invoice: Stripe.Invoice) {
@@ -889,7 +916,11 @@ export async function POST(request: NextRequest) {
     if (event.type === 'invoice.paid') {
       const invoice = event.data.object as Stripe.Invoice
       const handledCHIInvoice = await applyCommunityHostIncentiveInvoicePaid(admin as any, invoice)
-      if (!handledCHIInvoice) {
+      if (handledCHIInvoice.ignored) {
+        outcome = 'ignored'
+        responseBody = { received: true, ignored: true, reason: handledCHIInvoice.reason }
+      }
+      if (!handledCHIInvoice.handled) {
         const handledKickbackInvoice = await applyKickbackInvoicePaid(admin as any, invoice, event.id)
         if (!handledKickbackInvoice) {
           await applyInvoicePayment(admin as any, invoice)
