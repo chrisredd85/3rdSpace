@@ -329,6 +329,10 @@ interface AuthorizationCardModel {
   amountLabel: string
   amountCents: number
   approvalId?: string
+  targetType?: string | null
+  targetId?: string | null
+  readinessIndicator?: EntityReadinessIndicator | null
+  isStripeGated?: boolean
 }
 
 interface PlannerAgentActionRequest {
@@ -1338,7 +1342,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const primaryVenue = venueRecommendations[0] ?? null
   const primaryVenueReadiness = resolveVenueReadiness(primaryVenue, livePlan, relativeNowMs)
   const openQuestions = buildOpenQuestions(eventSummary, renderedRecommendations)
-  const authorizationCards = buildAuthorizationCards(renderedApprovals, primaryVenue, renderedBudgetLineItems)
+  const authorizationCards = buildAuthorizationCards(renderedApprovals, primaryVenue, renderedBudgetLineItems, primaryVenueReadiness)
   const profitModel = useMemo(
     () => buildProfitModel(eventSummary, renderedRecommendations, renderedBudgetLineItems, customCosts, projectionBaseline, livePlan),
     [eventSummary, renderedBudgetLineItems, renderedRecommendations, customCosts, projectionBaseline, livePlan]
@@ -2315,20 +2319,33 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                     </div>
                   ) : null}
 
+                  {approval.isStripeGated && approval.readinessIndicator ? (
+                    <div className="mt-4 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-ink-soft">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <AlertCircle className="h-4 w-4 text-warning" aria-hidden="true" />
+                        <p className="font-semibold text-ink">Payment authorization blocked</p>
+                        <EntityReadinessBadge indicator={approval.readinessIndicator} />
+                      </div>
+                      <p className="mt-2">
+                        This partner needs to finish Stripe setup before 3rdPlace can authorize or send money. The server will send a setup reminder when you retry.
+                      </p>
+                    </div>
+                  ) : null}
+
                   <div className="mt-5 flex gap-3">
                     <button
                       type="button"
-                      disabled={isLoading || isSent}
+                      disabled={isLoading || isSent || approval.isStripeGated}
                       onClick={() => void handleAuthorizationAction(approval)}
                       className={cn(
                         'inline-flex flex-1 items-center justify-center rounded-md px-4 py-3 text-sm font-semibold transition-colors',
                         isSent
                           ? 'bg-forest text-cream'
                           : 'bg-gradient-brand text-cream hover:opacity-90',
-                        (isLoading || isSent) && 'cursor-not-allowed opacity-90'
+                        (isLoading || isSent || approval.isStripeGated) && 'cursor-not-allowed opacity-70'
                       )}
                     >
-                      {isLoading ? 'Sending...' : isSent ? 'Request sent ✓' : approval.amountCents === 0 ? 'Authorize' : 'Approve'}
+                      {isLoading ? 'Sending...' : isSent ? 'Request sent ✓' : approval.isStripeGated ? 'Stripe setup needed' : approval.amountCents === 0 ? 'Authorize' : 'Approve'}
                     </button>
                     <button
                       type="button"
@@ -2408,8 +2425,8 @@ PlannerLivePlanPanel.displayName = 'PlannerLivePlanPanel'
 function buildLivePlanAgentActionPayload(card: AuthorizationCardModel): PlannerAgentActionRequest {
   return {
     actionType: 'hold_request',
-    targetType: 'venue',
-    targetId: null,
+    targetType: card.targetType ?? 'venue',
+    targetId: card.targetId ?? null,
     payloadJson: {
       source: 'live_plan_panel',
       label: card.label,
@@ -2419,6 +2436,8 @@ function buildLivePlanAgentActionPayload(card: AuthorizationCardModel): PlannerA
       price_cents: card.amountCents,
       fees_cents: 0,
       package_details: card.subtitle,
+      payment_required: card.amountCents > 0,
+      requires_stripe_recipient: card.amountCents > 0,
     },
     requestedAmountCents: card.amountCents,
   }
@@ -3946,8 +3965,9 @@ function summaryMatches(summary: EventSummary, pattern: RegExp) {
 function buildAuthorizationCards(
   approvals: PendingApproval[],
   primaryVenue: RecommendationSummary | null,
-  budgetItems: BudgetLineItem[]
-) {
+  budgetItems: BudgetLineItem[],
+  primaryVenueReadiness: EntityReadinessIndicator | null
+): AuthorizationCardModel[] {
   if (approvals.length > 0) {
     return approvals.map((approval) => ({
       id: approval.id,
@@ -3960,6 +3980,10 @@ function buildAuthorizationCards(
 
   const venueCost = primaryVenue?.priceCents ?? budgetItems[0]?.amountCents ?? 0
   if (!primaryVenue) return []
+  const venueStripeGated = venueCost > 0 && Boolean(
+    primaryVenueReadiness &&
+      !['stripe_ready', 'committed', 'settled'].includes(primaryVenueReadiness.status)
+  )
 
   return [
     {
@@ -3968,6 +3992,10 @@ function buildAuthorizationCards(
       subtitle: 'Matches the recommendation estimate before final venue terms are confirmed',
       amountLabel: venueCost > 0 ? formatCents(venueCost) : 'TBD',
       amountCents: venueCost,
+      targetType: 'venue',
+      targetId: primaryVenue.id,
+      readinessIndicator: primaryVenueReadiness,
+      isStripeGated: venueStripeGated,
     },
     {
       id: 'venue-hold',
@@ -3975,6 +4003,8 @@ function buildAuthorizationCards(
       subtitle: `${primaryVenue?.holdDurationHours ?? 48}-hour temporary venue hold`,
       amountLabel: 'No charge',
       amountCents: 0,
+      targetType: 'venue',
+      targetId: primaryVenue.id,
     },
   ]
 }

@@ -32,11 +32,16 @@ import { approvalRequiresReapproval } from '@/lib/planner/execution/reapproval'
 import { executeApprovedGmailOutreach } from '@/lib/outreach/gmailApprovalFlow'
 import { enqueueDraftsAfterVenueApproval } from '@/lib/planner/discoveryOutreachDrafts'
 import {
+  checkAuthorizationActionStripeGate,
+  getStripeGateErrorMessage,
+} from '@/lib/planner/stripeReadinessGate'
+import {
   BuilderBillingRequiredError,
   consumeBuilderEventAccess,
   getBuilderBillingSummary,
   loadBuilderBillingProfileByUserId,
 } from '@/lib/billing/builder-billing'
+import { notifyEntityStripeSetup } from '@/lib/server/notifyEntityStripeSetup'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type {
   AgentAction,
@@ -225,6 +230,16 @@ export async function PATCH(
         { error: 'Plan details changed after this approval was created. Review the latest recommendations and approve again.' },
         { status: 409 }
       )
+    }
+
+    if (parsed.data.action === 'authorize' || parsed.data.action === 'approve') {
+      const stripeGate = await checkApprovalStripeGate({
+        db: createServiceRoleClient() as unknown as PlannerDb,
+        approval: existingApproval,
+        planId: context.params.planId,
+        organizerId: auth.userId,
+      })
+      if (stripeGate) return stripeGate
     }
 
     const updates = buildApprovalUpdates(approvalTransition.to, auth.userId, parsed.data.authorizedAmountCents)
@@ -729,6 +744,55 @@ async function loadAgentAction(db: PlannerDb, actionId: string): Promise<AgentAc
   }
 
   return (data as AgentAction | null) ?? null
+}
+
+async function checkApprovalStripeGate(input: {
+  db: PlannerDb
+  approval: Approval
+  planId: string
+  organizerId: string
+}): Promise<NextResponse<PlannerApiErrorResponse> | null> {
+  const action = await loadAgentAction(input.db, input.approval.agent_action_id)
+  if (!action) return null
+
+  const gateResult = await checkAuthorizationActionStripeGate({
+    supabase: input.db,
+    actionType: action.action_type,
+    targetType: action.target_type,
+    targetId: action.target_id,
+    amountCents: action.amount_cents,
+    payload: action.payload_json,
+    resultMetadata: action.result_metadata,
+  })
+  if (!gateResult || gateResult.gate.ready) return null
+
+  if (gateResult.target.entityType === 'venue' || gateResult.target.entityType === 'vendor') {
+    notifyEntityStripeSetup({
+      supabase: input.db,
+      entityType: gateResult.target.entityType,
+      entityId: gateResult.target.entityId,
+      planId: input.planId,
+      organizerId: input.organizerId,
+      reason: gateResult.gate.reason,
+    }).catch((error) => {
+      console.error('Planner approval Stripe setup notification failed:', error)
+    })
+  }
+
+  return NextResponse.json(
+    {
+      error: getStripeGateErrorMessage({
+        entityType: gateResult.target.entityType,
+        reason: gateResult.gate.reason,
+      }),
+      details: {
+        code: 'stripe_recipient_not_ready',
+        stripe_gate: gateResult.gate,
+        target: gateResult.target,
+      } as Json,
+    },
+    { status: 409 }
+  )
 }
 
 async function persistAgentActionTransition(

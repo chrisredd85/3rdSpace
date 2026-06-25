@@ -189,6 +189,40 @@ describe('PlannerLivePlanPanel', () => {
     expect(screen.getAllByText('Stripe-ready').length).toBeGreaterThan(0)
   })
 
+  it('blocks payment authorization when the selected venue still needs Stripe setup', async () => {
+    window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      plan: makePlanSnapshot({
+        title: 'Venue setup needed plan',
+        guestCount: 50,
+        neighborhood: 'Mission',
+      }),
+      messages: [
+        makeRecommendationMessage('recommendation-stripe-needed', [
+          {
+            id: 'venue-stripe-needed',
+            name: 'Moongate Lounge',
+            type: 'venue',
+            price_cents: 320000,
+            address: 'Mission',
+            capacity: 80,
+            fit: 'Capacity-fit lounge still finishing payout setup.',
+            is_claimed: true,
+            claim_status: 'claimed',
+          },
+        ]),
+      ],
+      planId: 'plan-stripe-needed-brief',
+    }))
+
+    render(<PlannerLivePlanPanel inline />)
+
+    expect(await screen.findByRole('heading', { name: 'Venue setup needed plan' })).toBeInTheDocument()
+    expect(screen.getByText('Payment authorization blocked')).toBeInTheDocument()
+    expect(screen.getAllByText('Stripe setup needed').length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Stripe setup needed' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Authorize' })).toBeEnabled()
+  })
+
   it('renders projection source badge and historical range when a baseline is available', async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       baseline: {
