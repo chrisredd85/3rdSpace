@@ -21,7 +21,12 @@ jest.mock('@/lib/stripe/connect', () => ({
   ),
 }))
 
-import { hashSettlementToken, startSettlementCheckout } from '@/lib/finance/settlement-checkout'
+import * as Sentry from '@sentry/nextjs'
+import {
+  SettlementApprovalAmountDriftError,
+  hashSettlementToken,
+  startSettlementCheckout,
+} from '@/lib/finance/settlement-checkout'
 import { getStripeClient } from '@/lib/stripe/connect'
 import {
   APPROVAL_ID,
@@ -99,6 +104,59 @@ describe('CHI settlement checkout flow', () => {
       checkout_url: 'https://checkout.stripe.test/session',
     })
     expect(db.rows.settlement_runs[0].status).toBe('awaiting_venue_payment')
+  })
+
+  it('blocks checkout when the approved amount no longer matches the current settlement total', async () => {
+    const db = new SettlementMemoryDb()
+    db.rows.approvals[0].authorized_amount_cents = 11000
+    db.rows.venue_settlement_tokens.push({
+      id: 'token-1',
+      settlement_run_id: SETTLEMENT_RUN_ID,
+      token_hash: hashSettlementToken('settlement-token'),
+      venue_email: 'venue@example.com',
+      expires_at: '2099-01-01T00:00:00Z',
+      first_viewed_at: null,
+      revoked_at: null,
+    })
+
+    const stripe = {
+      checkout: {
+        sessions: {
+          create: jest.fn(),
+        },
+      },
+    }
+    mockGetStripeClient.mockReturnValue(stripe)
+
+    const result = await startSettlementCheckout(
+      db as never,
+      'settlement-token',
+      new Request('https://www.3rdplace.io/api/venue/settlement/token/pay'),
+    )
+
+    expect(result.status).toBe(409)
+    expect(result.body).toEqual({
+      error: 'Settlement amount changed since it was approved. Re-approve at $120.00 to continue.',
+      code: 'approval_amount_drift',
+      current_total_cents: 12000,
+      approval_amount_cents: 11000,
+    })
+    expect(stripe.checkout.sessions.create).not.toHaveBeenCalled()
+    expect(db.rows.settlement_charges).toHaveLength(0)
+    expect(Sentry.captureException).toHaveBeenCalledWith(
+      expect.any(SettlementApprovalAmountDriftError),
+      expect.objectContaining({
+        level: 'warning',
+        tags: expect.objectContaining({ code: 'approval_amount_drift' }),
+        extra: expect.objectContaining({
+          approval_id: APPROVAL_ID,
+          run_id: SETTLEMENT_RUN_ID,
+          approval_amount: 11000,
+          current_total: 12000,
+          drift_amount: 1000,
+        }),
+      }),
+    )
   })
 
   it('blocks checkout when the organizer Stripe account is restricted', async () => {

@@ -119,6 +119,22 @@ type SettlementApprovalRow = {
 
 const TOKEN_TTL_DAYS = 14
 
+export class SettlementApprovalAmountDriftError extends Error {
+  constructor(
+    public details: {
+      planId: string | null
+      approval_id: string
+      run_id: string
+      approval_amount: number | null
+      current_total: number
+      drift_amount: number | null
+    },
+  ) {
+    super('Approval amount no longer matches settlement total')
+    this.name = 'SettlementApprovalAmountDriftError'
+  }
+}
+
 export function hashSettlementToken(rawToken: string) {
   return createHmac('sha256', getSettlementTokenSecret()).update(rawToken).digest('hex')
 }
@@ -410,6 +426,28 @@ export async function startSettlementCheckout(
   const approval = await loadAuthorizedSettlementApproval(admin, run.id)
   if (!approval) {
     return { status: 409 as const, body: { error: 'Organizer approval is required before payment', code: 'approval_required' } }
+  }
+  const amountDrift = validateSettlementApprovalAmount({
+    approval,
+    run,
+    planId: context.plan?.id ?? null,
+    currentTotalCents: amountCents,
+  })
+  if (amountDrift) {
+    Sentry.captureException(amountDrift, {
+      level: 'warning',
+      tags: { area: 'chi_settlement_checkout', code: 'approval_amount_drift' },
+      extra: amountDrift.details,
+    })
+    return {
+      status: 409 as const,
+      body: {
+        error: `Settlement amount changed since it was approved. Re-approve at ${formatCents(amountCents)} to continue.`,
+        code: 'approval_amount_drift',
+        current_total_cents: amountCents,
+        approval_amount_cents: approval.authorized_amount_cents,
+      },
+    }
   }
 
   const organizerGate = await checkStripeReadinessForAuthorization({
@@ -899,6 +937,25 @@ async function loadActiveSettlementCharge(admin: SupabaseAdminClient, settlement
 
   if (error) throw new Error(error.message ?? 'Failed to load settlement charge')
   return data ? normalizeCharge(data) : null
+}
+
+function validateSettlementApprovalAmount(input: {
+  approval: SettlementApprovalRow
+  run: SettlementRunRow
+  planId: string | null
+  currentTotalCents: number
+}) {
+  const approvalAmount = input.approval.authorized_amount_cents
+  if (approvalAmount === input.currentTotalCents) return null
+
+  return new SettlementApprovalAmountDriftError({
+    planId: input.planId,
+    approval_id: input.approval.id,
+    run_id: input.run.id,
+    approval_amount: approvalAmount,
+    current_total: input.currentTotalCents,
+    drift_amount: approvalAmount == null ? null : input.currentTotalCents - approvalAmount,
+  })
 }
 
 async function loadChargeForCheckoutSession(admin: SupabaseAdminClient, session: Stripe.Checkout.Session) {
