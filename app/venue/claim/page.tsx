@@ -1,8 +1,10 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Button } from '@/components/ui/button'
+import { VenueInviteClaimFlow } from '@/components/venue/VenueInviteClaimFlow'
 import { VenueOpportunityClaimFlow } from '@/components/venue/VenueOpportunityClaimFlow'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { getVenueClaimDetails } from '@/lib/venues/venueClaims'
 import { loadVenueOpportunityRecoveryContext } from '@/lib/venues/venueOpportunityRecovery'
 
 export const dynamic = 'force-dynamic'
@@ -17,6 +19,16 @@ export default async function VenueClaimPage({ searchParams }: VenueClaimPagePro
   if (!token) return <ClaimError message="Missing venue opportunity token." />
 
   const admin = createServiceRoleClient()
+  const inviteResult = await getVenueClaimDetails(token)
+  if (inviteResult.ok) {
+    return (
+      <VenueInviteClaimFlow
+        token={token}
+        details={inviteResult.details}
+      />
+    )
+  }
+
   const context = await loadVenueOpportunityRecoveryContext(admin, token)
   if (!context) notFound()
 
