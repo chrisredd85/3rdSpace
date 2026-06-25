@@ -6,6 +6,16 @@ import { shouldStartNewPlanFromReply } from '@/components/planner/planner-page/p
 import { ToastProvider } from '@/components/ui/toast'
 import type { Plan } from '@/lib/types'
 
+jest.mock('@/components/planner/InviteVenueModal', () => ({
+  InviteVenueModal: ({ isOpen }: { isOpen: boolean }) =>
+    isOpen ? <section role="dialog" aria-label="Invite a venue">Invite a venue form</section> : null,
+}))
+
+jest.mock('@/components/planner/InviteVendorModal', () => ({
+  InviteVendorModal: ({ isOpen }: { isOpen: boolean }) =>
+    isOpen ? <section role="dialog" aria-label="Invite a vendor">Invite a vendor form</section> : null,
+}))
+
 const mockReplace = jest.fn()
 const mockPush = jest.fn()
 let mockPathname = '/planner'

@@ -1,14 +1,14 @@
 'use client'
 
-import type { FormEvent } from 'react'
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { CheckCircle2, Link2, Mail, MapPin, Package, Search, SlidersHorizontal, UserPlus } from 'lucide-react'
-import { inviteVendor } from '@/app/actions/vendorInvites'
 import { BookedPartnersWorkspace } from '@/components/planner/BookedPartnersWorkspace'
+import { InviteVendorForm } from '@/components/planner/InviteVendorForm'
+import { updatePlannerLivePlanPayload } from '@/components/planner/plannerLivePlanStorage'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { CheckCircle2, MapPin, Package, Search, SlidersHorizontal, UserPlus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface CatalogVendor {
@@ -286,57 +286,6 @@ interface InviteKnownVendorPanelProps {
 
 function InviteKnownVendorPanel({ activePlanId, onCatalogChanged }: InviteKnownVendorPanelProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [isPending, startTransition] = useTransition()
-  const [result, setResult] = useState<{
-    ok: boolean
-    message: string
-    claimUrl?: string
-    existing?: boolean
-    emailSent?: boolean
-  } | null>(null)
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const formData = new FormData(event.currentTarget)
-
-    startTransition(async () => {
-      const response = await inviteVendor({
-        vendorName: String(formData.get('vendorName') || ''),
-        email: String(formData.get('email') || ''),
-        phone: String(formData.get('phone') || ''),
-        serviceType: String(formData.get('serviceType') || 'other') as any,
-        rateType: String(formData.get('rateType') || 'flat') as any,
-        proposedRateAmount: Number(formData.get('proposedRateAmount') || 0),
-        planId: activePlanId,
-      })
-
-      if (!response.ok) {
-        setResult({ ok: false, message: response.error || 'Could not send this invite.' })
-        return
-      }
-
-      if (activePlanId && response.vendorId) {
-        await attachVendorToActivePlan({
-          planId: activePlanId,
-          vendorId: response.vendorId,
-          amount: Number(formData.get('proposedRateAmount') || 0),
-          rateType: String(formData.get('rateType') || 'flat') as 'flat' | 'per_person' | 'hourly',
-          commitAgreement: false,
-        })
-      }
-
-      onCatalogChanged()
-      setResult({
-        ok: true,
-        existing: response.existing,
-        emailSent: response.emailSent,
-        claimUrl: response.claimUrl,
-        message: response.existing
-          ? 'This vendor was already in your people. I reused the existing invite record.'
-          : 'Invite created. They can claim the private listing, confirm the private rate, and add a public catalog rate later if they want to be discoverable.',
-      })
-    })
-  }
 
   return (
     <section className="rounded-lg border border-clay/20 bg-cream p-5 shadow-card">
@@ -359,96 +308,13 @@ function InviteKnownVendorPanel({ activePlanId, onCatalogChanged }: InviteKnownV
       </div>
 
       {isOpen ? (
-        <form onSubmit={handleSubmit} className="mt-5 grid gap-4 rounded-lg border border-tan bg-cream-deep/60 p-4 lg:grid-cols-6">
-          <label className="space-y-1 lg:col-span-2">
-            <span className="text-xs font-semibold text-ink-soft">Vendor name</span>
-            <Input name="vendorName" required placeholder="DJ Maya" />
-          </label>
-          <label className="space-y-1 lg:col-span-2">
-            <span className="text-xs font-semibold text-ink-soft">Email</span>
-            <Input name="email" required type="email" placeholder="maya@example.com" />
-          </label>
-          <label className="space-y-1 lg:col-span-2">
-            <span className="text-xs font-semibold text-ink-soft">Phone optional</span>
-            <Input name="phone" type="tel" placeholder="(415) 555-0100" />
-          </label>
-
-          <label className="space-y-1 lg:col-span-2">
-            <span className="text-xs font-semibold text-ink-soft">Service</span>
-            <select
-              name="serviceType"
-              className="h-10 w-full rounded-md border border-tan bg-cream-deep px-3 text-sm text-ink"
-              defaultValue="dj"
-            >
-              <option value="dj">DJ / music</option>
-              <option value="catering">Catering</option>
-              <option value="bartending">Bartending</option>
-              <option value="photography">Photography</option>
-              <option value="videography">Videography</option>
-              <option value="av_tech">AV tech</option>
-              <option value="event_planning">Event staff</option>
-              <option value="florist">Florals / decor</option>
-              <option value="other">Other</option>
-            </select>
-          </label>
-          <label className="space-y-1 lg:col-span-2">
-            <span className="text-xs font-semibold text-ink-soft">Private agreed rate</span>
-            <Input name="proposedRateAmount" required min="1" step="1" type="number" placeholder="450" />
-          </label>
-          <label className="space-y-1 lg:col-span-2">
-            <span className="text-xs font-semibold text-ink-soft">Rate type</span>
-            <select
-              name="rateType"
-              className="h-10 w-full rounded-md border border-tan bg-cream-deep px-3 text-sm text-ink"
-              defaultValue="flat"
-            >
-              <option value="flat">Flat</option>
-              <option value="per_person">Per person</option>
-              <option value="hourly">Hourly</option>
-            </select>
-          </label>
-
-          <div className="flex flex-col gap-3 lg:col-span-6 lg:flex-row lg:items-center lg:justify-between">
-            <p className="text-xs text-ink-soft">
-              Private rates are scoped to you and this vendor. Public catalog rates are set by the vendor after claim.
-            </p>
-            <Button type="submit" variant="hero" size="sm" disabled={isPending}>
-              {isPending ? 'Sending invite...' : 'Send invite'}
-            </Button>
-          </div>
-        </form>
-      ) : null}
-
-      {result ? (
-        <div
-          className={cn(
-            'mt-4 rounded-md border px-4 py-3 text-sm',
-            result.ok
-              ? 'border-accent/30 bg-accent/10 text-ink'
-              : 'border-brick/30 bg-brick-tint text-ink'
-          )}
-        >
-          <p className="font-semibold">{result.message}</p>
-          {result.ok && result.claimUrl ? (
-            <div className="mt-2 flex flex-col gap-2 text-xs text-ink-soft sm:flex-row sm:items-center">
-              {result.emailSent ? (
-                <span className="inline-flex items-center gap-1">
-                  <Mail className="h-3.5 w-3.5" />
-                  Email sent
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1">
-                  <Link2 className="h-3.5 w-3.5" />
-                  Email provider is not configured; use this local claim link:
-                </span>
-              )}
-              {!result.emailSent ? (
-                <a className="break-all font-semibold text-clay underline" href={result.claimUrl}>
-                  {result.claimUrl}
-                </a>
-              ) : null}
-            </div>
-          ) : null}
+        <div className="mt-5">
+          <InviteVendorForm
+            activePlanId={activePlanId}
+            onSuccess={() => {
+              onCatalogChanged()
+            }}
+          />
         </div>
       ) : null}
     </section>
@@ -761,26 +627,6 @@ async function attachVendorToActivePlan(input: {
 
   updatePlannerLivePlanPayload(payload.plan)
   return payload
-}
-
-function updatePlannerLivePlanPayload(plan: unknown) {
-  if (typeof window === 'undefined' || !plan || typeof plan !== 'object') return
-
-  try {
-    const raw = window.localStorage.getItem('planner-live-plan')
-    const current = raw ? JSON.parse(raw) as Record<string, unknown> : {}
-    const next = {
-      ...current,
-      plan: {
-        ...(typeof current.plan === 'object' && current.plan !== null ? current.plan as Record<string, unknown> : {}),
-        ...(plan as Record<string, unknown>),
-      },
-    }
-    window.localStorage.setItem('planner-live-plan', JSON.stringify(next))
-    window.dispatchEvent(new CustomEvent('planner-live-plan:update', { detail: next }))
-  } catch {
-    window.dispatchEvent(new CustomEvent('planner-live-plan:update'))
-  }
 }
 
 /**

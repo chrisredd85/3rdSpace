@@ -26,6 +26,8 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { EntityReadinessBadge } from '@/components/planner/EntityReadinessBadge'
+import { InviteVendorModal } from '@/components/planner/InviteVendorModal'
+import { InviteVenueModal } from '@/components/planner/InviteVenueModal'
 import { usePlannerBillingGate } from '@/components/planner/usePlannerBillingGate'
 import {
   hasAttendanceSignal,
@@ -195,6 +197,7 @@ interface LivePlanSnapshot {
   notes: string | null
   runOfShow: RunOfShowSnapshot | null
   workspaceSummary: WorkspaceSummarySnapshot | null
+  selectedVenue: SelectedPlanVenue | null
   selectedVendors: SelectedPlanVendor[]
   outreachResponses: OutreachResponseSummary
   committedVenue: CommittedVenueQuote | null
@@ -263,6 +266,23 @@ interface SelectedPlanVendor {
   settledAmountCents: number | null
   rateSource: string | null
   provenanceLabel: string | null
+}
+
+interface SelectedPlanVenue {
+  id: string | null
+  venueId: string | null
+  name: string
+  venueType: string | null
+  city: string | null
+  state: string | null
+  standingCapacity: number | null
+  seatedCapacity: number | null
+  priceCents: number | null
+  termType: string | null
+  amountCents: number | null
+  claimStatus: string | null
+  isClaimed: boolean | null
+  invitedAt: string | null
 }
 
 interface LivePlanPanelPayload {
@@ -468,6 +488,11 @@ function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
       normalizeWorkspaceSummary(record.workspaceSummary) ??
       normalizeWorkspaceSummary(record.workspace_summary) ??
       normalizeWorkspaceSummary(cachedWorkspace?.output),
+    selectedVenue: normalizeSelectedVenue(
+      record.selectedVenue ??
+      record.selected_venue ??
+      shoppingList?.selected_venue
+    ),
     selectedVendors: normalizeSelectedVendors(
       record.selectedVendors ??
       record.selected_vendors ??
@@ -618,6 +643,32 @@ function normalizeCommittedVendorQuotes(value: unknown): CommittedVendorQuote[] 
         readNumber(record.settled_amount_cents),
     }]
   })
+}
+
+function normalizeSelectedVenue(value: unknown): SelectedPlanVenue | null {
+  const record = asRecord(value)
+  if (!record) return null
+
+  const venueId = readString(record.venue_id) ?? readString(record.reference_id) ?? readString(record.id)
+  const name = readString(record.external_name) ?? readString(record.venue_name) ?? readString(record.name)
+  if (!venueId && !name) return null
+
+  return {
+    id: readString(record.id),
+    venueId,
+    name: name ?? 'Venue',
+    venueType: readString(record.venue_type),
+    city: readString(record.city),
+    state: readString(record.state),
+    standingCapacity: readNumber(record.standing_capacity),
+    seatedCapacity: readNumber(record.seated_capacity),
+    priceCents: readNumber(record.price_cents),
+    termType: readString(record.term_type),
+    amountCents: readNumber(record.amount_cents),
+    claimStatus: readString(record.claim_status),
+    isClaimed: readBoolean(record.is_claimed),
+    invitedAt: readString(record.invited_at) ?? readString(record.invitedAt),
+  }
 }
 
 function normalizeSelectedVendors(value: unknown): SelectedPlanVendor[] {
@@ -1289,6 +1340,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const [contactEmailFeedback, setContactEmailFeedback] = useState<Record<string, 'saving' | 'saved' | 'draft_created' | 'error'>>({})
   const [contactDraftMessageIds, setContactDraftMessageIds] = useState<Record<string, string | null>>({})
   const [quoteCommitFeedback, setQuoteCommitFeedback] = useState<Record<string, 'saving' | 'saved' | 'error'>>({})
+  const [isInviteVenueModalOpen, setIsInviteVenueModalOpen] = useState(false)
+  const [isInviteVendorModalOpen, setIsInviteVendorModalOpen] = useState(false)
   const [projectionBaseline, setProjectionBaseline] = useState<PlannerProjectionBaseline | null>(null)
   const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const billingGate = usePlannerBillingGate()
@@ -1339,7 +1392,10 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
     [activeMessages]
   )
   const venueRecommendations = renderedRecommendations.filter((recommendation) => /venue/i.test(recommendation.type))
-  const primaryVenue = venueRecommendations[0] ?? null
+  const selectedVenue = livePlan?.selectedVenue ?? null
+  const primaryVenue = selectedVenue
+    ? recommendationFromSelectedVenue(selectedVenue, eventSummary)
+    : venueRecommendations[0] ?? null
   const primaryVenueReadiness = resolveVenueReadiness(primaryVenue, livePlan, relativeNowMs)
   const openQuestions = buildOpenQuestions(eventSummary, renderedRecommendations)
   const authorizationCards = buildAuthorizationCards(renderedApprovals, primaryVenue, renderedBudgetLineItems, primaryVenueReadiness)
@@ -2057,6 +2113,16 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                     onNavigateToApprovals={(messageId) => onNavigateToTab?.('approvals', messageId ?? undefined)}
                   />
                 ) : null}
+                {activePlanId && !activePlanId.startsWith('mock-plan-') ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsInviteVenueModalOpen(true)}
+                    className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-md border border-clay/30 bg-cream/80 px-3 py-2 text-sm font-bold text-clay transition-colors hover:bg-clay-tint"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Invite a venue I know
+                  </button>
+                ) : null}
               </div>
               <div className="flex shrink-0 flex-col items-end gap-3">
                 <EntityReadinessBadge indicator={primaryVenueReadiness} className="items-end text-right" />
@@ -2290,6 +2356,16 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                 <span className="shrink-0 pt-5 text-lg font-semibold tabular-nums text-ink">{item.amountLabel}</span>
               </div>
             ))}
+            {activePlanId && !activePlanId.startsWith('mock-plan-') ? (
+              <button
+                type="button"
+                onClick={() => setIsInviteVendorModalOpen(true)}
+                className="inline-flex min-h-10 items-center gap-2 rounded-md border border-clay/30 bg-cream px-3 py-2 text-sm font-bold text-clay transition-colors hover:bg-clay-tint"
+              >
+                <Plus className="h-4 w-4" />
+                Invite a vendor I know
+              </button>
+            ) : null}
           </div>
         </ArtifactSection>
 
@@ -2412,6 +2488,20 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           {activePlanId ? `Plan ${activePlanId.slice(-6)}` : 'Plan saves after sign-in'}
         </p>
       </div>
+      <InviteVenueModal
+        isOpen={isInviteVenueModalOpen}
+        activePlanId={activePlanId}
+        prefill={{
+          city: eventSummary.area ?? undefined,
+          state: 'CA',
+        }}
+        onClose={() => setIsInviteVenueModalOpen(false)}
+      />
+      <InviteVendorModal
+        isOpen={isInviteVendorModalOpen}
+        activePlanId={activePlanId}
+        onClose={() => setIsInviteVendorModalOpen(false)}
+      />
       {billingGate.modal}
     </aside>
   )
@@ -3577,6 +3667,63 @@ function venueFitTags(venue: RecommendationSummary) {
   if (typeof venue.priceCents === 'number' && venue.priceCents < 0) fallbackTags.push('CHI')
   if (fallbackTags.length === 0 && venue.fit) fallbackTags.push(venue.fit.slice(0, 48))
   return fallbackTags.length > 0 ? fallbackTags.slice(0, 3) : ['Needs review']
+}
+
+function recommendationFromSelectedVenue(venue: SelectedPlanVenue, summary: EventSummary): RecommendationSummary {
+  const capacity = venue.standingCapacity ?? venue.seatedCapacity
+  const location = [venue.city, venue.state].filter(Boolean).join(', ') || summary.area || null
+  return {
+    id: venue.venueId ?? venue.id ?? venue.name,
+    name: venue.name,
+    type: 'venue',
+    priceLabel: formatSelectedVenuePriceLabel(venue),
+    priceCents: venue.priceCents,
+    address: location,
+    capacity,
+    capacityKnown: typeof capacity === 'number',
+    fit: 'Known venue added by the organizer. Claim and Stripe setup are still required before payment.',
+    holdDurationHours: 48,
+    commercialModelMatch: venue.termType,
+    dealModelSummary: formatSelectedVenueTermLabel(venue),
+    tags: ['Known venue', venue.claimStatus === 'invited_unclaimed' ? 'Invite pending' : 'Private terms'].filter(Boolean),
+    discoveryVenueId: venue.venueId,
+    contactStatus: 'ready_to_reach_out',
+    contactEmail: null,
+    contactEmailSource: null,
+    contactEmailConfidence: null,
+    contactPhone: null,
+    website: null,
+    extractionStatus: null,
+    discoveryCandidateStatus: null,
+    outreachDraftRequestStatus: null,
+    outreachDraftApprovalMessageId: null,
+    outreachDraftApprovalId: null,
+    outreachApprovalCreatedAt: null,
+    isClaimed: venue.isClaimed,
+    claimStatus: venue.claimStatus,
+    invitedAt: venue.invitedAt,
+    stripeConnectStatus: null,
+    settledAt: null,
+    settledAmountCents: null,
+  }
+}
+
+function formatSelectedVenuePriceLabel(venue: SelectedPlanVenue) {
+  if (venue.termType === 'no_charge') return 'No charge'
+  if (venue.termType === 'tbd') return 'Terms TBD'
+  return formatCents(venue.priceCents)
+}
+
+function formatSelectedVenueTermLabel(venue: SelectedPlanVenue) {
+  const labels: Record<string, string> = {
+    flat_rental: 'Flat rental',
+    minimum_spend: 'Minimum spend',
+    per_head_chi: 'Per-head CHI',
+    bar_chi: 'Bar consumption CHI',
+    no_charge: 'No charge',
+    tbd: 'Terms to confirm',
+  }
+  return labels[venue.termType ?? ''] ?? 'Private terms'
 }
 
 function venueDealModelLabel(venue: RecommendationSummary) {

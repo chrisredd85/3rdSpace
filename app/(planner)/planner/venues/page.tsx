@@ -1,10 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, CheckCircle2, MapPin, Search, SlidersHorizontal, Users } from 'lucide-react'
+import { Building2, CheckCircle2, MapPin, Search, SlidersHorizontal, UserPlus, Users } from 'lucide-react'
 import { BookedPartnersWorkspace } from '@/components/planner/BookedPartnersWorkspace'
+import { InviteVenueForm } from '@/components/planner/InviteVenueForm'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { centsToDollars } from '@/lib/money'
@@ -64,6 +65,7 @@ async function fetchPlannerVenueCatalog(): Promise<CatalogVenue[]> {
 export default function PlannerVenuesPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedArea, setSelectedArea] = useState('All')
+  const activePlanId = useActivePlannerPlanId()
   const {
     data: venues = [],
     isLoading,
@@ -131,7 +133,10 @@ export default function PlannerVenuesPage() {
           description="Coordinate with venues after the deposit is approved. Keep partner messages, due dates, and day-of logistics attached to the booking."
           emptyMessage="Venue bookings will appear here once a deposit or hold is authorized."
           partnerKind="venue"
+          planId={activePlanId}
         />
+
+        <InviteKnownVenuePanel activePlanId={activePlanId} onCatalogChanged={() => void refetch()} />
 
         <section className="rounded-lg border border-tan bg-cream p-5 shadow-card">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -222,6 +227,79 @@ export default function PlannerVenuesPage() {
         ) : null}
       </div>
     </div>
+  )
+}
+
+function useActivePlannerPlanId() {
+  const [planId, setPlanId] = useState<string | null>(null)
+
+  useEffect(() => {
+    function readPlanIdFromStorage() {
+      try {
+        const raw = window.localStorage.getItem('planner-live-plan')
+        if (!raw) return null
+        const parsed = JSON.parse(raw) as { planId?: unknown }
+        return typeof parsed.planId === 'string' && parsed.planId.trim() ? parsed.planId : null
+      } catch {
+        return null
+      }
+    }
+
+    function refreshPlanId(event?: Event) {
+      const detail = event && 'detail' in event ? (event as CustomEvent<{ planId?: unknown }>).detail : null
+      const nextPlanId = typeof detail?.planId === 'string' && detail.planId.trim()
+        ? detail.planId
+        : readPlanIdFromStorage()
+      setPlanId(nextPlanId)
+    }
+
+    refreshPlanId()
+    window.addEventListener('planner-live-plan:update', refreshPlanId)
+    return () => window.removeEventListener('planner-live-plan:update', refreshPlanId)
+  }, [])
+
+  return planId
+}
+
+interface InviteKnownVenuePanelProps {
+  activePlanId: string | null
+  onCatalogChanged: () => void
+}
+
+function InviteKnownVenuePanel({ activePlanId, onCatalogChanged }: InviteKnownVenuePanelProps) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <section className="rounded-lg border border-clay/20 bg-cream p-5 shadow-card">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-clay-tint text-clay">
+            <UserPlus className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-clay">Known venue</p>
+            <h2 className="mt-1 font-display text-xl font-bold text-ink">Bring a venue you already know</h2>
+            <p className="mt-1 max-w-2xl text-sm text-ink-soft">
+              Invite a booking contact with the private terms you discussed. The listing stays unpublished until they claim it and finish setup.
+            </p>
+          </div>
+        </div>
+        <Button variant={isOpen ? 'glass' : 'hero'} size="sm" onClick={() => setIsOpen((value) => !value)}>
+          {isOpen ? 'Close invite' : 'Invite a known venue'}
+        </Button>
+      </div>
+
+      {isOpen ? (
+        <div className="mt-5">
+          <InviteVenueForm
+            activePlanId={activePlanId}
+            onSuccess={() => {
+              onCatalogChanged()
+            }}
+          />
+        </div>
+      ) : null}
+    </section>
   )
 }
 

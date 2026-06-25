@@ -3,6 +3,30 @@ import userEvent from '@testing-library/user-event'
 import { PlannerLivePlanPanel } from '@/components/planner/PlannerLivePlanPanel'
 import type { PlanMessage } from '@/lib/types/planner'
 
+jest.mock('@/components/planner/InviteVenueModal', () => ({
+  InviteVenueModal: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
+    isOpen ? (
+      <section role="dialog" aria-label="Invite a venue">
+        <button type="button" aria-label="Close invite venue modal" onClick={onClose}>
+          Close
+        </button>
+        Invite a venue form
+      </section>
+    ) : null,
+}))
+
+jest.mock('@/components/planner/InviteVendorModal', () => ({
+  InviteVendorModal: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) =>
+    isOpen ? (
+      <section role="dialog" aria-label="Invite a vendor">
+        <button type="button" aria-label="Close invite vendor modal" onClick={onClose}>
+          Close
+        </button>
+        Invite a vendor form
+      </section>
+    ) : null,
+}))
+
 describe('PlannerLivePlanPanel', () => {
   const originalFetch = global.fetch
 
@@ -372,6 +396,38 @@ describe('PlannerLivePlanPanel', () => {
       })
     })
     expect(screen.getByText('Date-change approval created. Review it before partner emails send.')).toBeInTheDocument()
+  })
+
+  it('opens known venue and vendor invite dialogs from the event brief', async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      plan: makePlanSnapshot({
+        title: 'Known partner plan',
+        guestCount: 40,
+        neighborhood: 'Oakland',
+      }),
+      messages: [
+        makeConfirmationMessage('confirmation-known-partners', {
+          event_type: 'happy_hour',
+          guest_count: 40,
+          area: 'Oakland',
+          action_permission: 'Approval required before outreach',
+        }),
+      ],
+      planId: '22222222-2222-4222-8222-222222222222',
+    }))
+
+    render(<PlannerLivePlanPanel inline />)
+
+    expect(await screen.findByRole('heading', { name: 'Known partner plan' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /invite a venue i know/i }))
+    expect(screen.getByRole('dialog', { name: /invite a venue/i })).toBeInTheDocument()
+    expect(screen.getByLabelText(/close invite venue modal/i)).toBeInTheDocument()
+
+    await user.click(screen.getByLabelText(/close invite venue modal/i))
+    await user.click(screen.getByRole('button', { name: /invite a vendor i know/i }))
+    expect(screen.getByRole('dialog', { name: /invite a vendor/i })).toBeInTheDocument()
   })
 
   it('shows pending Gmail outreach drafts as an approvals chip and venue status', async () => {
