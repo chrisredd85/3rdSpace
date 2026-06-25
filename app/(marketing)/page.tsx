@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Image from 'next/image'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
+import { HomepageSnapScroller } from '@/components/marketing/HomepageSnapScroller'
 import { HomePlannerStart } from '@/components/planner/HomePlannerStart'
 
 export const metadata: Metadata = {
@@ -251,10 +252,15 @@ function RunRow({ day, task, state, tone = 'forest' }: { day: string; task: stri
 }
 
 export default function HomePage() {
+  const snapSectionClass = 'min-h-[calc(100dvh-74px)] snap-start lg:snap-always'
+  const tallSnapSectionClass = 'min-h-[calc(100dvh-74px)] snap-start'
+  const snapContentClass = 'mx-auto flex min-h-[calc(100dvh-74px)] w-full flex-col justify-center'
+
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <section className="relative lg:min-h-[calc(100svh-74px)]">
-        <div className="mx-auto grid w-full max-w-[1480px] items-start gap-8 px-5 py-8 sm:px-6 sm:py-10 lg:min-h-[calc(100svh-74px)] lg:grid-cols-[minmax(0,0.98fr)_minmax(380px,0.88fr)] lg:items-center lg:gap-14 lg:px-8 lg:py-8 2xl:max-w-[1600px] 2xl:gap-16 2xl:px-10">
+    <>
+      <HomepageSnapScroller>
+      <section className={`relative ${snapSectionClass}`}>
+        <div className={`${snapContentClass} max-w-[1480px] items-start gap-8 px-5 py-8 sm:px-6 sm:py-10 lg:grid lg:grid-cols-[minmax(0,0.98fr)_minmax(380px,0.88fr)] lg:items-center lg:gap-14 lg:px-8 lg:py-8 2xl:max-w-[1600px] 2xl:gap-16 2xl:px-10`}>
           <div className="animate-entrance lg:flex lg:h-full lg:flex-col lg:justify-center">
             <Caps className="text-[13px]">Bay Area · 2026</Caps>
             <h1 className="mt-4 max-w-[840px] font-display text-[clamp(3rem,4.85vw,5.35rem)] font-medium leading-[0.96] tracking-normal text-ink">
@@ -309,8 +315,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="border-t border-tan/70">
-        <div className="mx-auto max-w-[1180px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24">
+      <section className={`border-t border-tan/70 ${snapSectionClass}`}>
+        <div className={`${snapContentClass} max-w-[1180px] px-5 py-16 sm:px-6 lg:px-8 lg:py-20`}>
           <Caps>Who it&apos;s for</Caps>
           <h2 className="mt-4 max-w-3xl font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
             Built for hosts who run events on repeat.
@@ -331,8 +337,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="border-t border-tan/70 bg-cream-deep/40">
-        <div className="mx-auto max-w-[1480px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24 2xl:px-10">
+      <section className={`border-t border-tan/70 bg-cream-deep/40 ${snapSectionClass}`}>
+        <div className={`${snapContentClass} max-w-[1480px] px-5 py-16 sm:px-6 lg:px-8 lg:py-20 2xl:px-10`}>
           <Caps>How it runs</Caps>
           <h2 className="mt-4 max-w-3xl font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
             Three moves. Every event.
@@ -349,7 +355,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="border-t border-tan/70">
+      <section id="capabilities" className={`border-t border-tan/70 ${tallSnapSectionClass}`}>
         <div className="mx-auto max-w-[1480px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24 2xl:px-10">
           <Caps>Operating system</Caps>
           <h2 className="mt-4 max-w-4xl font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
@@ -379,8 +385,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="border-t border-tan/70">
-        <div className="mx-auto max-w-[1480px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24 2xl:px-10">
+      <section className={`border-t border-tan/70 ${snapSectionClass}`}>
+        <div className={`${snapContentClass} max-w-[1480px] px-5 py-16 sm:px-6 lg:px-8 lg:py-20 2xl:px-10`}>
           <Caps>What ships in the box</Caps>
           <h2 className="mt-4 max-w-3xl font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
             The operations work, handled.
@@ -396,8 +402,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="border-t border-tan/70 bg-cream-deep/40">
-        <div className="mx-auto max-w-[1080px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24">
+      <section className={`border-t border-tan/70 bg-cream-deep/40 ${snapSectionClass}`}>
+        <div className={`${snapContentClass} max-w-[1080px] px-5 py-16 sm:px-6 lg:px-8 lg:py-20`}>
           <Caps>From the calendar</Caps>
           <blockquote className="mt-5 font-display text-[30px] leading-[1.15] text-ink sm:text-[42px]">
             &ldquo;I used to spend a full day chasing vendors and reconciling receipts
@@ -410,8 +416,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="pricing" className="border-t border-tan/70">
-        <div className="mx-auto max-w-[1120px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24">
+      <section id="pricing" className={`border-t border-tan/70 ${tallSnapSectionClass}`}>
+        <div className={`${snapContentClass} max-w-[1120px] px-5 py-16 sm:px-6 lg:px-8 lg:py-20`}>
           <Caps>Pricing</Caps>
           <h2 className="mt-4 font-display text-[40px] leading-[1.02] text-ink sm:text-[56px]">
             First 2 events free.
@@ -464,8 +470,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="faq" className="border-t border-tan/70">
-        <div className="mx-auto max-w-[860px] px-5 py-20 sm:px-6 lg:px-8 lg:py-24">
+      <section id="faq" className={`border-t border-tan/70 ${tallSnapSectionClass}`}>
+        <div className={`${snapContentClass} max-w-[860px] px-5 py-16 sm:px-6 lg:px-8 lg:py-20`}>
           <Caps>Common questions</Caps>
           <h2 className="mt-4 font-display text-[40px] leading-[1.05] text-ink sm:text-[52px]">
             Clear answers. No fine print.
@@ -484,8 +490,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="border-t border-tan/70 bg-cream-deep/50">
-        <div className="mx-auto max-w-[980px] px-5 py-24 text-center sm:px-6 lg:px-8 lg:py-28">
+      <section className={`border-t border-tan/70 bg-cream-deep/50 ${snapSectionClass}`}>
+        <div className={`${snapContentClass} max-w-[980px] px-5 py-20 text-center sm:px-6 lg:px-8 lg:py-24`}>
           <h2 className="font-display text-[46px] leading-[1.0] text-ink sm:text-[72px]">
             Your next event is already on the calendar.
           </h2>
@@ -500,6 +506,8 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      </HomepageSnapScroller>
 
       <footer className="border-t border-tan/70">
         <div className="mx-auto grid max-w-[1480px] gap-10 px-5 py-14 sm:grid-cols-4 sm:px-6 lg:px-8 2xl:px-10">
@@ -562,6 +570,6 @@ export default function HomePage() {
           </div>
         </div>
       </footer>
-    </main>
+    </>
   )
 }
