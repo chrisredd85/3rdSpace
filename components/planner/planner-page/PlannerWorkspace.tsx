@@ -69,6 +69,7 @@ export function PlannerWorkspace() {
   const hasTriggeredDemoResetRef = useRef(false)
   const hasOpenedRebookIntentRef = useRef(false)
   const hasTriedDraftAutoMigrationRef = useRef(false)
+  const hasPromptedDraftSignupGateRef = useRef(false)
   const hasParsedInitialTabRef = useRef(false)
   const pendingDeepLinkScrollMsgIdRef = useRef<string | null>(null)
   const autoTriggeredDraftRecommendationPlanRef = useRef<string | null>(null)
@@ -275,6 +276,18 @@ export function PlannerWorkspace() {
     })
     router.replace(forceDraftMode ? '/planner?mock=1' : '/planner')
   }, [addToast, draftMigrationStatus, forceDraftMode, router])
+
+  useEffect(() => {
+    if (persistenceMode !== 'draft') return
+    if (!hasDraftMatchGateMessage(messages)) return
+    if (isSignupGateOpen) return
+    if (hasPromptedDraftSignupGateRef.current) return
+
+    hasPromptedDraftSignupGateRef.current = true
+    setSignupGateContext('recommendations')
+    setPendingAction({ type: 'save', payload: { reason: 'recommendations' } })
+    setIsSignupGateOpen(true)
+  }, [isSignupGateOpen, messages, persistenceMode])
 
   useEffect(() => {
     if (!shouldHardResetDemo || hasTriggeredDemoResetRef.current) return
@@ -488,6 +501,7 @@ export function PlannerWorkspace() {
    * Creates a local-only draft when server persistence is unavailable.
    */
   async function createDraftPlan(message: string) {
+    hasPromptedDraftSignupGateRef.current = false
     const plan = buildMockPlan(message)
     const userMessage = buildMockMessage(plan.id, 'user', message, 'text', {})
     const publicIntake = await tryRunPublicDraftIntake(message, plan)
@@ -843,6 +857,7 @@ export function PlannerWorkspace() {
       setIsTimelineLoading(false)
       hasStartedInitialDraftRef.current = false
       hasTriedDraftAutoMigrationRef.current = false
+      hasPromptedDraftSignupGateRef.current = false
       ignoredDraftRef.current = initialDraft
       publishLivePlan(null, [])
 

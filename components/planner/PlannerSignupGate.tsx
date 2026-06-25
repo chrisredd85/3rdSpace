@@ -21,14 +21,14 @@ export function PlannerSignupGate({ isOpen, onClose, context = 'default' }: Plan
 
   const copy = context === 'recommendations'
     ? {
-      title: 'Save your plan to see matches',
+      title: 'Sign up to continue this plan',
       description:
-        'Finish the creator signup so I can save this draft, pull real venues and vendors, and attach financials and approval cards.',
+        'Your free draft is ready. Create a creator account to save it, return to it later, and unlock live venue matches, vendor picks, financials, and approval cards.',
       submitLabel: 'Continue to creator signup',
     }
     : {
       title: 'Save your plan to continue',
-      description: 'Finish the creator signup so this draft can move into your workspace.',
+      description: 'Create a creator account so this draft can move into your workspace and keep updating as you plan.',
       submitLabel: 'Continue to creator signup',
     }
 
@@ -62,7 +62,7 @@ export function PlannerSignupGate({ isOpen, onClose, context = 'default' }: Plan
         <div className="space-y-4 px-5 py-5">
           <div className="rounded-md border border-tan bg-cream-deep/55 px-4 py-3">
             <p className="text-sm leading-relaxed text-ink-soft">
-              Your chat draft stays in this browser. After creator signup, I’ll save it to your workspace and return you to the planner.
+              Your chat draft stays in this browser. After creator signup, I’ll save it to your account-backed workspace and return you to the planner so you can keep moving.
             </p>
           </div>
 

@@ -116,6 +116,48 @@ describe('PlannerWorkspace desktop draft handoff', () => {
     })
   })
 
+  it('pushes anonymous free drafts to creator signup when live matching requires an account', async () => {
+    global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+
+      if (url === '/api/auth/user') {
+        return jsonResponse({ user: null }, 401)
+      }
+
+      if (url === '/api/planner/plans' && init?.method === 'POST') {
+        return jsonResponse({ error: 'Not authenticated' }, 401)
+      }
+
+      if (url === '/api/planner/public-intake' && init?.method === 'POST') {
+        return jsonResponse({
+          data: {
+            agent_draft: {
+              content: 'I have enough to start matching venues and vendors.',
+              message_type: 'recommendation',
+              metadata: { state: 'recommendations_shown' },
+            },
+            plan_patch: {
+              event_type: 'networking_mixer',
+              guest_count: 24,
+              neighborhood: 'Hayes Valley',
+              status: 'ready',
+            },
+          },
+        })
+      }
+
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    }) as jest.Mock
+
+    renderPlannerWorkspace()
+
+    expect(await screen.findByRole('heading', { name: /Sign up to continue this plan/i })).toBeInTheDocument()
+    expect(screen.getByText(/Your free draft is ready/i)).toBeInTheDocument()
+    expect(screen.getByText(/Free draft complete/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Continue to creator signup/i })).toHaveAttribute('href', '/signup/builder')
+    expect(window.localStorage.getItem('planner-active-conversation')).toContain('Hayes Valley')
+  })
+
   it('keeps /planner/new-plan on a clean intake instead of loading the latest saved plan', async () => {
     mockPathname = '/planner/new-plan'
     mockSearchParams = ''
