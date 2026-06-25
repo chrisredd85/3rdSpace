@@ -40,28 +40,42 @@ export async function GET(request: NextRequest) {
     let enqueued = 0
     let skippedNotEligible = 0
     let skippedExistingRun = 0
+    let failed = 0
     const jobIds: string[] = []
+    const errors: Array<{ event_id: string; error: string }> = []
 
     for (const event of ((data ?? []) as EventCandidate[])) {
-      const existingRun = await loadExistingSettlementRun(admin, event.id)
-      if (existingRun) {
-        skippedExistingRun += 1
-        continue
-      }
+      try {
+        const existingRun = await loadExistingSettlementRun(admin, event.id)
+        if (existingRun) {
+          skippedExistingRun += 1
+          continue
+        }
 
-      if (!isChiEligibleVenueType(event.venues?.venue_type)) {
-        skippedNotEligible += 1
-        continue
-      }
+        if (!isChiEligibleVenueType(event.venues?.venue_type)) {
+          skippedNotEligible += 1
+          continue
+        }
 
-      const job = await enqueueJob(admin as unknown as SupabaseJobClient, {
-        jobType: 'settlement.run.create',
-        payload: { event_id: event.id },
-        uniqueKey: `settlement-run-create:${event.id}`,
-        maxAttempts: 3,
-      })
-      jobIds.push(job.id)
-      enqueued += 1
+        const job = await enqueueJob(admin as unknown as SupabaseJobClient, {
+          jobType: 'settlement.run.create',
+          payload: { event_id: event.id },
+          uniqueKey: `settlement-run-create:${event.id}`,
+          maxAttempts: 3,
+        })
+        jobIds.push(job.id)
+        enqueued += 1
+      } catch (error) {
+        failed += 1
+        errors.push({
+          event_id: event.id,
+          error: error instanceof Error ? error.message : 'Failed to enqueue settlement run',
+        })
+        console.error('[settlement-runs.create] Candidate failed', {
+          eventId: event.id,
+          error,
+        })
+      }
     }
 
     return NextResponse.json({
@@ -70,6 +84,8 @@ export async function GET(request: NextRequest) {
       enqueued,
       skipped_not_eligible: skippedNotEligible,
       skipped_existing_run: skippedExistingRun,
+      failed,
+      errors: errors.slice(0, 10),
       job_ids: jobIds,
     })
   } catch (error) {
