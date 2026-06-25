@@ -506,10 +506,7 @@ export default function HomePage() {
           </div>
         </div>
       </section>
-
-      </HomepageSnapScroller>
-
-      <footer className="border-t border-tan/70">
+      <footer className="snap-start border-t border-tan/70">
         <div className="mx-auto grid max-w-[1480px] gap-10 px-5 py-14 sm:grid-cols-4 sm:px-6 lg:px-8 2xl:px-10">
           <div>
             <Link href="/" className="font-display text-[24px] text-clay">3rdPlace</Link>
@@ -570,6 +567,7 @@ export default function HomePage() {
           </div>
         </div>
       </footer>
+      </HomepageSnapScroller>
     </>
   )
 }
