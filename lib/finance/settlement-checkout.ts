@@ -19,7 +19,8 @@ import {
   type SettlementTransitionActor,
   type SettlementRunStatus,
 } from '@/lib/finance/settlement-run-state'
-import { getAppBaseUrl, getStripeClient, isConnectedStripeAccountBlocked } from '@/lib/stripe/connect'
+import { checkStripeReadinessForAuthorization } from '@/lib/planner/stripeReadinessGate'
+import { getAppBaseUrl, getStripeClient } from '@/lib/stripe/connect'
 import { assertIntegerCents } from '@/lib/planner/execution/approvalState'
 
 type SupabaseAdminClient = SupabaseClient<any, 'public', any>
@@ -114,13 +115,6 @@ type SettlementApprovalRow = {
   agent_action_id: string
   status: string
   authorized_amount_cents: number | null
-}
-
-type BuilderStripeAccountRow = {
-  stripe_account_id: string | null
-  account_status: string | null
-  charges_enabled: boolean | null
-  payouts_enabled: boolean | null
 }
 
 const TOKEN_TTL_DAYS = 14
@@ -418,27 +412,52 @@ export async function startSettlementCheckout(
     return { status: 409 as const, body: { error: 'Organizer approval is required before payment', code: 'approval_required' } }
   }
 
-  const account = await loadOrganizerStripeAccount(admin, run.organizer_id)
-  if (account?.stripe_account_id && isConnectedStripeAccountBlocked(account.account_status)) {
-    await blockSettlementRunForAccountState(admin, run, account.stripe_account_id, 'checkout_account_blocked')
-    return {
-      status: 409 as const,
-      body: {
-        error: 'Stripe account is blocked. Reconnect Stripe before continuing this settlement.',
-        code: 'account_blocked',
-      },
+  const organizerGate = await checkStripeReadinessForAuthorization({
+    supabase: admin as any,
+    entityType: 'organizer',
+    entityId: run.organizer_id,
+  })
+  if (!organizerGate.ready) {
+    if (['restricted', 'disabled', 'deauthorized'].includes(organizerGate.reason)) {
+      const transition = transitionSettlementRunStatus(run.status, 'stripe_account_blocked')
+      if (transition.ok) {
+        await transitionSettlementRun({
+          db: admin,
+          runId: run.id,
+          fromStatus: run.status,
+          toStatus: transition.to,
+          action: 'stripe_account_blocked',
+          actor: { id: null, type: 'system' },
+          reason: 'checkout_account_blocked',
+          metadata: {
+            stripe_account_id: organizerGate.account_id,
+            block_reason: organizerGate.reason,
+          },
+          patch: {
+            blocked_previous_status: run.status,
+            blocked_stripe_account_id: organizerGate.account_id,
+            account_state_block_reason: 'checkout_account_blocked',
+          },
+        })
+      }
+      return {
+        status: 409 as const,
+        body: {
+          error: 'Stripe account is blocked. Reconnect Stripe before continuing this settlement.',
+          code: 'account_blocked',
+        },
+      }
     }
-  }
-
-  if (!account?.stripe_account_id || !account.charges_enabled || !account.payouts_enabled) {
     return {
       status: 409 as const,
       body: {
         error: 'Organizer payout account is not ready for CHI settlement',
         code: 'organizer_connect_not_ready',
+        reason: organizerGate.reason,
       },
     }
   }
+  const connectedAccountId = organizerGate.account_id
 
   const existing = await loadActiveSettlementCharge(admin, run.id)
   if (existing) assertSettlementChargeAmounts(existing)
@@ -466,7 +485,7 @@ export async function startSettlementCheckout(
       organizer_payout_cents: amounts.organizerPayoutCents,
       currency: amounts.currency,
       status: 'checkout_created',
-      stripe_connected_account_id: account.stripe_account_id,
+      stripe_connected_account_id: connectedAccountId,
       metadata: {
         settlement_run_id: run.id,
         event_id: run.event_id,
@@ -493,7 +512,7 @@ export async function startSettlementCheckout(
     request,
     charge,
     context,
-    connectedAccountId: account.stripe_account_id,
+    connectedAccountId,
     rawToken,
   })
 
@@ -815,30 +834,6 @@ async function runSettlementTrueUpOnce(admin: SupabaseAdminClient, charge: Settl
   })
 }
 
-async function blockSettlementRunForAccountState(
-  admin: SupabaseAdminClient,
-  run: SettlementRunRow,
-  stripeAccountId: string,
-  reason: string,
-) {
-  const transition = transitionSettlementRunStatus(run.status, 'stripe_account_blocked')
-  if (!transition.ok) return
-
-  const now = new Date().toISOString()
-  await (admin as any)
-    .from('settlement_runs')
-    .update({
-      status: transition.to,
-      blocked_at: now,
-      blocked_previous_status: run.status,
-      blocked_stripe_account_id: stripeAccountId,
-      account_state_blocked_at: now,
-      account_state_block_reason: reason,
-    })
-    .eq('id', run.id)
-    .eq('status', run.status)
-}
-
 async function notifyOrganizerPaid(admin: SupabaseAdminClient, charge: SettlementChargeRow) {
   const context = await loadSettlementContext(admin, charge.settlement_run_id)
   if (!context?.organizer?.email) return
@@ -920,20 +915,6 @@ async function loadChargeForCheckoutSession(admin: SupabaseAdminClient, session:
   const { data, error } = await query.order('created_at', { ascending: false }).limit(1).maybeSingle()
   if (error) throw new Error(error.message ?? 'Failed to load settlement charge')
   return data ? normalizeCharge(data) : null
-}
-
-async function loadOrganizerStripeAccount(
-  admin: SupabaseAdminClient,
-  organizerId: string,
-): Promise<BuilderStripeAccountRow | null> {
-  const { data, error } = await (admin as any)
-    .from('builder_stripe_accounts')
-    .select('stripe_account_id, account_status, charges_enabled, payouts_enabled')
-    .eq('user_id', organizerId)
-    .maybeSingle()
-
-  if (error) throw new Error(error.message ?? 'Failed to load organizer Stripe account')
-  return (data as BuilderStripeAccountRow | null) ?? null
 }
 
 async function loadRun(admin: SupabaseAdminClient, runId: string): Promise<(SettlementRunRow & { dispute_reason?: string | null }) | null> {

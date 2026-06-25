@@ -12,6 +12,11 @@ import {
   validatePaymentApprovalForExecution,
   type PaymentApprovalRow,
 } from '@/lib/planner/execution/paymentApproval'
+import {
+  checkStripeReadinessForAuthorization,
+  getStripeGateErrorMessage,
+} from '@/lib/planner/stripeReadinessGate'
+import { notifyEntityStripeSetup } from '@/lib/server/notifyEntityStripeSetup'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getAppBaseUrl, getStripeClient, isConnectedStripeAccountBlocked } from '@/lib/stripe/connect'
 
@@ -180,6 +185,39 @@ export async function POST(
     const venue = await loadVenue(admin, booking.venue_id)
     if (!venue) return NextResponse.json({ error: 'Venue not found' }, { status: 404 })
     if (!venue.owner_id) return venueConciergeResponse()
+
+    const readinessGate = await checkStripeReadinessForAuthorization({
+      supabase: admin,
+      entityType: 'venue',
+      entityId: venue.id,
+    })
+    if (!readinessGate.ready) {
+      notifyEntityStripeSetup({
+        supabase: admin,
+        entityType: 'venue',
+        entityId: venue.id,
+        planId: plan.id,
+        organizerId: user.id,
+        reason: readinessGate.reason,
+      }).catch((notifyError) => {
+        console.error('[planner.venue-payment.checkout] Stripe setup notification failed', notifyError)
+      })
+
+      if (readinessGate.reason === 'no_account') return venueConciergeResponse()
+
+      return NextResponse.json(
+        {
+          error: getStripeGateErrorMessage({
+            entityType: 'venue',
+            entityName: venue.venue_name,
+            reason: readinessGate.reason,
+          }),
+          code: 'stripe_recipient_not_ready',
+          stripe_gate: readinessGate,
+        },
+        { status: 409 }
+      )
+    }
 
     const stripe = getStripeClient()
     const account = await loadVenueStripeAccount(admin, venue.owner_id)

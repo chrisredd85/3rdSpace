@@ -11,6 +11,7 @@ import {
   saveVenueStripeAccount,
 } from '@/lib/stripe/connect'
 import { handleVenueStripeReadyForOwner } from '@/lib/venues/venueOpportunityRecovery'
+import { recordStripeReadyUnblockNotice } from '@/lib/server/notifyEntityStripeSetup'
 
 type StripeAdminClient = Parameters<typeof saveBuilderStripeAccount>[0] & {
   rpc?: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data?: unknown; error?: { message?: string } | null }>
@@ -54,6 +55,17 @@ export async function applyStripeConnectAccountUpdated(
     if (account.charges_enabled) {
       await clearVendorStripeSkippedAt(admin, vendorId)
     }
+    if (account.charges_enabled && account.payouts_enabled) {
+      recordStripeReadyUnblockNotice({
+        supabase: admin,
+        entityType: 'vendor',
+        entityId: vendorId,
+        stripeAccountId: account.id,
+        eventId,
+      }).catch((error) => {
+        console.error('[stripe.connect.webhook] Failed to record vendor Stripe unblock notice', error)
+      })
+    }
     await recordStripeConnectAccountEvent(admin, account.id, 'account.updated', eventId)
     return { received: true }
   }
@@ -65,6 +77,17 @@ export async function applyStripeConnectAccountUpdated(
     await saveVenueStripeAccount(admin, venueOwnerId, account)
     if (!wasPayoutReady && account.payouts_enabled) {
       await handleVenueStripeReadyForOwner(admin, venueOwnerId)
+    }
+    if (account.charges_enabled && account.payouts_enabled) {
+      recordStripeReadyUnblockNotice({
+        supabase: admin,
+        entityType: 'venue',
+        entityId: venueOwnerId,
+        stripeAccountId: account.id,
+        eventId,
+      }).catch((error) => {
+        console.error('[stripe.connect.webhook] Failed to record venue Stripe unblock notice', error)
+      })
     }
     await recordStripeConnectAccountEvent(admin, account.id, 'account.updated', eventId)
     return { received: true }
@@ -83,13 +106,26 @@ export async function applyStripeConnectAccountUpdated(
         organizerId: builderUserId,
         blockResult,
       })
-    } else if (isConnectedStripeAccountBlocked(previousStatus)) {
-      const unblockResult = await unblockStripeAccountSettlements(admin, account.id, eventId)
-      if (unblockResult) {
-        console.info('stripe_account_settlements_unblocked', {
-          account_id: account.id,
-          event_id: eventId,
-          ...unblockResult,
+    } else {
+      if (isConnectedStripeAccountBlocked(previousStatus)) {
+        const unblockResult = await unblockStripeAccountSettlements(admin, account.id, eventId)
+        if (unblockResult) {
+          console.info('stripe_account_settlements_unblocked', {
+            account_id: account.id,
+            event_id: eventId,
+            ...unblockResult,
+          })
+        }
+      }
+      if (account.charges_enabled && account.payouts_enabled) {
+        recordStripeReadyUnblockNotice({
+          supabase: admin,
+          entityType: 'organizer',
+          entityId: builderUserId,
+          stripeAccountId: account.id,
+          eventId,
+        }).catch((error) => {
+          console.error('[stripe.connect.webhook] Failed to record builder Stripe unblock notice', error)
         })
       }
     }
