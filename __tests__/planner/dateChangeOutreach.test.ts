@@ -219,6 +219,39 @@ describe('date-change outreach helper', () => {
     }))
   })
 
+  it('runs product access consumption before creating a date-change approval', async () => {
+    const db = new MemoryDb()
+    const ensureProductAccess = jest.fn(async (plan) => ({
+      ...plan,
+      metadata: {
+        ...(plan.metadata ?? {}),
+        product_gate: {
+          event_access_source: 'free_trial',
+          event_access_reason: 'date_change_started',
+        },
+      },
+    }))
+
+    const result = await createDateChangeOutreachApproval(db, {
+      userId: 'user-1',
+      planId: 'plan-1',
+      dateWindowStart: '2026-07-12',
+      ensureProductAccess,
+    })
+
+    expect(ensureProductAccess).toHaveBeenCalledWith(expect.objectContaining({ id: 'plan-1' }))
+    expect(result.plan.metadata).toEqual(expect.objectContaining({
+      product_gate: expect.objectContaining({
+        event_access_source: 'free_trial',
+        event_access_reason: 'date_change_started',
+      }),
+      date_change_request: expect.objectContaining({
+        status: 'pending_outreach_approval',
+      }),
+    }))
+    expect(mockCreateApproval).toHaveBeenCalledTimes(1)
+  })
+
   it('uses an organizer-provided target before falling back to existing outreach threads', async () => {
     const db = new MemoryDb()
 
@@ -237,13 +270,16 @@ describe('date-change outreach helper', () => {
   it('requires at least one known or manually provided partner contact', async () => {
     const db = new MemoryDb()
     db.rows.outreach_threads = []
+    const ensureProductAccess = jest.fn(async (plan) => plan)
 
     await expect(createDateChangeOutreachApproval(db, {
       userId: 'user-1',
       planId: 'plan-1',
       dateWindowStart: '2026-07-12',
+      ensureProductAccess,
     })).rejects.toBeInstanceOf(DateChangeNoTargetsError)
 
+    expect(ensureProductAccess).not.toHaveBeenCalled()
     expect(mockCreateApproval).not.toHaveBeenCalled()
   })
 })

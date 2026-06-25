@@ -23,6 +23,7 @@ export type DateChangeOutreachInput = {
   dateWindowEnd?: string | null
   note?: string | null
   targets?: DateChangeOutreachTarget[]
+  ensureProductAccess?: (plan: Plan) => Promise<Plan>
 }
 
 export class DateChangeNoTargetsError extends Error {
@@ -51,19 +52,22 @@ export async function createDateChangeOutreachApproval(
   const targets = await resolveDateChangeTargets(db, input)
   if (targets.length === 0) throw new DateChangeNoTargetsError()
 
+  const accessPlan = input.ensureProductAccess
+    ? await input.ensureProductAccess(plan)
+    : plan
   const dateWindowStart = normalizeIsoDate(input.dateWindowStart)
   if (!dateWindowStart) throw new Error('Choose a valid proposed date.')
   const dateWindowEnd = normalizeIsoDate(input.dateWindowEnd) ?? dateWindowStart
-  const previousDateLabel = formatDateWindow(plan.date_window_start, plan.date_window_end)
+  const previousDateLabel = formatDateWindow(accessPlan.date_window_start, accessPlan.date_window_end)
   const proposedDateLabel = formatDateWindow(dateWindowStart, dateWindowEnd)
   const requestedAt = new Date().toISOString()
   const note = input.note?.trim() || null
-  const previousMetadata = readRecord(plan.metadata) ?? {}
+  const previousMetadata = readRecord(accessPlan.metadata) ?? {}
   const baseDateChangeRequest = {
     status: 'pending_outreach_approval',
     requested_at: requestedAt,
-    previous_date_window_start: plan.date_window_start,
-    previous_date_window_end: plan.date_window_end,
+    previous_date_window_start: accessPlan.date_window_start,
+    previous_date_window_end: accessPlan.date_window_end,
     proposed_date_window_start: dateWindowStart,
     proposed_date_window_end: dateWindowEnd,
     previous_date_label: previousDateLabel,
@@ -99,16 +103,16 @@ export async function createDateChangeOutreachApproval(
       planId: plan.id,
       reuseExisting: false,
       targets,
-      subject: buildDateChangeSubject(plan),
+      subject: buildDateChangeSubject(accessPlan),
       bodyText: buildDateChangeBody({
-        plan,
+        plan: accessPlan,
         previousDateLabel,
         proposedDateLabel,
         note,
       }),
     })
   } catch (error) {
-    await rollbackPlanDateChange(db, plan, previousMetadata, input.userId)
+    await rollbackPlanDateChange(db, accessPlan, previousMetadata, input.userId)
     throw error
   }
 

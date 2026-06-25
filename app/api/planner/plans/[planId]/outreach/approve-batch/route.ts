@@ -13,6 +13,12 @@ import {
   type DiscoveryVenueRow,
   type PlanDiscoveryVenueCandidateRow,
 } from '@/lib/server/places-outreach'
+import {
+  ensurePlannerEventAccess,
+  PlannerProductAccessActivationError,
+  PlannerProductAccessRequiredError,
+  productAccessErrorResponse,
+} from '@/lib/planner/productAccess'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan } from '@/lib/types'
 
@@ -86,8 +92,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
       )
     }
 
-    const subject = parsed.data.custom_subject ?? buildDefaultOutreachSubject(plan)
-    const bodyText = parsed.data.custom_body ?? buildDefaultOutreachBody(plan)
+    const accessPlan = await ensurePlannerEventAccess({
+      plan,
+      userId: user.id,
+      reason: 'outreach_started',
+    })
+    const subject = parsed.data.custom_subject ?? buildDefaultOutreachSubject(accessPlan)
+    const bodyText = parsed.data.custom_body ?? buildDefaultOutreachBody(accessPlan)
     const created = []
 
     for (const venueId of uniqueVenueIds) {
@@ -120,6 +131,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
   } catch (error) {
     if (error instanceof GmailConnectionRequiredError) {
       return NextResponse.json({ error: error.message, gmail_required: true }, { status: 409 })
+    }
+    if (error instanceof PlannerProductAccessRequiredError) {
+      return NextResponse.json(productAccessErrorResponse(error), { status: error.status })
+    }
+    if (error instanceof PlannerProductAccessActivationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
     }
     console.error('[planner.outreach.approve-batch] POST failed', error)
     return NextResponse.json({ error: 'Failed to create outreach approvals' }, { status: 500 })

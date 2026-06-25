@@ -774,7 +774,7 @@ describe('MVP launch API contracts', () => {
     expect(response.status).toBe(402)
     expect(json).toEqual(expect.objectContaining({
       billingRequired: true,
-      error: 'Choose pay-per-event or Pro to approve outreach.',
+      error: 'Choose pay-per-event or Pro to continue planning this event.',
     }))
     expect(db.rows.approvals[0].status).toBe('pending')
     expect(db.rows.agent_actions[0].status).toBe('pending')

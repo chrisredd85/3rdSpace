@@ -515,7 +515,7 @@ describe('P0 approval concurrency hardening', () => {
 
     expect(response.status).toBe(402)
     expect(body).toEqual(expect.objectContaining({
-      error: 'Choose pay-per-event or Pro to approve outreach.',
+      error: 'Choose pay-per-event or Pro to continue planning this event.',
       billingRequired: true,
     }))
     expect(db.rows.approvals[0]).toEqual(expect.objectContaining({
@@ -558,7 +558,7 @@ describe('P0 approval concurrency hardening', () => {
 
     expect(response.status).toBe(402)
     expect(body).toEqual(expect.objectContaining({
-      error: 'Choose pay-per-event or Pro to approve outreach.',
+      error: 'Choose pay-per-event or Pro to continue planning this event.',
       billingRequired: true,
     }))
     expect(db.rows.approvals[0].status).toBe('authorized')

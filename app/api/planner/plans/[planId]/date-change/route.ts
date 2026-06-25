@@ -11,6 +11,12 @@ import {
   DateChangePlanNotFoundError,
   type PlannerDb,
 } from '@/lib/planner/dateChangeOutreach'
+import {
+  ensurePlannerEventAccess,
+  PlannerProductAccessActivationError,
+  PlannerProductAccessRequiredError,
+  productAccessErrorResponse,
+} from '@/lib/planner/productAccess'
 import { createClient } from '@/lib/supabase/server'
 import type { PlanMessage, PlannerApiErrorResponse } from '@/lib/types'
 
@@ -57,6 +63,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
       dateWindowEnd: parsed.data.dateWindowEnd,
       note: parsed.data.note,
       targets: parsed.data.targets,
+      ensureProductAccess: (plan) => ensurePlannerEventAccess({
+        plan,
+        userId: auth.userId,
+        reason: 'date_change_started',
+      }),
     })
     const messages = await loadPlanMessages(auth.db, context.params.planId)
 
@@ -79,6 +90,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     if (error instanceof DateChangeNoTargetsError) {
       return NextResponse.json({ error: error.message, contact_required: true }, { status: 400 })
+    }
+
+    if (error instanceof PlannerProductAccessRequiredError) {
+      return NextResponse.json(productAccessErrorResponse(error), { status: error.status })
+    }
+
+    if (error instanceof PlannerProductAccessActivationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
     }
 
     console.error('[planner.date-change] POST failed', error)
