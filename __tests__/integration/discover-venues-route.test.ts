@@ -120,7 +120,10 @@ class MemoryQuery {
   }
 
   private async execute() {
-    if (!this.db.rows[this.table]) this.db.rows[this.table] = []
+    const table = this.table === 'discovery_venues_with_contact'
+      ? 'discovery_venues'
+      : this.table
+    if (!this.db.rows[table]) this.db.rows[table] = []
 
     if (this.operation === 'upsert') {
       const payloadRows = Array.isArray(this.payload) ? this.payload : [this.payload]
@@ -129,7 +132,7 @@ class MemoryQuery {
     }
 
     return {
-      data: this.db.rows[this.table].filter((row) => this.filters.every((filter) => filter(row))),
+      data: this.db.rows[table].filter((row) => this.filters.every((filter) => filter(row))),
       error: null,
     }
   }
