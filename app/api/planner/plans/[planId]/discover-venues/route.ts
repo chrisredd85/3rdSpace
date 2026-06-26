@@ -8,6 +8,7 @@ import {
   buildDiscoveryCandidateResponses,
   buildDefaultDiscoverySearchQuery,
   buildDiscoveryVenueInsert,
+  DISCOVERY_VENUE_SELECT,
   rankDiscoveryVenues,
   type DiscoveryVenueRow,
   type PlanDiscoveryVenueCandidateRow,
@@ -33,52 +34,9 @@ type PlannerAuth =
   | { userId: string; db: ReturnType<typeof createClient> }
   | { response: NextResponse<PlannerApiErrorResponse> }
 
-const DISCOVERY_VENUE_SELECT = `
-  id,
-  name,
-  address,
-  neighborhood,
-  city,
-  state,
-  lat,
-  lng,
-  contact_email,
-  contact_phone,
-  website,
-  instagram_handle,
-  capacity_seated,
-  capacity_standing,
-  capacity_cocktail,
-  vibe_tags,
-  alcohol_policy,
-  av_available,
-  parking_notes,
-  price_hint_cents_low,
-  price_hint_cents_high,
-  price_hint_note,
-  source,
-  source_external_id,
-  google_rating,
-  google_user_ratings_total,
-  google_photo_names,
-  photos,
-  opening_hours_json,
-  metadata,
-  last_enriched_at,
-  last_verified_at,
-  last_rescue_at,
-  organizer_provided_emails,
-  organizer_rescue_count,
-  is_claimed,
-  claimed_venue_id,
-  created_at,
-  updated_at,
-  extracted_emails,
-  website_extraction_attempted_at,
-  website_extraction_attempts,
-  website_extraction_metadata,
-  website_extraction_status
-`
+type SupabaseFrom = {
+  from: (table: string) => any
+}
 
 const discoverVenuesSchema = z.object({
   query: z.string().trim().min(2).max(180).optional(),
@@ -101,7 +59,7 @@ export async function GET(
     const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const candidates = await loadPlanCandidates(context.params.planId)
+    const candidates = await loadPlanCandidates(auth.db, context.params.planId)
     const responseCandidates = buildDiscoveryCandidateResponses(plan, candidates)
     return NextResponse.json({
       candidates: responseCandidates,
@@ -194,7 +152,7 @@ export async function POST(
         })
         continue
       }
-      upsertedVenues.push(data as DiscoveryVenueRow)
+      upsertedVenues.push(data as unknown as DiscoveryVenueRow)
     }
 
     if (upsertedVenues.length > 0) {
@@ -222,7 +180,7 @@ export async function POST(
       }
     }
 
-    const candidates = await loadPlanCandidates(context.params.planId)
+    const candidates = await loadPlanCandidates(auth.db, context.params.planId)
     const responseCandidates = buildDiscoveryCandidateResponses(plan, candidates)
     return NextResponse.json({
       candidates: responseCandidates,
@@ -288,7 +246,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Discovery venue not found' }, { status: 404 })
     }
 
-    const candidates = await loadPlanCandidates(context.params.planId)
+    const candidates = await loadPlanCandidates(auth.db, context.params.planId)
     const responseCandidates = buildDiscoveryCandidateResponses(plan, candidates)
     return NextResponse.json({
       candidates: responseCandidates,
@@ -334,9 +292,8 @@ async function loadOwnedPlan(db: ReturnType<typeof createClient>, planId: string
   return (data as Plan | null) ?? null
 }
 
-async function loadPlanCandidates(planId: string) {
-  const admin = createServiceRoleClient()
-  const { data: candidates, error } = await admin
+async function loadPlanCandidates(db: ReturnType<typeof createClient>, planId: string) {
+  const { data: candidates, error } = await db
     .from('plan_discovery_venue_candidates')
     .select('*')
     .eq('plan_id', planId)
@@ -348,15 +305,18 @@ async function loadPlanCandidates(planId: string) {
   const candidateRows = candidates ?? []
   if (candidateRows.length === 0) return []
 
-  const { data: venues, error: venueError } = await admin
-    .from('discovery_venues')
+  const venueResult = await (db as unknown as SupabaseFrom)
+    .from('discovery_venues_with_contact')
     .select(DISCOVERY_VENUE_SELECT)
     .in('id', candidateRows.map((candidate) => candidate.discovery_venue_id))
-    .returns<DiscoveryVenueRow[]>()
+  const { data: venues, error: venueError } = venueResult as {
+    data: DiscoveryVenueRow[] | null
+    error: { message: string } | null
+  }
 
   if (venueError) throw new Error(venueError.message)
-  const venueById = new Map((venues ?? []).map((venue) => [venue.id, venue]))
-  return candidateRows.flatMap((candidate) => {
+  const venueById = new Map((venues ?? []).map((venue: DiscoveryVenueRow) => [venue.id, venue]))
+  return candidateRows.flatMap((candidate): Array<{ candidate: PlanDiscoveryVenueCandidateRow; venue: DiscoveryVenueRow }> => {
     const venue = venueById.get(candidate.discovery_venue_id)
     return venue ? [{ candidate, venue }] : []
   })

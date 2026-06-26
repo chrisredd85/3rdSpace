@@ -9,6 +9,7 @@ import { PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import {
   buildDefaultOutreachBody,
   buildDefaultOutreachSubject,
+  DISCOVERY_VENUE_SELECT,
   resolveDiscoveryVenueContact,
   type DiscoveryVenueRow,
   type PlanDiscoveryVenueCandidateRow,
@@ -19,7 +20,7 @@ import {
   PlannerProductAccessRequiredError,
   productAccessErrorResponse,
 } from '@/lib/planner/productAccess'
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/supabase/server'
 import type { Json, Plan } from '@/lib/types'
 
 type RouteContext = {
@@ -38,6 +39,10 @@ const approveBatchSchema = z.object({
 type CandidateWithVenue = {
   candidate: PlanDiscoveryVenueCandidateRow
   venue: DiscoveryVenueRow
+}
+
+type SupabaseFrom = {
+  from: (table: string) => any
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
@@ -68,7 +73,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const uniqueVenueIds = Array.from(new Set(parsed.data.discovery_venue_ids))
-    const rows = await loadCandidateRows(context.params.planId, uniqueVenueIds)
+    const rows = await loadCandidateRows(supabase, context.params.planId, uniqueVenueIds)
     const rowByVenueId = new Map(rows.map((row) => [row.venue.id, row]))
     const errors = uniqueVenueIds.flatMap((venueId) => {
       const row = rowByVenueId.get(venueId)
@@ -159,9 +164,12 @@ async function loadOwnedPlan(
   return (data as Plan | null) ?? null
 }
 
-async function loadCandidateRows(planId: string, venueIds: string[]): Promise<CandidateWithVenue[]> {
-  const admin = createServiceRoleClient()
-  const { data: candidates, error } = await admin
+async function loadCandidateRows(
+  db: ReturnType<typeof createClient>,
+  planId: string,
+  venueIds: string[]
+): Promise<CandidateWithVenue[]> {
+  const { data: candidates, error } = await db
     .from('plan_discovery_venue_candidates')
     .select('*')
     .eq('plan_id', planId)
@@ -173,24 +181,18 @@ async function loadCandidateRows(planId: string, venueIds: string[]): Promise<Ca
   const candidateRows = candidates ?? []
   if (candidateRows.length === 0) return []
 
-  const { data: venues, error: venueError } = await admin
-    .from('discovery_venues')
-    .select(`
-      id,name,address,neighborhood,city,state,lat,lng,contact_email,contact_phone,website,
-      instagram_handle,capacity_seated,capacity_standing,capacity_cocktail,vibe_tags,
-      alcohol_policy,av_available,parking_notes,price_hint_cents_low,price_hint_cents_high,
-      price_hint_note,source,source_external_id,google_rating,google_user_ratings_total,
-      google_photo_names,photos,opening_hours_json,metadata,last_enriched_at,last_verified_at,
-      last_rescue_at,organizer_provided_emails,organizer_rescue_count,is_claimed,claimed_venue_id,
-      created_at,updated_at,extracted_emails,website_extraction_attempted_at,
-      website_extraction_attempts,website_extraction_metadata,website_extraction_status
-    `)
+  const venueResult = await (db as unknown as SupabaseFrom)
+    .from('discovery_venues_with_contact')
+    .select(DISCOVERY_VENUE_SELECT)
     .in('id', candidateRows.map((candidate) => candidate.discovery_venue_id))
-    .returns<DiscoveryVenueRow[]>()
+  const { data: venues, error: venueError } = venueResult as {
+    data: DiscoveryVenueRow[] | null
+    error: { message: string } | null
+  }
 
   if (venueError) throw new Error(venueError.message)
-  const venueById = new Map((venues ?? []).map((venue) => [venue.id, venue]))
-  return candidateRows.flatMap((candidate) => {
+  const venueById = new Map((venues ?? []).map((venue: DiscoveryVenueRow) => [venue.id, venue]))
+  return candidateRows.flatMap((candidate): CandidateWithVenue[] => {
     const venue = venueById.get(candidate.discovery_venue_id)
     return venue ? [{ candidate, venue }] : []
   })

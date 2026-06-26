@@ -178,11 +178,14 @@ class MemoryQuery {
   }
 
   private async execute() {
-    if (!this.db.rows[this.table]) this.db.rows[this.table] = []
+    const table = this.table === 'discovery_venues_with_contact'
+      ? 'discovery_venues'
+      : this.table
+    if (!this.db.rows[table]) this.db.rows[table] = []
 
     if (this.operation === 'update') {
       const updated: Row[] = []
-      this.db.rows[this.table] = this.db.rows[this.table].map((row) => {
+      this.db.rows[table] = this.db.rows[table].map((row) => {
         if (!this.filters.every((filter) => filter(row))) return row
         const next = { ...row, ...this.payload, updated_at: new Date().toISOString() }
         updated.push(next)
@@ -192,7 +195,7 @@ class MemoryQuery {
     }
 
     return {
-      data: this.db.rows[this.table].filter((row) => this.filters.every((filter) => filter(row))),
+      data: this.db.rows[table].filter((row) => this.filters.every((filter) => filter(row))),
       error: null,
     }
   }
