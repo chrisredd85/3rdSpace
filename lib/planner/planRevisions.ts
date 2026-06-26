@@ -9,12 +9,25 @@ export type PlanRevisionTrigger = {
   source_message_excerpt?: string
 }
 
+export type PlanRevisionBriefSection =
+  | 'event_summary'
+  | 'venue_area'
+  | 'vendor_stack'
+  | 'budget'
+  | 'costs'
+  | 'projections'
+  | 'analytics'
+  | 'recommendations'
+  | 'approvals'
+  | 'outreach'
+
 export type PlanRevisionImpact = {
   invalidated_recommendation_ids: string[]
   superseded_approval_ids: string[]
   superseded_outreach_thread_ids: string[]
   flagged_committed_ids: string[]
   triggers_rediscovery: string[]
+  event_brief_sections: PlanRevisionBriefSection[]
 }
 
 export async function applyPlanRevision(opts: {
@@ -33,7 +46,7 @@ export async function applyPlanRevision(opts: {
     trigger: opts.trigger,
   })
   const nextRevisionCount = (plan.plan_revision_count ?? 0) + 1
-  const planUpdates = buildPlanRevisionUpdates(plan, opts.trigger, nextRevisionCount)
+  const planUpdates = buildPlanRevisionUpdates(plan, opts.trigger, nextRevisionCount, impact)
 
   await updatePlanForRevision(opts.supabase, opts.planId, planUpdates)
 
@@ -59,6 +72,7 @@ export async function applyPlanRevision(opts: {
     revisionId: revision.id,
     trigger: opts.trigger,
     targets: impact.triggers_rediscovery,
+    eventBriefSections: impact.event_brief_sections,
   })
 
   const auditLogId = await insertRevisionAuditLog(opts.supabase, {
@@ -147,6 +161,7 @@ export async function computeRevisionImpact(opts: {
     superseded_outreach_thread_ids: outreachThreads.map((thread) => thread.id),
     flagged_committed_ids: readCommittedEntityIds(opts.plan),
     triggers_rediscovery: deriveRediscoveryTargets(opts.trigger),
+    event_brief_sections: deriveEventBriefSections(opts.trigger),
   }
 }
 
@@ -172,6 +187,7 @@ export async function triggerRediscovery(opts: {
   revisionId: string
   trigger: PlanRevisionTrigger
   targets: string[]
+  eventBriefSections: PlanRevisionBriefSection[]
 }): Promise<{ job_ids: string[] }> {
   if (opts.targets.length === 0) return { job_ids: [] }
   if (await hasRecentRediscovery(opts.supabase, opts.planId, opts.revisionId)) return { job_ids: [] }
@@ -187,6 +203,8 @@ export async function triggerRediscovery(opts: {
         reason: 'plan_revision_rediscovery_requested',
         revision_id: opts.revisionId,
         rediscovery_targets: opts.targets,
+        event_brief_sections: opts.eventBriefSections,
+        refreshes_event_brief: true,
         requires_recommendation_refresh: true,
       } as Json,
     })
@@ -296,11 +314,12 @@ async function loadActiveOutreachThreads(
 function buildPlanRevisionUpdates(
   plan: Plan,
   trigger: PlanRevisionTrigger,
-  nextRevisionCount: number
+  nextRevisionCount: number,
+  impact: PlanRevisionImpact
 ): Record<string, unknown> {
   const updates: Record<string, unknown> = {
     plan_revision_count: nextRevisionCount,
-    metadata: mergeRevisionMetadata(plan.metadata, trigger),
+    metadata: mergeRevisionMetadata(plan.metadata, trigger, impact),
   }
 
   if (trigger.type === 'negative_preference') {
@@ -607,11 +626,12 @@ async function insertRevisionAuditLog(
   return data?.id ? String(data.id) : null
 }
 
-function mergeRevisionMetadata(value: unknown, trigger: PlanRevisionTrigger): Json {
+function mergeRevisionMetadata(value: unknown, trigger: PlanRevisionTrigger, impact: PlanRevisionImpact): Json {
   const metadata = readRecord(value) ?? {}
   const revisions = Array.isArray(metadata.plan_revision_triggers)
     ? metadata.plan_revision_triggers.slice(-9)
     : []
+  const appliedAt = new Date().toISOString()
 
   return {
     ...metadata,
@@ -620,7 +640,19 @@ function mergeRevisionMetadata(value: unknown, trigger: PlanRevisionTrigger): Js
       field: trigger.field,
       value: trigger.value,
       source_message_excerpt: trigger.source_message_excerpt ?? null,
-      applied_at: new Date().toISOString(),
+      event_brief_sections: impact.event_brief_sections,
+      impact_summary: impact,
+      refreshes_event_brief: true,
+      applied_at: appliedAt,
+    },
+    event_brief_refresh: {
+      revision_type: trigger.type,
+      revision_field: trigger.field,
+      sections: impact.event_brief_sections,
+      last_refreshed_at: appliedAt,
+      stale_recommendation_ids: impact.invalidated_recommendation_ids,
+      superseded_approval_ids: impact.superseded_approval_ids,
+      stale_outreach_thread_ids: impact.superseded_outreach_thread_ids,
     },
     plan_revision_triggers: [
       ...revisions,
@@ -629,6 +661,7 @@ function mergeRevisionMetadata(value: unknown, trigger: PlanRevisionTrigger): Js
         field: trigger.field,
         value: trigger.value,
         source_message_excerpt: trigger.source_message_excerpt ?? null,
+        event_brief_sections: impact.event_brief_sections,
       },
     ],
   } as Json
@@ -666,6 +699,52 @@ function deriveRediscoveryTargets(trigger: PlanRevisionTrigger): string[] {
   if (/flower|flor/i.test(`${trigger.field} ${JSON.stringify(trigger.value)}`)) return ['florist']
 
   return ['vendor']
+}
+
+export function deriveEventBriefSections(trigger: PlanRevisionTrigger): PlanRevisionBriefSection[] {
+  const sections = new Set<PlanRevisionBriefSection>([
+    'event_summary',
+    'recommendations',
+    'approvals',
+    'projections',
+    'analytics',
+  ])
+
+  if (trigger.type === 'date_change') {
+    sections.add('outreach')
+    sections.add('costs')
+  }
+
+  if (trigger.type === 'guest_count_change') {
+    sections.add('budget')
+    sections.add('costs')
+    sections.add('vendor_stack')
+  }
+
+  if (trigger.type === 'budget_change') {
+    sections.add('budget')
+    sections.add('costs')
+  }
+
+  if (trigger.type === 'venue_swap') {
+    sections.add('venue_area')
+    sections.add('costs')
+    sections.add('outreach')
+  }
+
+  if (
+    trigger.type === 'negative_preference' ||
+    trigger.type === 'positive_preference' ||
+    trigger.type === 'vendor_stack_addition' ||
+    trigger.type === 'vendor_stack_removal' ||
+    trigger.type === 'scope_change' ||
+    trigger.type === 'discovery_data_changed'
+  ) {
+    sections.add('vendor_stack')
+    sections.add('costs')
+  }
+
+  return Array.from(sections)
 }
 
 function hasMaterialPlanState(plan: Pick<Plan, 'event_type' | 'guest_count' | 'budget_cap_cents' | 'neighborhood' | 'date_window_start' | 'date_window_end' | 'status'>): boolean {

@@ -214,6 +214,7 @@ interface PlanRevisionSnapshot {
   field: string | null
   value: unknown
   sourceMessageExcerpt: string | null
+  eventBriefSections: string[]
   appliedAt: string | null
 }
 
@@ -544,6 +545,7 @@ function normalizePlanRevisionSnapshot(value: unknown): PlanRevisionSnapshot | n
     field: readString(record.field),
     value: record.value,
     sourceMessageExcerpt: readString(record.source_message_excerpt),
+    eventBriefSections: readStringArray(record.event_brief_sections),
     appliedAt: readString(record.applied_at),
   }
 }
@@ -3110,6 +3112,7 @@ function PlanRevisionBanner({ revision }: { revision: PlanRevisionSnapshot }) {
     ? revision.sourceMessageExcerpt
     : `${revision.type.replace(/_/g, ' ')}${revision.field ? ` · ${revision.field.replace(/_/g, ' ')}` : ''}`
   const applied = revision.appliedAt ? formatRelativeTime(revision.appliedAt) : null
+  const sectionLabel = formatRevisionSectionList(revision.eventBriefSections)
 
   return (
     <div className="mt-4 rounded-lg border border-clay/30 bg-clay-tint/70 p-3 text-sm text-ink">
@@ -3122,10 +3125,25 @@ function PlanRevisionBanner({ revision }: { revision: PlanRevisionSnapshot }) {
           <p className="mt-1 break-words leading-snug text-ink-soft">
             {label}. Stale recommendations and approvals are blocked while the agent refreshes current options.
           </p>
+          {sectionLabel ? (
+            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-forest">
+              Event brief refreshed: {sectionLabel}
+            </p>
+          ) : null}
         </div>
       </div>
     </div>
   )
+}
+
+function formatRevisionSectionList(sections: string[]) {
+  const labels = sections
+    .map((section) => section.replace(/_/g, ' '))
+    .filter(Boolean)
+    .slice(0, 6)
+  if (labels.length === 0) return null
+  const suffix = sections.length > labels.length ? ` +${sections.length - labels.length}` : ''
+  return `${labels.join(', ')}${suffix}`
 }
 
 function ProfitCard({ label, value, featured = false }: { label: string; value: number | null; featured?: boolean }) {

@@ -1,6 +1,6 @@
 jest.mock('server-only', () => ({}))
 
-import { detectPlanRevisionTrigger } from '@/lib/planner/planRevisions'
+import { deriveEventBriefSections, detectPlanRevisionTrigger } from '@/lib/planner/planRevisions'
 
 const materialPlan = {
   event_type: 'Networking mixer',
@@ -84,5 +84,41 @@ describe('plan revision trigger detection', () => {
     })
 
     expect(trigger).toBeNull()
+  })
+
+  it('marks budget changes as event brief financial refreshes', () => {
+    const sections = deriveEventBriefSections({
+      type: 'budget_change',
+      field: 'budget_cap_cents',
+      value: 500000,
+    })
+
+    expect(sections).toEqual(expect.arrayContaining([
+      'event_summary',
+      'budget',
+      'costs',
+      'projections',
+      'analytics',
+      'recommendations',
+      'approvals',
+    ]))
+  })
+
+  it('marks vendor stack changes as event brief cost and projection refreshes', () => {
+    const sections = deriveEventBriefSections({
+      type: 'vendor_stack_addition',
+      field: 'service_type',
+      value: 'florist',
+    })
+
+    expect(sections).toEqual(expect.arrayContaining([
+      'event_summary',
+      'vendor_stack',
+      'costs',
+      'projections',
+      'analytics',
+      'recommendations',
+      'approvals',
+    ]))
   })
 })
