@@ -52,7 +52,7 @@ describe('RoleLoginPage account creation placement', () => {
     jest.restoreAllMocks()
   })
 
-  it('places account creation next to the form sign-in action', () => {
+  it('keeps account creation next to the form sign-in action only', () => {
     renderRoleLoginPage()
 
     expect(screen.getByText('Creator portal')).toBeInTheDocument()
@@ -66,9 +66,8 @@ describe('RoleLoginPage account creation placement', () => {
     expect(formCreateAccount).toHaveClass('w-full')
 
     const createAccountLinks = screen.getAllByRole('link', { name: 'Create account' })
-    expect(createAccountLinks[0]).toHaveAttribute('href', '/signup/builder')
-    expect(createAccountLinks[0]).toHaveClass('hidden')
-    expect(createAccountLinks[0]).toHaveClass('sm:inline-flex')
+    expect(createAccountLinks).toHaveLength(1)
+    expect(createAccountLinks[0]).toBe(formCreateAccount)
   })
 
   it('stacks partner login links centered underneath the form actions', () => {
