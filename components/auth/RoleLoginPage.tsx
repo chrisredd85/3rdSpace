@@ -167,12 +167,9 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
 
   return (
     <div className="min-h-screen bg-background px-5 py-6 text-foreground sm:px-8">
-      <header className="mx-auto flex max-w-[920px] items-center justify-between">
+      <header className="mx-auto flex max-w-[920px] items-center">
         <Link href="/" className="font-display text-[24px] font-semibold tracking-tight text-clay">
           3rdPlace
-        </Link>
-        <Link href={signupHref} className="hidden text-[14px] font-semibold text-ink-soft transition-colors hover:text-clay sm:inline-flex">
-          Create account
         </Link>
       </header>
 
