@@ -111,6 +111,9 @@ const APPROVAL_SELECT_COLUMNS = `
   approved_at,
   expires_at,
   snapshot_hash,
+  superseded_at,
+  superseded_by_revision_id,
+  superseded_reason,
   created_at,
   updated_at
 `
@@ -211,6 +214,16 @@ export async function PATCH(
 
     const existingApproval = await loadApproval(auth.db, (await context.params).planId, parsed.data.approvalId)
     if (!existingApproval) return NextResponse.json({ error: 'Approval not found' }, { status: 404 })
+
+    if (existingApproval.status === 'superseded' || existingApproval.superseded_at) {
+      return NextResponse.json(
+        {
+          error: buildSupersededApprovalMessage(existingApproval),
+          code: 'approval_superseded',
+        },
+        { status: 409 }
+      )
+    }
 
     const approvalTransition = transitionApprovalStatus(existingApproval.status, parsed.data.action)
     if (!approvalTransition.ok) {
@@ -397,6 +410,13 @@ function buildApprovalUpdates(
   }
 
   return { status }
+}
+
+function buildSupersededApprovalMessage(approval: Approval): string {
+  const date = approval.superseded_at
+    ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(approval.superseded_at))
+    : 'a recent update'
+  return `This approval was superseded by a plan update on ${date}. Please re-approve from the current recommendation.`
 }
 
 async function approvalRequiresFreshReview(db: PlannerDb, plan: Plan, approval: Approval): Promise<boolean> {

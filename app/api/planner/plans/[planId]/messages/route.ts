@@ -58,6 +58,12 @@ import {
   resolveVendorNeedStatusUpdate,
 } from '@/lib/planner/vendorNeedStatus'
 import {
+  applyPlanRevision,
+  detectPlanRevisionTrigger,
+  type PlanRevisionImpact,
+  type PlanRevisionTrigger,
+} from '@/lib/planner/planRevisions'
+import {
   buildSpecialSupplyTransitionPhrase,
   mergeSpecialSupplyMetadata,
   pickSpecialSupplyIntakeQuestion,
@@ -113,6 +119,10 @@ const PLAN_SELECT_COLUMNS = `
   agent_action,
   profit_goal_cents,
   notes,
+  excluded_cuisines,
+  excluded_vendor_attributes,
+  preferred_vendor_attributes,
+  plan_revision_count,
   metadata,
   created_at,
   updated_at
@@ -139,6 +149,9 @@ const RECOMMENDATION_SELECT_COLUMNS = `
   rank,
   is_best_fit,
   status,
+  superseded_at,
+  superseded_by_revision_id,
+  plan_revision_at_creation,
   metadata,
   created_at
 `
@@ -262,6 +275,7 @@ export async function POST(
           agentDraft: buildPendingChangeConfirmationDraft(pendingChange),
           plan: planAfterFieldUpdates,
           agentMode: 'deterministic' as AgentMode,
+          revision: null,
         }
       : await buildPlannerAgentResponse({
           db: auth.db,
@@ -270,6 +284,7 @@ export async function POST(
           userMessage: body.data.message,
           plan: planAfterFieldUpdates,
           messages,
+          sourceMessageId: userMessage.id,
         })
     const shouldForceRecommendation = !pendingChange && shouldForceRequestedRecommendations({
       message: body.data.message,
@@ -306,7 +321,7 @@ export async function POST(
     const agentMessage = agentMessageData as PlanMessage
     const followUpMessages: PlanMessage[] = []
     const didMarkPlanReady = agentResponse.plan.status !== finalPlan.status && finalPlan.status === 'ready'
-    const didRefreshRecommendations = didMatchAffectingFieldsChange(existingPlan, finalPlan)
+    const didRefreshRecommendations = !agentResponse.revision && didMatchAffectingFieldsChange(existingPlan, finalPlan)
     const hasUnansweredAgentQuestion = hasPendingAgentResponse([...messages, agentMessage])
     if (didRefreshRecommendations) {
       const refreshStatusMessages = await invalidateRecommendationsForPlanChange({
@@ -331,6 +346,7 @@ export async function POST(
       (
         didMarkPlanReady ||
         shouldForceRecommendation ||
+        Boolean(agentResponse.revision?.impact.triggers_rediscovery.length) ||
         didRefreshRecommendations ||
         (agentMessage.message_type === 'recommendation' && !hasRecommendationPipelineArtifacts)
       )
@@ -366,6 +382,7 @@ export async function POST(
         user_message_id: userMessage.id,
         agent_message_id: agentMessage.id,
         follow_up_message_ids: followUpMessages.map((message) => message.id),
+        plan_revision: agentResponse.revision,
       }),
       ip_address: getIpAddress(request),
     })
@@ -635,11 +652,32 @@ async function buildPlannerAgentResponse(input: {
   userMessage: string
   plan: Plan
   messages: PlanMessage[]
-}): Promise<{ agentDraft: AgentResponseDraft; plan: Plan; agentMode: AgentMode }> {
+  sourceMessageId?: string
+}): Promise<{ agentDraft: AgentResponseDraft; plan: Plan; agentMode: AgentMode; revision: { id: string; impact: PlanRevisionImpact } | null }> {
+  const deterministicRevision = detectPlanRevisionTrigger({ plan: input.plan, message: input.userMessage })
+  if (deterministicRevision) {
+    const revision = await applyPlannerPlanRevision({
+      db: input.db,
+      planId: input.planId,
+      userId: input.userId,
+      trigger: deterministicRevision,
+      sourceMessageId: input.sourceMessageId,
+    })
+    if (revision) {
+      return {
+        agentDraft: buildPlanRevisionDraft(deterministicRevision, revision.impact),
+        plan: revision.plan,
+        agentMode: 'deterministic',
+        revision: { id: revision.revision_id, impact: revision.impact },
+      }
+    }
+  }
+
   const deterministicDraft = () => ({
     agentDraft: determineNextResponse(input.plan, input.messages),
     plan: input.plan,
     agentMode: 'deterministic' as AgentMode,
+    revision: null,
   })
 
   if (!process.env.OPENAI_API_KEY) {
@@ -689,6 +727,25 @@ async function buildPlannerAgentResponse(input: {
     }
 
     const intakeOutput = agentResult.output as IntakeAgentOutput
+    const intakeRevision = normalizeIntakePlanRevision(intakeOutput.plan_revision)
+    if (intakeRevision) {
+      const revision = await applyPlannerPlanRevision({
+        db: input.db,
+        planId: input.planId,
+        userId: input.userId,
+        trigger: intakeRevision,
+        sourceMessageId: input.sourceMessageId,
+      })
+      if (revision) {
+        return {
+          agentDraft: buildPlanRevisionDraft(intakeRevision, revision.impact),
+          plan: revision.plan,
+          agentMode: 'openai',
+          revision: { id: revision.revision_id, impact: revision.impact },
+        }
+      }
+    }
+
     const agentPlanUpdates = guardHighImpactPlanUpdates(
       input.plan,
       input.userMessage,
@@ -708,11 +765,88 @@ async function buildPlannerAgentResponse(input: {
         : buildIntakeAgentDraft(intakeOutput, planWithAgentUpdates, input.messages),
       plan: planWithAgentUpdates,
       agentMode: 'openai',
+      revision: null,
     }
   } catch (error) {
     console.warn('[planner.intake] Falling back to deterministic response:', error)
     return deterministicDraft()
   }
+}
+
+async function applyPlannerPlanRevision(input: {
+  db: PlannerDb
+  planId: string
+  userId: string
+  trigger: PlanRevisionTrigger
+  sourceMessageId?: string
+}): Promise<{ revision_id: string; impact: PlanRevisionImpact; plan: Plan } | null> {
+  try {
+    const result = await applyPlanRevision({
+      supabase: input.db,
+      planId: input.planId,
+      userId: input.userId,
+      trigger: input.trigger,
+      sourceMessageId: input.sourceMessageId,
+    })
+    const plan = await loadPlanById(input.db, input.planId)
+    if (!plan) return null
+    return { ...result, plan }
+  } catch (error) {
+    console.error('[planner.revisions] Failed to apply planner revision', error)
+    return null
+  }
+}
+
+async function loadPlanById(db: PlannerDb, planId: string): Promise<Plan | null> {
+  const { data, error } = await db
+    .from('plans')
+    .select(PLAN_SELECT_COLUMNS)
+    .eq('id', planId)
+    .maybeSingle()
+
+  if (error) {
+    console.error('[planner.revisions] Reload revised plan failed', error)
+    return null
+  }
+
+  return (data as Plan | null) ?? null
+}
+
+function normalizeIntakePlanRevision(value: IntakeAgentOutput['plan_revision']): PlanRevisionTrigger | null {
+  if (!value) return null
+  return {
+    type: value.type,
+    field: value.field,
+    value: value.value,
+    source_message_excerpt: value.source_message_excerpt,
+  }
+}
+
+function buildPlanRevisionDraft(trigger: PlanRevisionTrigger, impact: PlanRevisionImpact): AgentResponseDraft {
+  const refreshed = impact.triggers_rediscovery.length
+  const count = impact.invalidated_recommendation_ids.length + impact.superseded_approval_ids.length
+  const refreshText = refreshed > 0
+    ? `I’m refreshing ${formatRediscoveryTargets(impact.triggers_rediscovery)} now.`
+    : 'I saved that change to the brief.'
+  const staleText = count > 0
+    ? ` ${count.toLocaleString()} stale recommendation${count === 1 ? '' : 's'} or approval${count === 1 ? '' : 's'} were superseded so old actions cannot execute.`
+    : ''
+
+  return {
+    content: `Plan updated — ${trigger.source_message_excerpt ?? trigger.field}. ${refreshText}${staleText}`,
+    message_type: 'status_update',
+    metadata: toJson({
+      reason: 'plan_revision_applied',
+      trigger,
+      impact,
+      requires_response: false,
+    }),
+  }
+}
+
+function formatRediscoveryTargets(targets: string[]): string {
+  if (targets.includes('venue') && targets.includes('vendor')) return 'venues and vendors'
+  return targets.map((target) => target.replace(/_/g, ' ')).join(', ')
 }
 
 async function loadBuilderHistoryForIntake(

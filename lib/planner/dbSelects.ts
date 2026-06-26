@@ -16,6 +16,10 @@ export const PLAN_SELECT_COLUMNS = `
   agent_action,
   profit_goal_cents,
   notes,
+  excluded_cuisines,
+  excluded_vendor_attributes,
+  preferred_vendor_attributes,
+  plan_revision_count,
   committed_venue_id,
   committed_venue_quoted_price_cents,
   committed_venue_quoted_deal_model,
@@ -48,6 +52,9 @@ export const RECOMMENDATION_SELECT_COLUMNS = `
   rank,
   is_best_fit,
   status,
+  superseded_at,
+  superseded_by_revision_id,
+  plan_revision_at_creation,
   metadata,
   created_at
 `
@@ -75,6 +82,9 @@ export const APPROVAL_SELECT_COLUMNS = `
   approved_at,
   expires_at,
   snapshot_hash,
+  superseded_at,
+  superseded_by_revision_id,
+  superseded_reason,
   created_at,
   updated_at
 `

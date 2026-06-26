@@ -22,7 +22,12 @@ export type PlanMessageType =
 export type RecommendationType = 'venue' | 'vendor' | 'ticket' | 'external'
 
 /** Selection state for a recommendation. */
-export type RecommendationStatus = 'pending' | 'selected' | 'rejected'
+export type RecommendationStatus =
+  | 'pending'
+  | 'selected'
+  | 'rejected'
+  | 'superseded'
+  | 'invalidated_entity_closed'
 
 /** Canonical planner assessment of whether an event needs vendor sourcing. */
 export type VendorNeedStatus = 'none' | 'optional' | 'required' | 'unknown'
@@ -69,6 +74,20 @@ export type ApprovalStatus =
   | 'cancelled'
   | 'expired'
   | 're_approval_required'
+  | 'superseded'
+
+/** Material planner changes that can invalidate recommendations or approvals. */
+export type PlanRevisionTriggerType =
+  | 'negative_preference'
+  | 'positive_preference'
+  | 'vendor_stack_addition'
+  | 'vendor_stack_removal'
+  | 'date_change'
+  | 'guest_count_change'
+  | 'budget_change'
+  | 'venue_swap'
+  | 'scope_change'
+  | 'discovery_data_changed'
 
 /** Lifecycle states for a template rebook run. */
 export type TemplateRunStatus = 'pending' | 'confirmed' | 'cancelled'
@@ -164,6 +183,14 @@ export interface Plan {
   profit_goal_cents: number | null
   /** Freeform planner notes, assumptions, or unresolved constraints. */
   notes: string | null
+  /** Organizer-declared cuisines to exclude from vendor discovery. */
+  excluded_cuisines?: string[]
+  /** Organizer-declared vendor constraints to exclude from vendor discovery. */
+  excluded_vendor_attributes?: Json
+  /** Organizer-declared vendor attributes to prefer in vendor discovery. */
+  preferred_vendor_attributes?: Json
+  /** Monotonic count of material plan revisions. */
+  plan_revision_count?: number
   /** Planner-owned metadata cache for generated agent summaries and timelines. */
   metadata?: Json
   /** Timestamp when the plan was created. */
@@ -234,6 +261,36 @@ export interface Recommendation {
   metadata: Json
   /** Timestamp when the recommendation was created. */
   created_at: string
+  /** Timestamp when a material plan revision superseded this recommendation. */
+  superseded_at?: string | null
+  /** Plan revision that superseded this recommendation. */
+  superseded_by_revision_id?: string | null
+  /** Plan revision count when this recommendation was created. */
+  plan_revision_at_creation?: number
+}
+
+/** Audit row for organizer, admin, or discovery-data changes to a plan. */
+export interface PlanRevision {
+  /** Unique identifier for the revision. */
+  id: string
+  /** Plan that owns this revision. */
+  plan_id: string
+  /** User who triggered the revision, when known. */
+  triggered_by_user_id: string | null
+  /** Revision trigger category. */
+  trigger_type: PlanRevisionTriggerType
+  /** Structured trigger details. */
+  trigger_payload: Json
+  /** User message that produced the revision, when applicable. */
+  source_message_id: string | null
+  /** Supersession and rediscovery impact summary. */
+  impact_summary: Json
+  /** Service types or venue targets that should be rediscovered. */
+  rediscovery_triggered_for: string[]
+  /** Timestamp when the revision was applied. */
+  applied_at: string
+  /** Audit log row linked to this revision, when available. */
+  audit_log_id: string | null
 }
 
 /** Proposed, approved, or executed action prepared by Agent Planner. */
@@ -322,6 +379,12 @@ export interface Approval {
   created_at: string
   /** Timestamp when the approval was last updated. */
   updated_at: string
+  /** Timestamp when a material plan revision superseded this approval. */
+  superseded_at?: string | null
+  /** Plan revision that superseded this approval. */
+  superseded_by_revision_id?: string | null
+  /** Human-readable reason explaining why execution is blocked. */
+  superseded_reason?: string | null
 }
 
 /** User-defined spending guardrail for Agent Planner execution. */

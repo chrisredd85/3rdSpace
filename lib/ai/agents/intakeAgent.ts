@@ -184,6 +184,23 @@ const vendorNeedStatusSchema = z.preprocess(
   z.enum(['none', 'optional', 'required', 'unknown'])
 )
 
+const planRevisionSchema = z.object({
+  type: z.enum([
+    'negative_preference',
+    'positive_preference',
+    'vendor_stack_addition',
+    'vendor_stack_removal',
+    'date_change',
+    'guest_count_change',
+    'budget_change',
+    'venue_swap',
+    'scope_change',
+  ]),
+  field: z.string().trim().min(1),
+  value: z.unknown(),
+  source_message_excerpt: z.string().trim().min(1),
+})
+
 export const intakeExtractedFieldsSchema = z.object({
   event_type: z.string().trim().min(1).nullable(),
   guest_count: nullableIntSchema,
@@ -262,6 +279,7 @@ export const intakeAgentOutputSchema = z.object({
   assumptions_made: stringArraySchema,
   byo_vendors: z.preprocess((v) => Array.isArray(v) ? v : [], z.array(byoVendorSchema)).default([]),
   vendor_need_status: vendorNeedStatusSchema.default('unknown'),
+  plan_revision: planRevisionSchema.nullable().optional(),
 })
 
 export type IntakeAgentInput = z.infer<typeof intakeAgentInputSchema>
@@ -313,6 +331,7 @@ const INTAKE_OUTPUT_CONTRACT = {
   assumptions_made: ['string'],
   byo_vendors: [{ service_type: 'dj', name: 'optional vendor name or null', cost_cents: 50000 }],
   vendor_need_status: 'unknown',
+  plan_revision: null,
 }
 
 const INTAKE_SYSTEM_PROMPT = [
@@ -368,6 +387,9 @@ const INTAKE_SYSTEM_PROMPT = [
   'BYO removal — if the user says they no longer have a vendor ("nevermind on the DJ, I will use the platform", "drop my photographer"), remove that entry from byo_vendors. Returning an empty array on a turn means "no BYO vendors known yet"; do NOT use empty array to remove a previously-captured BYO vendor — only omit the specific entry if the user explicitly removed it.',
   'When a BYO vendor exists for a service type, do NOT also ask the user whether they need that service from the catalog. Skip the corresponding archetype question.',
   'Set vendor_need_status as a durable plan-level vendor sourcing state: "none" when the user says no vendors are needed, the venue handles all vendor-like work, no outside vendors, or the organizer already has everything covered; "required" when 3rdPlace should source or compare vendors; "optional" when vendors are nice-to-have but not required; "unknown" only when the plan lacks enough information. If vendor_need_status is "none", do not ask catalog vendor questions.',
+  'PLAN REVISION DETECTION: If the organizer message expresses a CHANGE to an already-set plan, return plan_revision. Do not treat first-time intake as a revision. Revisions include negative preference ("no tacos", "no alcohol", "exclude X"), positive preference ("Black-owned vendors", "must deliver", "near Oakland"), vendor_stack_addition ("I need flowers", "add lighting", "we need security"), vendor_stack_removal ("skip photographer"), date_change, guest_count_change, budget_change, venue_swap, and scope_change ("make it smaller", "make it more premium").',
+  'For plan_revision, set type, field, value, and source_message_excerpt. Examples: "no tacos" => {type:"negative_preference", field:"excluded_cuisines", value:["tacos"], source_message_excerpt:"no tacos"}; "I need flowers" => {type:"vendor_stack_addition", field:"service_type", value:"florist", source_message_excerpt:"I need flowers"}; "move it to Berkeley" => {type:"venue_swap", field:"neighborhood", value:"Berkeley", source_message_excerpt:"move it to Berkeley"}.',
+  'If the user changes vendor preference, cuisine, date, guest count, area, venue, budget, or terms after the field was already present in current_plan, include plan_revision even when you also update extracted_fields.',
   'Also populate extracted_fields using planner DB field names: event_type, guest_count, neighborhood, date_window_start, date_window_end, budget_cap_cents, ticketed, ticket_price_target, food_responsibility, profit_goal_cents.',
   'All monetary extracted_fields values must be integer cents.',
   'Use monetization_model values like ticketed, free, or sponsored when the user provides enough evidence.',
