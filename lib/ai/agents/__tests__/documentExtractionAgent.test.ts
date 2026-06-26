@@ -1,3 +1,5 @@
+/** @jest-environment node */
+
 jest.mock('server-only', () => ({}))
 
 jest.mock('@/lib/ai/client', () => ({
@@ -7,7 +9,8 @@ jest.mock('@/lib/ai/client', () => ({
 
 import { agentNameSchema } from '@/lib/ai/types'
 import { runDocumentExtractionAgent } from '@/lib/ai/agents/documentExtractionAgent'
-import * as XLSX from 'xlsx'
+
+const ExcelJS = require('exceljs/lib/exceljs.nodejs') as typeof import('exceljs')
 
 const previousOpenAiKey = process.env.OPENAI_API_KEY
 
@@ -130,18 +133,13 @@ describe('documentExtractionAgent', () => {
         },
       }],
     })
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.aoa_to_sheet([['Metric', 'Amount'], ['Net Sales', '$4,280.00']]),
-      'Square'
-    )
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.aoa_to_sheet([['Metric', 'Amount'], ['Tips', '$610.00']]),
-      'Tips'
-    )
-    const fileBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+    const workbook = new ExcelJS.Workbook()
+    const square = workbook.addWorksheet('Square')
+    square.addRows([['Metric', 'Amount'], ['Net Sales', '$4,280.00']])
+    const tips = workbook.addWorksheet('Tips')
+    tips.addRows([['Metric', 'Amount'], ['Tips', '$610.00']])
+    const workbookBuffer = await workbook.xlsx.writeBuffer()
+    const fileBuffer = Buffer.from(workbookBuffer as ArrayBuffer)
 
     const result = await runDocumentExtractionAgent(
       {

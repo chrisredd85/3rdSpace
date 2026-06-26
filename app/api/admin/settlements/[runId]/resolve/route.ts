@@ -13,9 +13,9 @@ const BodySchema = z.object({
 })
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     runId: string
-  }
+  }>
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const body = BodySchema.parse(await request.json().catch(() => ({})))
     const admin = createServiceRoleClient()
-    const result = await resolveDisputedSettlement(admin, context.params.runId, {
+    const result = await resolveDisputedSettlement(admin, (await context.params).runId, {
       actor: { id: adminContext.user.id, type: 'admin' },
       reason: body.reason,
     })

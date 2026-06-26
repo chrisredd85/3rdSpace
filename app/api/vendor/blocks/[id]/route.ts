@@ -8,9 +8,9 @@ import {
 } from '@/lib/bookings/availability-adapter'
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 async function requireVendorAccount(supabase: ReturnType<typeof createClient>, userId: string) {
@@ -43,10 +43,8 @@ async function getOwnedVendorIds(supabase: ReturnType<typeof createClient>, user
   return ((data || []) as Array<{ id: string }>).map((vendor) => vendor.id)
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: RouteContext
-) {
+export async function PATCH(request: NextRequest, props: RouteContext) {
+  const params = await props.params;
   try {
     const supabase = createClient()
 
@@ -149,10 +147,8 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: RouteContext
-) {
+export async function DELETE(request: NextRequest, props: RouteContext) {
+  const params = await props.params;
   try {
     const supabase = createClient()
 

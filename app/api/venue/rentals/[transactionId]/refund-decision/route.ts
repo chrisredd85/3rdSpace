@@ -53,10 +53,10 @@ class RouteError extends Error {
  */
 export async function POST(
   request: NextRequest,
-  context: { params: { transactionId: string } }
+  context: { params: Promise<{ transactionId: string }> }
 ) {
   try {
-    const parsedParams = paramsSchema.safeParse(context.params)
+    const parsedParams = paramsSchema.safeParse((await context.params))
     if (!parsedParams.success) {
       return NextResponse.json({ error: 'Invalid transaction id' }, { status: 400 })
     }

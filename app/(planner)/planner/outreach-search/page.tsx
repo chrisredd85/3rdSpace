@@ -1,11 +1,13 @@
 import { PlacesOutreachSearchWorkspace } from '@/components/planner/PlacesOutreachSearchWorkspace'
 
 type PlannerOutreachSearchPageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     plan?: string
-  }
+  }>
 }
 
-export default function PlannerOutreachSearchPage({ searchParams }: PlannerOutreachSearchPageProps) {
-  return <PlacesOutreachSearchWorkspace initialPlanId={searchParams?.plan ?? null} />
+export default async function PlannerOutreachSearchPage(props: PlannerOutreachSearchPageProps) {
+  const searchParams = await props.searchParams;
+  const resolvedSearchParams = searchParams ? await searchParams : {}
+  return <PlacesOutreachSearchWorkspace initialPlanId={resolvedSearchParams.plan ?? null} />
 }

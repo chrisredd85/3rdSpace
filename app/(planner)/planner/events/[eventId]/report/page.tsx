@@ -5,10 +5,11 @@ import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 export const dynamic = 'force-dynamic'
 
 type ReportPageProps = {
-  params: { eventId: string }
+  params: Promise<{ eventId: string }>
 }
 
 export default async function EventReportPage({ params }: ReportPageProps) {
+  const { eventId } = await params
   const supabase = createClient()
   const {
     data: { user },
@@ -26,7 +27,7 @@ export default async function EventReportPage({ params }: ReportPageProps) {
   const { data: event } = await supabase
     .from('events')
     .select('id, event_name, event_date, expected_attendance')
-    .eq('id', params.eventId)
+    .eq('id', eventId)
     .eq('builder_id', builderProfileId)
     .maybeSingle()
 
@@ -38,12 +39,12 @@ export default async function EventReportPage({ params }: ReportPageProps) {
     supabase
       .from('imported_attendees')
       .select('checked_in')
-      .eq('event_id', params.eventId)
+      .eq('event_id', eventId)
       .limit(10000),
     supabase
       .from('event_sales_data')
       .select('ticket_quantity, total_amount_cents, is_refund')
-      .eq('event_id', params.eventId)
+      .eq('event_id', eventId)
       .limit(10000),
   ])
   const attendeeRows = ((attendees ?? []) as Array<{ checked_in: boolean | null }>)
@@ -81,7 +82,7 @@ export default async function EventReportPage({ params }: ReportPageProps) {
             These values come from `event_sales_data` and `imported_attendees`. The full analytics page uses the same imported rows for rollups and recommendations.
           </p>
           <Link
-            href={`/planner/analytics?eventId=${params.eventId}`}
+            href={`/planner/analytics?eventId=${eventId}`}
             className="mt-4 inline-flex rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
           >
             Open analytics

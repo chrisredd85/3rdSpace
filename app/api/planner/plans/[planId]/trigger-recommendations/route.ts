@@ -21,9 +21,9 @@ import { createClient } from '@/lib/supabase/server'
 import type { PlannerApiErrorResponse } from '@/lib/types'
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return NextResponse.json<PlannerApiErrorResponse>({ error: 'Unauthorized' }, { status: 403 })
   }
 
-  const { planId } = context.params
+  const { planId } = (await context.params)
 
   try {
     const messages = await createAutoRecommendationMessage({ db, request, planId })

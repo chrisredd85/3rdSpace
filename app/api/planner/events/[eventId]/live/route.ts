@@ -84,10 +84,10 @@ const VELOCITY_BUCKETS = 24 * 7
 
 export async function GET(
   _request: NextRequest,
-  context: { params: { eventId: string } }
+  context: { params: Promise<{ eventId: string }> }
 ) {
   try {
-    const access = await resolveEventAccess(context.params)
+    const access = await resolveEventAccess((await context.params))
     if ('response' in access) return access.response
 
     const [pnl, recommendations, velocity_points, connectionSummary, terms] = await Promise.all([
@@ -167,10 +167,10 @@ export async function GET(
 
 export async function POST(
   _request: NextRequest,
-  context: { params: { eventId: string } }
+  context: { params: Promise<{ eventId: string }> }
 ) {
   try {
-    const access = await resolveEventAccess(context.params)
+    const access = await resolveEventAccess((await context.params))
     if ('response' in access) return access.response
 
     const job = await enqueueJob(access.admin as unknown as SupabaseJobClient, {
@@ -200,10 +200,10 @@ export async function POST(
 
 export async function PATCH(
   request: NextRequest,
-  context: { params: { eventId: string } }
+  context: { params: Promise<{ eventId: string }> }
 ) {
   try {
-    const access = await resolveEventAccess(context.params)
+    const access = await resolveEventAccess((await context.params))
     if ('response' in access) return access.response
 
     const parsed = patchSchema.safeParse(await request.json().catch(() => ({})))

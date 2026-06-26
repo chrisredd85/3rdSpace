@@ -1,12 +1,14 @@
 import 'server-only'
 
+import type { CellValue } from 'exceljs'
 import type OpenAI from 'openai'
 import Papa from 'papaparse'
-import * as XLSX from 'xlsx'
 import { z } from 'zod'
 import { assertOpenAIConfigured, openai } from '@/lib/ai/client'
 import { AgentRunExecutionError, type AgentResult } from '@/lib/ai/types'
 import { buildAgentRunMetadata, emptyAgentRunMetadata, type AgentMessagePayload } from '@/lib/ai/run-metadata'
+
+let excelJsModule: typeof import('exceljs') | null = null
 
 export const documentExtractionModeSchema = z.enum(['headcount', 'venue_revenue'])
 export const documentExtractionConfidenceSchema = z.enum(['high', 'medium', 'low'])
@@ -275,18 +277,34 @@ function prepareDelimitedInput(input: DocumentExtractionInput, buffer: Buffer, m
   }
 }
 
-function prepareSpreadsheetInput(input: DocumentExtractionInput, buffer: Buffer): PreparedExtractionInput {
-  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true })
-  const sections = workbook.SheetNames.map((sheetName) => {
-    const sheet = workbook.Sheets[sheetName]
-    const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false })
-    const rows = csv
+async function prepareSpreadsheetInput(input: DocumentExtractionInput, buffer: Buffer): Promise<PreparedExtractionInput> {
+  const ExcelJS = getExcelJS()
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0])
+
+  const sections: string[] = []
+  workbook.eachSheet((sheet) => {
+    const rows: string[][] = []
+    sheet.eachRow((row) => {
+      const values = Array.isArray(row.values) ? row.values.slice(1) : []
+      const normalized = values.map((cell) => stringifySpreadsheetCell(cell).trim())
+      if (normalized.some(Boolean)) {
+        rows.push(normalized)
+      }
+    })
+
+    const csv = rows.length > 0
+      ? Papa.unparse(rows, { header: false, newline: '\n' }).trim()
+      : ''
+    const textRows = csv
       .split(/\r?\n/)
       .map((row) => row.trim())
       .filter(Boolean)
       .join('\n')
-    return rows ? `Sheet: ${sheetName}\n${rows}` : ''
-  }).filter(Boolean)
+    if (textRows) {
+      sections.push(`Sheet: ${sheet.name}\n${textRows}`)
+    }
+  })
 
   const text = normalizeWhitespace(sections.join('\n\n'))
   if (!text) return emptyExtraction('File contained no data')
@@ -296,6 +314,29 @@ function prepareSpreadsheetInput(input: DocumentExtractionInput, buffer: Buffer)
     text,
     metadataText: buildFileMetadata(input, 'Spreadsheet sheets flattened to labeled text sections.'),
   }
+}
+
+function getExcelJS() {
+  excelJsModule ??= require('exceljs/lib/exceljs.nodejs') as typeof import('exceljs')
+  return excelJsModule
+}
+
+function stringifySpreadsheetCell(cell: CellValue): string {
+  if (cell === null || cell === undefined) return ''
+  if (cell instanceof Date) return cell.toISOString()
+  if (typeof cell === 'string' || typeof cell === 'number' || typeof cell === 'boolean') {
+    return String(cell)
+  }
+  if (Array.isArray(cell)) {
+    return cell.map((part) => stringifySpreadsheetCell(part as CellValue)).filter(Boolean).join(' ')
+  }
+  if ('text' in cell && typeof cell.text === 'string') return cell.text
+  if ('richText' in cell && Array.isArray(cell.richText)) {
+    return cell.richText.map((part) => part.text).join('')
+  }
+  if ('result' in cell) return stringifySpreadsheetCell(cell.result as CellValue)
+  if ('hyperlink' in cell && 'text' in cell && typeof cell.text === 'string') return cell.text
+  return String(cell)
 }
 
 function buildTextMessages(systemPrompt: string, prompt: string, text: string) {

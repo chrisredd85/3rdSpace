@@ -31,9 +31,9 @@ const putCustomCostsSchema = z.object({
 })
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 /**
@@ -55,7 +55,7 @@ export async function PUT(
       )
     }
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const currentMetadata = readRecord(plan.metadata) ?? {}

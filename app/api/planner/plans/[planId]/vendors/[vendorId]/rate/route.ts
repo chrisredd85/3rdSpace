@@ -19,10 +19,10 @@ import {
 } from '@/lib/vendors/rateAgreements'
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
     vendorId: string
-  }
+  }>
 }
 
 const commitRateSchema = z.object({
@@ -36,13 +36,13 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const vendor = await loadVendor(auth.db, context.params.vendorId)
+    const vendor = await loadVendor(auth.db, (await context.params).vendorId)
     if (!vendor) return NextResponse.json({ error: 'Vendor not found' }, { status: 404 })
 
-    const prefill = await getVendorRatePrefill(auth.db, auth.userId, context.params.vendorId, {
+    const prefill = await getVendorRatePrefill(auth.db, auth.userId, (await context.params).vendorId, {
       expectedAttendance: plan.guest_count,
     })
 
@@ -67,10 +67,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Invalid vendor rate', details: parsed.error.flatten() }, { status: 400 })
     }
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const vendor = await loadVendor(auth.db, context.params.vendorId)
+    const vendor = await loadVendor(auth.db, (await context.params).vendorId)
     if (!vendor) return NextResponse.json({ error: 'Vendor not found' }, { status: 404 })
 
     const sourceEventId = getPlanSourceEventId(plan)
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const commitPlan = parsed.data.commit_agreement
       ? await commitVendorRateAgreement(auth.db, {
           organizerUserId: auth.userId,
-          vendorId: context.params.vendorId,
+          vendorId: (await context.params).vendorId,
           sourceEventId,
           amount: rateAmount,
           rateType,

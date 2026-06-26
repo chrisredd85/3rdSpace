@@ -84,9 +84,9 @@ type TemplateRow = {
 }
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const { data: template, error: templateError } = await supabase
       .from('templates')
       .select(TEMPLATE_SELECT_COLUMNS)
-      .eq('id', context.params.id)
+      .eq('id', (await context.params).id)
       .eq('user_id', user.id)
       .maybeSingle()
 
@@ -374,7 +374,7 @@ function buildPlanInsertFromTemplate(userId: string, template: TemplateRow, inpu
     profit_goal_cents: readNumber(readRecord(template.profit_assumptions)?.profit_goal_cents),
     notes: 'Created from a saved planner template. Recommendations and economics should be treated as fresh estimates for this run.',
     metadata,
-  }
+  };
 }
 
 function buildPlanUpdatesFromTemplate(plan: Plan, template: TemplateRow, input: ApplyTemplateInput): Record<string, unknown> {

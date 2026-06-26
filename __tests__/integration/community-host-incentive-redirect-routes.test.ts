@@ -7,7 +7,7 @@ const ID = '11111111-1111-4111-8111-111111111111'
 
 describe('legacy venue settlement route redirects', () => {
   it('redirects legacy checkout calls to the CHI endpoint', async () => {
-    const response = oldCheckoutPost(
+    const response = await oldCheckoutPost(
       new Request(`http://localhost/api/venue/kickbacks/${ID}/checkout`) as never,
       { params: { id: ID } }
     )
@@ -19,7 +19,7 @@ describe('legacy venue settlement route redirects', () => {
   })
 
   it('redirects legacy refund calls to the CHI endpoint', async () => {
-    const response = oldRefundPost(
+    const response = await oldRefundPost(
       new Request(`http://localhost/api/venue/kickbacks/${ID}/refund-request`) as never,
       { params: { id: ID } }
     )
@@ -31,7 +31,7 @@ describe('legacy venue settlement route redirects', () => {
   })
 
   it('redirects legacy spend-report calls to the CHI endpoint', async () => {
-    const response = oldSpendReportPost(
+    const response = await oldSpendReportPost(
       new Request(`http://localhost/api/venue/kickbacks/${ID}/spend-report`) as never,
       { params: { id: ID } }
     )

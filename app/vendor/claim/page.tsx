@@ -5,11 +5,12 @@ import { getVendorClaimDetails } from '@/lib/vendors/vendorClaims'
 
 export const dynamic = 'force-dynamic'
 
-export default async function VendorClaimPage({
-  searchParams,
-}: {
-  searchParams: { token?: string }
-}) {
+export default async function VendorClaimPage(
+  props: {
+    searchParams: Promise<{ token?: string }>
+  }
+) {
+  const searchParams = await props.searchParams;
   const token = searchParams.token
   if (!token) {
     return <ClaimError message="Missing vendor invite token." />

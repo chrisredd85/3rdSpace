@@ -8,9 +8,9 @@ import { declineVenueOpportunity } from '@/lib/venues/venueOpportunityRecovery'
 export const runtime = 'nodejs'
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     token: string
-  }
+  }>
 }
 
 const declineSchema = z.object({
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   const admin = createServiceRoleClient()
   const result = await declineVenueOpportunity(admin, {
-    token: context.params.token,
+    token: (await context.params).token,
     reason: parsed.data.reason ?? null,
   })
 

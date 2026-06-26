@@ -9,9 +9,9 @@ import type { Json, Plan } from '@/lib/types'
 type PlannerDb = { from: (table: string) => any }
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 const commitVenueSchema = z.object({
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: 'Invalid venue commitment payload', issues: parsed.error.flatten() }, { status: 400 })
   }
 
-  const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+  const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
   if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
   const committedAt = new Date().toISOString()
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       committed_venue_at: committedAt,
       metadata: nextMetadata as Json,
     })
-    .eq('id', context.params.planId)
+    .eq('id', (await context.params).planId)
     .eq('user_id', auth.userId)
     .select(PLAN_SELECT_COLUMNS)
     .single()
@@ -75,11 +75,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
   await auth.db
     .from('plan_discovery_venue_candidates')
     .update({ status: 'superseded' })
-    .eq('plan_id', context.params.planId)
+    .eq('plan_id', (await context.params).planId)
     .neq('discovery_venue_id', parsed.data.discovery_venue_id)
     .in('status', ['candidate', 'approval_created'])
 
-  await insertStatusMessage(auth.db, context.params.planId, 'Committed venue quote for planning. Other venue outreach was marked superseded, not cancelled.')
+  await insertStatusMessage(auth.db, (await context.params).planId, 'Committed venue quote for planning. Other venue outreach was marked superseded, not cancelled.')
   return NextResponse.json({ plan: data })
 }
 
@@ -87,7 +87,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
   const auth = await getCreatorAuth()
   if ('response' in auth) return auth.response
 
-  const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+  const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
   if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
   const metadata = readRecord(plan.metadata) ?? {}
@@ -112,7 +112,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
       committed_venue_at: null,
       metadata: nextMetadata as Json,
     })
-    .eq('id', context.params.planId)
+    .eq('id', (await context.params).planId)
     .eq('user_id', auth.userId)
     .select(PLAN_SELECT_COLUMNS)
     .single()
@@ -121,7 +121,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: error?.message ?? 'Failed to cancel venue commitment' }, { status: 500 })
   }
 
-  await insertStatusMessage(auth.db, context.params.planId, 'Cancelled accepted venue quote. The brief returned to comparison mode.')
+  await insertStatusMessage(auth.db, (await context.params).planId, 'Cancelled accepted venue quote. The brief returned to comparison mode.')
   return NextResponse.json({ plan: data })
 }
 

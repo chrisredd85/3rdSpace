@@ -33,10 +33,10 @@ class RouteError extends Error {
 
 export async function POST(
   request: NextRequest,
-  context: { params: { planId: string } }
+  context: { params: Promise<{ planId: string }> }
 ) {
   try {
-    const parsedParams = paramsSchema.safeParse(context.params)
+    const parsedParams = paramsSchema.safeParse((await context.params))
     if (!parsedParams.success) {
       return NextResponse.json({ error: 'Invalid plan id' }, { status: 400 })
     }

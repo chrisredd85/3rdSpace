@@ -10,15 +10,16 @@ import type { Message, MessageThread } from '@/lib/types'
 export const dynamic = 'force-dynamic'
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     threadId: string
-  }
+  }>
 }
 
 /**
  * Get messages for either the new vendor-booking thread model or legacy generic threads.
  */
-export async function GET(request: NextRequest, { params }: RouteContext) {
+export async function GET(request: NextRequest, props: RouteContext) {
+  const params = await props.params;
   const vendorResponse = await getVendorThreadResponse(params.threadId)
   if (vendorResponse) return vendorResponse
 

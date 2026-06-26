@@ -33,12 +33,13 @@ type AuditRow = {
 }
 
 type PageProps = {
-  params: {
+  params: Promise<{
     runId: string
-  }
+  }>
 }
 
 export default async function AdminSettlementDetailPage({ params }: PageProps) {
+  const { runId } = await params
   const context = await getAdminContext()
   if (!context.authorized) {
     if (context.status === 401) redirect('/login')
@@ -49,15 +50,15 @@ export default async function AdminSettlementDetailPage({ params }: PageProps) {
   const { data: run, error: runError } = await (admin as any)
     .from('settlement_runs')
     .select('id, event_id, organizer_id, venue_id, status, total_cents, attendance_count, dispute_reason, updated_at')
-    .eq('id', params.runId)
+    .eq('id', runId)
     .maybeSingle()
 
   const { data: charges } = await (admin as any)
     .from('settlement_charges')
     .select('id')
-    .eq('settlement_run_id', params.runId)
+    .eq('settlement_run_id', runId)
 
-  const auditEntityIds = [params.runId, ...((charges ?? []) as Array<{ id: string }>).map((charge) => charge.id)]
+  const auditEntityIds = [runId, ...((charges ?? []) as Array<{ id: string }>).map((charge) => charge.id)]
   const { data: auditRows, error: auditError } = await (admin as any)
     .from('settlement_audit_log')
     .select('id, entity_type, entity_id, action, before_state, after_state, actor_id, actor_type, reason, metadata, created_at')
@@ -72,7 +73,7 @@ export default async function AdminSettlementDetailPage({ params }: PageProps) {
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-primary">Internal admin</p>
             <h1 className="mt-2 font-display text-4xl font-bold">Settlement audit</h1>
-            <p className="mt-2 text-sm text-muted-foreground">Run {params.runId}</p>
+            <p className="mt-2 text-sm text-muted-foreground">Run {runId}</p>
           </div>
           <Link href="/admin/settlements" className="text-sm font-semibold text-primary hover:underline">
             Back to settlements

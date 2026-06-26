@@ -9,15 +9,16 @@ import { NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     threadId: string
-  }
+  }>
 }
 
 /**
  * Get messages in a booking thread and mark received messages as read.
  */
-export async function GET(request: Request, { params }: RouteContext) {
+export async function GET(request: Request, props: RouteContext) {
+  const params = await props.params;
   try {
     const supabase = createClient()
     const access = await getAuthorizedThread(supabase as any, params.threadId)

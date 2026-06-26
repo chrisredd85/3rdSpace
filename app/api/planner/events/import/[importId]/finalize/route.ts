@@ -41,10 +41,8 @@ type ImportSession = {
   payload: Record<string, any>
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { importId: string } }
-) {
+export async function POST(request: NextRequest, props: { params: Promise<{ importId: string }> }) {
+  const params = await props.params;
   try {
     const auth = await getAuthenticatedBuilder()
     if ('response' in auth) return auth.response

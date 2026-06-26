@@ -14,9 +14,9 @@ import { createClient } from '@/lib/supabase/server'
 type PlannerDb = { from: (table: string) => any }
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     threadId: string
-  }
+  }>
 }
 
 export async function POST(_request: Request, context: RouteContext) {
@@ -26,7 +26,7 @@ export async function POST(_request: Request, context: RouteContext) {
 
     const thread = await markGmailOutreachThreadHandled(auth.db, {
       userId: auth.userId,
-      threadId: context.params.threadId,
+      threadId: (await context.params).threadId,
     })
 
     return NextResponse.json({ thread })

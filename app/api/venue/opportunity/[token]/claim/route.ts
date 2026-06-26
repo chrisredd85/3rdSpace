@@ -7,9 +7,9 @@ import { claimVenueOpportunityForUser } from '@/lib/venues/venueOpportunityRecov
 export const runtime = 'nodejs'
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     token: string
-  }
+  }>
 }
 
 /**
@@ -28,7 +28,7 @@ export async function POST(_request: NextRequest, context: RouteContext) {
 
   const admin = createServiceRoleClient()
   const result = await claimVenueOpportunityForUser(admin, {
-    token: context.params.token,
+    token: (await context.params).token,
     userId: user.id,
   })
 

@@ -8,19 +8,17 @@ import { loadVenueOpportunityRecoveryContext } from '@/lib/venues/venueOpportuni
 export const dynamic = 'force-dynamic'
 
 type VenueOpportunityStripeCompletePageProps = {
-  params: {
+  params: Promise<{
     token: string
-  }
+  }>
   searchParams?: Promise<Record<string, string | string[] | undefined>>
 }
 
-export default async function VenueOpportunityStripeCompletePage({
-  params,
-  searchParams,
-}: VenueOpportunityStripeCompletePageProps) {
-  const resolvedSearchParams = searchParams ? await searchParams : {}
+export default async function VenueOpportunityStripeCompletePage(props: VenueOpportunityStripeCompletePageProps) {
+  const { token } = await props.params
+  const resolvedSearchParams = props.searchParams ? await props.searchParams : {}
   const admin = createServiceRoleClient()
-  const context = await loadVenueOpportunityRecoveryContext(admin, params.token)
+  const context = await loadVenueOpportunityRecoveryContext(admin, token)
   if (!context) notFound()
 
   const errorMessage = readSearchParam(resolvedSearchParams.message)
@@ -61,13 +59,13 @@ export default async function VenueOpportunityStripeCompletePage({
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
             {!ready ? (
               <Button asChild>
-                <Link href={`/api/venue/opportunity/${encodeURIComponent(params.token)}/stripe-resume`}>
+                <Link href={`/api/venue/opportunity/${encodeURIComponent(token)}/stripe-resume`}>
                   Continue Stripe setup
                 </Link>
               </Button>
             ) : null}
             <Button variant="outline" asChild>
-              <Link href={`/v/respond/${encodeURIComponent(params.token)}`}>View opportunity</Link>
+              <Link href={`/v/respond/${encodeURIComponent(token)}`}>View opportunity</Link>
             </Button>
           </div>
         </section>

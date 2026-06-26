@@ -12,9 +12,9 @@ import type { Json } from '@/lib/types'
 import { handleAcceptedVenueOpportunityRecovery } from '@/lib/venues/venueOpportunityRecovery'
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     token: string
-  }
+  }>
 }
 
 const responseSchema = z.object({
@@ -33,7 +33,7 @@ const responseSchema = z.object({
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
     const admin = createServiceRoleClient()
-    const responseContext = await getOpportunityResponseContext(admin, context.params.token)
+    const responseContext = await getOpportunityResponseContext(admin, (await context.params).token)
     if (!responseContext) return NextResponse.json({ error: 'Response link not found' }, { status: 404 })
 
     await markOpportunityViewed(admin, responseContext)
@@ -58,14 +58,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const admin = createServiceRoleClient()
-    const responseContext = await getOpportunityResponseContext(admin, context.params.token)
+    const responseContext = await getOpportunityResponseContext(admin, (await context.params).token)
     if (!responseContext) return NextResponse.json({ error: 'Response link not found' }, { status: 404 })
     if (responseContext.isExpired) return NextResponse.json({ error: 'Response link expired' }, { status: 410 })
 
     const invite = await submitOpportunityResponse(admin, responseContext, parsed.data)
     const recovery =
       responseContext.kind === 'venue' && parsed.data.action === 'accept'
-        ? await handleAcceptedVenueOpportunityRecovery(admin, context.params.token)
+        ? await handleAcceptedVenueOpportunityRecovery(admin, (await context.params).token)
         : null
 
     return NextResponse.json({

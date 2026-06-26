@@ -37,10 +37,10 @@ type EventAccess =
 
 export async function GET(
   _request: NextRequest,
-  context: { params: { eventId: string } }
+  context: { params: Promise<{ eventId: string }> }
 ) {
   try {
-    const parsedParams = paramsSchema.safeParse(context.params)
+    const parsedParams = paramsSchema.safeParse((await context.params))
     if (!parsedParams.success) {
       return NextResponse.json({ error: 'Invalid event id' }, { status: 400 })
     }
@@ -69,10 +69,10 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  context: { params: { eventId: string } }
+  context: { params: Promise<{ eventId: string }> }
 ) {
   try {
-    const parsedParams = paramsSchema.safeParse(context.params)
+    const parsedParams = paramsSchema.safeParse((await context.params))
     if (!parsedParams.success) {
       return NextResponse.json({ error: 'Invalid event id' }, { status: 400 })
     }

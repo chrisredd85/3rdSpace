@@ -8,9 +8,9 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json } from '@/lib/types'
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     venueId: string
-  }
+  }>
 }
 
 const contactEmailSchema = z.object({
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       )
     }
 
-    const ownsCandidate = await userOwnsDiscoveryVenue(supabase, user.id, context.params.venueId)
+    const ownsCandidate = await userOwnsDiscoveryVenue(supabase, user.id, (await context.params).venueId)
     if (!ownsCandidate) {
       return NextResponse.json({ error: 'Discovery venue not found' }, { status: 404 })
     }
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const { data: venue, error: loadError } = await admin
       .from('discovery_venues')
       .select('id,organizer_provided_emails,organizer_rescue_count')
-      .eq('id', context.params.venueId)
+      .eq('id', (await context.params).venueId)
       .maybeSingle()
 
     if (loadError || !venue) {
@@ -78,14 +78,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
         organizer_rescue_count: (venue.organizer_rescue_count ?? 0) + 1,
         last_rescue_at: now,
       })
-      .eq('id', context.params.venueId)
+      .eq('id', (await context.params).venueId)
       .select('id,organizer_provided_emails,organizer_rescue_count,last_rescue_at')
       .single()
 
     if (updateError || !updated) {
       console.error('[planner.discovery-venues.contact-email] update_failed', {
         error: updateError?.message,
-        venue_id: context.params.venueId,
+        venue_id: (await context.params).venueId,
       })
       return NextResponse.json({ error: 'Failed to save contact email' }, { status: 500 })
     }
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const draftResults = await enqueuePendingDraftsForUserVenue({
       db: admin as unknown as { from: (table: string) => any },
       userId: user.id,
-      discoveryVenueId: context.params.venueId,
+      discoveryVenueId: (await context.params).venueId,
     })
 
     return NextResponse.json({ venue: updated, draft_results: draftResults })

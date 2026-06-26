@@ -23,9 +23,9 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan } from '@/lib/types'
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 const approveBatchSchema = z.object({
@@ -64,11 +64,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
       )
     }
 
-    const plan = await loadOwnedPlan(supabase, context.params.planId, user.id)
+    const plan = await loadOwnedPlan(supabase, (await context.params).planId, user.id)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const uniqueVenueIds = Array.from(new Set(parsed.data.discovery_venue_ids))
-    const rows = await loadCandidateRows(context.params.planId, uniqueVenueIds)
+    const rows = await loadCandidateRows((await context.params).planId, uniqueVenueIds)
     const rowByVenueId = new Map(rows.map((row) => [row.venue.id, row]))
     const errors = uniqueVenueIds.flatMap((venueId) => {
       const row = rowByVenueId.get(venueId)

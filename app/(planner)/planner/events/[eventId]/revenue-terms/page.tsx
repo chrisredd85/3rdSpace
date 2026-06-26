@@ -2,11 +2,12 @@ import { RevenueTermsTab } from '@/components/planner/RevenueTermsTab'
 
 export const dynamic = 'force-dynamic'
 
-export default function EventRevenueTermsPage({
+export default async function EventRevenueTermsPage({
   params,
 }: {
-  params: { eventId: string }
+  params: Promise<{ eventId: string }>
 }) {
+  const { eventId } = await params
   return (
     <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <section className="mx-auto flex w-full max-w-6xl flex-col gap-6">
@@ -18,7 +19,7 @@ export default function EventRevenueTermsPage({
             Revenue terms
           </h1>
         </div>
-        <RevenueTermsTab eventId={params.eventId} />
+        <RevenueTermsTab eventId={eventId} />
       </section>
     </main>
   )

@@ -144,9 +144,9 @@ const RECOMMENDATION_SELECT_COLUMNS = `
 `
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 /**
@@ -164,13 +164,13 @@ export async function GET(
     const auth = await getAuthenticatedPlannerDb()
     if ('response' in auth) return auth.response
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const { data, error } = await auth.db
       .from('plan_messages')
       .select(PLAN_MESSAGE_SELECT_COLUMNS)
-      .eq('plan_id', context.params.planId)
+      .eq('plan_id', (await context.params).planId)
       .order('created_at', { ascending: true })
 
     if (error) {
@@ -220,7 +220,7 @@ export async function POST(
       )
     }
 
-    const existingPlan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const existingPlan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!existingPlan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const pendingResolution = buildPendingPlanChangeResolution(existingPlan, body.data.message)
@@ -232,7 +232,7 @@ export async function POST(
     )
     const planAfterFieldUpdates = await updatePlanIfNeeded(
       auth.db,
-      context.params.planId,
+      (await context.params).planId,
       existingPlan,
       fieldUpdates
     )
@@ -240,7 +240,7 @@ export async function POST(
     const { data: userMessageData, error: userMessageError } = await auth.db
       .from('plan_messages')
       .insert({
-        plan_id: context.params.planId,
+        plan_id: (await context.params).planId,
         role: 'user',
         content: body.data.message,
         message_type: 'text',
@@ -255,7 +255,7 @@ export async function POST(
     }
 
     const userMessage = userMessageData as PlanMessage
-    const messages = await loadMessages(auth.db, context.params.planId)
+    const messages = await loadMessages(auth.db, (await context.params).planId)
     const pendingChange = readPendingPlanChange(readRecord(planAfterFieldUpdates.metadata))
     const agentResponse = pendingChange
       ? {
@@ -265,7 +265,7 @@ export async function POST(
         }
       : await buildPlannerAgentResponse({
           db: auth.db,
-          planId: context.params.planId,
+          planId: (await context.params).planId,
           userId: auth.userId,
           userMessage: body.data.message,
           plan: planAfterFieldUpdates,
@@ -281,7 +281,7 @@ export async function POST(
       : agentResponse.agentDraft
     const finalPlan = await maybeMarkPlanReady(
       auth.db,
-      context.params.planId,
+      (await context.params).planId,
       agentResponse.plan,
       agentDraft.message_type
     )
@@ -289,7 +289,7 @@ export async function POST(
     const { data: agentMessageData, error: agentMessageError } = await auth.db
       .from('plan_messages')
       .insert({
-        plan_id: context.params.planId,
+        plan_id: (await context.params).planId,
         role: 'agent',
         content: agentDraft.content,
         message_type: agentDraft.message_type,
@@ -323,7 +323,7 @@ export async function POST(
     // after receiving this response.
     const hasRecommendationPipelineArtifacts = await hasExistingRecommendationPipelineArtifacts(
       auth.db,
-      context.params.planId,
+      (await context.params).planId,
       messages
     )
     const shouldCreateAutoRecommendations =
@@ -349,12 +349,12 @@ export async function POST(
 
     await recordEventTypeCandidate(auth.db, {
       userId: auth.userId,
-      planId: context.params.planId,
+      planId: (await context.params).planId,
       intent,
     })
     await insertAuditLog(auth.db, {
       user_id: auth.userId,
-      plan_id: context.params.planId,
+      plan_id: (await context.params).planId,
       action: 'planner.message.exchange',
       entity_type: 'plan_message',
       entity_id: userMessage.id,
@@ -985,7 +985,7 @@ function normalizeAcknowledgementTone(value: string, seedValue: string | null | 
   const leads = ['Perfect', 'Clear', "I'm tracking", 'That works', 'Locked in']
   const seed = Array.from(seedValue ?? value).reduce((total, char) => total + char.charCodeAt(0), 0)
   const lead = leads[seed % leads.length]
-  return value.replace(/^got it[,.]?\s*(?:[—-]\s*)?/i, `${lead} — `)
+  return value.replace(/^got it[,.]?\s*(?:[—-]\s*)?/i, `${lead} — `);
 }
 
 function buildPlanUpdatesFromIntakeOutput(
@@ -1391,11 +1391,11 @@ function buildPendingPlanChangeResolution(currentPlan: Plan, userMessage: string
 }
 
 function isAffirmativeConfirmation(message: string): boolean {
-  return /\b(yes|yeah|yep|correct|confirm|approved?|do it|update it|change it|that is right)\b/i.test(message)
+  return /\b(yes|yeah|yep|correct|confirm|approved?|do it|update it|change it|that is right)\b/i.test(message);
 }
 
 function isNegativeConfirmation(message: string): boolean {
-  return /\b(no|nope|keep|do not|don't|cancel|leave it|stay with)\b/i.test(message)
+  return /\b(no|nope|keep|do not|don't|cancel|leave it|stay with)\b/i.test(message);
 }
 
 function buildPendingChangeConfirmationDraft(pendingChange: NonNullable<ReturnType<typeof readPendingPlanChange>>): AgentResponseDraft {
@@ -1558,7 +1558,7 @@ function clearTicketPriceMetadata(value: unknown): Record<string, unknown> {
 function toTitleCase(value: string): string {
   return value
     .replace(/[_-]+/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function resolveEventTypeLabel(candidate: string | null, message: string): string | null {
@@ -1568,7 +1568,7 @@ function resolveEventTypeLabel(candidate: string | null, message: string): strin
 }
 
 function isGenericEventType(value: string) {
-  return /^(event|party|gathering|meetup|social|experience)$/i.test(value.trim())
+  return /^(event|party|gathering|meetup|social|experience)$/i.test(value.trim());
 }
 
 function readTicketingPlatform(message: string): TicketPlatform | null {

@@ -1,11 +1,12 @@
 'use client'
 
+import { use } from 'react'
 import { VendorProfilePage } from '@/components/builder/VendorProfilePage'
 
 interface BuilderVendorProfileRouteProps {
-  params: {
+  params: Promise<{
     vendorId: string
-  }
+  }>
 }
 
 /**
@@ -15,5 +16,6 @@ interface BuilderVendorProfileRouteProps {
  * @returns Vendor profile page.
  */
 export default function BuilderVendorProfileRoute({ params }: BuilderVendorProfileRouteProps) {
-  return <VendorProfilePage vendorId={params.vendorId} />
+  const { vendorId } = use(params)
+  return <VendorProfilePage vendorId={vendorId} />
 }

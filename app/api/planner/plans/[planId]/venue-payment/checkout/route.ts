@@ -112,10 +112,10 @@ type CheckoutResponse = {
  */
 export async function POST(
   request: NextRequest,
-  context: { params: { planId: string } }
+  context: { params: Promise<{ planId: string }> }
 ): Promise<NextResponse<CheckoutResponse | Record<string, unknown>>> {
   try {
-    const parsedParams = paramsSchema.safeParse(context.params)
+    const parsedParams = paramsSchema.safeParse((await context.params))
     if (!parsedParams.success) {
       return NextResponse.json({ error: 'Invalid plan id' }, { status: 400 })
     }
@@ -232,7 +232,7 @@ export async function POST(
     const paymentMethodType = parsedBody.data.payment_method_type
     const processingFeeCents = calculateProcessingFeeCents(amountCents, paymentMethodType)
     const existingTransaction = await loadActiveTransaction(admin, plan.id, booking.id)
-    let transaction = existingTransaction ?? await insertVenuePaymentTransaction(admin, {
+    let transaction = existingTransaction ?? (await insertVenuePaymentTransaction(admin, {
       planId: plan.id,
       booking,
       builderId: user.id,
@@ -241,7 +241,7 @@ export async function POST(
       processingFeeCents,
       paymentMethodType,
       approvalId: approvedApproval.id,
-    })
+    }))
 
     const canReuseExistingSession =
       transaction.stripe_checkout_session_id &&
@@ -670,8 +670,5 @@ function venueConciergeResponse() {
 
 function isUniqueViolation(error: unknown) {
   const candidate = error as SupabaseErrorLike | null
-  return (
-    candidate?.code === '23505' ||
-    /duplicate key|unique constraint/i.test(candidate?.message ?? '')
-  )
+  return (candidate?.code === '23505' || /duplicate key|unique constraint/i.test(candidate?.message ?? ''));
 }

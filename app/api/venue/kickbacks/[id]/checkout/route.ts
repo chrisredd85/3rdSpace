@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-export function POST(request: NextRequest, context: { params: { id: string } }) {
-  return redirectToCommunityHostIncentive(request, context.params.id, 'checkout')
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  return redirectToCommunityHostIncentive(request, (await context.params).id, 'checkout');
 }
 
 function redirectToCommunityHostIncentive(request: NextRequest, id: string, action: string) {

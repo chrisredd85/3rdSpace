@@ -37,9 +37,9 @@ const postOpportunitySchema = z.object({
 })
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 /**
@@ -57,10 +57,10 @@ export async function GET(
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const existing = await loadLatestOpportunity(auth.db, context.params.planId)
+    const existing = await loadLatestOpportunity(auth.db, (await context.params).planId)
     if (!existing) return NextResponse.json({ error: 'Opportunity not found' }, { status: 404 })
 
     return NextResponse.json(existing)
@@ -93,15 +93,15 @@ export async function POST(
       )
     }
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     if (!parsed.data.force) {
-      const existing = await loadLatestOpportunity(auth.db, context.params.planId)
+      const existing = await loadLatestOpportunity(auth.db, (await context.params).planId)
       if (existing) return NextResponse.json(existing)
     }
 
-    const messages = await loadMessages(auth.db, context.params.planId)
+    const messages = await loadMessages(auth.db, (await context.params).planId)
     const bundle = await createVenueOpportunityBundle({
       db: auth.db,
       plan,
@@ -111,7 +111,7 @@ export async function POST(
     })
 
     if (!bundle) {
-      const existing = await loadLatestOpportunity(auth.db, context.params.planId)
+      const existing = await loadLatestOpportunity(auth.db, (await context.params).planId)
       if (existing) return NextResponse.json(existing)
       return NextResponse.json({ error: 'Unable to create opportunity' }, { status: 500 })
     }

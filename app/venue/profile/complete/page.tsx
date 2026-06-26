@@ -8,7 +8,8 @@ type VenueProfileCompletePageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>
 }
 
-export default async function VenueProfileCompletePage({ searchParams }: VenueProfileCompletePageProps) {
+export default async function VenueProfileCompletePage(props: VenueProfileCompletePageProps) {
+  const searchParams = await props.searchParams;
   const resolvedSearchParams = searchParams ? await searchParams : {}
   const opportunityToken = readSearchParam(resolvedSearchParams.opportunity_token)
   const supabase = createClient()

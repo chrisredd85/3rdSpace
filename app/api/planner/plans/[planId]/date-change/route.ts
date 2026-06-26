@@ -21,9 +21,9 @@ import { createClient } from '@/lib/supabase/server'
 import type { PlanMessage, PlannerApiErrorResponse } from '@/lib/types'
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 type PlannerAuth =
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const result = await createDateChangeOutreachApproval(auth.db, {
       userId: auth.userId,
-      planId: context.params.planId,
+      planId: (await context.params).planId,
       dateWindowStart: parsed.data.dateWindowStart,
       dateWindowEnd: parsed.data.dateWindowEnd,
       note: parsed.data.note,
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         reason: 'date_change_started',
       }),
     })
-    const messages = await loadPlanMessages(auth.db, context.params.planId)
+    const messages = await loadPlanMessages(auth.db, (await context.params).planId)
 
     return NextResponse.json({
       plan: result.plan,

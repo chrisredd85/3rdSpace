@@ -6,19 +6,20 @@ import { loadVenueOpportunityRecoveryContext } from '@/lib/venues/venueOpportuni
 export const dynamic = 'force-dynamic'
 
 type VenueOpportunityDeclinePageProps = {
-  params: {
+  params: Promise<{
     token: string
-  }
+  }>
 }
 
 export default async function VenueOpportunityDeclinePage({ params }: VenueOpportunityDeclinePageProps) {
+  const { token } = await params
   const admin = createServiceRoleClient()
-  const context = await loadVenueOpportunityRecoveryContext(admin, params.token)
+  const context = await loadVenueOpportunityRecoveryContext(admin, token)
   if (!context) notFound()
 
   return (
     <VenueOpportunityDeclineForm
-      token={params.token}
+      token={token}
       venueName={readString(context.venue.venue_name) ?? 'Venue'}
       eventTitle={readString(context.brief.title) ?? 'this event'}
     />

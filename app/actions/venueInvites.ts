@@ -115,7 +115,7 @@ export async function inviteVenue(input: InviteVenueInput): Promise<InviteVenueR
     email: venue.contact_email,
     invitedAt: venue.invited_at,
   })
-  const claimUrl = `${getOrigin()}/venue/claim?token=${encodeURIComponent(token)}`
+  const claimUrl = `${await getOrigin()}/venue/claim?token=${encodeURIComponent(token)}`
 
   let attachedPlan: unknown = null
   if (parsed.data.planId) {
@@ -181,8 +181,8 @@ function normalizeAmountCents(termType: VenueTermType, proposedAmount?: number |
   return Math.max(dollarsToCents(Number(proposedAmount)), 0)
 }
 
-function getOrigin() {
-  const headerStore = headers()
+async function getOrigin() {
+  const headerStore = await headers()
   const origin = headerStore.get('origin')
   if (origin) return origin
 

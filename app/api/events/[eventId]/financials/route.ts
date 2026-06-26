@@ -58,10 +58,8 @@ async function verifyBuilderEventAccess(eventId: string) {
  * @param params - Route params containing the event id.
  * @returns Event financial metrics.
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { eventId: string } }
-) {
+export async function GET(request: NextRequest, props: { params: Promise<{ eventId: string }> }) {
+  const params = await props.params;
   try {
     const accessError = await verifyBuilderEventAccess(params.eventId)
     if (accessError) return accessError

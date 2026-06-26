@@ -21,7 +21,7 @@ const attendanceSchema = z.object({
 
 export async function PATCH(
   request: NextRequest,
-  context: { params: { runId: string } },
+  context: { params: Promise<{ runId: string }> },
 ) {
   try {
     const supabase = createClient()
@@ -40,7 +40,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid request body', details: parsed.error.flatten() }, { status: 422 })
     }
 
-    const run = await loadSettlementRun(admin, context.params.runId)
+    const run = await loadSettlementRun(admin, (await context.params).runId)
     if (!run || run.organizer_id !== user.id) {
       return NextResponse.json({ error: 'Settlement run not found' }, { status: 404 })
     }

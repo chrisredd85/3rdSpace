@@ -97,7 +97,7 @@ export async function inviteVendor(input: InviteVendorInput): Promise<InviteVend
     email: vendor.contact_email,
     invitedAt: vendor.invited_at,
   })
-  const claimUrl = `${getOrigin()}/vendor/claim?token=${encodeURIComponent(token)}`
+  const claimUrl = `${await getOrigin()}/vendor/claim?token=${encodeURIComponent(token)}`
 
   const emailResult = await sendEmailNotification({
     to: vendor.contact_email,
@@ -141,8 +141,8 @@ async function getPlanSourceEventId(admin: any, userId: string, planId?: string 
   return typeof eventId === 'string' ? eventId : null
 }
 
-function getOrigin() {
-  const headerStore = headers()
+async function getOrigin() {
+  const headerStore = await headers()
   const origin = headerStore.get('origin')
   if (origin) return origin
 
