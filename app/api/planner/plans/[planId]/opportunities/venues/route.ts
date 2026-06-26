@@ -17,9 +17,9 @@ type PlannerAuth =
   | { response: NextResponse<PlannerApiErrorResponse> }
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 const venueOpportunitySchema = z.object({
@@ -40,7 +40,7 @@ export async function GET(
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const briefs = await listVenueOpportunityBriefs(auth.db, plan.id)
@@ -70,7 +70,7 @@ export async function POST(
       )
     }
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const outreach = await buildVenueOpportunityOutreach({

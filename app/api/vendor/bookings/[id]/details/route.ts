@@ -18,7 +18,8 @@ import {
  * @param params - Booking id route params.
  * @returns Booking with event, venue, service, package, and vendor data.
  */
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const parsedId = z.string().uuid().safeParse(params.id)
     if (!parsedId.success) {

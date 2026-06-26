@@ -137,9 +137,9 @@ const APPROVAL_SELECT_COLUMNS = `
 `
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 /**
@@ -156,7 +156,7 @@ export async function GET(
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const requestedLimit = Number.parseInt(request.nextUrl.searchParams.get('limit') ?? '50', 10)
@@ -165,7 +165,7 @@ export async function GET(
     const { data, error } = await auth.db
       .from('agent_actions')
       .select(AGENT_ACTION_SELECT_COLUMNS)
-      .eq('plan_id', context.params.planId)
+      .eq('plan_id', (await context.params).planId)
       .order('created_at', { ascending: false })
       .limit(limit)
 
@@ -212,7 +212,7 @@ export async function POST(
       )
     }
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const payload = (parsed.data.payloadJson ?? {}) as JsonObject
@@ -249,13 +249,13 @@ export async function POST(
       requestedAmountCents,
       payload,
       executionMode,
-      planId: context.params.planId,
+      planId: (await context.params).planId,
       organizerId: auth.userId,
     })
     if (stripeGate) return stripeGate
 
     const agentActionInsert: TableInsert<'agent_actions'> = {
-      plan_id: context.params.planId,
+      plan_id: (await context.params).planId,
       action_type: parsed.data.actionType,
       target_type: targetType,
       target_id: targetId,
@@ -286,7 +286,7 @@ export async function POST(
     const agentAction = actionData as AgentAction
     await insertAgentActionAuditLog(auth.db, {
       actionId: agentAction.id,
-      planId: context.params.planId,
+      planId: (await context.params).planId,
       fromStatus: null,
       toStatus: agentAction.status,
       actorId: auth.userId,
@@ -299,7 +299,7 @@ export async function POST(
     }
 
     const approvalInsert: TableInsert<'approvals'> = {
-      plan_id: context.params.planId,
+      plan_id: (await context.params).planId,
       agent_action_id: agentAction.id,
       action_label: actionLabel,
       provider,
@@ -506,12 +506,12 @@ function readUuid(value: unknown): string | null {
   if (typeof value !== 'string') return null
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
     ? value
-    : null
+    : null;
 }
 
 function normalizeDate(value: string | null): string | null {
   if (!value) return null
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
 
 function readDefaultActionLabel(actionType: z.infer<typeof createAgentActionSchema>['actionType']): string {

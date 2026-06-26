@@ -7,14 +7,15 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 export const dynamic = 'force-dynamic'
 
 type PageProps = {
-  params: {
+  params: Promise<{
     token: string
-  }
+  }>
 }
 
 export default async function VenueSettlementPage({ params }: PageProps) {
+  const { token } = await params
   const admin = createServiceRoleClient()
-  const verified = await verifyVenueSettlementToken(admin, params.token)
+  const verified = await verifyVenueSettlementToken(admin, token)
   if (!verified) notFound()
 
   const { context } = verified
@@ -45,7 +46,7 @@ export default async function VenueSettlementPage({ params }: PageProps) {
           </div>
 
           <div className="mt-6">
-            <SettlementAckClient token={params.token} initialStatus={context.run.status} />
+            <SettlementAckClient token={token} initialStatus={context.run.status} />
           </div>
         </div>
       </section>

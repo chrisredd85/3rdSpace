@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import { SignupExperience } from '@/components/auth/SignupExperience'
 
 type Portal = 'builder' | 'venue' | 'vendor'
-type SearchParams = Promise<Record<string, string | string[] | undefined>>
+type SearchParams = Record<string, string | string[] | undefined>
 
 const allowedPortals = new Set<string>(['builder', 'venue', 'vendor'])
 
@@ -21,15 +21,14 @@ function readSearchParam(value: string | string[] | undefined) {
  * @param params - Dynamic signup portal route params.
  * @returns Builder signup experience or a static supply-side early-access page.
  */
-export default async function ScopedSignupPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ portal: string }>
-  searchParams?: SearchParams
-}) {
-  const { portal } = await params
-  const resolvedSearchParams = searchParams ? await searchParams : {}
+export default async function ScopedSignupPage(
+  props: {
+    params: Promise<{ portal: string }>
+    searchParams?: Promise<SearchParams>
+  }
+) {
+  const { portal } = await props.params
+  const resolvedSearchParams = props.searchParams ? await props.searchParams : {}
 
   if (!allowedPortals.has(portal)) {
     notFound()

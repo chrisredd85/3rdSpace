@@ -13,22 +13,22 @@ const BodySchema = z.object({
 })
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     token: string
-  }
+  }>
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const rateLimit = await enforceSettlementTokenRateLimit(request, {
-      token: context.params.token,
+      token: (await context.params).token,
       kind: 'action',
     })
     if (rateLimit.limited) return rateLimit.response
 
     const body = BodySchema.parse(await request.json().catch(() => ({})))
     const admin = createServiceRoleClient()
-    const result = await disputeSettlementFromVenueToken(admin, context.params.token, body.reason ?? null)
+    const result = await disputeSettlementFromVenueToken(admin, (await context.params).token, body.reason ?? null)
     return NextResponse.json(result.body, { status: result.status })
   } catch (error) {
     if (error instanceof z.ZodError) {

@@ -7,9 +7,9 @@ import { lookupBaseline } from '@/lib/planner/baselines'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 type PlanBaselineRow = {
@@ -33,7 +33,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
   const { data: plan, error: planError } = await supabase
     .from('plans')
     .select('id, user_id, event_type, neighborhood')
-    .eq('id', context.params.planId)
+    .eq('id', (await context.params).planId)
     .eq('user_id', user.id)
     .maybeSingle()
 

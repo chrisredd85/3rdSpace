@@ -14,9 +14,9 @@ const overrideSchema = z.object({
 })
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 /**
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   try {
     const result = await overrideConciergeInvite(createServiceRoleClient() as any, {
-      inviteId: context.params.id,
+      inviteId: (await context.params).id,
       adminUserId: adminContext.user.id,
       status: parsed.data.status,
       notes: parsed.data.notes ?? null,

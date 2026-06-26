@@ -29,9 +29,9 @@ const taskActionSchema = z.discriminatedUnion('action', [
 ])
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 /**
@@ -43,7 +43,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: adminContext.error }, { status: adminContext.status })
   }
 
-  const taskId = z.string().uuid().safeParse(context.params.id)
+  const taskId = z.string().uuid().safeParse((await context.params).id)
   if (!taskId.success) {
     return NextResponse.json({ error: 'Invalid admin task id' }, { status: 400 })
   }

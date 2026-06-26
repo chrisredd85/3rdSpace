@@ -32,7 +32,8 @@ const updateVendorBookingSchema = z.object({
  * @param params - Booking id route params.
  * @returns Updated vendor booking.
  */
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const parsedId = z.string().uuid().safeParse(params.id)
     if (!parsedId.success) {

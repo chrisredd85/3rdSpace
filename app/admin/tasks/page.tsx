@@ -9,25 +9,27 @@ import type { AdminTaskPriority, AdminTaskStatus, AdminTaskType } from '@/lib/ty
 export const dynamic = 'force-dynamic'
 
 interface AdminTasksPageProps {
-  searchParams?: {
+  searchParams?: Promise<{
     status?: string
     priority?: string
     task_type?: string
     plan_id?: string
-  }
+  }>
 }
 
 /**
  * Admin-only queue for general Concierge/Admin Queue planner handoffs.
  */
-export default async function AdminTasksPage({ searchParams }: AdminTasksPageProps) {
+export default async function AdminTasksPage(props: AdminTasksPageProps) {
+  const searchParams = await props.searchParams;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined
   const context = await getAdminContext()
   if (!context.authorized) {
     if (context.status === 401) redirect('/login')
     return <AccessRequired />
   }
 
-  const data = await getAdminTaskQueueData(createServiceRoleClient(), buildFilters(searchParams))
+  const data = await getAdminTaskQueueData(createServiceRoleClient(), buildFilters(resolvedSearchParams))
 
   return (
     <AdminTaskQueueConsole
@@ -49,7 +51,7 @@ function AccessRequired() {
   )
 }
 
-function buildFilters(searchParams: AdminTasksPageProps['searchParams']): AdminTaskQueueFilters {
+function buildFilters(searchParams: Awaited<AdminTasksPageProps['searchParams']>): AdminTaskQueueFilters {
   return {
     status: includesValue(ADMIN_TASK_STATUSES, searchParams?.status) ? searchParams.status : undefined,
     priority: includesValue(ADMIN_TASK_PRIORITIES, searchParams?.priority) ? searchParams.priority : undefined,

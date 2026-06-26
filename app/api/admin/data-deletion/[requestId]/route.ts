@@ -13,9 +13,9 @@ const actionSchema = z.discriminatedUnion('action', [
 ])
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     requestId: string
-  }
+  }>
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
@@ -35,7 +35,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const { data: row, error: loadError } = await admin
     .from('data_deletion_requests')
     .select('id,user_id,email,status,cooling_off_ends_at')
-    .eq('id', context.params.requestId)
+    .eq('id', (await context.params).requestId)
     .maybeSingle()
 
   if (loadError) return NextResponse.json({ error: loadError.message }, { status: 500 })

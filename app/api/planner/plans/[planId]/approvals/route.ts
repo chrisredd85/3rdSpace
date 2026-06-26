@@ -139,9 +139,9 @@ const AGENT_ACTION_OPPORTUNITY_SELECT_COLUMNS = 'id, action_type, payload_json, 
 const PLAN_MESSAGE_METADATA_SELECT_COLUMNS = 'id, metadata'
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 /**
@@ -155,18 +155,18 @@ export async function GET(
   request: NextRequest,
   context: RouteContext
 ): Promise<NextResponse<PlannerApprovalsResponse | PlannerApiErrorResponse>> {
-  const logger = getRequestLogger(request).child({ plan_id: context.params.planId })
+  const logger = getRequestLogger(request).child({ plan_id: (await context.params).planId })
   try {
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const { data, error } = await auth.db
       .from('approvals')
       .select(APPROVAL_SELECT_COLUMNS)
-      .eq('plan_id', context.params.planId)
+      .eq('plan_id', (await context.params).planId)
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
 
@@ -193,7 +193,7 @@ export async function PATCH(
   request: NextRequest,
   context: RouteContext
 ): Promise<NextResponse<{ approval: Approval } | PlannerApiErrorResponse>> {
-  const logger = getRequestLogger(request).child({ plan_id: context.params.planId })
+  const logger = getRequestLogger(request).child({ plan_id: (await context.params).planId })
   try {
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
@@ -206,10 +206,10 @@ export async function PATCH(
       )
     }
 
-    let plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    let plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const existingApproval = await loadApproval(auth.db, context.params.planId, parsed.data.approvalId)
+    const existingApproval = await loadApproval(auth.db, (await context.params).planId, parsed.data.approvalId)
     if (!existingApproval) return NextResponse.json({ error: 'Approval not found' }, { status: 404 })
 
     const approvalTransition = transitionApprovalStatus(existingApproval.status, parsed.data.action)
@@ -223,11 +223,11 @@ export async function PATCH(
 
     if (
       (parsed.data.action === 'authorize' || parsed.data.action === 'approve') &&
-      await approvalRequiresFreshReview(auth.db, plan, existingApproval)
+      (await approvalRequiresFreshReview(auth.db, plan, existingApproval))
     ) {
-      const staleApproval = await markApprovalReapprovalRequired(auth.db, context.params.planId, existingApproval.id)
+      const staleApproval = await markApprovalReapprovalRequired(auth.db, (await context.params).planId, existingApproval.id)
       if (staleApproval) {
-        await syncApprovalMessageMetadata(auth.db, context.params.planId, staleApproval)
+        await syncApprovalMessageMetadata(auth.db, (await context.params).planId, staleApproval)
       }
       return NextResponse.json(
         { error: 'Plan details changed after this approval was created. Review the latest recommendations and approve again.' },
@@ -239,7 +239,7 @@ export async function PATCH(
       const stripeGate = await checkApprovalStripeGate({
         db: createServiceRoleClient() as unknown as PlannerDb,
         approval: existingApproval,
-        planId: context.params.planId,
+        planId: (await context.params).planId,
         organizerId: auth.userId,
       })
       if (stripeGate) return stripeGate
@@ -250,7 +250,7 @@ export async function PATCH(
       .from('approvals')
       .update(updates)
       .eq('id', parsed.data.approvalId)
-      .eq('plan_id', context.params.planId)
+      .eq('plan_id', (await context.params).planId)
       .eq('status', existingApproval.status)
       .select(APPROVAL_SELECT_COLUMNS)
       .maybeSingle()
@@ -285,7 +285,7 @@ export async function PATCH(
         })
       } catch (accessError) {
         await rollbackApprovalAfterAccessFailure(auth.db, {
-          planId: context.params.planId,
+          planId: (await context.params).planId,
           approval,
           originalStatus: existingApproval.status,
           actorId: auth.userId,
@@ -302,14 +302,14 @@ export async function PATCH(
 
     await syncAgentActionStatusForApproval(auth.db, {
       actionId: approval.agent_action_id,
-      planId: context.params.planId,
+      planId: (await context.params).planId,
       actorId: auth.userId,
       approvalStatus: approval.status,
     })
     if (isApprovalExecutable(approval.status)) {
       await executeApprovedAction(auth.db, {
         actionId: approval.agent_action_id,
-        planId: context.params.planId,
+        planId: (await context.params).planId,
         actorId: auth.userId,
         plan,
         approval,
@@ -317,7 +317,7 @@ export async function PATCH(
     } else if (approval.status === 'cancelled' || approval.status === 'rejected') {
       await syncOpportunityInviteStatuses(auth.db, plan, auth.userId, approval)
     }
-    await syncApprovalMessageMetadata(auth.db, context.params.planId, approval)
+    await syncApprovalMessageMetadata(auth.db, (await context.params).planId, approval)
 
     return NextResponse.json({ approval })
   } catch (error) {
@@ -1346,5 +1346,5 @@ function readRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }

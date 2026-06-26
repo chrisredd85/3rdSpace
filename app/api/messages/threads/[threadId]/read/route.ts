@@ -5,15 +5,16 @@ import { NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     threadId: string
-  }
+  }>
 }
 
 /**
  * Mark one vendor-booking or legacy generic message thread as read.
  */
-export async function POST(_request: Request, { params }: RouteContext) {
+export async function POST(_request: Request, props: RouteContext) {
+  const params = await props.params;
   const vendorResponse = await markVendorThreadRead(params.threadId)
   if (vendorResponse) return vendorResponse
 

@@ -20,7 +20,8 @@ const sendInvoiceSchema = z.object({
 /**
  * Sends an invoice email to the client.
  */
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const parsedId = z.string().uuid().safeParse(params.id)
     if (!parsedId.success) {

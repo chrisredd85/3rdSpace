@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { use, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, CalendarPlus, DollarSign, MapPin, Users } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,9 +15,9 @@ import { DepositDisplay } from '@/components/builder/DepositDisplay'
 import { centsToDollars } from '@/lib/money'
 
 interface BuilderVenueDetailPageProps {
-  params: {
+  params: Promise<{
     venueId: string
-  }
+  }>
 }
 
 /**
@@ -45,7 +45,8 @@ function formatRate(cents?: number | null, suffix = '') {
  * @returns Builder-facing venue detail page.
  */
 export default function BuilderVenueDetailPage({ params }: BuilderVenueDetailPageProps) {
-  const { data: venue, isLoading } = useVenue(params.venueId)
+  const { venueId } = use(params)
+  const { data: venue, isLoading } = useVenue(venueId)
   const { addToast } = useToast()
   const [submitting, setSubmitting] = useState(false)
 
@@ -68,7 +69,7 @@ export default function BuilderVenueDetailPage({ params }: BuilderVenueDetailPag
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          venueId: params.venueId,
+          venueId,
           ...formData,
         }),
       })

@@ -25,10 +25,10 @@ class RouteError extends Error {
 
 export async function POST(
   request: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const parsedParams = paramsSchema.safeParse(context.params)
+    const parsedParams = paramsSchema.safeParse(await context.params)
     if (!parsedParams.success) {
       return NextResponse.json({ error: 'Invalid payment id' }, { status: 400 })
     }

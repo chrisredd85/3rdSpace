@@ -215,10 +215,8 @@ async function loadAttendanceSummary(eventId: string) {
  * @param params - Route params containing the event id.
  * @returns Upload, attendance, and CHI summary.
  */
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { eventId: string } }
-) {
+export async function POST(request: NextRequest, props: { params: Promise<{ eventId: string }> }) {
+  const params = await props.params;
   try {
     const { response } = await verifyBuilderEventAccess(params.eventId)
     if (response) return response

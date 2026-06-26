@@ -72,7 +72,8 @@ async function requireOwnedService(supabase: ReturnType<typeof createClient>, se
  * @param params - Service id route params.
  * @returns Updated service listing.
  */
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const parsedId = z.string().uuid().safeParse(params.id)
     if (!parsedId.success) {
@@ -132,7 +133,8 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
  * @param params - Service id route params.
  * @returns Deleted service id.
  */
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const parsedId = z.string().uuid().safeParse(params.id)
     if (!parsedId.success) {

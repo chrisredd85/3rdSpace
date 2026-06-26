@@ -10,15 +10,13 @@ import {
 } from '@/lib/bookings/venue-booking-adapter'
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: RouteContext
-) {
+export async function PATCH(request: NextRequest, props: RouteContext) {
+  const params = await props.params;
   try {
     const supabase = createClient()
 

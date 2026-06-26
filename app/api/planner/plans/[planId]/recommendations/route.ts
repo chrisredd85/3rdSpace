@@ -50,9 +50,9 @@ const generateRecommendationsSchema = z.object({
 }).strict()
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 interface ScoredVenue {
@@ -78,10 +78,10 @@ export async function GET(
     const auth = await getAuthenticatedPlannerDb()
     if ('response' in auth) return auth.response
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const recommendations = await loadRecommendationsWithVenues(auth.db, context.params.planId)
+    const recommendations = await loadRecommendationsWithVenues(auth.db, (await context.params).planId)
     return NextResponse.json({ recommendations })
   } catch (error) {
     console.error('Planner recommendations GET error:', error)
@@ -109,7 +109,7 @@ export async function POST(
     const auth = await getAuthenticatedPlannerDb()
     if ('response' in auth) return auth.response
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const body = generateRecommendationsSchema.safeParse(await readOptionalJsonBody(request))
@@ -425,7 +425,7 @@ function readNumber(value: unknown): number | null {
 }
 
 function escapeSupabaseOrValue(value: string): string {
-  return value.replace(/[%(),]/g, '')
+  return value.replace(/[%(),]/g, '');
 }
 
 async function readOptionalJsonBody(request: NextRequest): Promise<Record<string, never>> {

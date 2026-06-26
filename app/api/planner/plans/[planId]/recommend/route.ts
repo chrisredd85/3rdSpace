@@ -101,9 +101,9 @@ type PlannerAuth =
   | { response: NextResponse<PlannerApiErrorResponse> }
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 interface PlannerRecommendResponse {
@@ -397,7 +397,7 @@ export async function POST(
       )
     }
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     if (plan.status !== 'ready') {
@@ -497,7 +497,7 @@ export async function POST(
     // Phase 1 (venues only), hold present → Phase 2 (vendors + economics).
     // 'venues' / 'vendors' override the inspection.
     const effectivePhase: 'venues' | 'vendors' = body.data.phase === 'auto'
-      ? (await hasActiveVenueHold(auth.db, plan.id) ? 'vendors' : 'venues')
+      ? ((await hasActiveVenueHold(auth.db, plan.id)) ? 'vendors' : 'venues')
       : body.data.phase
     const shouldRunVendors = effectivePhase === 'vendors' && readPlanVendorNeedStatus(recommendationPlan) !== 'none'
 
@@ -2465,7 +2465,7 @@ function toSuggestedVendorFromDiscovery(
       'Unclaimed vendor lead — quote and availability must be verified before booking or payment.',
       rate.confidenceLabel === 'rate_tbd' ? 'Pricing unknown until website extraction or reply.' : null,
     ].filter((item): item is string => Boolean(item)),
-  }
+  };
 }
 
 function mergeVendorSuggestions(
@@ -3485,7 +3485,7 @@ function toRankedVenueFromCatalog(
     questions_to_ask_venue: [
       'Can you confirm availability, minimum spend, deposit, and included services for this event?',
     ],
-  }
+  };
 }
 
 function readCapacityCalibration(value: unknown): VenueMatchingAgentOutput['ranked_venues'][number]['capacity_calibration'] | null {
@@ -3901,7 +3901,7 @@ function uniqueUuidList(values: string[]): string[] {
 }
 
 function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function firstRow(value: unknown): Record<string, unknown> | null {
@@ -4231,7 +4231,7 @@ function readStringArray(value: unknown): string[] {
     return value
       .split(/[,;|]/)
       .map((item) => item.trim())
-      .filter(Boolean)
+      .filter(Boolean);
   }
   return []
 }
@@ -4275,7 +4275,7 @@ function isAttendanceConfidence(value: unknown): value is BuilderAttendanceSumma
 }
 
 function normalizeText(value: string | null | undefined): string {
-  return value?.trim().toLowerCase().replace(/\s+/g, ' ') ?? ''
+  return value?.trim().toLowerCase().replace(/\s+/g, ' ') ?? '';
 }
 
 function toTitleCase(value: string): string {
@@ -4283,7 +4283,7 @@ function toTitleCase(value: string): string {
     .trim()
     .split(/\s+/)
     .map((part) => part ? `${part[0].toUpperCase()}${part.slice(1).toLowerCase()}` : part)
-    .join(' ')
+    .join(' ');
 }
 
 function formatCurrency(cents: number): string {
@@ -4295,7 +4295,7 @@ function formatCurrency(cents: number): string {
 }
 
 function escapeSupabaseOrValue(value: string): string {
-  return value.replace(/[%(),]/g, '')
+  return value.replace(/[%(),]/g, '');
 }
 
 function formatDateWindow(start: string | null, end: string | null): string | null {

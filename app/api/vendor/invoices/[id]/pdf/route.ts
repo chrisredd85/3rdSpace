@@ -13,7 +13,8 @@ export const runtime = 'nodejs'
 /**
  * Downloads a generated invoice as a PDF.
  */
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const parsedId = z.string().uuid().safeParse(params.id)
     if (!parsedId.success) {

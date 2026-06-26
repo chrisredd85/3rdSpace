@@ -9,9 +9,9 @@ import type { Json, Plan } from '@/lib/types'
 type PlannerDb = { from: (table: string) => any }
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 const commitVendorSchema = z.object({
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: 'Invalid vendor commitment payload', issues: parsed.error.flatten() }, { status: 400 })
   }
 
-  const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+  const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
   if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
   const committedAt = new Date().toISOString()
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       committed_vendors: nextCommitted as unknown as Json,
       metadata: nextMetadata as Json,
     })
-    .eq('id', context.params.planId)
+    .eq('id', (await context.params).planId)
     .eq('user_id', auth.userId)
     .select(PLAN_SELECT_COLUMNS)
     .single()
@@ -90,12 +90,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
   await auth.db
     .from('plan_discovery_vendor_candidates')
     .update({ status: 'superseded' })
-    .eq('plan_id', context.params.planId)
+    .eq('plan_id', (await context.params).planId)
     .eq('service_type', parsed.data.service_type)
     .neq('discovery_vendor_id', parsed.data.discovery_vendor_id)
     .in('status', ['candidate', 'approval_created'])
 
-  await insertStatusMessage(auth.db, context.params.planId, `Committed ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote for planning.`)
+  await insertStatusMessage(auth.db, (await context.params).planId, `Committed ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote for planning.`)
   return NextResponse.json({ plan: data })
 }
 
@@ -109,7 +109,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: 'Invalid vendor cancellation payload', issues: parsed.error.flatten() }, { status: 400 })
   }
 
-  const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+  const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
   if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
   const nextCommitted = readCommittedVendors((plan as unknown as Record<string, unknown>).committed_vendors)
@@ -135,7 +135,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       committed_vendors: nextCommitted as unknown as Json,
       metadata: nextMetadata as Json,
     })
-    .eq('id', context.params.planId)
+    .eq('id', (await context.params).planId)
     .eq('user_id', auth.userId)
     .select(PLAN_SELECT_COLUMNS)
     .single()
@@ -144,7 +144,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: error?.message ?? 'Failed to cancel vendor commitment' }, { status: 500 })
   }
 
-  await insertStatusMessage(auth.db, context.params.planId, `Cancelled accepted ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote.`)
+  await insertStatusMessage(auth.db, (await context.params).planId, `Cancelled accepted ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote.`)
   return NextResponse.json({ plan: data })
 }
 

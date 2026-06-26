@@ -5,9 +5,9 @@ import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 import type { Database, EventTask } from '@/lib/types'
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 type TaskPriority = EventTask['priority']
@@ -84,10 +84,8 @@ async function verifyEventAccess(
   return true
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: RouteContext
-) {
+export async function GET(request: NextRequest, props: RouteContext) {
+  const params = await props.params;
   try {
     const auth = await getAuthenticatedBuilder()
     if ('response' in auth) return auth.response
@@ -115,10 +113,8 @@ export async function GET(
   }
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: RouteContext
-) {
+export async function POST(request: NextRequest, props: RouteContext) {
+  const params = await props.params;
   try {
     const auth = await getAuthenticatedBuilder()
     if ('response' in auth) return auth.response
@@ -173,10 +169,8 @@ export async function POST(
   }
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: RouteContext
-) {
+export async function PATCH(request: NextRequest, props: RouteContext) {
+  const params = await props.params;
   try {
     const auth = await getAuthenticatedBuilder()
     if ('response' in auth) return auth.response
@@ -253,10 +247,8 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: RouteContext
-) {
+export async function DELETE(request: NextRequest, props: RouteContext) {
+  const params = await props.params;
   try {
     const auth = await getAuthenticatedBuilder()
     if ('response' in auth) return auth.response

@@ -61,9 +61,9 @@ const patchPlanSchema = z.object({
 })
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 /**
@@ -77,7 +77,7 @@ export async function GET(
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const [messages, recommendations, approvals] = await Promise.all([
@@ -125,7 +125,7 @@ export async function PATCH(
       )
     }
 
-    const existingPlan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const existingPlan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!existingPlan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const updates = normalizePlanPatch(parsed.data, existingPlan)

@@ -24,9 +24,9 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlannerApiErrorResponse } from '@/lib/types'
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 type PlannerAuth =
@@ -98,10 +98,10 @@ export async function GET(
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const candidates = await loadPlanCandidates(context.params.planId)
+    const candidates = await loadPlanCandidates((await context.params).planId)
     const responseCandidates = buildDiscoveryCandidateResponses(plan, candidates)
     return NextResponse.json({
       candidates: responseCandidates,
@@ -127,7 +127,7 @@ export async function POST(
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const parsed = discoverVenuesSchema.safeParse(await readOptionalJsonBody(request))
@@ -222,7 +222,7 @@ export async function POST(
       }
     }
 
-    const candidates = await loadPlanCandidates(context.params.planId)
+    const candidates = await loadPlanCandidates((await context.params).planId)
     const responseCandidates = buildDiscoveryCandidateResponses(plan, candidates)
     return NextResponse.json({
       candidates: responseCandidates,
@@ -252,7 +252,7 @@ export async function PATCH(
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
 
-    const plan = await loadOwnedPlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const parsed = updateCandidateSchema.safeParse(await readOptionalJsonBody(request))
@@ -288,7 +288,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Discovery venue not found' }, { status: 404 })
     }
 
-    const candidates = await loadPlanCandidates(context.params.planId)
+    const candidates = await loadPlanCandidates((await context.params).planId)
     const responseCandidates = buildDiscoveryCandidateResponses(plan, candidates)
     return NextResponse.json({
       candidates: responseCandidates,

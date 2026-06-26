@@ -22,7 +22,7 @@ const reviewSchema = z.object({
 
 export async function PATCH(
   request: NextRequest,
-  context: { params: { runId: string } },
+  context: { params: Promise<{ runId: string }> },
 ) {
   try {
     const supabase = createClient()
@@ -42,7 +42,7 @@ export async function PATCH(
     }
 
     const updated = await reviewSettlementRun(admin, {
-      runId: context.params.runId,
+      runId: (await context.params).runId,
       organizerId: user.id,
       action: parsed.data.action,
       disputeReason: parsed.data.dispute_reason ?? null,

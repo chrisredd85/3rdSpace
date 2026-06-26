@@ -2,11 +2,12 @@ import { CostsTab } from '@/components/planner/CostsTab'
 
 export const dynamic = 'force-dynamic'
 
-export default function EventCostsPage({
+export default async function EventCostsPage({
   params,
 }: {
-  params: { eventId: string }
+  params: Promise<{ eventId: string }>
 }) {
+  const { eventId } = await params
   return (
     <main className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8">
       <section className="mx-auto flex w-full max-w-6xl flex-col gap-6">
@@ -18,7 +19,7 @@ export default function EventCostsPage({
             Costs
           </h1>
         </div>
-        <CostsTab eventId={params.eventId} />
+        <CostsTab eventId={eventId} />
       </section>
     </main>
   )

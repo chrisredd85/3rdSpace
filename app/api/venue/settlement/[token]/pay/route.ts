@@ -8,21 +8,21 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     token: string
-  }
+  }>
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const rateLimit = await enforceSettlementTokenRateLimit(request, {
-      token: context.params.token,
+      token: (await context.params).token,
       kind: 'action',
     })
     if (rateLimit.limited) return rateLimit.response
 
     const admin = createServiceRoleClient()
-    const result = await startSettlementCheckout(admin, context.params.token, request)
+    const result = await startSettlementCheckout(admin, (await context.params).token, request)
     return NextResponse.json(result.body, { status: result.status })
   } catch (error) {
     console.error('[venue.settlement.pay] Failed to create settlement checkout', error)

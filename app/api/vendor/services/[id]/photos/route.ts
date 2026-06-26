@@ -13,7 +13,7 @@ const MAX_PORTFOLIO_IMAGES = 10
  * @returns Sanitized filename.
  */
 function sanitizeFileName(name: string) {
-  return name.replace(/[^a-zA-Z0-9._-]/g, '-')
+  return name.replace(/[^a-zA-Z0-9._-]/g, '-');
 }
 
 /**
@@ -66,7 +66,8 @@ async function requireOwnedService(supabase: ReturnType<typeof createClient>, se
  * @param params - Service id route params.
  * @returns Updated service and uploaded public URLs.
  */
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const parsedId = z.string().uuid().safeParse(params.id)
     if (!parsedId.success) {

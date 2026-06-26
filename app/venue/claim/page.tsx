@@ -13,7 +13,8 @@ type VenueClaimPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>
 }
 
-export default async function VenueClaimPage({ searchParams }: VenueClaimPageProps) {
+export default async function VenueClaimPage(props: VenueClaimPageProps) {
+  const searchParams = await props.searchParams;
   const resolvedSearchParams = searchParams ? await searchParams : {}
   const token = readSearchParam(resolvedSearchParams.token)
   if (!token) return <ClaimError message="Missing venue opportunity token." />

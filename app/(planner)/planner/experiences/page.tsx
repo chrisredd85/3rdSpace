@@ -280,11 +280,12 @@ type GuestRecord = {
 /**
  * Data-backed operating-record route for recurring hosts.
  */
-export default async function ExperiencesPage({
-  searchParams,
-}: {
-  searchParams?: { record?: string }
-}) {
+export default async function ExperiencesPage(
+  props: {
+    searchParams?: Promise<{ record?: string }>
+  }
+) {
+  const searchParams = await props.searchParams;
   const data = await loadExperiencesData()
   const hasRecords = data.records.length > 0
   const primaryRecord = getSelectedRecord(data.records, searchParams?.record)
@@ -1892,7 +1893,7 @@ function formatMoneyCents(value: number) {
 function titleize(value: string) {
   return value
     .replaceAll('_', ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function toNumber(value: unknown): number | null {

@@ -58,7 +58,8 @@ async function requireOwnedAvailability(supabase: ReturnType<typeof createClient
  * @param params - Availability row id.
  * @returns Updated availability row.
  */
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const parsedId = z.string().uuid().safeParse(params.id)
     if (!parsedId.success) return NextResponse.json({ error: 'Invalid availability id' }, { status: 400 })

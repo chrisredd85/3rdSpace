@@ -29,10 +29,10 @@ type PlannerDb = { from: (table: string) => any }
 
 export async function PATCH(
   request: NextRequest,
-  context: { params: { eventId: string; commitmentId: string } }
+  context: { params: Promise<{ eventId: string; commitmentId: string }> }
 ) {
   try {
-    const parsedParams = paramsSchema.safeParse(context.params)
+    const parsedParams = paramsSchema.safeParse((await context.params))
     if (!parsedParams.success) {
       return NextResponse.json({ error: 'Invalid commitment id' }, { status: 400 })
     }

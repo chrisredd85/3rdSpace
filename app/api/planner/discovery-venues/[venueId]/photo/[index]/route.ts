@@ -6,10 +6,10 @@ import { readPlacesPhotos } from '@/lib/server/places-outreach'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     venueId: string
     index: string
-  }
+  }>
 }
 
 const GOOGLE_PLACES_PHOTO_MAX_WIDTH = 900
@@ -17,7 +17,7 @@ const GOOGLE_PLACES_PHOTO_MAX_HEIGHT = 600
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
-    const index = Number.parseInt(context.params.index, 10)
+    const index = Number.parseInt((await context.params).index, 10)
     if (!Number.isInteger(index) || index < 0 || index > 9) {
       return NextResponse.json({ error: 'Invalid photo index' }, { status: 400 })
     }
@@ -37,7 +37,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
-    const ownsCandidate = await userOwnsDiscoveryVenue(supabase, user.id, context.params.venueId)
+    const ownsCandidate = await userOwnsDiscoveryVenue(supabase, user.id, (await context.params).venueId)
     if (!ownsCandidate) {
       return NextResponse.json({ error: 'Discovery venue not found' }, { status: 404 })
     }
@@ -46,7 +46,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const { data: venue, error: loadError } = await admin
       .from('discovery_venues')
       .select('id,photos')
-      .eq('id', context.params.venueId)
+      .eq('id', (await context.params).venueId)
       .maybeSingle()
 
     if (loadError || !venue) {
@@ -61,7 +61,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const mediaResponse = await fetchGooglePhotoMedia(photo.name, apiKey)
     if (!mediaResponse.ok) {
       console.error('[planner.discovery-venues.photo] media_fetch_failed', {
-        venue_id: context.params.venueId,
+        venue_id: (await context.params).venueId,
         status: mediaResponse.status,
       })
       return NextResponse.json({ error: 'Failed to fetch photo' }, { status: 502 })

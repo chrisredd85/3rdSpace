@@ -11,11 +11,12 @@ function readSearchParam(value: string | string[] | undefined) {
   return value ?? null
 }
 
-export default async function SignupPage({
-  searchParams,
-}: {
-  searchParams?: SearchParams
-}) {
+export default async function SignupPage(
+  props: {
+    searchParams?: Promise<SearchParams>
+  }
+) {
+  const searchParams = await props.searchParams;
   const resolvedSearchParams = searchParams ? await searchParams : {}
 
   return (

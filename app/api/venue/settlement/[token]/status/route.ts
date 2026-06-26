@@ -8,21 +8,21 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 type RouteContext = {
-  params: {
+  params: Promise<{
     token: string
-  }
+  }>
 }
 
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
     const rateLimit = await enforceSettlementTokenRateLimit(request, {
-      token: context.params.token,
+      token: (await context.params).token,
       kind: 'view',
     })
     if (rateLimit.limited) return rateLimit.response
 
     const admin = createServiceRoleClient()
-    const state = await getVenueSettlementTokenState(admin, context.params.token)
+    const state = await getVenueSettlementTokenState(admin, (await context.params).token)
 
     if (state === 'revoked') {
       return NextResponse.json(

@@ -21,9 +21,9 @@ import type { AgentAction, Approval, Json, Plan, PlannerApiErrorResponse } from 
 type PlannerDb = { from: (table: string) => any }
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 const authorizeDepositSchema = z.object({
@@ -67,10 +67,10 @@ export async function POST(
     }
 
     const admin = createServiceRoleClient() as unknown as PlannerDb
-    const plan = await loadOwnedPlan(admin, context.params.planId, user.id)
+    const plan = await loadOwnedPlan(admin, (await context.params).planId, user.id)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const approval = await loadPlanApproval(admin, context.params.planId, parsed.data.approvalId)
+    const approval = await loadPlanApproval(admin, (await context.params).planId, parsed.data.approvalId)
     if (!approval) return NextResponse.json({ error: 'Approval not found' }, { status: 404 })
 
     if (approval.status !== 'authorized' && approval.status !== 'approved') {

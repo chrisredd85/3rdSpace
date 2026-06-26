@@ -19,9 +19,9 @@ const budgetQuerySchema = z.object({
 })
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     planId: string
-  }
+  }>
 }
 
 /**
@@ -43,7 +43,7 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid query parameters' }, { status: 400 })
     }
 
-    const plan = await loadOwnedMobilePlan(auth.db, context.params.planId, auth.userId)
+    const plan = await loadOwnedMobilePlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     return NextResponse.json(await buildMobileBudgetReadModel(

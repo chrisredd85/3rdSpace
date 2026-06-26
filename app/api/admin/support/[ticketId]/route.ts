@@ -15,7 +15,7 @@ const updateSupportTicketSchema = z.object({
 
 export async function PATCH(
   request: NextRequest,
-  context: { params: { ticketId: string } }
+  context: { params: Promise<{ ticketId: string }> }
 ) {
   const adminContext = await getAdminContext()
   if (!adminContext.authorized) {
@@ -40,7 +40,7 @@ export async function PATCH(
   const { data, error } = await (admin as any)
     .from('support_tickets')
     .update(update)
-    .eq('ticket_id', context.params.ticketId)
+    .eq('ticket_id', (await context.params).ticketId)
     .select('*')
     .maybeSingle()
 

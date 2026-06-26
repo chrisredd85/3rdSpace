@@ -2,7 +2,7 @@ import 'server-only'
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
+import { cookies, type UnsafeUnwrappedCookies } from 'next/headers';
 import type { Database } from '@/lib/types/database-generated'
 
 /**
@@ -29,7 +29,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
  * Uses cookies for authentication
  */
 export function createClient() {
-  const cookieStore = cookies()
+  const cookieStore = (cookies() as unknown as UnsafeUnwrappedCookies) as unknown as Awaited<Awaited<ReturnType<typeof cookies>>>
 
   return createServerClient<Database, 'public', Database['public']>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

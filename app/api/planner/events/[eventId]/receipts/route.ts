@@ -31,10 +31,10 @@ type CommitmentRow = {
 
 export async function POST(
   request: NextRequest,
-  context: { params: { eventId: string } }
+  context: { params: Promise<{ eventId: string }> }
 ) {
   try {
-    const parsedParams = paramsSchema.safeParse(context.params)
+    const parsedParams = paramsSchema.safeParse((await context.params))
     if (!parsedParams.success) {
       return NextResponse.json({ error: 'Invalid event id' }, { status: 400 })
     }
@@ -190,7 +190,7 @@ function withinTenPercent(expected: number, actual: number) {
 }
 
 function normalizeText(value: string | null) {
-  return (value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  return (value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 function isUploadFile(value: FormDataEntryValue | null): value is File {
