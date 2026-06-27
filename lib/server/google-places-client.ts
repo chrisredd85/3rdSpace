@@ -68,6 +68,7 @@ export type GooglePlacesSearchInput = {
   city?: string | null
   includedType?: GooglePlacesIncludedType | null
   maxResultCount?: number
+  locationBiasRadiusMeters?: number | null
   fetchImpl?: FetchLike
   sleep?: (ms: number) => Promise<void>
   now?: () => number
@@ -329,6 +330,7 @@ export function buildGooglePlacesTextSearchRequest(input: {
   city?: string | null
   includedType?: GooglePlacesIncludedType | null
   maxResultCount?: number
+  locationBiasRadiusMeters?: number | null
 }): GooglePlacesTextSearchRequest {
   const textQuery = input.textQuery.trim()
   const maxResultCount = clampResultCount(input.maxResultCount)
@@ -349,7 +351,14 @@ export function buildGooglePlacesTextSearchRequest(input: {
     request.rankPreference = geography ? 'DISTANCE' : 'RELEVANCE'
   }
 
-  if (geography) {
+  if (input.locationBiasRadiusMeters && input.locationBiasRadiusMeters > 0) {
+    request.locationBias = {
+      circle: {
+        center: geography?.center ?? BAY_AREA_CENTER,
+        radius: Math.max(1_000, Math.min(input.locationBiasRadiusMeters, 160_000)),
+      },
+    }
+  } else if (geography) {
     request.locationRestriction = { rectangle: geography.rectangle }
     request.rankPreference = 'DISTANCE'
   } else if (textQuery.toLowerCase().includes('bay area')) {

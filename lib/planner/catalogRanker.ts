@@ -4,6 +4,7 @@ import type { EventArchetypeConfig } from '@/lib/planner/archetypes'
 import { parseNeighborhoodPhrase } from '@/lib/planner/areaParsing'
 import type { BuilderAttendanceSummary } from '@/lib/server/builderAttendanceHistory'
 import { readCents } from '@/lib/money'
+import { computeVendorLocationScore, formatVendorLocationContext } from '@/lib/planner/geography'
 import { scoreVenueAgainstArchetype } from '@/lib/venues/venueRanker'
 
 export type CatalogPartnerKind = 'venue' | 'vendor'
@@ -35,6 +36,12 @@ export interface CatalogPlanRankingInput {
   preferred_vendor_ids?: string[] | null
   /** Creator signup amenity preferences. These are soft tie-breakers, not hard requirements. */
   organizer_preferred_amenities?: string[] | null
+  /** Canonical event city used as the default vendor sourcing boundary. */
+  event_city?: string | null
+  /** Whether organizer explicitly approved adjacent-city vendors. */
+  vendor_out_of_city_approved?: boolean | null
+  /** Adjacent cities approved by organizer for vendor sourcing. */
+  vendor_approved_adjacent_cities?: string[] | null
 }
 
 export type CatalogVenueRankingInput = Record<string, unknown> & {
@@ -410,9 +417,16 @@ function rankVendor(
   const foodScore = scoreFoodAlignment(plan.food_responsibility, searchText)
   const dateScore = scoreDateAvailability(plan, vendor)
   const partnerScore = scorePartnerSignals(vendor)
-  const areaScore = plan.area || plan.neighborhood
-    ? matchesAreaPreference(plan.area ?? plan.neighborhood ?? '', searchText) ? 5 : 0
-    : 5
+  const vendorLocation = {
+    city: readString(vendor.city),
+    formatted_address: readString(vendor.formatted_address),
+    address: readString(vendor.address),
+    service_area: readString(vendor.service_area),
+    regions_served: readString(vendor.regions_served),
+    availability_notes: readString(vendor.availability_notes),
+    neighborhood: readString(vendor.neighborhood),
+  }
+  const areaScore = computeVendorLocationScore(vendorLocation, plan)
   const isPreferred = Boolean(
     plan.preferred_vendor_ids &&
     plan.preferred_vendor_ids.includes(vendor.id)
@@ -454,6 +468,7 @@ function rankVendor(
       date_score: dateScore,
       partner_score: partnerScore,
       area_score: areaScore,
+      location_context: formatVendorLocationContext(vendorLocation, plan),
       rebook_score: rebookScore,
       is_rebook_preferred: isPreferred,
       budget_allocation_cents: vendorBudgetCents,

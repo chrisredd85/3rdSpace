@@ -363,7 +363,7 @@ export function formatPlanDateWindow(plan: Plan) {
 }
 
 /**
- * Counts approval messages by pending, authorized, and cancelled status.
+ * Counts approval messages by pending, authorized, cancelled, and superseded status.
  */
 export function getApprovalSummary(approvalMessages: PlanMessage[]) {
   return approvalMessages.reduce(
@@ -373,13 +373,15 @@ export function getApprovalSummary(approvalMessages: PlanMessage[]) {
         summary.authorized += 1
       } else if (status === 'rejected') {
         summary.cancelled += 1
+      } else if (status === 'superseded') {
+        summary.superseded += 1
       } else {
         summary.pending += 1
       }
 
       return summary
     },
-    { pending: 0, authorized: 0, cancelled: 0 }
+    { pending: 0, authorized: 0, cancelled: 0, superseded: 0 }
   )
 }
 
@@ -389,11 +391,13 @@ export function getApprovalSummary(approvalMessages: PlanMessage[]) {
 export function getApprovalMessageStatus(message: PlanMessage) {
   const metadata = getMessageMetadata(message)
   const metadataStatus = metadata?.status
+  if (metadataStatus === 'superseded') return 'superseded'
   if (metadataStatus === 'approved' || metadataStatus === 'authorized') return 'approved'
   if (metadataStatus === 'rejected' || metadataStatus === 'cancelled') return 'rejected'
 
   const approval = getMessageApproval(message)
   const approvalStatus = approval?.status
+  if (approvalStatus === 'superseded' || typeof approval?.superseded_at === 'string') return 'superseded'
   if (approvalStatus === 'approved' || approvalStatus === 'authorized') return 'approved'
   if (approvalStatus === 'rejected' || approvalStatus === 'cancelled') return 'rejected'
 
@@ -2061,6 +2065,22 @@ export function PlannerApprovalCard({
     )
   }
 
+  if (status === 'superseded') {
+    const supersededReason =
+      readApprovalString(approval, 'superseded_reason') ||
+      'The plan changed after this approval was created. Review the refreshed recommendation before authorizing anything.'
+
+    return (
+      <div className="rounded-2xl border border-warning/30 bg-warning/10 p-4">
+        <span className="inline-flex items-center rounded-full border border-warning/30 bg-background px-3 py-1 text-xs font-bold text-warning">
+          Superseded
+        </span>
+        <p className="mt-3 text-sm font-semibold text-foreground">This approval is no longer actionable.</p>
+        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{supersededReason}</p>
+      </div>
+    )
+  }
+
   return (
     <div className="min-w-0 rounded-2xl border border-primary/40 bg-primary/10 p-4">
       <p className="text-xs font-semibold uppercase tracking-widest text-primary">Is this correct?</p>
@@ -2507,6 +2527,7 @@ export function formatApprovalTimestamp(value: string) {
  */
 export function readApprovalStatus(approval: Record<string, unknown>): 'pending' | ApprovalUiStatus {
   const status = approval.status
+  if (status === 'superseded' || typeof approval.superseded_at === 'string') return 'superseded'
   if (status === 'approved' || status === 'authorized') return 'approved'
   if (status === 'rejected' || status === 'cancelled') return 'rejected'
   return 'pending'

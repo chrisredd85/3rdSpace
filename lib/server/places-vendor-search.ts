@@ -8,6 +8,7 @@ import {
   type GooglePlacesTextSearchRequest,
   searchGooglePlacesText,
 } from '@/lib/server/google-places-client'
+import { deriveEventCity, getAdjacentCities } from '@/lib/planner/geography'
 
 export type VendorServiceType =
   | 'photographer'
@@ -19,6 +20,11 @@ export type VendorServiceType =
   | 'security'
   | 'av_production'
   | 'decor'
+  | 'yacht_charter'
+  | 'mansion_rental'
+  | 'private_estate'
+  | 'warehouse_buyout'
+  | 'rooftop_buyout'
 
 export type DiscoveryVendorRow = {
   id: string
@@ -53,6 +59,9 @@ export type DiscoveryVendorRow = {
   rate_inference_extracted_at: string | null
   rate_inference_admin_status: string | null
   last_refreshed_at: string | null
+  last_places_refresh_at?: string | null
+  last_meaningful_change_at?: string | null
+  data_freshness_status?: string | null
   created_at: string | null
 }
 
@@ -104,6 +113,37 @@ export const VENDOR_SERVICE_PLACES_MAPPING: Record<VendorServiceType, VendorSear
   decor: {
     query: (area) => `event decor in ${area}`,
   },
+  yacht_charter: {
+    query: (area) => `yacht charter event rental in ${area}`,
+  },
+  mansion_rental: {
+    query: (area) => `private mansion event rental in ${area}`,
+  },
+  private_estate: {
+    query: (area) => `private estate event rental in ${area}`,
+  },
+  warehouse_buyout: {
+    query: (area) => `warehouse event venue buyout in ${area}`,
+  },
+  rooftop_buyout: {
+    query: (area) => `rooftop event venue buyout in ${area}`,
+  },
+}
+
+export const SPECIAL_SUPPLY_SERVICE_TYPES = new Set<VendorServiceType>([
+  'yacht_charter',
+  'mansion_rental',
+  'private_estate',
+  'warehouse_buyout',
+  'rooftop_buyout',
+])
+
+type VendorSearchPlanContext = {
+  event_city?: string | null
+  neighborhood?: string | null
+  vendor_out_of_city_approved?: boolean | null
+  vendor_approved_adjacent_cities?: string[] | null
+  special_supply_radius_miles?: number | null
 }
 
 export async function searchPlacesForVendor(opts: {
@@ -114,6 +154,8 @@ export async function searchPlacesForVendor(opts: {
   maxResults?: number
   planId?: string | null
   searchedByUserId?: string | null
+  plan?: VendorSearchPlanContext | null
+  isSpecialSupply?: boolean
 }): Promise<SearchPlacesForVendorResult> {
   const serviceType = normalizeVendorServiceType(opts.serviceType)
   if (!serviceType) {
@@ -121,9 +163,15 @@ export async function searchPlacesForVendor(opts: {
   }
 
   const mapping = VENDOR_SERVICE_PLACES_MAPPING[serviceType]
-  const areas = normalizeAreas(opts.areas)
+  const specialSupply = opts.isSpecialSupply === true || SPECIAL_SUPPLY_SERVICE_TYPES.has(serviceType)
+  const areas = specialSupply
+    ? normalizeAreas(opts.areas.length > 0 ? opts.areas : ['Bay Area'])
+    : buildNormalVendorSearchAreas(opts.areas, opts.plan)
   const allResults: GooglePlacesSearchResult[] = []
   const searchQueries: string[] = []
+  const radiusMeters = specialSupply
+    ? Math.round((opts.plan?.special_supply_radius_miles ?? 100) * 1609)
+    : null
 
   for (const area of areas) {
     const textQuery = mapping.query(area)
@@ -132,9 +180,11 @@ export async function searchPlacesForVendor(opts: {
       apiKey: opts.apiKey,
       textQuery,
       eventType: serviceType,
-      neighborhood: area,
+      neighborhood: specialSupply ? null : area,
+      city: specialSupply ? null : area,
       includedType: mapping.includedType ?? null,
       maxResultCount: opts.maxResults ?? 6,
+      locationBiasRadiusMeters: radiusMeters,
     }))
   }
 
@@ -232,6 +282,9 @@ export function buildDiscoveryVendorInsert(
     photos: sanitizePlacesPhotos(place.photos) as unknown as Json,
     website_extraction_status: place.websiteUri ? 'never_attempted' : null,
     last_refreshed_at: new Date().toISOString(),
+    last_places_refresh_at: new Date().toISOString(),
+    last_meaningful_change_at: null,
+    data_freshness_status: 'fresh',
     updated_at: new Date().toISOString(),
     website_extraction_metadata: {
       places_search_query: input.searchQuery,
@@ -251,6 +304,11 @@ export function normalizeVendorServiceType(value: string | null | undefined): Ve
   if (normalized === 'av' || normalized === 'av_tech' || normalized === 'audio_visual') return 'av_production'
   if (normalized === 'floral') return 'florist'
   if (normalized === 'event_decor') return 'decor'
+  if (normalized === 'yacht' || normalized === 'boat_charter' || normalized === 'boat') return 'yacht_charter'
+  if (normalized === 'mansion' || normalized === 'private_mansion') return 'mansion_rental'
+  if (normalized === 'estate') return 'private_estate'
+  if (normalized === 'warehouse') return 'warehouse_buyout'
+  if (normalized === 'rooftop') return 'rooftop_buyout'
   if (isVendorServiceType(normalized)) return normalized
   return null
 }
@@ -289,6 +347,22 @@ function normalizeAreas(areas: string[]): string[] {
     .map((area) => area.trim())
     .filter(Boolean)
   return Array.from(new Set(normalized.length > 0 ? normalized : ['Bay Area'])).slice(0, 3)
+}
+
+function buildNormalVendorSearchAreas(areas: string[], plan?: VendorSearchPlanContext | null): string[] {
+  const eventCity = plan?.event_city ?? deriveEventCity([plan?.neighborhood, ...areas])
+  const searchAreas = new Set<string>()
+  if (eventCity) searchAreas.add(eventCity)
+  for (const area of normalizeAreas(areas)) {
+    const city = deriveEventCity(area)
+    if (city) searchAreas.add(city)
+  }
+  if (plan?.vendor_out_of_city_approved) {
+    for (const city of plan.vendor_approved_adjacent_cities ?? getAdjacentCities(eventCity)) {
+      if (city) searchAreas.add(city)
+    }
+  }
+  return Array.from(searchAreas.size > 0 ? searchAreas : new Set(normalizeAreas(areas))).slice(0, 4)
 }
 
 function dedupePlacesById(results: GooglePlacesSearchResult[]) {

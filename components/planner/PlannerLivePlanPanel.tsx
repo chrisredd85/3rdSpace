@@ -205,7 +205,17 @@ interface LivePlanSnapshot {
   customCosts: CustomCostItem[]
   attendance: PlanAttendanceSnapshot
   specialSupply: SpecialSupplyMetadata | null
+  latestRevision: PlanRevisionSnapshot | null
   updatedAt: string | null
+}
+
+interface PlanRevisionSnapshot {
+  type: string
+  field: string | null
+  value: unknown
+  sourceMessageExcerpt: string | null
+  eventBriefSections: string[]
+  appliedAt: string | null
 }
 
 interface OutreachReplyOption {
@@ -519,7 +529,24 @@ function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
     ),
     customCosts: normalizeCustomCosts(metadata?.custom_costs),
     attendance: normalizePlanAttendanceSnapshot(record, metadata),
+    latestRevision: normalizePlanRevisionSnapshot(metadata?.latest_plan_revision),
     updatedAt: readString(record.updatedAt) ?? readString(record.updated_at),
+  }
+}
+
+function normalizePlanRevisionSnapshot(value: unknown): PlanRevisionSnapshot | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const type = readString(record.type)
+  if (!type) return null
+
+  return {
+    type,
+    field: readString(record.field),
+    value: record.value,
+    sourceMessageExcerpt: readString(record.source_message_excerpt),
+    eventBriefSections: readStringArray(record.event_brief_sections),
+    appliedAt: readString(record.applied_at),
   }
 }
 
@@ -1889,6 +1916,9 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             <ChevronRight className="h-4 w-4 shrink-0" />
           </button>
         ) : null}
+        {livePlan?.latestRevision ? (
+          <PlanRevisionBanner revision={livePlan.latestRevision} />
+        ) : null}
       </div>
 
       <div
@@ -3075,6 +3105,45 @@ function PlanPill({ children, intent = 'neutral' }: { children: React.ReactNode;
       {children}
     </span>
   )
+}
+
+function PlanRevisionBanner({ revision }: { revision: PlanRevisionSnapshot }) {
+  const label = revision.sourceMessageExcerpt
+    ? revision.sourceMessageExcerpt
+    : `${revision.type.replace(/_/g, ' ')}${revision.field ? ` · ${revision.field.replace(/_/g, ' ')}` : ''}`
+  const applied = revision.appliedAt ? formatRelativeTime(revision.appliedAt) : null
+  const sectionLabel = formatRevisionSectionList(revision.eventBriefSections)
+
+  return (
+    <div className="mt-4 rounded-lg border border-clay/30 bg-clay-tint/70 p-3 text-sm text-ink">
+      <div className="flex items-start gap-3">
+        <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-clay" />
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-clay">
+            Plan updated{applied ? ` · ${applied}` : ''}
+          </p>
+          <p className="mt-1 break-words leading-snug text-ink-soft">
+            {label}. Stale recommendations and approvals are blocked while the agent refreshes current options.
+          </p>
+          {sectionLabel ? (
+            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-forest">
+              Event brief refreshed: {sectionLabel}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function formatRevisionSectionList(sections: string[]) {
+  const labels = sections
+    .map((section) => section.replace(/_/g, ' '))
+    .filter(Boolean)
+    .slice(0, 6)
+  if (labels.length === 0) return null
+  const suffix = sections.length > labels.length ? ` +${sections.length - labels.length}` : ''
+  return `${labels.join(', ')}${suffix}`
 }
 
 function ProfitCard({ label, value, featured = false }: { label: string; value: number | null; featured?: boolean }) {

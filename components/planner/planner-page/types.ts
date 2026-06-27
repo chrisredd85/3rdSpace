@@ -19,7 +19,7 @@ export const quickActionChips = [
 export const activeConversationStorageKey = plannerDraftStorageKey
 
 export type PlannerTab = (typeof planTabs)[number]['id']
-export type ApprovalUiStatus = 'approved' | 'rejected'
+export type ApprovalUiStatus = 'approved' | 'rejected' | 'superseded'
 export type PlannerPersistenceMode = 'loading' | 'server' | 'draft'
 export type PendingConversionActionType = 'save' | 'hold' | 'authorize'
 export type BillingRequiredHandler = (message?: string | null) => void
