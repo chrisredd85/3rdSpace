@@ -165,6 +165,8 @@ export interface Plan {
   budget_cap_cents: number | null
   /** Preferred Bay Area neighborhood or local area. */
   neighborhood: string | null
+  /** Canonical city derived from the preferred area; used as the default vendor sourcing boundary. */
+  event_city?: string | null
   /** Earliest acceptable event date in ISO date format. */
   date_window_start: string | null
   /** Latest acceptable event date in ISO date format. */
@@ -189,6 +191,14 @@ export interface Plan {
   excluded_vendor_attributes?: Json
   /** Organizer-declared vendor attributes to prefer in vendor discovery. */
   preferred_vendor_attributes?: Json
+  /** Normal vendors should default to the event city until organizer approves widening. */
+  vendor_same_city_required?: boolean | null
+  /** Organizer-approved opt-in to adjacent-city vendor recommendations. */
+  vendor_out_of_city_approved?: boolean | null
+  /** Adjacent cities approved by the organizer for vendor sourcing. */
+  vendor_approved_adjacent_cities?: string[] | null
+  /** Broader search radius for special-supply exceptions such as yacht charters. */
+  special_supply_radius_miles?: number | null
   /** Monotonic count of material plan revisions. */
   plan_revision_count?: number
   /** Planner-owned metadata cache for generated agent summaries and timelines. */

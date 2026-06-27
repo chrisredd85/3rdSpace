@@ -50,6 +50,20 @@ describe('google places client', () => {
     }
   })
 
+  it('uses a bounded location bias circle for special supply searches', () => {
+    const request = buildGooglePlacesTextSearchRequest({
+      textQuery: 'yacht charter event rental in Bay Area',
+      city: 'Oakland',
+      locationBiasRadiusMeters: 220_000,
+      maxResultCount: 5,
+    })
+
+    expect(request.locationRestriction).toBeUndefined()
+    expect(request.locationBias?.circle.center.latitude).toBeCloseTo(37.8044)
+    expect(request.locationBias?.circle.radius).toBe(160_000)
+    expect(request.includePureServiceAreaBusinesses).toBe(false)
+  })
+
   it('searches Places, retries 5xx responses, filters non-operational places, and parses photos', async () => {
     let currentTime = 0
     const fetchImpl = jest

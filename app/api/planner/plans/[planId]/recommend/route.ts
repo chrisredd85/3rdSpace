@@ -33,6 +33,8 @@ import {
   type RankedCatalogRecommendation,
 } from '@/lib/planner/catalogRanker'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS, RECOMMENDATION_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import { deriveEventCity, formatVendorLocationContext, isVendorEligibleForDefaultCityPolicy } from '@/lib/planner/geography'
+import { evaluateVendorPoolSparsity, type VendorPoolSparsityResult } from '@/lib/planner/vendorDiscoverySparsity'
 import { estimateVenueRecommendationPriceCents } from '@/lib/planner/venueEstimate'
 import {
   buildApprovalSnapshotHash,
@@ -167,6 +169,7 @@ type SuggestedVendorRecommendation = {
   contact_email?: string | null
   contact_phone?: string | null
   website?: string | null
+  location_context?: string | null
   rate_confidence_label?: 'quoted' | 'estimated' | 'rate_tbd'
   rate_inference_confidence?: number | null
 }
@@ -2179,7 +2182,18 @@ async function loadOwnedPlan(db: PlannerDb, planId: string, userId: string): Pro
     return null
   }
 
-  return (data as Plan | null) ?? null
+  const plan = (data as Plan | null) ?? null
+  const eventCity = plan && !plan.event_city ? deriveEventCity(plan.neighborhood) : null
+  if (plan && eventCity) {
+    plan.event_city = eventCity
+    await db
+      .from('plans')
+      .update({ event_city: eventCity })
+      .eq('id', planId)
+      .eq('user_id', userId)
+  }
+
+  return plan
 }
 
 async function loadPlanContextMessages(db: PlannerDb, planId: string): Promise<PlanMessage[]> {
@@ -2397,10 +2411,15 @@ async function loadSparseDiscoveryVendorSuggestions(
   )
   if (requiredAndRecommended.length === 0) return []
 
-  const areas = buildPlacesSearchAreas(plan.neighborhood)
+  const eventCity = plan.event_city ?? deriveEventCity(plan.neighborhood)
+  const areas = buildPlacesSearchAreas(eventCity ?? plan.neighborhood)
+  const planWithCity = {
+    ...plan,
+    event_city: eventCity,
+  }
   const searchedByUserId = readString((plan as unknown as Record<string, unknown>).user_id)
   const suggestions: SuggestedVendorRecommendation[] = []
-  const SPARSE_THRESHOLD_PER_SERVICE = 2
+  const SPARSE_THRESHOLD_PER_SERVICE = 3
 
   for (const stackItem of requiredAndRecommended) {
     const serviceType = normalizeVendorServiceType(stackItem.service_type)
@@ -2420,8 +2439,26 @@ async function loadSparseDiscoveryVendorSuggestions(
         maxResults: 4,
         planId: plan.id,
         searchedByUserId,
+        plan: planWithCity,
       })
-      suggestions.push(...result.vendors.map((vendor) => toSuggestedVendorFromDiscovery(vendor, stackItem, serviceType)))
+      const discoveredSuggestions = result.vendors.map((vendor) => toSuggestedVendorFromDiscovery(vendor, stackItem, serviceType, planWithCity))
+      suggestions.push(...discoveredSuggestions)
+      const sparsity = evaluateVendorPoolSparsity({
+        plan: planWithCity,
+        serviceType,
+        results: [
+          ...existingForService.map((vendor) => ({
+            city: readString((vendor as unknown as Record<string, unknown>).city),
+            formatted_address: readString((vendor as unknown as Record<string, unknown>).formatted_address),
+            service_type: vendor.service_type,
+          })),
+          ...result.vendors,
+        ],
+        threshold: SPARSE_THRESHOLD_PER_SERVICE,
+      })
+      if (sparsity.sparse) {
+        await insertVendorSparsityPrompt(db, plan.id, serviceType, sparsity)
+      }
     } catch (error) {
       console.warn('[planner.recommend] Vendor Places fallback failed', {
         service_type: serviceType,
@@ -2436,10 +2473,20 @@ async function loadSparseDiscoveryVendorSuggestions(
 function toSuggestedVendorFromDiscovery(
   vendor: DiscoveryVendorRow,
   stackItem: VendorStackItem,
-  serviceType: VendorServiceType
+  serviceType: VendorServiceType,
+  plan: Plan
 ): SuggestedVendorRecommendation {
   const rate = resolveDiscoveryVendorRate(vendor)
   const contactEmail = normalizeDiscoveryVendorEmail(vendor)
+  const locationContext = formatVendorLocationContext({
+    city: vendor.city,
+    formatted_address: vendor.formatted_address,
+  }, {
+    neighborhood: plan.neighborhood,
+    event_city: plan.event_city,
+    vendor_out_of_city_approved: plan.vendor_out_of_city_approved,
+    vendor_approved_adjacent_cities: plan.vendor_approved_adjacent_cities,
+  })
   const fitScore = Math.max(45, Math.min(82, 68 + (rate.cents ? 8 : -6) + (contactEmail ? 6 : 0)))
   return {
     vendor_id: vendor.id,
@@ -2454,6 +2501,7 @@ function toSuggestedVendorFromDiscovery(
     contact_email: contactEmail,
     contact_phone: vendor.phone,
     website: vendor.website,
+    location_context: locationContext,
     rate_confidence_label: rate.confidenceLabel,
     rate_inference_confidence: rate.confidence,
     pros: [
@@ -2466,6 +2514,58 @@ function toSuggestedVendorFromDiscovery(
       rate.confidenceLabel === 'rate_tbd' ? 'Pricing unknown until website extraction or reply.' : null,
     ].filter((item): item is string => Boolean(item)),
   };
+}
+
+async function insertVendorSparsityPrompt(
+  db: PlannerDb,
+  planId: string,
+  serviceType: string,
+  sparsity: VendorPoolSparsityResult
+) {
+  if (!sparsity.suggested_prompt) return
+
+  const since = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  const { data } = await db
+    .from('plan_messages')
+    .select('id, metadata, created_at')
+    .eq('plan_id', planId)
+    .eq('message_type', 'status_update')
+    .gte('created_at', since)
+    .limit(20)
+
+  const alreadyPrompted = ((data ?? []) as Array<{ metadata?: unknown }>).some((row) => {
+    const metadata = readRecord(row.metadata)
+    const context = readRecord(metadata?.sparsity_context)
+    return readString(context?.service_type) === serviceType && metadata?.requires_response === true
+  })
+  if (alreadyPrompted) return
+
+  const { error } = await db
+    .from('plan_messages')
+    .insert({
+      plan_id: planId,
+      role: 'agent',
+      content: sparsity.suggested_prompt,
+      message_type: 'status_update',
+      metadata: {
+        requires_response: true,
+        reason: 'vendor_sparse_pool_prompt',
+        sparsity_context: {
+          service_type: serviceType,
+          in_city_count: sparsity.in_city_count,
+          in_city_threshold: sparsity.in_city_threshold,
+          adjacent_cities: sparsity.adjacent_cities,
+        },
+      } as Json,
+    })
+
+  if (error) {
+    console.warn('[planner.recommend] Failed to insert vendor sparsity prompt', {
+      plan_id: planId,
+      service_type: serviceType,
+      error: error.message,
+    })
+  }
 }
 
 function mergeVendorSuggestions(
@@ -2686,17 +2786,19 @@ function limitTwoPerServiceType(
 }
 
 function vendorMatchesPlanArea(row: Record<string, unknown>, plan: Plan): boolean {
-  const area = normalizeText(plan.neighborhood)
-  if (!area) return true
-
-  const serviceText = normalizeText([
-    row.service_area,
-    row.regions_served,
-    row.availability_notes,
-  ].map((value) => (typeof value === 'string' ? value : '')).join(' '))
-
-  if (!serviceText) return true
-  return serviceText.includes(area) || serviceText.includes('san francisco') || serviceText.includes('bay area')
+  return isVendorEligibleForDefaultCityPolicy({
+    city: readString(row.city),
+    formatted_address: readString(row.formatted_address ?? row.address),
+    service_area: readString(row.service_area),
+    regions_served: readString(row.regions_served),
+    availability_notes: readString(row.availability_notes),
+    neighborhood: readString(row.neighborhood),
+  }, {
+    neighborhood: plan.neighborhood,
+    event_city: plan.event_city,
+    vendor_out_of_city_approved: plan.vendor_out_of_city_approved,
+    vendor_approved_adjacent_cities: plan.vendor_approved_adjacent_cities,
+  })
 }
 
 function groupVendorRecommendations(
@@ -3528,6 +3630,7 @@ function toSuggestedVendorFromCatalog(
     base_rate_cents: baseRateCents,
     fit_score: recommendation.score,
     source: 'catalog',
+    location_context: readString(recommendation.metadata.location_context),
     pros: recommendation.reasoning.length > 0
       ? recommendation.reasoning
       : [`${recommendation.name} is a practical vendor fit for this event.`],

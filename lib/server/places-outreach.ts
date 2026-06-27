@@ -67,6 +67,10 @@ export const DISCOVERY_VENUE_SELECT = `
   photos,
   opening_hours_json,
   metadata,
+  business_status,
+  last_places_refresh_at,
+  last_meaningful_change_at,
+  data_freshness_status,
   last_enriched_at,
   last_verified_at,
   last_rescue_at,
@@ -107,6 +111,10 @@ export type DiscoveryCandidateResponse = {
   dismissed_at: string | null
   google_rating: number | null
   google_user_ratings_total: number | null
+  business_status: string | null
+  data_freshness_status: string | null
+  last_places_refresh_at: string | null
+  last_meaningful_change_at: string | null
   photo_urls: string[]
   photos: DiscoveryVenuePhoto[]
   metadata: Json
@@ -163,7 +171,11 @@ export function buildDiscoveryVenueInsert(
     source_external_id: place.id,
     google_rating: place.rating ?? null,
     google_user_ratings_total: place.userRatingCount ?? null,
+    business_status: place.businessStatus ?? null,
     photos: sanitizePlacesPhotos(place.photos) as Json,
+    last_places_refresh_at: new Date().toISOString(),
+    last_meaningful_change_at: null,
+    data_freshness_status: 'fresh',
     metadata: {
       google_primary_type: place.primaryType ?? null,
       google_types: place.types ?? [],
@@ -276,6 +288,10 @@ export function buildDiscoveryCandidateResponses(
         dismissed_at: candidate.dismissed_at,
         google_rating: venue.google_rating,
         google_user_ratings_total: venue.google_user_ratings_total,
+        business_status: readString((venue as unknown as Record<string, unknown>).business_status),
+        data_freshness_status: readString((venue as unknown as Record<string, unknown>).data_freshness_status),
+        last_places_refresh_at: readString((venue as unknown as Record<string, unknown>).last_places_refresh_at),
+        last_meaningful_change_at: readString((venue as unknown as Record<string, unknown>).last_meaningful_change_at),
         photo_urls: buildPhotoUrls(venue.id, venue.photos),
         photos: readPlacesPhotos(venue.photos).slice(0, 3),
         metadata: venue.metadata,

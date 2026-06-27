@@ -64,6 +64,10 @@ const DISCOVERY_VENUE_SELECT = `
   photos,
   opening_hours_json,
   metadata,
+  business_status,
+  last_places_refresh_at,
+  last_meaningful_change_at,
+  data_freshness_status,
   last_enriched_at,
   last_verified_at,
   last_rescue_at,
@@ -181,7 +185,7 @@ export async function POST(
         intent: placesIntent,
         matchedIncludedType,
       })
-      const { data, error } = await admin
+      const { data, error } = await (admin as any)
         .from('discovery_venues')
         .upsert(insert, { onConflict: 'source,source_external_id' })
         .select(DISCOVERY_VENUE_SELECT)
@@ -194,7 +198,7 @@ export async function POST(
         })
         continue
       }
-      upsertedVenues.push(data as DiscoveryVenueRow)
+      upsertedVenues.push(data as unknown as DiscoveryVenueRow)
     }
 
     if (upsertedVenues.length > 0) {

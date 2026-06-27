@@ -1,4 +1,5 @@
 import type { Json, Plan, PlanRevisionTriggerType } from '@/lib/types'
+import { canonicalCity, deriveEventCity, getAdjacentCities } from '@/lib/planner/geography'
 
 export type SupabaseAdminClient = { from: (table: string) => any }
 
@@ -231,6 +232,7 @@ async function loadPlan(db: SupabaseAdminClient, planId: string): Promise<Plan |
       guest_count,
       budget_cap_cents,
       neighborhood,
+      event_city,
       date_window_start,
       date_window_end,
       ticketed,
@@ -245,6 +247,10 @@ async function loadPlan(db: SupabaseAdminClient, planId: string): Promise<Plan |
       excluded_cuisines,
       excluded_vendor_attributes,
       preferred_vendor_attributes,
+      vendor_same_city_required,
+      vendor_out_of_city_approved,
+      vendor_approved_adjacent_cities,
+      special_supply_radius_miles,
       plan_revision_count,
       metadata,
       created_at,
@@ -332,6 +338,13 @@ function buildPlanRevisionUpdates(
 
   if (trigger.type === 'positive_preference') {
     updates.preferred_vendor_attributes = mergeAttributeValue(plan.preferred_vendor_attributes, trigger.field, trigger.value)
+    if (trigger.field === 'vendor_out_of_city_approved') {
+      updates.vendor_out_of_city_approved = true
+      updates.vendor_approved_adjacent_cities = mergeStringArrays(
+        plan.vendor_approved_adjacent_cities ?? [],
+        readAdjacentCitiesFromTrigger(plan, trigger)
+      )
+    }
   }
 
   if (trigger.type === 'vendor_stack_addition') {
@@ -340,6 +353,17 @@ function buildPlanRevisionUpdates(
       'service_types',
       coerceStringArray(trigger.value)
     )
+    const vendorRequest = readRecord(trigger.value)
+    const vendorCity = canonicalCity(readString(vendorRequest?.vendor_city) ?? readString(vendorRequest?.city))
+    if (trigger.field === 'specific_vendor' && vendorCity) {
+      updates.vendor_out_of_city_approved = true
+      updates.vendor_approved_adjacent_cities = mergeStringArrays(plan.vendor_approved_adjacent_cities ?? [], [vendorCity])
+      updates.preferred_vendor_attributes = mergeAttributeValue(
+        updates.preferred_vendor_attributes,
+        'specific_vendor',
+        trigger.value
+      )
+    }
   }
 
   if (trigger.type === 'vendor_stack_removal') {
@@ -371,6 +395,8 @@ function buildPlanRevisionUpdates(
   if (trigger.type === 'venue_swap') {
     const area = readString(trigger.value) ?? readString(readRecord(trigger.value)?.neighborhood) ?? readString(readRecord(trigger.value)?.city)
     if (area) updates.neighborhood = area
+    const eventCity = deriveEventCity(area)
+    if (eventCity) updates.event_city = eventCity
   }
 
   return updates
@@ -837,6 +863,15 @@ function mergeStringArrays(existing: unknown, additions: unknown): string[] {
     if (trimmed) values.add(trimmed)
   }
   return Array.from(values)
+}
+
+function readAdjacentCitiesFromTrigger(plan: Plan, trigger: PlanRevisionTrigger): string[] {
+  const record = readRecord(trigger.value)
+  const direct = coerceStringArray(record?.adjacent_cities ?? record?.cities)
+  if (direct.length > 0) return direct
+  const scalarCity = canonicalCity(readString(trigger.value))
+  if (scalarCity) return [scalarCity]
+  return getAdjacentCities(plan.event_city ?? deriveEventCity(plan.neighborhood))
 }
 
 function coerceStringArray(value: unknown): string[] {
