@@ -2,6 +2,7 @@ import 'server-only'
 
 import type { Json } from '@/lib/types'
 import { applyPlanRevision, type SupabaseAdminClient } from '@/lib/planner/planRevisions'
+import { recomputePlanDerivedState } from '@/lib/planner/recomputeDerivedState'
 
 export type DiscoveryEntityType = 'discovery_venue' | 'discovery_vendor'
 
@@ -105,6 +106,23 @@ export async function cascadeInvalidationForEntityChange(input: CascadeInput): P
   })))
 
   await insertOutreachNotifications(input.supabase, notifications)
+
+  await Promise.all(planRefs.map((plan) =>
+    recomputePlanDerivedState({
+      supabase: input.supabase,
+      planId: plan.plan_id,
+      trigger: 'discovery_change',
+      discoveryChangeId: `${input.entityType}:${input.entityId}:${input.changedField}`,
+    }).catch((error) => {
+      console.error('[discovery.cascade] derived_state_recompute_failed', {
+        plan_id: plan.plan_id,
+        entity_type: input.entityType,
+        entity_id: input.entityId,
+        changed_field: input.changedField,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      })
+    })
+  ))
 
   return {
     invalidated_recommendation_ids: uniqueStrings(recommendationRefs.map((ref) => ref.id)),

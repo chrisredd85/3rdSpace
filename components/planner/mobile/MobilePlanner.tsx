@@ -84,6 +84,8 @@ interface Plan {
   agent_action?: string | null
   profit_goal_cents: number | null
   notes: string | null
+  brief_render_version?: number
+  derived_state_recomputed_at?: string | null
   committed_venue_id?: string | null
   committed_venue_quoted_price_cents?: number | null
   committed_venue_quoted_deal_model?: string | null
