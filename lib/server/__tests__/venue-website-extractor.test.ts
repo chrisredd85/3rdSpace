@@ -10,6 +10,7 @@ import { join } from 'path'
 import {
   clearVenueWebsiteRateLimits,
   decodeHtmlEntities,
+  extractContactFormsFromHtml,
   extractEmailsFromHtml,
   extractVenueContacts,
   isPathAllowedByRobots,
@@ -56,6 +57,26 @@ describe('venue website extractor', () => {
     expect(scoreEmailConfidence('events@venue.com', '/private-events', true)).toBe(0.8)
     expect(scoreEmailConfidence('info@venue.com', '/contact', true)).toBe(0.5)
     expect(scoreEmailConfidence('info@venue.com', '/contact', false)).toBe(0.7)
+  })
+
+  it('extracts likely booking contact forms and request links', () => {
+    const forms = extractContactFormsFromHtml(`
+      <form id="catering-request" action="/page/catering-request#catering-form"></form>
+      <a href="/private-events/request">Request a private event quote</a>
+      <form id="newsletter" action="/subscribe"></form>
+    `, '/private-events', new URL('https://lacorneta.example/page/catering-request'))
+
+    expect(forms).toHaveLength(2)
+    expect(forms).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        url: 'https://lacorneta.example/page/catering-request#catering-form',
+        label: 'catering request',
+      }),
+      expect.objectContaining({
+        url: 'https://lacorneta.example/private-events/request',
+        label: 'Request a private event quote',
+      }),
+    ]))
   })
 
   it('respects robots.txt allow and disallow rules', () => {
@@ -113,6 +134,7 @@ describe('venue website extractor', () => {
 
     expect(result.status).toBe('successful')
     expect(result.emails.map((email) => email.email)).toEqual(['events@northpier.test', 'info@northpier.test'])
+    expect(result.contact_forms).toEqual(expect.any(Array))
     expect(result.emails.find((email) => email.email === 'events@northpier.test')?.is_likely_booking_contact).toBe(true)
     expect(requestedPaths.slice(0, 3)).toEqual(['/robots.txt', '/', '/contact'])
     expect(requestTimes.slice(0, 3)).toEqual([0, 1000, 2000])

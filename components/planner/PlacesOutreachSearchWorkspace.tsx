@@ -20,7 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-type ContactStatus = 'ready_to_reach_out' | 'contact_pending' | 'no_contact_available'
+type ContactStatus = 'ready_to_reach_out' | 'contact_form_available' | 'contact_pending' | 'no_contact_available'
 
 type DiscoveryCandidate = {
   candidate_id: string
@@ -35,6 +35,9 @@ type DiscoveryCandidate = {
   contact_email: string | null
   contact_email_source: 'direct' | 'organizer_provided' | 'extracted' | null
   contact_email_confidence: 'high' | 'medium' | 'low' | null
+  contact_form_url: string | null
+  contact_form_label: string | null
+  contact_form_source_path: string | null
   contact_status: ContactStatus
   extraction_status: string | null
   fit_score: number
@@ -54,6 +57,7 @@ type DiscoveryCandidate = {
 type DiscoverySummary = {
   total: number
   ready_to_reach_out: number
+  contact_form_available?: number
   contact_pending: number
   no_contact_available: number
 }
@@ -65,13 +69,15 @@ type DiscoverResponse = {
 
 type ApprovalResponse = {
   approvals: Array<{
-    discovery_venue_id: string
-    venue_name: string
     approval_id: string
     approval_message_id: string | null
     redirect_url: string | null
+    target_count: number
+    discovery_venue_ids: string[]
+    venue_names: string[]
   }>
   created_count: number
+  target_count?: number
 }
 
 type PlacesOutreachSearchWorkspaceProps = {
@@ -101,6 +107,7 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
     [candidates]
   )
   const selectedReadyCount = selectedVenueIds.filter((id) => readyCandidates.some((candidate) => candidate.discovery_venue_id === id)).length
+  const approvalTargetCount = approvalResult?.target_count ?? approvalResult?.approvals.reduce((sum, approval) => sum + approval.target_count, 0) ?? 0
 
   async function loadCandidates(nextPlanId = planId) {
     const trimmedPlanId = nextPlanId.trim()
@@ -324,10 +331,11 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
         </Card>
 
         {summary ? (
-          <div className="grid gap-3 sm:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-5">
             <Metric label="Venues found" value={summary.total} />
             <Metric label="Ready" value={summary.ready_to_reach_out} />
-            <Metric label="Needs contact" value={summary.contact_pending} />
+            <Metric label="Forms found" value={summary.contact_form_available ?? 0} />
+            <Metric label="Checking" value={summary.contact_pending} />
             <Metric label="No contact" value={summary.no_contact_available} />
           </div>
         ) : null}
@@ -337,10 +345,10 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
             <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="font-semibold text-foreground">
-                  {approvalResult.created_count} outreach approval{approvalResult.created_count === 1 ? '' : 's'} created
+                  {approvalResult.created_count} bulk outreach approval{approvalResult.created_count === 1 ? '' : 's'} created
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Open the planner approvals queue to review and send.
+                  Open the planner approvals queue to review {approvalTargetCount} selected venue message{approvalTargetCount === 1 ? '' : 's'} before send.
                 </p>
               </div>
               <Button asChild>
@@ -368,7 +376,7 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
                 </div>
                 <Button type="button" onClick={createApprovals} disabled={selectedReadyCount === 0 || isApproving}>
                   {isApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  Create {selectedReadyCount || ''} approval{selectedReadyCount === 1 ? '' : 's'}
+                  Create bulk approval{selectedReadyCount ? ` for ${selectedReadyCount}` : ''}
                 </Button>
               </div>
             </CardHeader>
@@ -398,7 +406,7 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
                 Add contact email
               </CardTitle>
               <p className="text-sm text-muted-foreground">
-                {rescueCandidates.length} venue{rescueCandidates.length === 1 ? '' : 's'} need a contact before approval.
+                {rescueCandidates.length} venue{rescueCandidates.length === 1 ? '' : 's'} need an email before Gmail approval. Contact forms are linked when found.
               </p>
             </CardHeader>
             <CardContent className="space-y-4 pt-6">
@@ -497,6 +505,10 @@ function CandidateCard({
             <span className="rounded-full border border-forest/30 bg-forest/10 px-2.5 py-1 text-forest">
               {candidate.contact_email_source?.replace(/_/g, ' ') ?? 'contact'} email
             </span>
+          ) : candidate.contact_status === 'contact_form_available' ? (
+            <span className="rounded-full border border-ochre/35 bg-ochre/10 px-2.5 py-1 text-ochre">
+              Contact form found
+            </span>
           ) : (
             <span className="rounded-full border border-border bg-card px-2.5 py-1">
               {candidate.contact_status.replace(/_/g, ' ')}
@@ -513,6 +525,14 @@ function CandidateCard({
               </a>
             </Button>
           ) : null}
+          {candidate.contact_form_url ? (
+            <Button asChild type="button" variant="outline" size="sm">
+              <a href={candidate.contact_form_url} target="_blank" rel="noreferrer">
+                {candidate.contact_form_label ?? 'Open contact form'}
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </Button>
+          ) : null}
           <Button type="button" variant="outline" size="sm" onClick={onSkip} disabled={isBusy}>
             {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <SkipForward className="h-3.5 w-3.5" />}
             Skip
@@ -525,18 +545,25 @@ function CandidateCard({
         </div>
 
         {mode === 'rescue' ? (
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <Input
-              value={emailValue ?? ''}
-              onChange={(event) => onEmailChange?.(event.target.value)}
-              placeholder="booking@example.com"
-              inputMode="email"
-              aria-label={`Contact email for ${candidate.name}`}
-            />
-            <Button type="button" onClick={onSaveEmail} disabled={isBusy || !emailValue?.trim()}>
-              {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MailPlus className="h-4 w-4" />}
-              Save
-            </Button>
+          <div className="grid gap-3">
+            {candidate.contact_form_url ? (
+              <p className="rounded-md border border-ochre/25 bg-ochre/10 px-3 py-2 text-sm leading-relaxed text-muted-foreground">
+                The crawler found a contact form, but Gmail outreach still needs an email. Open the form or site, then paste the best contact email here when available.
+              </p>
+            ) : null}
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <Input
+                value={emailValue ?? ''}
+                onChange={(event) => onEmailChange?.(event.target.value)}
+                placeholder="booking@example.com"
+                inputMode="email"
+                aria-label={`Contact email for ${candidate.name}`}
+              />
+              <Button type="button" onClick={onSaveEmail} disabled={isBusy || !emailValue?.trim()}>
+                {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MailPlus className="h-4 w-4" />}
+                Save
+              </Button>
+            </div>
           </div>
         ) : null}
       </div>

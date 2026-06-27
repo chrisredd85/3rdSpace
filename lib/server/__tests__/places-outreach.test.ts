@@ -37,7 +37,37 @@ describe('places outreach helpers', () => {
       email: 'booking@moongate.example',
       source: 'organizer_provided',
       confidence: 'high',
+      contactFormUrl: null,
+      contactFormLabel: null,
+      contactFormSourcePath: null,
       status: 'ready_to_reach_out',
+    })
+  })
+
+  it('returns contact_form_available when crawler found a form but no email', () => {
+    const contact = resolveDiscoveryVenueContact({
+      contact_email: null,
+      organizer_provided_emails: [],
+      extracted_emails: [],
+      extracted_contact_forms: [{
+        url: 'https://lacorneta.example/page/catering-request',
+        label: 'Catering request',
+        source_path: '/page/catering-request',
+        confidence: 0.9,
+        extracted_at: '2026-06-26T00:00:00.000Z',
+        is_likely_booking_contact: true,
+      }],
+      website: 'https://lacorneta.example',
+    } as unknown as DiscoveryVenueRow)
+
+    expect(contact).toEqual({
+      email: null,
+      source: null,
+      confidence: null,
+      contactFormUrl: 'https://lacorneta.example/page/catering-request',
+      contactFormLabel: 'Catering request',
+      contactFormSourcePath: '/page/catering-request',
+      status: 'contact_form_available',
     })
   })
 
@@ -166,11 +196,12 @@ describe('places outreach helpers', () => {
     expect(responses[0]).toMatchObject({
       discovery_venue_id: 'venue-1',
       name: 'Moongate Lounge',
-      contact_email: 'booking@moongate.example',
-      contact_status: 'ready_to_reach_out',
-      fit_score: 87,
-      photo_urls: ['/api/planner/discovery-venues/venue-1/photo/0'],
-    })
+        contact_email: 'booking@moongate.example',
+        contact_status: 'ready_to_reach_out',
+        contact_form_url: null,
+        fit_score: 87,
+        photo_urls: ['/api/planner/discovery-venues/venue-1/photo/0'],
+      })
   })
 
   it('passes inferred capacity fields through to catalog ranking inputs', () => {
@@ -290,6 +321,29 @@ describe('places outreach helpers', () => {
     expect(buildDefaultOutreachSubject(plan)).toBe('Happy hour plan quote request')
     expect(buildDefaultOutreachBody(plan)).toContain('verified quote before comparing options')
     expect(buildDefaultOutreachBody(plan)).toContain('No booking or payment happens from this email')
+  })
+
+  it('marks golf activity plans as quote-required special supply', () => {
+    const plan = fakePlan()
+    plan.metadata = {
+      event_complexity: 'special_supply_required',
+      special_supply: {
+        kind: 'golf_activity',
+        label: 'Golf activity',
+        intake_pack_id: 'special_supply_golf_activity',
+        lead_label: 'Golf venue or activity operator',
+        candidate_status_label: 'Unverified golf activity lead - quote required',
+        quote_required: true,
+        verification_status: 'unverified_quote_required',
+        search_terms: ['indoor golf venue'],
+        intake_questions: ['Should I scout full courses, driving ranges, indoor simulators, or keep all golf options open?'],
+        quote_comparison_fields: ['all-in event price', 'capacity or bay count'],
+        outreach_quote_fields: ['event format options', 'capacity or bay count', 'all-in price'],
+        execution_modes: ['concierge_queue', 'external_checkout', 'controlled_payment'],
+      },
+    }
+
+    expect(buildDefaultOutreachBody(plan)).toContain('event format options, capacity or bay count, and all-in price')
   })
 })
 

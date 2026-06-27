@@ -42,6 +42,7 @@ export type SpecialSupplyKind =
   | 'private_estate'
   | 'outdoor_park'
   | 'rooftop_buyout'
+  | 'golf_activity'
   | 'nonstandard'
 
 /** Existing execution modes allowed for special supply once terms are verified. */

@@ -78,6 +78,7 @@ const DISCOVERY_VENUE_SELECT = `
   created_at,
   updated_at,
   extracted_emails,
+  extracted_contact_forms,
   website_extraction_attempted_at,
   website_extraction_attempts,
   website_extraction_metadata,
@@ -369,6 +370,7 @@ async function loadPlanCandidates(planId: string) {
 type DiscoverySummary = {
   total: number
   ready_to_reach_out: number
+  contact_form_available: number
   contact_pending: number
   no_contact_available: number
 }
@@ -382,6 +384,7 @@ function summarizeCandidates(candidates: ReturnType<typeof buildDiscoveryCandida
   return {
     total: candidates.length,
     ready_to_reach_out: candidates.filter((candidate) => candidate.contact_status === 'ready_to_reach_out').length,
+    contact_form_available: candidates.filter((candidate) => candidate.contact_status === 'contact_form_available').length,
     contact_pending: candidates.filter((candidate) => candidate.contact_status === 'contact_pending').length,
     no_contact_available: candidates.filter((candidate) => candidate.contact_status === 'no_contact_available').length,
   }

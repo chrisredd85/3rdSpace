@@ -247,6 +247,14 @@ function makeDb() {
         fit_score: 82,
         places_request_json: {},
       },
+      {
+        id: 'candidate-ready-two',
+        plan_id: 'plan-1',
+        discovery_venue_id: '33333333-3333-4333-8333-333333333333',
+        dismissed_at: null,
+        fit_score: 88,
+        places_request_json: {},
+      },
     ],
     discovery_venues: [
       {
@@ -266,6 +274,16 @@ function makeDb() {
         organizer_provided_emails: [],
         extracted_emails: [],
         website: 'https://stable.example',
+        metadata: {},
+        photos: [],
+      },
+      {
+        id: '33333333-3333-4333-8333-333333333333',
+        name: 'Mission Social Hall',
+        contact_email: 'events@mission-social.example',
+        organizer_provided_emails: [],
+        extracted_emails: [],
+        website: 'https://mission-social.example',
         metadata: {},
         photos: [],
       },
@@ -317,24 +335,45 @@ describe('POST /api/planner/plans/[planId]/outreach/approve-batch', () => {
     expect(db.rows.builder_profiles[0].free_events_used).toBe(0)
   })
 
-  it('creates approval records with discovered venue target metadata for ready venues and consumes one free event', async () => {
+  it('creates one bulk approval with discovered venue target metadata for ready venues and consumes one free event', async () => {
     const response = await approveBatch(makeRequest({
-      discovery_venue_ids: ['11111111-1111-4111-8111-111111111111'],
+      discovery_venue_ids: [
+        '11111111-1111-4111-8111-111111111111',
+        '33333333-3333-4333-8333-333333333333',
+      ],
     }), { params: { planId: 'plan-1' } })
     const json = await response.json()
 
     expect(response.status).toBe(200)
     expect(json.created_count).toBe(1)
+    expect(json.target_count).toBe(2)
+    expect(json.approvals).toEqual([expect.objectContaining({
+      approval_id: 'approval-1',
+      target_count: 2,
+      discovery_venue_ids: [
+        '11111111-1111-4111-8111-111111111111',
+        '33333333-3333-4333-8333-333333333333',
+      ],
+      venue_names: ['Moongate Lounge', 'Mission Social Hall'],
+    })])
     expect(mockCreateApproval).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       userId: 'user-1',
       planId: 'plan-1',
       reuseExisting: false,
-      targets: [{
-        kind: 'venue',
-        name: 'Moongate Lounge',
-        email: 'booking@moongate.example',
-        discoveryVenueId: '11111111-1111-4111-8111-111111111111',
-      }],
+      targets: [
+        {
+          kind: 'venue',
+          name: 'Moongate Lounge',
+          email: 'booking@moongate.example',
+          discoveryVenueId: '11111111-1111-4111-8111-111111111111',
+        },
+        {
+          kind: 'venue',
+          name: 'Mission Social Hall',
+          email: 'events@mission-social.example',
+          discoveryVenueId: '33333333-3333-4333-8333-333333333333',
+        },
+      ],
     }))
     const db = mockCreateClient.mock.results[0].value as MemoryDb
     expect(db.rows.builder_profiles[0].free_events_used).toBe(1)

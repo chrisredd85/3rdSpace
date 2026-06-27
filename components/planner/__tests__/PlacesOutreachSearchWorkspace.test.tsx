@@ -6,7 +6,8 @@ const discoveryResponse = {
   summary: {
     total: 2,
     ready_to_reach_out: 1,
-    contact_pending: 1,
+    contact_form_available: 1,
+    contact_pending: 0,
     no_contact_available: 0,
   },
   candidates: [
@@ -23,6 +24,9 @@ const discoveryResponse = {
       contact_email: 'booking@moongate.example',
       contact_email_source: 'organizer_provided',
       contact_email_confidence: 'high',
+      contact_form_url: null,
+      contact_form_label: null,
+      contact_form_source_path: null,
       contact_status: 'ready_to_reach_out',
       extraction_status: 'successful',
       fit_score: 91,
@@ -45,7 +49,10 @@ const discoveryResponse = {
       contact_email: null,
       contact_email_source: null,
       contact_email_confidence: null,
-      contact_status: 'contact_pending',
+      contact_form_url: 'https://stable.example/private-events',
+      contact_form_label: 'Private events form',
+      contact_form_source_path: '/private-events',
+      contact_status: 'contact_form_available',
       extraction_status: 'never_attempted',
       fit_score: 79,
       status: 'candidate',
@@ -69,24 +76,28 @@ describe('PlacesOutreachSearchWorkspace', () => {
       .mockResolvedValueOnce(jsonResponse({ venue: { id: '22222222-2222-4222-8222-222222222222' } }))
       .mockResolvedValueOnce(jsonResponse({
         ...discoveryResponse,
-        summary: { total: 2, ready_to_reach_out: 2, contact_pending: 0, no_contact_available: 0 },
+        summary: { total: 2, ready_to_reach_out: 2, contact_form_available: 0, contact_pending: 0, no_contact_available: 0 },
         candidates: discoveryResponse.candidates.map((candidate) => candidate.name === 'Stable Cafe'
           ? {
               ...candidate,
               contact_email: 'events@stable.example',
               contact_email_source: 'organizer_provided',
               contact_email_confidence: 'high',
+              contact_form_url: null,
+              contact_form_label: null,
+              contact_form_source_path: null,
               contact_status: 'ready_to_reach_out',
             }
           : candidate),
       }))
-      .mockResolvedValueOnce(jsonResponse({ approvals: [], created_count: 2 }))
+      .mockResolvedValueOnce(jsonResponse({ approvals: [{ approval_id: 'approval-1', target_count: 2, discovery_venue_ids: [], venue_names: [] }], created_count: 1, target_count: 2 }))
       .mockResolvedValueOnce(jsonResponse({
         ...discoveryResponse,
-        summary: { total: 2, ready_to_reach_out: 2, contact_pending: 0, no_contact_available: 0 },
+        summary: { total: 2, ready_to_reach_out: 2, contact_form_available: 0, contact_pending: 0, no_contact_available: 0 },
         candidates: discoveryResponse.candidates.map((candidate) => ({
           ...candidate,
           contact_email: candidate.contact_email ?? 'events@stable.example',
+          contact_form_url: null,
           contact_status: 'ready_to_reach_out',
         })),
       }))
@@ -101,7 +112,9 @@ describe('PlacesOutreachSearchWorkspace', () => {
     expect(await screen.findByText('Moongate Lounge')).toBeInTheDocument()
     expect(screen.getByText('Stable Cafe')).toBeInTheDocument()
     expect(screen.getByText('Ready')).toBeInTheDocument()
-    expect(screen.getByText('Needs contact')).toBeInTheDocument()
+    expect(screen.getByText('Forms found')).toBeInTheDocument()
+    expect(screen.getByText('Checking')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Private events form/i })).toHaveAttribute('href', 'https://stable.example/private-events')
 
     await user.type(screen.getByLabelText(/Contact email for Stable Cafe/i), 'events@stable.example')
     await user.click(screen.getByRole('button', { name: /^Save$/i }))
@@ -116,7 +129,7 @@ describe('PlacesOutreachSearchWorkspace', () => {
       )
     })
 
-    await user.click(await screen.findByRole('button', { name: /Create 2 approvals/i }))
+    await user.click(await screen.findByRole('button', { name: /Create bulk approval for 2/i }))
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(

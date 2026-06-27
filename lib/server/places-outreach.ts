@@ -15,6 +15,7 @@ import type { PlacesIntent } from '@/lib/server/places-archetype-intent'
 import { resolvePlacesIntent } from '@/lib/server/places-archetype-intent'
 import { enqueueVenueCapacityInferenceJob, hasKnownCapacity } from '@/lib/discovery/venueCapacityJobs'
 import type { SupabaseJobClient } from '@/lib/server/job-queue'
+import { parseExtractedContactForms } from '@/lib/server/discovery-enrichment'
 
 export type DiscoveryVenueCapacityInferenceFields = {
   inferred_capacity_standing?: number | null
@@ -84,10 +85,11 @@ export const DISCOVERY_VENUE_SELECT = `
   website_extraction_attempted_at,
   website_extraction_attempts,
   website_extraction_metadata,
+  extracted_contact_forms,
   website_extraction_status
 `
 
-export type ContactStatus = 'ready_to_reach_out' | 'contact_pending' | 'no_contact_available'
+export type ContactStatus = 'ready_to_reach_out' | 'contact_form_available' | 'contact_pending' | 'no_contact_available'
 export type ContactEmailSource = 'direct' | 'organizer_provided' | 'extracted' | null
 export type ContactEmailConfidence = 'high' | 'medium' | 'low' | null
 
@@ -104,6 +106,9 @@ export type DiscoveryCandidateResponse = {
   contact_email: string | null
   contact_email_source: ContactEmailSource
   contact_email_confidence: ContactEmailConfidence
+  contact_form_url: string | null
+  contact_form_label: string | null
+  contact_form_source_path: string | null
   contact_status: ContactStatus
   extraction_status: string | null
   fit_score: number
@@ -127,6 +132,9 @@ export type ContactResolution = {
   email: string | null
   source: ContactEmailSource
   confidence: ContactEmailConfidence
+  contactFormUrl: string | null
+  contactFormLabel: string | null
+  contactFormSourcePath: string | null
   status: ContactStatus
 }
 
@@ -225,6 +233,9 @@ export function resolveDiscoveryVenueContact(venue: DiscoveryVenueRow): ContactR
       email: directEmail,
       source: 'direct',
       confidence: 'high',
+      contactFormUrl: null,
+      contactFormLabel: null,
+      contactFormSourcePath: null,
       status: 'ready_to_reach_out',
     }
   }
@@ -235,6 +246,9 @@ export function resolveDiscoveryVenueContact(venue: DiscoveryVenueRow): ContactR
       email: organizerEmail,
       source: 'organizer_provided',
       confidence: 'high',
+      contactFormUrl: null,
+      contactFormLabel: null,
+      contactFormSourcePath: null,
       status: 'ready_to_reach_out',
     }
   }
@@ -245,7 +259,23 @@ export function resolveDiscoveryVenueContact(venue: DiscoveryVenueRow): ContactR
       email: extractedEmail.email,
       source: 'extracted',
       confidence: extractedEmail.confidence >= 0.8 ? 'high' : 'medium',
+      contactFormUrl: null,
+      contactFormLabel: null,
+      contactFormSourcePath: null,
       status: 'ready_to_reach_out',
+    }
+  }
+
+  const contactForm = readBestContactForm((venue as unknown as Record<string, unknown>).extracted_contact_forms)
+  if (contactForm) {
+    return {
+      email: null,
+      source: null,
+      confidence: null,
+      contactFormUrl: contactForm.url,
+      contactFormLabel: contactForm.label,
+      contactFormSourcePath: contactForm.source_path,
+      status: 'contact_form_available',
     }
   }
 
@@ -253,6 +283,9 @@ export function resolveDiscoveryVenueContact(venue: DiscoveryVenueRow): ContactR
     email: null,
     source: null,
     confidence: null,
+    contactFormUrl: null,
+    contactFormLabel: null,
+    contactFormSourcePath: null,
     status: venue.website ? 'contact_pending' : 'no_contact_available',
   }
 }
@@ -281,6 +314,9 @@ export function buildDiscoveryCandidateResponses(
         contact_email: contact.email,
         contact_email_source: contact.source,
         contact_email_confidence: contact.confidence,
+        contact_form_url: contact.contactFormUrl,
+        contact_form_label: contact.contactFormLabel,
+        contact_form_source_path: contact.contactFormSourcePath,
         contact_status: contact.status,
         extraction_status: venue.website_extraction_status,
         fit_score: fitScore,
@@ -679,6 +715,26 @@ function readBestExtractedEmail(value: Json): { email: string; confidence: numbe
   return candidates.sort((first, second) => second.confidence - first.confidence)[0] ?? null
 }
 
+function readBestContactForm(value: unknown): { url: string; label: string; source_path: string; confidence: number } | null {
+  const forms = parseExtractedContactForms(value as Json | null | undefined)
+    .filter((form) => form.url && form.confidence >= 0.55)
+    .sort((first, second) => {
+      if (first.is_likely_booking_contact !== second.is_likely_booking_contact) {
+        return first.is_likely_booking_contact ? -1 : 1
+      }
+      return second.confidence - first.confidence || first.url.localeCompare(second.url)
+    })
+  const form = forms[0]
+  return form
+    ? {
+      url: form.url,
+      label: form.label,
+      source_path: form.source_path,
+      confidence: form.confidence,
+    }
+    : null
+}
+
 export function readPlacesPhotos(value: Json): DiscoveryVenuePhoto[] {
   if (!Array.isArray(value)) return []
   return value.flatMap((entry): DiscoveryVenuePhoto[] => {
@@ -747,8 +803,9 @@ function normalizeEmail(value: unknown): string | null {
 
 function contactStatusWeight(status: ContactStatus) {
   if (status === 'ready_to_reach_out') return 0
-  if (status === 'contact_pending') return 1
-  return 2
+  if (status === 'contact_form_available') return 1
+  if (status === 'contact_pending') return 2
+  return 3
 }
 
 function clampFitScore(value: number) {
