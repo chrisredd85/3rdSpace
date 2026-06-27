@@ -2,6 +2,7 @@ import 'server-only'
 
 import type Stripe from 'stripe'
 import * as Sentry from '@sentry/nextjs'
+import { recordStripeAccountDiscoveryFreshness } from '@/lib/discovery/freshness'
 import { sendEmailNotification } from '@/lib/email'
 import {
   getStripeAccountStatus,
@@ -48,10 +49,19 @@ export async function applyStripeConnectAccountUpdated(
   account: Stripe.Account,
   eventId = account.id
 ): Promise<StripeConnectWebhookResult> {
-  const vendor = await loadStripeAccountRow(admin, 'vendor_stripe_accounts', 'vendor_id', account.id)
+  const vendor = await loadStripeAccountRow(admin, 'vendor_stripe_accounts', 'vendor_id, account_status', account.id)
   const vendorId = readString(vendor?.vendor_id)
   if (vendorId) {
+    const previousStatus = readString(vendor?.account_status)
+    const nextStatus = getStripeAccountStatus(account)
     await saveVendorStripeAccount(admin, vendorId, account)
+    await fanOutVendorStripeFreshness(admin, {
+      vendorId,
+      account,
+      eventId,
+      previousStatus,
+      nextStatus,
+    })
     if (account.charges_enabled) {
       await clearVendorStripeSkippedAt(admin, vendorId)
     }
@@ -70,11 +80,20 @@ export async function applyStripeConnectAccountUpdated(
     return { received: true }
   }
 
-  const venue = await loadStripeAccountRow(admin, 'venue_stripe_accounts', 'owner_id, payouts_enabled', account.id)
+  const venue = await loadStripeAccountRow(admin, 'venue_stripe_accounts', 'owner_id, payouts_enabled, account_status', account.id)
   const venueOwnerId = readString(venue?.owner_id)
   if (venueOwnerId) {
     const wasPayoutReady = venue?.payouts_enabled === true
+    const previousStatus = readString(venue?.account_status)
+    const nextStatus = getStripeAccountStatus(account)
     await saveVenueStripeAccount(admin, venueOwnerId, account)
+    await fanOutVenueStripeFreshness(admin, {
+      venueOwnerId,
+      account,
+      eventId,
+      previousStatus,
+      nextStatus,
+    })
     if (!wasPayoutReady && account.payouts_enabled) {
       await handleVenueStripeReadyForOwner(admin, venueOwnerId)
     }
@@ -134,6 +153,105 @@ export async function applyStripeConnectAccountUpdated(
   }
 
   return { received: true, ignored: true, reason: 'unknown_account' }
+}
+
+async function fanOutVendorStripeFreshness(
+  admin: StripeAdminClient,
+  input: {
+    vendorId: string
+    account: Stripe.Account
+    eventId: string
+    previousStatus: string | null
+    nextStatus: string | null
+  }
+) {
+  const discoveryVendorId = await loadDiscoveryVendorIdForVendorProfile(admin, input.vendorId)
+  if (!discoveryVendorId) return
+
+  await recordStripeAccountDiscoveryFreshness({
+    admin,
+    entityType: 'discovery_vendor',
+    entityId: discoveryVendorId,
+    accountId: input.account.id,
+    eventId: input.eventId,
+    previousStatus: input.previousStatus,
+    nextStatus: input.nextStatus,
+    account: input.account,
+    shouldCascade: shouldCascadeStripeStatusChange(input.previousStatus, input.nextStatus),
+  })
+}
+
+async function fanOutVenueStripeFreshness(
+  admin: StripeAdminClient,
+  input: {
+    venueOwnerId: string
+    account: Stripe.Account
+    eventId: string
+    previousStatus: string | null
+    nextStatus: string | null
+  }
+) {
+  const discoveryVenueIds = await loadDiscoveryVenueIdsForVenueOwner(admin, input.venueOwnerId)
+  for (const discoveryVenueId of discoveryVenueIds) {
+    await recordStripeAccountDiscoveryFreshness({
+      admin,
+      entityType: 'discovery_venue',
+      entityId: discoveryVenueId,
+      accountId: input.account.id,
+      eventId: input.eventId,
+      previousStatus: input.previousStatus,
+      nextStatus: input.nextStatus,
+      account: input.account,
+      shouldCascade: shouldCascadeStripeStatusChange(input.previousStatus, input.nextStatus),
+    })
+  }
+}
+
+async function loadDiscoveryVendorIdForVendorProfile(
+  admin: StripeAdminClient,
+  vendorId: string
+) {
+  const { data, error } = await admin
+    .from('vendor_profiles')
+    .select('discovery_vendor_id')
+    .eq('id', vendorId)
+    .maybeSingle()
+
+  if (error) throw new Error(`Failed to load discovery vendor link: ${error.message}`)
+  return readString((data as Record<string, unknown> | null)?.discovery_vendor_id)
+}
+
+async function loadDiscoveryVenueIdsForVenueOwner(
+  admin: StripeAdminClient,
+  venueOwnerId: string
+) {
+  const { data: venues, error: venuesError } = await admin
+    .from('venues')
+    .select('id')
+    .eq('owner_id', venueOwnerId)
+
+  if (venuesError) throw new Error(`Failed to load owner venues for discovery freshness: ${venuesError.message}`)
+
+  const venueIds = (Array.isArray(venues) ? venues : [])
+    .map((venue) => readString((venue as Record<string, unknown>).id))
+    .filter((id): id is string => Boolean(id))
+
+  if (venueIds.length === 0) return []
+
+  const { data: discoveryVenues, error: discoveryError } = await admin
+    .from('discovery_venues')
+    .select('id')
+    .in('claimed_venue_id', venueIds)
+
+  if (discoveryError) throw new Error(`Failed to load discovery venue links: ${discoveryError.message}`)
+
+  return (Array.isArray(discoveryVenues) ? discoveryVenues : [])
+    .map((venue) => readString((venue as Record<string, unknown>).id))
+    .filter((id): id is string => Boolean(id))
+}
+
+function shouldCascadeStripeStatusChange(previousStatus: string | null, nextStatus: string | null) {
+  return previousStatus !== nextStatus && isConnectedStripeAccountBlocked(nextStatus)
 }
 
 function readString(value: unknown): string | null {

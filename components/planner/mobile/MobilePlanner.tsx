@@ -24,6 +24,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EntityReadinessBadge } from '@/components/planner/EntityReadinessBadge'
 import { PlannerTicketingSetupGuideSection } from '@/components/planner/PlannerTicketingSetupGuideSection'
+import { ReportIncorrectInfoModal, type ReportIncorrectInfoEntity } from '@/components/planner/ReportIncorrectInfoModal'
 import { StaleRecommendationNotice } from '@/components/planner/StaleRecommendationNotice'
 import { VendorLocationBadge, type VendorLocationBadgeProps } from '@/components/planner/VendorLocationBadge'
 import {
@@ -424,6 +425,7 @@ export function MobilePlanner({
   const [batchFeedback, setBatchFeedback] = useState<string | null>(null)
   const [quoteFeedback, setQuoteFeedback] = useState<Record<string, string>>({})
   const [isRefreshingRecommendations, setIsRefreshingRecommendations] = useState(false)
+  const [reportIncorrectEntity, setReportIncorrectEntity] = useState<ReportIncorrectInfoEntity | null>(null)
   const hasAutoStartedInitialDraftRef = useRef(false)
 
   const reload = useCallback(async () => {
@@ -832,6 +834,12 @@ export function MobilePlanner({
             onRefreshRecommendations={handleRefreshRecommendations}
             onCommitQuote={handleCommitQuote}
             onCancelQuote={handleCancelQuote}
+            onReportIncorrectInfo={setReportIncorrectEntity}
+          />
+          <ReportIncorrectInfoModal
+            entity={reportIncorrectEntity}
+            isOpen={Boolean(reportIncorrectEntity)}
+            onClose={() => setReportIncorrectEntity(null)}
           />
         </div>
       </div>
@@ -863,6 +871,7 @@ function MobileContent({
   onRefreshRecommendations,
   onCommitQuote,
   onCancelQuote,
+  onReportIncorrectInfo,
 }: {
   activeSection: MobileSection
   view: MobileView
@@ -887,6 +896,7 @@ function MobileContent({
   onRefreshRecommendations: () => void
   onCommitQuote: (option: MobileQuoteOption) => void
   onCancelQuote: (option: MobileQuoteOption) => void
+  onReportIncorrectInfo: (entity: ReportIncorrectInfoEntity) => void
 }) {
   if (data.state === 'loading') return <LoadingView />
   if (data.state === 'error') return <ErrorView onRetry={() => window.location.reload()} />
@@ -923,6 +933,7 @@ function MobileContent({
         onRefreshRecommendations={onRefreshRecommendations}
         onCommitQuote={onCommitQuote}
         onCancelQuote={onCancelQuote}
+        onReportIncorrectInfo={onReportIncorrectInfo}
         onNavigate={onNavigate}
       />
     )
@@ -952,6 +963,7 @@ function MobileContent({
         onRefreshRecommendations={onRefreshRecommendations}
         onCommitQuote={onCommitQuote}
         onCancelQuote={onCancelQuote}
+        onReportIncorrectInfo={onReportIncorrectInfo}
         onNavigate={onNavigate}
       />
     )
@@ -968,6 +980,7 @@ function MobileContent({
         onRefreshRecommendations={onRefreshRecommendations}
         onCommitQuote={onCommitQuote}
         onCancelQuote={onCancelQuote}
+        onReportIncorrectInfo={onReportIncorrectInfo}
         onNavigate={onNavigate}
       />
     )
@@ -1567,6 +1580,7 @@ function VenuesView({
   onRefreshRecommendations,
   onCommitQuote,
   onCancelQuote,
+  onReportIncorrectInfo,
   onNavigate,
 }: {
   data: MobileData
@@ -1582,6 +1596,7 @@ function VenuesView({
   onRefreshRecommendations: () => void
   onCommitQuote: (option: MobileQuoteOption) => void
   onCancelQuote: (option: MobileQuoteOption) => void
+  onReportIncorrectInfo: (entity: ReportIncorrectInfoEntity) => void
   onNavigate: (view: MobileView) => void
 }) {
   const venues = useMemo(() => venueRecommendations(data.planPayload?.recommendations ?? []), [data.planPayload?.recommendations])
@@ -1628,6 +1643,12 @@ function VenuesView({
               onChange={onContactEmailDraftChange}
               onSave={onSaveContactEmail}
             />
+            {selected.discoveryId ? (
+              <MobileReportIncorrectButton
+                entity={{ kind: 'venue', id: selected.discoveryId, name: selected.name }}
+                onReport={onReportIncorrectInfo}
+              />
+            ) : null}
           </>
         ) : (
           <EmptyState title="No venue detail" description="Venue recommendations appear after the planner creates them." />
@@ -1705,6 +1726,12 @@ function VenuesView({
                   onChange={onContactEmailDraftChange}
                   onSave={onSaveContactEmail}
                 />
+                {venue.discoveryId ? (
+                  <MobileReportIncorrectButton
+                    entity={{ kind: 'venue', id: venue.discoveryId, name: venue.name }}
+                    onReport={onReportIncorrectInfo}
+                  />
+                ) : null}
               </div>
             ))}
           </div>
@@ -1945,6 +1972,7 @@ function VendorsSection({
   onRefreshRecommendations,
   onCommitQuote,
   onCancelQuote,
+  onReportIncorrectInfo,
   onNavigate,
 }: {
   data: MobileData
@@ -1954,6 +1982,7 @@ function VendorsSection({
   onRefreshRecommendations: () => void
   onCommitQuote: (option: MobileQuoteOption) => void
   onCancelQuote: (option: MobileQuoteOption) => void
+  onReportIncorrectInfo: (entity: ReportIncorrectInfoEntity) => void
   onNavigate: (view: MobileView) => void
 }) {
   const vendors = vendorRecommendations(data.planPayload?.recommendations ?? [])
@@ -2003,6 +2032,12 @@ function VendorsSection({
                 Mobile shows vendor readiness and returned quotes. Batch vendor outreach approval needs a backend route before mobile can create those approvals directly.
               </p>
             </Panel>
+            {selected.discoveryId ? (
+              <MobileReportIncorrectButton
+                entity={{ kind: 'vendor', id: selected.discoveryId, name: selected.name }}
+                onReport={onReportIncorrectInfo}
+              />
+            ) : null}
           </>
         ) : (
           <EmptyState title="No vendor detail" description="Vendor recommendations appear after the planner creates them." />
@@ -2023,34 +2058,43 @@ function VendorsSection({
         {vendors.length > 0 ? (
           <div className="divide-y divide-tan">
             {vendors.map((vendor) => (
-              <button
-                key={vendor.id}
-                type="button"
-                onClick={() => onNavigate('vendor-detail')}
-                className={cn('grid w-full grid-cols-[40px_minmax(0,1fr)_16px] items-center gap-3 text-left transition-colors hover:bg-cream-deep', spacing.compactRowPadding)}
-              >
-                <IconBox><Users className="h-5 w-5" /></IconBox>
-                <div className="min-w-0">
-                  <p className="truncate font-display text-[18px] font-semibold leading-tight text-ink">{vendor.name}</p>
-                  <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
-                    <p className="min-w-0 truncate text-sm text-ink-soft">{money(vendor.price_cents) ?? 'Estimate missing'}</p>
-                    <StatusPill tone={contactStatusTone(vendor)}>{contactStatusLabel(vendor)}</StatusPill>
-                    <VendorLocationBadge
-                      {...(vendor.locationBadge ?? {})}
-                      eventCity={vendor.locationBadge?.eventCity ?? data.planPayload?.plan.event_city ?? data.planPayload?.plan.neighborhood}
-                    />
-                    <StaleRecommendationNotice
-                      planRevisionAtCreation={vendor.planRevisionAtCreation}
-                      currentPlanRevisionCount={currentPlanRevisionCount}
-                      isRefreshing={isRefreshingRecommendations}
-                      onRefresh={onRefreshRecommendations}
-                      compact
+              <div key={vendor.id} className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => onNavigate('vendor-detail')}
+                  className={cn('grid w-full grid-cols-[40px_minmax(0,1fr)_16px] items-center gap-3 text-left transition-colors hover:bg-cream-deep', spacing.compactRowPadding)}
+                >
+                  <IconBox><Users className="h-5 w-5" /></IconBox>
+                  <div className="min-w-0">
+                    <p className="truncate font-display text-[18px] font-semibold leading-tight text-ink">{vendor.name}</p>
+                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
+                      <p className="min-w-0 truncate text-sm text-ink-soft">{money(vendor.price_cents) ?? 'Estimate missing'}</p>
+                      <StatusPill tone={contactStatusTone(vendor)}>{contactStatusLabel(vendor)}</StatusPill>
+                      <VendorLocationBadge
+                        {...(vendor.locationBadge ?? {})}
+                        eventCity={vendor.locationBadge?.eventCity ?? data.planPayload?.plan.event_city ?? data.planPayload?.plan.neighborhood}
+                      />
+                      <StaleRecommendationNotice
+                        planRevisionAtCreation={vendor.planRevisionAtCreation}
+                        currentPlanRevisionCount={currentPlanRevisionCount}
+                        isRefreshing={isRefreshingRecommendations}
+                        onRefresh={onRefreshRecommendations}
+                        compact
+                      />
+                    </div>
+                    {vendor.readiness ? <div className="mt-2"><EntityReadinessBadge indicator={vendor.readiness} /></div> : null}
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-ink-soft" />
+                </button>
+                {vendor.discoveryId ? (
+                  <div className="px-4 pb-4">
+                    <MobileReportIncorrectButton
+                      entity={{ kind: 'vendor', id: vendor.discoveryId, name: vendor.name }}
+                      onReport={onReportIncorrectInfo}
                     />
                   </div>
-                  {vendor.readiness ? <div className="mt-2"><EntityReadinessBadge indicator={vendor.readiness} /></div> : null}
-                </div>
-                <ChevronRight className="h-4 w-4 text-ink-soft" />
-              </button>
+                ) : null}
+              </div>
             ))}
           </div>
         ) : (
@@ -2964,6 +3008,24 @@ function ContactRescuePanel({
         {feedback ? <p className="text-sm font-semibold leading-6 text-ink-soft">{feedback}</p> : null}
       </div>
     </details>
+  )
+}
+
+function MobileReportIncorrectButton({
+  entity,
+  onReport,
+}: {
+  entity: ReportIncorrectInfoEntity
+  onReport: (entity: ReportIncorrectInfoEntity) => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onReport(entity)}
+      className="inline-flex min-h-11 w-full items-center justify-center rounded-md border border-tan bg-cream px-3 text-xs font-bold uppercase tracking-[0.06em] text-ink-soft transition-colors hover:border-clay hover:text-clay focus:outline-none focus-visible:ring-2 focus-visible:ring-clay"
+    >
+      Report incorrect info
+    </button>
   )
 }
 
