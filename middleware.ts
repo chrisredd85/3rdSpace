@@ -42,6 +42,13 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const requestId = ensureRequestIdHeaders(request.headers)
 
+  const legacyEventPlanId = extractLegacyPlannerEventPlanId(pathname)
+  if (legacyEventPlanId) {
+    const url = request.nextUrl.clone()
+    url.pathname = `/planner/experiences/${encodeURIComponent(legacyEventPlanId)}`
+    return NextResponse.redirect(url, 308)
+  }
+
   const settlementToken = extractVenueSettlementToken(pathname)
   if (settlementToken && request.method === 'GET') {
     const rateLimit = enforceSettlementTokenViewRateLimit(request, settlementToken)
@@ -214,6 +221,17 @@ export async function middleware(request: NextRequest) {
   // For all other routes, just refresh the session
   const { response } = await getAuthUser(request)
   return response
+}
+
+function extractLegacyPlannerEventPlanId(pathname: string): string | null {
+  const match = /^\/planner\/event-plan\/([^/]+)$/.exec(pathname)
+  if (!match?.[1]) return null
+
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return match[1]
+  }
 }
 
 function enforceSettlementTokenViewRateLimit(request: NextRequest, token: string): NextResponse | null {

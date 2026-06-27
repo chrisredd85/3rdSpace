@@ -3,7 +3,6 @@ import type { Plan, PlanMessage } from '@/lib/types'
 
 export const planTabs = [
   { id: 'chat', label: 'Chat' },
-  { id: 'event_plan', label: 'Event Plan' },
   { id: 'recommendations', label: 'Recommendations' },
   { id: 'approvals', label: 'Approvals' },
   { id: 'data', label: 'Data' },

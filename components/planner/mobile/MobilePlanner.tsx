@@ -1498,6 +1498,16 @@ function BriefView({
         description="This is what 3rdPlace believes about the event. Hosts correct it here before facts are used externally."
       />
 
+      {!plan.id.startsWith('mock-plan-') ? (
+        <Link
+          href={`/planner/experiences/${plan.id}`}
+          className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-tan bg-cream px-4 text-sm font-bold text-clay shadow-sm"
+        >
+          Open full brief
+          <ChevronRight className="h-4 w-4" />
+        </Link>
+      ) : null}
+
       <Panel className={cn(spacing.sectionGap, spacing.cardPaddingNone)}>
         <div className={cn('border-b border-tan', spacing.panelHeaderPadding)}>
           <p className="label-caps text-clay">Confirmed facts</p>

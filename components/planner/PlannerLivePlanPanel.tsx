@@ -2048,7 +2048,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         className={cn(inline ? 'pb-4' : 'min-h-0 flex-1 overflow-y-auto pb-24')}
         data-planner-side-scroll={inline ? undefined : 'true'}
       >
-        <ArtifactSection icon={<Sparkles className="h-5 w-5" />} title="Event Plan" subtitle="Structured artifact">
+        <ArtifactSection icon={<Sparkles className="h-5 w-5" />} title="Event Plan" subtitle="Structured artifact" collapsible={false}>
           <div className="grid gap-x-5 gap-y-5 [grid-template-columns:repeat(auto-fit,minmax(120px,1fr))]">
             <ArtifactField label="Event Type" value={formatEventType(eventSummary.event_type)} />
             <ArtifactField label="Date Window" value={eventSummary.date ?? 'Need date'} />
@@ -2481,6 +2481,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           icon={<WalletCards className="h-5 w-5" />}
           title="Venue Deal Models"
           subtitle={isComparingCommercialModels ? 'Agent comparison' : 'Compare structures'}
+          defaultCollapsed
         >
           {isComparingCommercialModels ? (
             <p className="mb-4 rounded-md border border-clay/30 bg-clay-tint px-4 py-3 text-sm leading-snug text-ink-soft">
@@ -2560,7 +2561,12 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           </div>
         </ArtifactSection>
 
-        <ArtifactSection icon={<ShieldCheck className="h-5 w-5" />} title="Payment + Agent Authorization" subtitle="Approve before action">
+        <ArtifactSection
+          icon={<ShieldCheck className="h-5 w-5" />}
+          title="Payment + Agent Authorization"
+          subtitle="Approve before action"
+          defaultCollapsed={authorizationCards.length === 0}
+        >
           <div className="space-y-4">
             {authorizationCards.map((approval) => {
               const feedback = actionFeedback[approval.id]
@@ -2637,7 +2643,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           </div>
         </ArtifactSection>
 
-        <ArtifactSection icon={<Check className="h-5 w-5" />} title="Connected Data" subtitle={`${sources.length} sources available`}>
+        <ArtifactSection icon={<Check className="h-5 w-5" />} title="Connected Data" subtitle={`${sources.length} sources available`} defaultCollapsed>
           <div className="flex flex-wrap gap-2">
             {sources.map((source) => (
               <span key={source} className="inline-flex items-center gap-1.5 rounded-full border border-tan bg-cream-deep px-3 py-1.5 text-xs font-semibold text-ink-soft">
@@ -2729,30 +2735,48 @@ function ArtifactSection({
   title,
   subtitle,
   children,
+  collapsible = true,
+  defaultCollapsed = false,
 }: {
   icon: React.ReactNode
   title: string
   subtitle: string
   children: React.ReactNode
+  collapsible?: boolean
+  defaultCollapsed?: boolean
 }) {
   const storageKey = `brief_section_${title.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}`
-  const [isOpen, setIsOpen] = useState(true)
+  const [isOpen, setIsOpen] = useState(!defaultCollapsed)
 
   useEffect(() => {
+    if (!collapsible) {
+      setIsOpen(true)
+      return
+    }
+
     try {
       const stored = window.localStorage.getItem(storageKey)
-      if (stored === 'collapsed') setIsOpen(false)
-      if (stored === 'expanded') setIsOpen(true)
+      if (stored === 'true' || stored === 'collapsed') {
+        setIsOpen(false)
+        return
+      }
+      if (stored === 'false' || stored === 'expanded') {
+        setIsOpen(true)
+        return
+      }
     } catch {
       // Collapsibility is a convenience; ignore storage errors.
     }
-  }, [storageKey])
+
+    setIsOpen(!defaultCollapsed)
+  }, [collapsible, defaultCollapsed, storageKey])
 
   function toggleSection() {
+    if (!collapsible) return
     setIsOpen((current) => {
       const next = !current
       try {
-        window.localStorage.setItem(storageKey, next ? 'expanded' : 'collapsed')
+        window.localStorage.setItem(storageKey, next ? 'false' : 'true')
       } catch {
         // Ignore storage errors.
       }
@@ -2762,25 +2786,37 @@ function ArtifactSection({
 
   return (
     <section className="border-b border-tan px-4 py-7">
-      <button
-        type="button"
-        onClick={toggleSection}
-        aria-expanded={isOpen}
-        className="mb-5 flex min-h-11 w-full items-center justify-between gap-3 rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-clay"
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-cream-deep text-ink-soft">
-            {icon}
-          </div>
-          <div className="min-w-0">
-            <h3 className="break-words text-lg font-semibold leading-tight text-ink" title={title}>{title}</h3>
-            <p className="break-words text-sm leading-snug text-ink-soft" title={subtitle}>{subtitle}</p>
-          </div>
+      {collapsible ? (
+        <button
+          type="button"
+          onClick={toggleSection}
+          aria-expanded={isOpen}
+          className="mb-5 flex min-h-11 w-full items-center justify-between gap-3 rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-clay"
+        >
+          <ArtifactSectionHeading icon={icon} title={title} subtitle={subtitle} />
+          {isOpen ? <ChevronDown className="h-5 w-5 shrink-0 text-ink-soft" /> : <ChevronRight className="h-5 w-5 shrink-0 text-ink-soft" />}
+        </button>
+      ) : (
+        <div className="mb-5 flex min-h-11 w-full items-center justify-between gap-3">
+          <ArtifactSectionHeading icon={icon} title={title} subtitle={subtitle} />
         </div>
-        {isOpen ? <ChevronDown className="h-5 w-5 shrink-0 text-ink-soft" /> : <ChevronRight className="h-5 w-5 shrink-0 text-ink-soft" />}
-      </button>
+      )}
       {isOpen ? children : null}
     </section>
+  )
+}
+
+function ArtifactSectionHeading({ icon, title, subtitle }: { icon: React.ReactNode; title: string; subtitle: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-cream-deep text-ink-soft">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <h3 className="break-words text-lg font-semibold leading-tight text-ink" title={title}>{title}</h3>
+        <p className="break-words text-sm leading-snug text-ink-soft" title={subtitle}>{subtitle}</p>
+      </div>
+    </div>
   )
 }
 
