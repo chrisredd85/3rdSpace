@@ -114,6 +114,45 @@ function getVendorType(serviceType: ServiceType): string {
   }
 }
 
+function vendorFreshnessSnapshot(data: VendorFormData) {
+  return {
+    name: data.business_name,
+    business_name: data.business_name,
+    service_type: data.service_type,
+    service_area: data.service_area,
+    regions_served: data.service_area,
+    base_rate: data.base_rate,
+  }
+}
+
+async function recordVendorFreshnessSnapshot(
+  vendorId: string,
+  previous: VendorFormData | null,
+  next: VendorFormData
+) {
+  if (!previous) return
+
+  try {
+    const response = await fetch('/api/vendor/profile/freshness', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        vendor_id: vendorId,
+        previous: vendorFreshnessSnapshot(previous),
+        next: vendorFreshnessSnapshot(next),
+      }),
+    })
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { error?: string } | null
+      console.warn('[vendor.services] Freshness logging failed', payload?.error ?? response.statusText)
+    }
+  } catch (error) {
+    console.warn('[vendor.services] Freshness logging failed', error)
+  }
+}
+
 export default function VendorServicesPage() {
   const { user, isLoading: isUserLoading, error: userError } = useUser()
   const [vendorId, setVendorId] = useState<string | null>(null)
@@ -123,6 +162,7 @@ export default function VendorServicesPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [isUploadingDocs, setIsUploadingDocs] = useState(false)
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null)
+  const [lastSavedProfile, setLastSavedProfile] = useState<VendorFormData | null>(null)
   const router = useRouter()
   const { addToast } = useToast()
 
@@ -195,9 +235,7 @@ export default function VendorServicesPage() {
       }
 
       if (isMounted) {
-        setVendorId(profile.id)
-        setVendorPhotoUrl(profile.photo_url)
-        reset({
+        const loadedProfile = {
           business_name: profile.name || '',
           description: profile.bio || '',
           service_type: (profile.service_type || 'dj') as VendorFormData['service_type'],
@@ -211,7 +249,12 @@ export default function VendorServicesPage() {
           cancellation_terms: profile.cancellation_terms || '',
           emergency_available: profile.emergency_available === true,
           emergency_rate_uplift: profile.emergency_rate_uplift ?? null,
-        })
+        } satisfies VendorFormData
+
+        setVendorId(profile.id)
+        setVendorPhotoUrl(profile.photo_url)
+        reset(loadedProfile)
+        setLastSavedProfile(loadedProfile)
       }
 
       const { data: rawDocuments, error: documentsError } = await supabase
@@ -309,6 +352,9 @@ export default function VendorServicesPage() {
         .eq('id', vendorId)
 
       if (updateError) throw updateError
+
+      await recordVendorFreshnessSnapshot(vendorId, lastSavedProfile, data)
+      setLastSavedProfile(data)
 
       addToast({
         title: 'Profile updated',

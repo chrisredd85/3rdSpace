@@ -155,6 +155,11 @@ class FakeQuery {
     return this
   }
 
+  gt(column: string, value: unknown) {
+    this.filters.push((row) => row[column] > value)
+    return this
+  }
+
   limit(count: number) {
     this.limitCount = count
     return this

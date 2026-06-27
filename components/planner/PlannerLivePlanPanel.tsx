@@ -29,6 +29,7 @@ import Link from 'next/link'
 import { EntityReadinessBadge } from '@/components/planner/EntityReadinessBadge'
 import { InviteVendorModal } from '@/components/planner/InviteVendorModal'
 import { InviteVenueModal } from '@/components/planner/InviteVenueModal'
+import { ReportIncorrectInfoModal, type ReportIncorrectInfoEntity } from '@/components/planner/ReportIncorrectInfoModal'
 import { RevisionHistoryModal } from '@/components/planner/RevisionHistoryModal'
 import { StaleRecommendationNotice } from '@/components/planner/StaleRecommendationNotice'
 import { usePlannerBillingGate } from '@/components/planner/usePlannerBillingGate'
@@ -373,6 +374,7 @@ interface ShoppingListItem {
   badge?: string
   readinessIndicator?: EntityReadinessIndicator | null
   locationBadge?: VendorLocationBadgeProps | null
+  reportEntity?: ReportIncorrectInfoEntity | null
 }
 
 interface AuthorizationCardModel {
@@ -1432,6 +1434,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const [isProjectionBaselineRefreshing, setIsProjectionBaselineRefreshing] = useState(false)
   const [isRevisionHistoryOpen, setIsRevisionHistoryOpen] = useState(false)
   const [recommendationRefreshState, setRecommendationRefreshState] = useState<'idle' | 'refreshing' | 'done' | 'error'>('idle')
+  const [reportIncorrectEntity, setReportIncorrectEntity] = useState<ReportIncorrectInfoEntity | null>(null)
   const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const billingGate = usePlannerBillingGate()
 
@@ -1509,6 +1512,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const outreachReplyOptions = livePlan?.outreachResponses ?? emptyOutreachResponseSummary
   const shoppingListItems = buildShoppingList(primaryVenue, renderedBudgetLineItems, eventSummary, livePlan?.selectedVendors ?? [], livePlan, relativeNowMs)
   const canRequestDateChange = Boolean(onDateChangeRequest && activePlanId && !activePlanId.startsWith('mock-plan-'))
+  const canReportDiscoveryInfo = Boolean(activePlanId && !activePlanId.startsWith('mock-plan-'))
   const isRefreshingRecommendations = recommendationRefreshState === 'refreshing'
   const handleVenueComparisonJump = useCallback((venueId: string) => {
     const target = recommendationCardRefs.current[venueId]
@@ -2027,6 +2031,11 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           isOpen={isRevisionHistoryOpen}
           onClose={() => setIsRevisionHistoryOpen(false)}
         />
+        <ReportIncorrectInfoModal
+          entity={reportIncorrectEntity}
+          isOpen={Boolean(reportIncorrectEntity)}
+          onClose={() => setReportIncorrectEntity(null)}
+        />
       </div>
 
       <div
@@ -2260,6 +2269,13 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                     onNavigateToApprovals={(messageId) => onNavigateToTab?.('approvals', messageId ?? undefined)}
                   />
                 ) : null}
+                {canReportDiscoveryInfo && primaryVenue?.discoveryVenueId ? (
+                  <ReportIncorrectInfoButton
+                    entity={{ kind: 'venue', id: primaryVenue.discoveryVenueId, name: primaryVenue.name }}
+                    onReport={setReportIncorrectEntity}
+                    className="mt-3"
+                  />
+                ) : null}
                 {activePlanId && !activePlanId.startsWith('mock-plan-') ? (
                   <button
                     type="button"
@@ -2316,6 +2332,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             currentPlanRevisionCount={currentPlanRevisionCount}
             isRefreshingRecommendations={isRefreshingRecommendations}
             onRefreshRecommendations={handleRefreshRecommendations}
+            canReportIncorrectInfo={canReportDiscoveryInfo}
+            onReportIncorrectInfo={setReportIncorrectEntity}
           />
           <OutreachQuoteComparison
             responses={outreachReplyOptions}
@@ -2508,6 +2526,13 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                   ) : null}
                   {item.locationBadge ? (
                     <VendorLocationBadge {...item.locationBadge} className="mt-2" />
+                  ) : null}
+                  {canReportDiscoveryInfo && item.reportEntity ? (
+                    <ReportIncorrectInfoButton
+                      entity={item.reportEntity}
+                      onReport={setReportIncorrectEntity}
+                      className="mt-2"
+                    />
                   ) : null}
                   {item.note ? (
                     <p className="mt-1 break-words text-sm leading-snug text-ink-soft" title={item.note}>{item.note}</p>
@@ -2762,6 +2787,29 @@ function ArtifactField({ label, value }: { label: string; value: string }) {
   )
 }
 
+function ReportIncorrectInfoButton({
+  entity,
+  onReport,
+  className,
+}: {
+  entity: ReportIncorrectInfoEntity
+  onReport: (entity: ReportIncorrectInfoEntity) => void
+  className?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onReport(entity)}
+      className={cn(
+        'inline-flex min-h-9 items-center justify-center rounded-md border border-tan bg-cream px-3 text-xs font-bold uppercase tracking-[0.06em] text-ink-soft transition-colors hover:border-clay hover:text-clay focus:outline-none focus-visible:ring-2 focus-visible:ring-clay',
+        className
+      )}
+    >
+      Report incorrect info
+    </button>
+  )
+}
+
 function VenueOutreachStatus({
   venue,
   draftSummary,
@@ -2928,6 +2976,8 @@ function VenueComparisonTable({
   currentPlanRevisionCount,
   isRefreshingRecommendations,
   onRefreshRecommendations,
+  canReportIncorrectInfo,
+  onReportIncorrectInfo,
 }: {
   venues: RecommendationSummary[]
   draftSummary: GmailOutreachDraftSummary
@@ -2941,6 +2991,8 @@ function VenueComparisonTable({
   currentPlanRevisionCount: number
   isRefreshingRecommendations: boolean
   onRefreshRecommendations: () => void
+  canReportIncorrectInfo: boolean
+  onReportIncorrectInfo: (entity: ReportIncorrectInfoEntity) => void
 }) {
   if (venues.length < 2) return null
 
@@ -3010,6 +3062,13 @@ function VenueComparisonTable({
                       onNavigateToApprovals={onNavigateToApprovals}
                     />
                   </div>
+                  {canReportIncorrectInfo && venue.discoveryVenueId ? (
+                    <ReportIncorrectInfoButton
+                      entity={{ kind: 'venue', id: venue.discoveryVenueId, name: venue.name }}
+                      onReport={onReportIncorrectInfo}
+                      className="mt-3"
+                    />
+                  ) : null}
                 </td>
                 <td className="border-b border-tan/70 px-3 py-4 font-semibold text-ink">
                   {venue.capacity ? `${venue.capacity} guests` : 'Pending'}
@@ -4023,6 +4082,9 @@ function buildShoppingList(
       : primaryVenue?.fit ?? deriveVenueShoppingNote(summary),
     badge: livePlan?.committedVenue ? 'Accepted quote' : undefined,
     readinessIndicator: resolveVenueReadiness(primaryVenue, livePlan, nowMs, Boolean(livePlan?.committedVenue)),
+    reportEntity: primaryVenue?.discoveryVenueId
+      ? { kind: 'venue', id: primaryVenue.discoveryVenueId, name: primaryVenue.name }
+      : undefined,
   })
 
   if (shouldIncludeFood(summary)) {
@@ -4057,6 +4119,9 @@ function buildShoppingList(
         badge: vendor.claimStatus === 'invited_unclaimed' ? 'Invited — pending signup' : undefined,
         readinessIndicator: resolveSelectedVendorReadiness(vendor, nowMs),
         locationBadge: vendorLocationBadgeForSelectedVendor(vendor, livePlan, summary),
+        reportEntity: vendor.vendorId
+          ? { kind: 'vendor', id: vendor.vendorId, name: vendor.name }
+          : undefined,
       })
     }
   }

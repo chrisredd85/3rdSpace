@@ -3,6 +3,7 @@ import 'server-only'
 import type { Json } from '@/lib/types'
 import { applyPlanRevision, type SupabaseAdminClient } from '@/lib/planner/planRevisions'
 import { recomputePlanDerivedState } from '@/lib/planner/recomputeDerivedState'
+import { recordDiscoveryNotificationIfAllowed } from '@/lib/discovery/notificationRateLimit'
 
 export type DiscoveryEntityType = 'discovery_venue' | 'discovery_vendor'
 
@@ -24,6 +25,7 @@ type CascadeInput = {
   changedField: string
   newValue: unknown
   actorId?: string | null
+  source?: string | null
 }
 
 type PlanRef = {
@@ -105,7 +107,11 @@ export async function cascadeInvalidationForEntityChange(input: CascadeInput): P
     },
   })))
 
-  await insertOutreachNotifications(input.supabase, notifications)
+  await insertOutreachNotifications(input.supabase, notifications, {
+    entityType: input.entityType,
+    entityId: input.entityId,
+    source: input.source ?? 'discovery_change',
+  })
 
   await Promise.all(planRefs.map((plan) =>
     recomputePlanDerivedState({
@@ -300,10 +306,31 @@ async function markOutreachThreadsStale(db: SupabaseAdminClient, threadIds: stri
 
 async function insertOutreachNotifications(
   db: SupabaseAdminClient,
-  notifications: DiscoveryCascadeImpact['notifications_to_send']
+  notifications: DiscoveryCascadeImpact['notifications_to_send'],
+  context: {
+    entityType: DiscoveryEntityType
+    entityId: string
+    source: string
+  }
 ) {
   if (notifications.length === 0) return
-  const { error } = await db.from('outreach_notifications').insert(notifications.map((notification) => ({
+  const allowedNotifications: DiscoveryCascadeImpact['notifications_to_send'] = []
+
+  for (const notification of notifications) {
+    const allowed = await recordDiscoveryNotificationIfAllowed({
+      db,
+      userId: notification.user_id,
+      entityType: context.entityType,
+      entityId: context.entityId,
+      source: context.source,
+      notificationType: notification.type,
+    })
+    if (allowed) allowedNotifications.push(notification)
+  }
+
+  if (allowedNotifications.length === 0) return
+
+  const { error } = await db.from('outreach_notifications').insert(allowedNotifications.map((notification) => ({
     user_id: notification.user_id,
     thread_id: readString(notification.context.thread_id),
     notification_type: notification.type,
