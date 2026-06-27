@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { CalendarDays, CheckCircle2, ChevronDown, LayoutTemplate, Loader2, Mail, MessageSquare, RefreshCw, SendHorizontal, Sparkles, X } from 'lucide-react'
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
 import { PlannerDataConnectionPanel } from '@/components/planner/PlannerDataConnectionPanel'
-import { PlannerLivePlanPanel, type PlannerDateChangeRequestInput } from '@/components/planner/PlannerLivePlanPanel'
+import { PlannerBriefStrip } from '@/components/planner/PlannerBriefStrip'
 import { PostEventReportCard } from '@/components/planner/PostEventReportCard'
 import { PlannerSignupGate } from '@/components/planner/PlannerSignupGate'
 import { PlannerTimelineCountdown } from '@/components/planner/PlannerTimelineCountdown'
@@ -189,6 +189,11 @@ export function PlannerWorkspace() {
     hasParsedInitialTabRef.current = true
     const requestedTab = searchParams.get('tab')
     const requestedMessageId = searchParams.get('msg')
+    if (requestedTab === 'event_plan') {
+      const targetPlanId = requestedPlanId ?? activePlan?.id
+      router.replace(targetPlanId ? `/planner/experiences/${targetPlanId}` : '/planner', { scroll: false })
+      return
+    }
     const valid = planTabs.some((tab) => tab.id === requestedTab)
     if (!valid) return
     setActiveTab(requestedTab as PlannerTab)
@@ -1271,44 +1276,6 @@ export function PlannerWorkspace() {
     }
   }
 
-  async function requestDateChangeOutreach(input: PlannerDateChangeRequestInput) {
-    if (!activePlan || persistenceMode !== 'server' || activePlan.id.startsWith('mock-plan-')) {
-      throw new Error('Save this plan before creating date-change outreach approvals.')
-    }
-
-    const response = await fetch(`/api/planner/plans/${activePlan.id}/date-change`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(input),
-    })
-    const payload = await response.json().catch(() => ({} as {
-      error?: string
-      plan?: Plan
-      messages?: PlanMessage[]
-      approval_message_id?: string
-      target_count?: number
-    }))
-
-    if (!response.ok) {
-      throw new Error(payload.error ?? 'Could not create date-change outreach approval.')
-    }
-
-    if (!payload.plan || !Array.isArray(payload.messages)) {
-      throw new Error('Date-change approval returned an unexpected response.')
-    }
-
-    setActivePlan(payload.plan)
-    setMessages(payload.messages)
-    publishLivePlan(payload.plan, payload.messages)
-    navigateToPlannerTab('approvals', payload.approval_message_id)
-    addToast({
-      title: 'Date-change approval created',
-      description: `Review the Gmail approval before ${payload.target_count ?? 0} partner email${payload.target_count === 1 ? '' : 's'} send.`,
-      variant: 'success',
-    })
-  }
-
   /**
    * Keeps approval card state synced in the local message timeline after a button action.
    */
@@ -1639,6 +1606,8 @@ export function PlannerWorkspace() {
           </div>
         </div>
 
+        <PlannerBriefStrip plan={activePlan} messages={messages} accountId={activePlan.user_id} className="mb-5" />
+
         <div className="mb-5 flex gap-2 overflow-x-auto rounded-2xl border border-border bg-card/40 p-1">
           {planTabs.map((tab) => {
             if (tab.id === 'timeline' && persistenceMode !== 'server') return null
@@ -1675,9 +1644,7 @@ export function PlannerWorkspace() {
         <section className="overflow-hidden rounded-3xl border border-border bg-card/50 shadow-card">
           <div className="border-b border-border px-5 py-4">
             <div className="flex items-center gap-2">
-              {activeTab === 'event_plan'
-                ? <Sparkles className="h-5 w-5 text-secondary" />
-                : <MessageSquare className="h-5 w-5 text-secondary" />}
+              <MessageSquare className="h-5 w-5 text-secondary" />
               <h2 className="font-display text-lg font-bold">{activeTabLabel}</h2>
             </div>
           </div>
@@ -1774,14 +1741,6 @@ export function PlannerWorkspace() {
                 isLoading={isTimelineLoading}
                 error={timelineError}
                 onRefresh={() => void loadPlannerTimeline()}
-                onNavigateToTab={navigateToPlannerTab}
-              />
-            ) : null}
-
-            {activeTab === 'event_plan' ? (
-              <PlannerLivePlanPanel
-                inline
-                onDateChangeRequest={requestDateChangeOutreach}
                 onNavigateToTab={navigateToPlannerTab}
               />
             ) : null}

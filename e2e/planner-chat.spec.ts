@@ -415,7 +415,7 @@ test.describe('Agent Planner chat', () => {
     expect(createPlanCalls).toBe(1)
   })
 
-  test('Event Plan side panel renders structured sections', async ({ page }) => {
+  test('planner brief strip replaces the Event Plan tab', async ({ page }) => {
     test.setTimeout(90000)
     await page.setViewportSize({ width: 1600, height: 900 })
     await page.route('**/api/planner/public-intake', async (route) => {
@@ -433,12 +433,16 @@ test.describe('Agent Planner chat', () => {
 
     await expect(page.getByText('Active planner workspace', { exact: true })).toBeVisible({ timeout: 30000 })
     await expect(page.getByRole('textbox', { name: /reply to planner agent/i })).toBeVisible({ timeout: 15000 })
-    await openPlannerTab(page, /^event plan$/i, /structured artifact/i)
+    await expect(page.getByRole('button', { name: /^event plan$/i })).toHaveCount(0)
 
-    const livePlanPanel = page.locator('aside').filter({ hasText: 'Structured artifact' }).first()
-    await expect(livePlanPanel).toBeVisible()
-    await expect(livePlanPanel.getByText('Guest Target').first()).toBeVisible()
-    await expect(livePlanPanel.getByText('Neighborhood').first()).toBeVisible()
+    const briefStrip = page.getByLabel('Active event brief summary')
+    await expect(briefStrip).toBeVisible({ timeout: 15000 })
+    await expect(briefStrip.getByText('Mission').first()).toBeVisible()
+    await expect(briefStrip.getByText('90 guests').first()).toBeVisible()
+    await expect(briefStrip.getByRole('link', { name: /open full brief/i })).toHaveAttribute(
+      'href',
+      /\/planner\/experiences\//
+    )
   })
 
   test('day party mock asks coherent follow-up questions before recommendations', async ({ page }) => {
@@ -529,14 +533,6 @@ async function clearActiveMockConversation(page: Page) {
   await expect(page.getByRole('heading', { name: /what should we plan next/i })).toBeVisible({ timeout: 30000 })
   await page.locator('form[data-planner-hydrated="true"]').waitFor({ state: 'visible', timeout: 30000 })
   await expect(page.locator('textarea[name="message"]')).toBeEnabled({ timeout: 30000 })
-}
-
-async function openPlannerTab(page: Page, tabName: RegExp, settledText: RegExp) {
-  const tab = page.getByRole('button', { name: tabName }).first()
-  await expect(tab).toBeVisible({ timeout: 15000 })
-  await expect(tab).toBeEnabled({ timeout: 15000 })
-  await tab.click()
-  await expect(page.getByText(settledText).first()).toBeVisible({ timeout: 15000 })
 }
 
 async function expectStructuredQuestion(page: Page) {

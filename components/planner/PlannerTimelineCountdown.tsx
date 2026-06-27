@@ -26,7 +26,7 @@ import type { PlanMessage } from '@/lib/types/planner'
 import type { PlanningMilestone } from '@/lib/events/milestoneTemplates'
 
 // ─── Tab type re-declared locally to avoid circular page.tsx imports ──────────
-type PlannerNavigationTab = 'chat' | 'event_plan' | 'recommendations' | 'approvals' | 'data' | 'timeline'
+type PlannerNavigationTab = 'chat' | 'recommendations' | 'approvals' | 'data' | 'timeline'
 
 // ─── Timeline output shape (mirrors page.tsx TimelineOutput) ─────────────────
 interface TimelineOutput {
