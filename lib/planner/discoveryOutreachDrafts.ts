@@ -132,6 +132,19 @@ export async function enqueueDraftAfterVenueApproval(input: {
     }
   }
 
+  if (contact.status === 'contact_form_available') {
+    await markCandidateDraftRequest(admin, row.candidate, {
+      status: 'email_required',
+      requestedByUserId: input.userId,
+    })
+    return {
+      status: 'email_required',
+      discoveryVenueId: row.venue.id,
+      venueName: row.venue.name,
+      candidateId: row.candidate.id,
+    }
+  }
+
   if (row.venue.website) {
     await markCandidateDraftRequest(admin, row.candidate, {
       status: 'extraction_pending',
@@ -164,21 +177,139 @@ export async function enqueueDraftsAfterVenueApproval(input: {
   userId: string
   venueIds: string[]
 }): Promise<EnqueueVenueDraftBatchResult> {
+  return enqueueDraftBatchAfterVenueApproval(input)
+}
+
+export async function enqueueDraftBatchAfterVenueApproval(input: {
+  db: PlannerDb
+  planId: string
+  userId: string
+  venueIds: string[]
+  subject?: string | null
+  bodyText?: string | null
+}): Promise<EnqueueVenueDraftBatchResult> {
   const uniqueVenueIds = Array.from(new Set(input.venueIds))
   const admin = createServiceRoleClient() as PlannerDb
-  const candidates = await loadCandidateRowsForPlan(admin, input.planId, uniqueVenueIds)
-  const candidateVenueIds = new Set(candidates.map((candidate) => candidate.discovery_venue_id))
-  const handledVenueIds = uniqueVenueIds.filter((venueId) => candidateVenueIds.has(venueId))
-  const unhandledVenueIds = uniqueVenueIds.filter((venueId) => !candidateVenueIds.has(venueId))
+  const plan = await loadPlan(admin, input.planId, input.userId)
+  if (!plan) throw new Error('Plan not found')
+
+  const rows = await loadCandidateRowsWithVenues(admin, input.planId, uniqueVenueIds)
+  const rowByVenueId = new Map(rows.map((row) => [row.venue.id, row]))
+  const handledVenueIds = uniqueVenueIds.filter((venueId) => rowByVenueId.has(venueId))
+  const unhandledVenueIds = uniqueVenueIds.filter((venueId) => !rowByVenueId.has(venueId))
   const results: EnqueueVenueDraftResult[] = []
+  const targetRows: Array<CandidateWithVenue & { email: string }> = []
 
   for (const venueId of handledVenueIds) {
-    results.push(await enqueueDraftAfterVenueApproval({
-      db: input.db,
-      planId: input.planId,
-      userId: input.userId,
-      discoveryVenueId: venueId,
-    }))
+    const row = rowByVenueId.get(venueId)
+    if (!row) continue
+    const existing = await loadExistingGmailDraftForVenue(admin, input.planId, venueId)
+    if (existing) {
+      await markCandidateApprovalCreated(admin, row.candidate, input.userId, {
+        approvalId: existing.approvalId,
+        approvalMessageId: existing.approvalMessageId,
+      })
+      results.push({
+        status: 'draft_created',
+        discoveryVenueId: row.venue.id,
+        venueName: row.venue.name,
+        candidateId: row.candidate.id,
+        gmailApprovalId: existing.approvalId,
+        approvalMessageId: existing.approvalMessageId,
+      })
+      continue
+    }
+
+    const contact = resolveDiscoveryVenueContact(row.venue)
+    if (contact.email && contact.confidence !== 'low') {
+      targetRows.push({ ...row, email: contact.email })
+      continue
+    }
+
+    if (contact.status === 'contact_form_available') {
+      await markCandidateDraftRequest(admin, row.candidate, {
+        status: 'email_required',
+        requestedByUserId: input.userId,
+      })
+      results.push({
+        status: 'email_required',
+        discoveryVenueId: row.venue.id,
+        venueName: row.venue.name,
+        candidateId: row.candidate.id,
+      })
+      continue
+    }
+
+    if (row.venue.website) {
+      await markCandidateDraftRequest(admin, row.candidate, {
+        status: 'extraction_pending',
+        requestedByUserId: input.userId,
+      })
+      await markWebsiteExtractionNeeded(admin, row.venue)
+      results.push({
+        status: 'extraction_pending',
+        discoveryVenueId: row.venue.id,
+        venueName: row.venue.name,
+        candidateId: row.candidate.id,
+      })
+      continue
+    }
+
+    await markCandidateDraftRequest(admin, row.candidate, {
+      status: 'email_required',
+      requestedByUserId: input.userId,
+    })
+    results.push({
+      status: 'email_required',
+      discoveryVenueId: row.venue.id,
+      venueName: row.venue.name,
+      candidateId: row.candidate.id,
+    })
+  }
+
+  if (targetRows.length > 0) {
+    try {
+      const subject = input.subject ?? buildDefaultOutreachSubject(plan)
+      const bodyText = input.bodyText ?? buildDefaultOutreachBody(plan)
+      const draft = await createOrReuseGmailOutreachApproval(input.db, {
+        userId: input.userId,
+        planId: plan.id,
+        reuseExisting: false,
+        targets: targetRows.map((row) => ({
+          kind: 'venue',
+          name: row.venue.name,
+          email: row.email,
+          discoveryVenueId: row.venue.id,
+        })),
+        subject,
+        bodyText,
+      })
+
+      for (const row of targetRows) {
+        await markCandidateApprovalCreated(admin, row.candidate, input.userId, {
+          approvalId: draft.approval.id,
+          approvalMessageId: draft.approvalMessageId,
+        })
+        results.push({
+          status: 'draft_created',
+          discoveryVenueId: row.venue.id,
+          venueName: row.venue.name,
+          candidateId: row.candidate.id,
+          gmailApprovalId: draft.approval.id,
+          approvalMessageId: draft.approvalMessageId,
+          redirectUrl: draft.redirectUrl,
+        })
+      }
+    } catch (error) {
+      if (error instanceof GmailConnectionRequiredError) {
+        await Promise.all(targetRows.map((row) => markCandidateDraftRequest(admin, row.candidate, {
+          status: 'gmail_required',
+          requestedByUserId: input.userId,
+          error: error.message,
+        })))
+      }
+      throw error
+    }
   }
 
   return {
@@ -289,6 +420,27 @@ async function loadCandidateRowsForPlan(
   if (error) throw new Error(error.message)
   return ((data ?? []) as PlanDiscoveryVenueCandidateRow[])
     .filter((candidate) => candidate.dismissed_at == null)
+}
+
+async function loadCandidateRowsWithVenues(
+  db: PlannerDb,
+  planId: string,
+  venueIds: string[]
+): Promise<CandidateWithVenue[]> {
+  const candidates = await loadCandidateRowsForPlan(db, planId, venueIds)
+  if (candidates.length === 0) return []
+
+  const { data: venues, error: venueError } = await db
+    .from('discovery_venues')
+    .select(DISCOVERY_VENUE_SELECT)
+    .in('id', candidates.map((candidate) => candidate.discovery_venue_id))
+
+  if (venueError) throw new Error(venueError.message)
+  const venueById = new Map(((venues ?? []) as DiscoveryVenueRow[]).map((venue) => [venue.id, venue]))
+  return candidates.flatMap((candidate) => {
+    const venue = venueById.get(candidate.discovery_venue_id)
+    return venue ? [{ candidate, venue }] : []
+  })
 }
 
 async function loadCandidateWithVenue(

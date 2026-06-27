@@ -41,9 +41,19 @@ export type ExtractedEmail = {
   is_likely_booking_contact: boolean
 }
 
+export type ExtractedContactForm = {
+  url: string
+  label: string
+  confidence: number
+  source_path: string
+  extracted_at: string
+  is_likely_booking_contact: boolean
+}
+
 export type ExtractionResult = {
   status: WebsiteExtractionStatus
   emails: ExtractedEmail[]
+  contact_forms: ExtractedContactForm[]
   metadata: {
     paths_attempted: string[]
     paths_successful: string[]
@@ -111,9 +121,14 @@ export async function extractVenueContacts(
     robots_txt_consulted: false,
   }
 
-  const finalize = (status: WebsiteExtractionStatus, emails: ExtractedEmail[] = []): ExtractionResult => ({
+  const finalize = (
+    status: WebsiteExtractionStatus,
+    emails: ExtractedEmail[] = [],
+    contactForms: ExtractedContactForm[] = []
+  ): ExtractionResult => ({
     status,
     emails,
+    contact_forms: contactForms,
     metadata: {
       ...metadata,
       total_fetch_time_ms: Math.max(0, now() - startedAt),
@@ -153,6 +168,7 @@ export async function extractVenueContacts(
     }
 
     const foundByEmail = new Map<string, EmailCandidate>()
+    const foundContactForms = new Map<string, Omit<ExtractedContactForm, 'extracted_at'>>()
     let hadSuccessfulFetch = false
     let hadFetchFailure = false
 
@@ -179,15 +195,29 @@ export async function extractVenueContacts(
           foundByEmail.set(key, candidate)
         }
       }
+      for (const form of extractContactFormsFromHtml(pageResult.text, path, new URL(path, baseUrl))) {
+        const key = form.url.toLowerCase()
+        const existing = foundContactForms.get(key)
+        if (!existing || form.confidence > existing.confidence) {
+          foundContactForms.set(key, form)
+        }
+      }
     }
+
+    const extractedAt = new Date(now()).toISOString()
+    const contactForms = Array.from(foundContactForms.values())
+      .map((form) => ({
+        ...form,
+        extracted_at: extractedAt,
+      }))
+      .sort((a, b) => b.confidence - a.confidence || a.url.localeCompare(b.url))
 
     if (foundByEmail.size === 0) {
       if (!hadSuccessfulFetch && hadFetchFailure) return finalize('fetch_failed')
-      return finalize('no_emails_found')
+      return finalize('no_emails_found', [], contactForms)
     }
 
     const candidates = Array.from(foundByEmail.values())
-    const extractedAt = new Date(now()).toISOString()
     const emails = candidates
       .map((candidate) => ({
         email: candidate.email,
@@ -216,7 +246,7 @@ export async function extractVenueContacts(
       }
     }
 
-    return finalize('successful', emails)
+    return finalize('successful', emails, contactForms)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Venue website extraction failed'
     metadata.error = message
@@ -246,6 +276,59 @@ export function extractEmailsFromHtml(html: string, sourcePath: string): EmailCa
   }
 
   return Array.from(candidates.values())
+}
+
+export function extractContactFormsFromHtml(
+  html: string,
+  sourcePath: string,
+  pageUrl: URL
+): Array<Omit<ExtractedContactForm, 'extracted_at'>> {
+  const decoded = decodeHtmlEntities(html)
+  const candidates = new Map<string, Omit<ExtractedContactForm, 'extracted_at'>>()
+
+  for (const match of decoded.matchAll(/<form\b[^>]*>/gi)) {
+    const tag = match[0]
+    const action = readHtmlAttribute(tag, 'action')
+    const id = readHtmlAttribute(tag, 'id')
+    const name = readHtmlAttribute(tag, 'name')
+    const ariaLabel = readHtmlAttribute(tag, 'aria-label')
+    if (isNonBookingForm(`${tag} ${action ?? ''} ${id ?? ''} ${name ?? ''} ${ariaLabel ?? ''}`)) continue
+    const context = getSurroundingContext(decoded, match.index ?? 0, tag.length)
+    const label = pickContactFormLabel([ariaLabel, id, name, context], 'Contact form')
+    const absoluteUrl = toAbsoluteContactUrl(action || pageUrl.href, pageUrl)
+    if (!absoluteUrl) continue
+
+    const confidence = scoreContactFormConfidence(`${tag} ${context}`, sourcePath)
+    if (confidence < 0.45) continue
+    addContactFormCandidate(candidates, {
+      url: absoluteUrl,
+      label,
+      source_path: sourcePath,
+      confidence,
+      is_likely_booking_contact: confidence >= 0.75,
+    })
+  }
+
+  for (const match of decoded.matchAll(/<a\b[^>]*href=(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi)) {
+    const href = match[2]
+    const linkText = stripHtml(match[3])
+    const tag = match[0]
+    const absoluteUrl = toAbsoluteContactUrl(href, pageUrl)
+    if (!absoluteUrl) continue
+    const context = getSurroundingContext(decoded, match.index ?? 0, tag.length)
+    const confidence = scoreContactFormConfidence(`${linkText} ${href} ${context}`, sourcePath)
+    if (confidence < 0.55) continue
+    addContactFormCandidate(candidates, {
+      url: absoluteUrl,
+      label: pickContactFormLabel([linkText, href], 'Contact form'),
+      source_path: sourcePath,
+      confidence,
+      is_likely_booking_contact: confidence >= 0.75,
+    })
+  }
+
+  return Array.from(candidates.values())
+    .sort((a, b) => b.confidence - a.confidence || a.url.localeCompare(b.url))
 }
 
 export function decodeHtmlEntities(value: string): string {
@@ -481,6 +564,62 @@ function getSurroundingContext(decodedHtml: string, startIndex: number, emailLen
     .replace(/<[^>]*>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function addContactFormCandidate(
+  candidates: Map<string, Omit<ExtractedContactForm, 'extracted_at'>>,
+  candidate: Omit<ExtractedContactForm, 'extracted_at'>
+) {
+  const key = candidate.url.toLowerCase()
+  const existing = candidates.get(key)
+  if (!existing || candidate.confidence > existing.confidence) {
+    candidates.set(key, candidate)
+  }
+}
+
+function readHtmlAttribute(tag: string, name: string): string | null {
+  const pattern = new RegExp(`\\b${name}\\s*=\\s*(["'])(.*?)\\1`, 'i')
+  const match = tag.match(pattern)
+  const value = match?.[2]?.trim()
+  return value || null
+}
+
+function toAbsoluteContactUrl(value: string | null | undefined, pageUrl: URL): string | null {
+  const trimmed = value?.trim()
+  if (!trimmed || /^mailto:|^tel:|^javascript:/i.test(trimmed)) return null
+  try {
+    const url = new URL(trimmed, pageUrl)
+    if (!['http:', 'https:'].includes(url.protocol)) return null
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+function pickContactFormLabel(values: Array<string | null | undefined>, fallback: string): string {
+  const meaningful = values
+    .map((value) => value?.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim())
+    .find((value) => value && /contact|event|private|book|reserv|cater|inquir|request|quote/i.test(value))
+  if (!meaningful) return fallback
+  return meaningful.length > 72 ? `${meaningful.slice(0, 69).trim()}...` : meaningful
+}
+
+function scoreContactFormConfidence(value: string, sourcePath: string): number {
+  const text = `${value} ${sourcePath}`.toLowerCase()
+  let confidence = 0.35
+  if (/\b(private[-\s]?events?|events?|booking|book|inquir(?:y|ies)|request|quote|cater(?:ing)?|reservation)\b/.test(text)) confidence += 0.35
+  if (/\b(contact|contact-us|host|rentals?)\b/.test(text)) confidence += 0.15
+  if (isPathMatch(sourcePath.toLowerCase(), ['/events', '/private-events', '/book', '/booking', '/inquiries', '/contact', '/contact-us'])) confidence += 0.1
+  if (/\bnewsletter|subscribe|login|sign[-\s]?in|search|comment|review\b/.test(text)) confidence -= 0.25
+  return Math.min(1, Math.max(0, Number(confidence.toFixed(2))))
+}
+
+function isNonBookingForm(value: string) {
+  return /\b(newsletter|subscribe|login|sign[-\s]?in|search|comment|review)\b/i.test(value)
+}
+
+function stripHtml(value: string) {
+  return value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
 function isPathMatch(path: string, expectedPaths: string[]) {

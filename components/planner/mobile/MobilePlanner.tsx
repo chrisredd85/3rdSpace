@@ -228,7 +228,7 @@ interface AnalyticsSummary {
   }>
 }
 
-type ContactStatus = 'ready_to_reach_out' | 'contact_pending' | 'no_contact_available' | 'inquiry_sent' | 'awaiting_claim'
+type ContactStatus = 'ready_to_reach_out' | 'contact_form_available' | 'contact_pending' | 'no_contact_available' | 'inquiry_sent' | 'awaiting_claim'
 
 interface MobilePartnerOption {
   id: string
@@ -243,6 +243,8 @@ interface MobilePartnerOption {
   contactStatus: ContactStatus | null
   contactEmail: string | null
   contactSource: string | null
+  contactFormUrl: string | null
+  contactFormLabel: string | null
   website: string | null
   extractionStatus: string | null
   sourceLabel: string
@@ -2777,6 +2779,8 @@ function recommendationToPartnerOption(recommendation: Recommendation, kind: 've
     contactStatus: contactEmail ? 'ready_to_reach_out' : contactStatus,
     contactEmail,
     contactSource: readString(metadata?.contact_email_source ?? metadata?.contactEmailSource),
+    contactFormUrl: readString(metadata?.contact_form_url ?? metadata?.contactFormUrl),
+    contactFormLabel: readString(metadata?.contact_form_label ?? metadata?.contactFormLabel),
     website: readString(metadata?.website ?? metadata?.url),
     extractionStatus,
     sourceLabel: readString(metadata?.source_label ?? metadata?.source ?? metadata?.provider) ?? (recommendation.reference_id ? 'Catalog' : 'Discovery'),
@@ -2791,6 +2795,7 @@ function recommendationToPartnerOption(recommendation: Recommendation, kind: 've
 
 function contactStatusLabel(option: MobilePartnerOption) {
   if (option.contactStatus === 'ready_to_reach_out') return 'Ready'
+  if (option.contactStatus === 'contact_form_available') return 'Form found'
   if (option.contactStatus === 'contact_pending') return option.extractionStatus ? 'Checking website' : 'Contact pending'
   if (option.contactStatus === 'no_contact_available') return 'Add email'
   if (option.contactStatus === 'inquiry_sent') return 'Inquiry sent'
@@ -2801,7 +2806,7 @@ function contactStatusLabel(option: MobilePartnerOption) {
 
 function contactStatusTone(option: MobilePartnerOption): StatusTone {
   if (option.contactStatus === 'ready_to_reach_out' || option.contactStatus === 'inquiry_sent') return 'forest'
-  if (option.contactStatus === 'no_contact_available' || option.contactStatus === 'contact_pending') return 'ochre'
+  if (option.contactStatus === 'no_contact_available' || option.contactStatus === 'contact_pending' || option.contactStatus === 'contact_form_available') return 'ochre'
   if (option.readiness?.tone === 'destructive') return 'brick'
   return 'muted'
 }
@@ -2832,9 +2837,14 @@ function ContactRescuePanel({
   return (
     <details className="rounded-lg border border-tan bg-cream-deep p-3">
       <summary className="cursor-pointer list-none text-sm font-bold text-ink [&::-webkit-details-marker]:hidden">
-        {option.contactStatus === 'contact_pending' ? 'Website check pending' : 'Add contact email'}
+        {option.contactStatus === 'contact_form_available' ? 'Contact form found' : option.contactStatus === 'contact_pending' ? 'Website check pending' : 'Add contact email'}
       </summary>
       <div className="mt-3 space-y-3">
+        {option.contactFormUrl ? (
+          <Link href={option.contactFormUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-2 text-sm font-bold text-clay">
+            {option.contactFormLabel ?? 'Open contact form'} <ExternalLink className="h-4 w-4" />
+          </Link>
+        ) : null}
         {option.website ? (
           <Link href={option.website} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-2 text-sm font-bold text-clay">
             Open website <ExternalLink className="h-4 w-4" />
@@ -3101,6 +3111,7 @@ function normalizeContactStatus(value: string | null): ContactStatus | null {
   const normalized = String(value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_')
   if (!normalized) return null
   if (normalized.includes('ready')) return 'ready_to_reach_out'
+  if (normalized.includes('contact_form') || normalized.includes('form')) return 'contact_form_available'
   if (normalized.includes('pending') || normalized.includes('extract') || normalized.includes('checking')) return 'contact_pending'
   if (normalized.includes('sent') || normalized.includes('inquiry')) return 'inquiry_sent'
   if (normalized.includes('claim')) return 'awaiting_claim'

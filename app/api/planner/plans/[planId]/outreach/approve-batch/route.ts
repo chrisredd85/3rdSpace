@@ -4,7 +4,7 @@ export const runtime = 'nodejs'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { GmailConnectionRequiredError } from '@/lib/outreach/gmailApprovalFlow'
-import { enqueueDraftAfterVenueApproval } from '@/lib/planner/discoveryOutreachDrafts'
+import { enqueueDraftBatchAfterVenueApproval } from '@/lib/planner/discoveryOutreachDrafts'
 import { PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import {
   buildDefaultOutreachBody,
@@ -99,34 +99,49 @@ export async function POST(request: NextRequest, context: RouteContext) {
     })
     const subject = parsed.data.custom_subject ?? buildDefaultOutreachSubject(accessPlan)
     const bodyText = parsed.data.custom_body ?? buildDefaultOutreachBody(accessPlan)
-    const created = []
+    const batch = await enqueueDraftBatchAfterVenueApproval({
+      db: supabase as unknown as { from: (table: string) => any },
+      planId: plan.id,
+      userId: user.id,
+      venueIds: uniqueVenueIds,
+      subject,
+      bodyText,
+    })
 
-    for (const venueId of uniqueVenueIds) {
-      const row = rowByVenueId.get(venueId)
-      if (!row) continue
-
-      const result = await enqueueDraftAfterVenueApproval({
-        db: supabase as unknown as { from: (table: string) => any },
-        planId: plan.id,
-        userId: user.id,
-        discoveryVenueId: row.venue.id,
-        subject,
-        bodyText,
-      })
-
-      created.push({
-        discovery_venue_id: row.venue.id,
-        venue_name: row.venue.name,
-        approval_id: result.gmailApprovalId,
-        approval_message_id: result.approvalMessageId,
+    const createdByApprovalId = new Map<string, {
+      approval_id: string
+      approval_message_id: string | null
+      redirect_url: string | null
+      status: string
+      target_count: number
+      discovery_venue_ids: string[]
+      venue_names: string[]
+    }>()
+    for (const result of batch.results.filter((result) => result.status === 'draft_created' && result.gmailApprovalId)) {
+      const approvalId = result.gmailApprovalId as string
+      const existing = createdByApprovalId.get(approvalId)
+      if (existing) {
+        existing.target_count += 1
+        existing.discovery_venue_ids.push(result.discoveryVenueId)
+        existing.venue_names.push(result.venueName)
+        continue
+      }
+      createdByApprovalId.set(approvalId, {
+        approval_id: approvalId,
+        approval_message_id: result.approvalMessageId ?? null,
         redirect_url: result.redirectUrl ?? null,
         status: result.status,
+        target_count: 1,
+        discovery_venue_ids: [result.discoveryVenueId],
+        venue_names: [result.venueName],
       })
     }
+    const created = Array.from(createdByApprovalId.values())
 
     return NextResponse.json({
       approvals: created,
       created_count: created.length,
+      target_count: batch.draftCreatedCount,
     })
   } catch (error) {
     if (error instanceof GmailConnectionRequiredError) {
@@ -182,7 +197,7 @@ async function loadCandidateRows(planId: string, venueIds: string[]): Promise<Ca
       price_hint_note,source,source_external_id,google_rating,google_user_ratings_total,
       google_photo_names,photos,opening_hours_json,metadata,last_enriched_at,last_verified_at,
       last_rescue_at,organizer_provided_emails,organizer_rescue_count,is_claimed,claimed_venue_id,
-      created_at,updated_at,extracted_emails,website_extraction_attempted_at,
+      created_at,updated_at,extracted_emails,extracted_contact_forms,website_extraction_attempted_at,
       website_extraction_attempts,website_extraction_metadata,website_extraction_status
     `)
     .in('id', candidateRows.map((candidate) => candidate.discovery_venue_id))

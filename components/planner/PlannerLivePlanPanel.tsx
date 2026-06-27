@@ -89,6 +89,9 @@ interface RecommendationSummary {
   contactEmail: string | null
   contactEmailSource: string | null
   contactEmailConfidence: string | null
+  contactFormUrl: string | null
+  contactFormLabel: string | null
+  contactFormSourcePath: string | null
   contactPhone: string | null
   website: string | null
   extractionStatus: string | null
@@ -965,6 +968,9 @@ function deriveRecommendations(messages: PlanMessage[]): RecommendationSummary[]
         contactEmail: readString(record.contact_email),
         contactEmailSource: readString(record.contact_email_source),
         contactEmailConfidence: readString(record.contact_email_confidence),
+        contactFormUrl: readString(record.contact_form_url),
+        contactFormLabel: readString(record.contact_form_label),
+        contactFormSourcePath: readString(record.contact_form_source_path),
         contactPhone: readString(record.contact_phone),
         website: readString(record.website),
         extractionStatus: readString(record.extraction_status),
@@ -2680,6 +2686,24 @@ function VenueOutreachStatus({
     )
   }
 
+  if (venue.contactStatus === 'contact_form_available' && venue.contactFormUrl) {
+    return (
+      <a
+        href={venue.contactFormUrl}
+        target="_blank"
+        rel="noreferrer"
+        className={cn(
+          'inline-flex max-w-full items-center gap-2 rounded-full border border-ochre/35 bg-ochre/10 px-3 py-1.5 text-left text-xs font-bold uppercase tracking-[0.06em] text-ochre transition-colors hover:border-ochre hover:bg-cream focus:outline-none focus-visible:ring-2 focus-visible:ring-ochre',
+          compact ? 'text-[11px]' : 'mt-3'
+        )}
+      >
+        <Mail className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{venue.contactFormLabel ?? 'Open contact form'}</span>
+        <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+      </a>
+    )
+  }
+
   if (needsEmail) {
     return (
       <form
@@ -2997,7 +3021,7 @@ function SpecialSupplyBrief({ specialSupply }: { specialSupply: SpecialSupplyMet
             {specialSupply.candidate_status_label}
           </h4>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-soft">
-            3rdPlace can scout leads, but these are not bookable inventory until a provider confirms terms. Outreach remains approval-gated.
+            3rdPlace scouts leads and scans their websites for contact, package, capacity, and quote clues before outreach. Contact forms are linked for manual follow-up; email outreach remains approval-gated.
           </p>
         </div>
         <div className="rounded-full border border-tan bg-cream px-3 py-1.5 text-xs font-bold uppercase tracking-[0.06em] text-forest">
@@ -3760,6 +3784,9 @@ function recommendationFromSelectedVenue(venue: SelectedPlanVenue, summary: Even
     contactEmail: null,
     contactEmailSource: null,
     contactEmailConfidence: null,
+    contactFormUrl: null,
+    contactFormLabel: null,
+    contactFormSourcePath: null,
     contactPhone: null,
     website: null,
     extractionStatus: null,

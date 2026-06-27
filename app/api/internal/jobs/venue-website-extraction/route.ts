@@ -35,6 +35,7 @@ type DiscoveryVenueExtractionCandidate = Pick<
   | 'capacity_cocktail'
 > & {
   capacity_inference_extracted_at?: string | null
+  extracted_contact_forms?: Json | null
 }
 
 type DiscoveryVendorExtractionCandidate = {
@@ -45,6 +46,7 @@ type DiscoveryVendorExtractionCandidate = {
   contact_email: string | null
   organizer_provided_email: string | null
   extracted_emails: Json | null
+  extracted_contact_forms?: Json | null
   website_extraction_status: string | null
   website_extraction_attempts: number | null
   place_types: Json | null
@@ -98,7 +100,7 @@ async function runVenueWebsiteExtraction() {
   const admin = createServiceRoleClient() as SupabaseAdminClient
   const { data, error } = await admin
     .from('discovery_venues')
-    .select('id,name,website,contact_email,extracted_emails,website_extraction_status,website_extraction_attempts,metadata,capacity_seated,capacity_standing,capacity_cocktail,capacity_inference_extracted_at')
+    .select('id,name,website,contact_email,extracted_emails,extracted_contact_forms,website_extraction_status,website_extraction_attempts,metadata,capacity_seated,capacity_standing,capacity_cocktail,capacity_inference_extracted_at')
     .not('website', 'is', null)
     .order('website_extraction_attempted_at', { ascending: true, nullsFirst: true })
     .limit(QUERY_LIMIT)
@@ -120,7 +122,7 @@ async function runVenueWebsiteExtraction() {
 
   const { data: vendorData, error: vendorError } = await admin
     .from('discovery_vendors')
-    .select('id,name,service_type,website,contact_email,organizer_provided_email,extracted_emails,website_extraction_status,website_extraction_attempts,place_types,rate_inference_extracted_at')
+    .select('id,name,service_type,website,contact_email,organizer_provided_email,extracted_emails,extracted_contact_forms,website_extraction_status,website_extraction_attempts,place_types,rate_inference_extracted_at')
     .not('website', 'is', null)
     .order('website_extraction_attempted_at', { ascending: true, nullsFirst: true })
     .limit(QUERY_LIMIT)
@@ -267,6 +269,7 @@ async function processVenue(admin: SupabaseAdminClient, venue: DiscoveryVenueExt
     const fallbackResult = {
       status: 'fetch_failed' as const,
       emails: [],
+      contact_forms: [],
       metadata: {
         paths_attempted: [],
         paths_successful: [],
@@ -350,6 +353,7 @@ async function processVendor(admin: SupabaseAdminClient, vendor: DiscoveryVendor
     const fallbackResult = {
       status: 'fetch_failed' as const,
       emails: [],
+      contact_forms: [],
       metadata: {
         paths_attempted: [],
         paths_successful: [],
@@ -377,6 +381,7 @@ function shouldAttemptVendorWebsiteExtraction(row: DiscoveryVendorExtractionCand
   if (!row.website?.trim()) return false
   if (row.contact_email?.trim() || row.organizer_provided_email?.trim()) return false
   if (Array.isArray(row.extracted_emails) && row.extracted_emails.length > 0 && shouldSkipVendorRateInference(row)) return false
+  if (Array.isArray(row.extracted_contact_forms) && row.extracted_contact_forms.length > 0 && shouldSkipVendorRateInference(row)) return false
   if (!new Set<string | null>([null, 'never_attempted', 'fetch_failed', 'no_emails_found', 'rate_limited', 'timeout']).has(row.website_extraction_status)) {
     return !shouldSkipVendorRateInference(row)
   }
@@ -417,6 +422,7 @@ function buildVendorWebsiteExtractionUpdate(
 ) {
   return {
     extracted_emails: toJson(result.emails),
+    extracted_contact_forms: toJson(result.contact_forms),
     website_extraction_attempted_at: attemptedAt,
     website_extraction_status: result.status,
     website_extraction_metadata: toJson({

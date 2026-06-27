@@ -49,6 +49,7 @@ describe('special supply exception workflow', () => {
     ['mansion dinner', 'private_estate'],
     ['outdoor park event', 'outdoor_park'],
     ['rooftop buyout', 'rooftop_buyout'],
+    ['indoor golf event', 'golf_activity'],
   ])('detects %s as %s', (text, kind) => {
     expect(detectSpecialSupplyFromText(text)?.kind).toBe(kind)
   })
@@ -96,5 +97,19 @@ describe('special supply exception workflow', () => {
     const metadata = mergeSpecialSupplyMetadata({}, 'Need a rooftop buyout') ?? {}
 
     expect(buildSpecialSupplySearchQuery(planWithMetadata(metadata))).toBe('rooftop event venue in San Francisco')
+  })
+
+  it('uses a golf-specific intake pack before scouting ambiguous golf events', () => {
+    const metadata = mergeSpecialSupplyMetadata({}, 'Golf event for 40 people at $15 per ticket') ?? {}
+    const plan = {
+      ...planWithMetadata(metadata),
+      neighborhood: null,
+      date_window_start: null,
+      date_window_end: null,
+    }
+
+    expect(readPlanSpecialSupply(plan)?.candidate_status_label).toBe('Unverified golf activity lead - quote required')
+    expect(pickSpecialSupplyIntakeQuestion(plan, 'golf event')).toBe('Should I scout full courses, driving ranges, indoor simulators, or keep all golf options open?')
+    expect(buildSpecialSupplySearchQuery({ ...plan, neighborhood: 'Oakland' })).toBe('indoor golf venue in Oakland')
   })
 })

@@ -1,5 +1,5 @@
 import type { Database, Json } from '@/lib/types/database-generated'
-import type { ExtractedEmail, ExtractionResult } from '@/lib/server/venue-website-extractor'
+import type { ExtractedContactForm, ExtractedEmail, ExtractionResult } from '@/lib/server/venue-website-extractor'
 
 export type DiscoveryVenueRow = Pick<
   Database['public']['Tables']['discovery_venues']['Row'],
@@ -8,7 +8,9 @@ export type DiscoveryVenueRow = Pick<
   | 'website'
   | 'website_extraction_status'
   | 'website_extraction_attempts'
->
+> & {
+  extracted_contact_forms?: Json | null
+}
 
 export type DiscoveryVenueContactEmail = {
   email: string
@@ -56,6 +58,7 @@ export function shouldAttemptWebsiteExtraction(row: DiscoveryVenueRow) {
   if (!row.website?.trim()) return false
   if (row.contact_email?.trim()) return false
   if (parseExtractedEmails(row.extracted_emails).length > 0) return false
+  if (parseExtractedContactForms(row.extracted_contact_forms).length > 0) return false
   if (!RETRYABLE_EXTRACTION_STATUSES.has(row.website_extraction_status)) return false
   return (row.website_extraction_attempts ?? 0) < 3
 }
@@ -64,15 +67,41 @@ export function buildWebsiteExtractionUpdate(
   result: ExtractionResult,
   attempts: number | null | undefined,
   attemptedAt: string
-): Database['public']['Tables']['discovery_venues']['Update'] {
+): Database['public']['Tables']['discovery_venues']['Update'] & { extracted_contact_forms: Json } {
   return {
     extracted_emails: toJson(result.emails),
+    extracted_contact_forms: toJson(result.contact_forms ?? []),
     website_extraction_attempted_at: attemptedAt,
     website_extraction_status: result.status,
     website_extraction_metadata: toJson(result.metadata),
     website_extraction_attempts: (attempts ?? 0) + 1,
     updated_at: attemptedAt,
   }
+}
+
+export function parseExtractedContactForms(value: Json | null | undefined): ExtractedContactForm[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return []
+    const record = entry as Record<string, unknown>
+    const url = typeof record.url === 'string' ? record.url.trim() : ''
+    const label = typeof record.label === 'string' ? record.label.trim() : 'Contact form'
+    const confidence = typeof record.confidence === 'number' ? record.confidence : 0
+    const sourcePath = typeof record.source_path === 'string' ? record.source_path : '/'
+    const extractedAt = typeof record.extracted_at === 'string' ? record.extracted_at : ''
+    const isLikelyBookingContact = record.is_likely_booking_contact === true
+
+    if (!url) return []
+    return [{
+      url,
+      label,
+      confidence: Math.min(1, Math.max(0, confidence)),
+      source_path: sourcePath,
+      extracted_at: extractedAt,
+      is_likely_booking_contact: isLikelyBookingContact,
+    }]
+  })
 }
 
 export function parseExtractedEmails(value: Json | null | undefined): ExtractedEmail[] {
