@@ -24,6 +24,8 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EntityReadinessBadge } from '@/components/planner/EntityReadinessBadge'
 import { PlannerTicketingSetupGuideSection } from '@/components/planner/PlannerTicketingSetupGuideSection'
+import { StaleRecommendationNotice } from '@/components/planner/StaleRecommendationNotice'
+import { VendorLocationBadge, type VendorLocationBadgeProps } from '@/components/planner/VendorLocationBadge'
 import {
   resolveEntityReadiness,
   type EntityReadinessIndicator,
@@ -75,6 +77,7 @@ interface Plan {
   guest_count: number | null
   budget_cap_cents: number | null
   neighborhood: string | null
+  event_city?: string | null
   date_window_start: string | null
   date_window_end: string | null
   ticketed: boolean
@@ -84,6 +87,7 @@ interface Plan {
   agent_action?: string | null
   profit_goal_cents: number | null
   notes: string | null
+  plan_revision_count?: number
   brief_render_version?: number
   derived_state_recomputed_at?: string | null
   committed_venue_id?: string | null
@@ -116,6 +120,7 @@ interface Recommendation {
   rank: number
   status: string
   is_best_fit: boolean
+  plan_revision_at_creation?: number | null
   metadata?: unknown
 }
 
@@ -250,6 +255,8 @@ interface MobilePartnerOption {
   sourceLabel: string
   capacityLabel: string | null
   readiness: EntityReadinessIndicator | null
+  planRevisionAtCreation: number | null
+  locationBadge: VendorLocationBadgeProps | null
 }
 
 interface MobileQuoteOption {
@@ -416,6 +423,7 @@ export function MobilePlanner({
   const [contactEmailFeedback, setContactEmailFeedback] = useState<Record<string, string>>({})
   const [batchFeedback, setBatchFeedback] = useState<string | null>(null)
   const [quoteFeedback, setQuoteFeedback] = useState<Record<string, string>>({})
+  const [isRefreshingRecommendations, setIsRefreshingRecommendations] = useState(false)
   const hasAutoStartedInitialDraftRef = useRef(false)
 
   const reload = useCallback(async () => {
@@ -619,6 +627,26 @@ export function MobilePlanner({
     }
   }
 
+  async function handleRefreshRecommendations() {
+    if (!data.activePlanId || data.activePlanId.startsWith('mock-plan-') || isRefreshingRecommendations) return
+    setIsRefreshingRecommendations(true)
+    try {
+      const response = await fetch(`/api/planner/plans/${encodeURIComponent(data.activePlanId)}/recommend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ venueLimit: 3, vendorLimit: 3 }),
+      })
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(payload.error ?? 'Could not refresh recommendations')
+      await reload()
+    } catch (error) {
+      setBatchFeedback(error instanceof Error ? error.message : 'Could not refresh recommendations')
+    } finally {
+      setIsRefreshingRecommendations(false)
+    }
+  }
+
   async function handleCommitQuote(option: MobileQuoteOption) {
     if (!data.activePlanId) return
     const key = quoteKey(option)
@@ -800,6 +828,8 @@ export function MobilePlanner({
             onContactEmailDraftChange={(id, value) => setContactEmailDrafts((current) => ({ ...current, [id]: value }))}
             onSaveContactEmail={handleSaveContactEmail}
             onCreateVenueOutreachApprovals={handleCreateVenueOutreachApprovals}
+            isRefreshingRecommendations={isRefreshingRecommendations}
+            onRefreshRecommendations={handleRefreshRecommendations}
             onCommitQuote={handleCommitQuote}
             onCancelQuote={handleCancelQuote}
           />
@@ -817,6 +847,7 @@ function MobileContent({
   newPlanDraft,
   isSubmittingMessage,
   isCreatingPlan,
+  isRefreshingRecommendations,
   onDraftChange,
   onNewPlanDraftChange,
   onSendMessage,
@@ -829,6 +860,7 @@ function MobileContent({
   onContactEmailDraftChange,
   onSaveContactEmail,
   onCreateVenueOutreachApprovals,
+  onRefreshRecommendations,
   onCommitQuote,
   onCancelQuote,
 }: {
@@ -839,6 +871,7 @@ function MobileContent({
   newPlanDraft: string
   isSubmittingMessage: boolean
   isCreatingPlan: boolean
+  isRefreshingRecommendations: boolean
   onDraftChange: (value: string) => void
   onNewPlanDraftChange: (value: string) => void
   onSendMessage: () => void
@@ -851,6 +884,7 @@ function MobileContent({
   onContactEmailDraftChange: (id: string, value: string) => void
   onSaveContactEmail: (option: MobilePartnerOption) => void
   onCreateVenueOutreachApprovals: (options: MobilePartnerOption[]) => void
+  onRefreshRecommendations: () => void
   onCommitQuote: (option: MobileQuoteOption) => void
   onCancelQuote: (option: MobileQuoteOption) => void
 }) {
@@ -885,6 +919,8 @@ function MobileContent({
         onContactEmailDraftChange={onContactEmailDraftChange}
         onSaveContactEmail={onSaveContactEmail}
         onCreateVenueOutreachApprovals={onCreateVenueOutreachApprovals}
+        isRefreshingRecommendations={isRefreshingRecommendations}
+        onRefreshRecommendations={onRefreshRecommendations}
         onCommitQuote={onCommitQuote}
         onCancelQuote={onCancelQuote}
         onNavigate={onNavigate}
@@ -912,6 +948,8 @@ function MobileContent({
         data={data}
         detail
         quoteFeedback={quoteFeedback}
+        isRefreshingRecommendations={isRefreshingRecommendations}
+        onRefreshRecommendations={onRefreshRecommendations}
         onCommitQuote={onCommitQuote}
         onCancelQuote={onCancelQuote}
         onNavigate={onNavigate}
@@ -926,6 +964,8 @@ function MobileContent({
       <VendorsSection
         data={data}
         quoteFeedback={quoteFeedback}
+        isRefreshingRecommendations={isRefreshingRecommendations}
+        onRefreshRecommendations={onRefreshRecommendations}
         onCommitQuote={onCommitQuote}
         onCancelQuote={onCancelQuote}
         onNavigate={onNavigate}
@@ -1523,6 +1563,8 @@ function VenuesView({
   onContactEmailDraftChange,
   onSaveContactEmail,
   onCreateVenueOutreachApprovals,
+  isRefreshingRecommendations,
+  onRefreshRecommendations,
   onCommitQuote,
   onCancelQuote,
   onNavigate,
@@ -1536,12 +1578,15 @@ function VenuesView({
   onContactEmailDraftChange: (id: string, value: string) => void
   onSaveContactEmail: (option: MobilePartnerOption) => void
   onCreateVenueOutreachApprovals: (options: MobilePartnerOption[]) => void
+  isRefreshingRecommendations: boolean
+  onRefreshRecommendations: () => void
   onCommitQuote: (option: MobileQuoteOption) => void
   onCancelQuote: (option: MobileQuoteOption) => void
   onNavigate: (view: MobileView) => void
 }) {
   const venues = useMemo(() => venueRecommendations(data.planPayload?.recommendations ?? []), [data.planPayload?.recommendations])
   const selected = venues[0]
+  const currentPlanRevisionCount = data.planPayload?.plan.plan_revision_count ?? 0
   const quotes = mobileQuoteOptions(data.planPayload?.plan).filter((quote) => quote.kind === 'venue')
   const readyVenues = venues.filter((venue) => venue.contactStatus === 'ready_to_reach_out')
 
@@ -1568,6 +1613,13 @@ function VenuesView({
                   <EntityReadinessBadge indicator={selected.readiness} />
                 </div>
               ) : null}
+              <StaleRecommendationNotice
+                planRevisionAtCreation={selected.planRevisionAtCreation}
+                currentPlanRevisionCount={currentPlanRevisionCount}
+                isRefreshing={isRefreshingRecommendations}
+                onRefresh={onRefreshRecommendations}
+                className="mt-4"
+              />
             </Panel>
             <ContactRescuePanel
               option={selected}
@@ -1633,6 +1685,13 @@ function VenuesView({
                     <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
                       <p className="min-w-0 truncate text-sm text-ink-soft">{money(venue.price_cents) ?? 'Estimate missing'}</p>
                       <StatusPill tone={contactStatusTone(venue)}>{contactStatusLabel(venue)}</StatusPill>
+                      <StaleRecommendationNotice
+                        planRevisionAtCreation={venue.planRevisionAtCreation}
+                        currentPlanRevisionCount={currentPlanRevisionCount}
+                        isRefreshing={isRefreshingRecommendations}
+                        onRefresh={onRefreshRecommendations}
+                        compact
+                      />
                     </div>
                   </div>
                   <ChevronRight className="h-4 w-4 text-ink-soft" />
@@ -1882,6 +1941,8 @@ function VendorsSection({
   data,
   detail,
   quoteFeedback,
+  isRefreshingRecommendations,
+  onRefreshRecommendations,
   onCommitQuote,
   onCancelQuote,
   onNavigate,
@@ -1889,12 +1950,15 @@ function VendorsSection({
   data: MobileData
   detail?: boolean
   quoteFeedback: Record<string, string>
+  isRefreshingRecommendations: boolean
+  onRefreshRecommendations: () => void
   onCommitQuote: (option: MobileQuoteOption) => void
   onCancelQuote: (option: MobileQuoteOption) => void
   onNavigate: (view: MobileView) => void
 }) {
   const vendors = vendorRecommendations(data.planPayload?.recommendations ?? [])
   const selected = vendors[0]
+  const currentPlanRevisionCount = data.planPayload?.plan.plan_revision_count ?? 0
   const quotes = mobileQuoteOptions(data.planPayload?.plan).filter((quote) => quote.kind === 'vendor')
 
   if (detail) {
@@ -1920,6 +1984,18 @@ function VendorsSection({
                   <EntityReadinessBadge indicator={selected.readiness} />
                 </div>
               ) : null}
+              <VendorLocationBadge
+                {...(selected.locationBadge ?? {})}
+                eventCity={selected.locationBadge?.eventCity ?? data.planPayload?.plan.event_city ?? data.planPayload?.plan.neighborhood}
+                className="mt-3"
+              />
+              <StaleRecommendationNotice
+                planRevisionAtCreation={selected.planRevisionAtCreation}
+                currentPlanRevisionCount={currentPlanRevisionCount}
+                isRefreshing={isRefreshingRecommendations}
+                onRefresh={onRefreshRecommendations}
+                className="mt-3"
+              />
             </Panel>
             <Panel className={cn(spacing.cardGap, 'border-ochre/25 bg-ochre-tint')}>
               <p className="label-caps text-clay">Vendor outreach</p>
@@ -1959,6 +2035,17 @@ function VendorsSection({
                   <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
                     <p className="min-w-0 truncate text-sm text-ink-soft">{money(vendor.price_cents) ?? 'Estimate missing'}</p>
                     <StatusPill tone={contactStatusTone(vendor)}>{contactStatusLabel(vendor)}</StatusPill>
+                    <VendorLocationBadge
+                      {...(vendor.locationBadge ?? {})}
+                      eventCity={vendor.locationBadge?.eventCity ?? data.planPayload?.plan.event_city ?? data.planPayload?.plan.neighborhood}
+                    />
+                    <StaleRecommendationNotice
+                      planRevisionAtCreation={vendor.planRevisionAtCreation}
+                      currentPlanRevisionCount={currentPlanRevisionCount}
+                      isRefreshing={isRefreshingRecommendations}
+                      onRefresh={onRefreshRecommendations}
+                      compact
+                    />
                   </div>
                   {vendor.readiness ? <div className="mt-2"><EntityReadinessBadge indicator={vendor.readiness} /></div> : null}
                 </div>
@@ -2758,6 +2845,11 @@ function recommendationToPartnerOption(recommendation: Recommendation, kind: 've
   const extractionStatus = readString(metadata?.website_extraction_status ?? metadata?.websiteExtractionStatus)
   const capacityKnown = readBoolean(metadata?.capacity_known ?? metadata?.capacityKnown)
   const capacity = readNumber(metadata?.capacity ?? metadata?.capacity_max ?? metadata?.standing_capacity ?? metadata?.seated_capacity)
+  const city = readString(metadata?.city ?? metadata?.vendor_city ?? metadata?.venue_city)
+  const neighborhood = readString(metadata?.neighborhood ?? metadata?.area)
+  const formattedAddress = readString(metadata?.formatted_address ?? metadata?.formattedAddress ?? metadata?.address)
+  const serviceArea = readString(metadata?.service_area ?? metadata?.serviceArea)
+  const specialSupply = readBoolean(metadata?.special_supply ?? metadata?.specialSupply)
   const entity = {
     name: recommendation.external_name,
     is_claimed: readBoolean(metadata?.is_claimed ?? metadata?.isClaimed),
@@ -2788,6 +2880,19 @@ function recommendationToPartnerOption(recommendation: Recommendation, kind: 've
       entity,
       committedAmount: null,
     }),
+    planRevisionAtCreation:
+      readNumber(recommendation.plan_revision_at_creation) ??
+      readNumber(metadata?.plan_revision_at_creation ?? metadata?.planRevisionAtCreation),
+    locationBadge: {
+      eventCity: readString(metadata?.event_city ?? metadata?.eventCity),
+      vendorCity: city,
+      neighborhood,
+      formattedAddress,
+      serviceArea,
+      servesEventCity: readBoolean(metadata?.serves_event_city ?? metadata?.servesEventCity),
+      approved: readBoolean(metadata?.out_of_city_approved ?? metadata?.outOfCityApproved),
+      specialSupply,
+    },
   }
 }
 

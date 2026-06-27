@@ -529,6 +529,39 @@ describe('PlannerLivePlanPanel', () => {
     expect(screen.queryByTestId('venue-comparison-table')).not.toBeInTheDocument()
   })
 
+  it('marks recommendations stale when the plan revision count has advanced', async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      plan: makePlanSnapshot({
+        title: 'Stale recommendation review',
+        planRevisionCount: 3,
+      }),
+      messages: [
+        makeRecommendationMessage('recommendation-stale', [
+          makeVenueRecommendation({
+            id: 'venue-1',
+            name: 'Moongate Lounge',
+            plan_revision_at_creation: 1,
+          }),
+        ]),
+      ],
+      planId: 'plan-stale-recommendation',
+    }))
+
+    render(<PlannerLivePlanPanel inline />)
+
+    expect(await screen.findByText('From earlier version of your plan')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /refresh/i }))
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/planner/plans/plan-stale-recommendation/recommend',
+        expect.objectContaining({ method: 'POST' })
+      )
+    })
+  })
+
   it('renders two recommended venues in a comparison table', async () => {
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
       plan: makePlanSnapshot({ title: 'Two venue review' }),

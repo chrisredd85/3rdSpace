@@ -12,6 +12,7 @@ import {
   AlertCircle,
   CalendarDays,
   Check,
+  ChevronDown,
   ChevronRight,
   ClipboardList,
   Mail,
@@ -28,7 +29,10 @@ import Link from 'next/link'
 import { EntityReadinessBadge } from '@/components/planner/EntityReadinessBadge'
 import { InviteVendorModal } from '@/components/planner/InviteVendorModal'
 import { InviteVenueModal } from '@/components/planner/InviteVenueModal'
+import { RevisionHistoryModal } from '@/components/planner/RevisionHistoryModal'
+import { StaleRecommendationNotice } from '@/components/planner/StaleRecommendationNotice'
 import { usePlannerBillingGate } from '@/components/planner/usePlannerBillingGate'
+import { VendorLocationBadge, type VendorLocationBadgeProps } from '@/components/planner/VendorLocationBadge'
 import {
   hasAttendanceSignal,
   normalizePlanAttendanceSnapshot,
@@ -103,6 +107,14 @@ interface RecommendationSummary {
   stripeConnectStatus: string | null
   settledAt: string | null
   settledAmountCents: number | null
+  planRevisionAtCreation: number | null
+  formattedAddress: string | null
+  city: string | null
+  neighborhood: string | null
+  serviceArea: string | null
+  servesEventCity: boolean | null
+  outOfCityApproved: boolean | null
+  specialSupply: boolean | null
 }
 
 interface RunOfShowMilestone {
@@ -185,6 +197,7 @@ interface LivePlanSnapshot {
   guestCount: number | null
   budgetCapCents: number | null
   neighborhood: string | null
+  eventCity: string | null
   dateWindowStart: string | null
   dateWindowEnd: string | null
   ticketed: boolean | null
@@ -206,6 +219,7 @@ interface LivePlanSnapshot {
   attendance: PlanAttendanceSnapshot
   specialSupply: SpecialSupplyMetadata | null
   latestRevision: PlanRevisionSnapshot | null
+  planRevisionCount: number
   briefRenderVersion: number
   updatedAt: string | null
 }
@@ -277,6 +291,13 @@ interface SelectedPlanVendor {
   settledAmountCents: number | null
   rateSource: string | null
   provenanceLabel: string | null
+  city: string | null
+  neighborhood: string | null
+  formattedAddress: string | null
+  serviceArea: string | null
+  servesEventCity: boolean | null
+  outOfCityApproved: boolean | null
+  specialSupply: boolean | null
 }
 
 interface SelectedPlanVenue {
@@ -351,6 +372,7 @@ interface ShoppingListItem {
   note?: string
   badge?: string
   readinessIndicator?: EntityReadinessIndicator | null
+  locationBadge?: VendorLocationBadgeProps | null
 }
 
 interface AuthorizationCardModel {
@@ -477,6 +499,7 @@ function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
     guestCount: readNumber(record.guestCount) ?? readNumber(record.guest_count),
     budgetCapCents: readNumber(record.budgetCapCents) ?? readNumber(record.budget_cap_cents),
     neighborhood: readString(record.neighborhood) ?? readString(record.area),
+    eventCity: readString(record.eventCity) ?? readString(record.event_city) ?? readString(metadata?.event_city),
     dateWindowStart: readString(record.dateWindowStart) ?? readString(record.date_window_start),
     dateWindowEnd: readString(record.dateWindowEnd) ?? readString(record.date_window_end),
     ticketed: readBoolean(record.ticketed) ?? isPaidTicketingModel(ticketingModel),
@@ -531,6 +554,7 @@ function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
     customCosts: normalizeCustomCosts(metadata?.custom_costs),
     attendance: normalizePlanAttendanceSnapshot(record, metadata),
     latestRevision: normalizePlanRevisionSnapshot(metadata?.latest_plan_revision),
+    planRevisionCount: Math.max(0, Math.floor(readNumber(record.planRevisionCount) ?? readNumber(record.plan_revision_count) ?? 0)),
     briefRenderVersion: Math.max(0, Math.floor(readNumber(record.briefRenderVersion) ?? readNumber(record.brief_render_version) ?? 0)),
     updatedAt: readString(record.updatedAt) ?? readString(record.updated_at),
   }
@@ -735,6 +759,13 @@ function normalizeSelectedVendors(value: unknown): SelectedPlanVendor[] {
         readNumber(record.settledAmountCents),
       rateSource: readString(record.rate_source),
       provenanceLabel: readString(record.rate_provenance_label),
+      city: readString(record.city) ?? readString(record.vendor_city),
+      neighborhood: readString(record.neighborhood),
+      formattedAddress: readString(record.formatted_address) ?? readString(record.address),
+      serviceArea: readString(record.service_area) ?? readString(record.serviceArea),
+      servesEventCity: readBoolean(record.serves_event_city) ?? readBoolean(record.servesEventCity),
+      outOfCityApproved: readBoolean(record.out_of_city_approved) ?? readBoolean(record.outOfCityApproved),
+      specialSupply: readBoolean(record.special_supply) ?? readBoolean(record.specialSupply),
     }]
   })
 }
@@ -991,6 +1022,32 @@ function deriveRecommendations(messages: PlanMessage[]): RecommendationSummary[]
         settledAmountCents:
           readNumber(record.settled_amount_cents) ??
           readNumber(record.settledAmountCents),
+        planRevisionAtCreation:
+          readNumber(record.plan_revision_at_creation) ??
+          readNumber(record.planRevisionAtCreation),
+        formattedAddress:
+          readString(record.formatted_address) ??
+          readString(record.formattedAddress) ??
+          readString(record.address),
+        city:
+          readString(record.city) ??
+          readString(record.vendor_city) ??
+          readString(record.venue_city),
+        neighborhood:
+          readString(record.neighborhood) ??
+          readString(record.area),
+        serviceArea:
+          readString(record.service_area) ??
+          readString(record.serviceArea),
+        servesEventCity:
+          readBoolean(record.serves_event_city) ??
+          readBoolean(record.servesEventCity),
+        outOfCityApproved:
+          readBoolean(record.out_of_city_approved) ??
+          readBoolean(record.outOfCityApproved),
+        specialSupply:
+          readBoolean(record.special_supply) ??
+          readBoolean(record.specialSupply),
       }
   })
 }
@@ -1373,6 +1430,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const [isInviteVendorModalOpen, setIsInviteVendorModalOpen] = useState(false)
   const [projectionBaseline, setProjectionBaseline] = useState<PlannerProjectionBaseline | null>(null)
   const [isProjectionBaselineRefreshing, setIsProjectionBaselineRefreshing] = useState(false)
+  const [isRevisionHistoryOpen, setIsRevisionHistoryOpen] = useState(false)
+  const [recommendationRefreshState, setRecommendationRefreshState] = useState<'idle' | 'refreshing' | 'done' | 'error'>('idle')
   const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const billingGate = usePlannerBillingGate()
 
@@ -1404,6 +1463,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const recommendationCardRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const runOfShow = livePlan?.runOfShow ?? deriveRunOfShowFromMessages(activeMessages)
   const workspaceSummary = livePlan?.workspaceSummary ?? deriveWorkspaceSummaryFromMessages(activeMessages)
+  const currentPlanRevisionCount = livePlan?.planRevisionCount ?? 0
   const updatedAtLabel = useMemo(
     () => formatRelativeTime(livePlan?.updatedAt ?? null, relativeNowMs),
     [livePlan?.updatedAt, relativeNowMs]
@@ -1449,6 +1509,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const outreachReplyOptions = livePlan?.outreachResponses ?? emptyOutreachResponseSummary
   const shoppingListItems = buildShoppingList(primaryVenue, renderedBudgetLineItems, eventSummary, livePlan?.selectedVendors ?? [], livePlan, relativeNowMs)
   const canRequestDateChange = Boolean(onDateChangeRequest && activePlanId && !activePlanId.startsWith('mock-plan-'))
+  const isRefreshingRecommendations = recommendationRefreshState === 'refreshing'
   const handleVenueComparisonJump = useCallback((venueId: string) => {
     const target = recommendationCardRefs.current[venueId]
     if (!target) return
@@ -1546,6 +1607,37 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
       setDateChangeError(error instanceof Error ? error.message : 'Could not create the date-change approval.')
     } finally {
       setIsSubmittingDateChange(false)
+    }
+  }
+
+  async function handleRefreshRecommendations() {
+    if (!activePlanId || activePlanId.startsWith('mock-plan-') || recommendationRefreshState === 'refreshing') return
+
+    setRecommendationRefreshState('refreshing')
+    try {
+      const response = await fetch(`/api/planner/plans/${activePlanId}/recommend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          venueLimit: 3,
+          vendorLimit: eventSummary.vendor_need_status === 'none' ? 0 : 3,
+        }),
+      })
+      const payload = await response.json().catch(() => ({})) as Record<string, unknown>
+      if (!response.ok) {
+        if (billingGate.handleBillingRequiredResponse(
+          response,
+          payload as { error?: string; message?: string; billingRequired?: boolean }
+        )) {
+          throw new Error('Choose a billing path to continue.')
+        }
+        throw new Error(readString(payload.error) ?? 'Could not refresh recommendations.')
+      }
+      setRecommendationRefreshState('done')
+    } catch (error) {
+      console.error('[planner.live-plan] stale_recommendation_refresh_failed', error)
+      setRecommendationRefreshState('error')
     }
   }
 
@@ -1925,8 +2017,16 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           </button>
         ) : null}
         {livePlan?.latestRevision ? (
-          <PlanRevisionBanner revision={livePlan.latestRevision} />
+          <PlanRevisionBanner
+            revision={livePlan.latestRevision}
+            onViewHistory={() => setIsRevisionHistoryOpen(true)}
+          />
         ) : null}
+        <RevisionHistoryModal
+          planId={activePlanId}
+          isOpen={isRevisionHistoryOpen}
+          onClose={() => setIsRevisionHistoryOpen(false)}
+        />
       </div>
 
       <div
@@ -2120,6 +2220,15 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                       ? `${primaryVenue.name} will receive the plan after approval.`
                       : 'The agent will confirm details before outreach.')}
                 </p>
+                {primaryVenue ? (
+                  <StaleRecommendationNotice
+                    planRevisionAtCreation={primaryVenue.planRevisionAtCreation}
+                    currentPlanRevisionCount={currentPlanRevisionCount}
+                    isRefreshing={isRefreshingRecommendations}
+                    onRefresh={handleRefreshRecommendations}
+                    className="mt-3"
+                  />
+                ) : null}
                 {workspaceSummary ? (
                   <div className="mt-3 flex flex-wrap gap-2">
                     <span className={cn(
@@ -2204,6 +2313,9 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             onEmailChange={(venueId, value) => setContactEmailDrafts((current) => ({ ...current, [venueId]: value }))}
             onEmailSubmit={handleVenueContactEmailSubmit}
             onNavigateToApprovals={(messageId) => onNavigateToTab?.('approvals', messageId ?? undefined)}
+            currentPlanRevisionCount={currentPlanRevisionCount}
+            isRefreshingRecommendations={isRefreshingRecommendations}
+            onRefreshRecommendations={handleRefreshRecommendations}
           />
           <OutreachQuoteComparison
             responses={outreachReplyOptions}
@@ -2393,6 +2505,9 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                   </div>
                   {item.readinessIndicator ? (
                     <EntityReadinessBadge indicator={item.readinessIndicator} className="mt-2" />
+                  ) : null}
+                  {item.locationBadge ? (
+                    <VendorLocationBadge {...item.locationBadge} className="mt-2" />
                   ) : null}
                   {item.note ? (
                     <p className="mt-1 break-words text-sm leading-snug text-ink-soft" title={item.note}>{item.note}</p>
@@ -2589,18 +2704,51 @@ function ArtifactSection({
   subtitle: string
   children: React.ReactNode
 }) {
+  const storageKey = `brief_section_${title.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}`
+  const [isOpen, setIsOpen] = useState(true)
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(storageKey)
+      if (stored === 'collapsed') setIsOpen(false)
+      if (stored === 'expanded') setIsOpen(true)
+    } catch {
+      // Collapsibility is a convenience; ignore storage errors.
+    }
+  }, [storageKey])
+
+  function toggleSection() {
+    setIsOpen((current) => {
+      const next = !current
+      try {
+        window.localStorage.setItem(storageKey, next ? 'expanded' : 'collapsed')
+      } catch {
+        // Ignore storage errors.
+      }
+      return next
+    })
+  }
+
   return (
     <section className="border-b border-tan px-4 py-7">
-      <div className="mb-5 flex items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-cream-deep text-ink-soft">
-          {icon}
+      <button
+        type="button"
+        onClick={toggleSection}
+        aria-expanded={isOpen}
+        className="mb-5 flex min-h-11 w-full items-center justify-between gap-3 rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-clay"
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-cream-deep text-ink-soft">
+            {icon}
+          </div>
+          <div className="min-w-0">
+            <h3 className="break-words text-lg font-semibold leading-tight text-ink" title={title}>{title}</h3>
+            <p className="break-words text-sm leading-snug text-ink-soft" title={subtitle}>{subtitle}</p>
+          </div>
         </div>
-        <div className="min-w-0">
-          <h3 className="break-words text-lg font-semibold leading-tight text-ink" title={title}>{title}</h3>
-          <p className="break-words text-sm leading-snug text-ink-soft" title={subtitle}>{subtitle}</p>
-        </div>
-      </div>
-      {children}
+        {isOpen ? <ChevronDown className="h-5 w-5 shrink-0 text-ink-soft" /> : <ChevronRight className="h-5 w-5 shrink-0 text-ink-soft" />}
+      </button>
+      {isOpen ? children : null}
     </section>
   )
 }
@@ -2777,6 +2925,9 @@ function VenueComparisonTable({
   onEmailChange,
   onEmailSubmit,
   onNavigateToApprovals,
+  currentPlanRevisionCount,
+  isRefreshingRecommendations,
+  onRefreshRecommendations,
 }: {
   venues: RecommendationSummary[]
   draftSummary: GmailOutreachDraftSummary
@@ -2787,6 +2938,9 @@ function VenueComparisonTable({
   onEmailChange: (venueId: string, value: string) => void
   onEmailSubmit: (venue: RecommendationSummary) => void
   onNavigateToApprovals: (messageId?: string | null) => void
+  currentPlanRevisionCount: number
+  isRefreshingRecommendations: boolean
+  onRefreshRecommendations: () => void
 }) {
   if (venues.length < 2) return null
 
@@ -2835,6 +2989,14 @@ function VenueComparisonTable({
                       Best fit
                     </span>
                   ) : null}
+                  <StaleRecommendationNotice
+                    planRevisionAtCreation={venue.planRevisionAtCreation}
+                    currentPlanRevisionCount={currentPlanRevisionCount}
+                    isRefreshing={isRefreshingRecommendations}
+                    onRefresh={onRefreshRecommendations}
+                    compact
+                    className="mt-2"
+                  />
                   <div className="mt-3">
                     <VenueOutreachStatus
                       venue={venue}
@@ -3122,7 +3284,13 @@ function PlanPill({ children, intent = 'neutral' }: { children: React.ReactNode;
   )
 }
 
-function PlanRevisionBanner({ revision }: { revision: PlanRevisionSnapshot }) {
+function PlanRevisionBanner({
+  revision,
+  onViewHistory,
+}: {
+  revision: PlanRevisionSnapshot
+  onViewHistory: () => void
+}) {
   const label = revision.sourceMessageExcerpt
     ? revision.sourceMessageExcerpt
     : `${revision.type.replace(/_/g, ' ')}${revision.field ? ` · ${revision.field.replace(/_/g, ' ')}` : ''}`
@@ -3133,7 +3301,7 @@ function PlanRevisionBanner({ revision }: { revision: PlanRevisionSnapshot }) {
     <div className="mt-4 rounded-lg border border-clay/30 bg-clay-tint/70 p-3 text-sm text-ink">
       <div className="flex items-start gap-3">
         <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-clay" />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-xs font-bold uppercase tracking-[0.12em] text-clay">
             Plan updated{applied ? ` · ${applied}` : ''}
           </p>
@@ -3146,6 +3314,13 @@ function PlanRevisionBanner({ revision }: { revision: PlanRevisionSnapshot }) {
             </p>
           ) : null}
         </div>
+        <button
+          type="button"
+          onClick={onViewHistory}
+          className="inline-flex min-h-10 shrink-0 items-center rounded-md border border-clay/25 bg-cream px-3 text-xs font-bold uppercase tracking-[0.06em] text-clay transition-colors hover:bg-clay hover:text-cream focus:outline-none focus-visible:ring-2 focus-visible:ring-clay"
+        >
+          View history
+        </button>
       </div>
     </div>
   )
@@ -3789,6 +3964,14 @@ function recommendationFromSelectedVenue(venue: SelectedPlanVenue, summary: Even
     stripeConnectStatus: null,
     settledAt: null,
     settledAmountCents: null,
+    planRevisionAtCreation: null,
+    formattedAddress: location,
+    city: venue.city,
+    neighborhood: null,
+    serviceArea: null,
+    servesEventCity: null,
+    outOfCityApproved: null,
+    specialSupply: null,
   }
 }
 
@@ -3873,6 +4056,7 @@ function buildShoppingList(
         note: vendor.provenanceLabel ?? deriveSelectedVendorNote(vendor),
         badge: vendor.claimStatus === 'invited_unclaimed' ? 'Invited — pending signup' : undefined,
         readinessIndicator: resolveSelectedVendorReadiness(vendor, nowMs),
+        locationBadge: vendorLocationBadgeForSelectedVendor(vendor, livePlan, summary),
       })
     }
   }
@@ -3955,6 +4139,25 @@ function deriveSelectedVendorNote(vendor: SelectedPlanVendor) {
   if (vendor.rateSource === 'confirmed_private_rate') return 'Using your last confirmed private rate with this vendor.'
   if (vendor.rateSource === 'organizer_entered') return 'Organizer-entered rate; vendor confirmation may create a new agreement.'
   return 'Confirm availability and final quote before approval.'
+}
+
+function vendorLocationBadgeForSelectedVendor(
+  vendor: SelectedPlanVendor,
+  livePlan: LivePlanSnapshot | null,
+  summary: EventSummary
+): VendorLocationBadgeProps | null {
+  if (!vendor.city && !vendor.neighborhood && !vendor.formattedAddress && !vendor.serviceArea && !vendor.specialSupply) return null
+
+  return {
+    eventCity: livePlan?.eventCity ?? summary.area,
+    vendorCity: vendor.city,
+    neighborhood: vendor.neighborhood,
+    formattedAddress: vendor.formattedAddress,
+    serviceArea: vendor.serviceArea,
+    servesEventCity: vendor.servesEventCity,
+    approved: vendor.outOfCityApproved,
+    specialSupply: vendor.specialSupply ?? Boolean(livePlan?.specialSupply ?? summary.special_supply),
+  }
 }
 
 function resolveVenueReadiness(
