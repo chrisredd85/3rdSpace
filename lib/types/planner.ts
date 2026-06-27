@@ -201,6 +201,22 @@ export interface Plan {
   special_supply_radius_miles?: number | null
   /** Monotonic count of material plan revisions. */
   plan_revision_count?: number
+  /** Monotonic event brief render version incremented by derived-state recomputes. */
+  brief_render_version?: number
+  /** Timestamp when cached event brief derived state was last recomputed. */
+  derived_state_recomputed_at?: string | null
+  /** Discovery venue quote accepted for planning comparison. */
+  committed_venue_id?: string | null
+  /** Accepted venue quote amount, stored as integer cents. */
+  committed_venue_quoted_price_cents?: number | null
+  /** Accepted venue quote deal model. */
+  committed_venue_quoted_deal_model?: string | null
+  /** Accepted venue quote terms snapshot. */
+  committed_venue_quoted_terms?: Json | null
+  /** Timestamp when the venue quote was accepted into the plan brief. */
+  committed_venue_at?: string | null
+  /** Accepted vendor quote snapshots used for planning comparison. */
+  committed_vendors?: Json
   /** Planner-owned metadata cache for generated agent summaries and timelines. */
   metadata?: Json
   /** Timestamp when the plan was created. */

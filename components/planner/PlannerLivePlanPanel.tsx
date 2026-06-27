@@ -206,6 +206,7 @@ interface LivePlanSnapshot {
   attendance: PlanAttendanceSnapshot
   specialSupply: SpecialSupplyMetadata | null
   latestRevision: PlanRevisionSnapshot | null
+  briefRenderVersion: number
   updatedAt: string | null
 }
 
@@ -530,6 +531,7 @@ function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
     customCosts: normalizeCustomCosts(metadata?.custom_costs),
     attendance: normalizePlanAttendanceSnapshot(record, metadata),
     latestRevision: normalizePlanRevisionSnapshot(metadata?.latest_plan_revision),
+    briefRenderVersion: Math.max(0, Math.floor(readNumber(record.briefRenderVersion) ?? readNumber(record.brief_render_version) ?? 0)),
     updatedAt: readString(record.updatedAt) ?? readString(record.updated_at),
   }
 }
@@ -1370,6 +1372,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const [isInviteVenueModalOpen, setIsInviteVenueModalOpen] = useState(false)
   const [isInviteVendorModalOpen, setIsInviteVendorModalOpen] = useState(false)
   const [projectionBaseline, setProjectionBaseline] = useState<PlannerProjectionBaseline | null>(null)
+  const [isProjectionBaselineRefreshing, setIsProjectionBaselineRefreshing] = useState(false)
   const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const billingGate = usePlannerBillingGate()
 
@@ -1397,6 +1400,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const activeMessages = messages ?? livePayload.messages
   const livePlan = livePayload.plan
   const activePlanId = planId ?? livePayload.planId
+  const activeBriefRenderVersion = livePlan?.briefRenderVersion ?? 0
   const recommendationCardRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const runOfShow = livePlan?.runOfShow ?? deriveRunOfShowFromMessages(activeMessages)
   const workspaceSummary = livePlan?.workspaceSummary ?? deriveWorkspaceSummaryFromMessages(activeMessages)
@@ -1465,13 +1469,15 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   useEffect(() => {
     if (!activePlanId || activePlanId.startsWith('mock-plan-')) {
       setProjectionBaseline(null)
+      setIsProjectionBaselineRefreshing(false)
       return
     }
 
     let cancelled = false
     async function loadBaseline() {
       try {
-        const response = await fetch(`/api/planner/plans/${activePlanId}/baseline`, {
+        setIsProjectionBaselineRefreshing(true)
+        const response = await fetch(`/api/planner/plans/${activePlanId}/baseline?briefVersion=${activeBriefRenderVersion}`, {
           method: 'GET',
           credentials: 'same-origin',
           headers: { Accept: 'application/json' },
@@ -1484,6 +1490,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         if (!cancelled) setProjectionBaseline(readProjectionBaseline(json?.baseline))
       } catch {
         if (!cancelled) setProjectionBaseline(null)
+      } finally {
+        if (!cancelled) setIsProjectionBaselineRefreshing(false)
       }
     }
 
@@ -1491,7 +1499,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
     return () => {
       cancelled = true
     }
-  }, [activePlanId])
+  }, [activePlanId, activeBriefRenderVersion])
 
   async function handleDateChangeSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -2207,12 +2215,19 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         </ArtifactSection>
 
         <ArtifactSection icon={<TrendingUp className="h-5 w-5" />} title="Profit Window" subtitle="Realistic forecast + range">
-          {profitModel.baselineSource !== 'default' ? (
-            <div className="mb-4 inline-flex max-w-full items-center gap-2 rounded-full border border-forest/20 bg-forest/10 px-3 py-1 text-xs font-semibold text-forest">
-              <TrendingUp className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{profitModel.baselineBasisLabel}</span>
-            </div>
-          ) : null}
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            {profitModel.baselineSource !== 'default' ? (
+              <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-forest/20 bg-forest/10 px-3 py-1 text-xs font-semibold text-forest">
+                <TrendingUp className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{profitModel.baselineBasisLabel}</span>
+              </div>
+            ) : null}
+            {isProjectionBaselineRefreshing ? (
+              <div className="inline-flex items-center gap-2 rounded-full border border-tan bg-cream-deep px-3 py-1 text-xs font-semibold text-ink-soft">
+                Updating assumptions...
+              </div>
+            ) : null}
+          </div>
           <div className="mb-5 rounded-lg border border-tan bg-cream-deep/50 p-5">
             <p className="label-caps text-ink-soft">Ticket Pricing</p>
             <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(118px,1fr))]">

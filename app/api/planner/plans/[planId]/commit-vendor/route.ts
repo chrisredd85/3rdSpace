@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import { recomputePlanDerivedState } from '@/lib/planner/recomputeDerivedState'
 import { createClient } from '@/lib/supabase/server'
 import type { Json, Plan } from '@/lib/types'
 
@@ -95,8 +96,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
     .neq('discovery_vendor_id', parsed.data.discovery_vendor_id)
     .in('status', ['candidate', 'approval_created'])
 
-  await insertStatusMessage(auth.db, (await context.params).planId, `Committed ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote for planning.`)
-  return NextResponse.json({ plan: data })
+  const planId = (await context.params).planId
+  await insertStatusMessage(auth.db, planId, `Committed ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote for planning.`)
+  await recomputePlanDerivedState({ supabase: auth.db, planId, trigger: 'commit_changed' })
+  const refreshedPlan = await loadOwnedPlan(auth.db, planId, auth.userId)
+  return NextResponse.json({ plan: refreshedPlan ?? data })
 }
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
@@ -144,8 +148,11 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: error?.message ?? 'Failed to cancel vendor commitment' }, { status: 500 })
   }
 
-  await insertStatusMessage(auth.db, (await context.params).planId, `Cancelled accepted ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote.`)
-  return NextResponse.json({ plan: data })
+  const planId = (await context.params).planId
+  await insertStatusMessage(auth.db, planId, `Cancelled accepted ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote.`)
+  await recomputePlanDerivedState({ supabase: auth.db, planId, trigger: 'cancel_commit' })
+  const refreshedPlan = await loadOwnedPlan(auth.db, planId, auth.userId)
+  return NextResponse.json({ plan: refreshedPlan ?? data })
 }
 
 async function getCreatorAuth(): Promise<

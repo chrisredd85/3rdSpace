@@ -1,7 +1,12 @@
 import type { Json, Plan, PlanRevisionTriggerType } from '@/lib/types'
 import { canonicalCity, deriveEventCity, getAdjacentCities } from '@/lib/planner/geography'
+import { recomputePlanDerivedState } from '@/lib/planner/recomputeDerivedState'
+import { rootLogger } from '@/lib/server/logger'
 
-export type SupabaseAdminClient = { from: (table: string) => any }
+export type SupabaseAdminClient = {
+  from: (table: string) => any
+  rpc?: (fn: string, args?: Record<string, unknown>) => any
+}
 
 export type PlanRevisionTrigger = {
   type: PlanRevisionTriggerType
@@ -49,50 +54,53 @@ export async function applyPlanRevision(opts: {
   const nextRevisionCount = (plan.plan_revision_count ?? 0) + 1
   const planUpdates = buildPlanRevisionUpdates(plan, opts.trigger, nextRevisionCount, impact)
 
-  await updatePlanForRevision(opts.supabase, opts.planId, planUpdates)
-
-  const revision = await insertPlanRevision(opts.supabase, {
-    planId: opts.planId,
-    userId: opts.userId,
-    trigger: opts.trigger,
-    sourceMessageId: opts.sourceMessageId,
-    impact,
-  })
-
-  await supersedeAffectedEntities({
-    supabase: opts.supabase,
-    planId: opts.planId,
-    revisionId: revision.id,
-    impact,
-    reason: revisionReason(opts.trigger),
-  })
-
-  await triggerRediscovery({
-    supabase: opts.supabase,
-    planId: opts.planId,
-    revisionId: revision.id,
-    trigger: opts.trigger,
-    targets: impact.triggers_rediscovery,
-    eventBriefSections: impact.event_brief_sections,
-  })
-
-  const auditLogId = await insertRevisionAuditLog(opts.supabase, {
-    plan,
-    planUpdates,
-    userId: opts.userId,
-    revisionId: revision.id,
-    trigger: opts.trigger,
-    sourceMessageId: opts.sourceMessageId,
-    impact,
-  })
-  if (auditLogId) {
-    await opts.supabase
-      .from('plan_revisions')
-      .update({ audit_log_id: auditLogId })
-      .eq('id', revision.id)
+  if (!opts.supabase.rpc) {
+    throw new Error('Plan revision RPC client is unavailable')
   }
 
-  return { revision_id: revision.id, impact }
+  const { data, error } = await opts.supabase
+    .rpc('apply_plan_revision_atomic', {
+      p_plan_id: opts.planId,
+      p_user_id: opts.userId,
+      p_trigger: opts.trigger as unknown as Json,
+      p_source_message_id: opts.sourceMessageId ?? null,
+      p_plan_updates: planUpdates as Json,
+      p_impact: impact as unknown as Json,
+      p_reason: revisionReason(opts.trigger),
+    })
+
+  if (error) throw new Error(`Revision failed: ${error.message}`)
+
+  const resultRow = readRecord(Array.isArray(data) ? data[0] : data)
+  const revisionId = readString(resultRow?.revision_id)
+  if (!revisionId) throw new Error('Revision RPC did not return a revision id')
+
+  try {
+    await triggerRediscovery({
+      supabase: opts.supabase,
+      planId: opts.planId,
+      revisionId,
+      trigger: opts.trigger,
+      targets: impact.triggers_rediscovery,
+      eventBriefSections: impact.event_brief_sections,
+    })
+  } catch (error) {
+    rootLogger.warn('Plan revision rediscovery enqueue failed', {
+      plan_id: opts.planId,
+      revision_id: revisionId,
+      trigger_type: opts.trigger.type,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    })
+  }
+
+  await recomputePlanDerivedState({
+    supabase: opts.supabase,
+    planId: opts.planId,
+    trigger: 'plan_revision',
+    revisionId,
+  })
+
+  return { revision_id: revisionId, impact }
 }
 
 export function detectPlanRevisionTrigger(input: {
@@ -402,42 +410,6 @@ function buildPlanRevisionUpdates(
   return updates
 }
 
-async function updatePlanForRevision(db: SupabaseAdminClient, planId: string, updates: Record<string, unknown>) {
-  const { error } = await db.from('plans').update(updates).eq('id', planId)
-  if (error) throw new Error(`Failed to apply plan revision update: ${error.message}`)
-}
-
-async function insertPlanRevision(
-  db: SupabaseAdminClient,
-  input: {
-    planId: string
-    userId: string
-    trigger: PlanRevisionTrigger
-    sourceMessageId?: string
-    impact: PlanRevisionImpact
-  }
-): Promise<{ id: string }> {
-  const { data, error } = await db
-    .from('plan_revisions')
-    .insert({
-      plan_id: input.planId,
-      triggered_by_user_id: input.userId,
-      trigger_type: input.trigger.type,
-      trigger_payload: input.trigger as unknown as Json,
-      source_message_id: input.sourceMessageId ?? null,
-      impact_summary: input.impact as unknown as Json,
-      rediscovery_triggered_for: input.impact.triggers_rediscovery,
-    })
-    .select('id')
-    .single()
-
-  if (error || !data?.id) {
-    throw new Error(error?.message ?? 'Failed to insert plan revision')
-  }
-
-  return { id: String(data.id) }
-}
-
 async function supersedeRecommendations(
   db: SupabaseAdminClient,
   recommendationIds: string[],
@@ -611,45 +583,6 @@ async function hasRecentRediscovery(db: SupabaseAdminClient, planId: string, cur
   }
 
   return Array.isArray(data) && data.length > 0
-}
-
-async function insertRevisionAuditLog(
-  db: SupabaseAdminClient,
-  input: {
-    plan: Plan
-    planUpdates: Record<string, unknown>
-    userId: string
-    revisionId: string
-    trigger: PlanRevisionTrigger
-    sourceMessageId?: string
-    impact: PlanRevisionImpact
-  }
-): Promise<string | null> {
-  const { data, error } = await db
-    .from('audit_logs')
-    .insert({
-      user_id: input.userId,
-      plan_id: input.plan.id,
-      action: 'planner.plan_revision.applied',
-      entity_type: 'plan_revision',
-      entity_id: input.revisionId,
-      before_state: input.plan as unknown as Json,
-      after_state: {
-        trigger: input.trigger,
-        plan_updates: input.planUpdates,
-        source_message_id: input.sourceMessageId ?? null,
-        impact: input.impact,
-      } as Json,
-    })
-    .select('id')
-    .maybeSingle()
-
-  if (error) {
-    console.error('[planner.revisions] Revision audit log insert failed', error)
-    return null
-  }
-
-  return data?.id ? String(data.id) : null
 }
 
 function mergeRevisionMetadata(value: unknown, trigger: PlanRevisionTrigger, impact: PlanRevisionImpact): Json {

@@ -1,9 +1,14 @@
 jest.mock('server-only', () => ({}))
 
 const applyPlanRevisionMock = jest.fn()
+const recomputePlanDerivedStateMock = jest.fn()
 
 jest.mock('@/lib/planner/planRevisions', () => ({
   applyPlanRevision: (...args: unknown[]) => applyPlanRevisionMock(...args),
+}))
+
+jest.mock('@/lib/planner/recomputeDerivedState', () => ({
+  recomputePlanDerivedState: (...args: unknown[]) => recomputePlanDerivedStateMock(...args),
 }))
 
 import { cascadeInvalidationForEntityChange } from '@/lib/discovery/cascadeInvalidation'
@@ -22,6 +27,13 @@ describe('discovery cascade invalidation', () => {
         triggers_rediscovery: ['venue', 'vendor'],
         event_brief_sections: ['recommendations'],
       },
+    })
+    recomputePlanDerivedStateMock.mockReset().mockResolvedValue({
+      profit_assumptions_changed: false,
+      shopping_list_changed: true,
+      auth_cards_changed: false,
+      baseline_source_changed: false,
+      new_brief_render_version: 2,
     })
   })
 
@@ -65,6 +77,11 @@ describe('discovery cascade invalidation', () => {
         type: 'discovery_data_changed',
         field: 'business_status',
       }),
+    }))
+    expect(recomputePlanDerivedStateMock).toHaveBeenCalledWith(expect.objectContaining({
+      planId: 'plan-1',
+      trigger: 'discovery_change',
+      discoveryChangeId: 'discovery_venue:venue-1:business_status',
     }))
   })
 

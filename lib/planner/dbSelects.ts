@@ -25,6 +25,8 @@ export const PLAN_SELECT_COLUMNS = `
   vendor_approved_adjacent_cities,
   special_supply_radius_miles,
   plan_revision_count,
+  brief_render_version,
+  derived_state_recomputed_at,
   committed_venue_id,
   committed_venue_quoted_price_cents,
   committed_venue_quoted_deal_model,
