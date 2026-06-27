@@ -143,7 +143,7 @@ describe('MobilePlanner operating loop parity', () => {
         return jsonResponse({ venue: { id: '22222222-2222-4222-8222-222222222222' }, draft_results: [{ status: 'draft_created' }] })
       }
       if (url === '/api/planner/plans/plan-1/outreach/approve-batch' && init?.method === 'POST') {
-        return jsonResponse({ created_count: 1, approvals: [] })
+        return jsonResponse({ created_count: 1, target_count: 1, approvals: [] })
       }
       return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
     })
@@ -171,7 +171,7 @@ describe('MobilePlanner operating loop parity', () => {
       )
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /Create outreach approvals/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Create outreach batch/i }))
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -182,6 +182,7 @@ describe('MobilePlanner operating loop parity', () => {
         })
       )
     })
+    expect(await screen.findByText('Every send still needs review.')).toBeInTheDocument()
   })
 
   it('renders reply quote cards and commits accepted venue quotes through the mobile flow', async () => {

@@ -321,6 +321,7 @@ const appSections: AppSectionLink[] = [
   { id: 'planner', label: 'Plan', href: '/planner' },
   { id: 'approvals', label: 'Next steps', href: '/planner/payments' },
   { id: 'messages', label: 'Inbox', href: '/planner/messages' },
+  { id: 'outreach', label: 'Outreach', href: '/planner/outreach' },
   { id: 'vendors', label: 'Vendors', href: '/planner/vendors' },
   { id: 'analytics', label: 'Analytics', href: '/planner/analytics' },
   { id: 'ticketing', label: 'Ticketing', href: '/planner/tickets' },
@@ -341,11 +342,11 @@ const flowSteps: Array<{ id: MobileView; label: string }> = [
 ]
 
 const skippedSurfaceCopy = {
-  draft: 'Outreach drafts will appear here once the Gmail integration is enabled. Currently in development.',
-  reply: 'When venues reply, parsed decisions will appear here.',
-  outreach: 'Outreach drafts, replies, and automation policies will appear here once the Gmail integration is enabled. Currently in development.',
-  sent: 'Approved sent-message activity will appear here once the outreach pipeline is enabled.',
-  policy: 'Outreach automation rules are coming with the Gmail pipeline. Until then, every outbound send requires review.',
+  draft: 'Outreach drafts appear in approvals after Gmail is connected and targets are selected.',
+  reply: 'When venues or vendors reply, parsed decisions and quote comparisons appear here after Gmail sync.',
+  outreach: 'Use Outreach to review Gmail drafts, sync replies, and compare returned quotes. Sends remain approval-gated.',
+  sent: 'Approved sent-message activity appears after Gmail sends from an approved outreach record.',
+  policy: 'Default posture is approval-required. Hosts must explicitly set any autonomy policy, and price, date, hold, or payment changes always need re-approval.',
 }
 
 const toneClass: Record<StatusTone, string> = {
@@ -609,11 +610,11 @@ export function MobilePlanner({
       .filter((option) => option.kind === 'venue' && option.discoveryId && option.contactStatus === 'ready_to_reach_out')
       .map((option) => option.discoveryId!)
     if (venueIds.length === 0) {
-      setBatchFeedback('Add at least one ready venue contact before creating outreach approvals.')
+      setBatchFeedback('Add at least one ready venue contact before creating an outreach batch.')
       return
     }
 
-    setBatchFeedback('Creating outreach approvals...')
+    setBatchFeedback('Creating outreach batch approval...')
     try {
       const response = await fetch(`/api/planner/plans/${encodeURIComponent(data.activePlanId)}/outreach/approve-batch`, {
         method: 'POST',
@@ -621,13 +622,17 @@ export function MobilePlanner({
         credentials: 'include',
         body: JSON.stringify({ discovery_venue_ids: venueIds }),
       })
-      const payload = await response.json().catch(() => ({})) as { error?: string; created_count?: number }
-      if (!response.ok) throw new Error(payload.error ?? 'Could not create outreach approvals')
-      setBatchFeedback(`${payload.created_count ?? venueIds.length} outreach approval${(payload.created_count ?? venueIds.length) === 1 ? '' : 's'} created. Review before send.`)
+      const payload = await response.json().catch(() => ({})) as { error?: string; created_count?: number; target_count?: number }
+      if (!response.ok) throw new Error(payload.error ?? 'Could not create outreach batch')
+      const approvalCount = payload.created_count ?? 1
+      const targetCount = payload.target_count ?? venueIds.length
+      setBatchFeedback(
+        `${approvalCount} outreach approval${approvalCount === 1 ? '' : 's'} created for ${targetCount} venue${targetCount === 1 ? '' : 's'}. Review before send.`
+      )
       await reload()
       setView('approval')
     } catch (error) {
-      setBatchFeedback(error instanceof Error ? error.message : 'Could not create outreach approvals')
+      setBatchFeedback(error instanceof Error ? error.message : 'Could not create outreach batch')
     }
   }
 
@@ -1396,7 +1401,7 @@ function NewPlanView({
       <Panel className={cn(spacing.sectionGapTight, spacing.cardPaddingTight)}>
         <p className="label-caps text-clay">Approval default</p>
         <p className={cn(spacing.labelToHeadline, 'text-base leading-7 text-ink-soft')}>
-          Every send, hold, booking, and payment requires approval. Outreach automation rules are not enabled in this mobile v1.
+          Every send, hold, booking, and payment requires approval. Outreach autonomy only changes after the host explicitly sets a policy.
         </p>
       </Panel>
     </section>
@@ -1624,7 +1629,7 @@ function VenuesView({
         <SectionIntro
           eyebrow="Venue detail"
           title={selected?.name ?? 'No venue selected'}
-          description="Venue drilldowns show available plan data only. Outreach fit notes wait for the outreach pipeline."
+          description="Venue drilldowns show fit, readiness, contact status, and returned quote context when Gmail replies are parsed."
         />
         {selected ? (
           <>
@@ -1675,7 +1680,7 @@ function VenuesView({
       <SectionIntro
         eyebrow="Venues"
         title={venues.length > 0 ? 'Venue options ready.' : 'No venue options yet.'}
-        description="Review contact readiness, create outreach approvals, and compare returned quotes without switching to desktop."
+        description="Review contact readiness, create a bulk outreach approval, and compare returned quotes without switching to desktop."
       />
 
       {readyVenues.length > 0 ? (
@@ -1684,11 +1689,11 @@ function VenuesView({
             <div>
               <p className="label-caps text-forest">Outreach approvals</p>
               <p className="mt-2 text-sm leading-6 text-ink-soft">
-                {readyVenues.length} venue{readyVenues.length === 1 ? '' : 's'} have contact emails. Create one approval per venue before anything sends.
+                {readyVenues.length} venue{readyVenues.length === 1 ? '' : 's'} have contact emails. Create one reviewed outreach batch; each recipient stays tracked under the approval before anything sends.
               </p>
             </div>
             <PrimaryButton onClick={() => onCreateVenueOutreachApprovals(venues)}>
-              Create outreach approvals
+              Create outreach batch
             </PrimaryButton>
             {batchFeedback ? <p className="text-sm font-semibold leading-6 text-forest">{batchFeedback}</p> : null}
           </div>
@@ -1814,7 +1819,7 @@ function ApprovalPolicyView({ onNavigate }: { onNavigate: (view: MobileView) => 
       <SectionIntro
         eyebrow="Approval policy"
         title="Every send still needs review."
-        description="This mobile v1 keeps the safest approval posture while outreach automation is still in development."
+        description="Mobile follows the same approval rules as desktop: the agent can prepare, but sends, bookings, payments, and changed terms require host approval."
       />
       <Panel className={spacing.sectionGap}>
         <p className="label-caps text-clay">Current rule</p>
@@ -1951,7 +1956,7 @@ function MessagesSection({ messages, activity }: { messages: PlanMessage[]; acti
       <SectionIntro
         eyebrow="Messages"
         title="Plan messages."
-        description="This route shows real planner messages and activity. Parsed venue replies are hidden until the outreach pipeline lands."
+        description="This route shows real planner messages and activity. Parsed outreach replies and quote updates also appear in Outreach after Gmail sync reads response threads."
       />
 
       <Panel className={cn(spacing.sectionGap, spacing.cardPaddingNone)}>
@@ -2009,7 +2014,7 @@ function VendorsSection({
         <SectionIntro
           eyebrow="Vendor detail"
           title={selected?.name ?? 'No vendor selected'}
-          description="Vendor drilldowns show category, estimate, guests, and status. Reply parsing is not enabled in this mobile v1."
+          description="Vendor drilldowns show category, estimate, distance/service-area context, status, readiness, and returned quotes when replies are parsed."
         />
         {selected ? (
           <>
@@ -2041,7 +2046,7 @@ function VendorsSection({
             <Panel className={cn(spacing.cardGap, 'border-ochre/25 bg-ochre-tint')}>
               <p className="label-caps text-clay">Vendor outreach</p>
               <p className={cn(spacing.labelToHeadline, 'text-sm leading-6 text-ink-soft')}>
-                Mobile shows vendor readiness and returned quotes. Batch vendor outreach approval needs a backend route before mobile can create those approvals directly.
+                Mobile shows vendor readiness and returned quotes. New vendor opportunity outreach starts from planner recommendations or approvals; booking and payment stay behind separate approval records.
               </p>
             </Panel>
             {selected.discoveryId ? (
@@ -2169,7 +2174,7 @@ function OutreachSection({
         onCancel={onCancelQuote}
       />
       {quotes.length === 0 && pendingOutreachApprovals.length === 0 ? (
-        <EmptyState title="No outreach activity yet" description="Create outreach approvals from venue options once contacts are ready. Replies and quote comparisons appear here after Gmail sync parses responses." />
+        <EmptyState title="No outreach activity yet" description="Create a venue outreach batch from venue options once contacts are ready. Replies and quote comparisons appear here after Gmail sync parses responses." />
       ) : null}
     </section>
   )
@@ -2349,14 +2354,14 @@ function SkippedOutreachView({
     <section>
       <BackButton label="Back to plan" onClick={() => onNavigate('planner')} />
       <SectionIntro
-        eyebrow="In development"
+        eyebrow="Approval gated"
         title={title}
         description={description}
       />
       <Panel className={cn(spacing.sectionGap, 'border-ochre/25 bg-ochre-tint')}>
         <p className="label-caps text-clay">Approval posture</p>
         <p className={cn(spacing.labelToHeadline, 'text-base leading-7 text-ink-soft')}>
-          Nothing external sends from this surface. Future outreach work must still keep host approval gates explicit.
+          Nothing external sends from this surface without an approval record. Outreach stays host-reviewed by default.
         </p>
       </Panel>
     </section>
