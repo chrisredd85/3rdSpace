@@ -1271,7 +1271,7 @@ function PlannerView({
         ) : (
           <PrimaryButton onClick={() => onNavigate('approval')}>Review next steps</PrimaryButton>
         )}
-        <SecondaryButton onClick={() => onNavigate('brief')}>Open event brief</SecondaryButton>
+        <SecondaryButton onClick={() => onNavigate('brief')}>Open event record</SecondaryButton>
       </div>
 
       <Panel className={cn(spacing.sectionGap, spacing.cardPaddingNone)}>
@@ -1508,7 +1508,7 @@ function BriefView({
           href={`/planner/experiences/${plan.id}`}
           className="mb-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-tan bg-cream px-4 text-sm font-bold text-clay shadow-sm"
         >
-          Open full brief
+          Open event record
           <ChevronRight className="h-4 w-4" />
         </Link>
       ) : null}

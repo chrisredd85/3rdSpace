@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { useEvents } from '@/lib/hooks/useEvents'
+import { useEvent, useEvents, type EventWithRelations } from '@/lib/hooks/useEvents'
 import { useUser } from '@/lib/hooks/useUser'
 import { cn } from '@/lib/utils'
 
@@ -121,6 +121,22 @@ type LoadState = {
   error: string | null
 }
 
+type Scorecard = NonNullable<ReturnType<typeof buildScorecard>>
+
+type EventRecordMetric = {
+  label: string
+  value: string
+  detail: string
+}
+
+type EventRecordAnalyticsCard = {
+  eyebrow: string
+  title: string
+  body: string
+  source: string
+  metrics: EventRecordMetric[]
+}
+
 const emptyTicketingSummary: TicketingSummary = {
   tickets_sold: 0,
   tickets_refunded: 0,
@@ -135,6 +151,7 @@ export default function PlannerAnalyticsPage() {
   const userId = user?.id || null
   const { data: events = [], isLoading: isEventsLoading } = useEvents(userId)
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+  const { data: selectedEventDetails } = useEvent(selectedEventId)
   const [loadState, setLoadState] = useState<LoadState>({
     data: null,
     isLoading: false,
@@ -356,6 +373,11 @@ export default function PlannerAnalyticsPage() {
               tone={scorecard.breakEvenDelta !== null && scorecard.breakEvenDelta >= 0 ? 'positive' : 'warning'}
             />
           </section>
+
+          <EventRecordAnalyticsSection
+            event={(selectedEventDetails ?? selectedEvent) as EventWithRelations | null}
+            scorecard={scorecard}
+          />
 
           <section className="grid gap-6 2xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
             <Card className="min-w-0 rounded-lg">
@@ -594,6 +616,144 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   return response.json() as Promise<T>
 }
 
+function buildEventRecordAnalytics(
+  event: EventWithRelations | null,
+  scorecard: Scorecard
+): EventRecordAnalyticsCard[] {
+  const targetGuests = event?.expected_attendees ?? null
+  const strongestGuestSignal = Math.max(scorecard.paidTickets, scorecard.checkedIn)
+  const remainingGuestTarget = targetGuests === null ? null : Math.max(targetGuests - strongestGuestSignal, 0)
+  const budgetDollars = readNumber(event?.budget)
+  const venueBooking = event?.venue_booking ?? null
+  const vendorBookings = event?.vendor_bookings ?? []
+  const activeVendorBookings = vendorBookings.filter((booking) => isActiveBookingStatus(booking.status))
+  const confirmedVendorBookings = vendorBookings.filter((booking) => isCommittedBookingStatus(booking.status))
+  const venueAmount = readNumber(venueBooking?.final_price) ?? readNumber(venueBooking?.quoted_price)
+  const vendorAmount = vendorBookings.reduce((sum, booking) => (
+    sum + (readNumber(booking.final_price) ?? readNumber(booking.quoted_price) ?? 0)
+  ), 0)
+  const ticketTierCount = scorecard.tiers.length
+  const hasTicketingSignal = scorecard.paidTickets > 0 || ticketTierCount > 0
+  const hasAttendanceSignal = scorecard.checkedIn > 0 || scorecard.importedAttendees > 0
+
+  return [
+    {
+      eyebrow: 'Guests',
+      title: 'Guest performance',
+      body: 'Target, sales, and check-ins are shown together so the host can see whether the event is filling or needs another push.',
+      source: 'events + ticketing',
+      metrics: [
+        {
+          label: 'Target',
+          value: targetGuests === null ? 'Not set' : formatCount(targetGuests),
+          detail: 'Planned guest count from the event record.',
+        },
+        {
+          label: 'Sold / RSVP',
+          value: scorecard.paidTickets > 0 ? formatCount(scorecard.paidTickets) : 'No sales yet',
+          detail: 'Imported ticketing rows when a platform or CSV is connected.',
+        },
+        {
+          label: 'Checked in',
+          value: scorecard.checkedIn > 0 ? formatCount(scorecard.checkedIn) : 'No check-ins yet',
+          detail: 'Actual attendance from imported check-in rows or post-event proof.',
+        },
+        {
+          label: 'Remaining',
+          value: remainingGuestTarget === null ? 'Needs target' : formatCount(remainingGuestTarget),
+          detail: 'Target minus the strongest available attendance signal.',
+        },
+      ],
+    },
+    {
+      eyebrow: 'Money',
+      title: 'Profitability model',
+      body: 'Budget, revenue, cost, and profit stay in analytics after the financial recompute runs, instead of crowding the planner chat.',
+      source: 'financial summary',
+      metrics: [
+        {
+          label: 'Budget',
+          value: budgetDollars === null ? 'No cap set' : formatMoney(budgetDollars),
+          detail: 'Budget cap from the event record.',
+        },
+        {
+          label: 'Net revenue',
+          value: formatMoney(scorecard.netRevenueDollars),
+          detail: hasTicketingSignal ? 'After imported ticketing fees and refunds.' : 'Zero until ticketing data exists.',
+        },
+        {
+          label: 'Total costs',
+          value: formatMoney(scorecard.totalCostsDollars),
+          detail: 'Venue, vendor, and entered event costs after recompute.',
+        },
+        {
+          label: 'Expected profit',
+          value: formatMoney(scorecard.expectedProfitDollars),
+          detail: 'Net revenue minus known event costs.',
+        },
+      ],
+    },
+    {
+      eyebrow: 'Partners',
+      title: 'Venue + vendor terms',
+      body: 'Accepted or confirmed partner rows appear as operating metrics here; the event record remains the source of truth for the exact terms.',
+      source: 'booking rows',
+      metrics: [
+        {
+          label: 'Venue',
+          value: venueBooking ? formatBookingStatus(venueBooking.status) : 'No venue terms',
+          detail: venueAmount === null ? 'No venue cost loaded yet.' : `${formatMoney(venueAmount)} tracked on the venue row.`,
+        },
+        {
+          label: 'Vendors',
+          value: activeVendorBookings.length === 0 ? 'No vendor terms' : `${activeVendorBookings.length} active`,
+          detail: confirmedVendorBookings.length === 0
+            ? 'No confirmed vendor terms yet.'
+            : `${confirmedVendorBookings.length} confirmed or completed vendor row${confirmedVendorBookings.length === 1 ? '' : 's'}.`,
+        },
+        {
+          label: 'Vendor quote total',
+          value: vendorAmount > 0 ? formatMoney(vendorAmount) : 'Needs quote',
+          detail: 'Sum of known final or quoted vendor amounts.',
+        },
+        {
+          label: 'Approval posture',
+          value: 'Approval-gated',
+          detail: 'Price, date, seat, partner, or terms changes still require re-approval before execution.',
+        },
+      ],
+    },
+    {
+      eyebrow: 'Learning',
+      title: 'Repeatability signals',
+      body: 'Analytics keeps the reusable learnings: whether the source data is strong enough and what should inform the next run.',
+      source: 'derived',
+      metrics: [
+        {
+          label: 'Ticket tiers',
+          value: ticketTierCount === 0 ? 'No tiers yet' : formatCount(ticketTierCount),
+          detail: 'Tier movement informs pricing on the next event.',
+        },
+        {
+          label: 'Attendance source',
+          value: scorecard.sourceConfidenceLabel,
+          detail: hasAttendanceSignal ? 'Based on imported or submitted attendance.' : 'Waiting for tickets, RSVPs, or check-ins.',
+        },
+        {
+          label: 'Break-even',
+          value: scorecard.breakEvenTickets === null ? 'Needs costs' : `${formatCount(scorecard.breakEvenTickets)} tickets`,
+          detail: 'Minimum sales target before profit becomes dependable.',
+        },
+        {
+          label: 'Next run read',
+          value: scorecard.recommendation.title,
+          detail: 'Summary generated from actual analytics inputs.',
+        },
+      ],
+    },
+  ]
+}
+
 function buildScorecard(data: AnalyticsState | null) {
   if (!data) return null
 
@@ -771,6 +931,63 @@ function PageShell({ children }: { children: ReactNode }) {
   return <main className="min-h-screen space-y-6 px-4 py-5 sm:px-6 lg:px-8">{children}</main>
 }
 
+function EventRecordAnalyticsSection({
+  event,
+  scorecard,
+}: {
+  event: EventWithRelations | null
+  scorecard: Scorecard
+}) {
+  const cards = buildEventRecordAnalytics(event, scorecard)
+
+  return (
+    <section className="rounded-lg border border-tan bg-cream p-5 shadow-card sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.22em] text-clay">Event record intelligence</p>
+          <h2 className="mt-2 font-display text-2xl font-bold text-ink">What moved from the brief into analytics</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-soft">
+            Performance signals live here once they can be measured. The full event record still owns terms, approvals, and execution history.
+          </p>
+        </div>
+        {event ? (
+          <Button type="button" variant="outline" asChild>
+            <Link href={`/planner/experiences/${event.id}`}>
+              Open event record
+            </Link>
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-2 2xl:grid-cols-4">
+        {cards.map((card) => (
+          <div key={card.title} className="rounded-lg border border-tan bg-cream-deep/55 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-clay">{card.eyebrow}</p>
+                <h3 className="mt-2 font-display text-xl font-bold text-ink">{card.title}</h3>
+              </div>
+              <SourcePill label={card.source} compact muted />
+            </div>
+            <p className="mt-3 text-sm leading-6 text-ink-soft">{card.body}</p>
+            <div className="mt-4 space-y-2">
+              {card.metrics.map((metric) => (
+                <div key={metric.label} className="rounded-md border border-tan bg-cream p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">{metric.label}</p>
+                    <p className="text-right font-semibold text-ink">{metric.value}</p>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-ink-soft">{metric.detail}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function MetricCard({
   icon,
   label,
@@ -937,6 +1154,10 @@ function formatCents(value: number | null) {
   return formatMoney(centsToDollars(value))
 }
 
+function formatCount(value: number) {
+  return new Intl.NumberFormat('en-US').format(value)
+}
+
 function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`
 }
@@ -957,6 +1178,20 @@ function formatDateTime(value: string | null) {
 
 function formatTierCategory(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function formatBookingStatus(value: string | null | undefined) {
+  if (!value) return 'Unknown'
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function isActiveBookingStatus(value: string | null | undefined) {
+  const status = value ?? ''
+  return !['cancelled', 'canceled', 'declined', 'rejected'].includes(status)
+}
+
+function isCommittedBookingStatus(value: string | null | undefined) {
+  return ['approved', 'confirmed', 'completed', 'paid'].includes(value ?? '')
 }
 
 function sourceConfidenceLabel(value?: PostEventSummary['source_confidence']) {

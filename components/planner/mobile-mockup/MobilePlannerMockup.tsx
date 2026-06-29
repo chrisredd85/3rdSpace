@@ -580,7 +580,7 @@ function PlannerView({
 
       <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
         <PrimaryLink href="/mobile-mockup/approvals">Review 3 approvals</PrimaryLink>
-        <SecondaryButton onClick={() => onNavigate('brief')}>Open event brief</SecondaryButton>
+        <SecondaryButton onClick={() => onNavigate('brief')}>Open event record</SecondaryButton>
       </div>
 
       <Panel className={cn(spacing.sectionGap, spacing.cardPaddingNone)}>
