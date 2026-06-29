@@ -43,8 +43,15 @@ function renderRoleLoginPage() {
 }
 
 describe('RoleLoginPage account creation placement', () => {
+  let locationAssign: jest.Mock
+
   beforeEach(() => {
     Element.prototype.scrollIntoView = jest.fn()
+    locationAssign = jest.fn()
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, assign: locationAssign },
+      writable: true,
+    })
   })
 
   afterEach(() => {
@@ -104,5 +111,29 @@ describe('RoleLoginPage account creation placement', () => {
         expectedUserType: 'community_builder',
       }),
     }))
+  })
+
+  it('uses a full page navigation after successful login so auth cookies are committed before protected routes load', async () => {
+    const user = userEvent.setup()
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      dashboardPath: '/planner',
+      user: {
+        id: 'user-1',
+        email: 'creator@example.com',
+        userType: 'community_builder',
+        role: 'builder',
+        companyName: 'Example Org',
+      },
+    }), { status: 200 })) as typeof fetch
+
+    renderRoleLoginPage()
+
+    await user.type(screen.getByLabelText('Email'), 'creator@example.com')
+    await user.type(screen.getByLabelText('Password'), 'password1!')
+    await user.click(screen.getByRole('button', { name: /Sign in/i }))
+
+    expect(await screen.findByText('Welcome back!')).toBeInTheDocument()
+    expect(locationAssign).toHaveBeenCalledWith('/planner')
   })
 })

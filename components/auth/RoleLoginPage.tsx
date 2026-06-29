@@ -134,7 +134,7 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
       addToast({ title: 'Welcome back!', description: 'You have been successfully logged in.' })
       queryClient.clear()
       queryClient.setQueryData(userKeys.current, result.user)
-      router.push(redirect || result.dashboardPath || '/dashboard')
+      window.location.assign(redirect || result.dashboardPath || '/dashboard')
     } catch {
       setLoginError('Connection failed. Please try again.')
       setIsLoading(false)
