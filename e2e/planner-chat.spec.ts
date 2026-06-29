@@ -415,7 +415,7 @@ test.describe('Agent Planner chat', () => {
     expect(createPlanCalls).toBe(1)
   })
 
-  test('planner brief strip replaces the Event Plan tab', async ({ page }) => {
+  test('planner keeps the event record out of the tab stack', async ({ page }) => {
     test.setTimeout(90000)
     await page.setViewportSize({ width: 1600, height: 900 })
     await page.route('**/api/planner/public-intake', async (route) => {
@@ -434,15 +434,8 @@ test.describe('Agent Planner chat', () => {
     await expect(page.getByText('Active planner workspace', { exact: true })).toBeVisible({ timeout: 30000 })
     await expect(page.getByRole('textbox', { name: /reply to planner agent/i })).toBeVisible({ timeout: 15000 })
     await expect(page.getByRole('button', { name: /^event plan$/i })).toHaveCount(0)
-
-    const briefStrip = page.getByLabel('Active event brief summary')
-    await expect(briefStrip).toBeVisible({ timeout: 15000 })
-    await expect(briefStrip.getByText('Mission').first()).toBeVisible()
-    await expect(briefStrip.getByText('90 guests').first()).toBeVisible()
-    await expect(briefStrip.getByRole('link', { name: /open full brief/i })).toHaveAttribute(
-      'href',
-      /\/planner\/experiences\//
-    )
+    await expect(page.getByLabel('Active event brief summary')).toHaveCount(0)
+    await expect(page.getByText('Open full brief')).toHaveCount(0)
   })
 
   test('day party mock asks coherent follow-up questions before recommendations', async ({ page }) => {

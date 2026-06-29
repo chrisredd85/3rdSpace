@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { CalendarDays, CheckCircle2, ChevronDown, LayoutTemplate, Loader2, Mail, MessageSquare, RefreshCw, SendHorizontal, Sparkles, X } from 'lucide-react'
+import { CalendarDays, CheckCircle2, ChevronDown, FileText, LayoutTemplate, Loader2, Mail, MessageSquare, RefreshCw, SendHorizontal, Sparkles, X } from 'lucide-react'
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
 import { PlannerDataConnectionPanel } from '@/components/planner/PlannerDataConnectionPanel'
-import { PlannerBriefStrip } from '@/components/planner/PlannerBriefStrip'
 import { PostEventReportCard } from '@/components/planner/PostEventReportCard'
 import { PlannerSignupGate } from '@/components/planner/PlannerSignupGate'
 import { PlannerTimelineCountdown } from '@/components/planner/PlannerTimelineCountdown'
@@ -1548,6 +1547,10 @@ export function PlannerWorkspace() {
   const approvalSummary = getApprovalSummary(approvalMessages)
   const activeTabLabel = planTabs.find((tab) => tab.id === activeTab)?.label ?? 'Chat'
   const activeDateChip = getActivePlanDateChip(activePlan, messages)
+  const eventRecordHref =
+    persistenceMode === 'server' && activePlan.id && !activePlan.id.startsWith('mock-plan-')
+      ? `/planner/experiences/${activePlan.id}`
+      : null
   const demoBanner = isDemoSession ? (
     <DemoSessionBanner
       updatedAt={activePlan.updated_at}
@@ -1600,13 +1603,17 @@ export function PlannerWorkspace() {
               )}
               {activeDateChip.label}
             </span>
+            {eventRecordHref ? (
+              <Button type="button" variant="glass" size="sm" onClick={() => router.push(eventRecordHref)}>
+                <FileText className="h-4 w-4" />
+                Event record
+              </Button>
+            ) : null}
             <Button type="button" variant="glass" size="sm" disabled={isStartingNewPlan} onClick={() => void handleNewPlan()}>
               {isStartingNewPlan ? 'Starting...' : 'New plan'}
             </Button>
           </div>
         </div>
-
-        <PlannerBriefStrip plan={activePlan} messages={messages} accountId={activePlan.user_id} className="mb-5" />
 
         <div className="mb-5 flex gap-2 overflow-x-auto rounded-2xl border border-border bg-card/40 p-1">
           {planTabs.map((tab) => {
