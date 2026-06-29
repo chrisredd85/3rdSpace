@@ -2146,25 +2146,61 @@ function OutreachSection({
 }) {
   const quotes = mobileQuoteOptions(data.planPayload?.plan)
   const pendingOutreachApprovals = data.planPayload?.approvals.filter(isOutreachApproval) ?? []
+  const venues = venueRecommendations(data.planPayload?.recommendations ?? [])
+  const readyVenues = venues.filter((venue) => venue.contactStatus === 'ready_to_reach_out')
+  const contactRescueCount = venues.filter((venue) => venue.contactStatus && venue.contactStatus !== 'ready_to_reach_out').length
+  const planSearchHref = data.activePlanId ? `/planner/outreach-search?plan=${encodeURIComponent(data.activePlanId)}` : '/planner/outreach-search'
+
   return (
     <section>
       <BackButton label="Back to plan" onClick={() => onNavigate('planner')} />
       <SectionIntro
         eyebrow="Outreach"
-        title="Review outreach and replies."
-        description="Outbound messages still require approval. Returned quotes can update the brief, but booking and payment remain separate approvals."
+        title="Source partners, then compare replies."
+        description="Mobile follows the same loop as desktop: discover contacts, create an approval batch, sync replies, then use returned terms to update the brief."
       />
+
+      <Panel className={cn(spacing.sectionGap, spacing.cardPaddingNone)}>
+        <div className="grid grid-cols-2 divide-x divide-y divide-tan sm:grid-cols-4">
+          <MobileOutreachMetric label="Ready" value={String(readyVenues.length)} />
+          <MobileOutreachMetric label="Need contact" value={String(contactRescueCount)} />
+          <MobileOutreachMetric label="Batches" value={String(pendingOutreachApprovals.length)} />
+          <MobileOutreachMetric label="Replies" value={String(quotes.length)} />
+        </div>
+      </Panel>
+
+      <Panel className={spacing.cardGap}>
+        <p className="label-caps text-clay">Find partners</p>
+        <h2 className={cn(spacing.labelToHeadline, 'font-display text-[28px] leading-tight text-ink')}>
+          Start from the active event.
+        </h2>
+        <p className={cn(spacing.headlineToBody, 'text-base leading-7 text-ink-soft')}>
+          Search Places, review contact readiness, open contact forms when needed, then create one reviewed outreach batch.
+        </p>
+        <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
+          <PrimaryLink href={planSearchHref}>Find venues to contact</PrimaryLink>
+          <SecondaryLink href="/planner/vendors">Review vendor options</SecondaryLink>
+        </div>
+      </Panel>
+
       {pendingOutreachApprovals.length > 0 ? (
         <Panel className={cn(spacing.sectionGap, 'border-clay/25 bg-clay-tint')}>
-          <p className="label-caps text-clay">Drafts pending</p>
+          <p className="label-caps text-clay">Approval batches</p>
           <p className={cn(spacing.labelToHeadline, 'text-base leading-7 text-ink-soft')}>
-            {pendingOutreachApprovals.length} outreach draft{pendingOutreachApprovals.length === 1 ? '' : 's'} need review before Gmail sends.
+            {pendingOutreachApprovals.length} outreach batch{pendingOutreachApprovals.length === 1 ? '' : 'es'} {pendingOutreachApprovals.length === 1 ? 'needs' : 'need'} review before Gmail sends.
           </p>
           <div className={spacing.bodyToAction}>
             <PrimaryButton onClick={() => onNavigate('approval')}>Review drafts</PrimaryButton>
           </div>
         </Panel>
-      ) : null}
+      ) : (
+        <Panel className={cn(spacing.cardGap, 'border-tan bg-cream-deep')}>
+          <p className="label-caps text-ink-soft">Approval batches</p>
+          <p className={cn(spacing.labelToHeadline, 'text-base leading-7 text-ink-soft')}>
+            No outreach batch is waiting. Create one after the contact-ready candidates are selected.
+          </p>
+        </Panel>
+      )}
       <QuoteComparisonPanel
         title="Best fit based on responses"
         quotes={quotes}
@@ -2174,7 +2210,7 @@ function OutreachSection({
         onCancel={onCancelQuote}
       />
       {quotes.length === 0 && pendingOutreachApprovals.length === 0 ? (
-        <EmptyState title="No outreach activity yet" description="Create a venue outreach batch from venue options once contacts are ready. Replies and quote comparisons appear here after Gmail sync parses responses." />
+        <EmptyState title="No outreach replies yet" description="Once Gmail sync reads partner replies, quote comparison and next-step options appear here." />
       ) : null}
     </section>
   )
@@ -2759,6 +2795,15 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-tan bg-cream-deep p-4">
       <p className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-ink-faint">{label}</p>
       <p className="mt-2 truncate font-display text-[24px] leading-tight text-ink">{value}</p>
+    </div>
+  )
+}
+
+function MobileOutreachMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-h-[92px] px-4 py-3">
+      <p className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-ink-faint">{label}</p>
+      <p className="mt-2 font-display text-3xl leading-none text-ink">{value}</p>
     </div>
   )
 }
