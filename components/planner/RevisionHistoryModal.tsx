@@ -186,7 +186,7 @@ function sourceExcerpt(revision: PlanRevision) {
 
 function formatImpactSummary(revision: PlanRevision) {
   const impact = asRecord(revision.impact_summary)
-  if (!impact) return 'Event brief refreshed. No additional stale records were reported.'
+  if (!impact) return 'Event record refreshed. No additional stale records were reported.'
 
   const parts: string[] = []
   const supersededRecommendations = countArray(impact.superseded_recommendation_ids ?? impact.invalidated_recommendation_ids)
@@ -199,7 +199,7 @@ function formatImpactSummary(revision: PlanRevision) {
   if (outreachThreads > 0) parts.push(`${outreachThreads} outreach thread${outreachThreads === 1 ? '' : 's'} needs updated terms`)
   if (rediscovery.length > 0) parts.push(`rediscovery queued for ${rediscovery.join(', ')}`)
 
-  return parts.length > 0 ? parts.join('. ') + '.' : 'Event brief refreshed. Current options remain usable.'
+  return parts.length > 0 ? parts.join('. ') + '.' : 'Event record refreshed. Current options remain usable.'
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

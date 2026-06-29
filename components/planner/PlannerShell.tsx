@@ -1,7 +1,7 @@
 /**
  * Purpose: Provides the light-mode planner product shell with collapsible side panels.
  * Props: Receives route children and renders them between the navigation sidebar and
- * Live Event Plan artifact panel.
+ * Live event record artifact panel.
  * Key behaviors: Scopes light design tokens to `/planner`, persists open/closed panel
  * state in localStorage, and uses width transitions so panels slide open and closed.
  */

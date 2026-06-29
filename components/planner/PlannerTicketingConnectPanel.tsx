@@ -422,7 +422,7 @@ function TicketAnalyticsPreview({
           <h4 className="mt-1 font-display text-lg font-bold text-foreground">Early Bird, GA, VIP, and more</h4>
         </div>
         <span className="shrink-0 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
-          Normalized
+          Cleaned for analytics
         </span>
       </div>
 

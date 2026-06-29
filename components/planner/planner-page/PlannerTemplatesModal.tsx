@@ -140,7 +140,7 @@ export function PlannerTemplatesModal(props: {
                   disabled={props.isSavingTemplate}
                 >
                   {props.isSavingTemplate ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutTemplate className="h-4 w-4" />}
-                  Save current plan
+                  Save this plan as template
                 </Button>
               ) : null}
             </div>
@@ -231,6 +231,9 @@ export function PlannerTemplatesModal(props: {
                           Prefer same vendors
                         </label>
                       </div>
+                      <p className="rounded-xl border border-border bg-background/70 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                        3rdPlace creates a fresh plan and approval queue for the new run. Nothing sends, books, or pays until you approve.
+                      </p>
                     </div>
                   ) : null}
                   <Button
@@ -258,7 +261,7 @@ export function PlannerTemplatesModal(props: {
           {props.canSaveCurrentPlan ? (
             <Button type="button" variant="hero" size="sm" onClick={props.onSaveCurrentPlan} disabled={props.isSavingTemplate}>
               {props.isSavingTemplate ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutTemplate className="h-4 w-4" />}
-              Save current plan
+              Save this plan as template
             </Button>
           ) : null}
           <Button type="button" variant="glass" size="sm" onClick={props.onRefresh} disabled={props.isLoading}>

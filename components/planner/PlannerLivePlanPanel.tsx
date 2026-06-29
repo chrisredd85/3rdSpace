@@ -1,5 +1,5 @@
 /**
- * Purpose: Renders the fixed right-side Live Event Plan artifact panel for `/planner`.
+ * Purpose: Renders the fixed right-side event record artifact panel for `/planner`.
  * Props: Accepts the active plan id and full conversation thread, plus optional
  * overrides for legacy stubbed budget, approval, rule, and source data.
  * Key behaviors: Derives event summary, recommendations, approvals, profit
@@ -1984,7 +1984,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
     )}>
       <div className="border-b border-tan px-4 py-6">
         <div className="space-y-2">
-          <p className="label-caps whitespace-nowrap text-ink-soft">Event Plan</p>
+          <p className="label-caps whitespace-nowrap text-ink-soft">Event record</p>
           {updatedAtLabel ? (
             <span className="inline-flex shrink-0 items-center gap-2 text-xs font-semibold text-forest">
               <span className="h-2 w-2 rounded-full bg-forest" />
@@ -2048,7 +2048,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         className={cn(inline ? 'pb-4' : 'min-h-0 flex-1 overflow-y-auto pb-24')}
         data-planner-side-scroll={inline ? undefined : 'true'}
       >
-        <ArtifactSection icon={<Sparkles className="h-5 w-5" />} title="Event Plan" subtitle="Structured artifact" collapsible={false}>
+        <ArtifactSection icon={<Sparkles className="h-5 w-5" />} title="Brief" subtitle="Structured event record" collapsible={false}>
           <div className="grid gap-x-5 gap-y-5 [grid-template-columns:repeat(auto-fit,minmax(120px,1fr))]">
             <ArtifactField label="Event Type" value={formatEventType(eventSummary.event_type)} />
             <ArtifactField label="Date Window" value={eventSummary.date ?? 'Need date'} />
@@ -2091,7 +2091,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                   Try a new date
                 </h4>
                 <p className="mt-2 max-w-xl text-sm leading-relaxed text-ink-soft">
-                  Updates this brief as a proposed change and creates a Gmail approval before any venue or vendor email is sent.
+                  Proposes a new date and creates approval-gated outreach before any venue or vendor email sends.
                 </p>
               </div>
               <button
@@ -2177,6 +2177,10 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                     />
                   </label>
                 </div>
+
+                <p className="text-xs leading-relaxed text-ink-faint">
+                  Use the defaults unless a specific partner should receive the date-change note.
+                </p>
 
                 <label className="block">
                   <span className="text-xs font-bold uppercase tracking-[0.08em] text-ink-faint">Organizer note optional</span>
@@ -2643,7 +2647,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           </div>
         </ArtifactSection>
 
-        <ArtifactSection icon={<Check className="h-5 w-5" />} title="Connected Data" subtitle={`${sources.length} sources available`} defaultCollapsed>
+        <ArtifactSection icon={<Check className="h-5 w-5" />} title="What 3rdPlace is using" subtitle={`${sources.length} sources available`} defaultCollapsed>
           <div className="flex flex-wrap gap-2">
             {sources.map((source) => (
               <span key={source} className="inline-flex items-center gap-1.5 rounded-full border border-tan bg-cream-deep px-3 py-1.5 text-xs font-semibold text-ink-soft">
@@ -3055,6 +3059,7 @@ function VenueComparisonTable({
   onReportIncorrectInfo: (entity: ReportIncorrectInfoEntity) => void
 }) {
   if (venues.length < 2) return null
+  const topVenue = venues[0]
 
   return (
     <div className="mt-4 rounded-lg border border-tan bg-cream p-5" data-testid="venue-comparison-table">
@@ -3068,6 +3073,14 @@ function VenueComparisonTable({
         <span className="rounded-full border border-tan bg-cream-deep px-3 py-1 text-xs font-bold uppercase tracking-[0.06em] text-forest">
           {venues.length} options
         </span>
+      </div>
+
+      <div className="mt-4 rounded-md border border-forest/20 bg-forest-tint/60 p-4">
+        <p className="text-xs font-bold uppercase tracking-[0.08em] text-forest">Recommended first</p>
+        <p className="mt-1 font-display text-lg font-semibold leading-tight text-ink">{topVenue.name}</p>
+        <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+          Best fit based on capacity, contact readiness, and event economics. Review the details below before approving outreach, holds, or payment.
+        </p>
       </div>
 
       <div className="mt-4 overflow-x-auto">
@@ -3187,7 +3200,7 @@ function OutreachQuoteComparison({
         <div>
           <p className="label-caps text-forest">Reply quotes</p>
           <p className="mt-2 text-sm leading-snug text-ink-soft">
-            Compare verified replies before updating the brief. Booking and payment still need separate approvals.
+            Compare verified replies before updating the event record. Booking and payment still need separate approvals.
           </p>
         </div>
         <span className="rounded-full border border-forest/20 bg-cream px-3 py-1 text-xs font-bold uppercase tracking-[0.06em] text-forest">
@@ -3249,7 +3262,7 @@ function OutreachQuoteCard({
           'shrink-0 rounded-full px-2 py-1 text-[11px] font-bold uppercase tracking-[0.06em]',
           isCommitted ? 'bg-forest-tint text-forest' : 'bg-clay-tint text-clay'
         )}>
-          {isCommitted ? 'Accepted' : option.status.replace(/_/g, ' ')}
+          {isCommitted ? 'In plan' : option.status.replace(/_/g, ' ')}
         </span>
       </div>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -3275,7 +3288,7 @@ function OutreachQuoteCard({
           onClick={() => onCommit(option)}
           className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-md bg-clay px-3 py-2 text-sm font-bold text-cream transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
         >
-          {isCommitted ? 'Accepted' : isSaving ? 'Saving' : feedback === 'error' ? 'Retry' : 'Accept quote'}
+          {isCommitted ? 'In plan' : isSaving ? 'Saving' : feedback === 'error' ? 'Retry' : 'Use quote in plan'}
         </button>
       </div>
     </div>
@@ -3429,7 +3442,7 @@ function PlanRevisionBanner({
           </p>
           {sectionLabel ? (
             <p className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-forest">
-              Event brief refreshed: {sectionLabel}
+              Event record refreshed: {sectionLabel}
             </p>
           ) : null}
         </div>
@@ -4141,9 +4154,9 @@ function buildShoppingList(
     label: livePlan?.committedVenue?.name ?? primaryVenue?.name ?? deriveVenueShoppingLabel(summary),
     amountLabel: formatVenueShoppingAmount(summary, venueCost),
     note: livePlan?.committedVenue
-      ? `Accepted reply${livePlan.committedVenue.quotedDealModel ? ` · ${livePlan.committedVenue.quotedDealModel}` : ''}.`
+      ? `In-plan reply${livePlan.committedVenue.quotedDealModel ? ` · ${livePlan.committedVenue.quotedDealModel}` : ''}.`
       : primaryVenue?.fit ?? deriveVenueShoppingNote(summary),
-    badge: livePlan?.committedVenue ? 'Accepted quote' : undefined,
+    badge: livePlan?.committedVenue ? 'In plan' : undefined,
     readinessIndicator: resolveVenueReadiness(primaryVenue, livePlan, nowMs, Boolean(livePlan?.committedVenue)),
     reportEntity: primaryVenue?.discoveryVenueId
       ? { kind: 'venue', id: primaryVenue.discoveryVenueId, name: primaryVenue.name }
@@ -4167,8 +4180,8 @@ function buildShoppingList(
         category: formatVendorServiceCategory(vendor.serviceType),
         label: vendor.name ?? formatVendorServiceCategory(vendor.serviceType),
         amountLabel: formatCents(committedVendorQuoteCents(vendor)),
-        note: 'Accepted reply. Payment or booking still requires a separate approval.',
-        badge: 'Accepted quote',
+        note: 'In-plan reply. Payment or booking still requires a separate approval.',
+        badge: 'In plan',
         readinessIndicator: resolveCommittedVendorReadiness(vendor, nowMs),
       })
     }

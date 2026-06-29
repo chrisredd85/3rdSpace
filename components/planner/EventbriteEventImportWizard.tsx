@@ -334,7 +334,7 @@ export function EventbriteEventImportWizard({ className }: EventbriteEventImport
       {errorMessage ? <StatusMessage tone="error" message={errorMessage} /> : null}
       {successMessage ? <StatusMessage tone="success" message={successMessage} /> : null}
       {queuedJobIds.length ? (
-        <StatusMessage tone="neutral" message={`Queued job${queuedJobIds.length === 1 ? '' : 's'}: ${queuedJobIds.join(', ')}`} />
+        <StatusMessage tone="neutral" message="Import queued. 3rdPlace will update this event record when the sync finishes." />
       ) : null}
 
       <div className="overflow-hidden rounded-lg border border-tan bg-cream-deep/50">

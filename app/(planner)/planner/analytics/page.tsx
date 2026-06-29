@@ -286,7 +286,7 @@ export default function PlannerAnalyticsPage() {
               Analytics that feeds the <span className="text-gradient-brand">next plan</span>
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-ink-soft">
-              Money, ticket tier performance, attendance, and data coverage are separated by source so the page does not invent metrics the schema cannot support yet.
+              3rdPlace only shows metrics backed by connected ticketing, check-ins, approved partner terms, or confirmed costs.
             </p>
           </div>
 
@@ -453,7 +453,7 @@ export default function PlannerAnalyticsPage() {
               <CardHeader className="min-w-0">
                 <CardTitle>Run Again</CardTitle>
                 <CardDescription className="[overflow-wrap:normal]">
-                  Deterministic recommendation from current analytics, not an invented agent claim.
+                  Based on the data 3rdPlace has today.
                 </CardDescription>
               </CardHeader>
               <CardContent className="min-w-0 space-y-4">
@@ -508,7 +508,7 @@ export default function PlannerAnalyticsPage() {
               <CardContent className="space-y-3">
                 <ImpactRow label="Foot traffic proxy" value={String(scorecard.venueFootTrafficProxy)} source="tickets/check-ins" />
                 <ImpactRow label="Community Host Incentive projection" value={formatMoney(scorecard.venueChiProjectionDollars)} source="financial summary" />
-                <ImpactRow label="Ticket sales share projection" value={formatMoney(scorecard.venueSalesShareProjectionDollars)} source="venue terms" />
+                <ImpactRow label="Ticket CHI projection" value={formatMoney(scorecard.venueSalesShareProjectionDollars)} source="venue terms" />
                 <ImpactRow label="Bar/POS spend" value="Needs venue data" source="future/manual" muted />
               </CardContent>
             </Card>
@@ -555,7 +555,7 @@ export default function PlannerAnalyticsPage() {
             <Card className="rounded-lg">
               <CardHeader>
                 <CardTitle>Data Coverage</CardTitle>
-                <CardDescription>What is factual today versus what still needs instrumentation.</CardDescription>
+                <CardDescription>Which event inputs are ready and which ones still need data.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 {scorecard.coverage.map((item) => (
@@ -567,15 +567,15 @@ export default function PlannerAnalyticsPage() {
 
           <Card className="rounded-lg">
             <CardHeader>
-              <CardTitle>Not Factual Yet</CardTitle>
-              <CardDescription>These should stay hidden, empty, or explicitly marked as assumptions until the app captures the source data.</CardDescription>
+              <CardTitle>Needs more data</CardTitle>
+              <CardDescription>These stay empty or clearly marked until the event has the right source data.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               {[
-                ['True contribution margin per tier', 'Needs per-tier variable cost or a cost allocation rule.'],
-                ['Venue bar/POS spend', 'Needs manual venue report or POS integration.'],
+                ['Per-tier contribution margin', 'Add per-tier variable costs or confirm the cost allocation rule.'],
+                ['Venue bar/POS spend', 'Add a venue report or POS integration before this becomes factual.'],
                 ['Walk-ins', 'Needs a dedicated walk-in count, not just ticket/check-in proxy.'],
-                ['Satisfaction/NPS', 'Needs event-linked survey or review rows.'],
+                ['Satisfaction/NPS', 'Add event-linked survey or review rows.'],
               ].map(([title, body]) => (
                 <div key={title} className="rounded-lg border border-tan bg-cream-deep/55 p-4">
                   <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-md border border-ochre/30 bg-ochre-tint text-ochre">
@@ -945,9 +945,9 @@ function EventRecordAnalyticsSection({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-clay">Event record intelligence</p>
-          <h2 className="mt-2 font-display text-2xl font-bold text-ink">What moved from the brief into analytics</h2>
+          <h2 className="mt-2 font-display text-2xl font-bold text-ink">What this event taught us</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-soft">
-            Performance signals live here once they can be measured. The full event record still owns terms, approvals, and execution history.
+            Measured signals live here once they are backed by connected data. The event record still owns terms, approvals, and execution history.
           </p>
         </div>
         {event ? (
@@ -1079,15 +1079,40 @@ function CoverageRow({ label, value, status, source }: { label: string; value: s
 }
 
 function SourcePill({ label, compact = false, muted = false }: { label: string; compact?: boolean; muted?: boolean }) {
+  const displayLabel = formatSourceLabel(label)
+
   return (
     <span className={cn(
       'inline-flex items-center rounded-full border font-semibold',
       compact ? 'px-2 py-0.5 text-[11px]' : 'px-3 py-1 text-xs',
       muted ? 'border-tan bg-cream-deep/60 text-ink-soft' : 'border-clay/30 bg-clay-tint text-clay'
     )}>
-      {label}
+      {displayLabel}
     </span>
   )
+}
+
+function formatSourceLabel(label: string) {
+  const normalized = label.trim().toLowerCase()
+  const sourceLabels: Record<string, string> = {
+    event_financial_summary: 'Event financials',
+    derived: 'Calculated by 3rdPlace',
+    imported_attendees: 'Ticketing import',
+    checked_in: 'Check-ins',
+    check_in_time: 'Check-in times',
+    'proxy, not pos': 'Ticket/check-in proxy',
+    event_sales_data: 'Ticketing import',
+    'venue_bookings + vendor_bookings': 'Approved partner terms',
+    'cost allocation assumption': 'Estimated cost split',
+    'post-event report': 'Event report',
+    'financial summary': 'Event financials',
+    'venue terms': 'Venue terms',
+    'future/manual': 'Manual update needed',
+    'tickets/check-ins': 'Tickets and check-ins',
+    'ticketing and check-ins': 'Tickets and check-ins',
+  }
+
+  return sourceLabels[normalized] ?? label.replace(/_/g, ' ')
 }
 
 function EmptyBlock({ icon, title, body }: { icon: ReactNode; title: string; body: string }) {

@@ -23,7 +23,7 @@ export default async function ExperiencePlanBriefPage({ params }: ExperiencePlan
             Experiences
           </Link>
           <ChevronRight className="h-4 w-4 shrink-0 text-ink-faint" />
-          <span className="truncate text-ink">Event brief</span>
+          <span className="truncate text-ink">Event record</span>
         </nav>
         <PlannerExperienceBriefDetail planId={planId} />
       </main>
