@@ -477,7 +477,7 @@ function MobileNavigationPanel({
             <PanelInternalLink label="Venue pipeline" isActive={activeSection === 'planner' && (activeView === 'venues' || activeView === 'venue-detail')} onClick={() => openEventView('venues')} />
             <PanelInternalLink label="Budget" isActive={activeSection === 'planner' && activeView === 'budget'} onClick={() => openEventView('budget')} />
             <PanelInternalLink label="Outreach drafts" isActive={activeSection === 'planner' && activeView === 'draft'} onClick={() => openEventView('draft')} />
-            <PanelInternalLink label="Event brief" isActive={activeSection === 'planner' && activeView === 'brief'} onClick={() => openEventView('brief')} />
+            <PanelInternalLink label="Event record" isActive={activeSection === 'planner' && activeView === 'brief'} onClick={() => openEventView('brief')} />
           </div>
         </div>
 
@@ -887,8 +887,8 @@ function BriefView({ onNavigate }: { onNavigate: (view: MockupView) => void }) {
     <section>
       <BackButton label="Back to plan" onClick={() => onNavigate('planner')} />
       <SectionIntro
-        eyebrow="Event brief"
-        title="Shared operating brief."
+        eyebrow="Event record"
+        title="Shared operating context."
         description="This is what 3rdPlace believes about the event. Hosts correct it here before facts are used externally."
       />
 

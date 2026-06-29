@@ -204,7 +204,7 @@ export default function PlannerTemplatesPage() {
             </Button>
             <Button type="button" variant="hero" onClick={() => router.push('/planner')}>
               <LayoutTemplate className="h-4 w-4" />
-              Save current plan
+              Open planner to save a template
             </Button>
           </div>
         </header>
@@ -393,7 +393,7 @@ function SavedTemplateCard(props: {
               className="mt-1 h-4 w-4 accent-primary"
             />
             <span>
-              <span className="block font-semibold text-ink">Try same venue</span>
+              <span className="block font-semibold text-ink">Prefer same venue</span>
               Boost ranking for the saved venue. Capacity and availability still checked — no preference if ineligible.
             </span>
           </label>
@@ -406,11 +406,15 @@ function SavedTemplateCard(props: {
               className="mt-1 h-4 w-4 accent-primary"
             />
             <span>
-              <span className="block font-semibold text-ink">Try same vendors</span>
+              <span className="block font-semibold text-ink">Prefer same vendors</span>
               Boost ranking for saved vendors. No outreach until you approve the fresh plan.
             </span>
           </label>
         </div>
+
+        <p className="rounded-md border border-tan bg-cream-deep px-3 py-2 text-xs leading-relaxed text-ink-soft">
+          3rdPlace drafts fresh outreach and approvals for the new date. Nothing sends, books, or pays until you approve.
+        </p>
 
         <Button type="submit" variant="hero" className="w-full" disabled={props.isDisabled}>
           {props.isApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}

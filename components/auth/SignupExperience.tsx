@@ -932,9 +932,9 @@ function BuilderSignupFlow({
       {step === 4 && (
         <div className="space-y-6 animate-fade-in">
           <div>
-            <Label className="mb-2 block text-[13px] font-semibold text-ink-soft">Ticketing platforms (optional)</Label>
+            <Label className="mb-2 block text-[13px] font-semibold text-ink-soft">Ticketing platforms you use (optional)</Label>
             <p className="mb-3 text-[13px] text-ink-soft">
-              Select platforms you already use so Tickets can tailor setup later. You can skip this and connect Eventbrite, Luma, Posh, or Partiful from Tickets.
+              This only personalizes setup. Connect Eventbrite, Luma, Posh, Partiful, or CSV imports from Tickets after your first event is created.
             </p>
             <ChipGroup options={ticketPlatforms} selected={form.platforms} onToggle={(v) => toggle('platforms', v)} />
             {stepErrors.platforms ? (
@@ -953,8 +953,8 @@ function BuilderSignupFlow({
           <ToggleRow
             checked={form.bulkBooking}
             onChange={(bulkBooking) => setForm({ ...form, bulkBooking })}
-            title="Enable bulk booking and event templates"
-            description="Run a recurring series? Save a template, clone it, book the whole season at once."
+            title="Prepare reusable event templates"
+            description="Run recurring events? 3rdPlace can help turn approved plans into repeatable playbooks, with every new send, hold, or payment still approval-gated."
           />
 
           {form.bulkBooking && (
@@ -1014,13 +1014,13 @@ function BuilderSignupFlow({
           <div className="rounded-md border border-tan bg-cream p-4">
             <div className="flex items-start gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-cream-deep text-clay">
-                {activationState ? <Check className="h-5 w-5" /> : <Mail className="h-5 w-5" />}
+              {activationState ? <Check className="h-5 w-5" /> : <Mail className="h-5 w-5" />}
               </div>
               <div>
                 <p className="font-semibold text-ink">{activationState ? 'Creator workspace' : 'Available after account creation'}</p>
                 <p className="mt-1 text-sm text-ink-soft">
                   {!activationState
-                    ? 'Create your account on this step, then choose whether to connect Gmail now or finish it later from Settings.'
+                    ? 'Create your account on this step, then choose whether to connect Gmail now or finish it later from Settings when you are ready to approve outreach.'
                     : activationState.requiresEmailConfirmation
                     ? `Check ${activationState.email} and confirm your email before signing in.`
                     : `${activationState.email ?? form.email} is ready for this workspace session.`}

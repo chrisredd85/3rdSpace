@@ -69,6 +69,43 @@ describe('PlacesOutreachSearchWorkspace', () => {
     jest.clearAllMocks()
   })
 
+  it('shows a planner-first state instead of asking for a raw plan ID', () => {
+    render(<PlacesOutreachSearchWorkspace />)
+
+    expect(screen.getByText('Choose an event before searching Places')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/Plan ID/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Open planner chat/i })).toHaveAttribute('href', '/planner?tab=chat')
+    expect(screen.getByRole('link', { name: /Choose an event record/i })).toHaveAttribute('href', '/planner/experiences')
+  })
+
+  it('follows the current route plan context when the selected event changes', async () => {
+    const user = userEvent.setup()
+    const fetchMock = jest.fn().mockResolvedValue(jsonResponse(discoveryResponse))
+    global.fetch = fetchMock
+
+    const { rerender } = render(<PlacesOutreachSearchWorkspace />)
+
+    expect(screen.getByText('Choose an event before searching Places')).toBeInTheDocument()
+
+    rerender(<PlacesOutreachSearchWorkspace initialPlanId="plan-2" />)
+
+    await user.type(screen.getByLabelText(/Search places/i), 'Oakland bars')
+    await user.click(screen.getByRole('button', { name: /Search Places/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/planner/plans/plan-2/discover-venues',
+        expect.objectContaining({ method: 'POST' })
+      )
+    })
+    const searchCall = fetchMock.mock.calls.find(([url]) => url === '/api/planner/plans/plan-2/discover-venues')
+    expect(searchCall).toBeDefined()
+    expect(JSON.parse(String(searchCall?.[1]?.body))).toEqual({
+      query: 'Oakland bars',
+      maxResultCount: 8,
+    })
+  })
+
   it('searches venues, saves organizer-provided email, and creates approval payloads', async () => {
     const user = userEvent.setup()
     const fetchMock = jest.fn()
@@ -106,7 +143,7 @@ describe('PlacesOutreachSearchWorkspace', () => {
 
     render(<PlacesOutreachSearchWorkspace initialPlanId="plan-1" />)
 
-    await user.type(screen.getByLabelText(/Search phrase/i), 'happy hour bars in Mission')
+    await user.type(screen.getByLabelText(/Search places/i), 'happy hour bars in Mission')
     await user.click(screen.getByRole('button', { name: /Search Places/i }))
 
     expect(await screen.findByText('Moongate Lounge')).toBeInTheDocument()

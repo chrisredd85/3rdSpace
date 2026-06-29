@@ -85,7 +85,7 @@ type PlacesOutreachSearchWorkspaceProps = {
 }
 
 export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachSearchWorkspaceProps) {
-  const [planId, setPlanId] = useState(initialPlanId ?? '')
+  const planId = initialPlanId ?? ''
   const [query, setQuery] = useState('')
   const [candidates, setCandidates] = useState<DiscoveryCandidate[]>([])
   const [summary, setSummary] = useState<DiscoverySummary | null>(null)
@@ -108,6 +108,7 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
   )
   const selectedReadyCount = selectedVenueIds.filter((id) => readyCandidates.some((candidate) => candidate.discovery_venue_id === id)).length
   const approvalTargetCount = approvalResult?.target_count ?? approvalResult?.approvals.reduce((sum, approval) => sum + approval.target_count, 0) ?? 0
+  const hasPlanContext = planId.trim().length > 0
 
   async function loadCandidates(nextPlanId = planId) {
     const trimmedPlanId = nextPlanId.trim()
@@ -302,31 +303,55 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
           <CardHeader className="border-b border-border">
             <CardTitle className="text-xl">Search source</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 pt-6 lg:grid-cols-[minmax(220px,0.7fr)_minmax(320px,1fr)_auto] lg:items-end">
-            <Field label="Plan ID">
-              <Input
-                value={planId}
-                onChange={(event) => setPlanId(event.target.value)}
-                placeholder="Active planner plan ID"
-              />
-            </Field>
-            <Field label="Search phrase">
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="happy hour bars in Mission"
-              />
-            </Field>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={searchVenues} disabled={isSearching || isLoading}>
-                {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                Search Places
-              </Button>
-              <Button type="button" variant="outline" onClick={() => loadCandidates()} disabled={isSearching || isLoading}>
-                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Refresh
-              </Button>
-            </div>
+          <CardContent className="pt-6">
+            {hasPlanContext ? (
+              <div className="grid gap-4 lg:grid-cols-[minmax(240px,0.8fr)_minmax(320px,1fr)_auto] lg:items-end">
+                <div className="rounded-md border border-border bg-background/70 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Active event</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">Using the selected planner event</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Change events from Planner or Experiences. 3rdPlace uses that plan context for fit, outreach, and approvals.
+                  </p>
+                </div>
+                <Field label="Search places">
+                  <Input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="happy hour bars in Mission"
+                  />
+                </Field>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" onClick={searchVenues} disabled={isSearching || isLoading}>
+                    {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    Search Places
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => loadCandidates()} disabled={isSearching || isLoading}>
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Refresh
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-md border border-clay/30 bg-clay/10 p-4">
+                <p className="font-display text-xl font-semibold text-foreground">Choose an event before searching Places</p>
+                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                  Outreach search needs an active planner event so the agent can rank venues, draft the right message, and create approval cards in the correct queue.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button asChild>
+                    <Link href="/planner?tab=chat">
+                      Open planner chat
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline">
+                    <Link href="/planner/experiences">
+                      Choose an event record
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -482,8 +507,8 @@ function CandidateCard({
               <span>{candidate.address ?? ([candidate.neighborhood, candidate.city].filter(Boolean).join(', ') || 'Bay Area')}</span>
             </p>
           </div>
-          <span className="shrink-0 rounded-full border border-border bg-card px-2.5 py-1 font-mono text-xs font-bold text-muted-foreground">
-            {candidate.fit_score}
+          <span className="shrink-0 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-bold text-muted-foreground">
+            Fit {candidate.fit_score}
           </span>
         </div>
 

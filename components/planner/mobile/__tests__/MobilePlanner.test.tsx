@@ -206,7 +206,7 @@ describe('MobilePlanner operating loop parity', () => {
 
     expect(await screen.findByText('Best fit based on responses')).toBeInTheDocument()
     expect(screen.getByText('Moongate Lounge')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Accept this venue/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Use this venue quote/i }))
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(

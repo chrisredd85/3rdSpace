@@ -1715,7 +1715,7 @@ export function PlannerWorkspace() {
             {activeTab === 'approvals' ? (
               <>
                 <div className="rounded-2xl border border-border bg-background/60 px-4 py-3 text-sm font-semibold text-muted-foreground">
-                  {approvalSummary.pending} pending · {approvalSummary.authorized} authorized · {approvalSummary.cancelled} cancelled
+                  {approvalSummary.pending} pending · {approvalSummary.authorized} approved · {approvalSummary.cancelled} cancelled
                   {approvalSummary.superseded > 0 ? ` · ${approvalSummary.superseded} superseded` : ''}
                 </div>
                 {visibleMessages.length > 0 ? (

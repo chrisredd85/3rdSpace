@@ -685,13 +685,13 @@ export function MobilePlanner({
         }
       )
       const payload = await response.json().catch(() => ({})) as { error?: string }
-      if (!response.ok) throw new Error(payload.error ?? 'Could not accept quote')
-      setQuoteFeedback((current) => ({ ...current, [key]: 'Accepted.' }))
+      if (!response.ok) throw new Error(payload.error ?? 'Could not add quote to plan')
+      setQuoteFeedback((current) => ({ ...current, [key]: 'Added to plan.' }))
       await reload()
     } catch (error) {
       setQuoteFeedback((current) => ({
         ...current,
-        [key]: error instanceof Error ? error.message : 'Could not accept quote',
+        [key]: error instanceof Error ? error.message : 'Could not add quote to plan',
       }))
     }
   }
@@ -1498,8 +1498,8 @@ function BriefView({
     <section>
       <BackButton label="Back to plan" onClick={() => onNavigate('planner')} />
       <SectionIntro
-        eyebrow="Event brief"
-        title="Shared operating brief."
+        eyebrow="Event record"
+        title="Shared operating context."
         description="This is what 3rdPlace believes about the event. Hosts correct it here before facts are used externally."
       />
 
@@ -3120,7 +3120,7 @@ function MobileQuoteCard({
           <p className="label-caps text-clay">{quote.kind === 'venue' ? 'Venue' : titleize(quote.serviceType ?? 'vendor')}</p>
           <h3 className="mt-1 truncate font-display text-[21px] leading-tight text-ink">{quote.name}</h3>
         </div>
-        <StatusPill tone={isCommitted ? 'forest' : 'clay'}>{isCommitted ? 'Accepted' : titleize(quote.status)}</StatusPill>
+        <StatusPill tone={isCommitted ? 'forest' : 'clay'}>{isCommitted ? 'In plan' : titleize(quote.status)}</StatusPill>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3">
         <Metric label="Quote" value={money(quote.quoteCents) ?? 'Review'} />
@@ -3129,7 +3129,7 @@ function MobileQuoteCard({
       {quote.summary ? <p className="mt-3 text-sm leading-6 text-ink-soft">{quote.summary}</p> : null}
       <div className="mt-4 grid gap-2">
         <PrimaryButton disabled={isCommitted} onClick={() => onCommit(quote)}>
-          {isCommitted ? 'Accepted' : `Accept this ${quote.kind}`}
+          {isCommitted ? 'In plan' : `Use this ${quote.kind} quote`}
         </PrimaryButton>
         {isCommitted ? (
           <SecondaryButton onClick={() => onCancel(quote)}>Cancel acceptance</SecondaryButton>

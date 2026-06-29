@@ -98,7 +98,7 @@ export function PlannerExperienceBriefDetail({ planId }: PlannerExperienceBriefD
       <section className="rounded-2xl border border-tan bg-cream-deep p-6 shadow-card">
         <div className="flex items-center gap-3 text-sm font-semibold text-ink-soft">
           <Loader2 className="h-4 w-4 animate-spin text-clay" />
-          Loading event brief...
+          Loading event record...
         </div>
       </section>
     )
@@ -110,7 +110,7 @@ export function PlannerExperienceBriefDetail({ planId }: PlannerExperienceBriefD
         <div className="flex items-start gap-3">
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-brick" />
           <div className="min-w-0">
-            <h1 className="font-display text-2xl font-bold text-ink">Event brief unavailable</h1>
+            <h1 className="font-display text-2xl font-bold text-ink">Event record unavailable</h1>
             <p className="mt-2 text-sm leading-6 text-ink-soft">{state.error}</p>
             <div className="mt-4 flex flex-wrap gap-3">
               <Button type="button" variant="glass" onClick={() => void loadBrief()}>
@@ -139,7 +139,7 @@ export function PlannerExperienceBriefDetail({ planId }: PlannerExperienceBriefD
           </Link>
           <h1 className="mt-3 break-words font-display text-3xl font-bold leading-tight text-ink">{plan.title}</h1>
           <p className="mt-2 text-sm leading-6 text-ink-soft">
-            Full event brief. Changes here still preserve approval gates before any outreach, booking, or payment executes.
+            Brief and operating context. Changes here still preserve approval gates before any outreach, booking, or payment executes.
           </p>
         </div>
         <Button asChild variant="glass" className="shrink-0">
