@@ -89,15 +89,13 @@ describe('OutreachCommandCenter', () => {
 
     render(<OutreachCommandCenter />)
 
-    expect(await screen.findByRole('heading', { name: /Outreach command center/i })).toBeInTheDocument()
-    expect(await screen.findByText('Discover')).toBeInTheDocument()
-    expect(screen.getByText('Approve')).toBeInTheDocument()
-    expect(screen.getByText('Track')).toBeInTheDocument()
-    expect(screen.getByText('Compare')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /^Outreach$/i })).toBeInTheDocument()
+    expect(await screen.findByText('Agent proposal · awaiting you')).toBeInTheDocument()
+    expect(screen.getByText('Agent-tracked partners')).toBeInTheDocument()
+    expect(screen.getByText('Proposed outreach batch')).toBeInTheDocument()
+    expect(screen.getByText('Agent recommendation')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Find partners/i })).toHaveAttribute('href', '/planner/outreach-search?plan=plan-1')
-    expect(screen.getByText('Outreach approval batches')).toBeInTheDocument()
-    expect(screen.getAllByText('Sent threads').length).toBeGreaterThan(0)
-    expect(screen.getByText('Replies and quote comparison')).toBeInTheDocument()
+    expect(screen.getByText('Already sent · synced from Gmail')).toBeInTheDocument()
     expect(screen.queryByLabelText('Subject')).not.toBeInTheDocument()
   })
 
@@ -107,7 +105,7 @@ describe('OutreachCommandCenter', () => {
 
     render(<OutreachCommandCenter />)
 
-    await screen.findByRole('heading', { name: /Outreach command center/i })
+    await screen.findByRole('heading', { name: /^Outreach$/i })
     await user.click(await screen.findByRole('button', { name: /Open custom composer/i }))
 
     expect(screen.getByText('Build a partner outreach batch')).toBeInTheDocument()
@@ -142,7 +140,7 @@ describe('OutreachCommandCenter', () => {
 
     render(<OutreachCommandCenter />)
 
-    await screen.findByText('Moongate Lounge')
+    expect((await screen.findAllByText('Moongate Lounge')).length).toBeGreaterThan(0)
     await user.click(screen.getAllByRole('button', { name: /Sync replies/i })[0])
 
     await waitFor(() => {
