@@ -2150,18 +2150,43 @@ function OutreachSection({
   const readyVenues = venues.filter((venue) => venue.contactStatus === 'ready_to_reach_out')
   const contactRescueCount = venues.filter((venue) => venue.contactStatus && venue.contactStatus !== 'ready_to_reach_out').length
   const planSearchHref = data.activePlanId ? `/planner/outreach-search?plan=${encodeURIComponent(data.activePlanId)}` : '/planner/outreach-search'
+  const trackedRows = venues.slice(0, 4)
 
   return (
     <section>
       <BackButton label="Back to plan" onClick={() => onNavigate('planner')} />
       <SectionIntro
         eyebrow="Outreach"
-        title="Source partners, then compare replies."
-        description="Mobile follows the same loop as desktop: discover contacts, create an approval batch, sync replies, then use returned terms to update the brief."
+        title="Agent-led partner outreach."
+        description="The agent finds venues and vendors, prepares the batch, and waits for approval before anything sends."
       />
 
+      <Panel className={cn(spacing.sectionGap, 'border-clay/25 bg-clay-tint')}>
+        <p className="label-caps text-clay">Agent proposal</p>
+        <h2 className={cn(spacing.labelToHeadline, 'font-display text-[28px] leading-tight text-ink')}>
+          {pendingOutreachApprovals.length > 0
+            ? `${pendingOutreachApprovals.length} outreach batch${pendingOutreachApprovals.length === 1 ? '' : 'es'} waiting on you.`
+            : readyVenues.length > 0
+              ? `${readyVenues.length} contact-ready partner${readyVenues.length === 1 ? '' : 's'} found.`
+              : 'The agent is ready to find partners.'}
+        </h2>
+        <p className={cn(spacing.headlineToBody, 'text-base leading-7 text-ink-soft')}>
+          {contactRescueCount > 0
+            ? `${contactRescueCount} candidate${contactRescueCount === 1 ? ' still needs' : 's still need'} an email or contact form before outreach can send.`
+            : 'Review the proposed batch before Gmail sends. No message sends without approval.'}
+        </p>
+        <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
+          {pendingOutreachApprovals.length > 0 ? (
+            <PrimaryButton onClick={() => onNavigate('approval')}>Review outreach batch</PrimaryButton>
+          ) : (
+            <PrimaryLink href={planSearchHref}>Ask agent to find partners</PrimaryLink>
+          )}
+          <SecondaryLink href="/planner/payments">Open approvals</SecondaryLink>
+        </div>
+      </Panel>
+
       <Panel className={cn(spacing.sectionGap, spacing.cardPaddingNone)}>
-        <div className="grid grid-cols-2 divide-x divide-y divide-tan sm:grid-cols-4">
+        <div className="grid grid-cols-2 divide-x divide-y divide-tan">
           <MobileOutreachMetric label="Ready" value={String(readyVenues.length)} />
           <MobileOutreachMetric label="Need contact" value={String(contactRescueCount)} />
           <MobileOutreachMetric label="Batches" value={String(pendingOutreachApprovals.length)} />
@@ -2169,40 +2194,27 @@ function OutreachSection({
         </div>
       </Panel>
 
-      <Panel className={spacing.cardGap}>
-        <p className="label-caps text-clay">Find partners</p>
-        <h2 className={cn(spacing.labelToHeadline, 'font-display text-[28px] leading-tight text-ink')}>
-          Start from the active event.
-        </h2>
-        <p className={cn(spacing.headlineToBody, 'text-base leading-7 text-ink-soft')}>
-          Search Places, review contact readiness, open contact forms when needed, then create one reviewed outreach batch.
-        </p>
-        <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
-          <PrimaryLink href={planSearchHref}>Find venues to contact</PrimaryLink>
-          <SecondaryLink href="/planner/vendors">Review vendor options</SecondaryLink>
+      <Panel className={cn(spacing.sectionGap, spacing.cardPaddingNone)}>
+        <div className={spacing.panelHeaderPadding}>
+          <p className="label-caps text-clay">Agent-tracked partners</p>
+          <h2 className={cn(spacing.labelToHeadline, 'font-display text-[26px] leading-tight text-ink')}>One row per partner.</h2>
+          <p className={cn(spacing.headlineToBody, 'text-sm leading-6 text-ink-soft')}>
+            Venues and vendors stay together because the agent is building one event outreach plan.
+          </p>
         </div>
+        {trackedRows.length > 0 ? (
+          <div className="divide-y divide-tan border-t border-tan">
+            {trackedRows.map((option, index) => (
+              <MobileOutreachPartnerRow key={option.id} option={option} index={index} />
+            ))}
+          </div>
+        ) : (
+          <EmptyPanelMessage description="Partner rows appear after discovery creates venue or vendor recommendations for this plan." />
+        )}
       </Panel>
 
-      {pendingOutreachApprovals.length > 0 ? (
-        <Panel className={cn(spacing.sectionGap, 'border-clay/25 bg-clay-tint')}>
-          <p className="label-caps text-clay">Approval batches</p>
-          <p className={cn(spacing.labelToHeadline, 'text-base leading-7 text-ink-soft')}>
-            {pendingOutreachApprovals.length} outreach batch{pendingOutreachApprovals.length === 1 ? '' : 'es'} {pendingOutreachApprovals.length === 1 ? 'needs' : 'need'} review before Gmail sends.
-          </p>
-          <div className={spacing.bodyToAction}>
-            <PrimaryButton onClick={() => onNavigate('approval')}>Review drafts</PrimaryButton>
-          </div>
-        </Panel>
-      ) : (
-        <Panel className={cn(spacing.cardGap, 'border-tan bg-cream-deep')}>
-          <p className="label-caps text-ink-soft">Approval batches</p>
-          <p className={cn(spacing.labelToHeadline, 'text-base leading-7 text-ink-soft')}>
-            No outreach batch is waiting. Create one after the contact-ready candidates are selected.
-          </p>
-        </Panel>
-      )}
       <QuoteComparisonPanel
-        title="Best fit based on responses"
+        title="Best next step from replies"
         quotes={quotes}
         plan={data.planPayload?.plan ?? null}
         feedback={quoteFeedback}
@@ -2213,6 +2225,42 @@ function OutreachSection({
         <EmptyState title="No outreach replies yet" description="Once Gmail sync reads partner replies, quote comparison and next-step options appear here." />
       ) : null}
     </section>
+  )
+}
+
+function MobileOutreachPartnerRow({ option, index }: { option: MobilePartnerOption; index: number }) {
+  const status = option.contactStatus === 'ready_to_reach_out'
+    ? 'Ready'
+    : option.contactFormUrl
+      ? 'Contact form'
+      : 'Needs contact'
+
+  return (
+    <article className="px-5 py-5">
+      <div className="flex items-start gap-4">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-tan bg-cream font-mono text-[13px] text-ink-soft">
+          {String(index + 1).padStart(2, '0')}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <h3 className="font-display text-[23px] leading-tight text-ink">{option.name}</h3>
+            <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-ink-faint">{option.kind}</p>
+          </div>
+          <p className="mt-2 text-sm leading-6 text-ink-soft">
+            {option.metadata?.summary && typeof option.metadata.summary === 'string'
+              ? option.metadata.summary
+              : option.capacityLabel
+                ? `${option.capacityLabel}. ${option.sourceLabel}`
+                : option.sourceLabel}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="rounded-full border border-tan bg-cream-deep px-3 py-1 text-xs font-semibold text-ink-soft">{status}</span>
+            {option.contactEmail ? <span className="rounded-full border border-forest/25 bg-forest/10 px-3 py-1 text-xs font-semibold text-forest">Email found</span> : null}
+            {option.contactFormUrl ? <span className="rounded-full border border-ochre/25 bg-ochre/10 px-3 py-1 text-xs font-semibold text-ochre">Form link</span> : null}
+          </div>
+        </div>
+      </div>
+    </article>
   )
 }
 

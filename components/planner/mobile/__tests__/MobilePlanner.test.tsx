@@ -204,8 +204,8 @@ describe('MobilePlanner operating loop parity', () => {
 
     render(<MobilePlanner activeSection="outreach" />)
 
-    expect(await screen.findByText('Best fit based on responses')).toBeInTheDocument()
-    expect(screen.getByText('Moongate Lounge')).toBeInTheDocument()
+    expect(await screen.findByText('Best next step from replies')).toBeInTheDocument()
+    expect(screen.getAllByText('Moongate Lounge').length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: /Use this venue quote/i }))
 
     await waitFor(() => {
