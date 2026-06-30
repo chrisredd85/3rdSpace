@@ -345,6 +345,7 @@ const INTAKE_SYSTEM_PROMPT = [
   'The input includes connected_platforms, the builder ticketing platforms that are actually connected and usable for sales history.',
   'The input may include organizer_profile with organization_name, organization_type, website, social_handle, bio, event_archetype_keys, event_type_labels, preferred_amenities, preferred_ticket_platforms, and self_reported_typical_attendance collected during creator signup. Use it only as soft context for ambiguous "usual event" phrasing, trust context, ranking defaults, and cold-start attendance assumptions; never override explicit user input with profile preferences.',
   'The input may include resolved_archetype. If resolved_archetype is present, treat the event type as understood and do not ask the user to clarify event type.',
+  'Exact archetype matches are locked for intake. If resolved_archetype.match_strength or archetype_resolution.match_strength is "exact", do NOT ask whether to change, confirm, or keep the event type. Move directly to the next missing intake field.',
   'The input may include archetype_resolution. If archetype_resolution.match_strength is "fuzzy" or "inferred", the first reflection must say you are treating this as archetype_resolution.display_name and mention up to two alternative_archetypes the user might have meant. Example: "I\'m treating this as a private dinner so we focus on intimate spots with private rooms. If it should feel more like a community meetup or a workshop, let me know." Then ask the next single question.',
   'If a later user message explicitly says "actually more like..." one of archetype_resolution.alternative_archetypes, treat that as an explicit reclassification request and set extracted_fields.event_type to that alternative display name.',
   'The input may include archetype_question_priority with critical_missing, high_signal_missing, and archetype_vendor_stack. Use it as the main question selector.',
@@ -438,6 +439,8 @@ export async function runIntakeAgent(
     throw new AgentRunExecutionError(getErrorMessage(error), metadata, error)
   }
 
+  output = suppressExactArchetypeClarification(input, output)
+
   return {
     agent_name: intakeAgentDefinition.agentName,
     status: 'succeeded',
@@ -445,6 +448,86 @@ export async function runIntakeAgent(
     duration_ms: Date.now() - startedAt,
     output,
   }
+}
+
+function suppressExactArchetypeClarification(
+  input: IntakeAgentInput,
+  output: IntakeAgentOutput
+): IntakeAgentOutput {
+  if (!hasExactArchetypeMatch(input)) return output
+  if (!isEventTypeClarification(output.next_best_question)) return output
+
+  const fallbackQuestion = findNextArchetypeQuestion(input, output)
+
+  return {
+    ...output,
+    next_best_question: fallbackQuestion,
+    missing_questions: fallbackQuestion ? [fallbackQuestion] : [],
+  }
+}
+
+function hasExactArchetypeMatch(input: IntakeAgentInput) {
+  return input.resolved_archetype?.match_strength === 'exact' || input.archetype_resolution?.match_strength === 'exact'
+}
+
+function isEventTypeClarification(question: string | null) {
+  if (!question) return false
+  return /(?:should|do you want|would you like).{0,80}(?:change|switch|keep|confirm).{0,80}(?:event type|archetype|this as|founder\/operator dinner|founder dinner|operator dinner)/i.test(question)
+    || /(?:change|switch|keep|confirm).{0,80}(?:event type|archetype|founder\/operator dinner|founder dinner|operator dinner)/i.test(question)
+}
+
+function findNextArchetypeQuestion(input: IntakeAgentInput, output: IntakeAgentOutput) {
+  const questions = [...(input.resolved_archetype?.intake_questions ?? [])]
+    .sort((first, second) => first.priority - second.priority)
+
+  for (const question of questions) {
+    if (!isQuestionFieldAnswered(question.field, input, output)) return question.prompt
+  }
+
+  return null
+}
+
+function isQuestionFieldAnswered(
+  field: string | undefined,
+  input: IntakeAgentInput,
+  output: IntakeAgentOutput
+) {
+  if (!field) return false
+  const normalizedField = normalizeQuestionField(field)
+  const outputFields = output.extracted_fields as Record<string, unknown>
+  if (hasUsableValue(outputFields[normalizedField])) return true
+
+  const currentPlan = input.current_plan
+  if (currentPlan && hasUsableValue(currentPlan[normalizedField])) return true
+
+  const eventPlanField = toEventPlanField(normalizedField)
+  const existingEventPlan = input.existing_event_plan as Record<string, unknown> | null | undefined
+  if (eventPlanField && existingEventPlan && hasUsableValue(existingEventPlan[eventPlanField])) return true
+
+  return false
+}
+
+function normalizeQuestionField(field: string) {
+  if (field === 'expected_attendance') return 'guest_count'
+  if (field === 'event_date') return 'date_window_start'
+  if (field === 'budget') return 'budget_cap_cents'
+  if (field === 'monetization_model') return 'ticketed'
+  return field
+}
+
+function toEventPlanField(field: string) {
+  if (field === 'guest_count') return 'expected_attendance'
+  if (field === 'date_window_start') return 'event_date'
+  if (field === 'budget_cap_cents') return 'budget'
+  if (field === 'ticketed') return 'monetization_model'
+  return field
+}
+
+function hasUsableValue(value: unknown) {
+  if (value == null) return false
+  if (typeof value === 'string') return value.trim().length > 0
+  if (Array.isArray(value)) return value.length > 0
+  return true
 }
 
 function getErrorMessage(error: unknown): string {

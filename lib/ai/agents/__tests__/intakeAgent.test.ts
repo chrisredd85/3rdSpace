@@ -183,6 +183,105 @@ describe('runIntakeAgent', () => {
     ])
   })
 
+  it('does not surface redundant event-type confirmation for exact archetype matches', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            ...founderDinnerOutput,
+            extracted_fields: {
+              ...founderDinnerOutput.extracted_fields,
+              food_responsibility: null,
+            },
+            next_best_question: 'Should I change the event type, or keep this as founder/operator dinner?',
+            missing_questions: ['Should I change the event type, or keep this as founder/operator dinner?'],
+          }),
+        },
+      }],
+    })
+
+    const result = await runIntakeAgent(
+      {
+        user_message: '30-person founder dinner, Hayes Valley, July 2, $2,500 budget',
+        resolved_archetype: {
+          key: 'founder_operator_dinner',
+          display_name: 'Founder/operator dinner',
+          match_strength: 'exact',
+          matched_alias: 'founder dinner',
+          alternative_archetypes: [],
+          capacity_range: [12, 80],
+          vendor_stack: [],
+          preferred_commercial_models: [],
+          preferred_venue_types: ['restaurant_private_room'],
+          required_amenities: [],
+          bonus_amenities: [],
+          default_fills: {},
+          intake_questions: [
+            {
+              id: 'food-responsibility',
+              label: 'Food model',
+              prompt: 'Should food come from the venue, outside catering, or another setup?',
+              source: 'matching_field',
+              required: true,
+              priority: 1,
+              field: 'food_responsibility',
+              answer_keywords: ['venue', 'catering'],
+            },
+          ],
+        },
+        archetype_resolution: {
+          key: 'founder_operator_dinner',
+          display_name: 'Founder/operator dinner',
+          match_strength: 'exact',
+          matched_alias: 'founder dinner',
+          alternative_archetypes: [],
+        },
+      },
+      { create }
+    )
+
+    expect(result.output.next_best_question).toBe('Should food come from the venue, outside catering, or another setup?')
+    expect(result.output.missing_questions).toEqual(['Should food come from the venue, outside catering, or another setup?'])
+  })
+
+  it('keeps archetype clarification for fuzzy matches', async () => {
+    const fuzzyQuestion = 'Should I change the event type, or keep this as founder/operator dinner?'
+    const create = jest.fn().mockResolvedValue({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            ...founderDinnerOutput,
+            next_best_question: fuzzyQuestion,
+            missing_questions: [fuzzyQuestion],
+          }),
+        },
+      }],
+    })
+
+    const result = await runIntakeAgent(
+      {
+        user_message: 'Host something for founders',
+        archetype_resolution: {
+          key: 'founder_operator_dinner',
+          display_name: 'Founder/operator dinner',
+          match_strength: 'fuzzy',
+          matched_alias: 'founders',
+          alternative_archetypes: [
+            {
+              key: 'networking_mixer',
+              display_name: 'Networking mixer',
+              why: 'Could be a broader networking format.',
+            },
+          ],
+        },
+      },
+      { create }
+    )
+
+    expect(result.output.next_best_question).toBe(fuzzyQuestion)
+    expect(result.output.missing_questions).toEqual([fuzzyQuestion])
+  })
+
   it('passes organizer profile preferences to the model as intake context', async () => {
     const create = jest.fn().mockResolvedValue({
       choices: [{ message: { content: JSON.stringify(founderDinnerOutput) } }],
