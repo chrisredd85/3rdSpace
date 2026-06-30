@@ -630,7 +630,7 @@ export function MobilePlanner({
         `${approvalCount} outreach approval${approvalCount === 1 ? '' : 's'} created for ${targetCount} venue${targetCount === 1 ? '' : 's'}. Review before send.`
       )
       await reload()
-      setView('approval')
+      setView('sent')
     } catch (error) {
       setBatchFeedback(error instanceof Error ? error.message : 'Could not create outreach batch')
     }
@@ -953,7 +953,9 @@ function MobileContent({
     return (
       <OutreachSection
         data={data}
+        batchFeedback={batchFeedback}
         quoteFeedback={quoteFeedback}
+        onCreateVenueOutreachApprovals={onCreateVenueOutreachApprovals}
         onCommitQuote={onCommitQuote}
         onCancelQuote={onCancelQuote}
         onNavigate={onNavigate}
@@ -994,12 +996,14 @@ function MobileContent({
   }
   if (activeSection === 'outreach') {
     return (
-      <OutreachSection
-        data={data}
-        quoteFeedback={quoteFeedback}
-        onCommitQuote={onCommitQuote}
-        onCancelQuote={onCancelQuote}
-        onNavigate={onNavigate}
+        <OutreachSection
+          data={data}
+          batchFeedback={batchFeedback}
+          quoteFeedback={quoteFeedback}
+          onCreateVenueOutreachApprovals={onCreateVenueOutreachApprovals}
+          onCommitQuote={onCommitQuote}
+          onCancelQuote={onCancelQuote}
+          onNavigate={onNavigate}
       />
     )
   }
@@ -1009,14 +1013,16 @@ function MobileContent({
   if (activeSection === 'settings') return <SettingsSection billing={data.billing} connections={data.connections} />
 
   return (
-    <PlannerView
-      data={data}
-      messageDraft={messageDraft}
-      isSubmittingMessage={isSubmittingMessage}
-      onDraftChange={onDraftChange}
-      onSendMessage={onSendMessage}
-      onNavigate={onNavigate}
-    />
+      <PlannerView
+        data={data}
+        messageDraft={messageDraft}
+        isSubmittingMessage={isSubmittingMessage}
+        batchFeedback={batchFeedback}
+        onDraftChange={onDraftChange}
+        onSendMessage={onSendMessage}
+        onCreateVenueOutreachApprovals={onCreateVenueOutreachApprovals}
+        onNavigate={onNavigate}
+      />
   )
 }
 
@@ -1234,15 +1240,19 @@ function PlannerView({
   data,
   messageDraft,
   isSubmittingMessage,
+  batchFeedback,
   onDraftChange,
   onSendMessage,
+  onCreateVenueOutreachApprovals,
   onNavigate,
 }: {
   data: MobileData
   messageDraft: string
   isSubmittingMessage: boolean
+  batchFeedback: string | null
   onDraftChange: (value: string) => void
   onSendMessage: () => void
+  onCreateVenueOutreachApprovals: (options: MobilePartnerOption[]) => void
   onNavigate: (view: MobileView) => void
 }) {
   const plan = data.planPayload?.plan
@@ -1250,9 +1260,8 @@ function PlannerView({
   if (!plan) return null
 
   const reviewCount = home?.pending_approval_count ?? 0
-  const description = reviewCount > 0
-    ? `${reviewCount} approval${reviewCount === 1 ? '' : 's'} waiting. Nothing sends, holds, books, or pays until you approve it.`
-    : 'Plan is ready for next steps. Confirm the brief and outreach message before 3rdPlace contacts anyone.'
+  const operatingLoop = mobileOperatingLoopState(data)
+  const description = operatingLoop.description
 
   return (
     <section>
@@ -1264,7 +1273,15 @@ function PlannerView({
       />
 
       <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
-        {reviewCount > 0 ? (
+        {operatingLoop.primaryAction === 'create-outreach-batch' ? (
+          <PrimaryButton onClick={() => onCreateVenueOutreachApprovals(operatingLoop.readyVenues)}>
+            Create outreach batch
+          </PrimaryButton>
+        ) : operatingLoop.primaryAction === 'review-outreach-batch' ? (
+          <PrimaryButton onClick={() => onNavigate('sent')}>Review outreach batch</PrimaryButton>
+        ) : operatingLoop.primaryAction === 'compare-replies' ? (
+          <PrimaryButton onClick={() => onNavigate('sent')}>Compare replies</PrimaryButton>
+        ) : reviewCount > 0 ? (
           <PrimaryLink href="/planner/payments">
             {`Review ${reviewCount} approval${reviewCount === 1 ? '' : 's'}`}
           </PrimaryLink>
@@ -1273,15 +1290,31 @@ function PlannerView({
         )}
         <SecondaryButton onClick={() => onNavigate('brief')}>Open event record</SecondaryButton>
       </div>
+      {batchFeedback ? <p className="mt-3 text-sm font-semibold leading-6 text-forest">{batchFeedback}</p> : null}
 
       <Panel className={cn(spacing.sectionGap, spacing.cardPaddingNone)}>
         <div className={cn('border-b border-tan', spacing.panelHeaderPadding)}>
           <p className="label-caps text-clay">Next action</p>
           <h2 className={cn(spacing.labelToHeadline, 'font-display text-[26px] leading-[1.08] text-ink')}>
-            {reviewCount > 0 ? 'Decisions ready.' : 'Confirm before outreach.'}
+            {operatingLoop.headline}
           </h2>
+          <p className={cn(spacing.headlineToBody, 'text-sm leading-6 text-ink-soft')}>{operatingLoop.detail}</p>
         </div>
-        {home?.pending_approvals.length ? (
+        {operatingLoop.primaryAction === 'create-outreach-batch' ? (
+          <div className="divide-y divide-tan">
+            {operatingLoop.readyVenues.slice(0, 4).map((venue) => (
+              <ReviewQueueRow
+                key={venue.id}
+                icon={<Mail className="h-5 w-5" />}
+                label={venue.name}
+                detail={venue.contactEmail ?? 'Contact ready'}
+                status="Outreach"
+                tone="forest"
+                onClick={() => onNavigate('sent')}
+              />
+            ))}
+          </div>
+        ) : home?.pending_approvals.length ? (
           <div className="divide-y divide-tan">
             {home.pending_approvals.map((approval) => (
               <ReviewQueueRow
@@ -1351,6 +1384,76 @@ function PlannerView({
       <ActivityPanel updates={home?.updates ?? []} emptyDescription="Activity appears after plan updates, approvals, payments, or ticketing changes." />
     </section>
   )
+}
+
+type MobileOperatingLoopPrimaryAction =
+  | 'create-outreach-batch'
+  | 'review-outreach-batch'
+  | 'compare-replies'
+  | 'review-approvals'
+  | 'confirm-details'
+
+function mobileOperatingLoopState(data: MobileData): {
+  primaryAction: MobileOperatingLoopPrimaryAction
+  headline: string
+  description: string
+  detail: string
+  readyVenues: MobilePartnerOption[]
+} {
+  const approvals = data.planPayload?.approvals ?? []
+  const pendingApprovals = approvals.filter((approval) => approval.status === 'pending')
+  const pendingOutreachApprovals = pendingApprovals.filter(isOutreachApproval)
+  const readyVenues = venueRecommendations(data.planPayload?.recommendations ?? [])
+    .filter((venue) => venue.contactStatus === 'ready_to_reach_out')
+  const quotes = mobileQuoteOptions(data.planPayload?.plan)
+
+  if (quotes.length > 0) {
+    return {
+      primaryAction: 'compare-replies',
+      headline: 'Compare returned terms.',
+      description: `${quotes.length} partner repl${quotes.length === 1 ? 'y is' : 'ies are'} ready to compare. Choose the best fit before creating hold, booking, or payment approvals.`,
+      detail: 'Parsed replies now drive the next recommendation: availability, quote, capacity, risk, and expected event economics.',
+      readyVenues,
+    }
+  }
+
+  if (pendingOutreachApprovals.length > 0) {
+    return {
+      primaryAction: 'review-outreach-batch',
+      headline: 'Outreach batch is waiting.',
+      description: `${pendingOutreachApprovals.length} outreach batch${pendingOutreachApprovals.length === 1 ? '' : 'es'} waiting. Nothing sends until you approve the Gmail draft batch.`,
+      detail: 'Review the batch, approve the send, then 3rdPlace can parse replies and recommend the strongest option.',
+      readyVenues,
+    }
+  }
+
+  if (readyVenues.length > 0) {
+    return {
+      primaryAction: 'create-outreach-batch',
+      headline: 'Create outreach batch first.',
+      description: `${readyVenues.length} venue${readyVenues.length === 1 ? ' is' : 's are'} ready for batch outreach. 3rdPlace should collect real terms before hold, booking, or payment approvals.`,
+      detail: 'This mirrors desktop: shortlist candidates, approve one reviewed Gmail batch, parse responses, then compare the most profitable plan.',
+      readyVenues,
+    }
+  }
+
+  if (pendingApprovals.length > 0) {
+    return {
+      primaryAction: 'review-approvals',
+      headline: 'Decisions ready.',
+      description: `${pendingApprovals.length} approval${pendingApprovals.length === 1 ? '' : 's'} waiting. Nothing sends, holds, books, or pays until you approve it.`,
+      detail: 'Review the approval details before 3rdPlace executes the next action.',
+      readyVenues,
+    }
+  }
+
+  return {
+    primaryAction: 'confirm-details',
+    headline: 'Confirm before outreach.',
+    description: 'Plan is ready for next steps. Confirm the brief and outreach message before 3rdPlace contacts anyone.',
+    detail: 'The plan can move toward venue and vendor outreach after you confirm the facts and approve the message. Nothing sends from this draft.',
+    readyVenues,
+  }
 }
 
 function NewPlanView({
@@ -2133,13 +2236,17 @@ function VendorsSection({
 
 function OutreachSection({
   data,
+  batchFeedback,
   quoteFeedback,
+  onCreateVenueOutreachApprovals,
   onCommitQuote,
   onCancelQuote,
   onNavigate,
 }: {
   data: MobileData
+  batchFeedback: string | null
   quoteFeedback: Record<string, string>
+  onCreateVenueOutreachApprovals: (options: MobilePartnerOption[]) => void
   onCommitQuote: (option: MobileQuoteOption) => void
   onCancelQuote: (option: MobileQuoteOption) => void
   onNavigate: (view: MobileView) => void
@@ -2177,12 +2284,15 @@ function OutreachSection({
         </p>
         <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
           {pendingOutreachApprovals.length > 0 ? (
-            <PrimaryButton onClick={() => onNavigate('approval')}>Review outreach batch</PrimaryButton>
+            <PrimaryLink href="/planner?view=draft">Review outreach batch</PrimaryLink>
+          ) : readyVenues.length > 0 ? (
+            <PrimaryButton onClick={() => onCreateVenueOutreachApprovals(readyVenues)}>Create outreach batch</PrimaryButton>
           ) : (
             <PrimaryLink href={planSearchHref}>Ask agent to find partners</PrimaryLink>
           )}
           <SecondaryLink href="/planner/payments">Open approvals</SecondaryLink>
         </div>
+        {batchFeedback ? <p className="mt-3 text-sm font-semibold leading-6 text-forest">{batchFeedback}</p> : null}
       </Panel>
 
       <Panel className={cn(spacing.sectionGap, spacing.cardPaddingNone)}>

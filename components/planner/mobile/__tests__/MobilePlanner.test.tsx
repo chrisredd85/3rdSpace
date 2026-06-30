@@ -127,6 +127,92 @@ describe('MobilePlanner operating loop parity', () => {
     global.fetch = originalFetch
   })
 
+  it('makes batch outreach the primary mobile next step when contact-ready venues exist', async () => {
+    const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/planner/plans?limit=10') return jsonResponse({ plans: [plan] })
+      if (url === '/api/planner/plans/plan-1') return jsonResponse(plannerPayload)
+      if (url === '/api/planner/plans/plan-1/mobile-home') return jsonResponse({ plan, pending_approvals: [], pending_approval_count: 0, problem: null, progress: [], updates: [] })
+      if (url === '/api/planner/plans/plan-1/budget') return jsonResponse({ target_cents: 500000, low_total_cents: 0, high_total_cents: 0, committed_total_cents: 0, projected_delta_cents: null, projected_buffer_low_cents: null, projected_buffer_high_cents: null, lines: [] })
+      if (url === '/api/planner/plans/plan-1/activity') return jsonResponse({ activities: [] })
+      if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
+      if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
+      if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
+      if (url === '/api/planner/plans/plan-1/outreach/approve-batch' && init?.method === 'POST') {
+        return jsonResponse({ created_count: 1, target_count: 1, approvals: [] })
+      }
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    })
+    global.fetch = fetchMock as jest.Mock
+
+    render(<MobilePlanner />)
+
+    expect(await screen.findByText('Create outreach batch first.')).toBeInTheDocument()
+    expect(screen.getByText(/This mirrors desktop/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^Create outreach batch$/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/planner/plans/plan-1/outreach/approve-batch',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ discovery_venue_ids: ['11111111-1111-4111-8111-111111111111'] }),
+        })
+      )
+    })
+    expect(await screen.findByText('Agent-led partner outreach.')).toBeInTheDocument()
+    expect(screen.getByText('1 outreach approval created for 1 venue. Review before send.')).toBeInTheDocument()
+  })
+
+  it('routes pending outreach batches to the mobile outreach review loop', async () => {
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/planner/plans?limit=10') return jsonResponse({ plans: [plan] })
+      if (url === '/api/planner/plans/plan-1') return jsonResponse(plannerPayloadWithOutreachApproval)
+      if (url === '/api/planner/plans/plan-1/mobile-home') return jsonResponse({ plan, pending_approvals: [outreachApproval], pending_approval_count: 1, problem: null, progress: [], updates: [] })
+      if (url === '/api/planner/plans/plan-1/budget') return jsonResponse({ target_cents: 500000, low_total_cents: 0, high_total_cents: 0, committed_total_cents: 0, projected_delta_cents: null, projected_buffer_low_cents: null, projected_buffer_high_cents: null, lines: [] })
+      if (url === '/api/planner/plans/plan-1/activity') return jsonResponse({ activities: [] })
+      if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
+      if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
+      if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    }) as jest.Mock
+
+    render(<MobilePlanner />)
+
+    expect(await screen.findByText('Outreach batch is waiting.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Review outreach batch/i }))
+
+    expect(await screen.findByText('Agent-led partner outreach.')).toBeInTheDocument()
+    expect(screen.getByText('1 outreach batch waiting on you.')).toBeInTheDocument()
+  })
+
+  it('routes parsed replies to mobile quote comparison before new hold approvals', async () => {
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/planner/plans?limit=10') return jsonResponse({ plans: [planWithQuote] })
+      if (url === '/api/planner/plans/plan-1') return jsonResponse({ ...plannerPayload, plan: planWithQuote })
+      if (url === '/api/planner/plans/plan-1/mobile-home') return jsonResponse({ plan: planWithQuote, pending_approvals: [], pending_approval_count: 0, problem: null, progress: [], updates: [] })
+      if (url === '/api/planner/plans/plan-1/budget') return jsonResponse({ target_cents: 500000, low_total_cents: 0, high_total_cents: 0, committed_total_cents: 0, projected_delta_cents: null, projected_buffer_low_cents: null, projected_buffer_high_cents: null, lines: [] })
+      if (url === '/api/planner/plans/plan-1/activity') return jsonResponse({ activities: [] })
+      if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
+      if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
+      if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    }) as jest.Mock
+
+    render(<MobilePlanner />)
+
+    expect(await screen.findByText('Compare returned terms.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Compare replies/i }))
+
+    expect(await screen.findByText('Best next step from replies')).toBeInTheDocument()
+    expect(screen.getAllByText('Moongate Lounge').length).toBeGreaterThan(0)
+  })
+
   it('shows contact rescue, readiness state, and creates venue outreach approvals from mobile', async () => {
     const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
@@ -182,7 +268,7 @@ describe('MobilePlanner operating loop parity', () => {
         })
       )
     })
-    expect(await screen.findByText('Every send still needs review.')).toBeInTheDocument()
+    expect(await screen.findByText('Agent-led partner outreach.')).toBeInTheDocument()
   })
 
   it('renders reply quote cards and commits accepted venue quotes through the mobile flow', async () => {
@@ -276,6 +362,23 @@ const planWithQuote = {
   },
 }
 
+const outreachApproval = {
+  id: 'approval-1',
+  action_label: 'Review Gmail outreach batch',
+  provider: 'Gmail',
+  event_date: null,
+  price_cents: null,
+  fees_cents: null,
+  refund_terms: null,
+  cancellation_terms: null,
+  package_details: 'Approve outreach to 1 venue before anything sends.',
+  status: 'pending',
+  requested_amount_cents: null,
+  authorized_amount_cents: null,
+  updated_at: '2026-06-24T00:00:00.000Z',
+  created_at: '2026-06-24T00:00:00.000Z',
+}
+
 const plannerPayload = {
   plan,
   messages: [],
@@ -317,4 +420,9 @@ const plannerPayload = {
       },
     },
   ],
+}
+
+const plannerPayloadWithOutreachApproval = {
+  ...plannerPayload,
+  approvals: [outreachApproval],
 }
