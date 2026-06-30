@@ -38,7 +38,11 @@ export default function MessagesPage() {
 
   const userId = user?.id || null
 
-  const { data: threads = [], isLoading: threadsLoading } = useMessageThreads(userId)
+  const {
+    data: threads = [],
+    isLoading: threadsLoading,
+    error: threadsError,
+  } = useMessageThreads(userId)
   const messagesQuery = useMessages(selectedThreadId)
   const messages = messagesQuery.data?.messages ?? []
   const messagesLoading = messagesQuery.isLoading
@@ -178,6 +182,16 @@ export default function MessagesPage() {
                 <div className="h-6 w-6 animate-spin rounded-full border-2 border-clay border-t-transparent mx-auto mb-2" />
                 <p className="text-xs text-ink-soft">Loading threads...</p>
               </div>
+            </div>
+          ) : threadsError ? (
+            <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+              <div className="h-12 w-12 rounded-full bg-cream-deep/60 flex items-center justify-center mb-4">
+                <FileText className="h-6 w-6 text-ink-faint" />
+              </div>
+              <p className="text-sm font-medium text-ink mb-1">Messages temporarily unavailable</p>
+              <p className="text-xs text-ink-soft">
+                We could not load your conversations. Refresh the page or try again in a moment.
+              </p>
             </div>
           ) : filteredThreads.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full p-6 text-center">
