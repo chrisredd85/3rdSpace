@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PlannerMobileRouteHeader } from '@/components/planner/PlannerMobileRouteHeader'
+import { orderExperienceRecordRail, selectExperienceRecord } from '@/lib/planner/experienceRecordSelection'
 import { hasImportedGuestAttendanceLabel } from '@/lib/planner/experienceGuestStatus'
 import { createClient } from '@/lib/supabase/server'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
@@ -198,6 +199,8 @@ type ExperienceRecord = {
   hasFinancials: boolean
   profitLabel: string
   marginLabel: string
+  createdAt: string | null
+  updatedAt: string | null
   nextAction: string
   banner: NeedsYouBannerRecord
   bookingItems: ExperienceBookingItem[]
@@ -288,7 +291,7 @@ export default async function ExperiencesPage(
   const searchParams = await props.searchParams;
   const data = await loadExperiencesData()
   const hasRecords = data.records.length > 0
-  const primaryRecord = getSelectedRecord(data.records, searchParams?.record)
+  const primaryRecord = selectExperienceRecord(data.records, searchParams?.record)
 
   return (
     <div className="min-h-full bg-cream text-ink">
@@ -821,6 +824,8 @@ function buildEventRecord({
     hasFinancials,
     profitLabel: hasFinancials && expectedProfit !== null ? formatMoneyDollars(expectedProfit) : 'No summary',
     marginLabel: margin === null ? 'No margin summary yet' : `${Math.round(margin)}% margin`,
+    createdAt: event.created_at,
+    updatedAt: event.updated_at,
     nextAction,
     banner: buildNeedsYouBanner({
       nextAction,
@@ -869,6 +874,8 @@ function buildPlanRecord(plan: PlanRow): ExperienceRecord {
     hasFinancials: Boolean(plan.budget_cap_cents || plan.profit_goal_cents),
     profitLabel: plan.profit_goal_cents ? formatMoneyCents(plan.profit_goal_cents) : 'Planning',
     marginLabel: plan.ticketing_model ? `${titleize(plan.ticketing_model)} model` : 'No ticketing model yet',
+    createdAt: plan.created_at,
+    updatedAt: plan.updated_at,
     nextAction,
     banner: buildNeedsYouBanner({
       nextAction,
@@ -892,10 +899,12 @@ function buildPlanRecord(plan: PlanRow): ExperienceRecord {
 }
 
 function RecordRail({ records, primaryRecord }: { records: ExperienceRecord[]; primaryRecord: ExperienceRecord }) {
+  const visibleRecords = orderExperienceRecordRail(records, primaryRecord)
+
   return (
     <section aria-label="Experience record selector" className="-mx-4 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6 lg:mx-0 lg:px-0">
       <div className="flex min-w-max snap-x gap-3 lg:min-w-0 lg:grid lg:grid-cols-4">
-        {records.slice(0, 4).map((record) => {
+        {visibleRecords.slice(0, 4).map((record) => {
           const isSelected = record.kind === primaryRecord.kind && record.id === primaryRecord.id
 
           return (
@@ -1334,12 +1343,6 @@ function EmptyState({
       </Button>
     </div>
   )
-}
-
-function getSelectedRecord(records: ExperienceRecord[], recordKey?: string | null) {
-  if (!recordKey) return records[0] ?? null
-  const selected = records.find((record) => `${record.kind}:${record.id}` === recordKey)
-  return selected ?? records[0] ?? null
 }
 
 function getExperienceRecordRoute(record: ExperienceRecord) {
