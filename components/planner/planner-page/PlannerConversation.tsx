@@ -20,6 +20,7 @@ interface PlannerMessageBubbleProps {
   onAuthRequired: (action: PendingConversionAction) => void
   onBillingRequired?: BillingRequiredHandler
   onApprovalStatusChange: (approvalId: string, status: ApprovalUiStatus) => void
+  onApprovalCreated?: (message: PlanMessage) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
   onQuestionAnswerSubmit?: (answer: string) => void
   onNavigateToTab?: (tab: PlannerTab, messageId?: string) => void
@@ -58,6 +59,7 @@ export function PlannerMessageBubble({
   onAuthRequired,
   onBillingRequired,
   onApprovalStatusChange,
+  onApprovalCreated,
   onToast,
   onQuestionAnswerSubmit,
   onNavigateToTab,
@@ -124,6 +126,7 @@ export function PlannerMessageBubble({
               onAuthRequired={onAuthRequired}
               onBillingRequired={onBillingRequired}
               onApprovalStatusChange={onApprovalStatusChange}
+              onApprovalCreated={onApprovalCreated}
               onToast={onToast}
               onQuestionAnswerSubmit={onQuestionAnswerSubmit}
             />
@@ -221,6 +224,7 @@ interface PlannerFocusedMessageCardProps {
   onAuthRequired: (action: PendingConversionAction) => void
   onBillingRequired?: BillingRequiredHandler
   onApprovalStatusChange: (approvalId: string, status: ApprovalUiStatus) => void
+  onApprovalCreated?: (message: PlanMessage) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
   onQuestionAnswerSubmit?: (answer: string) => void
 }
@@ -236,6 +240,7 @@ export function PlannerFocusedMessageCard({
   onAuthRequired,
   onBillingRequired,
   onApprovalStatusChange,
+  onApprovalCreated,
   onToast,
   onQuestionAnswerSubmit,
 }: PlannerFocusedMessageCardProps) {
@@ -265,6 +270,7 @@ export function PlannerFocusedMessageCard({
         onAuthRequired={onAuthRequired}
         onBillingRequired={onBillingRequired}
         onApprovalStatusChange={onApprovalStatusChange}
+        onApprovalCreated={onApprovalCreated}
         onToast={onToast}
         onQuestionAnswerSubmit={onQuestionAnswerSubmit}
       />
@@ -482,6 +488,7 @@ interface PlannerMessageMetadataProps {
   onAuthRequired: (action: PendingConversionAction) => void
   onBillingRequired?: BillingRequiredHandler
   onApprovalStatusChange: (approvalId: string, status: ApprovalUiStatus) => void
+  onApprovalCreated?: (message: PlanMessage) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
   onQuestionAnswerSubmit?: (answer: string) => void
 }
@@ -496,6 +503,7 @@ export function PlannerMessageMetadata({
   onAuthRequired,
   onBillingRequired,
   onApprovalStatusChange,
+  onApprovalCreated,
   onToast,
   onQuestionAnswerSubmit,
 }: PlannerMessageMetadataProps) {
@@ -728,6 +736,7 @@ export function PlannerMessageMetadata({
                   isAuthenticated={isAuthenticated}
                   onAuthRequired={onAuthRequired}
                   onBillingRequired={onBillingRequired}
+                  onApprovalCreated={onApprovalCreated}
                   recommendation={recommendation as Record<string, unknown>}
                   label={action}
                   variant={index === 0 ? 'hero' : 'glass'}
@@ -1127,6 +1136,7 @@ interface PlannerRecommendationActionButtonProps {
   isAuthenticated: boolean
   onAuthRequired: (action: PendingConversionAction) => void
   onBillingRequired?: BillingRequiredHandler
+  onApprovalCreated?: (message: PlanMessage) => void
   recommendation: Record<string, unknown>
   label: string
   variant: 'hero' | 'glass'
@@ -1142,6 +1152,7 @@ export function PlannerRecommendationActionButton({
   isAuthenticated,
   onAuthRequired,
   onBillingRequired,
+  onApprovalCreated,
   recommendation,
   label,
   variant,
@@ -1189,6 +1200,9 @@ export function PlannerRecommendationActionButton({
           }
           throw new Error('Failed to create agent action')
         }
+
+        const payload = (await response.json().catch(() => ({}))) as { approvalMessage?: PlanMessage }
+        if (payload.approvalMessage) onApprovalCreated?.(payload.approvalMessage)
       }
 
       setStatusMessage(getRecommendationSuccessMessage(actionKind))

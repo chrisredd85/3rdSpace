@@ -1319,6 +1319,22 @@ export function PlannerWorkspace() {
   }
 
   /**
+   * Adds an approval request created from a recommendation action into the
+   * visible planner timeline so the Approvals tab reflects the backend row
+   * immediately.
+   */
+  function handleApprovalCreated(message: PlanMessage) {
+    setMessages((currentMessages) => {
+      if (currentMessages.some((currentMessage) => currentMessage.id === message.id)) {
+        return currentMessages
+      }
+
+      return [...currentMessages, message]
+    })
+    setActiveTab('approvals')
+  }
+
+  /**
    * Opens the inline signup gate and records the attempted conversion action.
    */
   function requestSignupForAction(action: PendingConversionAction) {
@@ -1667,6 +1683,7 @@ export function PlannerWorkspace() {
                     isAuthenticated={isAuthenticated}
                     onAuthRequired={requestSignupForAction}
                     onApprovalStatusChange={handleApprovalStatusChange}
+                    onApprovalCreated={handleApprovalCreated}
                     onToast={addToast}
                     onQuestionAnswerSubmit={(answer) => void submitReply(answer)}
                     onNavigateToTab={navigateToPlannerTab}
@@ -1699,6 +1716,7 @@ export function PlannerWorkspace() {
                       isAuthenticated={isAuthenticated}
                       onAuthRequired={requestSignupForAction}
                       onApprovalStatusChange={handleApprovalStatusChange}
+                      onApprovalCreated={handleApprovalCreated}
                       onToast={addToast}
                       onQuestionAnswerSubmit={(answer) => void submitReply(answer)}
                       onBillingRequired={billingGate.openBillingGate}

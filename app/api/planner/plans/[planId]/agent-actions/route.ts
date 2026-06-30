@@ -19,7 +19,7 @@ import {
 import { checkRateLimit, rateLimitHeaders } from '@/lib/server/rate-limit'
 import { notifyEntityStripeSetup } from '@/lib/server/notifyEntityStripeSetup'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
-import type { AgentAction, Approval, Json, PlannerApiErrorResponse, Plan } from '@/lib/types'
+import type { AgentAction, Approval, Json, PlanMessage, PlannerApiErrorResponse, Plan } from '@/lib/types'
 import type { JsonObject, TableInsert, TableUpdate } from '@/lib/types'
 
 type DbError = { message: string; code?: string }
@@ -44,6 +44,7 @@ type PlannerDb = {
   from(table: 'plans'): PlannerTable<Plan, TableInsert<'plans'>, TableUpdate<'plans'>>
   from(table: 'agent_actions'): PlannerTable<AgentAction, TableInsert<'agent_actions'>, TableUpdate<'agent_actions'>>
   from(table: 'approvals'): PlannerTable<Approval, TableInsert<'approvals'>, TableUpdate<'approvals'>>
+  from(table: 'plan_messages'): PlannerTable<PlanMessage, TableInsert<'plan_messages'>, TableUpdate<'plan_messages'>>
   from(
     table: 'agent_action_audit_log'
   ): PlannerTable<unknown, TableInsert<'agent_action_audit_log'>, TableUpdate<'agent_action_audit_log'>>
@@ -191,7 +192,7 @@ export async function GET(
 export async function POST(
   request: NextRequest,
   context: RouteContext
-): Promise<NextResponse<{ agentAction: AgentAction; approval?: Approval } | PlannerApiErrorResponse>> {
+): Promise<NextResponse<{ agentAction: AgentAction; approval?: Approval; approvalMessage?: PlanMessage } | PlannerApiErrorResponse>> {
   try {
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
@@ -354,7 +355,34 @@ export async function POST(
       .update({ approval_id: approval.id })
       .eq('id', agentAction.id)
 
-    return NextResponse.json({ agentAction: { ...agentAction, approval_id: approval.id }, approval })
+    const { data: approvalMessageData, error: approvalMessageError } = await auth.db
+      .from('plan_messages')
+      .insert({
+        plan_id: (await context.params).planId,
+        role: 'agent',
+        content: `${actionLabel} is ready for review. Approve before 3rdPlace sends, books, or pays.`,
+        message_type: 'approval_request',
+        metadata: {
+          state: 'recommendation_action_approval_requested',
+          status: 'pending',
+          source: 'planner_recommendation_action',
+          approval,
+          agent_action_id: agentAction.id,
+        } as unknown as Json,
+      })
+      .select('*')
+      .single()
+
+    if (approvalMessageError || !approvalMessageData) {
+      console.error('Planner approval message create from action error:', approvalMessageError)
+      return NextResponse.json({ error: 'Failed to create approval message' }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      agentAction: { ...agentAction, approval_id: approval.id },
+      approval,
+      approvalMessage: approvalMessageData as PlanMessage,
+    })
   } catch (error) {
     console.error('Planner agent action POST error:', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })

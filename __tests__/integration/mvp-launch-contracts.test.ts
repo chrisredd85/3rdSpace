@@ -396,7 +396,7 @@ describe('MVP launch API contracts', () => {
     mockPlannerClient(db)
   })
 
-  it('POST planner agent-actions creates the agent_action and approval_request rows', async () => {
+  it('POST planner agent-actions creates the agent_action, approval row, and visible approval_request message', async () => {
     const response = await createAgentAction(
       makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
         actionType: 'hold_request',
@@ -424,8 +424,32 @@ describe('MVP launch API contracts', () => {
       price_cents: 500_000,
       status: 'pending',
     }))
+    expect(json.approvalMessage).toEqual(expect.objectContaining({
+      plan_id: PLAN_ID,
+      message_type: 'approval_request',
+      metadata: expect.objectContaining({
+        state: 'recommendation_action_approval_requested',
+        status: 'pending',
+        source: 'planner_recommendation_action',
+        approval: expect.objectContaining({
+          id: json.approval.id,
+          status: 'pending',
+        }),
+      }),
+    }))
     expect(db.rows.agent_actions).toHaveLength(1)
     expect(db.rows.approvals).toHaveLength(1)
+    expect(db.rows.plan_messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        plan_id: PLAN_ID,
+        message_type: 'approval_request',
+        metadata: expect.objectContaining({
+          approval: expect.objectContaining({
+            id: json.approval.id,
+          }),
+        }),
+      }),
+    ]))
   })
 
   it('POST planner agent-actions creates an approval before exposing external checkout', async () => {
