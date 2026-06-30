@@ -4,8 +4,13 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { Gift, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { getFreeEventUsageDisplay } from '@/lib/billing/display'
 
 type PlannerBillingSummary = {
+  freeEventsGranted?: number
+  free_events_granted?: number
+  freeEventsUsed?: number
+  free_events_used?: number
   freeEventsRemaining?: number
   free_events_remaining?: number
   paidEventCredits?: number
@@ -50,7 +55,12 @@ export function PlannerBillingAccessBanner() {
 
   const state = useMemo(() => {
     if (!billing) return null
-    const freeEventsRemaining = billing.freeEventsRemaining ?? billing.free_events_remaining ?? 0
+    const freeUsage = getFreeEventUsageDisplay({
+      freeEventsGranted: billing.freeEventsGranted ?? billing.free_events_granted ?? 2,
+      freeEventsUsed: billing.freeEventsUsed ?? billing.free_events_used ?? 0,
+      freeEventsRemaining: billing.freeEventsRemaining ?? billing.free_events_remaining ?? 0,
+    })
+    const freeEventsRemaining = freeUsage.remaining
     const paidEventCredits = billing.paidEventCredits ?? 0
     if (freeEventsRemaining > 0) {
       return {

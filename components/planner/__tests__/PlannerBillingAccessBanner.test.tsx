@@ -53,6 +53,23 @@ describe('PlannerBillingAccessBanner', () => {
     expect(screen.getByRole('link', { name: 'Upgrade' })).toHaveAttribute('href', '/planner/billing')
   })
 
+  it('does not show impossible free-trial copy when raw counters disagree', async () => {
+    global.fetch = jest.fn(() => jsonResponse({
+      billing: {
+        freeEventsGranted: 2,
+        freeEventsUsed: 20,
+        freeEventsRemaining: 2,
+        paidEventCredits: 0,
+        hasProAccess: false,
+      },
+    })) as jest.Mock
+
+    render(<PlannerBillingAccessBanner />)
+
+    expect(await screen.findByText("You've used your 2 free events.")).toBeInTheDocument()
+    expect(screen.queryByText('2 free events remaining')).not.toBeInTheDocument()
+  })
+
   it('is dismissible for the current browser session', async () => {
     const user = userEvent.setup()
     global.fetch = jest.fn(() => jsonResponse({

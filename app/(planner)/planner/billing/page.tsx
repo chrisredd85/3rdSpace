@@ -5,6 +5,7 @@ import { AlertTriangle, Calendar, Check, Crown, ExternalLink, Loader2, Zap } fro
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
+import { getFreeEventUsageDisplay } from '@/lib/billing/display'
 import { cn } from '@/lib/utils'
 
 type BillingTier = 'free_trial' | 'pay_per_event' | 'pro_monthly' | 'pro_annual'
@@ -134,6 +135,7 @@ export default function BuilderBillingPage() {
 
   const statusBanner = useMemo(() => {
     if (!billing) return null
+    const freeUsage = getFreeEventUsageDisplay(billing)
     if (billing.hasProAccess) {
       return {
         variant: 'pro' as const,
@@ -141,11 +143,11 @@ export default function BuilderBillingPage() {
         detail: 'Unlimited event creation — no per-event fee.',
       }
     }
-    if (billing.freeEventsRemaining > 0) {
+    if (freeUsage.remaining > 0) {
       return {
         variant: 'free' as const,
-        headline: `You have ${billing.freeEventsRemaining} free event remaining`,
-        detail: 'Use it for your first event. Upgrade or buy a credit after that.',
+        headline: `You have ${freeUsage.remaining} free ${freeUsage.remaining === 1 ? 'event' : 'events'} remaining`,
+        detail: `Use ${freeUsage.remaining === 1 ? 'it' : 'them'} for approval-gated planner execution. Upgrade or buy a credit after that.`,
       }
     }
     if (billing.paidEventCredits > 0) {
@@ -179,6 +181,7 @@ export default function BuilderBillingPage() {
   const isCurrentProPlan =
     (billing?.tier === 'pro_monthly' && proBilling === 'monthly') ||
     (billing?.tier === 'pro_annual' && proBilling === 'annual')
+  const freeUsage = billing ? getFreeEventUsageDisplay(billing) : null
 
   if (loading) {
     return (
@@ -236,12 +239,17 @@ export default function BuilderBillingPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Free trial</CardDescription>
-              <CardTitle className="text-2xl">{billing.freeEventsRemaining}</CardTitle>
+              <CardTitle className="text-2xl">{freeUsage?.remaining ?? 0}</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-ink-soft">
-                {billing.freeEventsUsed} of {billing.freeEventsGranted} used
+                {freeUsage?.used ?? 0} of {freeUsage?.granted ?? 0} used
               </p>
+              {freeUsage?.hasOverage && (
+                <p className="mt-2 text-xs text-ink-soft">
+                  Additional planner sessions are tracked separately after the free trial.
+                </p>
+              )}
             </CardContent>
           </Card>
 
