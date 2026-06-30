@@ -168,6 +168,17 @@ export function decideEventTypeMutation(input: DecideEventTypeMutationInput): Ev
     }
   }
 
+  if (labelsShareArchetypeFamily(existing, proposed)) {
+    return {
+      eventType: existing,
+      lock: currentLock ?? createEventArchetypeLock(existing, 'initial_intake', input.now),
+      shouldApply: false,
+      blockedCandidate: null,
+      requiresConfirmation: false,
+      confirmationPrompt: null,
+    }
+  }
+
   const candidateLabel = humanizeEventType(proposed) ?? proposed
 
   return {
@@ -288,6 +299,36 @@ function normalizeProposedEventType(proposedEventType: string | null, userMessag
 
 function labelsEqual(first: string, second: string): boolean {
   return normalizeLabel(first) === normalizeLabel(second)
+}
+
+function labelsShareArchetypeFamily(first: string, second: string): boolean {
+  const normalizedFirst = normalizeLabel(first)
+  const normalizedSecond = normalizeLabel(second)
+
+  const families = [
+    ['dinner', 'supper'],
+    ['mixer', 'networking'],
+    ['launch', 'product'],
+    ['workshop', 'class'],
+    ['panel', 'fireside'],
+    ['demo', 'pitch'],
+    ['meetup', 'community'],
+    ['fundraiser', 'gala'],
+    ['brunch', 'day party'],
+    ['nightlife', 'club'],
+    ['listening', 'showcase'],
+    ['watch party', 'screening'],
+    ['fitness', 'wellness', 'run club'],
+    ['game', 'sports', 'outing'],
+    ['holiday', 'reception'],
+    ['retreat', 'offsite'],
+  ]
+
+  return families.some((family) => {
+    const firstMatches = family.some((token) => normalizedFirst.includes(token))
+    const secondMatches = family.some((token) => normalizedSecond.includes(token))
+    return firstMatches && secondMatches
+  })
 }
 
 function normalizeLabel(value: string): string {

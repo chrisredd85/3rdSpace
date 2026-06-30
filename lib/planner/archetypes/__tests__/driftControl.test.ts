@@ -102,6 +102,37 @@ describe('planner archetype drift control', () => {
     expect(decision.lock?.key).toBe('networking_mixer')
   })
 
+  it('does not ask founder/operator dinner to reconfirm a generic dinner candidate', () => {
+    const lock = createEventArchetypeLock('founder_operator_dinner')
+    const decision = decideEventTypeMutation({
+      currentEventType: 'Founder/operator dinner',
+      currentMetadata: { [ARCHETYPE_LOCK_METADATA_KEY]: lock },
+      proposedEventType: 'dinner',
+      userMessage: 'No photographer or other vendors. Just source venue options that can host the dinner and handle food and drinks.',
+    })
+
+    expect(decision.shouldApply).toBe(false)
+    expect(decision.requiresConfirmation).toBe(false)
+    expect(decision.eventType).toBe('Founder/operator dinner')
+    expect(decision.blockedCandidate).toBeNull()
+    expect(decision.confirmationPrompt).toBeNull()
+  })
+
+  it('still allows explicit same-family reclassification requests', () => {
+    const lock = createEventArchetypeLock('founder_operator_dinner')
+    const decision = decideEventTypeMutation({
+      currentEventType: 'Founder/operator dinner',
+      currentMetadata: { [ARCHETYPE_LOCK_METADATA_KEY]: lock },
+      proposedEventType: 'private dinner',
+      userMessage: 'Actually change this to a private dinner for friends.',
+    })
+
+    expect(decision.shouldApply).toBe(true)
+    expect(decision.requiresConfirmation).toBe(false)
+    expect(decision.eventType).toBe('Private dinner / celebration')
+    expect(decision.lock?.key).toBe('private_dinner_celebration')
+  })
+
   it('treats confusing operational language as requirements across every archetype', () => {
     for (const archetype of ARCHETYPES) {
       const lock = createEventArchetypeLock(archetype.key)
