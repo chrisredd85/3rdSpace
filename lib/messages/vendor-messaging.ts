@@ -60,7 +60,7 @@ const OFFLINE_NOTIFICATION_MINUTES = 10
 export async function getCurrentMessagingProfile(supabase: SupabaseClient<any>, userId: string) {
   const [{ data: builderProfile }, { data: vendorProfile }] = await Promise.all([
     supabase.from('builder_profiles').select('id, user_id, name').eq('user_id', userId).maybeSingle(),
-    supabase.from('vendor_profiles').select('id, user_id, name, business_name').eq('user_id', userId).maybeSingle(),
+    supabase.from('vendor_profiles').select('id, user_id, name').eq('user_id', userId).maybeSingle(),
   ])
 
   if (builderProfile) {
@@ -76,7 +76,7 @@ export async function getCurrentMessagingProfile(supabase: SupabaseClient<any>, 
     return {
       id: vendorProfile.id,
       user_id: vendorProfile.user_id,
-      display_name: vendorProfile.business_name || vendorProfile.name || 'Vendor',
+      display_name: vendorProfile.name || 'Vendor',
       type: 'vendor' as const,
     }
   }

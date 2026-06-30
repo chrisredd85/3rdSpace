@@ -37,7 +37,7 @@ export async function GET(request: Request) {
       .from('vendor_message_threads')
       .select(`
         *,
-        vendor_profiles(id, name, business_name, user_id),
+        vendor_profiles(id, name, user_id),
         builder_profiles(id, name, user_id),
         vendor_bookings(id, status),
         vendor_messages(
@@ -218,7 +218,7 @@ async function formatThreadForResponse(supabase: any, thread: any, currentUserTy
     other_participant: currentUserType === 'builder'
       ? {
           id: thread.vendor_profiles?.user_id || thread.vendor_id,
-          name: thread.vendor_profiles?.business_name || thread.vendor_profiles?.name || null,
+          name: thread.vendor_profiles?.name || null,
           email: '',
           avatar_url: null,
         }
