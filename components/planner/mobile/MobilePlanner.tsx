@@ -205,6 +205,7 @@ interface TicketingConnection {
   status: string
   account_label: string | null
   last_connected_at: string | null
+  last_webhook_received_at?: string | null
 }
 
 interface BillingStatus {
@@ -2462,7 +2463,8 @@ function TicketingSection({
   connections: TicketingConnection[]
   onNavigate: (view: MobileView) => void
 }) {
-  const connected = connections.filter((connection) => connection.status !== 'disconnected')
+  const connected = connections.filter(isUsableTicketingConnection)
+  const setupPending = connections.filter((connection) => !isUsableTicketingConnection(connection))
   const summary = ticketing?.summary
 
   return (
@@ -2475,7 +2477,8 @@ function TicketingSection({
 
       <Panel className={spacing.sectionGap}>
         <div className="divide-y divide-tan border-y border-tan">
-          <SimpleRow label="Connected" value={connected.length > 0 ? connected.map((connection) => titleize(connection.platform)).join(', ') : 'No connection'} />
+          <SimpleRow label="Connected" value={connected.length > 0 ? connected.map((connection) => titleize(connection.platform)).join(', ') : 'No active connection'} />
+          <SimpleRow label="Setup pending" value={setupPending.length > 0 ? setupPending.map((connection) => titleize(connection.platform)).join(', ') : 'None'} />
           <SimpleRow label="Events loaded" value={String(ticketing?.events?.length ?? 0)} />
           <SimpleRow label="Tickets sold" value={String(summary?.tickets_sold ?? 0)} />
           <SimpleRow label="Net revenue" value={money(summary?.net_revenue_cents ?? 0) ?? '$0'} />
@@ -2502,6 +2505,10 @@ function TicketingSection({
       </div>
     </section>
   )
+}
+
+function isUsableTicketingConnection(connection: TicketingConnection) {
+  return ['connected', 'linked', 'completed'].includes(connection.status) || Boolean(connection.last_webhook_received_at)
 }
 
 function BillingSection({ billing, onNavigate }: { billing: BillingStatus | null; onNavigate: (view: MobileView) => void }) {

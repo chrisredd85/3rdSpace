@@ -174,6 +174,8 @@ export default function PaymentsPage() {
 
   const refundRequests = data.payments.filter((payment) => payment.status === 'refund_requested')
   const ledgerRows = data.payments
+  const accountStatus = normalizeConnectStatus(data.account?.account_status)
+  const connectAccountReady = Boolean(data.account?.stripe_account_id) && !isBlockedConnectStatus(accountStatus)
   const venueRentalRows = useMemo(() => {
     return [...venueRentalData.transactions].sort((first, second) => {
       const firstTime = getVenueRentalSortTime(first)
@@ -401,10 +403,16 @@ export default function PaymentsPage() {
             <div className="p-5">
               <div className="rounded-lg border border-dashed border-tan bg-cream-deep/55 p-8 text-center">
                 <CreditCard className="mx-auto h-8 w-8 text-ink-soft" />
-                <h3 className="mt-3 font-display text-lg font-bold text-ink">No approvals pending</h3>
+                <h3 className="mt-3 font-display text-lg font-bold text-ink">Planner approvals live in the active plan</h3>
                 <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-ink-soft">
-                  Recommendation buttons create approval requests here. Once a venue or vendor accepts, the payment row will show amount, deadline, refund terms, and status.
+                  Review venue holds, vendor outreach, and deposit authorizations from the planner approval queue. Payment rows appear here after an approved action creates a ledger entry.
                 </p>
+                <Button asChild variant="outline" className="mt-4">
+                  <Link href="/planner?tab=approvals">
+                    Open planner approvals
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
               </div>
             </div>
           </section>
@@ -421,7 +429,11 @@ export default function PaymentsPage() {
             </div>
 
             <div className="mt-5 space-y-3">
-              <ReadinessRow label="Connect account" ready={Boolean(data.account?.stripe_account_id)} />
+              <ReadinessRow
+                label="Connect account"
+                ready={connectAccountReady}
+                status={accountStatus ? formatConnectStatus(accountStatus) : undefined}
+              />
               <ReadinessRow label="Payouts enabled" ready={Boolean(data.account?.payouts_enabled)} />
               <ReadinessRow label="Charges enabled" ready={Boolean(data.account?.charges_enabled)} />
             </div>
@@ -646,7 +658,7 @@ export default function PaymentsPage() {
   )
 }
 
-function ReadinessRow({ label, ready }: { label: string; ready: boolean }) {
+function ReadinessRow({ label, ready, status }: { label: string; ready: boolean; status?: string }) {
   return (
     <div className="flex items-center justify-between rounded-lg border border-tan bg-cream-deep/55 p-3">
       <span className="text-sm font-semibold text-ink">{label}</span>
@@ -656,10 +668,24 @@ function ReadinessRow({ label, ready }: { label: string; ready: boolean }) {
           ? 'border-forest/30 bg-forest-tint text-forest'
           : 'border-tan bg-cream-deep/60 text-ink-soft'
       )}>
-        {ready ? 'Ready' : 'Needs setup'}
+        {ready ? 'Ready' : status ?? 'Needs setup'}
       </span>
     </div>
   )
+}
+
+function normalizeConnectStatus(status: string | null | undefined) {
+  return status ? status.toLowerCase().replaceAll(' ', '_') : null
+}
+
+function isBlockedConnectStatus(status: string | null) {
+  return status === 'restricted' || status === 'disabled'
+}
+
+function formatConnectStatus(status: string) {
+  if (status === 'disabled' || status === 'restricted') return 'Action required'
+  if (status === 'pending_onboarding' || status === 'onboarding_started' || status === 'capabilities_pending') return 'Needs setup'
+  return status.replaceAll('_', ' ')
 }
 
 function StatusBadge({ status }: { status: string }) {

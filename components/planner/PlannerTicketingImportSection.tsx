@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { EventbriteEventImportWizard } from '@/components/planner/EventbriteEventImportWizard'
 import { cn } from '@/lib/utils'
 
-type EventbriteStatus = 'not_connected' | 'pending' | 'connected' | 'failed' | 'disabled'
+type EventbriteStatus = 'not_connected' | 'setup_required' | 'pending' | 'connected' | 'failed' | 'disabled'
 
 type EventbriteConnectionState = {
   status: EventbriteStatus
@@ -109,7 +109,7 @@ export function PlannerTicketingImportSection({ className }: PlannerTicketingImp
         </span>
       </div>
 
-      {connection?.lastError ? <StatusMessage tone="error" message={connection.lastError} /> : null}
+      {connection?.lastError ? <StatusMessage tone="error" message={formatTicketingError(connection.lastError)} /> : null}
       {errorMessage ? <StatusMessage tone="neutral" message={errorMessage} /> : null}
 
       <div className="grid gap-3 lg:grid-cols-3">
@@ -187,4 +187,12 @@ function StatusMessage({ tone, message }: { tone: 'error' | 'neutral'; message: 
       {message}
     </div>
   )
+}
+
+function formatTicketingError(message: string) {
+  if (message === 'stale_token_crypto_key_rotation_2026_06_25') {
+    return 'This ticketing connection was saved before the latest token encryption update. Reconnect the source once to resume imports.'
+  }
+
+  return message
 }
