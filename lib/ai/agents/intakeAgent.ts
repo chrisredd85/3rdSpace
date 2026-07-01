@@ -184,6 +184,36 @@ const vendorNeedStatusSchema = z.preprocess(
   z.enum(['none', 'optional', 'required', 'unknown'])
 )
 
+const supplyIntentCategorySchema = z.enum([
+  'activity_facility',
+  'social_venue',
+  'instructor_vendor',
+  'watch_party',
+  'special_supply',
+])
+
+const supplyIntentSchema = z.object({
+  category: supplyIntentCategorySchema,
+  activity_type: nullableStringSchema,
+  label: z.string().trim().min(1),
+  requirements: z.record(z.unknown()).default({}),
+  confidence: z.number().min(0).max(1).default(0.7),
+  source: z.enum(['intake', 'clarification', 'reply_parsing', 'manual']).default('intake'),
+})
+
+const supplyClarificationSchema = z.object({
+  status: z.enum(['pending', 'resolved']),
+  activity_type: z.string().trim().min(1),
+  question: z.string().trim().min(1),
+  options: z.array(z.object({
+    category: supplyIntentCategorySchema,
+    label: z.string().trim().min(1),
+    description: z.string().trim().min(1),
+  })).default([]),
+  created_at: z.string().trim().min(1).default(() => new Date().toISOString()),
+  resolved_at: z.string().trim().min(1).optional(),
+})
+
 const planRevisionSchema = z.object({
   type: z.enum([
     'negative_preference',
@@ -279,6 +309,8 @@ export const intakeAgentOutputSchema = z.object({
   assumptions_made: stringArraySchema,
   byo_vendors: z.preprocess((v) => Array.isArray(v) ? v : [], z.array(byoVendorSchema)).default([]),
   vendor_need_status: vendorNeedStatusSchema.default('unknown'),
+  supply_intents: z.preprocess((v) => Array.isArray(v) ? v : [], z.array(supplyIntentSchema)).default([]),
+  supply_clarification_needed: supplyClarificationSchema.nullable().optional(),
   plan_revision: planRevisionSchema.nullable().optional(),
 })
 
@@ -331,6 +363,15 @@ const INTAKE_OUTPUT_CONTRACT = {
   assumptions_made: ['string'],
   byo_vendors: [{ service_type: 'dj', name: 'optional vendor name or null', cost_cents: 50000 }],
   vendor_need_status: 'unknown',
+  supply_intents: [{
+    category: 'activity_facility',
+    activity_type: 'tennis',
+    label: 'Tennis facilities',
+    requirements: {},
+    confidence: 0.85,
+    source: 'intake',
+  }],
+  supply_clarification_needed: null,
   plan_revision: null,
 }
 
@@ -361,6 +402,7 @@ const INTAKE_SYSTEM_PROMPT = [
   'If can_match_now is true, or critical_missing is empty and the user already answered at least one high_signal field, pivot to matching: set next_best_question to null and missing_questions to [].',
   'Use archetype_question_priority.archetype_vendor_stack to phrase questions naturally. Example: "For a product launch you will usually want a photographer plus AV. Have you decided on AV intensity, or want me to factor in a typical setup?"',
   'Special supply exception workflow — if the user describes a yacht party, boat charter, warehouse party, mansion or private-estate event, outdoor park event, rooftop buyout, or similar nonstandard supply, treat normal venue matching as insufficient. Ask one specialized quote-intake question about location, hard capacity, timing, duration, food/bar, sound, weather/refund policy, security/check-in, or an existing provider link. Do not imply candidates are bookable inventory; they require verified quotes and organizer approval before any outreach, booking, or payment.',
+  'Activity supply intent workflow — if the user describes an activity-based event such as tennis, pickleball, bowling, basketball, golf, Pilates, yoga, dance, cooking, or art, decide what supply the host needs before sourcing. Use supply_intents when clear: activity_facility for courts/lanes/studios/courses/ranges/places to play; social_venue for a nearby bar/restaurant/gathering place around the activity; instructor_vendor for coach/instructor/class/vendor needs; watch_party for a venue to watch a match/game. If the user only says "tennis event", "bowling event", "golf event", "Pilates event", or similar and it is ambiguous, set supply_clarification_needed with a single plain question asking whether they need a place to play, a nearby social spot, an instructor, or a place to watch. Do not pivot to Places discovery until that ambiguity is resolved.',
   'Never ask about a field that is not in resolved_archetype.matching_fields.critical or resolved_archetype.matching_fields.high_signal.',
   'Never ask about prep time, load-in, breakdown, sound-check windows, setup duration, or doors unless the user volunteers it. Those are venue-side logistics, not matching signals.',
   'After the core planning fields are present, ask the first unanswered required matching-field question from resolved_archetype.intake_questions before saying the plan is ready.',

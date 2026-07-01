@@ -20,6 +20,10 @@ import {
   searchGooglePlacesText,
 } from '@/lib/server/google-places-client'
 import { resolvePlacesIntent } from '@/lib/server/places-archetype-intent'
+import {
+  buildSupplyIntentPlacesSearches,
+  type SupplyIntentPlacesSearch,
+} from '@/lib/planner/supplyIntent/activityCatalog'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlannerApiErrorResponse } from '@/lib/types'
 
@@ -32,6 +36,10 @@ type RouteContext = {
 type PlannerAuth =
   | { userId: string; db: ReturnType<typeof createClient> }
   | { response: NextResponse<PlannerApiErrorResponse> }
+
+type GooglePlacesSearchResultWithSupply = GooglePlacesSearchResult & {
+  supplyIntent?: SupplyIntentPlacesSearch | null
+}
 
 const DISCOVERY_VENUE_SELECT = `
   id,
@@ -151,17 +159,32 @@ export async function POST(
     const searchQuery = parsed.data.query ?? buildDefaultDiscoverySearchQuery(plan)
     const maxResultCount = parsed.data.maxResultCount ?? 8
     const placesIntent = resolvePlacesIntent(plan.event_type, buildPlacesIntentHints(plan))
-    const placesResults = await Promise.all(placesIntent.primary_types.map((includedType) =>
-      searchGooglePlacesText({
-        apiKey,
-        textQuery: searchQuery,
-        eventType: plan.event_type,
-        neighborhood: plan.neighborhood,
-        city: readPlanCity(plan),
-        includedType,
-        maxResultCount,
-      })
-    ))
+    const supplySearches = parsed.data.query ? [] : buildSupplyIntentPlacesSearches(plan)
+    const placesResults: GooglePlacesSearchResultWithSupply[] = supplySearches.length > 0
+      ? await Promise.all(supplySearches.map(async (supplySearch) => ({
+          ...(await searchGooglePlacesText({
+            apiKey,
+            textQuery: supplySearch.textQuery,
+            eventType: plan.event_type,
+            neighborhood: plan.neighborhood,
+            city: readPlanCity(plan),
+            includedType: supplySearch.includedType,
+            maxResultCount,
+          })),
+          supplyIntent: supplySearch,
+        })))
+      : await Promise.all(placesIntent.primary_types.map(async (includedType) => ({
+          ...(await searchGooglePlacesText({
+            apiKey,
+            textQuery: searchQuery,
+            eventType: plan.event_type,
+            neighborhood: plan.neighborhood,
+            city: readPlanCity(plan),
+            includedType,
+            maxResultCount,
+          })),
+          supplyIntent: null,
+        })))
     const placesResultCounts = summarizePlacesResults(placesResults)
     const dedupedPlaces = dedupePlacesByGoogleId(placesResults).slice(0, maxResultCount)
     const placesRequestBundle = {
@@ -173,18 +196,22 @@ export async function POST(
         subspace_keywords: [...placesIntent.subspace_keywords],
       },
       result_counts: placesResultCounts,
-      requests: placesResults.map((result) => result.request),
+      requests: placesResults.map((result) => ({
+        ...result.request,
+        supply_intent: result.supplyIntent ?? null,
+      })),
     }
 
     const admin = createServiceRoleClient()
     const upsertedVenues: DiscoveryVenueRow[] = []
-    for (const { place, request: placesRequest, matchedIncludedType } of dedupedPlaces) {
+    for (const { place, request: placesRequest, matchedIncludedType, supplyIntent } of dedupedPlaces) {
       const insert = buildDiscoveryVenueInsert(place, {
         request: placesRequest,
         searchQuery,
         neighborhood: plan.neighborhood,
         intent: placesIntent,
         matchedIncludedType,
+        supplyIntent,
       })
       const { data, error } = await (admin as any)
         .from('discovery_venues')
@@ -417,11 +444,12 @@ function summarizePlacesResults(results: GooglePlacesSearchResult[]): PlacesResu
   }
 }
 
-function dedupePlacesByGoogleId(results: GooglePlacesSearchResult[]) {
+function dedupePlacesByGoogleId(results: GooglePlacesSearchResultWithSupply[]) {
   const byId = new Map<string, {
     place: GooglePlacesSearchResult['places'][number]
     request: GooglePlacesSearchResult['request']
     matchedIncludedType: GooglePlacesIncludedType | null
+    supplyIntent: SupplyIntentPlacesSearch | null
   }>()
 
   for (const result of results) {
@@ -431,6 +459,7 @@ function dedupePlacesByGoogleId(results: GooglePlacesSearchResult[]) {
         place,
         request: result.request,
         matchedIncludedType: result.request.includedType ?? null,
+        supplyIntent: result.supplyIntent ?? null,
       })
     }
   }

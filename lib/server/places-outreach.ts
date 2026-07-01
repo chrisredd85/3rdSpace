@@ -3,6 +3,10 @@ import 'server-only'
 import { archetypeFor } from '@/lib/planner/archetypes'
 import { rankCatalogPartners, type CatalogPlanRankingInput, type CatalogVenueRankingInput } from '@/lib/planner/catalogRanker'
 import { buildSpecialSupplySearchQuery, readPlanSpecialSupply } from '@/lib/planner/specialSupply'
+import {
+  buildSupplyIntentPlacesSearches,
+  type SupplyIntentPlacesSearch,
+} from '@/lib/planner/supplyIntent/activityCatalog'
 import type { Json, Plan, TableRow } from '@/lib/types'
 import {
   type GooglePlaceCandidate,
@@ -16,6 +20,10 @@ import { resolvePlacesIntent } from '@/lib/server/places-archetype-intent'
 import { enqueueVenueCapacityInferenceJob, hasKnownCapacity } from '@/lib/discovery/venueCapacityJobs'
 import type { SupabaseJobClient } from '@/lib/server/job-queue'
 import { parseExtractedContactForms } from '@/lib/server/discovery-enrichment'
+
+type GooglePlacesSearchResultWithSupply = GooglePlacesSearchResult & {
+  supplyIntent?: SupplyIntentPlacesSearch | null
+}
 
 export type DiscoveryVenueCapacityInferenceFields = {
   inferred_capacity_standing?: number | null
@@ -161,6 +169,7 @@ export function buildDiscoveryVenueInsert(
     neighborhood: string | null
     intent?: PlacesIntent
     matchedIncludedType?: string | null
+    supplyIntent?: SupplyIntentPlacesSearch | null
   }
 ) {
   const venueClusterId = computeVenueCluster(place)
@@ -196,6 +205,9 @@ export function buildDiscoveryVenueInsert(
       places_intent_cluster_label: input.intent?.cluster_label ?? null,
       places_intent_requested_types: input.intent ? [...input.intent.primary_types] : [],
       places_intent_matched_type: input.matchedIncludedType ?? input.request.includedType ?? null,
+      places_supply_intent_category: input.supplyIntent?.category ?? null,
+      places_supply_intent_activity_type: input.supplyIntent?.activity_type ?? null,
+      places_supply_intent_label: input.supplyIntent?.label ?? null,
       venue_cluster_id: venueClusterId,
       subspace_hint: subspaceHint,
     } as unknown as Json,
@@ -483,22 +495,37 @@ export async function searchPlacesForPlan(
   const maxResultCount = options.maxResultCount ?? 8
   const areas = normalizeSearchAreas(options.areas, plan)
   const placesIntent = resolvePlacesIntent(plan.event_type, buildPlacesIntentHints(plan))
-  const allResults: GooglePlacesSearchResult[] = []
+  const allResults: GooglePlacesSearchResultWithSupply[] = []
 
   for (const area of areas) {
     const planForArea = { ...plan, neighborhood: area }
     const searchQuery = buildDefaultDiscoverySearchQuery(planForArea)
-    const results = await Promise.all(placesIntent.primary_types.map((includedType) =>
-      searchGooglePlacesText({
-        apiKey: options.apiKey,
-        textQuery: searchQuery,
-        eventType: plan.event_type,
-        neighborhood: area,
-        city: readPlanCity(plan),
-        includedType,
-        maxResultCount,
-      })
-    ))
+    const supplySearches = buildSupplyIntentPlacesSearches(planForArea)
+    const results: GooglePlacesSearchResultWithSupply[] = supplySearches.length > 0
+      ? await Promise.all(supplySearches.map(async (supplySearch) => ({
+          ...(await searchGooglePlacesText({
+            apiKey: options.apiKey,
+            textQuery: supplySearch.textQuery,
+            eventType: plan.event_type,
+            neighborhood: area,
+            city: readPlanCity(plan),
+            includedType: supplySearch.includedType,
+            maxResultCount,
+          })),
+          supplyIntent: supplySearch,
+        })))
+      : await Promise.all(placesIntent.primary_types.map(async (includedType) => ({
+          ...(await searchGooglePlacesText({
+            apiKey: options.apiKey,
+            textQuery: searchQuery,
+            eventType: plan.event_type,
+            neighborhood: area,
+            city: readPlanCity(plan),
+            includedType,
+            maxResultCount,
+          })),
+          supplyIntent: null,
+        })))
     allResults.push(...results)
   }
 
@@ -510,13 +537,14 @@ export async function searchPlacesForPlan(
   const placesResultCounts = summarizePlacesResults(allResults)
   const upsertedVenues: DiscoveryVenueRow[] = []
 
-  for (const { place, request, matchedIncludedType } of dedupedPlaces) {
+  for (const { place, request, matchedIncludedType, supplyIntent } of dedupedPlaces) {
     const insert = buildDiscoveryVenueInsert(place, {
       request,
       searchQuery,
       neighborhood: areas.join(' or '),
       intent: placesIntent,
       matchedIncludedType,
+      supplyIntent,
     })
     const { data, error } = await options.admin
       .from('discovery_venues')
@@ -550,7 +578,10 @@ export async function searchPlacesForPlan(
       places_request_json: {
         text_query: searchQuery,
         result_counts: placesResultCounts,
-        requests: allResults.map((result) => result.request),
+        requests: allResults.map((result) => ({
+          ...result.request,
+          supply_intent: result.supplyIntent ?? null,
+        })),
       } as unknown as Json,
     }))
 
@@ -655,11 +686,12 @@ function summarizePlacesResults(results: GooglePlacesSearchResult[]): SearchPlac
   }
 }
 
-function dedupePlacesByGoogleId(results: GooglePlacesSearchResult[]) {
+function dedupePlacesByGoogleId(results: GooglePlacesSearchResultWithSupply[]) {
   const byId = new Map<string, {
     place: GooglePlacesSearchResult['places'][number]
     request: GooglePlacesSearchResult['request']
     matchedIncludedType: GooglePlacesIncludedType | null
+    supplyIntent: SupplyIntentPlacesSearch | null
   }>()
 
   for (const result of results) {
@@ -669,6 +701,7 @@ function dedupePlacesByGoogleId(results: GooglePlacesSearchResult[]) {
         place,
         request: result.request,
         matchedIncludedType: result.request.includedType ?? null,
+        supplyIntent: result.supplyIntent ?? null,
       })
     }
   }

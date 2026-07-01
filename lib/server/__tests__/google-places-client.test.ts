@@ -50,6 +50,23 @@ describe('google places client', () => {
     }
   })
 
+  it('maps activity supply queries to concrete Places facility types', () => {
+    expect(buildGooglePlacesTextSearchRequest({
+      textQuery: 'tennis courts in Oakland',
+      neighborhood: 'Oakland',
+    }).includedType).toBe('tennis_court')
+
+    expect(buildGooglePlacesTextSearchRequest({
+      textQuery: 'bowling alley for 20 people in Oakland',
+      neighborhood: 'Oakland',
+    }).includedType).toBe('bowling_alley')
+
+    expect(buildGooglePlacesTextSearchRequest({
+      textQuery: 'pilates studio event in Mission',
+      neighborhood: 'Mission',
+    }).includedType).toBe('fitness_center')
+  })
+
   it('uses a bounded location bias circle for special supply searches', () => {
     const request = buildGooglePlacesTextSearchRequest({
       textQuery: 'yacht charter event rental in Bay Area',

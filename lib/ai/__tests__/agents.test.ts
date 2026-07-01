@@ -75,6 +75,7 @@ const validIntakeOutput = {
   assumptions_made: ['Founder dinner implies a seated meal.'],
   vendor_need_status: 'unknown',
   byo_vendors: [],
+  supply_intents: [],
 }
 
 const ticketingPlatformQuestionOutput = {
