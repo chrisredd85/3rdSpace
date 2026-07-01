@@ -81,6 +81,43 @@ type VenueRentalSummary = {
   error?: string
 }
 
+type PendingApprovalPlanContext = {
+  id: string
+  title: string
+  event_type: string | null
+  guest_count: number | null
+  neighborhood: string | null
+  date_window_start: string | null
+  date_window_end: string | null
+  status: string
+  updated_at: string
+}
+
+type PendingPlannerApproval = {
+  id: string
+  plan_id: string
+  action_label: string
+  provider: string | null
+  event_date: string | null
+  price_cents: number | null
+  fees_cents: number | null
+  refund_terms: string | null
+  cancellation_terms: string | null
+  package_details: string | null
+  status: string
+  requested_amount_cents: number | null
+  authorized_amount_cents: number | null
+  created_at: string
+  updated_at: string
+  plan: PendingApprovalPlanContext | null
+}
+
+type PendingApprovalsSummary = {
+  active_plan: PendingApprovalPlanContext | null
+  approvals: PendingPlannerApproval[]
+  error?: string
+}
+
 const emptySummary: BuilderPayoutSummary = {
   account: null,
   summary: {
@@ -104,6 +141,11 @@ const emptyVenueRentalSummary: VenueRentalSummary = {
   transactions: [],
 }
 
+const emptyPendingApprovalsSummary: PendingApprovalsSummary = {
+  active_plan: null,
+  approvals: [],
+}
+
 const paidStatuses = new Set(['paid', 'completed', 'refunded_partial', 'refunded_full'])
 const pendingStatuses = new Set(['pending', 'processing', 'pending_venue_approval', 'invoice_sent', 'refund_requested', 'refund_approved', 'refund_processing'])
 
@@ -113,6 +155,7 @@ const pendingStatuses = new Set(['pending', 'processing', 'pending_venue_approva
 export default function PaymentsPage() {
   const [data, setData] = useState<BuilderPayoutSummary>(emptySummary)
   const [venueRentalData, setVenueRentalData] = useState<VenueRentalSummary>(emptyVenueRentalSummary)
+  const [approvalData, setApprovalData] = useState<PendingApprovalsSummary>(emptyPendingApprovalsSummary)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refundDecisionLoading, setRefundDecisionLoading] = useState<string | null>(null)
@@ -127,20 +170,25 @@ export default function PaymentsPage() {
     setError(null)
 
     try {
-      const [payoutResponse, rentalResponse] = await Promise.all([
+      const [payoutResponse, rentalResponse, approvalsResponse] = await Promise.all([
         fetch('/api/builder/payouts/summary', { cache: 'no-store' }),
         fetch('/api/planner/payments/venue-rentals/summary', { cache: 'no-store' }),
+        fetch('/api/planner/approvals/pending', { cache: 'no-store' }),
       ])
       const payoutPayload = await payoutResponse.json().catch(() => ({}))
       const rentalPayload = await rentalResponse.json().catch(() => ({}))
+      const approvalsPayload = await approvalsResponse.json().catch(() => ({}))
       if (!payoutResponse.ok) throw new Error(payoutPayload?.error ?? 'Unable to load payout payments')
       if (!rentalResponse.ok) throw new Error(rentalPayload?.error ?? 'Unable to load venue rental payments')
+      if (!approvalsResponse.ok) throw new Error(approvalsPayload?.error ?? 'Unable to load approval queue')
       setData(payoutPayload as BuilderPayoutSummary)
       setVenueRentalData(rentalPayload as VenueRentalSummary)
+      setApprovalData(approvalsPayload as PendingApprovalsSummary)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load payments')
       setData(emptySummary)
       setVenueRentalData(emptyVenueRentalSummary)
+      setApprovalData(emptyPendingApprovalsSummary)
     } finally {
       setIsLoading(false)
     }
@@ -174,6 +222,7 @@ export default function PaymentsPage() {
 
   const refundRequests = data.payments.filter((payment) => payment.status === 'refund_requested')
   const ledgerRows = data.payments
+  const pendingApprovals = approvalData.approvals
   const accountStatus = normalizeConnectStatus(data.account?.account_status)
   const connectAccountReady = Boolean(data.account?.stripe_account_id) && !isBlockedConnectStatus(accountStatus)
   const venueRentalRows = useMemo(() => {
@@ -401,19 +450,65 @@ export default function PaymentsPage() {
               </div>
             </div>
             <div className="p-5">
-              <div className="rounded-lg border border-dashed border-tan bg-cream-deep/55 p-8 text-center">
-                <CreditCard className="mx-auto h-8 w-8 text-ink-soft" />
-                <h3 className="mt-3 font-display text-lg font-bold text-ink">Planner approvals live in the active plan</h3>
-                <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-ink-soft">
-                  Review venue holds, vendor outreach, and deposit authorizations from the planner approval queue. Payment rows appear here after an approved action creates a ledger entry.
-                </p>
-                <Button asChild variant="outline" className="mt-4">
-                  <Link href="/planner?tab=approvals">
-                    Open planner approvals
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </div>
+              {isLoading ? (
+                <div className="flex items-center gap-3 rounded-lg border border-dashed border-tan bg-cream-deep/55 p-8 text-sm text-ink-soft">
+                  <Loader2 className="h-5 w-5 animate-spin text-clay" />
+                  Loading approval queue...
+                </div>
+              ) : pendingApprovals.length > 0 ? (
+                <div className="space-y-3">
+                  {approvalData.active_plan ? (
+                    <div className="rounded-lg border border-tan bg-cream-deep/60 px-4 py-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-clay">Active event</p>
+                      <p className="mt-1 font-display text-lg font-bold text-ink">{approvalData.active_plan.title}</p>
+                      <p className="mt-1 text-sm text-ink-soft">
+                        {formatDateRange(approvalData.active_plan.date_window_start, approvalData.active_plan.date_window_end)}
+                        {approvalData.active_plan.neighborhood ? ` · ${approvalData.active_plan.neighborhood}` : ''}
+                        {approvalData.active_plan.guest_count ? ` · ${approvalData.active_plan.guest_count} guests` : ''}
+                      </p>
+                    </div>
+                  ) : null}
+                  {pendingApprovals.map((approval) => (
+                    <article key={approval.id} className="rounded-lg border border-tan bg-cream-deep/55 p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <StatusBadge status={approval.status} />
+                            <span className="text-xs font-semibold text-ink-soft">{approval.provider ?? 'Planner approval'}</span>
+                          </div>
+                          <h3 className="mt-2 font-display text-lg font-bold text-ink">{approval.action_label}</h3>
+                          <p className="mt-1 text-sm leading-6 text-ink-soft">
+                            {approval.package_details ?? approval.refund_terms ?? approval.cancellation_terms ?? 'Review this action before 3rdPlace proceeds.'}
+                          </p>
+                          <p className="mt-2 text-xs font-semibold text-ink-soft">
+                            {formatApprovalAmount(approval)}
+                          </p>
+                        </div>
+                        <Button asChild size="sm" className="shrink-0">
+                          <Link href={`/planner?plan=${encodeURIComponent(approval.plan_id)}&tab=approvals`}>
+                            Review
+                            <ArrowRight className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-tan bg-cream-deep/55 p-8 text-center">
+                  <CreditCard className="mx-auto h-8 w-8 text-ink-soft" />
+                  <h3 className="mt-3 font-display text-lg font-bold text-ink">No approvals awaiting action</h3>
+                  <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-ink-soft">
+                    Venue holds, vendor outreach, and deposit authorizations appear here from the active event plan as soon as the agent prepares them.
+                  </p>
+                  <Button asChild variant="outline" className="mt-4">
+                    <Link href={approvalData.active_plan ? `/planner?plan=${encodeURIComponent(approvalData.active_plan.id)}&tab=approvals` : '/planner?tab=approvals'}>
+                      Open planner approvals
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                </div>
+              )}
             </div>
           </section>
 
@@ -729,6 +824,19 @@ function formatDate(value: string | null | undefined) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 'Date pending'
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function formatDateRange(start: string | null | undefined, end: string | null | undefined) {
+  const startLabel = formatDate(start)
+  const endLabel = end && end !== start ? formatDate(end) : null
+  if (startLabel === 'Date pending' && !endLabel) return 'Date pending'
+  return endLabel ? `${startLabel} - ${endLabel}` : startLabel
+}
+
+function formatApprovalAmount(approval: PendingPlannerApproval) {
+  const amount = approval.requested_amount_cents ?? approval.authorized_amount_cents ?? approval.price_cents
+  if (amount && amount > 0) return `${formatCents(amount)} requires approval`
+  return 'No payment yet'
 }
 
 function formatStatus(status: string) {

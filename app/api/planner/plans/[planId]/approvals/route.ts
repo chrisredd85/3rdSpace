@@ -14,6 +14,7 @@ import {
   createVenueOpportunityBrief,
   ensureVenueOpportunityInviteTokens,
 } from '@/lib/planner/venueOpportunityBriefs'
+import { loadPendingApprovalsForPlan } from '@/lib/planner/pendingApprovals'
 import {
   createVendorOpportunityBrief,
   ensureVendorOpportunityInviteTokens,
@@ -166,19 +167,9 @@ export async function GET(
     const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const { data, error } = await auth.db
-      .from('approvals')
-      .select(APPROVAL_SELECT_COLUMNS)
-      .eq('plan_id', (await context.params).planId)
-      .eq('status', 'pending')
-      .order('created_at', { ascending: true })
+    const approvals = await loadPendingApprovalsForPlan(auth.db, plan.id)
 
-    if (error) {
-      logger.error('Planner approvals list failed', error, { user_id: auth.userId })
-      return NextResponse.json({ error: 'Failed to fetch approvals' }, { status: 500 })
-    }
-
-    return NextResponse.json({ approvals: (data ?? []) as Approval[] })
+    return NextResponse.json({ approvals })
   } catch (error) {
     logger.error('Planner approvals GET failed', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
