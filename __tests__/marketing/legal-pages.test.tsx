@@ -25,6 +25,9 @@ describe('legal scaffold pages', () => {
     expect(screen.getByText('5. Subscriptions and billing')).toBeInTheDocument()
     expect(screen.getByText('7. Outreach and Gmail integration')).toBeInTheDocument()
     expect(screen.getByText('14. Contact')).toBeInTheDocument()
+    expect(screen.getByText(/\$79 per month for Pro/i)).toBeInTheDocument()
+    expect(screen.queryByText(/\$69 per month for Pro/i)).not.toBeInTheDocument()
+    expect(screen.getAllByText(/Last updated: July 1, 2026/i).length).toBeGreaterThan(0)
   })
 })
 
