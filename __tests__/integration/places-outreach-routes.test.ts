@@ -255,6 +255,14 @@ function makeDb() {
         fit_score: 88,
         places_request_json: {},
       },
+      {
+        id: 'candidate-manual',
+        plan_id: 'plan-1',
+        discovery_venue_id: '44444444-4444-4444-8444-444444444444',
+        dismissed_at: null,
+        fit_score: 75,
+        places_request_json: {},
+      },
     ],
     discovery_venues: [
       {
@@ -264,6 +272,8 @@ function makeDb() {
         organizer_provided_emails: [{ email: 'booking@moongate.example' }],
         extracted_emails: [],
         website: 'https://moongate.example',
+        source: 'google_places',
+        source_external_id: 'places/moongate',
         metadata: {},
         photos: [],
       },
@@ -274,6 +284,8 @@ function makeDb() {
         organizer_provided_emails: [],
         extracted_emails: [],
         website: 'https://stable.example',
+        source: 'google_places',
+        source_external_id: 'places/stable',
         metadata: {},
         photos: [],
       },
@@ -284,6 +296,20 @@ function makeDb() {
         organizer_provided_emails: [],
         extracted_emails: [],
         website: 'https://mission-social.example',
+        source: 'google_places',
+        source_external_id: 'places/mission-social',
+        metadata: {},
+        photos: [],
+      },
+      {
+        id: '44444444-4444-4444-8444-444444444444',
+        name: 'Organizer Manual Room',
+        contact_email: 'manual@example.com',
+        organizer_provided_emails: [],
+        extracted_emails: [],
+        website: 'https://manual.example',
+        source: 'manual_seed',
+        source_external_id: null,
         metadata: {},
         photos: [],
       },
@@ -399,5 +425,23 @@ describe('POST /api/planner/plans/[planId]/outreach/approve-batch', () => {
     expect(json.billingRequired).toBe(true)
     expect(mockCreateApproval).not.toHaveBeenCalled()
     expect(db.rows.builder_event_access_consumptions).toHaveLength(0)
+  })
+
+  it('requires outreach batches to be created from Google Places discovery candidates', async () => {
+    const response = await approveBatch(makeRequest({
+      discovery_venue_ids: ['44444444-4444-4444-8444-444444444444'],
+    }), { params: { planId: 'plan-1' } })
+    const json = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(json.code).toBe('places_discovery_required')
+    expect(json.error).toBe('Run Google Places discovery before creating outreach approvals.')
+    expect(json.venue_errors).toEqual([expect.objectContaining({
+      discovery_venue_id: '44444444-4444-4444-8444-444444444444',
+      error: 'places_discovery_required',
+    })])
+    expect(mockCreateApproval).not.toHaveBeenCalled()
+    const db = mockCreateClient.mock.results[0].value as MemoryDb
+    expect(db.rows.builder_profiles[0].free_events_used).toBe(0)
   })
 })
