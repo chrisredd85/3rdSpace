@@ -77,6 +77,15 @@ describe('RoleLoginPage account creation placement', () => {
     expect(createAccountLinks[0]).toBe(formCreateAccount)
   })
 
+  it('exposes a password reset entry from the builder login form', () => {
+    renderRoleLoginPage()
+
+    expect(screen.getByRole('link', { name: 'Forgot password?' })).toHaveAttribute(
+      'href',
+      '/forgot-password?portal=builder'
+    )
+  })
+
   it('stacks partner login links centered underneath the form actions', () => {
     renderRoleLoginPage()
 
