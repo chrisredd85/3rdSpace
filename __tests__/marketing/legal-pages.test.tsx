@@ -41,6 +41,8 @@ describe('CookieBanner', () => {
 
     expect(screen.getByText(/We use cookies to improve your experience/i)).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Cookie notice' })).toHaveClass('z-40')
+    expect(screen.getByRole('region', { name: 'Cookie notice' })).toHaveClass('top-[calc(env(safe-area-inset-top)+0.75rem)]')
+    expect(screen.getByRole('region', { name: 'Cookie notice' })).toHaveClass('sm:bottom-0')
     fireEvent.click(screen.getByRole('button', { name: 'Accept' }))
 
     expect(window.localStorage.getItem('cookie_consent_v1')).toBe('accepted')

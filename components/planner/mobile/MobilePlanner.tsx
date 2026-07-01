@@ -1369,6 +1369,7 @@ function PlannerView({
   const reviewCount = home?.pending_approval_count ?? 0
   const operatingLoop = mobileOperatingLoopState(data)
   const description = operatingLoop.description
+  const isPrivateDraft = plan.id.startsWith('mock-plan-') || plan.user_id === 'mock-user'
 
   return (
     <section>
@@ -1404,6 +1405,21 @@ function PlannerView({
         <SecondaryButton onClick={() => onNavigate('brief')}>Open event record</SecondaryButton>
       </div>
       {batchFeedback ? <p className="mt-3 text-sm font-semibold leading-6 text-forest">{batchFeedback}</p> : null}
+
+      {isPrivateDraft ? (
+        <Panel className={cn(spacing.cardGap, 'border-clay/25 bg-clay-tint')}>
+          <p className="label-caps text-clay">Private draft</p>
+          <h2 className={cn(spacing.labelToHeadline, 'font-display text-[24px] leading-tight text-ink')}>
+            Create an account to save this plan.
+          </h2>
+          <p className={cn(spacing.headlineToBody, 'text-sm leading-6 text-ink-soft')}>
+            This plan is only on this device right now. Save it before approvals, outreach, bookings, or payments start.
+          </p>
+          <div className={spacing.bodyToAction}>
+            <PrimaryLink href="/signup/builder?returnTo=%2Fplanner&draft=pending">Save this plan</PrimaryLink>
+          </div>
+        </Panel>
+      ) : null}
 
       <Panel className={cn(spacing.sectionGap, spacing.cardPaddingNone)}>
         <div className={cn('border-b border-tan', spacing.panelHeaderPadding)}>

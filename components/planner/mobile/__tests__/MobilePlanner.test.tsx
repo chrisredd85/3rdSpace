@@ -106,6 +106,10 @@ describe('MobilePlanner local draft flow', () => {
     expect(JSON.parse(window.localStorage.getItem(pendingEventDraftStorageKey) ?? '{}')).toMatchObject({
       prompt: 'Stress test dinner for 18 in Hayes Valley with a $4500 budget',
     })
+    expect(screen.getByText('Create an account to save this plan.')).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: 'Save this plan' }).some((link) => {
+      return link.getAttribute('href') === '/signup/builder?returnTo=%2Fplanner&draft=pending'
+    })).toBe(true)
     expect(screen.getByRole('button', { name: 'Review approval policy' })).toBeInTheDocument()
     expect(screen.getByText('Next action steps')).toBeInTheDocument()
     expect(screen.getByText('Confirm before outreach.')).toBeInTheDocument()
@@ -141,10 +145,9 @@ describe('MobilePlanner local draft flow', () => {
     await waitFor(() => expect(screen.getByText(/Dinner · Hayes Valley · 18 guests · \$4,500/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /Open navigation/i }))
 
-    expect(screen.getByRole('link', { name: 'Save this plan' })).toHaveAttribute(
-      'href',
-      '/signup/builder?returnTo=%2Fplanner&draft=pending'
-    )
+    expect(screen.getAllByRole('link', { name: 'Save this plan' }).some((link) => {
+      return link.getAttribute('href') === '/signup/builder?returnTo=%2Fplanner&draft=pending'
+    })).toBe(true)
     expect(screen.getByRole('link', { name: 'Explore' })).toHaveAttribute('href', '/')
     expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login/builder')
     expect(screen.queryByRole('link', { name: /Venues/i })).not.toBeInTheDocument()
