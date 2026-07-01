@@ -2,10 +2,15 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SignupExperience } from '@/components/auth/SignupExperience'
 import { ToastProvider } from '@/components/ui/toast'
 import { migratePlannerDraftToServer } from '@/lib/planner/migrateDraft'
+import { migratePendingEventDraftToServer } from '@/lib/planner/pendingEventDraft'
 import { createClient } from '@/lib/supabase/client'
 
 jest.mock('@/lib/planner/migrateDraft', () => ({
   migratePlannerDraftToServer: jest.fn(),
+}))
+
+jest.mock('@/lib/planner/pendingEventDraft', () => ({
+  migratePendingEventDraftToServer: jest.fn(),
 }))
 
 jest.mock('@/lib/supabase/client', () => ({
@@ -14,6 +19,7 @@ jest.mock('@/lib/supabase/client', () => ({
 
 const mockCreateClient = createClient as jest.Mock
 const mockMigratePlannerDraftToServer = migratePlannerDraftToServer as jest.Mock
+const mockMigratePendingEventDraftToServer = migratePendingEventDraftToServer as jest.Mock
 const mockSignInWithOAuth = jest.fn()
 const originalFetch = global.fetch
 const originalSendBeacon = navigator.sendBeacon
@@ -43,6 +49,7 @@ describe('SignupExperience step validation', () => {
         signInWithOAuth: mockSignInWithOAuth.mockResolvedValue({ error: null }),
       },
     })
+    mockMigratePendingEventDraftToServer.mockResolvedValue(null)
     mockMigratePlannerDraftToServer.mockResolvedValue(null)
   })
 
@@ -119,7 +126,7 @@ describe('SignupExperience step validation', () => {
       avg_attendance: '150',
       ticket_platforms: [],
       invite_collaborators: '',
-      signup_terms_version: '2026-06-25',
+      signup_terms_version: '2026-07-01',
       signup_terms_accepted: true,
     }))
   })
@@ -148,7 +155,41 @@ describe('SignupExperience step validation', () => {
     expect(callbackUrl.searchParams.get('next')).toBe(
       '/api/integrations/gmail/connect?returnTo=%2Fplanner%3Fsignup%3Dcomplete%26gmail%3Dconnected'
     )
-    expect(callbackUrl.searchParams.get('terms_version')).toBe('2026-06-25')
+    expect(callbackUrl.searchParams.get('terms_version')).toBe('2026-07-01')
+  })
+
+  it('migrates a pending homepage draft before falling back to older local planner drafts', async () => {
+    mockMigratePendingEventDraftToServer.mockResolvedValueOnce({ plan: { id: 'plan-from-pending' } })
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      requiresEmailConfirmation: false,
+      user: { email: 'alex@example.com' },
+      ticketingConnections: [],
+    }), { status: 200 })) as jest.Mock
+
+    renderSignup('community_builder')
+
+    fireEvent.change(screen.getByPlaceholderText('Alex Rivera'), { target: { value: 'Alex Rivera' } })
+    fireEvent.change(screen.getByPlaceholderText('alex@brand.com'), { target: { value: 'alex@example.com' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password123' } })
+    fireEvent.click(continueButton())
+    fireEvent.change(screen.getByPlaceholderText('Sunset Social Club'), { target: { value: 'Sunset Social Club' } })
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Social group / Community' } })
+    fireEvent.change(screen.getByPlaceholderText("What's your scene? Who do you throw events for?"), {
+      target: { value: 'Recurring community dinners and talks.' },
+    })
+    fireEvent.click(continueButton())
+    fireEvent.click(screen.getByRole('button', { name: /Networking mixer/i }))
+    fireEvent.change(screen.getByPlaceholderText('e.g. 150'), { target: { value: '150' } })
+    fireEvent.click(screen.getByRole('button', { name: /Full bar/i }))
+    fireEvent.click(continueButton())
+    fireEvent.click(screen.getByLabelText(/I agree to the Terms of Service/i))
+    fireEvent.click(screen.getByRole('button', { name: /Create account/i }))
+
+    expect(await screen.findByText('Creator workspace')).toBeInTheDocument()
+    expect(mockMigratePendingEventDraftToServer).toHaveBeenCalled()
+    expect(mockMigratePlannerDraftToServer).not.toHaveBeenCalled()
+    expect(await screen.findByText(/Welcome - I've created your first plan/i)).toBeInTheDocument()
   })
 
   it('does not show Google signup on venue or vendor signup forms', () => {
@@ -249,7 +290,7 @@ describe('SignupExperience step validation', () => {
       bar_chi_pct: null,
       per_head_drink_pct: null,
       min_bar_spend: 2000,
-      signup_terms_version: '2026-06-25',
+      signup_terms_version: '2026-07-01',
       signup_terms_accepted: true,
     }))
   })
@@ -333,7 +374,7 @@ describe('SignupExperience step validation', () => {
       services: ['DJ', 'Photographer'],
       package_name: 'DJ + photo starter',
       package_details: 'Four hours of DJ coverage, arrival photos, and basic lighting.',
-      signup_terms_version: '2026-06-25',
+      signup_terms_version: '2026-07-01',
       signup_terms_accepted: true,
     }))
   })
