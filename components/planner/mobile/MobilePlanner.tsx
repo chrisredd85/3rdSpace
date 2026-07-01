@@ -415,6 +415,7 @@ export function MobilePlanner({
   const searchParams = useSearchParams()
   const requestedDraft = searchParams.get('draft')?.trim() ?? ''
   const requestedView = searchParams.get('view')
+  const requestedPlanId = searchParams.get('plan')
   const [initialEntry] = useState(() => getInitialMobileEntry(initialView))
   const [view, setView] = useState<MobileView>(initialEntry.view)
   const [data, setData] = useState<MobileData>(initialData)
@@ -434,9 +435,9 @@ export function MobilePlanner({
 
   const reload = useCallback(async () => {
     setData((current) => ({ ...current, state: 'loading', error: null }))
-    const nextData = await loadMobileData()
+    const nextData = await loadMobileData(requestedPlanId)
     setData(nextData)
-  }, [])
+  }, [requestedPlanId])
 
   useEffect(() => {
     if (initialEntry.skipInitialLoad || requestedDraft) {
@@ -947,7 +948,7 @@ function MobileContent({
     )
   }
   if (view === 'budget') return <BudgetView budget={data.budget} plan={data.planPayload.plan} onNavigate={onNavigate} />
-  if (view === 'draft') return <ApprovalsSection approvals={data.planPayload.approvals} onNavigate={onNavigate} />
+  if (view === 'draft') return <ApprovalsSection plan={data.planPayload.plan} approvals={data.planPayload.approvals} onNavigate={onNavigate} />
   if (view === 'approval') return <ApprovalPolicyView onNavigate={onNavigate} />
   if (view === 'deposit') return <DepositApprovalView approvals={data.planPayload.approvals} data={data} onNavigate={onNavigate} />
   if (view === 'sent' || view === 'reply' || view === 'outreach-thread') {
@@ -979,7 +980,7 @@ function MobileContent({
     )
   }
 
-  if (activeSection === 'approvals') return <ApprovalsSection approvals={data.planPayload.approvals} onNavigate={onNavigate} />
+  if (activeSection === 'approvals') return <ApprovalsSection plan={data.planPayload.plan} approvals={data.planPayload.approvals} onNavigate={onNavigate} />
   if (activeSection === 'messages') return <MessagesSection messages={data.planPayload.messages} activity={data.activity} />
   if (activeSection === 'vendors') {
     return (
@@ -1027,16 +1028,30 @@ function MobileContent({
   )
 }
 
-async function loadMobileData(): Promise<MobileData> {
+async function loadMobileData(requestedPlanId: string | null = null): Promise<MobileData> {
   try {
-    const plansResponse = await fetch('/api/planner/plans?limit=10', { cache: 'no-store' })
-    if (plansResponse.status === 401 || plansResponse.status === 403) {
-      return { ...initialData, state: 'unauthenticated' }
-    }
-    if (!plansResponse.ok) throw new Error('Unable to load plans')
+    let preloadedPlanPayload: PlannerPayload | null = null
+    let activePlan: Plan | null = null
 
-    const plansPayload = (await plansResponse.json()) as { plans?: Plan[] }
-    const activePlan = (plansPayload.plans ?? []).find((plan) => plan.status !== 'archived') ?? null
+    if (requestedPlanId) {
+      const planResponse = await fetch(`/api/planner/plans/${encodeURIComponent(requestedPlanId)}`, { cache: 'no-store' })
+      if (planResponse.status === 401 || planResponse.status === 403) {
+        return { ...initialData, state: 'unauthenticated' }
+      }
+      if (!planResponse.ok) throw new Error('Unable to load requested plan')
+      preloadedPlanPayload = (await planResponse.json()) as PlannerPayload
+      activePlan = preloadedPlanPayload.plan
+    } else {
+      const plansResponse = await fetch('/api/planner/plans?limit=10', { cache: 'no-store' })
+      if (plansResponse.status === 401 || plansResponse.status === 403) {
+        return { ...initialData, state: 'unauthenticated' }
+      }
+      if (!plansResponse.ok) throw new Error('Unable to load plans')
+
+      const plansPayload = (await plansResponse.json()) as { plans?: Plan[] }
+      activePlan = (plansPayload.plans ?? []).find((plan) => plan.status !== 'archived') ?? null
+    }
+
     if (!activePlan) return { ...initialData, state: 'empty' }
 
     const [
@@ -1049,7 +1064,7 @@ async function loadMobileData(): Promise<MobileData> {
       connectionsPayload,
       analytics,
     ] = await Promise.all([
-      fetchJson<PlannerPayload>(`/api/planner/plans/${activePlan.id}`),
+      preloadedPlanPayload ? Promise.resolve(preloadedPlanPayload) : fetchJson<PlannerPayload>(`/api/planner/plans/${activePlan.id}`),
       fetchJson<MobileHome>(`/api/planner/plans/${activePlan.id}/mobile-home`),
       fetchJson<BudgetSummary>(`/api/planner/plans/${activePlan.id}/budget`),
       fetchJson<{ activities?: ActivityItem[] }>(`/api/planner/plans/${activePlan.id}/activity`),
@@ -1566,6 +1581,9 @@ function BriefView({
   const committedVenue = readCommittedVenue(plan)
   const committedVendors = readCommittedVendors(plan)
   const pendingOutreachApprovals = approvals.filter(isOutreachApproval)
+  const venueTerms = formatMobileVenueTermsValue(plan)
+  const revenueModel = formatMobileRevenueModelValue(plan)
+  const agentAction = plan.agent_action ?? readString(asRecord(plan.metadata)?.agent_action ?? asRecord(plan.metadata)?.action_permission)
   const facts = [
     { icon: <Pencil className="h-5 w-5" />, label: 'Event', value: plan.title, isSet: Boolean(plan.title) },
     {
@@ -1581,6 +1599,7 @@ function BriefView({
       isSet:
         hasAttendanceSignal(attendance) &&
         (attendance.ticketsSold !== null || attendance.currentAttendance !== null),
+      href: '/planner/tickets',
     },
     {
       icon: <ShieldCheck className="h-5 w-5" />,
@@ -1596,6 +1615,29 @@ function BriefView({
     },
     { icon: <Building2 className="h-5 w-5" />, label: 'Location', value: plan.neighborhood, isSet: Boolean(plan.neighborhood) },
     { icon: <CalendarDays className="h-5 w-5" />, label: 'Date', value: planDateWindow, isSet: Boolean(planDateWindow) },
+    {
+      icon: <Building2 className="h-5 w-5" />,
+      label: 'Venue Terms',
+      value: venueTerms,
+      isSet: venueTerms !== 'Need terms',
+      href: venueTerms === 'Need terms' ? `/planner/outreach?plan=${encodeURIComponent(plan.id)}` : undefined,
+    },
+    {
+      icon: <DollarSign className="h-5 w-5" />,
+      label: 'Revenue Model',
+      value: revenueModel,
+      isSet: revenueModel !== 'Need commercial model',
+      href: revenueModel === 'Need commercial model' && !plan.id.startsWith('mock-plan-')
+        ? `/planner/experiences/${encodeURIComponent(plan.id)}#profit-window`
+        : undefined,
+    },
+    {
+      icon: <ShieldCheck className="h-5 w-5" />,
+      label: 'Agent Action',
+      value: agentAction ?? 'Need approval rules',
+      isSet: Boolean(agentAction),
+      href: agentAction ? undefined : '/planner/settings#approval-rules',
+    },
   ]
 
   return (
@@ -1630,6 +1672,7 @@ function BriefView({
               value={fact.value ?? 'Missing'}
               status={fact.isSet ? 'Set' : 'Needed'}
               tone={fact.isSet ? 'forest' : 'ochre'}
+              href={fact.href}
             />
           ))}
         </div>
@@ -2016,11 +2059,41 @@ function DepositApprovalView({
   )
 }
 
-function ApprovalsSection({ approvals, onNavigate }: { approvals: Approval[]; onNavigate: (view: MobileView) => void }) {
+function ApprovalsSection({
+  plan,
+  approvals,
+  onNavigate,
+}: {
+  plan: Plan | null
+  approvals: Approval[]
+  onNavigate: (view: MobileView) => void
+}) {
   const pendingApprovals = approvals.filter((approval) => approval.status === 'pending')
 
   return (
     <section>
+      {plan ? (
+        <Panel className={cn('mb-5', spacing.cardGap)}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="label-caps text-clay">Active event</p>
+              <h2 className={cn(spacing.labelToHeadline, 'truncate font-display text-[24px] leading-tight text-ink')}>{plan.title}</h2>
+              <p className="mt-1 text-sm leading-6 text-ink-soft">
+                {dateWindow(plan) ?? 'Date pending'}
+                {plan.neighborhood ? ` · ${plan.neighborhood}` : ''}
+                {plan.guest_count ? ` · ${plan.guest_count} guests` : ''}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('planner')}
+              className="min-h-11 shrink-0 rounded-lg border border-tan bg-cream px-3 text-sm font-bold text-clay"
+            >
+              Back
+            </button>
+          </div>
+        </Panel>
+      ) : null}
       <SectionIntro
         eyebrow="Review queue"
         title="Approve the moves that need you."
@@ -2934,15 +3007,17 @@ function BriefFactRow({
   value,
   status,
   tone,
+  href,
 }: {
   icon: ReactNode
   label: string
   value: string
   status: string
   tone: StatusTone
+  href?: string
 }) {
-  return (
-    <div className={cn('grid grid-cols-[40px_minmax(0,1fr)] items-center gap-3', spacing.rowPadding)}>
+  const content = (
+    <>
       <IconBox>{icon}</IconBox>
       <div className="min-w-0">
         <p className="truncate text-sm font-bold text-ink">{label}</p>
@@ -2951,6 +3026,24 @@ function BriefFactRow({
           <StatusPill tone={tone}>{status}</StatusPill>
         </div>
       </div>
+      {href ? <ChevronRight className="h-4 w-4 text-clay" /> : null}
+    </>
+  )
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className={cn('grid min-h-11 grid-cols-[40px_minmax(0,1fr)_16px] items-center gap-3 transition-colors hover:bg-cream-deep', spacing.rowPadding)}
+      >
+        {content}
+      </Link>
+    )
+  }
+
+  return (
+    <div className={cn('grid grid-cols-[40px_minmax(0,1fr)] items-center gap-3', spacing.rowPadding)}>
+      {content}
     </div>
   )
 }
@@ -3596,6 +3689,26 @@ function money(cents: number | null | undefined): string | null {
   const sign = cents < 0 ? '-' : ''
   const absolute = Math.abs(cents)
   return `${sign}$${Math.round(absolute / 100).toLocaleString()}`
+}
+
+function formatMobileVenueTermsValue(plan: Plan) {
+  if (plan.venue_terms) return plan.venue_terms
+  const metadata = asRecord(plan.metadata)
+  const terms = readString(metadata?.venue_terms ?? metadata?.venue_deal_terms ?? metadata?.preferred_venue_terms)
+  return terms ?? 'Need terms'
+}
+
+function formatMobileRevenueModelValue(plan: Plan) {
+  const metadata = asRecord(plan.metadata)
+  const revenueModel = readString(
+    metadata?.revenue_model ??
+    metadata?.commercial_model ??
+    metadata?.venue_deal_model ??
+    metadata?.consumption_share
+  )
+  if (revenueModel) return revenueModel
+  if (plan.ticketed || plan.ticketing_model === 'ticketed') return 'Ticketed model'
+  return 'Need commercial model'
 }
 
 function formatMobileTicketsOrRsvps(attendance: PlanAttendanceSnapshot) {
