@@ -23,7 +23,7 @@ export function buildMockPlan(message: string): Plan {
     date_window_end: null,
     ticketed: /\b(ticketed|paid|tickets?)\b/i.test(message),
     profit_goal_cents: null,
-    notes: 'Mock planner mode. No Supabase writes.',
+    notes: 'Private draft - not saved to your account yet. Sign up to save this plan.',
     created_at: now,
     updated_at: now,
   }
@@ -250,7 +250,7 @@ export function buildMockAgentReply(
           provider: '3rdPlace team',
           event_date: plan.date_window_start ?? '',
           delivery_email: 'you@example.com',
-          terms: 'No payment is made in mock mode. User approval required before real booking.',
+          terms: 'No payment is made from a private draft. User approval required before real booking.',
           status: 'pending',
         },
       },
