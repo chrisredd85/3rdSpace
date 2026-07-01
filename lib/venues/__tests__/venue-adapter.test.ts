@@ -1,4 +1,4 @@
-import { normalizeVenue, toVenueRowUpdate } from '@/lib/venues/venue-adapter'
+import { normalizeVenue, toVenueRowUpdate, VENUE_LEGACY_SELECT_COLUMNS } from '@/lib/venues/venue-adapter'
 
 describe('venue adapter money units', () => {
   it('prefers canonical cents columns and converts legacy dollar fields explicitly', () => {
@@ -16,7 +16,7 @@ describe('venue adapter money units', () => {
       id: 'venue-2',
       venue_name: 'Legacy Hall',
       hourly_rate: 350,
-      per_head_chi_cents: 300,
+      per_head_kickback_cents: 300,
       deposit_amount: 500,
     })
 
@@ -55,5 +55,13 @@ describe('venue adapter money units', () => {
       per_head_chi_cents: 300,
       deposit_amount_cents: 50000,
     }))
+  })
+
+  it('keeps the legacy public catalog fallback compatible with hosted schemas before CHI column backfill', () => {
+    expect(VENUE_LEGACY_SELECT_COLUMNS).not.toContain('per_head_chi_cents')
+    expect(VENUE_LEGACY_SELECT_COLUMNS).not.toContain('per_head_kickback_cents')
+    expect(VENUE_LEGACY_SELECT_COLUMNS).not.toContain('offers_chis')
+    expect(VENUE_LEGACY_SELECT_COLUMNS).not.toContain('default_kickback_type')
+    expect(VENUE_LEGACY_SELECT_COLUMNS).not.toContain('stripe_account_id')
   })
 })

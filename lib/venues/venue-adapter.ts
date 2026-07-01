@@ -84,10 +84,7 @@ export const VENUE_LEGACY_SELECT_COLUMNS = `
   average_rating,
   total_bookings,
   created_at,
-  updated_at,
-  offers_chis,
-  default_kickback_type,
-  stripe_account_id
+  updated_at
 `
 
 export const VENUE_DETAIL_SELECT_COLUMNS = VENUE_SELECT_COLUMNS
@@ -107,7 +104,7 @@ export function normalizeVenue(row: VenueRow): Venue {
   const depositAmountCents = readCents(row.deposit_amount_cents, row.deposit_amount)
   const perHeadChiCents =
     readCents(
-      row.per_head_chi_cents,
+      row.per_head_chi_cents ?? (row as Record<string, unknown>).per_head_kickback_cents,
       ((row as Record<string, unknown>).per_head_kickback_amount ??
         (row as Record<string, unknown>).per_head_kickback) as number | string | null | undefined
     ) ?? 0
