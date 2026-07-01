@@ -40,6 +40,7 @@ describe('CookieBanner', () => {
     render(<CookieBanner />)
 
     expect(screen.getByText(/We use cookies to improve your experience/i)).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Cookie notice' })).toHaveClass('z-40')
     fireEvent.click(screen.getByRole('button', { name: 'Accept' }))
 
     expect(window.localStorage.getItem('cookie_consent_v1')).toBe('accepted')
@@ -53,4 +54,3 @@ describe('CookieBanner', () => {
     expect(screen.queryByText(/We use cookies to improve your experience/i)).not.toBeInTheDocument()
   })
 })
-
