@@ -2354,7 +2354,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           />
         </ArtifactSection>
 
-        <ArtifactSection icon={<TrendingUp className="h-5 w-5" />} title="Profit Window" subtitle="Realistic forecast + range">
+        <ArtifactSection id="profit-window" icon={<TrendingUp className="h-5 w-5" />} title="Profit Window" subtitle="Realistic forecast + range">
           <div className="mb-4 flex flex-wrap items-center gap-2">
             {profitModel.baselineSource !== 'default' ? (
               <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-forest/20 bg-forest/10 px-3 py-1 text-xs font-semibold text-forest">
@@ -2482,6 +2482,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         </ArtifactSection>
 
         <ArtifactSection
+          id="venue-deal-models"
           icon={<WalletCards className="h-5 w-5" />}
           title="Venue Deal Models"
           subtitle={isComparingCommercialModels ? 'Agent comparison' : 'Compare structures'}
@@ -2735,6 +2736,7 @@ function buildLivePlanAgentActionPayload(card: AuthorizationCardModel): PlannerA
 }
 
 function ArtifactSection({
+  id,
   icon,
   title,
   subtitle,
@@ -2742,6 +2744,7 @@ function ArtifactSection({
   collapsible = true,
   defaultCollapsed = false,
 }: {
+  id?: string
   icon: React.ReactNode
   title: string
   subtitle: string
@@ -2789,7 +2792,7 @@ function ArtifactSection({
   }
 
   return (
-    <section className="border-b border-tan px-4 py-7">
+    <section id={id} className="scroll-mt-24 border-b border-tan px-4 py-7">
       {collapsible ? (
         <button
           type="button"

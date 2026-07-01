@@ -4,6 +4,7 @@ import {
   PLAN_SELECT_COLUMNS,
   RECOMMENDATION_SELECT_COLUMNS,
 } from '@/lib/planner/dbSelects'
+import { loadPendingApprovalsForPlan } from '@/lib/planner/pendingApprovals'
 import type { Approval, Json, Plan, PlanMessage, Recommendation } from '@/lib/types'
 
 export type PlannerDb = { from: (table: string) => any }
@@ -134,7 +135,7 @@ export async function loadOwnedMobilePlan(db: PlannerDb, planId: string, userId:
 
 export async function buildMobileHomeReadModel(db: PlannerDb, plan: Plan): Promise<MobileHomeReadModel> {
   const [pendingApprovals, recommendations, activityRows, statusMessages] = await Promise.all([
-    loadPendingApprovals(db, plan.id),
+    loadPendingApprovalsForPlan(db, plan.id),
     loadRecommendations(db, plan.id),
     loadPlanActivityRows(db, plan.id),
     loadStatusMessages(db, plan.id),
@@ -269,22 +270,6 @@ export async function buildMobileAnalyticsReadModel(db: PlannerDb, builderProfil
     recommendation: buildAnalyticsRecommendation({ averageMargin, bestFormat, completedCount: completedEvents.length }),
     recent_events: enriched.slice(0, 5),
   }
-}
-
-async function loadPendingApprovals(db: PlannerDb, planId: string): Promise<Approval[]> {
-  const { data, error } = await db
-    .from('approvals')
-    .select(APPROVAL_SELECT_COLUMNS)
-    .eq('plan_id', planId)
-    .eq('status', 'pending')
-    .order('created_at', { ascending: true })
-
-  if (error) {
-    console.error('[mobile.planner] Pending approvals lookup failed', error)
-    return []
-  }
-
-  return (data ?? []) as Approval[]
 }
 
 async function loadAllApprovals(db: PlannerDb, planId: string): Promise<Approval[]> {
