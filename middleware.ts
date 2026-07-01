@@ -3,7 +3,7 @@
  *
  * Responsibilities:
  *  1. Session refresh — keeps Supabase cookies alive on every request.
- *  2. Auth redirect — unauthenticated users hitting dashboard routes are sent to /login.
+ *  2. Auth redirect — unauthenticated users hitting dashboard routes are sent to the right auth entry.
  *  3. Role guard — users are redirected to their own dashboard if they land on
  *     the wrong role prefix.
  *
@@ -24,6 +24,17 @@ const SETTLEMENT_VIEW_LIMIT_PER_MINUTE = 10
 const SETTLEMENT_TOTAL_LIMIT_PER_HOUR = 100
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
+
+function redirectToBuilderSignup(request: NextRequest) {
+  const url = request.nextUrl.clone()
+  const redirectTarget = `${request.nextUrl.pathname}${request.nextUrl.search}`
+
+  url.pathname = '/signup/builder'
+  url.search = ''
+  url.searchParams.set('redirect', redirectTarget)
+
+  return NextResponse.redirect(url)
+}
 
 function isAdminUser(user: { email?: string | null; app_metadata?: Record<string, unknown> | null }) {
   const configuredAdmins = new Set(
@@ -172,6 +183,9 @@ export async function middleware(request: NextRequest) {
   if (dashboardRoutes.some((route) => pathname.startsWith(route))) {
     const result = await protectRoute(request)
     if (result instanceof NextResponse) {
+      if (pathname.startsWith('/planner')) {
+        return redirectToBuilderSignup(request)
+      }
       return result // Redirect to login
     }
 
