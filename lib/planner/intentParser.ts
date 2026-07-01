@@ -399,8 +399,7 @@ function extractDateWindow(message: string):
     const targetDay = WEEKDAY_INDEX[weekdayHint[1].toLowerCase()]
     if (targetDay !== undefined) {
       const today = startOfLocalDay(new Date())
-      const todayDay = today.getDay()
-      const daysAhead = ((targetDay - todayDay + 7) % 7) || 7
+      const daysAhead = daysUntilNextWeekday(today, targetDay)
       const date = addDays(today, daysAhead)
       const dateStr = toLocalIsoDate(date)
       return { hint: weekdayHint[0].trim(), start: dateStr, end: dateStr, confidence: 0.42 }
@@ -440,8 +439,7 @@ function extractRelativeDateWindow(lowerMessage: string): { hint: string; start:
     const targetDay = WEEKDAY_INDEX[nextWeekdayMatch[1].toLowerCase()]
     if (targetDay !== undefined) {
       const today = startOfLocalDay(new Date())
-      const todayDay = today.getDay()
-      const daysAhead = ((targetDay - todayDay + 7) % 7) || 7
+      const daysAhead = daysUntilNextWeekday(today, targetDay)
       const date = addDays(today, daysAhead)
       const dateStr = toLocalIsoDate(date)
       return { hint: nextWeekdayMatch[0].trim(), start: dateStr, end: dateStr, confidence: 0.82 }
@@ -603,6 +601,10 @@ function toLocalIsoDate(date: Date): string {
     String(date.getMonth() + 1).padStart(2, '0'),
     String(date.getDate()).padStart(2, '0'),
   ].join('-')
+}
+
+function daysUntilNextWeekday(today: Date, targetDay: number): number {
+  return ((targetDay - today.getDay() + 7) % 7) || 7
 }
 
 const WEEKDAY_INDEX: Record<string, number> = {

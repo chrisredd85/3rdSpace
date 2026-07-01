@@ -9,6 +9,8 @@
 import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
+import { storePendingEventDraft } from '@/lib/planner/pendingEventDraft'
+import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 
 interface HomePlannerStartProps {
@@ -31,6 +33,20 @@ const samplePrompts = [
   },
 ] as const
 
+async function hasActiveSession(timeoutMs = 1500) {
+  try {
+    const supabase = createClient()
+    return await Promise.race([
+      supabase.auth.getSession().then(({ data }) => Boolean(data.session)).catch(() => false),
+      new Promise<boolean>((resolve) => {
+        window.setTimeout(() => resolve(false), timeoutMs)
+      }),
+    ])
+  } catch {
+    return false
+  }
+}
+
 /**
  * Public event creation composer for the homepage.
  */
@@ -41,9 +57,9 @@ export function HomePlannerStart({ className }: HomePlannerStartProps) {
   const draftRef = useRef<HTMLTextAreaElement>(null)
 
   /**
-   * Sends the draft prompt to the planner route.
+   * Sends the draft prompt to the planner route, or preserves it for signup.
    */
-  function startPlanner(value = draftRef.current?.value ?? draft) {
+  async function startPlanner(value = draftRef.current?.value ?? draft) {
     const trimmed = value.trim()
     if (!trimmed || isSubmitting) return
 
@@ -51,7 +67,30 @@ export function HomePlannerStart({ className }: HomePlannerStartProps) {
     const rebookIntent = /\b(rebook|repeat|reuse)\b.*\b(past|previous|last|saved|template|event)\b/i.test(trimmed)
     const params = new URLSearchParams({ draft: trimmed })
     if (rebookIntent) params.set('intent', 'rebook')
-    router.push(rebookIntent ? `/planner/new-plan?${params.toString()}` : `/planner?${params.toString()}`)
+
+    try {
+      const signupParams = new URLSearchParams({ returnTo: rebookIntent ? '/planner/new-plan' : '/planner', draft: 'pending' })
+
+      if (!(await hasActiveSession())) {
+        storePendingEventDraft({
+          prompt: trimmed,
+          timestamp: Date.now(),
+          intent: rebookIntent ? 'rebook' : undefined,
+        })
+        router.push(`/signup/builder?${signupParams.toString()}`)
+        return
+      }
+
+      router.push(rebookIntent ? `/planner/new-plan?${params.toString()}` : `/planner?${params.toString()}`)
+    } catch {
+      const signupParams = new URLSearchParams({ returnTo: rebookIntent ? '/planner/new-plan' : '/planner', draft: 'pending' })
+      storePendingEventDraft({
+        prompt: trimmed,
+        timestamp: Date.now(),
+        intent: rebookIntent ? 'rebook' : undefined,
+      })
+      router.push(`/signup/builder?${signupParams.toString()}`)
+    }
   }
 
   /**
@@ -60,7 +99,7 @@ export function HomePlannerStart({ className }: HomePlannerStartProps) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const formDraft = new FormData(event.currentTarget).get('draft')
-    startPlanner(typeof formDraft === 'string' && formDraft.trim() ? formDraft : draftRef.current?.value ?? draft)
+    void startPlanner(typeof formDraft === 'string' && formDraft.trim() ? formDraft : draftRef.current?.value ?? draft)
   }
 
   /**
@@ -69,7 +108,7 @@ export function HomePlannerStart({ className }: HomePlannerStartProps) {
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      startPlanner()
+      void startPlanner()
     }
   }
 
@@ -119,9 +158,7 @@ export function HomePlannerStart({ className }: HomePlannerStartProps) {
             type="button"
             onClick={() => {
               if ('intent' in sample && sample.intent === 'rebook') {
-                setIsSubmitting(true)
-                const params = new URLSearchParams({ draft: sample.prompt, intent: 'rebook' })
-                router.push(`/planner/new-plan?${params.toString()}`)
+                void startPlanner(sample.prompt)
                 return
               }
               setDraft(sample.prompt)

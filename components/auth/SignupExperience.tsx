@@ -26,6 +26,7 @@ import { useToast } from '@/components/ui/toast'
 import { InlineFormError } from '@/components/ui/inline-form-error'
 import { TicketingSetupGuide } from '@/components/auth/TicketingSetupGuide'
 import { migratePlannerDraftToServer } from '@/lib/planner/migrateDraft'
+import { migratePendingEventDraftToServer } from '@/lib/planner/pendingEventDraft'
 import { createClient } from '@/lib/supabase/client'
 import { LEGAL_TERMS_VERSION } from '@/lib/legal/constants'
 import type { ServiceType, UserType, VenueType } from '@/lib/types'
@@ -777,7 +778,7 @@ function BuilderSignupFlow({
 
       try {
         if (!result.requiresEmailConfirmation) {
-          const migratedPlan = await migratePlannerDraftToServer()
+          const migratedPlan = await migratePendingEventDraftToServer() ?? await migratePlannerDraftToServer()
           migratedPlanId = migratedPlan?.plan.id ?? null
         }
       } catch (migrationError) {
@@ -805,10 +806,10 @@ function BuilderSignupFlow({
         },
       })
       addToast({
-        title: result.requiresEmailConfirmation ? 'Check your email' : 'Account created',
+        title: result.requiresEmailConfirmation ? 'Check your email' : migratedPlanId ? "Welcome - I've created your first plan" : 'Account created',
         description: result.requiresEmailConfirmation
           ? 'Confirm your email address before signing in to continue planning.'
-          : migratedPlanId ? 'Your planner draft is saved.' : 'Your creator workspace is ready.',
+          : migratedPlanId ? 'Open the planner when you are ready to continue.' : 'Your creator workspace is ready.',
       })
     } catch {
       setInlineError('An unexpected error occurred.')
