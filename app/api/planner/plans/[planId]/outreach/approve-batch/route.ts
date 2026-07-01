@@ -73,6 +73,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const errors = uniqueVenueIds.flatMap((venueId) => {
       const row = rowByVenueId.get(venueId)
       if (!row) return [{ discovery_venue_id: venueId, error: 'not_found' }]
+      if (!isPlacesBackedCandidate(row)) {
+        return [{
+          discovery_venue_id: venueId,
+          name: row.venue.name,
+          error: 'places_discovery_required',
+        }]
+      }
       const contact = resolveDiscoveryVenueContact(row.venue)
       if (contact.status !== 'ready_to_reach_out' || !contact.email) {
         return [{
@@ -86,8 +93,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
     })
 
     if (errors.length > 0) {
+      const placesRequired = errors.every((error) => error.error === 'places_discovery_required')
       return NextResponse.json(
-        { error: 'Some venues need a contact email before outreach approval can be created.', venue_errors: errors },
+        {
+          error: placesRequired
+            ? 'Run Google Places discovery before creating outreach approvals.'
+            : 'Some venues need a contact email before outreach approval can be created.',
+          code: placesRequired ? 'places_discovery_required' : 'contact_not_ready',
+          venue_errors: errors,
+        },
         { status: 400 }
       )
     }
@@ -209,4 +223,8 @@ async function loadCandidateRows(planId: string, venueIds: string[]): Promise<Ca
     const venue = venueById.get(candidate.discovery_venue_id)
     return venue ? [{ candidate, venue }] : []
   })
+}
+
+function isPlacesBackedCandidate(row: CandidateWithVenue) {
+  return row.venue.source === 'google_places' && Boolean(row.venue.source_external_id)
 }

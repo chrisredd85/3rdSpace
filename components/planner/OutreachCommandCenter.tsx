@@ -300,7 +300,7 @@ export function OutreachCommandCenter() {
                     onClick={() => setShowCustomComposer(true)}
                     className="w-fit text-sm font-semibold text-muted-foreground underline underline-offset-4 hover:text-foreground"
                   >
-                    Add a known place
+                    Known place fallback
                   </button>
                 </div>
                 <p className="mt-7 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -496,7 +496,7 @@ export function OutreachCommandCenter() {
                   <div>
                     <CardTitle className="text-xl">Advanced custom outreach</CardTitle>
                     <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                      Use this only for a known venue or vendor that discovery did not find. The output is still an approval, not a direct send.
+                      Use this only for a known venue or vendor after the Places search misses them. The output is still an approval, not a direct send.
                     </p>
                   </div>
                   <Button type="button" variant="outline" onClick={() => setShowCustomComposer((current) => !current)}>
@@ -511,8 +511,8 @@ export function OutreachCommandCenter() {
                     <h2 className="mt-2 font-display text-2xl font-semibold text-foreground">Build a partner outreach batch</h2>
                   </div>
                   <div className="rounded-md border border-border bg-background/60 p-4 text-sm leading-relaxed text-muted-foreground">
-                    Add venues and vendors to one approval batch. 3rdPlace sends only after approval, then compares replies by availability,
-                    fit, pricing, and next step before recommending the best choices.
+                    Places discovery is the default source for outreach. Add a known partner here only when the organizer already has the contact.
+                    3rdPlace still sends only after approval, then compares replies by availability, fit, pricing, and next step.
                   </div>
 
                   <div className="grid gap-4 sm:grid-cols-2">
