@@ -95,10 +95,30 @@ export function PlannerExperienceBriefDetail({ planId }: PlannerExperienceBriefD
 
   if (state.status === 'loading') {
     return (
-      <section className="rounded-2xl border border-tan bg-cream-deep p-6 shadow-card">
-        <div className="flex items-center gap-3 text-sm font-semibold text-ink-soft">
-          <Loader2 className="h-4 w-4 animate-spin text-clay" />
-          Loading event record...
+      <section className="overflow-hidden rounded-2xl border border-tan bg-cream-deep shadow-card">
+        <div className="border-b border-tan px-5 py-5">
+          <div className="flex items-center gap-3 text-sm font-semibold text-ink-soft">
+            <Loader2 className="h-4 w-4 animate-spin text-clay" />
+            Opening event record...
+          </div>
+          <div className="mt-4 h-8 w-64 max-w-full rounded-md bg-cream" />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <div className="h-8 w-24 rounded-full bg-cream" />
+            <div className="h-8 w-28 rounded-full bg-cream" />
+            <div className="h-8 w-20 rounded-full bg-cream" />
+          </div>
+        </div>
+        <div className="divide-y divide-tan">
+          {['Plan', 'Bookings', 'Money', 'Guests'].map((label) => (
+            <div key={label} className="grid gap-4 px-5 py-5 sm:grid-cols-[4rem_1fr_auto] sm:items-center">
+              <div className="h-5 w-8 rounded bg-cream" />
+              <div className="min-w-0">
+                <div className="h-6 w-32 rounded bg-cream" />
+                <div className="mt-3 h-4 w-full max-w-md rounded bg-cream" />
+              </div>
+              <div className="h-8 w-28 rounded-full bg-cream" />
+            </div>
+          ))}
         </div>
       </section>
     )

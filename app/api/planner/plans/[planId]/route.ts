@@ -80,16 +80,16 @@ export async function GET(
     const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const [messages, recommendations, approvals] = await Promise.all([
+    const [messages, recommendations, approvals, agentFields] = await Promise.all([
       loadMessages(auth.db, plan.id),
       loadRecommendations(auth.db, plan.id),
       loadApprovals(auth.db, plan.id),
+      loadPlanAgentFields({
+        db: auth.db,
+        plan,
+        userId: auth.userId,
+      }),
     ])
-    const agentFields = await loadPlanAgentFields({
-      db: auth.db,
-      plan,
-      userId: auth.userId,
-    })
     const enrichedPlan = await enrichPlanSelectedVendors(auth.db, agentFields.plan, auth.userId)
 
     return NextResponse.json({
