@@ -323,6 +323,10 @@ describe('MobilePlanner operating loop parity', () => {
     render(<MobilePlanner activeSection="ticketing" />)
 
     expect(await screen.findByTestId('mobile-ticketing-setup-guide')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Connect Eventbrite/i })).toHaveAttribute('href', '/planner/integrations/eventbrite')
+    expect(screen.getByRole('link', { name: /Set up Posh/i })).toHaveAttribute('href', '/planner/integrations/posh')
+    expect(screen.getByRole('link', { name: /Import Luma CSV or screenshots/i })).toHaveAttribute('href', '/planner/events/import?source=luma')
+    expect(screen.getByRole('link', { name: /Import Partiful CSV or screenshots/i })).toHaveAttribute('href', '/planner/events/import?source=partiful')
   })
 
   it('turns missing mobile brief facts into direct shortcuts', async () => {
