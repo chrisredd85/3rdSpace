@@ -38,6 +38,7 @@ import {
 } from '@/lib/planner/attendanceSummary'
 import { cn } from '@/lib/utils'
 import { applyMockPlanPatch, buildDeterministicDraftExchange, buildDraftMatchHandoff, buildMockMessage, buildMockPlan, tryRunPublicDraftIntake } from '../planner-page/draftMode'
+import { MobileChatComposer } from './MobileChatComposer'
 import { mobileSpacing as spacing } from './mobileSpacing'
 
 export type MobileSection =
@@ -334,7 +335,8 @@ const appSections: AppSectionLink[] = [
   { id: 'vendors', label: 'Vendors', href: '/planner/vendors' },
   { id: 'outreach', label: 'Outreach', href: '/planner/outreach' },
   { id: 'messages', label: 'Messages', href: '/planner/messages' },
-  { id: 'approvals', label: 'Payments', href: '/planner/payments' },
+  { id: 'approvals', label: 'Approvals', href: '/planner/approvals' },
+  { id: 'payments', label: 'Payments', href: '/planner/payments' },
   { id: 'settlements', label: 'Settlements', href: '/planner/settlements' },
   { id: 'billing', label: 'Billing', href: '/planner/billing' },
   { id: 'analytics', label: 'Analytics', href: '/planner/analytics' },
@@ -1187,7 +1189,7 @@ function MobileHeader({
         </Link>
         <div className="flex items-center gap-2">
           <Link
-            href={reviewCount > 0 ? '/planner/payments' : '/planner?view=approval'}
+            href={reviewCount > 0 ? '/planner/approvals' : '/planner?view=approval'}
             className="inline-flex h-10 items-center rounded-full border border-tan bg-cream-deep px-3 font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-ink-soft"
           >
             {reviewCount > 0 ? `${reviewCount} review` : 'Next step'}
@@ -1324,7 +1326,7 @@ function PlannerView({
         ) : operatingLoop.primaryAction === 'compare-replies' ? (
           <PrimaryButton onClick={() => onNavigate('sent')}>Compare replies</PrimaryButton>
         ) : reviewCount > 0 ? (
-          <PrimaryLink href="/planner/payments">
+          <PrimaryLink href="/planner/approvals">
             {`Review ${reviewCount} approval${reviewCount === 1 ? '' : 's'}`}
           </PrimaryLink>
         ) : (
@@ -1333,6 +1335,13 @@ function PlannerView({
         <SecondaryButton onClick={() => onNavigate('brief')}>Open event record</SecondaryButton>
       </div>
       {batchFeedback ? <p className="mt-3 text-sm font-semibold leading-6 text-forest">{batchFeedback}</p> : null}
+
+      <MobileChatComposer
+        value={messageDraft}
+        isSubmitting={isSubmittingMessage}
+        onChange={onDraftChange}
+        onSend={onSendMessage}
+      />
 
       <Panel className={cn(spacing.sectionGap, spacing.cardPaddingNone)}>
         <div className={cn('border-b border-tan', spacing.panelHeaderPadding)}>
@@ -1371,7 +1380,7 @@ function PlannerView({
             ))}
           </div>
         ) : (
-          <EmptyPanelMessage description="The plan can move toward venue and vendor outreach after you confirm the facts and approve the message. Nothing sends from this draft." />
+          <EmptyPanelMessage description="No external action has been queued yet. Use the composer or the next-step rows to update the plan before anything is sent." />
         )}
       </Panel>
 
@@ -1389,38 +1398,6 @@ function PlannerView({
           </div>
         </Panel>
       )}
-
-      <Panel className={spacing.cardGap}>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="label-caps text-clay">Add instruction</p>
-            <h2 className={cn(spacing.labelToHeadline, 'font-display text-[24px] leading-tight text-ink')}>Tell 3rdPlace what changed.</h2>
-          </div>
-          <StatusPill tone="muted">Private</StatusPill>
-        </div>
-
-        <div className={spacing.bodyToAction}>
-          <div className={cn('rounded-lg border border-tan bg-cream-deep', spacing.cardPaddingTight)}>
-            <textarea
-              value={messageDraft}
-              onChange={(event) => onDraftChange(event.target.value)}
-              placeholder="Add a constraint, preference, or correction..."
-              className="min-h-[88px] w-full resize-none border-0 bg-transparent p-0 font-sans text-[17px] leading-7 text-ink outline-none placeholder:text-ink-faint"
-            />
-            <div className={cn(spacing.bodyToAction, 'flex items-end justify-between gap-4')}>
-              <p className="text-sm font-semibold text-ink-soft">Updates the brief. Does not send externally.</p>
-              <button
-                type="button"
-                onClick={onSendMessage}
-                disabled={isSubmittingMessage || !messageDraft.trim()}
-                className="inline-flex h-12 items-center justify-center rounded-lg bg-clay px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-clay-deep disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isSubmittingMessage ? 'Saving' : 'Send'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </Panel>
 
       <EventProgressCard progress={home?.progress ?? []} plan={plan} onNavigate={onNavigate} />
       <ActivityPanel updates={home?.updates ?? []} emptyDescription="Activity appears after plan updates, approvals, payments, or ticketing changes." />
@@ -1492,8 +1469,8 @@ function mobileOperatingLoopState(data: MobileData): {
   return {
     primaryAction: 'confirm-details',
     headline: 'Confirm before outreach.',
-    description: 'Plan is ready for next steps. Confirm the brief and outreach message before 3rdPlace contacts anyone.',
-    detail: 'The plan can move toward venue and vendor outreach after you confirm the facts and approve the message. Nothing sends from this draft.',
+    description: 'Confirm the brief, budget, and approval rules before 3rdPlace prepares external outreach.',
+    detail: 'Use the composer for corrections, then review the message approval. Nothing sends from this draft.',
     readyVenues,
   }
 }
@@ -1562,7 +1539,7 @@ function EventProgressCard({
   plan: Plan
   onNavigate: (view: MobileView) => void
 }) {
-  const items = progress.length > 0 ? progress : fallbackProgress(plan)
+  const items = mobileProgressItems(progress, plan)
 
   return (
     <Panel className={cn(spacing.cardGap, spacing.cardPaddingNone)}>
@@ -1591,6 +1568,14 @@ function EventProgressCard({
       </div>
     </Panel>
   )
+}
+
+function mobileProgressItems(progress: ProgressItem[], plan: Plan): ProgressItem[] {
+  const byId = new Map(progress.map((item) => [item.id, item]))
+  const defaults = fallbackProgress(plan)
+  const merged = defaults.map((item) => byId.get(item.id) ?? item)
+  const defaultIds = new Set(defaults.map((item) => item.id))
+  return [...merged, ...progress.filter((item) => !defaultIds.has(item.id))]
 }
 
 function BriefView({
@@ -2072,7 +2057,7 @@ function DepositApprovalView({
                     : 'Stripe readiness is clear. Final payment still requires the explicit approval flow.'}
                 </p>
                 {isBlocked ? (
-                  <SecondaryLink href="/planner/payments">Notify recipient from approvals</SecondaryLink>
+                  <SecondaryLink href="/planner/approvals">Notify recipient from approvals</SecondaryLink>
                 ) : null}
               </div>
             </Panel>
@@ -2402,7 +2387,7 @@ function OutreachSection({
           ) : (
             <PrimaryLink href={planSearchHref}>Ask agent to find partners</PrimaryLink>
           )}
-          <SecondaryLink href="/planner/payments">Open approvals</SecondaryLink>
+          <SecondaryLink href="/planner/approvals">Open approvals</SecondaryLink>
         </div>
         {batchFeedback ? <p className="mt-3 text-sm font-semibold leading-6 text-forest">{batchFeedback}</p> : null}
       </Panel>
@@ -2514,7 +2499,7 @@ function SettingsSection({ billing, connections }: { billing: BillingStatus | nu
       </Panel>
 
       <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
-        <PrimaryLink href="/planner/payments">Review approvals</PrimaryLink>
+        <PrimaryLink href="/planner/approvals">Review approvals</PrimaryLink>
         <SecondaryLink href="/planner/settings/integrations">Manage Gmail and integrations</SecondaryLink>
         <SecondaryLink href="/planner/settings">Edit account settings</SecondaryLink>
         <SecondaryLink href="/planner/billing">Manage billing</SecondaryLink>
@@ -2591,8 +2576,8 @@ function TicketingSection({
 
       <Panel className={spacing.sectionGap}>
         <div className="divide-y divide-tan border-y border-tan">
-          <SimpleRow label="Connected" value={connected.length > 0 ? connected.map((connection) => titleize(connection.platform)).join(', ') : 'No active connection'} />
-          <SimpleRow label="Setup pending" value={setupPending.length > 0 ? setupPending.map((connection) => titleize(connection.platform)).join(', ') : 'None'} />
+          <TicketingPlatformRow label="Connected" connections={connected} emptyLabel="No active connection" />
+          <TicketingPlatformRow label="Setup pending" connections={setupPending} emptyLabel="None" />
           <SimpleRow label="Events loaded" value={String(ticketing?.events?.length ?? 0)} />
           <SimpleRow label="Tickets sold" value={String(summary?.tickets_sold ?? 0)} />
           <SimpleRow label="Net revenue" value={money(summary?.net_revenue_cents ?? 0) ?? '$0'} />
@@ -2666,7 +2651,7 @@ function BillingSection({ billing, onNavigate }: { billing: BillingStatus | null
 
       <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
         <PrimaryButton onClick={() => onNavigate('new-plan')}>Start next run</PrimaryButton>
-        <SecondaryLink href="/planner/payments">Review approvals</SecondaryLink>
+        <SecondaryLink href="/planner/approvals">Review approvals</SecondaryLink>
       </div>
     </section>
   )
@@ -3135,6 +3120,36 @@ function SimpleRow({ label, value }: { label: string; value: string }) {
     <div className="flex min-h-12 items-center justify-between gap-4 py-3">
       <span className="text-sm font-semibold text-ink-soft">{label}</span>
       <span className="min-w-0 truncate text-right text-sm font-bold text-ink">{value}</span>
+    </div>
+  )
+}
+
+function TicketingPlatformRow({
+  label,
+  connections,
+  emptyLabel,
+}: {
+  label: string
+  connections: TicketingConnection[]
+  emptyLabel: string
+}) {
+  return (
+    <div className="flex min-h-12 flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-sm font-semibold text-ink-soft">{label}</span>
+      {connections.length > 0 ? (
+        <span className="flex flex-wrap gap-2">
+          {connections.map((connection) => (
+            <span
+              key={connection.id}
+              className="rounded-full border border-tan bg-cream-deep px-3 py-1 text-xs font-bold text-ink"
+            >
+              {titleize(connection.platform)}
+            </span>
+          ))}
+        </span>
+      ) : (
+        <span className="text-sm font-bold text-ink">{emptyLabel}</span>
+      )}
     </div>
   )
 }

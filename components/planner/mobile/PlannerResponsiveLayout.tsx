@@ -13,6 +13,7 @@ const mobileRouteMap: Record<string, MobileRouteConfig> = {
   '/planner': { activeSection: 'planner' },
   '/planner/new-plan': { activeSection: 'planner', initialView: 'new-plan' },
   '/planner/venues': { activeSection: 'planner', initialView: 'venues' },
+  '/planner/approvals': { activeSection: 'approvals' },
   '/planner/payments': { activeSection: 'approvals' },
   '/planner/messages': { activeSection: 'messages' },
   '/planner/outreach': { activeSection: 'outreach' },

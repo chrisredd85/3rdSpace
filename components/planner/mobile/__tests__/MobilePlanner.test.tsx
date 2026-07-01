@@ -105,10 +105,12 @@ describe('MobilePlanner local draft flow', () => {
     expect(screen.getByText('Confirm before outreach.')).toBeInTheDocument()
     expect(screen.queryByText('Open review queue')).not.toBeInTheDocument()
 
-    fireEvent.change(screen.getByPlaceholderText('Add a constraint, preference, or correction...'), {
+    expect(screen.getByPlaceholderText('Ask the agent or update the brief...')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByPlaceholderText('Ask the agent or update the brief...'), {
       target: { value: 'Change the total budget to $6500.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send message to 3rdPlace agent' }))
 
     await waitFor(() => expect(screen.getByText(/Dinner · Hayes Valley · 18 guests · \$6,500/i)).toBeInTheDocument())
     expect(screen.getByText('Instruction saved privately')).toBeInTheDocument()
@@ -157,6 +159,10 @@ describe('MobilePlanner operating loop parity', () => {
 
     expect(await screen.findByText('Create outreach batch first.')).toBeInTheDocument()
     expect(screen.getByText(/This mirrors desktop/i)).toBeInTheDocument()
+    expect(screen.getByText('Confirm brief')).toBeInTheDocument()
+    expect(screen.getByText('Venue outreach')).toBeInTheDocument()
+    expect(screen.getByText('Budget')).toBeInTheDocument()
+    expect(screen.getByText('Message approval')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /^Create outreach batch$/i }))
 
     await waitFor(() => {
@@ -170,6 +176,65 @@ describe('MobilePlanner operating loop parity', () => {
     })
     expect(await screen.findByText('Agent-led partner outreach.')).toBeInTheDocument()
     expect(screen.getByText('1 outreach approval created for 1 venue. Review before send.')).toBeInTheDocument()
+  })
+
+  it('keeps mobile next-step rows tappable when the API returns sparse progress', async () => {
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/planner/plans?limit=10') return jsonResponse({ plans: [plan] })
+      if (url === '/api/planner/plans/plan-1') return jsonResponse(plannerPayload)
+      if (url === '/api/planner/plans/plan-1/mobile-home') return jsonResponse({
+        plan,
+        pending_approvals: [],
+        pending_approval_count: 0,
+        problem: null,
+        progress: [{ id: 'brief', label: 'Confirm brief', detail: 'Review before outreach', status: 'Ready', tone: 'forest' }],
+        updates: [],
+      })
+      if (url === '/api/planner/plans/plan-1/budget') return jsonResponse({ target_cents: 500000, low_total_cents: 0, high_total_cents: 0, committed_total_cents: 0, projected_delta_cents: null, projected_buffer_low_cents: null, projected_buffer_high_cents: null, lines: [] })
+      if (url === '/api/planner/plans/plan-1/activity') return jsonResponse({ activities: [] })
+      if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
+      if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
+      if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/integrations/gmail/account') return jsonResponse({ account: connectedGmailAccount })
+      if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    }) as jest.Mock
+
+    render(<MobilePlanner />)
+
+    expect(await screen.findByText('Confirm brief')).toBeInTheDocument()
+    expect(screen.getByText('Venue outreach')).toBeInTheDocument()
+    expect(screen.getByText('Budget')).toBeInTheDocument()
+    expect(screen.getByText('Message approval')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Budget'))
+    expect(await screen.findByText('Keep the run inside $5,000.')).toBeInTheDocument()
+  })
+
+  it('does not duplicate fallback next-action copy on the mobile landing', async () => {
+    const noRecommendationPayload = { ...plannerPayload, recommendations: [] }
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/planner/plans?limit=10') return jsonResponse({ plans: [plan] })
+      if (url === '/api/planner/plans/plan-1') return jsonResponse(noRecommendationPayload)
+      if (url === '/api/planner/plans/plan-1/mobile-home') return jsonResponse({ plan, pending_approvals: [], pending_approval_count: 0, problem: null, progress: [], updates: [] })
+      if (url === '/api/planner/plans/plan-1/budget') return jsonResponse({ target_cents: 500000, low_total_cents: 0, high_total_cents: 0, committed_total_cents: 0, projected_delta_cents: null, projected_buffer_low_cents: null, projected_buffer_high_cents: null, lines: [] })
+      if (url === '/api/planner/plans/plan-1/activity') return jsonResponse({ activities: [] })
+      if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
+      if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
+      if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/integrations/gmail/account') return jsonResponse({ account: connectedGmailAccount })
+      if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    }) as jest.Mock
+
+    render(<MobilePlanner />)
+
+    expect(await screen.findByText('Confirm before outreach.')).toBeInTheDocument()
+    expect(screen.getByText('Confirm the brief, budget, and approval rules before 3rdPlace prepares external outreach.')).toBeInTheDocument()
+    expect(screen.getByText('Use the composer for corrections, then review the message approval. Nothing sends from this draft.')).toBeInTheDocument()
+    expect(screen.queryByText(/The plan can move toward venue and vendor outreach after you confirm the facts/i)).not.toBeInTheDocument()
   })
 
   it('routes pending outreach batches to the mobile outreach review loop', async () => {
@@ -356,7 +421,16 @@ describe('MobilePlanner operating loop parity', () => {
       if (url === '/api/planner/plans/plan-1/activity') return jsonResponse({ activities: [] })
       if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
       if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
-      if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/integrations/ticketing/connections') {
+        return jsonResponse({
+          connections: [
+            { id: 'luma', platform: 'luma', status: 'pending', account_label: null, last_connected_at: null },
+            { id: 'eventbrite', platform: 'eventbrite', status: 'pending', account_label: null, last_connected_at: null },
+            { id: 'posh', platform: 'posh', status: 'pending', account_label: null, last_connected_at: null },
+            { id: 'partiful', platform: 'partiful', status: 'pending', account_label: null, last_connected_at: null },
+          ],
+        })
+      }
       if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
       return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
     }) as jest.Mock
@@ -364,6 +438,10 @@ describe('MobilePlanner operating loop parity', () => {
     render(<MobilePlanner activeSection="ticketing" />)
 
     expect(await screen.findByTestId('mobile-ticketing-setup-guide')).toBeInTheDocument()
+    expect(screen.getByText('Luma')).toBeInTheDocument()
+    expect(screen.getByText('Eventbrite')).toBeInTheDocument()
+    expect(screen.getByText('Posh')).toBeInTheDocument()
+    expect(screen.getByText('Partiful')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Connect Eventbrite/i })).toHaveAttribute('href', '/planner/integrations/eventbrite')
     expect(screen.getByRole('link', { name: /Set up Posh/i })).toHaveAttribute('href', '/planner/integrations/posh')
     expect(screen.getByRole('link', { name: /Import Luma CSV or screenshots/i })).toHaveAttribute('href', '/planner/events/import?source=luma')
@@ -478,6 +556,7 @@ describe('MobilePlanner operating loop parity', () => {
       ['Vendors', '/planner/vendors'],
       ['Outreach', '/planner/outreach'],
       ['Messages', '/planner/messages'],
+      ['Approvals', '/planner/approvals'],
       ['Payments', '/planner/payments'],
       ['Settlements', '/planner/settlements'],
       ['Billing', '/planner/billing'],
