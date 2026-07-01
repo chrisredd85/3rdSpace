@@ -805,8 +805,8 @@ export function MobilePlanner({
   }
 
   return (
-    <main className="min-h-screen bg-cream text-ink">
-      <div className="min-h-screen w-full bg-cream">
+    <main className="min-h-[100svh] overflow-x-hidden bg-cream text-ink">
+      <div className="min-h-[100svh] w-full bg-cream">
         <MobileHeader
           isMenuOpen={isMenuOpen}
           reviewCount={reviewCount}
@@ -1180,7 +1180,7 @@ function MobileHeader({
   onToggleMenu: () => void
 }) {
   return (
-    <header className={cn('sticky top-0 z-40 border-b border-tan bg-cream/95 px-5 pt-4 backdrop-blur', spacing.headerPaddingBottom)}>
+    <header className={cn('sticky top-0 z-50 border-b border-tan bg-cream px-5 pt-[calc(env(safe-area-inset-top)_+_1rem)] shadow-[0_8px_24px_rgba(40,30,20,0.06)]', spacing.headerPaddingBottom)}>
       <div className="flex items-center justify-between gap-4">
         <Link href="/planner" className="font-display text-[28px] font-semibold text-clay-deep">
           3rdPlace
@@ -1695,7 +1695,7 @@ function BriefView({
               key={fact.label}
               icon={fact.icon}
               label={fact.label}
-              value={fact.value ?? 'Missing'}
+              value={fact.value ?? 'Not set yet'}
               status={fact.isSet ? 'Set' : 'Needed'}
               tone={fact.isSet ? 'forest' : 'ochre'}
               href={fact.href}
@@ -1809,7 +1809,7 @@ function VenuesView({
             <Panel className={spacing.sectionGap}>
               <div className="grid grid-cols-2 gap-3">
                 <Metric label="Rank" value={`#${selected.rank}`} />
-                <Metric label="Estimate" value={money(selected.price_cents) ?? 'Missing'} />
+                <Metric label="Estimate" value={money(selected.price_cents) ?? 'No estimate yet'} />
                 <Metric label="Status" value={contactStatusLabel(selected)} />
                 <Metric label="Source" value={selected.sourceLabel} />
               </div>
@@ -1900,7 +1900,7 @@ function VenuesView({
                   <div className="min-w-0">
                     <p className="truncate font-display text-[18px] font-semibold leading-tight text-ink">{venue.name}</p>
                     <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
-                      <p className="min-w-0 truncate text-sm text-ink-soft">{money(venue.price_cents) ?? 'Estimate missing'}</p>
+                      <p className="min-w-0 truncate text-sm text-ink-soft">{money(venue.price_cents) ?? 'Estimate pending'}</p>
                       <StatusPill tone={contactStatusTone(venue)}>{contactStatusLabel(venue)}</StatusPill>
                       <StaleRecommendationNotice
                         planRevisionAtCreation={venue.planRevisionAtCreation}
@@ -1958,16 +1958,16 @@ function BudgetView({ budget, plan, onNavigate }: { budget: BudgetSummary | null
       <BackButton label="Back to plan" onClick={() => onNavigate('planner')} />
       <SectionIntro
         eyebrow="Budget"
-        title={target ? `Keep the run inside ${money(target)}.` : 'Budget target missing.'}
+        title={target ? `Keep the run inside ${money(target)}.` : 'Budget target needed.'}
         description="The budget drilldown shows plan-owned budget lines and committed costs only."
       />
 
       <Panel className={spacing.sectionGap}>
         <div className="divide-y divide-tan border-y border-tan">
-          <SimpleRow label="Target" value={money(target) ?? 'Missing'} />
+          <SimpleRow label="Target" value={money(target) ?? 'Not set yet'} />
           <SimpleRow label="Low estimate" value={money(budget?.low_total_cents ?? 0) ?? '$0'} />
           <SimpleRow label="High estimate" value={money(highTotal) ?? '$0'} />
-          <SimpleRow label="Projected buffer" value={money(buffer) ?? 'Missing'} />
+          <SimpleRow label="Projected buffer" value={money(buffer) ?? 'Pending target'} />
         </div>
       </Panel>
 
@@ -2051,10 +2051,10 @@ function DepositApprovalView({
           </Panel>
           <Panel className={spacing.cardGap}>
             <div className="divide-y divide-tan border-y border-tan">
-              <SimpleRow label="Recipient" value={moneyApproval.provider ?? 'Missing'} />
-              <SimpleRow label="Amount" value={money(moneyApproval.price_cents ?? moneyApproval.requested_amount_cents ?? null) ?? 'Missing'} />
-              <SimpleRow label="Event date" value={formatDate(moneyApproval.event_date) ?? 'Missing'} />
-              <SimpleRow label="Refund terms" value={moneyApproval.refund_terms ?? 'Missing'} />
+              <SimpleRow label="Recipient" value={moneyApproval.provider ?? 'Recipient pending'} />
+              <SimpleRow label="Amount" value={money(moneyApproval.price_cents ?? moneyApproval.requested_amount_cents ?? null) ?? 'Amount pending'} />
+              <SimpleRow label="Event date" value={formatDate(moneyApproval.event_date) ?? 'Date pending'} />
+              <SimpleRow label="Refund terms" value={moneyApproval.refund_terms ?? 'Terms pending'} />
             </div>
           </Panel>
           {readiness ? (
@@ -2230,8 +2230,8 @@ function VendorsSection({
             <Panel className={spacing.sectionGap}>
               <div className="grid grid-cols-2 gap-3">
                 <Metric label="Category" value="Vendor" />
-                <Metric label="Estimate" value={money(selected.price_cents) ?? 'Missing'} />
-                <Metric label="Guests" value={data.planPayload?.plan.guest_count ? String(data.planPayload.plan.guest_count) : 'Missing'} />
+                <Metric label="Estimate" value={money(selected.price_cents) ?? 'No estimate yet'} />
+                <Metric label="Guests" value={data.planPayload?.plan.guest_count ? String(data.planPayload.plan.guest_count) : 'No target yet'} />
                 <Metric label="Status" value={contactStatusLabel(selected)} />
               </div>
               {selected.readiness ? (
@@ -2294,7 +2294,7 @@ function VendorsSection({
                   <div className="min-w-0">
                     <p className="truncate font-display text-[18px] font-semibold leading-tight text-ink">{vendor.name}</p>
                     <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
-                      <p className="min-w-0 truncate text-sm text-ink-soft">{money(vendor.price_cents) ?? 'Estimate missing'}</p>
+                      <p className="min-w-0 truncate text-sm text-ink-soft">{money(vendor.price_cents) ?? 'Estimate pending'}</p>
                       <StatusPill tone={contactStatusTone(vendor)}>{contactStatusLabel(vendor)}</StatusPill>
                       <VendorLocationBadge
                         {...(vendor.locationBadge ?? {})}
@@ -3720,8 +3720,8 @@ function fallbackProgress(plan: Plan): ProgressItem[] {
     {
       id: 'budget',
       label: 'Budget',
-      detail: plan.budget_cap_cents == null ? 'Add budget before outreach' : 'Target set. Update if this changes',
-      status: plan.budget_cap_cents == null ? 'Missing' : 'Set',
+      detail: plan.budget_cap_cents == null ? 'Add budget target before outreach' : 'Target set. Update if this changes',
+      status: plan.budget_cap_cents == null ? 'Needed' : 'Set',
       tone: plan.budget_cap_cents == null ? 'ochre' : 'forest',
     },
     {

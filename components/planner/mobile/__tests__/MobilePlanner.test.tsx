@@ -117,6 +117,45 @@ describe('MobilePlanner local draft flow', () => {
     const urls = (global.fetch as jest.Mock).mock.calls.map(([input]) => String(input))
     expect(urls.some((url) => /\/api\/planner\/plans\/mock-plan-.*\/messages/.test(url))).toBe(false)
   })
+
+  it('labels unset splash-draft budget as needed instead of missing', async () => {
+    mockSearchParams = 'draft=I%20want%20to%20host%20a%20happy%20hour%20for%2050%20people%20in%20the%20Mission'
+    global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+
+      if (url === '/api/planner/plans' && init?.method === 'POST') {
+        return jsonResponse({ error: 'Authentication required' }, 401)
+      }
+
+      if (url === '/api/planner/public-intake' && init?.method === 'POST') {
+        return jsonResponse({
+          data: {
+            plan_patch: {
+              event_type: 'happy_hour',
+              guest_count: 50,
+              neighborhood: 'Mission',
+              budget_cap_cents: null,
+              notes: 'Private draft only. No Supabase writes.',
+            },
+            agent_draft: {
+              content: 'Drafted privately. No outreach, hold, booking, or payment has been sent.',
+              message_type: 'status_update',
+              metadata: {},
+            },
+          },
+        })
+      }
+
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    }) as jest.Mock
+
+    render(<MobilePlanner />)
+
+    await waitFor(() => expect(screen.getByText(/Happy Hour · Mission · 50 guests/i)).toBeInTheDocument())
+    expect(screen.getByText('Add budget target before outreach')).toBeInTheDocument()
+    expect(screen.getByText('Needed')).toBeInTheDocument()
+    expect(screen.queryByText('Missing')).not.toBeInTheDocument()
+  })
 })
 
 describe('MobilePlanner operating loop parity', () => {
@@ -373,6 +412,7 @@ describe('MobilePlanner operating loop parity', () => {
   it('turns missing mobile brief facts into direct shortcuts', async () => {
     const draftPlan = {
       ...plan,
+      budget_cap_cents: null,
       ticketed: false,
       ticketing_model: null,
       venue_terms: null,
@@ -401,6 +441,8 @@ describe('MobilePlanner operating loop parity', () => {
     expect(screen.getByText('Venue Terms').closest('a')).toHaveAttribute('href', '/planner/outreach?plan=plan-1')
     expect(screen.getByText('Revenue Model').closest('a')).toHaveAttribute('href', '/planner/experiences/plan-1#profit-window')
     expect(screen.getByText('Agent Action').closest('a')).toHaveAttribute('href', '/planner/settings#approval-rules')
+    expect(screen.getAllByText('Not set yet').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Missing')).not.toBeInTheDocument()
   })
 
   it('shows compact active event context above the mobile approvals queue', async () => {
