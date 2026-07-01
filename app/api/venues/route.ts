@@ -290,6 +290,9 @@ const VENUE_CATALOG_OPTIONAL_COLUMNS = [
   'auto_approve_conditions',
   'unique_features',
   'unique_features_tags',
+  'offers_chis',
+  'default_kickback_type',
+  'stripe_account_id',
 ]
 
 type VenueCatalogQueryError = {
