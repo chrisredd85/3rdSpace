@@ -52,6 +52,21 @@ export const GOOGLE_PLACES_INCLUDED_TYPES = [
   'art_gallery',
   'museum',
   'performing_arts_theater',
+  'arena',
+  'athletic_field',
+  'bowling_alley',
+  'fitness_center',
+  'golf_course',
+  'gym',
+  'indoor_golf_course',
+  'sports_activity_location',
+  'sports_club',
+  'sports_coaching',
+  'sports_complex',
+  'sports_school',
+  'stadium',
+  'swimming_pool',
+  'tennis_court',
   'photographer',
   'caterer',
   'florist',
@@ -405,6 +420,11 @@ export function mapPlannerIntentToGooglePlaceType(
   if (/\b(hotel|lodging|resort)\b/.test(text)) return 'hotel'
   if (/\b(community center|community hall)\b/.test(text)) return 'community_center'
   if (/\b(cultural center|arts center|gallery)\b/.test(text)) return 'cultural_center'
+  if (/\b(tennis|racket|racquet)\b/.test(text)) return 'tennis_court'
+  if (/\b(bowling|bowling alley)\b/.test(text)) return 'bowling_alley'
+  if (/\b(golf course|driving range|indoor golf|golf)\b/.test(text)) return 'golf_course'
+  if (/\b(pilates|yoga|fitness|gym|workout|training)\b/.test(text)) return 'fitness_center'
+  if (/\b(basketball|pickleball|sports complex|sports outing|sports)\b/.test(text)) return 'sports_complex'
   if (/\b(event venue|event space|venue|hall)\b/.test(text)) return 'event_venue'
   if (/\b(fine dining|tasting menu)\b/.test(text)) return 'fine_dining_restaurant'
   if (/\b(dinner|restaurant|restaurants|dining|private dining|food|brunch|lunch)\b/.test(text)) return 'restaurant'

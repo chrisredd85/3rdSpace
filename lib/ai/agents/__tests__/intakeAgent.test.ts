@@ -144,6 +144,42 @@ describe('runIntakeAgent', () => {
     expect(parsed.vendor_need_status).toBe('none')
   })
 
+  it('accepts activity supply intents and clarification prompts from the model', () => {
+    const parsed = intakeAgentOutputSchema.parse({
+      ...founderDinnerOutput,
+      supply_intents: [{
+        category: 'activity_facility',
+        activity_type: 'tennis',
+        label: 'Tennis facilities',
+        requirements: { court_count: 'TBD' },
+        confidence: 0.82,
+        source: 'intake',
+      }],
+      supply_clarification_needed: {
+        status: 'pending',
+        activity_type: 'golf',
+        question: 'Do you need a full course, driving range, simulator, instructor, or social venue?',
+        options: [{
+          category: 'activity_facility',
+          label: 'Golf facility',
+          description: 'Find courses, ranges, and simulators first.',
+        }],
+      },
+    })
+
+    expect(parsed.supply_intents).toEqual([
+      expect.objectContaining({
+        category: 'activity_facility',
+        activity_type: 'tennis',
+        source: 'intake',
+      }),
+    ])
+    expect(parsed.supply_clarification_needed).toEqual(expect.objectContaining({
+      status: 'pending',
+      activity_type: 'golf',
+    }))
+  })
+
   it('passes inferred archetype resolution context to the model', async () => {
     const create = jest.fn().mockResolvedValue({
       choices: [{ message: { content: JSON.stringify(founderDinnerOutput) } }],

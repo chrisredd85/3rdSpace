@@ -49,6 +49,20 @@ describe('places archetype intent', () => {
     ])
   })
 
+  it('maps sports and wellness language to activity-capable Places types', () => {
+    expect(resolvePlacesIntent('tennis mixer').primary_types.slice(0, 3)).toEqual([
+      'sports_complex',
+      'sports_activity_location',
+      'athletic_field',
+    ])
+
+    expect(resolvePlacesIntent('pilates class').primary_types.slice(0, 3)).toEqual([
+      'fitness_center',
+      'gym',
+      'sports_activity_location',
+    ])
+  })
+
   it('maps fundraisers to banquet halls, museums, hotels, and event venues', () => {
     const intent = resolvePlacesIntent('fundraiser_gala')
 

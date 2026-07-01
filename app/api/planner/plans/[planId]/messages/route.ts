@@ -68,6 +68,11 @@ import {
   mergeSpecialSupplyMetadata,
   pickSpecialSupplyIntakeQuestion,
 } from '@/lib/planner/specialSupply'
+import {
+  mergeSupplyIntentMetadata,
+  pickSupplyIntentClarificationQuestion,
+  syncPlanSupplyIntentRows,
+} from '@/lib/planner/supplyIntent/activityCatalog'
 import { createVenueOpportunityBundle } from '@/lib/planner/opportunityBuilder'
 import { getBuilderConnectedTicketingPlatforms } from '@/lib/server/account-setup'
 import { buildOrganizerPreferencePayload, loadBuilderOrganizerPreferences } from '@/lib/server/builderPreferences'
@@ -897,6 +902,7 @@ async function updatePlanIfNeeded(
   }
 
   await insertPlanUpdateRows(db, currentPlan, changedUpdates)
+  await syncPlanSupplyIntentRows(db, (data as Plan).id, (data as Plan).metadata)
 
   return data as Plan
 }
@@ -924,14 +930,15 @@ function buildIntakeAgentDraft(
     : null
   const isReady = isIntakeReadyForRecommendations(output, plan, { conversationText }) && !archetypeQuestion
   const missingCoreQuestion = buildMissingCoreQuestion(output, plan)
+  const supplyIntentQuestion = pickSupplyIntentClarificationQuestion(plan)
   const agentQuestion = pickUnansweredAgentQuestion(output, plan, conversationText, [
     nextBestQuestion,
     ...missingQuestions,
   ])
-  const question = specialSupplyQuestion ?? archetypeQuestion?.prompt ?? agentQuestion ?? missingCoreQuestion
+  const question = specialSupplyQuestion ?? supplyIntentQuestion ?? archetypeQuestion?.prompt ?? agentQuestion ?? missingCoreQuestion
   const canMatchNow = isPlanReadyForRequestedRecommendations(plan, { conversationText })
-  const fallbackToGuard = !specialSupplyQuestion && !isReady && !archetypeQuestion && !missingCoreQuestion && canMatchNow
-  const shouldTransitionToMatch = !specialSupplyQuestion && (isReady || fallbackToGuard)
+  const fallbackToGuard = !specialSupplyQuestion && !supplyIntentQuestion && !isReady && !archetypeQuestion && !missingCoreQuestion && canMatchNow
+  const shouldTransitionToMatch = !specialSupplyQuestion && !supplyIntentQuestion && (isReady || fallbackToGuard)
 
   if (fallbackToGuard) {
     console.warn('[planner.intake] Forward-momentum guard promoted no-question intake response to recommendations', {
@@ -1002,6 +1009,7 @@ function shouldForceRequestedRecommendations(input: {
   messages: PlanMessage[]
 }): boolean {
   if (!isRecommendationRequest(input.message)) return false
+  if (pickSupplyIntentClarificationQuestion(input.plan)) return false
 
   return isPlanReadyForRequestedRecommendations(input.plan, {
     conversationText: buildArchetypeAnswerText(input.messages),
@@ -1222,6 +1230,14 @@ function buildPlanUpdatesFromIntakeOutput(
   )
   if (metadata) updates.metadata = metadata
 
+  const supplyIntentMetadata = mergeSupplyIntentMetadata(updates.metadata ?? currentPlan.metadata, {
+    userMessage,
+    agentIntents: output.supply_intents,
+    agentClarification: output.supply_clarification_needed,
+    source: 'intake',
+  })
+  if (supplyIntentMetadata) updates.metadata = supplyIntentMetadata
+
   const vendorNeedStatus = resolveVendorNeedStatusUpdate({
     metadata: updates.metadata ?? currentPlan.metadata,
     userMessage,
@@ -1359,6 +1375,12 @@ function buildPlanUpdates(intent: Partial<PlanIntent>, currentPlan: Plan, userMe
   }
   const specialSupplyMetadata = mergeSpecialSupplyMetadata(updates.metadata ?? currentPlan.metadata, userMessage)
   if (specialSupplyMetadata) updates.metadata = specialSupplyMetadata
+
+  const supplyIntentMetadata = mergeSupplyIntentMetadata(updates.metadata ?? currentPlan.metadata, {
+    userMessage,
+    source: 'intake',
+  })
+  if (supplyIntentMetadata) updates.metadata = supplyIntentMetadata
 
   const vendorNeedStatus = resolveVendorNeedStatusUpdate({
     metadata: updates.metadata ?? currentPlan.metadata,
@@ -1622,6 +1644,7 @@ function buildMetadataUpdates(
   const metadata = readRecord(currentPlan.metadata) ?? {}
   let nextMetadata = mergeEventRequirementSignals(metadata, userMessage)
   nextMetadata = mergeSpecialSupplyMetadata(nextMetadata, userMessage) ?? nextMetadata
+  nextMetadata = mergeSupplyIntentMetadata(nextMetadata, { userMessage, source: 'intake' }) ?? nextMetadata
   if (eventArchetypeLock) {
     nextMetadata[ARCHETYPE_LOCK_METADATA_KEY] = eventArchetypeLock
     nextMetadata = mergeArchetypeDefaultFillMetadata(nextMetadata, eventArchetypeLock)

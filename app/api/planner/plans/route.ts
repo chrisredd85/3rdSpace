@@ -49,6 +49,11 @@ import {
   pickSpecialSupplyIntakeQuestion,
 } from '@/lib/planner/specialSupply'
 import {
+  mergeSupplyIntentMetadata,
+  pickSupplyIntentClarificationQuestion,
+  syncPlanSupplyIntentRows,
+} from '@/lib/planner/supplyIntent/activityCatalog'
+import {
   isIntakeReadyForRecommendations,
   isPlanReadyForRequestedRecommendations,
 } from '@/lib/planner/intakeReadiness'
@@ -211,6 +216,7 @@ export async function POST(
     }
 
     const plan = planData as Plan
+    await syncPlanSupplyIntentRows(auth.db, plan.id, plan.metadata)
     const initialExchange: InitialMessageResult = draftMessages.length > 0
       ? {
         plan,
@@ -334,14 +340,17 @@ function buildPlanInsert(
     mergeUserPreferenceSignalsIntoMetadata(metadataWithRequirements, message) ?? metadataWithRequirements
   const metadataWithSpecialSupply =
     mergeSpecialSupplyMetadata(metadataBeforeVendorNeed, message) ?? metadataBeforeVendorNeed
+  const metadataWithSupplyIntent =
+    mergeSupplyIntentMetadata(metadataWithSpecialSupply, { userMessage: message, source: 'intake' }) ??
+    metadataWithSpecialSupply
   const vendorNeedStatus = resolveVendorNeedStatusUpdate({
-    metadata: metadataWithSpecialSupply,
+    metadata: metadataWithSupplyIntent,
     userMessage: message,
     agentStatus: null,
   })
   const metadata = vendorNeedStatus
-    ? mergeVendorNeedStatusMetadata(metadataWithSpecialSupply, vendorNeedStatus) ?? metadataWithSpecialSupply
-    : metadataWithSpecialSupply
+    ? mergeVendorNeedStatusMetadata(metadataWithSupplyIntent, vendorNeedStatus) ?? metadataWithSupplyIntent
+    : metadataWithSupplyIntent
 
   return {
     user_id: userId,
@@ -507,6 +516,7 @@ async function updatePlanIfNeeded(
   }
 
   await insertPlanUpdateRows(db, currentPlan, changedUpdates)
+  await syncPlanSupplyIntentRows(db, (data as Plan).id, (data as Plan).metadata)
 
   return data as Plan
 }
@@ -580,12 +590,13 @@ function buildIntakeAgentDraft(
   const isReady = isIntakeReadyForRecommendations(output, plan, { conversationText }) && !archetypeQuestion
   const missingCoreQuestion = buildMissingCoreQuestion(output, plan)
   const specialSupplyQuestion = pickSpecialSupplyIntakeQuestion(plan, conversationText)
+  const supplyIntentQuestion = pickSupplyIntentClarificationQuestion(plan)
   const agentQuestion = [nextBestQuestion, ...missingQuestions]
     .map((candidate) => sanitizeIntakeQuestionCandidate(candidate))
     .find((question): question is string => Boolean(question))
-  const question = specialSupplyQuestion ?? archetypeQuestion?.prompt ?? agentQuestion ?? missingCoreQuestion
+  const question = specialSupplyQuestion ?? supplyIntentQuestion ?? archetypeQuestion?.prompt ?? agentQuestion ?? missingCoreQuestion
   const canMatchNow = isPlanReadyForRequestedRecommendations(plan, { conversationText })
-  const shouldTransitionToMatch = !specialSupplyQuestion && (isReady || (!archetypeQuestion && !missingCoreQuestion && canMatchNow))
+  const shouldTransitionToMatch = !specialSupplyQuestion && !supplyIntentQuestion && (isReady || (!archetypeQuestion && !missingCoreQuestion && canMatchNow))
   const content = shouldTransitionToMatch
     ? `${reflection} ${buildTransitionPhrase(plan)}`
     : question
@@ -780,6 +791,14 @@ function buildPlanUpdatesFromIntakeOutput(
   )
   if (metadata) updates.metadata = metadata
 
+  const supplyIntentMetadata = mergeSupplyIntentMetadata(updates.metadata ?? currentPlan.metadata, {
+    userMessage,
+    agentIntents: output.supply_intents,
+    agentClarification: output.supply_clarification_needed,
+    source: 'intake',
+  })
+  if (supplyIntentMetadata) updates.metadata = supplyIntentMetadata
+
   const vendorNeedStatus = resolveVendorNeedStatusUpdate({
     metadata: updates.metadata ?? currentPlan.metadata,
     userMessage,
@@ -951,15 +970,17 @@ function buildMetadataUpdates(
   const nextMetadata =
     mergeUserPreferenceSignalsIntoMetadata(withRequirements, userMessage) ?? withRequirements
   const withSpecialSupply = mergeSpecialSupplyMetadata(nextMetadata, userMessage) ?? nextMetadata
-  if (eventArchetypeLock) withSpecialSupply[ARCHETYPE_LOCK_METADATA_KEY] = eventArchetypeLock
-  if (intendedPlatform) withSpecialSupply.intended_platform = intendedPlatform
+  const withSupplyIntent =
+    mergeSupplyIntentMetadata(withSpecialSupply, { userMessage, source: 'intake' }) ?? withSpecialSupply
+  if (eventArchetypeLock) withSupplyIntent[ARCHETYPE_LOCK_METADATA_KEY] = eventArchetypeLock
+  if (intendedPlatform) withSupplyIntent.intended_platform = intendedPlatform
   if (ticketed === false) {
-    delete withSpecialSupply.ticket_price_target_cents
-    delete withSpecialSupply.ticket_price_target
+    delete withSupplyIntent.ticket_price_target_cents
+    delete withSupplyIntent.ticket_price_target
   } else if (typeof ticketPriceTargetCents === 'number' && ticketPriceTargetCents > 0) {
-    withSpecialSupply.ticket_price_target_cents = ticketPriceTargetCents
+    withSupplyIntent.ticket_price_target_cents = ticketPriceTargetCents
   }
-  return Object.keys(withSpecialSupply).some((key) => withSpecialSupply[key] !== metadata[key]) ? withSpecialSupply : null
+  return Object.keys(withSupplyIntent).some((key) => withSupplyIntent[key] !== metadata[key]) ? withSupplyIntent : null
 }
 
 function readTicketPriceTargetCents(output: IntakeAgentOutput): number | null {

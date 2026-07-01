@@ -35,6 +35,27 @@ export type VendorNeedStatus = 'none' | 'optional' | 'required' | 'unknown'
 /** Planner assessment of whether normal venue/vendor matching is enough. */
 export type EventComplexity = 'standard' | 'special_supply_required'
 
+/** Reusable categories for activity-driven or specialized supply sourcing. */
+export type SupplyIntentCategory =
+  | 'activity_facility'
+  | 'social_venue'
+  | 'instructor_vendor'
+  | 'watch_party'
+  | 'special_supply'
+
+/** Source that created or last confirmed a plan supply intent. */
+export type SupplyIntentSource = 'intake' | 'clarification' | 'reply_parsing' | 'manual'
+
+/** Plan-level supply intent used to route Places discovery and outreach. */
+export interface PlanSupplyIntent {
+  category: SupplyIntentCategory
+  activity_type: string | null
+  label: string
+  requirements: Json
+  confidence: number
+  source: SupplyIntentSource
+}
+
 /** Specialized supply packs for events that require quote-first scouting. */
 export type SpecialSupplyKind =
   | 'yacht_charter'

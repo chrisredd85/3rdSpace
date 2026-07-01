@@ -45,8 +45,8 @@ const MAX_TYPES_PER_SEARCH = 4
  * - nightlife_club_night -> night_club, cocktail_bar, lounge_bar, bar
  * - listening_party_showcase -> performing_arts_theater, night_club, event_venue, cultural_center
  * - watch_party_screening -> bar, restaurant, event_venue, community_center
- * - fitness_wellness_run_club -> community_center, cafe, coffee_shop, event_venue
- * - game_sports_outing -> bar, restaurant, community_center, event_venue
+ * - fitness_wellness_run_club -> fitness_center, gym, sports_activity_location, cafe
+ * - game_sports_outing -> sports_complex, sports_activity_location, athletic_field, bar
  * - holiday_reception -> banquet_hall, event_venue, restaurant, hotel
  * - retreat_offsite -> hotel, resort_hotel, event_venue, convention_center
  */
@@ -132,11 +132,11 @@ const ARCHETYPE_INTENTS: Record<string, Omit<PlacesIntent, 'venue_style' | 'subs
     cluster_label: 'mixed',
   },
   fitness_wellness_run_club: {
-    primary_types: ['community_center', 'cafe', 'coffee_shop', 'event_venue'],
+    primary_types: ['fitness_center', 'gym', 'sports_activity_location', 'cafe'],
     cluster_label: 'event_space',
   },
   game_sports_outing: {
-    primary_types: ['bar', 'restaurant', 'community_center', 'event_venue'],
+    primary_types: ['sports_complex', 'sports_activity_location', 'athletic_field', 'bar'],
     cluster_label: 'mixed',
   },
   holiday_reception: {
@@ -210,6 +210,8 @@ function inferIntentFromText(text: string): Omit<PlacesIntent, 'venue_style' | '
   if (/\b(holiday|reception)\b/.test(text)) return ARCHETYPE_INTENTS.holiday_party
   if (/\b(book|reading)\b/.test(text)) return ARCHETYPE_INTENTS.book_club
   if (/\b(show|showcase|concert|performance)\b/.test(text)) return ARCHETYPE_INTENTS.ticketed_show
+  if (/\b(tennis|pickleball|basketball|bowling|golf|sports outing|game outing)\b/.test(text)) return ARCHETYPE_INTENTS.game_sports_outing
+  if (/\b(pilates|yoga|fitness|wellness|run club|workout)\b/.test(text)) return ARCHETYPE_INTENTS.fitness_wellness_run_club
   if (/\b(dinner|supper|private dining)\b/.test(text)) return ARCHETYPE_INTENTS.founder_dinner
   if (/\b(mixer|happy hour|networking|meetup)\b/.test(text)) return ARCHETYPE_INTENTS.networking_mixer
   if (/\b(workshop|class)\b/.test(text)) return ARCHETYPE_INTENTS.workshop
