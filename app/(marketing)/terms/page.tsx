@@ -26,7 +26,7 @@ const sections = [
   },
   {
     title: '5. Subscriptions and billing',
-    body: '3rdPlace pricing is currently planned as $30 per event, $69 per month for Pro, and $690 per year for Annual Pro. Billing is subject to Stripe processing and final legal and pricing review. Plan creation may remain free while agent execution, outreach, or booking workflows can require an active entitlement.',
+    body: '3rdPlace pricing is currently planned as $30 per event, $79 per month for Pro, and $690 per year for Annual Pro. Billing is subject to Stripe processing and final legal and pricing review. Plan creation may remain free while agent execution, outreach, or booking workflows can require an active entitlement.',
   },
   {
     title: '6. Settlement and payments',

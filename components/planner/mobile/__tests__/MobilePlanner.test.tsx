@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MobilePlanner } from '@/components/planner/mobile/MobilePlanner'
+import { pendingEventDraftStorageKey } from '@/lib/planner/pendingEventDraft'
 
 let mockSearchParams = 'draft=Stress%20test%20dinner%20for%2018%20in%20Hayes%20Valley%20with%20a%20%244500%20budget'
 
@@ -53,8 +54,10 @@ describe('MobilePlanner local draft flow', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     setMobileViewport()
+    window.history.pushState(null, '', '/planner')
     mockSearchParams = 'draft=Stress%20test%20dinner%20for%2018%20in%20Hayes%20Valley%20with%20a%20%244500%20budget'
     window.scrollTo = jest.fn()
+    window.localStorage.clear()
 
     let publicIntakeCalls = 0
     global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -75,7 +78,7 @@ describe('MobilePlanner local draft flow', () => {
               guest_count: 18,
               neighborhood: 'Hayes Valley',
               budget_cap_cents: budgetCents,
-              notes: 'Private draft only. No Supabase writes.',
+              notes: 'Private draft - not saved to your account yet.',
             },
             agent_draft: {
               content: publicIntakeCalls === 1
@@ -100,9 +103,17 @@ describe('MobilePlanner local draft flow', () => {
     render(<MobilePlanner />)
 
     await waitFor(() => expect(screen.getByText(/Dinner · Hayes Valley · 18 guests · \$4,500/i)).toBeInTheDocument())
-    expect(screen.getByRole('button', { name: 'Review next steps' })).toBeInTheDocument()
+    expect(JSON.parse(window.localStorage.getItem(pendingEventDraftStorageKey) ?? '{}')).toMatchObject({
+      prompt: 'Stress test dinner for 18 in Hayes Valley with a $4500 budget',
+    })
+    expect(screen.getByText('Create an account to save this plan.')).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: 'Save this plan' }).some((link) => {
+      return link.getAttribute('href') === '/signup/builder?returnTo=%2Fplanner&draft=pending'
+    })).toBe(true)
+    expect(screen.getByRole('button', { name: 'Review approval policy' })).toBeInTheDocument()
     expect(screen.getByText('Next action steps')).toBeInTheDocument()
     expect(screen.getByText('Confirm before outreach.')).toBeInTheDocument()
+    expect(screen.queryByText(/Mock planner|Supabase|mock mode/i)).not.toBeInTheDocument()
     expect(screen.queryByText('Open review queue')).not.toBeInTheDocument()
 
     expect(screen.getByPlaceholderText('Ask the agent or update the brief...')).toBeInTheDocument()
@@ -119,6 +130,31 @@ describe('MobilePlanner local draft flow', () => {
     const urls = (global.fetch as jest.Mock).mock.calls.map(([input]) => String(input))
     expect(urls.some((url) => /\/api\/planner\/plans\/mock-plan-.*\/messages/.test(url))).toBe(false)
   })
+
+  it('shows organizer-facing private draft copy in the event record', async () => {
+    render(<MobilePlanner />)
+
+    await waitFor(() => expect(screen.getByText(/Dinner · Hayes Valley · 18 guests · \$4,500/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Open event record/i }))
+
+    expect(await screen.findByText('Private draft - not saved to your account yet.')).toBeInTheDocument()
+    expect(screen.queryByText(/Mock planner|Supabase|mock mode/i)).not.toBeInTheDocument()
+  })
+
+  it('shows reduced navigation for an unsigned private draft', async () => {
+    render(<MobilePlanner />)
+
+    await waitFor(() => expect(screen.getByText(/Dinner · Hayes Valley · 18 guests · \$4,500/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Open navigation/i }))
+
+    expect(screen.getAllByRole('link', { name: 'Save this plan' }).some((link) => {
+      return link.getAttribute('href') === '/signup/builder?returnTo=%2Fplanner&draft=pending'
+    })).toBe(true)
+    expect(screen.getByRole('link', { name: 'Explore' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login/builder')
+    expect(screen.queryByRole('link', { name: /Venues/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Payments/i })).not.toBeInTheDocument()
+  })
 })
 
 describe('MobilePlanner operating loop parity', () => {
@@ -127,6 +163,7 @@ describe('MobilePlanner operating loop parity', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     setMobileViewport()
+    window.history.pushState(null, '', '/planner')
     mockSearchParams = ''
     window.scrollTo = jest.fn()
   })
@@ -479,6 +516,38 @@ describe('MobilePlanner operating loop parity', () => {
     expect(screen.getByText('Venue Terms').closest('a')).toHaveAttribute('href', '/planner/outreach?plan=plan-1')
     expect(screen.getByText('Revenue Model').closest('a')).toHaveAttribute('href', '/planner/experiences/plan-1#profit-window')
     expect(screen.getByText('Agent Action').closest('a')).toHaveAttribute('href', '/planner/settings#approval-rules')
+  })
+
+  it('opens the event record with hash routing and closes it on browser back', async () => {
+    window.history.pushState(null, '', '/planner')
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/planner/plans?limit=10') return jsonResponse({ plans: [plan] })
+      if (url === '/api/planner/plans/plan-1') return jsonResponse(plannerPayload)
+      if (url === '/api/planner/plans/plan-1/mobile-home') return jsonResponse({ plan, pending_approvals: [], pending_approval_count: 0, problem: null, progress: [], updates: [] })
+      if (url === '/api/planner/plans/plan-1/budget') return jsonResponse({ target_cents: 500000, low_total_cents: 0, high_total_cents: 0, committed_total_cents: 0, projected_delta_cents: null, projected_buffer_low_cents: null, projected_buffer_high_cents: null, lines: [] })
+      if (url === '/api/planner/plans/plan-1/activity') return jsonResponse({ activities: [] })
+      if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
+      if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
+      if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/integrations/gmail/account') return jsonResponse({ account: connectedGmailAccount })
+      if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    }) as jest.Mock
+
+    render(<MobilePlanner />)
+
+    await screen.findByText('Oakland happy hour')
+    fireEvent.click(screen.getByRole('button', { name: /Open event record/i }))
+
+    expect(window.location.hash).toBe('#event-record')
+    expect(await screen.findByText('Confirmed facts')).toBeInTheDocument()
+
+    window.history.pushState(null, '', '/planner')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+
+    await waitFor(() => expect(screen.queryByText('Confirmed facts')).not.toBeInTheDocument())
+    expect(screen.getByText('Today')).toBeInTheDocument()
   })
 
   it('shows compact active event context above the mobile approvals queue', async () => {

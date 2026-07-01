@@ -36,6 +36,7 @@ import {
   normalizePlanAttendanceSnapshot,
   type PlanAttendanceSnapshot,
 } from '@/lib/planner/attendanceSummary'
+import { storePendingEventDraft } from '@/lib/planner/pendingEventDraft'
 import { cn } from '@/lib/utils'
 import { applyMockPlanPatch, buildDeterministicDraftExchange, buildDraftMatchHandoff, buildMockMessage, buildMockPlan, tryRunPublicDraftIntake } from '../planner-page/draftMode'
 import { MobileChatComposer } from './MobileChatComposer'
@@ -412,9 +413,10 @@ function getInitialMobileEntry(initialView: MobileView) {
   const requestedDraft = params.get('draft')?.trim() ?? ''
   const requestedView = params.get('view')
   const startsInNewPlan = initialView === 'new-plan' || Boolean(requestedDraft)
+  const hashView: MobileView | null = window.location.hash === '#event-record' ? 'brief' : null
 
   return {
-    view: requestedDraft ? 'new-plan' : isMobileView(requestedView) ? requestedView : initialView,
+    view: requestedDraft ? 'new-plan' : hashView ?? (isMobileView(requestedView) ? requestedView : initialView),
     draft: requestedDraft,
     skipInitialLoad: startsInNewPlan,
   }
@@ -472,6 +474,11 @@ export function MobilePlanner({
   }, [requestedDraft, requestedView])
 
   const createLocalDraftPlan = useCallback(async (message: string) => {
+    storePendingEventDraft({
+      prompt: message,
+      timestamp: Date.now(),
+    })
+
     const plan = buildMockPlan(message)
     const userMessage = buildMockMessage(plan.id, 'user', message, 'text', {})
     const publicIntake = await tryRunPublicDraftIntake(message, plan)
@@ -552,10 +559,39 @@ export function MobilePlanner({
 
   const reviewCount = data.home?.pending_approval_count ?? data.planPayload?.approvals.filter((approval) => approval.status === 'pending').length ?? 0
   const isLocalDraftPlan = Boolean(data.activePlanId?.startsWith('mock-plan-') || data.planPayload?.plan.user_id === 'mock-user')
+  const isDraftNavigation = isLocalDraftPlan || Boolean(requestedDraft)
+
+  useEffect(() => {
+    function syncEventRecordHash() {
+      if (window.location.hash === '#event-record') {
+        setView('brief')
+        return
+      }
+      setView((current) => (current === 'brief' ? 'planner' : current))
+    }
+
+    window.addEventListener('popstate', syncEventRecordHash)
+    window.addEventListener('hashchange', syncEventRecordHash)
+
+    return () => {
+      window.removeEventListener('popstate', syncEventRecordHash)
+      window.removeEventListener('hashchange', syncEventRecordHash)
+    }
+  }, [])
 
   function navigate(nextView: MobileView) {
     setView(nextView)
     setIsMenuOpen(false)
+    const nextUrl = new URL(window.location.href)
+    if (nextView === 'brief') {
+      if (nextUrl.hash !== '#event-record') {
+        nextUrl.hash = 'event-record'
+        window.history.pushState(null, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`)
+      }
+    } else if (nextUrl.hash === '#event-record') {
+      nextUrl.hash = ''
+      window.history.replaceState(null, '', `${nextUrl.pathname}${nextUrl.search}`)
+    }
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
   }
 
@@ -829,6 +865,7 @@ export function MobilePlanner({
             }}
             onClose={() => setIsMenuOpen(false)}
             onInternalNavigate={navigate}
+            isDraftNavigation={isDraftNavigation}
           />
         )}
 
@@ -1217,6 +1254,7 @@ function MobileNavigationPanel({
   onTouchEnd,
   onClose,
   onInternalNavigate,
+  isDraftNavigation,
 }: {
   activeSection: MobileSection
   activeView: MobileView
@@ -1226,7 +1264,40 @@ function MobileNavigationPanel({
   onTouchEnd: (value: number) => void
   onClose: () => void
   onInternalNavigate: (view: MobileView) => void
+  isDraftNavigation: boolean
 }) {
+  if (isDraftNavigation) {
+    return (
+      <div
+        className="fixed inset-0 z-30 overflow-hidden bg-ink/20"
+        onClick={onClose}
+        onTouchStart={(event) => onTouchStart(event.touches[0]?.clientX ?? null)}
+        onTouchEnd={(event) => {
+          const changed = event.changedTouches[0]
+          if (menuTouchStartX !== null && changed) onTouchEnd(changed.clientX)
+        }}
+      >
+        <div
+          className="ml-auto flex h-[100dvh] max-h-[100dvh] w-[86%] max-w-[360px] flex-col overflow-y-auto overscroll-contain border-l border-tan bg-cream pb-[calc(env(safe-area-inset-bottom)_+_2rem)] pt-20 shadow-card"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="px-5">
+            <p className="label-caps text-clay">Private draft</p>
+            <p className="mt-2 font-display text-[26px] leading-tight text-ink">Save this plan to keep going.</p>
+            <p className="mt-3 text-sm leading-6 text-ink-soft">
+              This draft is only on this device until you create an account or sign in.
+            </p>
+          </div>
+          <nav className="mt-6 border-y border-tan">
+            <PanelLink href="/signup/builder?returnTo=%2Fplanner&draft=pending" label="Save this plan" isActive={false} onClick={onClose} />
+            <PanelLink href="/" label="Explore" isActive={false} onClick={onClose} />
+            <PanelLink href="/login/builder" label="Sign in" isActive={false} onClick={onClose} />
+          </nav>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       className="fixed inset-0 z-30 overflow-hidden bg-ink/20"
@@ -1300,6 +1371,7 @@ function PlannerView({
   const reviewCount = home?.pending_approval_count ?? 0
   const operatingLoop = mobileOperatingLoopState(data)
   const description = operatingLoop.description
+  const isPrivateDraft = plan.id.startsWith('mock-plan-') || plan.user_id === 'mock-user'
 
   return (
     <section>
@@ -1330,11 +1402,26 @@ function PlannerView({
             {`Review ${reviewCount} approval${reviewCount === 1 ? '' : 's'}`}
           </PrimaryLink>
         ) : (
-          <PrimaryButton onClick={() => onNavigate('approval')}>Review next steps</PrimaryButton>
+          <PrimaryButton onClick={() => onNavigate('approval')}>Review approval policy</PrimaryButton>
         )}
         <SecondaryButton onClick={() => onNavigate('brief')}>Open event record</SecondaryButton>
       </div>
       {batchFeedback ? <p className="mt-3 text-sm font-semibold leading-6 text-forest">{batchFeedback}</p> : null}
+
+      {isPrivateDraft ? (
+        <Panel className={cn(spacing.cardGap, 'border-clay/25 bg-clay-tint')}>
+          <p className="label-caps text-clay">Private draft</p>
+          <h2 className={cn(spacing.labelToHeadline, 'font-display text-[24px] leading-tight text-ink')}>
+            Create an account to save this plan.
+          </h2>
+          <p className={cn(spacing.headlineToBody, 'text-sm leading-6 text-ink-soft')}>
+            This plan is only on this device right now. Save it before approvals, outreach, bookings, or payments start.
+          </p>
+          <div className={spacing.bodyToAction}>
+            <PrimaryLink href="/signup/builder?returnTo=%2Fplanner&draft=pending">Save this plan</PrimaryLink>
+          </div>
+        </Panel>
+      ) : null}
 
       <MobileChatComposer
         value={messageDraft}

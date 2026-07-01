@@ -236,7 +236,7 @@ const eventSpecificQuestionCases = [
 test.describe('Agent Planner chat', () => {
   test.describe.configure({ mode: 'serial' })
   test.beforeEach(({ browserName }) => {
-    test.skip(browserName !== 'chromium', 'Mock planner interaction smoke is covered in Chromium.')
+    test.skip(browserName !== 'chromium', 'Private draft planner interaction smoke is covered in Chromium.')
   })
 
   test('representative fake users can create and complete mock agent planner event drafts', async ({ page }) => {
@@ -258,7 +258,7 @@ test.describe('Agent Planner chat', () => {
       await route.fulfill({
         status: 500,
         contentType: 'application/json',
-        body: JSON.stringify({ error: 'Planner API should not be called in mock mode' }),
+        body: JSON.stringify({ error: 'Planner API should not be called in private draft mode' }),
       })
     })
 
@@ -307,7 +307,7 @@ test.describe('Agent Planner chat', () => {
         await route.fulfill({
           status: 500,
           contentType: 'application/json',
-          body: JSON.stringify({ error: 'Planner API should not be called in mock mode' }),
+          body: JSON.stringify({ error: 'Planner API should not be called in private draft mode' }),
         })
         return
       }
@@ -330,7 +330,7 @@ test.describe('Agent Planner chat', () => {
     await expect(page.getByRole('heading', { name: /day party plan/i })).not.toBeVisible()
   })
 
-  test('authenticated homepage drafts start server-backed plans instead of mock mode', async ({ page }) => {
+  test('authenticated homepage drafts start server-backed plans instead of private draft mode', async ({ page }) => {
     test.setTimeout(60000)
     await page.setViewportSize({ width: 1600, height: 900 })
 

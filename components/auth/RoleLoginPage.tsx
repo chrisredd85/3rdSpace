@@ -243,9 +243,17 @@ export function RoleLoginPage({ portal }: { portal: PortalKey }) {
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="password" className="text-[13px] font-semibold text-ink-soft">
-                Password
-              </label>
+              <div className="flex items-center justify-between gap-3">
+                <label htmlFor="password" className="text-[13px] font-semibold text-ink-soft">
+                  Password
+                </label>
+                <Link
+                  href={`/forgot-password?portal=${portal}`}
+                  className="text-[13px] font-semibold text-clay-deep underline-offset-4 hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
                 <Input

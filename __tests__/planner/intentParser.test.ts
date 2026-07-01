@@ -1,6 +1,18 @@
 import { parseEventIntent } from '@/lib/planner/intentParser'
 
 describe('parseEventIntent', () => {
+  const RealDate = Date
+
+  function mockToday(isoDate: string) {
+    jest.useFakeTimers()
+    jest.setSystemTime(new RealDate(`${isoDate}T12:00:00`))
+  }
+
+  afterEach(() => {
+    jest.useRealTimers()
+    jest.restoreAllMocks()
+  })
+
   it('extracts a hackathon intent without confusing duration for headcount', () => {
     const intent = parseEventIntent(
       'I want to host a 36-hour hackathon for 80 builders at a private corporate office in SF'
@@ -68,6 +80,46 @@ describe('parseEventIntent', () => {
     expect(intent.date_hint).toBe('next two weeks')
     expect(intent.date_window_start).toBeDefined()
     expect(intent.date_window_end).toBeDefined()
+  })
+
+  it('resolves next Friday from Wednesday July 1 2026 to the upcoming Friday', () => {
+    mockToday('2026-07-01')
+
+    const intent = parseEventIntent('Host a happy hour next Friday for 40 people in Oakland')
+
+    expect(intent.date_hint).toBe('next friday')
+    expect(intent.date_window_start).toBe('2026-07-03')
+    expect(intent.date_window_end).toBe('2026-07-03')
+  })
+
+  it.each([
+    ['2026-07-03', '2026-07-10'],
+    ['2026-07-04', '2026-07-10'],
+  ])('resolves next Friday after %s to %s', (today, expected) => {
+    mockToday(today)
+
+    const intent = parseEventIntent('Host a founder dinner next Friday for 20 people in Mission')
+
+    expect(intent.date_window_start).toBe(expected)
+    expect(intent.date_window_end).toBe(expected)
+  })
+
+  it.each([
+    ['next sunday', '2026-07-05'],
+    ['next monday', '2026-07-06'],
+    ['next tuesday', '2026-07-07'],
+    ['next wednesday', '2026-07-08'],
+    ['next thursday', '2026-07-02'],
+    ['next friday', '2026-07-03'],
+    ['next saturday', '2026-07-04'],
+    ['friday night', '2026-07-03'],
+  ])('resolves "%s" from Wednesday July 1 2026', (phrase, expected) => {
+    mockToday('2026-07-01')
+
+    const intent = parseEventIntent(`Plan a mixer ${phrase} for 50 people in SoMa`)
+
+    expect(intent.date_window_start).toBe(expected)
+    expect(intent.date_window_end).toBe(expected)
   })
 
   it('captures unsupported but plannable event phrases for taxonomy review', () => {
