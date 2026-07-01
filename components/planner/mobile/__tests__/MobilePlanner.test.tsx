@@ -35,6 +35,12 @@ function jsonResponse(body: unknown, status = 200) {
   )
 }
 
+const connectedGmailAccount = {
+  id: 'gmail-account-1',
+  provider: 'gmail',
+  email_address: 'organizer@example.com',
+}
+
 function setMobileViewport() {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 })
   Object.defineProperty(window, 'innerHeight', { configurable: true, value: 812 })
@@ -138,6 +144,7 @@ describe('MobilePlanner operating loop parity', () => {
       if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
       if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
       if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/integrations/gmail/account') return jsonResponse({ account: connectedGmailAccount })
       if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
       if (url === '/api/planner/plans/plan-1/outreach/approve-batch' && init?.method === 'POST') {
         return jsonResponse({ created_count: 1, target_count: 1, approvals: [] })
@@ -176,6 +183,7 @@ describe('MobilePlanner operating loop parity', () => {
       if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
       if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
       if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/integrations/gmail/account') return jsonResponse({ account: null })
       if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
       return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
     }) as jest.Mock
@@ -189,6 +197,37 @@ describe('MobilePlanner operating loop parity', () => {
     expect(screen.getByText('1 outreach batch waiting on you.')).toBeInTheDocument()
   })
 
+  it('requires Gmail connection before mobile can create a venue outreach batch', async () => {
+    const fetchMock = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/planner/plans?limit=10') return jsonResponse({ plans: [plan] })
+      if (url === '/api/planner/plans/plan-1') return jsonResponse(plannerPayload)
+      if (url === '/api/planner/plans/plan-1/mobile-home') return jsonResponse({ plan, pending_approvals: [], pending_approval_count: 0, problem: null, progress: [], updates: [] })
+      if (url === '/api/planner/plans/plan-1/budget') return jsonResponse({ target_cents: 500000, low_total_cents: 0, high_total_cents: 0, committed_total_cents: 0, projected_delta_cents: null, projected_buffer_low_cents: null, projected_buffer_high_cents: null, lines: [] })
+      if (url === '/api/planner/plans/plan-1/activity') return jsonResponse({ activities: [] })
+      if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
+      if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
+      if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/integrations/gmail/account') return jsonResponse({ account: null })
+      if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    })
+    global.fetch = fetchMock as jest.Mock
+
+    render(<MobilePlanner initialView="venues" />)
+
+    const connectLink = await screen.findByRole('link', { name: /Connect Gmail to create batch/i })
+    expect(connectLink).toHaveAttribute(
+      'href',
+      '/api/integrations/gmail/connect?returnTo=%2Fplanner%3Fplan%3Dplan-1%26view%3Dvenues'
+    )
+    expect(screen.queryByRole('button', { name: /Create outreach batch/i })).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      '/api/planner/plans/plan-1/outreach/approve-batch',
+      expect.anything()
+    )
+  })
+
   it('routes parsed replies to mobile quote comparison before new hold approvals', async () => {
     global.fetch = jest.fn((input: RequestInfo | URL) => {
       const url = String(input)
@@ -200,6 +239,7 @@ describe('MobilePlanner operating loop parity', () => {
       if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
       if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
       if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/integrations/gmail/account') return jsonResponse({ account: connectedGmailAccount })
       if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
       return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
     }) as jest.Mock
@@ -224,6 +264,7 @@ describe('MobilePlanner operating loop parity', () => {
       if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
       if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
       if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/integrations/gmail/account') return jsonResponse({ account: connectedGmailAccount })
       if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
       if (url === '/api/planner/discovery-venues/22222222-2222-4222-8222-222222222222/contact-email' && init?.method === 'POST') {
         return jsonResponse({ venue: { id: '22222222-2222-4222-8222-222222222222' }, draft_results: [{ status: 'draft_created' }] })

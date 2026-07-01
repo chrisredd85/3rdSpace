@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   ArrowRight,
@@ -80,6 +80,14 @@ type ApprovalResponse = {
   target_count?: number
 }
 
+type GmailAccountResponse = {
+  account: {
+    id: string
+    provider: 'gmail'
+    email_address: string
+  } | null
+}
+
 type PlacesOutreachSearchWorkspaceProps = {
   initialPlanId?: string | null
 }
@@ -97,6 +105,8 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
   const [isApproving, setIsApproving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [approvalResult, setApprovalResult] = useState<ApprovalResponse | null>(null)
+  const [gmailAccount, setGmailAccount] = useState<GmailAccountResponse['account']>(null)
+  const [isGmailLoading, setIsGmailLoading] = useState(true)
 
   const readyCandidates = useMemo(
     () => candidates.filter((candidate) => candidate.contact_status === 'ready_to_reach_out'),
@@ -109,6 +119,34 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
   const selectedReadyCount = selectedVenueIds.filter((id) => readyCandidates.some((candidate) => candidate.discovery_venue_id === id)).length
   const approvalTargetCount = approvalResult?.target_count ?? approvalResult?.approvals.reduce((sum, approval) => sum + approval.target_count, 0) ?? 0
   const hasPlanContext = planId.trim().length > 0
+  const gmailConnectReturnTo = planId.trim()
+    ? `/planner/outreach-search?plan=${encodeURIComponent(planId.trim())}`
+    : '/planner/outreach-search'
+  const gmailConnectHref = `/api/integrations/gmail/connect?returnTo=${encodeURIComponent(gmailConnectReturnTo)}`
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadGmailAccount() {
+      setIsGmailLoading(true)
+      try {
+        const response = await fetch('/api/integrations/gmail/account', { cache: 'no-store' })
+        const payload = await response.json().catch(() => ({})) as Partial<GmailAccountResponse>
+        if (!response.ok) throw new Error('Unable to load Gmail connection')
+        if (!cancelled) setGmailAccount(payload.account ?? null)
+      } catch {
+        if (!cancelled) setGmailAccount(null)
+      } finally {
+        if (!cancelled) setIsGmailLoading(false)
+      }
+    }
+
+    void loadGmailAccount()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function loadCandidates(nextPlanId = planId) {
     const trimmedPlanId = nextPlanId.trim()
@@ -217,6 +255,10 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
   async function createApprovals() {
     const trimmedPlanId = planId.trim()
     const readyIds = selectedVenueIds.filter((id) => readyCandidates.some((candidate) => candidate.discovery_venue_id === id))
+    if (!gmailAccount) {
+      setError('Connect Gmail before creating outreach approvals.')
+      return
+    }
     if (!trimmedPlanId || readyIds.length === 0) {
       setError('Select at least one ready venue before creating approvals.')
       return
@@ -399,10 +441,24 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
                     {readyCandidates.length} venue{readyCandidates.length === 1 ? '' : 's'} have a resolved contact.
                   </p>
                 </div>
-                <Button type="button" onClick={createApprovals} disabled={selectedReadyCount === 0 || isApproving}>
-                  {isApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  Create bulk approval{selectedReadyCount ? ` for ${selectedReadyCount}` : ''}
-                </Button>
+                {gmailAccount ? (
+                  <Button type="button" onClick={createApprovals} disabled={selectedReadyCount === 0 || isApproving}>
+                    {isApproving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    Create bulk approval{selectedReadyCount ? ` for ${selectedReadyCount}` : ''}
+                  </Button>
+                ) : isGmailLoading ? (
+                  <Button type="button" variant="outline" disabled>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Checking Gmail
+                  </Button>
+                ) : (
+                  <Button asChild type="button" variant="outline">
+                    <Link href={gmailConnectHref}>
+                      <MailPlus className="h-4 w-4" />
+                      Connect Gmail to approve
+                    </Link>
+                  </Button>
+                )}
               </div>
             </CardHeader>
             <CardContent className="space-y-4 pt-6">
