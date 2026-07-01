@@ -67,10 +67,11 @@ export async function getAdminContext(): Promise<AdminContext> {
  */
 export async function getWorkerOrAdminContext(request: Request): Promise<AdminContext> {
   const workerSecret = process.env.WORKER_SECRET
+  const cronSecret = process.env.CRON_SECRET
   const authHeader = request.headers.get('authorization')
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null
 
-  if (workerSecret && token === workerSecret) {
+  if ((workerSecret && token === workerSecret) || (cronSecret && token === cronSecret)) {
     return {
       authorized: true,
       user: {

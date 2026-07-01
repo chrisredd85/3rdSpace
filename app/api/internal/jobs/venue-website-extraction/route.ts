@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
   return runVenueWebsiteExtraction()
 }
 
-async function runVenueWebsiteExtraction() {
+export async function runVenueWebsiteExtraction() {
   const startedAt = Date.now()
   console.info('[venue-website-extraction] invocation_started', {
     started_at: new Date(startedAt).toISOString(),

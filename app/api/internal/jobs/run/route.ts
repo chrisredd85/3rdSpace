@@ -32,6 +32,7 @@ import {
 import { sendVenueSettlementAcknowledgementEmail } from '@/lib/finance/settlement-checkout'
 import { processVenueStripeSetupReminderJob } from '@/lib/venues/venueOpportunityRecovery'
 import { runVenueCapacityInferenceJob, type VenueCapacityJobClient } from '@/lib/discovery/venueCapacityJobs'
+import { runVenueWebsiteExtraction } from '@/app/api/internal/jobs/venue-website-extraction/route'
 
 export const runtime = 'nodejs'
 
@@ -355,9 +356,21 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  let discoveryExtraction: unknown = null
+  try {
+    const extractionResponse = await runVenueWebsiteExtraction()
+    discoveryExtraction = await extractionResponse.json()
+  } catch (error) {
+    discoveryExtraction = {
+      error: error instanceof Error ? error.message : 'Discovery extraction failed',
+    }
+    console.warn('[jobs.run] Discovery website extraction failed', discoveryExtraction)
+  }
+
   return NextResponse.json({
     claimed: jobs.length,
     results,
+    discovery_extraction: discoveryExtraction,
   })
 }
 

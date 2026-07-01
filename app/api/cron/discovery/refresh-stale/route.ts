@@ -3,6 +3,7 @@ export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
 
+import { runVenueWebsiteExtraction } from '@/app/api/internal/jobs/venue-website-extraction/route'
 import { refreshDiscoveryEntityFromPlaces } from '@/lib/discovery/refreshDiscoveryFromPlaces'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 
@@ -62,11 +63,23 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  let discoveryExtraction: unknown = null
+  try {
+    const extractionResponse = await runVenueWebsiteExtraction()
+    discoveryExtraction = await extractionResponse.json()
+  } catch (error) {
+    discoveryExtraction = {
+      error: error instanceof Error ? error.message : 'Discovery extraction failed',
+    }
+    console.warn('[discovery.refresh-stale] website_extraction_failed', discoveryExtraction)
+  }
+
   return NextResponse.json({
     ok: true,
     duration_ms: Date.now() - startedAt,
     refreshed: results.length,
     changes_detected: results.reduce((sum, result) => sum + result.changes_detected, 0),
+    discovery_extraction: discoveryExtraction,
     errors,
     skipped_query_errors: [...venueResult.errors, ...vendorResult.errors],
   })
