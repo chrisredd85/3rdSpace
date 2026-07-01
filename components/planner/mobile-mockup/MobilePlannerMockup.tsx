@@ -1657,6 +1657,20 @@ function TicketingSection() {
         </p>
       </Panel>
 
+      <Panel className={spacing.cardGap}>
+        <p className="label-caps text-clay">Ticketing setup</p>
+        <h2 className={cn(spacing.labelToHeadline, 'font-display text-[28px] leading-tight text-ink')}>Connect accounts or import proof.</h2>
+        <p className={cn(spacing.headlineToBody, 'text-base leading-7 text-ink-soft')}>
+          Eventbrite and Posh can be linked directly. Luma and Partiful can be brought in with CSV exports or screenshots.
+        </p>
+        <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
+          <PrimaryLink href="/planner/integrations/eventbrite">Connect Eventbrite</PrimaryLink>
+          <SecondaryLink href="/planner/integrations/posh">Set up Posh</SecondaryLink>
+          <SecondaryLink href="/planner/events/import?source=luma">Import Luma CSV or screenshots</SecondaryLink>
+          <SecondaryLink href="/planner/events/import?source=partiful">Import Partiful CSV or screenshots</SecondaryLink>
+        </div>
+      </Panel>
+
       <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
         <PrimaryLink href="/mobile-mockup/planner">Use in planner</PrimaryLink>
         <SecondaryLink href="/mobile-mockup/analytics">View event intelligence</SecondaryLink>
