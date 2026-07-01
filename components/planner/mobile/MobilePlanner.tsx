@@ -313,20 +313,25 @@ interface MobileData {
 }
 
 interface AppSectionLink {
-  id: MobileSection
+  id: string
   label: string
   href: string
 }
 
 const appSections: AppSectionLink[] = [
-  { id: 'planner', label: 'Plan', href: '/planner' },
-  { id: 'approvals', label: 'Next steps', href: '/planner/payments' },
-  { id: 'messages', label: 'Inbox', href: '/planner/messages' },
-  { id: 'outreach', label: 'Outreach', href: '/planner/outreach' },
+  { id: 'planner', label: 'Agent Planner', href: '/planner' },
+  { id: 'experiences', label: 'Experiences', href: '/planner/experiences' },
+  { id: 'templates', label: 'Templates', href: '/planner/templates' },
+  { id: 'venues', label: 'Venues', href: '/planner/venues' },
+  { id: 'ticketing', label: 'Tickets', href: '/planner/tickets' },
   { id: 'vendors', label: 'Vendors', href: '/planner/vendors' },
-  { id: 'analytics', label: 'Analytics', href: '/planner/analytics' },
-  { id: 'ticketing', label: 'Ticketing', href: '/planner/tickets' },
+  { id: 'outreach', label: 'Outreach', href: '/planner/outreach' },
+  { id: 'messages', label: 'Messages', href: '/planner/messages' },
+  { id: 'approvals', label: 'Payments', href: '/planner/payments' },
+  { id: 'settlements', label: 'Settlements', href: '/planner/settlements' },
   { id: 'billing', label: 'Billing', href: '/planner/billing' },
+  { id: 'analytics', label: 'Analytics', href: '/planner/analytics' },
+  { id: 'support', label: 'Support', href: '/planner/support' },
   { id: 'settings', label: 'Settings', href: '/planner/settings' },
 ]
 
@@ -2477,7 +2482,10 @@ function SettingsSection({ billing, connections }: { billing: BillingStatus | nu
 
       <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
         <PrimaryLink href="/planner/payments">Review approvals</PrimaryLink>
-        <SecondaryLink href="/planner/settings">Edit on desktop</SecondaryLink>
+        <SecondaryLink href="/planner/settings/integrations">Manage Gmail and integrations</SecondaryLink>
+        <SecondaryLink href="/planner/settings">Edit account settings</SecondaryLink>
+        <SecondaryLink href="/planner/billing">Manage billing</SecondaryLink>
+        <SecondaryLink href="/planner/settings/delete-account">Data and account deletion</SecondaryLink>
       </div>
     </section>
   )

@@ -407,6 +407,73 @@ describe('MobilePlanner operating loop parity', () => {
     expect(await screen.findByText('Berkeley supper club')).toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalledWith('/api/planner/plans?limit=10', expect.anything())
   })
+
+  it('exposes every desktop planner section from the mobile navigation drawer', async () => {
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/planner/plans?limit=10') return jsonResponse({ plans: [plan] })
+      if (url === '/api/planner/plans/plan-1') return jsonResponse(plannerPayload)
+      if (url === '/api/planner/plans/plan-1/mobile-home') return jsonResponse({ plan, pending_approvals: [], pending_approval_count: 0, problem: null, progress: [], updates: [] })
+      if (url === '/api/planner/plans/plan-1/budget') return jsonResponse({ target_cents: 500000, low_total_cents: 0, high_total_cents: 0, committed_total_cents: 0, projected_delta_cents: null, projected_buffer_low_cents: null, projected_buffer_high_cents: null, lines: [] })
+      if (url === '/api/planner/plans/plan-1/activity') return jsonResponse({ activities: [] })
+      if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
+      if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
+      if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    }) as jest.Mock
+
+    render(<MobilePlanner />)
+
+    await screen.findByText('Oakland happy hour')
+    fireEvent.click(screen.getByRole('button', { name: /Open navigation/i }))
+
+    const expectedLinks = [
+      ['Agent Planner', '/planner'],
+      ['Experiences', '/planner/experiences'],
+      ['Templates', '/planner/templates'],
+      ['Venues', '/planner/venues'],
+      ['Tickets', '/planner/tickets'],
+      ['Vendors', '/planner/vendors'],
+      ['Outreach', '/planner/outreach'],
+      ['Messages', '/planner/messages'],
+      ['Payments', '/planner/payments'],
+      ['Settlements', '/planner/settlements'],
+      ['Billing', '/planner/billing'],
+      ['Analytics', '/planner/analytics'],
+      ['Support', '/planner/support'],
+      ['Settings', '/planner/settings'],
+    ]
+
+    for (const [label, href] of expectedLinks) {
+      expect(screen.getByRole('link', { name: new RegExp(label, 'i') })).toHaveAttribute('href', href)
+    }
+  })
+
+  it('gives mobile settings direct links for integrations, billing, and data actions', async () => {
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/planner/plans?limit=10') return jsonResponse({ plans: [plan] })
+      if (url === '/api/planner/plans/plan-1') return jsonResponse(plannerPayload)
+      if (url === '/api/planner/plans/plan-1/mobile-home') return jsonResponse({ plan, pending_approvals: [], pending_approval_count: 0, problem: null, progress: [], updates: [] })
+      if (url === '/api/planner/plans/plan-1/budget') return jsonResponse({ target_cents: 500000, low_total_cents: 0, high_total_cents: 0, committed_total_cents: 0, projected_delta_cents: null, projected_buffer_low_cents: null, projected_buffer_high_cents: null, lines: [] })
+      if (url === '/api/planner/plans/plan-1/activity') return jsonResponse({ activities: [] })
+      if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
+      if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
+      if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    }) as jest.Mock
+
+    render(<MobilePlanner activeSection="settings" />)
+
+    expect(await screen.findByText('3rdPlace defaults.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Manage Gmail and integrations/i })).toHaveAttribute('href', '/planner/settings/integrations')
+    expect(screen.getByRole('link', { name: /Edit account settings/i })).toHaveAttribute('href', '/planner/settings')
+    expect(screen.getByRole('link', { name: /Manage billing/i })).toHaveAttribute('href', '/planner/billing')
+    expect(screen.getByRole('link', { name: /Data and account deletion/i })).toHaveAttribute('href', '/planner/settings/delete-account')
+    expect(screen.queryByRole('link', { name: /Edit on desktop/i })).not.toBeInTheDocument()
+  })
 })
 
 const plan = {
