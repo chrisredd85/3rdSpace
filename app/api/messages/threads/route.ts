@@ -60,6 +60,15 @@ export async function GET(request: Request) {
     const { data: threads, error } = await query
 
     if (error) {
+      if (isMessageThreadStoreUnavailable(error)) {
+        console.error('[messages.threads.GET] Message store unavailable; returning empty inbox', {
+          code: error.code,
+          message: error.message,
+          hint: error.hint,
+        })
+        return NextResponse.json({ threads: [] })
+      }
+
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
@@ -89,6 +98,30 @@ function threadMatchesSearch(thread: any, search: string) {
   })
 
   return subjectMatches || messageMatches
+}
+
+type MessageThreadStoreError = {
+  code?: string | null
+  message?: string | null
+  hint?: string | null
+}
+
+function isMessageThreadStoreUnavailable(error: MessageThreadStoreError) {
+  const code = error.code ?? ''
+  const message = (error.message ?? '').toLowerCase()
+
+  return (
+    code === 'PGRST200' ||
+    code === 'PGRST204' ||
+    code === 'PGRST205' ||
+    code === '42P01' ||
+    code === '42703' ||
+    message.includes('vendor_message_threads') ||
+    message.includes('vendor_messages') ||
+    message.includes('could not find a relationship') ||
+    message.includes('could not find the table') ||
+    message.includes('schema cache')
+  )
 }
 
 /**

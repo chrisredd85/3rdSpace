@@ -78,7 +78,6 @@ export const VENUE_LEGACY_SELECT_COLUMNS = `
   hourly_rate,
   minimum_hours,
   bar_revenue_percentage,
-  per_head_chi_cents,
   deposit_percentage,
   deposit_due,
   is_published,
