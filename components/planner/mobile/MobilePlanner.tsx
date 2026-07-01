@@ -208,6 +208,12 @@ interface TicketingConnection {
   last_webhook_received_at?: string | null
 }
 
+interface GmailAccount {
+  id: string
+  provider: 'gmail'
+  email_address: string
+}
+
 interface BillingStatus {
   builder?: Record<string, unknown>
   billing?: {
@@ -309,6 +315,7 @@ interface MobileData {
   billing: BillingStatus | null
   ticketing: TicketingSummary | null
   connections: TicketingConnection[]
+  gmailAccount: GmailAccount | null
   analytics: AnalyticsSummary | null
 }
 
@@ -374,6 +381,7 @@ const initialData: MobileData = {
   billing: null,
   ticketing: null,
   connections: [],
+  gmailAccount: null,
   analytics: null,
 }
 
@@ -613,6 +621,10 @@ export function MobilePlanner({
 
   async function handleCreateVenueOutreachApprovals(options: MobilePartnerOption[]) {
     if (!data.activePlanId) return
+    if (!data.gmailAccount) {
+      setBatchFeedback('Connect Gmail before creating outreach approvals.')
+      return
+    }
     const venueIds = options
       .filter((option) => option.kind === 'venue' && option.discoveryId && option.contactStatus === 'ready_to_reach_out')
       .map((option) => option.discoveryId!)
@@ -1067,6 +1079,7 @@ async function loadMobileData(requestedPlanId: string | null = null): Promise<Mo
       billing,
       ticketing,
       connectionsPayload,
+      gmailAccountPayload,
       analytics,
     ] = await Promise.all([
       preloadedPlanPayload ? Promise.resolve(preloadedPlanPayload) : fetchJson<PlannerPayload>(`/api/planner/plans/${activePlan.id}`),
@@ -1076,6 +1089,7 @@ async function loadMobileData(requestedPlanId: string | null = null): Promise<Mo
       fetchJson<BillingStatus>('/api/builder/billing/status'),
       fetchJson<TicketingSummary>('/api/planner/ticketing/analytics'),
       fetchJson<{ connections?: TicketingConnection[] }>('/api/integrations/ticketing/connections'),
+      fetchJson<{ account?: GmailAccount | null }>('/api/integrations/gmail/account').catch(() => ({ account: null })),
       fetchJson<AnalyticsSummary>('/api/planner/analytics'),
     ])
 
@@ -1090,6 +1104,7 @@ async function loadMobileData(requestedPlanId: string | null = null): Promise<Mo
       billing,
       ticketing,
       connections: connectionsPayload.connections ?? [],
+      gmailAccount: gmailAccountPayload.account ?? null,
       analytics,
     }
   } catch (error) {
@@ -1295,9 +1310,15 @@ function PlannerView({
 
       <div className={cn(spacing.bodyToAction, 'grid gap-3')}>
         {operatingLoop.primaryAction === 'create-outreach-batch' ? (
-          <PrimaryButton onClick={() => onCreateVenueOutreachApprovals(operatingLoop.readyVenues)}>
-            Create outreach batch
-          </PrimaryButton>
+          data.gmailAccount ? (
+            <PrimaryButton onClick={() => onCreateVenueOutreachApprovals(operatingLoop.readyVenues)}>
+              Create outreach batch
+            </PrimaryButton>
+          ) : (
+            <PrimaryLink href={gmailConnectHref(data.activePlanId)}>
+              Connect Gmail to create batch
+            </PrimaryLink>
+          )
         ) : operatingLoop.primaryAction === 'review-outreach-batch' ? (
           <PrimaryButton onClick={() => onNavigate('sent')}>Review outreach batch</PrimaryButton>
         ) : operatingLoop.primaryAction === 'compare-replies' ? (
@@ -1844,9 +1865,15 @@ function VenuesView({
                 {readyVenues.length} venue{readyVenues.length === 1 ? '' : 's'} have contact emails. Create one reviewed outreach batch; each recipient stays tracked under the approval before anything sends.
               </p>
             </div>
-            <PrimaryButton onClick={() => onCreateVenueOutreachApprovals(venues)}>
-              Create outreach batch
-            </PrimaryButton>
+            {data.gmailAccount ? (
+              <PrimaryButton onClick={() => onCreateVenueOutreachApprovals(venues)}>
+                Create outreach batch
+              </PrimaryButton>
+            ) : (
+              <PrimaryLink href={gmailConnectHref(data.activePlanId)}>
+                Connect Gmail to create batch
+              </PrimaryLink>
+            )}
             {batchFeedback ? <p className="text-sm font-semibold leading-6 text-forest">{batchFeedback}</p> : null}
           </div>
         </Panel>
@@ -2365,7 +2392,13 @@ function OutreachSection({
           {pendingOutreachApprovals.length > 0 ? (
             <PrimaryLink href="/planner?view=draft">Review outreach batch</PrimaryLink>
           ) : readyVenues.length > 0 ? (
-            <PrimaryButton onClick={() => onCreateVenueOutreachApprovals(readyVenues)}>Create outreach batch</PrimaryButton>
+            data.gmailAccount ? (
+              <PrimaryButton onClick={() => onCreateVenueOutreachApprovals(readyVenues)}>Create outreach batch</PrimaryButton>
+            ) : (
+              <PrimaryLink href={gmailConnectHref(data.activePlanId)}>
+                Connect Gmail to create batch
+              </PrimaryLink>
+            )
           ) : (
             <PrimaryLink href={planSearchHref}>Ask agent to find partners</PrimaryLink>
           )}
@@ -2928,6 +2961,13 @@ function PrimaryLink({ href, children }: { href: string; children: ReactNode }) 
       {children}
     </Link>
   )
+}
+
+function gmailConnectHref(activePlanId: string | null) {
+  const returnTo = activePlanId
+    ? `/planner?plan=${encodeURIComponent(activePlanId)}&view=venues`
+    : '/planner?view=venues'
+  return `/api/integrations/gmail/connect?returnTo=${encodeURIComponent(returnTo)}`
 }
 
 function SecondaryLink({ href, children }: { href: string; children: ReactNode }) {

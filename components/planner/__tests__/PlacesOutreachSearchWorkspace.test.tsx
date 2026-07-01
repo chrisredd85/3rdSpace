@@ -64,6 +64,12 @@ const discoveryResponse = {
   ],
 }
 
+const connectedGmailAccount = {
+  id: 'gmail-account-1',
+  provider: 'gmail',
+  email_address: 'organizer@example.com',
+}
+
 describe('PlacesOutreachSearchWorkspace', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -108,36 +114,20 @@ describe('PlacesOutreachSearchWorkspace', () => {
 
   it('searches venues, saves organizer-provided email, and creates approval payloads', async () => {
     const user = userEvent.setup()
-    const fetchMock = jest.fn()
-      .mockResolvedValueOnce(jsonResponse(discoveryResponse))
-      .mockResolvedValueOnce(jsonResponse({ venue: { id: '22222222-2222-4222-8222-222222222222' } }))
-      .mockResolvedValueOnce(jsonResponse({
-        ...discoveryResponse,
-        summary: { total: 2, ready_to_reach_out: 2, contact_form_available: 0, contact_pending: 0, no_contact_available: 0 },
-        candidates: discoveryResponse.candidates.map((candidate) => candidate.name === 'Stable Cafe'
-          ? {
-              ...candidate,
-              contact_email: 'events@stable.example',
-              contact_email_source: 'organizer_provided',
-              contact_email_confidence: 'high',
-              contact_form_url: null,
-              contact_form_label: null,
-              contact_form_source_path: null,
-              contact_status: 'ready_to_reach_out',
-            }
-          : candidate),
-      }))
-      .mockResolvedValueOnce(jsonResponse({ approvals: [{ approval_id: 'approval-1', target_count: 2, discovery_venue_ids: [], venue_names: [] }], created_count: 1, target_count: 2 }))
-      .mockResolvedValueOnce(jsonResponse({
-        ...discoveryResponse,
-        summary: { total: 2, ready_to_reach_out: 2, contact_form_available: 0, contact_pending: 0, no_contact_available: 0 },
-        candidates: discoveryResponse.candidates.map((candidate) => ({
-          ...candidate,
-          contact_email: candidate.contact_email ?? 'events@stable.example',
-          contact_form_url: null,
-          contact_status: 'ready_to_reach_out',
-        })),
-      }))
+    const readyResponse = makeReadyDiscoveryResponse()
+    const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/integrations/gmail/account') return Promise.resolve(jsonResponse({ account: connectedGmailAccount }))
+      if (url === '/api/planner/plans/plan-1/discover-venues' && init?.method === 'POST') return Promise.resolve(jsonResponse(discoveryResponse))
+      if (url === '/api/planner/discovery-venues/22222222-2222-4222-8222-222222222222/contact-email' && init?.method === 'POST') {
+        return Promise.resolve(jsonResponse({ venue: { id: '22222222-2222-4222-8222-222222222222' } }))
+      }
+      if (url === '/api/planner/plans/plan-1/discover-venues' && !init?.method) return Promise.resolve(jsonResponse(readyResponse))
+      if (url === '/api/planner/plans/plan-1/outreach/approve-batch' && init?.method === 'POST') {
+        return Promise.resolve(jsonResponse({ approvals: [{ approval_id: 'approval-1', target_count: 2, discovery_venue_ids: [], venue_names: [] }], created_count: 1, target_count: 2 }))
+      }
+      return Promise.resolve(jsonResponse({ error: `Unexpected request: ${url}` }, 500))
+    })
 
     global.fetch = fetchMock
 
@@ -183,11 +173,55 @@ describe('PlacesOutreachSearchWorkspace', () => {
       )
     })
   })
+
+  it('requires Gmail before creating desktop outreach approvals from Places results', async () => {
+    const user = userEvent.setup()
+    const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/integrations/gmail/account') return Promise.resolve(jsonResponse({ account: null }))
+      if (url === '/api/planner/plans/plan-1/discover-venues' && init?.method === 'POST') return Promise.resolve(jsonResponse(discoveryResponse))
+      return Promise.resolve(jsonResponse({ error: `Unexpected request: ${url}` }, 500))
+    })
+    global.fetch = fetchMock
+
+    render(<PlacesOutreachSearchWorkspace initialPlanId="plan-1" />)
+
+    await user.type(screen.getByLabelText(/Search places/i), 'happy hour bars in Mission')
+    await user.click(screen.getByRole('button', { name: /Search Places/i }))
+
+    const connectLink = await screen.findByRole('link', { name: /Connect Gmail to approve/i })
+    expect(connectLink).toHaveAttribute(
+      'href',
+      '/api/integrations/gmail/connect?returnTo=%2Fplanner%2Foutreach-search%3Fplan%3Dplan-1'
+    )
+    expect(screen.queryByRole('button', { name: /Create bulk approval/i })).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      '/api/planner/plans/plan-1/outreach/approve-batch',
+      expect.anything()
+    )
+  })
 })
 
-function jsonResponse(payload: unknown) {
+function makeReadyDiscoveryResponse() {
+  return {
+    ...discoveryResponse,
+    summary: { total: 2, ready_to_reach_out: 2, contact_form_available: 0, contact_pending: 0, no_contact_available: 0 },
+    candidates: discoveryResponse.candidates.map((candidate) => ({
+      ...candidate,
+      contact_email: candidate.contact_email ?? 'events@stable.example',
+      contact_email_source: candidate.contact_email_source ?? 'organizer_provided',
+      contact_email_confidence: candidate.contact_email_confidence ?? 'high',
+      contact_form_url: null,
+      contact_form_label: null,
+      contact_form_source_path: null,
+      contact_status: 'ready_to_reach_out',
+    })),
+  }
+}
+
+function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
-    status: 200,
+    status,
     headers: { 'Content-Type': 'application/json' },
   })
 }
