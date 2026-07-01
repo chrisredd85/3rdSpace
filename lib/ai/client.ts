@@ -2,14 +2,32 @@ import 'server-only'
 
 import OpenAI from 'openai'
 
-const missingApiKeyPlaceholder = 'missing-openai-api-key'
+let openAIClient: OpenAI | null = null
 
-export const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY ?? missingApiKeyPlaceholder,
+function getMissingOpenAIKeyMessage() {
+  return 'OPENAI_API_KEY is not configured. Set it in .env.local for local development or Vercel environment variables for deployed runtime.'
+}
+
+export function getOpenAI(): OpenAI {
+  if (openAIClient) return openAIClient
+
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) {
+    throw new Error(getMissingOpenAIKeyMessage())
+  }
+
+  openAIClient = new OpenAI({ apiKey })
+  return openAIClient
+}
+
+export const openai = new Proxy({} as OpenAI, {
+  get(_target, property, receiver) {
+    return Reflect.get(getOpenAI(), property, receiver)
+  },
 })
 
 export function assertOpenAIConfigured() {
   if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY is not configured')
+    throw new Error(getMissingOpenAIKeyMessage())
   }
 }
