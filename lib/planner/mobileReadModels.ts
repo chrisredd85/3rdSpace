@@ -428,7 +428,7 @@ function buildProgress(plan: Plan, recommendations: Recommendation[], approvals:
       id: 'budget',
       label: 'Budget',
       detail: plan.budget_cap_cents == null ? 'No budget target yet' : 'Target set on plan',
-      status: plan.budget_cap_cents == null ? 'Missing' : 'Watch',
+      status: plan.budget_cap_cents == null ? 'Needed' : 'Watch',
       tone: plan.budget_cap_cents == null ? 'ochre' : 'forest',
     },
     {

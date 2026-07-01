@@ -1,7 +1,7 @@
 export const mobileSpacing = {
   pagePaddingX: 'px-6',
-  pagePaddingTop: 'pt-8',
-  pagePaddingBottom: 'pb-12',
+  pagePaddingTop: 'pt-6',
+  pagePaddingBottom: 'pb-[calc(env(safe-area-inset-bottom)_+_7rem)]',
   headerPaddingBottom: 'pb-4',
   panelPaddingBottom: 'pb-8',
   sectionGap: 'mt-6',

@@ -194,6 +194,17 @@ describe('mobile planner read models', () => {
     expect(home.updates[0]?.summary).toBe('Budget refreshed')
   })
 
+  it('marks mobile budget progress as needed when no target exists', async () => {
+    const db = createDb({})
+    const home = await buildMobileHomeReadModel(db, {
+      ...basePlan,
+      budget_cap_cents: null,
+    })
+
+    expect(home.progress.find((item) => item.id === 'budget')?.status).toBe('Needed')
+    expect(home.progress.find((item) => item.id === 'budget')?.detail).toBe('No budget target yet')
+  })
+
   it('builds deterministic analytics without requiring an LLM result', async () => {
     const db = createDb({
       events: [
