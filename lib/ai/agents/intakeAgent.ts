@@ -386,7 +386,10 @@ const INTAKE_SYSTEM_PROMPT = [
   'The input includes connected_platforms, the builder ticketing platforms that are actually connected and usable for sales history.',
   'The input may include organizer_profile with organization_name, organization_type, website, social_handle, bio, event_archetype_keys, event_type_labels, preferred_amenities, preferred_ticket_platforms, and self_reported_typical_attendance collected during creator signup. Use it only as soft context for ambiguous "usual event" phrasing, trust context, ranking defaults, and cold-start attendance assumptions; never override explicit user input with profile preferences.',
   'The input may include resolved_archetype. If resolved_archetype is present, treat the event type as understood and do not ask the user to clarify event type.',
+  'When resolved_archetype is present and current_plan does not already have event_type, set extracted_fields.event_type to resolved_archetype.display_name even if other required fields such as neighborhood, guest count, date, budget, or ticketing are still missing.',
   'Exact archetype matches are locked for intake. If resolved_archetype.match_strength or archetype_resolution.match_strength is "exact", do NOT ask whether to change, confirm, or keep the event type. Move directly to the next missing intake field.',
+  'ARCHETYPE CLASSIFICATION FROM SPARSE INPUTS: if the user provides an unambiguous event-type phrase, classify the archetype even when the phrase is short and other fields are missing. Examples of unambiguous phrases where you MUST keep the archetype: "afterparty" => nightlife_club_night, "film screening" => listening_party_showcase, "workshop" => workshop_class, "hackathon" => hackathon, "yoga class" => fitness_wellness_run_club. In the same response, acknowledge the event type naturally and ask for the next missing field.',
+  'Only defer archetype classification for genuinely ambiguous sparse phrases such as "party", "event", "meeting", or "gathering". For those, ask a clarifying question about event type before asking about location, date, guest count, or budget.',
   'The input may include archetype_resolution. If archetype_resolution.match_strength is "fuzzy" or "inferred", the first reflection must say you are treating this as archetype_resolution.display_name and mention up to two alternative_archetypes the user might have meant. Example: "I\'m treating this as a private dinner so we focus on intimate spots with private rooms. If it should feel more like a community meetup or a workshop, let me know." Then ask the next single question.',
   'If a later user message explicitly says "actually more like..." one of archetype_resolution.alternative_archetypes, treat that as an explicit reclassification request and set extracted_fields.event_type to that alternative display name.',
   'The input may include archetype_question_priority with critical_missing, high_signal_missing, and archetype_vendor_stack. Use it as the main question selector.',
@@ -481,7 +484,7 @@ export async function runIntakeAgent(
     throw new AgentRunExecutionError(getErrorMessage(error), metadata, error)
   }
 
-  output = suppressExactArchetypeClarification(input, output)
+  output = normalizeExactArchetypeOutput(input, output)
 
   return {
     agent_name: intakeAgentDefinition.agentName,
@@ -492,20 +495,39 @@ export async function runIntakeAgent(
   }
 }
 
-function suppressExactArchetypeClarification(
+function normalizeExactArchetypeOutput(
   input: IntakeAgentInput,
   output: IntakeAgentOutput
 ): IntakeAgentOutput {
   if (!hasExactArchetypeMatch(input)) return output
-  if (!isEventTypeClarification(output.next_best_question)) return output
 
-  const fallbackQuestion = findNextArchetypeQuestion(input, output)
+  let normalizedOutput = output
+  const exactArchetype = getExactResolvedArchetype(input)
+  if (exactArchetype && !hasUsableValue(output.extracted_fields.event_type)) {
+    normalizedOutput = {
+      ...normalizedOutput,
+      extracted_fields: {
+        ...normalizedOutput.extracted_fields,
+        event_type: exactArchetype.display_name,
+      },
+    }
+  }
+
+  if (!isEventTypeClarification(normalizedOutput.next_best_question)) return normalizedOutput
+
+  const fallbackQuestion = findNextArchetypeQuestion(input, normalizedOutput)
 
   return {
-    ...output,
+    ...normalizedOutput,
     next_best_question: fallbackQuestion,
     missing_questions: fallbackQuestion ? [fallbackQuestion] : [],
   }
+}
+
+function getExactResolvedArchetype(input: IntakeAgentInput) {
+  if (input.resolved_archetype?.match_strength === 'exact') return input.resolved_archetype
+  if (input.archetype_resolution?.match_strength === 'exact') return input.archetype_resolution
+  return null
 }
 
 function hasExactArchetypeMatch(input: IntakeAgentInput) {

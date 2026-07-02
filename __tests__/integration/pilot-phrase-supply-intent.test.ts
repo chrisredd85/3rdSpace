@@ -5,7 +5,7 @@ import { mergeSupplyIntentMetadata, pickSupplyIntentClarificationQuestion } from
 
 describe('pilot phrase supply-intent extension point', () => {
   it('asks a supply clarification for ambiguous activity phrases', () => {
-    for (const { phrase } of AMBIGUOUS_PILOT_PHRASES.filter(({ phrase }) => phrase !== 'party')) {
+    for (const { phrase } of AMBIGUOUS_PILOT_PHRASES.filter(({ expected_activity_type }) => expected_activity_type)) {
       const metadata = mergeSupplyIntentMetadata({}, { userMessage: phrase })
       const question = pickSupplyIntentClarificationQuestion({ metadata })
 

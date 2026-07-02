@@ -19,6 +19,15 @@ describe('resolveArchetypeKey', () => {
     expect(resolveArchetypeKey('offsite')).toBe('retreat_offsite')
   })
 
+  it('resolves sparse nightlife and screening phrases without extra context', () => {
+    expect(resolveArchetypeKey('afterparty')).toBe('nightlife_club_night')
+    expect(resolveArchetypeKey('after party')).toBe('nightlife_club_night')
+    expect(resolveArchetypeKey('club afters')).toBe('nightlife_club_night')
+    expect(resolveArchetypeKey('screening')).toBe('listening_party_showcase')
+    expect(resolveArchetypeKey('movie night')).toBe('listening_party_showcase')
+    expect(resolveArchetypeKey('documentary screening')).toBe('listening_party_showcase')
+  })
+
   it('canonicalizes broader user phrases for every active archetype', () => {
     const cases: Array<[string, string]> = [
       ['startup mixer for 80 in SOMA', 'networking_mixer'],

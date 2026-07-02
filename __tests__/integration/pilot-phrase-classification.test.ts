@@ -15,7 +15,7 @@ describe('pilot phrase archetype classification', () => {
   }
 
   it('keeps the fixture at the supplied pilot phrase count', () => {
-    expect(PILOT_PHRASES).toHaveLength(86)
+    expect(PILOT_PHRASES).toHaveLength(96)
   })
 })
 
