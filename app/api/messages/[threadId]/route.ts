@@ -73,11 +73,17 @@ export async function GET(request: Request, props: RouteContext) {
     }
 
     const signedMessages = await withSignedAttachmentUrls(supabase as any, messages)
+    const legacyMessages = signedMessages.map((message) => ({
+      ...message,
+      content: message.message,
+      is_read: Boolean(message.read_at),
+      profiles: null,
+    }))
 
     return NextResponse.json({
       thread: access.thread,
       current_user_type: access.profile.type,
-      messages: signedMessages,
+      messages: legacyMessages,
     })
   } catch (error) {
     console.error('[messages.thread.GET] Failed to load messages', error)

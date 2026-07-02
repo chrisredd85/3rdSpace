@@ -3,10 +3,12 @@ jest.mock('server-only', () => ({}))
 import {
   buildMessageEmailHtml,
   canAccessThread,
+  createMessageNotification,
   escapeHtml,
   isOffline,
   normalizeAttachments,
   sanitizeFileName,
+  sendOfflineMessageEmail,
   sendMessageEmail,
   truncateMessage,
   type MessagingProfile,
@@ -112,5 +114,65 @@ describe('vendor messaging helpers', () => {
       subject: 'New message from Maya',
       html: '<p>Preview</p>',
     })
+  })
+
+  it('creates message notifications that deep-link to the planner inbox', async () => {
+    const insert = jest.fn().mockResolvedValue({ error: null })
+    const supabase = {
+      from: jest.fn(() => ({ insert })),
+    }
+
+    await createMessageNotification(supabase as any, {
+      userId: 'recipient-user-1',
+      threadId: 'thread-1',
+      senderName: 'Maya',
+      preview: 'Can you confirm the final count?',
+    })
+
+    expect(supabase.from).toHaveBeenCalledWith('notifications')
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: 'recipient-user-1',
+      link_url: '/planner/messages?thread=thread-1',
+      message: 'Maya: Can you confirm the final count?',
+    }))
+  })
+
+  it('sends offline message email with a planner inbox deep link', async () => {
+    process.env.RESEND_API_KEY = 're_test'
+    process.env.MESSAGE_FROM_EMAIL = '3rdPlace Messages <messages@auth.example.com>'
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      text: async () => '{"id":"email_789"}',
+    } as Response)
+    const supabase = {
+      from: jest.fn(() => ({
+        select: jest.fn(() => ({
+          eq: jest.fn(() => ({
+            maybeSingle: jest.fn().mockResolvedValue({
+              data: {
+                email: 'recipient@example.com',
+                last_login_at: '2026-04-29T11:00:00Z',
+              },
+              error: null,
+            }),
+          })),
+        })),
+      })),
+    }
+    jest.useFakeTimers().setSystemTime(new Date('2026-04-29T12:00:00Z'))
+
+    const result = await sendOfflineMessageEmail(supabase as any, {
+      recipientUserId: 'recipient-user-1',
+      threadId: 'thread-1',
+      senderName: 'Maya',
+      preview: 'Can you confirm the final count?',
+      origin: 'https://www.3rdplace.io',
+    })
+
+    expect(result).toEqual({ sent: true, reason: null })
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(body.html).toContain('https://www.3rdplace.io/planner/messages?thread=thread-1')
+
+    jest.useRealTimers()
   })
 })

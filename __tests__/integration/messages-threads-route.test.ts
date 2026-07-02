@@ -78,6 +78,83 @@ describe('GET /api/messages/threads', () => {
     expect(json).toEqual({ threads: [] })
   })
 
+  it('returns canonical vendor booking threads with normalized last message data', async () => {
+    mockCreateClient.mockReturnValue(makeClient({
+      data: [
+        {
+          id: 'thread-1',
+          booking_id: 'booking-1',
+          vendor_id: 'vendor-1',
+          builder_id: 'builder-1',
+          subject: 'Booking discussion',
+          status: 'active',
+          last_message_at: '2026-07-01T10:00:00.000Z',
+          created_at: '2026-07-01T08:00:00.000Z',
+          updated_at: '2026-07-01T10:00:00.000Z',
+          vendor_profiles: {
+            id: 'vendor-1',
+            name: 'Moongate Lounge',
+            user_id: 'vendor-user-1',
+          },
+          builder_profiles: {
+            id: 'builder-1',
+            name: 'NSBE',
+            user_id: 'builder-user-1',
+          },
+          vendor_bookings: {
+            id: 'booking-1',
+            status: 'confirmed',
+          },
+          vendor_messages: [
+            {
+              id: 'msg-older',
+              thread_id: 'thread-1',
+              sender_id: 'builder-user-1',
+              sender_type: 'builder',
+              message: 'Older message',
+              attachments: [],
+              read_at: '2026-07-01T09:01:00.000Z',
+              created_at: '2026-07-01T09:00:00.000Z',
+            },
+            {
+              id: 'msg-new',
+              thread_id: 'thread-1',
+              sender_id: 'vendor-user-1',
+              sender_type: 'vendor',
+              message: 'Latest reply from the vendor',
+              attachments: [],
+              read_at: null,
+              created_at: '2026-07-01T10:00:00.000Z',
+            },
+          ],
+        },
+      ],
+      error: null,
+    }))
+
+    const response = await GET(makeRequest())
+    const json = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(json.threads).toHaveLength(1)
+    expect(json.threads[0]).toMatchObject({
+      id: 'thread-1',
+      vendor_booking_id: 'booking-1',
+      venue_booking_id: null,
+      unread_count: 1,
+      other_participant: {
+        id: 'vendor-user-1',
+        name: 'Moongate Lounge',
+      },
+      last_message: {
+        id: 'msg-new',
+        content: 'Latest reply from the vendor',
+        is_read: false,
+        preview: 'Latest reply from the vendor',
+      },
+    })
+  })
+
   it('still returns a server error for unexpected message query failures', async () => {
     mockCreateClient.mockReturnValue(makeClient({
       data: null,

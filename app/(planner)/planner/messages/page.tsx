@@ -33,6 +33,7 @@ export default function MessagesPage() {
   const { user, isLoading: isUserLoading, error: userError } = useUser()
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [threadParam, setThreadParam] = useState<string | null>(null)
   const { addToast } = useToast()
   const router = useRouter()
 
@@ -48,6 +49,10 @@ export default function MessagesPage() {
   const messagesLoading = messagesQuery.isLoading
   const sendMessageMutation = useSendMessage()
   const markAsReadMutation = useMarkAsRead()
+
+  useEffect(() => {
+    setThreadParam(new URLSearchParams(window.location.search).get('thread'))
+  }, [])
 
   const filteredThreads = useMemo(() => {
     if (!searchQuery) return threads
@@ -80,10 +85,15 @@ export default function MessagesPage() {
 
   // Auto-select first thread if none selected
   useEffect(() => {
+    if (threadParam && threads.some((thread) => thread.id === threadParam)) {
+      setSelectedThreadId(threadParam)
+      return
+    }
+
     if (!selectedThreadId && filteredThreads.length > 0) {
       setSelectedThreadId(filteredThreads[0].id)
     }
-  }, [filteredThreads, selectedThreadId])
+  }, [filteredThreads, selectedThreadId, threadParam, threads])
 
   const handleSendMessage = async (content: string) => {
     if (!selectedThreadId || !content.trim()) return
@@ -99,6 +109,7 @@ export default function MessagesPage() {
         description: 'Failed to send message',
         variant: 'destructive',
       })
+      throw error
     }
   }
 
@@ -202,17 +213,27 @@ export default function MessagesPage() {
               <p className="text-xs text-ink-soft">
                 {searchQuery
                   ? 'No threads match your search'
-                  : 'Start a conversation from an event or booking'}
+                  : 'Direct booking conversations appear here after a vendor booking thread is created.'}
               </p>
+              {!searchQuery && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4"
+                  onClick={() => router.push('/planner/outreach')}
+                >
+                  Go to outreach approvals
+                </Button>
+              )}
             </div>
           ) : (
             <div className="divide-y divide-tan">
               {filteredThreads.map((thread) => {
                 const isSelected = thread.id === selectedThreadId
                 // Calculate unread count - messages from other participant that aren't read
-              const unreadCount = thread.last_message && 
-                thread.last_message.sender_id !== userId && 
-                !thread.last_message.is_read ? 1 : 0
+                const unreadCount = thread.last_message &&
+                  thread.last_message.sender_id !== userId &&
+                  !thread.last_message.is_read ? 1 : 0
 
                 return (
                   <ThreadItem
@@ -237,6 +258,7 @@ export default function MessagesPage() {
             messages={messages}
             isLoading={messagesLoading}
             onSendMessage={handleSendMessage}
+            isSending={sendMessageMutation.isPending}
             currentUserId={userId}
             contextLink={getContextLink(selectedThread)}
             onBack={() => setShowThreadList(true)}
@@ -306,12 +328,13 @@ function ThreadItem({ thread, isSelected, unreadCount, onClick }: ThreadItemProp
   }
 
   return (
-    <div
+    <button
       onClick={onClick}
       className={cn(
-        'p-4 cursor-pointer hover:bg-cream-deep transition-colors',
+        'w-full p-4 cursor-pointer hover:bg-cream-deep transition-colors text-left',
         isSelected && 'bg-clay-tint border-l-4 border-l-clay'
       )}
+      type="button"
     >
       <div className="flex items-start gap-3">
         {/* Avatar */}
@@ -377,7 +400,7 @@ function ThreadItem({ thread, isSelected, unreadCount, onClick }: ThreadItemProp
           </div>
         </div>
       </div>
-    </div>
+    </button>
   )
 }
 
@@ -391,7 +414,7 @@ interface MessageViewProps {
   }
   messages: Message[]
   isLoading: boolean
-  onSendMessage: (content: string) => void
+  onSendMessage: (content: string) => Promise<void> | void
   isSending?: boolean
   currentUserId: string | null
   contextLink: string | null
@@ -416,12 +439,12 @@ function MessageView({
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    messagesEndRef.current?.scrollIntoView?.({ behavior: 'smooth' })
   }, [messages])
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (messageInput.trim()) {
-      onSendMessage(messageInput)
+      await onSendMessage(messageInput)
       setMessageInput('')
     }
   }
@@ -429,7 +452,7 @@ function MessageView({
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleSend()
+      void handleSend()
     }
   }
 
@@ -484,12 +507,10 @@ function MessageView({
             </div>
             <div>
               <h3 className="text-sm font-semibold text-ink">{participantName}</h3>
-              {contextLink && (
-                <div className="flex items-center gap-1 text-xs text-ink-soft">
-                  <Calendar className="h-3 w-3" />
-                  <span>Re: Event</span>
-                </div>
-              )}
+              <div className="flex items-center gap-1 text-xs text-ink-soft">
+                <Calendar className="h-3 w-3" />
+                <span>{contextLink ? 'Direct booking conversation' : 'Direct conversation'}</span>
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -561,7 +582,7 @@ function MessageView({
                     <p
                       className={cn(
                         'text-xs mt-1',
-                        isOwn ? 'text-clay/20' : 'text-ink-soft'
+                        isOwn ? 'text-cream/80' : 'text-ink-soft'
                       )}
                     >
                       {formatMessageTime(message.created_at)}
@@ -583,22 +604,23 @@ function MessageView({
               value={messageInput}
               onChange={(e) => setMessageInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Type a message..."
+              placeholder="Type a direct message..."
               rows={1}
               className="w-full rounded-md border border-tan px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-clay focus:border-transparent"
               style={{ minHeight: '40px', maxHeight: '120px' }}
             />
             <p className="text-xs text-ink-soft mt-1">
-              All communication is logged
+              Direct booking messages are logged here. Agent outreach stays in Outreach.
             </p>
           </div>
-            <Button
-              onClick={handleSend}
-              disabled={!messageInput.trim() || isSending}
-              className="h-10"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
+          <Button
+            onClick={() => void handleSend()}
+            disabled={!messageInput.trim() || isSending}
+            className="h-10"
+            aria-label="Send direct message"
+          >
+            <Send className="h-4 w-4" />
+          </Button>
         </div>
       </div>
     </div>
