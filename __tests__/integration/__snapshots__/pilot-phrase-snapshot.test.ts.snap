@@ -207,6 +207,36 @@ exports[`pilot phrase resolver snapshot keeps archetype resolution stable for pi
     "phrase": "afterparty",
   },
   {
+    "archetype": "nightlife_club_night",
+    "match_strength": "exact",
+    "matched_alias": "after party",
+    "phrase": "after party",
+  },
+  {
+    "archetype": "nightlife_club_night",
+    "match_strength": "exact",
+    "matched_alias": "club afters",
+    "phrase": "club afters",
+  },
+  {
+    "archetype": "nightlife_club_night",
+    "match_strength": "exact",
+    "matched_alias": "after party",
+    "phrase": "after-party",
+  },
+  {
+    "archetype": "nightlife_club_night",
+    "match_strength": "exact",
+    "matched_alias": "afters",
+    "phrase": "afters",
+  },
+  {
+    "archetype": "nightlife_club_night",
+    "match_strength": "exact",
+    "matched_alias": "after hours party",
+    "phrase": "after hours party",
+  },
+  {
     "archetype": "listening_party_showcase",
     "match_strength": "exact",
     "matched_alias": "listening party",
@@ -253,6 +283,36 @@ exports[`pilot phrase resolver snapshot keeps archetype resolution stable for pi
     "match_strength": "exact",
     "matched_alias": "film screening",
     "phrase": "film screening",
+  },
+  {
+    "archetype": "listening_party_showcase",
+    "match_strength": "exact",
+    "matched_alias": "screening",
+    "phrase": "screening",
+  },
+  {
+    "archetype": "listening_party_showcase",
+    "match_strength": "exact",
+    "matched_alias": "movie night",
+    "phrase": "movie night",
+  },
+  {
+    "archetype": "listening_party_showcase",
+    "match_strength": "exact",
+    "matched_alias": "documentary screening",
+    "phrase": "documentary screening",
+  },
+  {
+    "archetype": "listening_party_showcase",
+    "match_strength": "exact",
+    "matched_alias": "film night",
+    "phrase": "film night",
+  },
+  {
+    "archetype": "listening_party_showcase",
+    "match_strength": "exact",
+    "matched_alias": "movie premiere",
+    "phrase": "movie premiere",
   },
   {
     "archetype": "watch_party_screening",

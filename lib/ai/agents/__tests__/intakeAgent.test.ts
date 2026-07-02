@@ -280,6 +280,61 @@ describe('runIntakeAgent', () => {
     expect(result.output.missing_questions).toEqual(['Should food come from the venue, outside catering, or another setup?'])
   })
 
+  it('fills missing event type from an exact sparse archetype match', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            ...founderDinnerOutput,
+            reflection: 'Got it, an afterparty.',
+            extracted_fields: {
+              ...founderDinnerOutput.extracted_fields,
+              event_type: null,
+              guest_count: null,
+              food_responsibility: null,
+            },
+            updated_event_plan: {
+              ...founderDinnerOutput.updated_event_plan,
+              event_name: null,
+              expected_attendance: null,
+              city: null,
+              headcount_min: null,
+              headcount_max: null,
+            },
+            next_best_question: 'What neighborhood or city should I search in?',
+            missing_questions: ['What neighborhood or city should I search in?'],
+          }),
+        },
+      }],
+    })
+
+    const result = await runIntakeAgent(
+      {
+        user_message: 'afterparty',
+        resolved_archetype: {
+          key: 'nightlife_club_night',
+          display_name: 'Nightlife / club night',
+          match_strength: 'exact',
+          matched_alias: 'afterparty',
+          alternative_archetypes: [],
+          capacity_range: [100, 500],
+          vendor_stack: [],
+          preferred_commercial_models: [],
+          preferred_venue_types: ['club', 'bar'],
+          required_amenities: ['late_hours'],
+          bonus_amenities: [],
+          default_fills: {},
+          intake_questions: [],
+        },
+      },
+      { create }
+    )
+
+    expect(result.output.extracted_fields.event_type).toBe('Nightlife / club night')
+    expect(result.output.next_best_question).toBe('What neighborhood or city should I search in?')
+    expect(result.output.reflection).toMatch(/afterparty/i)
+  })
+
   it('keeps archetype clarification for fuzzy matches', async () => {
     const fuzzyQuestion = 'Should I change the event type, or keep this as founder/operator dinner?'
     const create = jest.fn().mockResolvedValue({
