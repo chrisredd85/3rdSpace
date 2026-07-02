@@ -1,5 +1,6 @@
 'use client'
 
+import { resolveArchetypeContext } from '@/lib/planner/archetypes'
 import { humanizeEventType } from '@/lib/planner/archetypes/driftControl'
 import type { Plan, PlanMessage } from '@/lib/types'
 import type { PlannerPersistenceMode, PublicDraftIntakeData } from './types'
@@ -8,7 +9,8 @@ import { readRecord } from './plannerState'
 export function buildMockPlan(message: string): Plan {
   const now = new Date().toISOString()
   const eventType = detectMockEventType(message)
-  const title = eventType ? `${humanizeEventType(eventType) ?? eventType} plan` : 'Event plan'
+  const displayEventType = resolveArchetypeContext(message)?.display_name ?? eventType
+  const title = displayEventType ? `${humanizeEventType(displayEventType) ?? displayEventType} plan` : 'Event plan'
 
   return {
     id: `mock-plan-${Date.now()}`,
@@ -139,9 +141,13 @@ export function buildDraftMatchGateMessage(plan: Plan): PlanMessage {
  */
 export function applyMockPlanPatch(plan: Plan, patch: Partial<Plan>): Plan {
   const eventType = patch.event_type ?? plan.event_type
+  const incomingEventType = patch.event_type ?? null
+  const shouldUpdateTitle =
+    patch.event_type !== undefined &&
+    (incomingEventType ?? '').trim().toLowerCase() !== (plan.event_type ?? '').trim().toLowerCase()
   return {
     ...plan,
-    title: eventType ? `${humanizeEventType(eventType) ?? eventType} plan` : plan.title,
+    title: shouldUpdateTitle && eventType ? `${humanizeEventType(eventType) ?? eventType} plan` : plan.title,
     event_type: eventType,
     status: patch.status ?? plan.status,
     guest_count: patch.guest_count ?? plan.guest_count,

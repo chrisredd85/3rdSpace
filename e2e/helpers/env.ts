@@ -21,12 +21,26 @@ export function getPersonaCredentials(role: PersonaRole) {
 }
 
 export function hasSupabaseAdminEnv() {
-  return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL &&
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-  )
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !serviceRoleKey) return false
+
+  return !isPlaceholderSupabaseUrl(supabaseUrl) && !isPlaceholderSecret(serviceRoleKey)
 }
 
 export function missingEnv(keys: string[]) {
   return keys.filter((key) => !process.env[key])
+}
+
+function isPlaceholderSupabaseUrl(value: string) {
+  return (
+    value.includes('127.0.0.1:54321') ||
+    value.includes('localhost:54321') ||
+    value.includes('example.supabase.co')
+  )
+}
+
+function isPlaceholderSecret(value: string) {
+  return value.startsWith('ci-placeholder') || value.includes('placeholder')
 }
