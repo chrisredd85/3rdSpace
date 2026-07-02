@@ -17,7 +17,7 @@ describe('getMockAgentResponse', () => {
 
     const response = getMockAgentResponse([message], content, null)
 
-    expect(response.planPatch.event_type).toBe('Retreat')
+    expect(response.planPatch.event_type).toBe('Retreat / offsite')
   })
 
   it('turns recommend model into commercial model comparison metadata', () => {

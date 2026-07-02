@@ -1,0 +1,62 @@
+name: Intake Phrase LLM Eval
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  eval-intake:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run intake phrase eval
+        id: eval
+        continue-on-error: true
+        run: npm run eval:intake:ci
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_EVAL }}
+
+      - name: Upload intake eval history
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: intake-phrase-eval-history
+          path: evals/intake/history/*.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Open drift issue
+        if: steps.eval.outcome == 'failure'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Intake phrase eval drift detected',
+              body: [
+                'The nightly intake phrase eval failed or dropped below threshold.',
+                '',
+                `Run: ${runUrl}`,
+                '',
+                'Review the uploaded intake eval artifact for phrase-level failures before changing planner prompts or archetype aliases.',
+              ].join('\n'),
+            });
+
+      - name: Fail workflow on eval failure
+        if: steps.eval.outcome == 'failure'
+        run: exit 1

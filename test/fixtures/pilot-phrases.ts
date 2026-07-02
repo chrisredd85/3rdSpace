@@ -1,11 +1,16 @@
 import type { SupplyIntentCategory } from '@/lib/planner/supplyIntent/activityCatalog'
 
-export type PilotPhraseExpectation = {
+export type PilotPhraseFixture = {
   phrase: string
-  expected_archetype: string
+  expected_archetype?: string
   expected_supply_intent?: SupplyIntentCategory | null
   expected_activity_type?: string | null
+  expected_clarification?: boolean
   notes?: string
+}
+
+export type PilotPhraseExpectation = PilotPhraseFixture & {
+  expected_archetype: string
 }
 
 export const PILOT_PHRASES: PilotPhraseExpectation[] = [
@@ -97,8 +102,20 @@ export const PILOT_PHRASES: PilotPhraseExpectation[] = [
   { phrase: 'cultural night', expected_archetype: 'pop_up_activation', notes: 'MVP fold-in until art-specific pilot volume justifies a new archetype' },
 ]
 
-export const AMBIGUOUS_PILOT_PHRASES: Array<{ phrase: string; notes: string }> = [
-  { phrase: 'tennis', notes: 'Just activity name; supply-intent clarification should decide facility, social venue, instructor, or watch party.' },
-  { phrase: 'yoga', notes: 'Class, wellness meetup, instructor-led session, or social add-on is unclear.' },
-  { phrase: 'party', notes: 'Too generic to safely classify without more event detail.' },
+export const AMBIGUOUS_PILOT_PHRASES: PilotPhraseFixture[] = [
+  {
+    phrase: 'tennis',
+    expected_clarification: true,
+    notes: 'Just activity name; supply-intent clarification should decide facility, social venue, instructor, or watch party.',
+  },
+  {
+    phrase: 'yoga',
+    expected_clarification: true,
+    notes: 'Class, wellness meetup, instructor-led session, or social add-on is unclear.',
+  },
+  {
+    phrase: 'party',
+    expected_clarification: true,
+    notes: 'Too generic to safely classify without more event detail.',
+  },
 ]

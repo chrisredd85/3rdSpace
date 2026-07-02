@@ -1,5 +1,6 @@
 import type { Plan, PlanMessage } from '@/lib/types'
 import { humanizeEventType } from '@/lib/planner/archetypes/driftControl'
+import { resolveArchetypeContext } from '@/lib/planner/archetypes'
 import { classifyUnsupportedEventType } from '@/lib/planner/eventTaxonomy'
 
 type MockAgentDraft = Pick<PlanMessage, 'role' | 'content' | 'message_type'> & {
@@ -737,7 +738,17 @@ function getEventModelKey(eventType: string) {
   if (normalized.includes('conference') || normalized.includes('summit')) return 'conference'
   if (normalized.includes('hackathon')) return 'hackathon'
   if (normalized.includes('demo day') || normalized.includes('pitch')) return 'demo day'
-  if (normalized.includes('game outing') || normalized.includes('game') || normalized.includes('group tickets')) return 'game outing'
+  if (
+    normalized.includes('sports outing') ||
+    normalized.includes('game outing') ||
+    normalized.includes('game') ||
+    normalized.includes('group tickets') ||
+    normalized.includes('tennis') ||
+    normalized.includes('pickleball') ||
+    normalized.includes('basketball') ||
+    normalized.includes('bowling') ||
+    normalized.includes('golf')
+  ) return 'game outing'
   if (normalized.includes('watch party') || normalized.includes('screening')) return 'watch party'
   if (normalized.includes('pop-up') || normalized.includes('pop up') || normalized.includes('activation')) return 'pop-up'
   if (normalized.includes('retreat') || normalized.includes('offsite')) return 'retreat'
@@ -759,10 +770,11 @@ function buildMockIntakeContext(
   }
   const allText = allInputs.join('\n')
   const latestUserMessages = allInputs.length > 0 ? allInputs : [userInput]
-  const detectedEventType = detectEventType(allText)
+  const resolvedArchetype = resolveArchetypeContext(allText)
+  const detectedEventType = resolvedArchetype?.display_name ?? detectEventType(allText)
   const taxonomyCandidate = classifyUnsupportedEventType(allText, detectedEventType)
   const operationWindow = mapEventToOperationWindow(
-    taxonomyCandidate?.raw_event_type ?? detectedEventType ?? existingPlan?.event_type ?? 'event',
+    resolvedArchetype?.display_name ?? taxonomyCandidate?.raw_event_type ?? detectedEventType ?? existingPlan?.event_type ?? 'event',
     allText,
     taxonomyCandidate?.planning_archetype
   )
@@ -774,9 +786,10 @@ function buildMockIntakeContext(
   const dateContext = detectDateContext(latestUserMessages.slice(1).join('\n')) ?? detectDateContext(allText)
 
   return {
-    event_type: operationWindow.mapsToEventType || taxonomyCandidate?.raw_event_type || detectedEventType || existingPlan?.event_type || 'event',
+    event_type: resolvedArchetype?.display_name || operationWindow.mapsToEventType || taxonomyCandidate?.raw_event_type || detectedEventType || existingPlan?.event_type || 'event',
     event_type_detected: Boolean(
-      detectedEventType ??
+      resolvedArchetype ??
+        detectedEventType ??
         taxonomyCandidate?.raw_event_type ??
         (existingPlan?.event_type && existingPlan.event_type !== 'event')
     ),
@@ -912,7 +925,8 @@ function toSupportedEventType(eventType: string, planningArchetype: string | nul
   const normalized = eventType.toLowerCase()
   if (/\b(corporate retreat|retreat|team[-\s]?offsite|off[-\s]?site)\b/i.test(normalized)) return 'Retreat'
   if (/\b(conference|summit)\b/i.test(normalized)) return 'Conference'
-  if (/\btennis|pickleball|run|running|fitness|wellness|yoga|pilates|sports?\b/i.test(normalized)) return 'Fitness Class'
+  if (/\b(tennis|pickleball|basketball|bowling|golf|sports?)\b/i.test(normalized)) return 'Game Outing'
+  if (/\b(run|running|fitness|wellness|yoga|pilates)\b/i.test(normalized)) return 'Fitness Class'
   if (/\bfood|dinner|supper|tasting|wine|coffee|brunch|mocktails?|cocktails?\b/i.test(normalized)) return 'Dinner'
   if (/\bmusic|listening|album|dj|karaoke|concert|band|performance\b/i.test(normalized)) return 'Listening Party'
   if (/\bmarket|pop-up|popup|activation|swap|retail\b/i.test(normalized)) return 'Pop-up'

@@ -17,6 +17,8 @@
     "security:deps": "npm audit --audit-level=high --omit=dev",
     "security:tied-house": "bash scripts/security/check-tied-house-compliance.sh",
     "eval:outreach": "npx tsx scripts/evals/run-outreach-evals.ts",
+    "eval:intake": "NODE_OPTIONS=--conditions=react-server npx tsx evals/intake/pilot-phrase-eval.ts",
+    "eval:intake:ci": "NODE_OPTIONS=--conditions=react-server npx tsx evals/intake/pilot-phrase-eval.ts --output=json",
     "check": "npm run type-check && npm run lint && npm run security:rls",
     "test": "jest",
     "test:watch": "jest --watch",
