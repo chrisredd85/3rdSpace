@@ -253,7 +253,7 @@ export async function createMessageNotification(
     notification_type: 'new_message',
     title: 'New message',
     message: `${params.senderName}: ${params.preview}`,
-    link_url: `/messages?thread=${params.threadId}`,
+    link_url: `/planner/messages?thread=${params.threadId}`,
     is_read: false,
   })
 
@@ -289,7 +289,7 @@ export async function sendOfflineMessageEmail(
     html: buildMessageEmailHtml({
       senderName: params.senderName,
       preview: params.preview,
-      url: `${params.origin}/messages?thread=${params.threadId}`,
+      url: `${params.origin}/planner/messages?thread=${params.threadId}`,
     }),
   })
 }

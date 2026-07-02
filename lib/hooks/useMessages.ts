@@ -32,6 +32,23 @@ interface MessageWithSender extends Message {
   } | null
 }
 
+function normalizeMessageForClient(message: MessageWithSender | Record<string, unknown>): MessageWithSender {
+  const rawMessage = message as Record<string, unknown>
+  const content = typeof rawMessage.content === 'string'
+    ? rawMessage.content
+    : typeof rawMessage.message === 'string'
+      ? rawMessage.message
+      : ''
+  const readAt = typeof rawMessage.read_at === 'string' ? rawMessage.read_at : null
+
+  return {
+    ...(message as MessageWithSender),
+    content,
+    is_read: Boolean((rawMessage as { is_read?: boolean }).is_read ?? readAt),
+    read_at: readAt,
+  }
+}
+
 /**
  * Fetch all message threads for current user
  */
@@ -57,11 +74,23 @@ export function useThreads() {
     refetchInterval: 60 * 1000, // Refetch every minute
   })
 
-  // Subscribe to real-time updates for threads
+  // Subscribe to real-time updates for canonical vendor-booking threads and legacy generic threads.
   useEffect(() => {
     const supabase = createClient()
     const channel = supabase
-      .channel('message_threads')
+      .channel('planner-message-threads')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'vendor_message_threads',
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: messageKeys.threads() })
+          queryClient.invalidateQueries({ queryKey: messageKeys.unreadCount() })
+        }
+      )
       .on(
         'postgres_changes',
         {
@@ -69,9 +98,9 @@ export function useThreads() {
           schema: 'public',
           table: 'message_threads',
         },
-        (payload) => {
-          // Invalidate threads query to refetch
+        () => {
           queryClient.invalidateQueries({ queryKey: messageKeys.threads() })
+          queryClient.invalidateQueries({ queryKey: messageKeys.unreadCount() })
         }
       )
       .subscribe()
@@ -122,13 +151,61 @@ export function useMessages(threadId: string | null) {
     staleTime: 10 * 1000, // Cache for 10 seconds
   })
 
-  // Subscribe to real-time updates for messages in this thread
+  // Subscribe to real-time updates for canonical vendor-booking messages and legacy generic messages.
   useEffect(() => {
     if (!threadId) return
 
     const supabase = createClient()
     const channel = supabase
-      .channel(`messages:${threadId}`)
+      .channel(`planner-messages:${threadId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'vendor_messages',
+          filter: `thread_id=eq.${threadId}`,
+        },
+        (payload) => {
+          queryClient.setQueryData(
+            messageKeys.messages(threadId),
+            (old: any) => {
+              if (!old) return old
+              return {
+                ...old,
+                messages: [...(old.messages || []), normalizeMessageForClient(payload.new)],
+                count: (old.count || 0) + 1,
+              }
+            }
+          )
+          queryClient.invalidateQueries({ queryKey: messageKeys.messages(threadId) })
+          queryClient.invalidateQueries({ queryKey: messageKeys.threads() })
+          queryClient.invalidateQueries({ queryKey: messageKeys.unreadCount() })
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'vendor_messages',
+          filter: `thread_id=eq.${threadId}`,
+        },
+        (payload) => {
+          queryClient.setQueryData(
+            messageKeys.messages(threadId),
+            (old: any) => {
+              if (!old) return old
+              return {
+                ...old,
+                messages: (old.messages || []).map((msg: Message) =>
+                  msg.id === payload.new.id ? normalizeMessageForClient(payload.new) : msg
+                ),
+              }
+            }
+          )
+        }
+      )
       .on(
         'postgres_changes',
         {
@@ -138,23 +215,19 @@ export function useMessages(threadId: string | null) {
           filter: `thread_id=eq.${threadId}`,
         },
         (payload) => {
-          // Optimistically add new message to cache
           queryClient.setQueryData(
             messageKeys.messages(threadId),
             (old: any) => {
               if (!old) return old
               return {
                 ...old,
-                messages: [...(old.messages || []), payload.new as MessageWithSender],
+                messages: [...(old.messages || []), normalizeMessageForClient(payload.new)],
                 count: (old.count || 0) + 1,
               }
             }
           )
-          // Invalidate to refetch and get sender profile
           queryClient.invalidateQueries({ queryKey: messageKeys.messages(threadId) })
-          // Invalidate threads to update last_message
           queryClient.invalidateQueries({ queryKey: messageKeys.threads() })
-          // Invalidate unread count
           queryClient.invalidateQueries({ queryKey: messageKeys.unreadCount() })
         }
       )
@@ -175,7 +248,7 @@ export function useMessages(threadId: string | null) {
               return {
                 ...old,
                 messages: (old.messages || []).map((msg: Message) =>
-                  msg.id === payload.new.id ? payload.new : msg
+                  msg.id === payload.new.id ? normalizeMessageForClient(payload.new) : msg
                 ),
               }
             }
@@ -221,7 +294,7 @@ export function useSendMessage() {
       }
 
       const data = await response.json()
-      return data.message as MessageWithSender
+      return normalizeMessageForClient(data.message)
     },
     onSuccess: (message, variables) => {
       // Optimistically add message to cache

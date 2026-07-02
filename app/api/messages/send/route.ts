@@ -83,7 +83,14 @@ export async function POST(request: Request) {
     })
 
     const [message] = await withSignedAttachmentUrls(supabase as any, [createdMessage])
-    return NextResponse.json({ message })
+    return NextResponse.json({
+      message: {
+        ...message,
+        content: message.message,
+        is_read: Boolean(message.read_at),
+        profiles: null,
+      },
+    })
   } catch (error) {
     console.error('[messages.send.POST] Failed to send message', error)
     return NextResponse.json(
