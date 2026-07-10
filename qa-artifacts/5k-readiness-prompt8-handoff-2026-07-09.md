@@ -120,3 +120,67 @@ terms; it does not move money.
 - The separate accidental-purchase/capture-hardening branch and its Stripe
   reservation interfaces were not modified.
 - Prompt 15 remains locked to Option B and is not part of Prompt 8.
+
+## 2026-07-10 verification correction
+
+This addendum preserves the July 9 checkpoint as historical evidence but
+supersedes its **complete and locally verified** verdict. A criteria-by-criteria
+review against the original Prompt 7 and Prompt 8 specification found that the
+checkpoint's happy-path coverage did not prove the full cross-aggregate
+contract.
+
+The prior checkpoint still had material gaps in:
+
+- exact booking/action/approval/event and claimed-partner provenance;
+- authoritative discovery-vendor claim binding and immutable physical-partner
+  selection;
+- unknown-price rejection with explicit zero-upfront/CHI handling;
+- immutability of canonical booking terms and action authorization links;
+- atomic partner confirmation, partner decline, canonical bulk operations, and
+  external-checkout host confirmation;
+- materialization recovery, exact-current-approval selection, and durable
+  unresolved-partner follow-up;
+- safe stale/expired quote re-approval without financial, handoff, retry, or
+  prior-side-effect evidence;
+- canonical analytics deep links, rebook conversation replacement, and strict
+  `completed` template eligibility;
+- replay/race behavior that prevents terminal execution evidence from being
+  overwritten or emitted twice;
+- terminal-plan and multi-partner slot boundaries;
+- authorization/materialization crash recovery and replay-safe confirmation
+  notifications, audit receipts, and automatic invoice generation.
+
+The current worktree contains corrections for those seams, including the
+reviewed hardening migration series through
+`20260709178000_make_canonical_venue_confirmation_effects_replayable.sql`. The
+corrected status and exact gap-to-proof mapping are recorded in
+`qa-artifacts/5k-readiness-prompts7-8-verification-2026-07-10.md`. This addendum
+does **not** make a new release claim until the root-owned clean reset, all
+realized suites, full regression, lint, type-check, optimized build, and browser
+smoke have passed from the final tree.
+
+Release receipt (root fills after final verification):
+
+- Final release commit: **PENDING_ROOT_FINAL_GATE**
+- Clean reset and realized database suites: **PASS** through
+  `20260709178000`; 12 suites / 297 tests
+- Full Jest / lint / type-check / build / browser evidence:
+  **PASS**; 1,845 ordinary Jest tests and 26 targeted Chromium tests; six
+  credential-dependent browser checks skipped by contract
+- Ready pull request and CI/Vercel result: **PENDING_ROOT_FINAL_GATE**
+- Hosted migration apply and merge: **BLOCKED_PENDING_OPERATOR_SEQUENCE**
+
+Prompts 1–8 remain absent from `origin/main` at the observed main SHA
+`461e3da`. Hosted Supabase was observed only through migration
+`20260627000000`, while deployed application behavior already expects the
+missing `20260701090000` Prompt 1 migration. Draft PR #203 owns the earlier
+`20260709090000_add_payment_intents_capturing_status.sql` migration, so its
+release order must be resolved before this branch's `20260709110000+` migration
+bundle. No hosted apply or merge is authorized by this handoff; an operator must
+follow `docs/runbooks/20260710-prompts-1-8-release.md` in a coordinated
+schema/code window.
+
+Prompt 9 still owns controlled-payment provider execution, transaction
+bootstrap, capture, reconciliation, and post-authorization payment
+cancellation. Prompt 8 intentionally stops at a validated approval-gated
+payment proposal and does not call Stripe or move money.

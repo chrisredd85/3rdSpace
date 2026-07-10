@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { isTemplateEligiblePlan, PlannerWorkspace, updateApprovalMessageState } from '@/components/planner/planner-page/PlannerWorkspace'
+import { isTemplateEligiblePlan, PlannerWorkspace, resolveTemplateApplyMessages, updateApprovalMessageState } from '@/components/planner/planner-page/PlannerWorkspace'
 import {
   getRecommendationActionKind,
   isControlledPaymentApprovalMetadata,
@@ -341,9 +341,25 @@ describe('PlannerWorkspace desktop draft handoff', () => {
 
   it('only offers a new template from a canonical completed plan', () => {
     expect(isTemplateEligiblePlan(makePlan({ status: 'completed', materialized_event_id: 'event-1' }))).toBe(true)
-    expect(isTemplateEligiblePlan(makePlan({ status: 'complete', materialized_event_id: 'event-legacy' }))).toBe(true)
+    expect(isTemplateEligiblePlan(makePlan({ status: 'complete', materialized_event_id: 'event-legacy' }))).toBe(false)
     expect(isTemplateEligiblePlan(makePlan({ status: 'completed', materialized_event_id: null }))).toBe(false)
     expect(isTemplateEligiblePlan(makePlan({ status: 'booked', materialized_event_id: 'event-1' }))).toBe(false)
+  })
+
+  it('replaces a non-empty prior thread with the new rebook plan messages', () => {
+    const priorMessage = makePlanMessage('old-message', 'Old event thread')
+    const rebookMessage = makePlanMessage('new-message', 'Fresh rebook thread')
+
+    expect(resolveTemplateApplyMessages({
+      currentMessages: [priorMessage],
+      appliedMessages: [rebookMessage],
+      createsNewPlan: true,
+    })).toEqual([rebookMessage])
+    expect(resolveTemplateApplyMessages({
+      currentMessages: [priorMessage],
+      appliedMessages: [rebookMessage],
+      createsNewPlan: false,
+    })).toEqual([priorMessage, rebookMessage])
   })
 })
 
@@ -451,5 +467,17 @@ function makePlan(overrides: Partial<Plan> = {}): Plan {
     created_at: '2026-06-16T12:00:00.000Z',
     updated_at: '2026-06-16T12:00:00.000Z',
     ...overrides,
+  }
+}
+
+function makePlanMessage(id: string, content: string): PlanMessage {
+  return {
+    id,
+    plan_id: 'plan-1',
+    role: 'agent',
+    content,
+    message_type: 'text',
+    metadata: {},
+    created_at: '2026-07-10T12:00:00.000Z',
   }
 }

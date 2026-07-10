@@ -6,6 +6,7 @@ const forceRun = process.env.RUN_APPROVAL_VERSION_DB_TESTS === '1'
 
 const ids = {
   user: 'b6100000-0000-4000-8000-000000000001',
+  wrongActor: 'b6100000-0000-4000-8000-000000000099',
   plan: 'b6200000-0000-4000-8000-000000000001',
   action: 'b6300000-0000-4000-8000-000000000001',
   approval: 'b6400000-0000-4000-8000-000000000001',
@@ -13,12 +14,17 @@ const ids = {
   retryPlan: 'b6200000-0000-4000-8000-000000000002',
   retryAction: 'b6300000-0000-4000-8000-000000000002',
   retryApproval: 'b6400000-0000-4000-8000-000000000002',
+  handoffPlan: 'b6200000-0000-4000-8000-000000000003',
+  handoffAction: 'b6300000-0000-4000-8000-000000000003',
+  handoffApproval: 'b6400000-0000-4000-8000-000000000003',
 }
 
 const oldHash = 'a'.repeat(64)
 const newHash = 'b'.repeat(64)
 const retryHash = 'c'.repeat(64)
 const retryKey = 'approval-retry-realized-001'
+const handoffHash = 'd'.repeat(64)
+const handoffKey = 'approval-handoff-retry-realized-001'
 
 function psql(sql: string): string {
   let lastError: unknown
@@ -103,9 +109,11 @@ function asService(sql: string): string {
 
 function cleanup(): void {
   psql(`
-    delete from public.plans where id in ('${ids.plan}', '${ids.retryPlan}');
-    delete from public.users where id = '${ids.user}';
-    delete from auth.users where id = '${ids.user}';
+    drop trigger if exists a_test_pause_retry_finalize_boundary on public.agent_actions;
+    drop function if exists public.test_pause_retry_finalize_boundary();
+    delete from public.plans where id in ('${ids.plan}', '${ids.retryPlan}', '${ids.handoffPlan}');
+    delete from public.users where id in ('${ids.user}', '${ids.wrongActor}');
+    delete from auth.users where id in ('${ids.user}', '${ids.wrongActor}');
   `)
 }
 
@@ -113,15 +121,20 @@ function setup(): void {
   cleanup()
   psql(`
     insert into auth.users (id, aud, role, email, created_at, updated_at)
-    values ('${ids.user}', 'authenticated', 'authenticated', 'approval-version-realized@example.com', now(), now());
+    values
+      ('${ids.user}', 'authenticated', 'authenticated', 'approval-version-realized@example.com', now(), now()),
+      ('${ids.wrongActor}', 'authenticated', 'authenticated', 'approval-version-wrong-actor@example.com', now(), now());
 
     insert into public.users (id, email, role, user_type)
-    values ('${ids.user}', 'approval-version-realized@example.com', 'builder', 'community_builder');
+    values
+      ('${ids.user}', 'approval-version-realized@example.com', 'builder', 'community_builder'),
+      ('${ids.wrongActor}', 'approval-version-wrong-actor@example.com', 'builder', 'community_builder');
 
     insert into public.plans (id, user_id, title, event_type, status, date_window_start, date_window_end)
     values
       ('${ids.plan}', '${ids.user}', 'Approval version plan', 'networking_mixer', 'ready', '2026-08-20', '2026-08-20'),
-      ('${ids.retryPlan}', '${ids.user}', 'Retry plan', 'networking_mixer', 'ready', '2026-08-20', '2026-08-20');
+      ('${ids.retryPlan}', '${ids.user}', 'Retry plan', 'networking_mixer', 'ready', '2026-08-20', '2026-08-20'),
+      ('${ids.handoffPlan}', '${ids.user}', 'Handoff retry plan', 'networking_mixer', 'ready', '2026-08-20', '2026-08-20');
 
     insert into public.agent_actions (
       id, plan_id, action_type, description, amount_cents, status, payload_json
@@ -164,6 +177,28 @@ function setup(): void {
     );
 
     update public.agent_actions set approval_id = '${ids.retryApproval}' where id = '${ids.retryAction}';
+
+    insert into public.agent_actions (
+      id, plan_id, action_type, description, amount_cents, status, payload_json, result_metadata
+    ) values (
+      '${ids.handoffAction}', '${ids.handoffPlan}', 'external_checkout', 'Retry external checkout handoff', 12500, 'failed',
+      '{"kind":"external_checkout","external_url":"https://checkout.example/retry"}'::jsonb,
+      '{"error":"handoff persistence timeout"}'::jsonb
+    );
+
+    insert into public.approvals (
+      id, plan_id, agent_action_id, action_label, provider, event_date,
+      status, requested_amount_cents, authorized_amount_cents,
+      authorized_by, authorized_at, expires_at, snapshot_hash
+    ) values (
+      '${ids.handoffApproval}', '${ids.handoffPlan}', '${ids.handoffAction}',
+      'Retry external checkout handoff', 'External checkout', '2026-08-20',
+      'authorized', 12500, 12500, '${ids.user}', now(), now() + interval '7 days', '${handoffHash}'
+    );
+
+    update public.agent_actions
+    set approval_id = '${ids.handoffApproval}'
+    where id = '${ids.handoffAction}';
   `)
 }
 
@@ -198,6 +233,21 @@ function supersedeSql(expectedHash = oldHash): string {
       'Host edited exact approval fields'
     );
   `)
+}
+
+function waitForRetryFinalizePause(): void {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const sleeping = psql(`
+      select count(*)
+      from pg_stat_activity
+      where pid <> pg_backend_pid()
+        and query like '%retry-finalize-concurrency-marker%'
+        and wait_event = 'PgSleep';
+    `)
+    if (sleeping === '1') return
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
+  }
+  throw new Error('Retry finalizer did not reach the deterministic concurrency pause')
 }
 
 const describeIfDatabase = forceRun && canConnect() ? describe : describe.skip
@@ -256,6 +306,7 @@ describeIfDatabase('realized approval version and retry contract', () => {
       'public.supersede_approval_version(uuid,uuid,text,uuid,integer,date,text,timestamp with time zone,jsonb,jsonb,text,text)',
       'public.claim_failed_action_retry(uuid,uuid,uuid,text,text,uuid)',
       'public.finalize_failed_action_retry(uuid,uuid,text,text,jsonb,uuid)',
+      'public.finalize_approved_action_handoff_retry(uuid,uuid,text,text,text,jsonb,uuid)',
     ]) {
       expect(psql(`
         select
@@ -267,6 +318,17 @@ describeIfDatabase('realized approval version and retry contract', () => {
   })
 
   it('claims one retry, makes the overlapping same-key call wait, and converges on prior success', async () => {
+    expect(() => psql(asService(`
+      select outcome from public.claim_failed_action_retry(
+        '${ids.retryPlan}', '${ids.retryAction}', '${ids.retryApproval}',
+        '${retryHash}', 'approval-retry-wrong-owner', 'b6100000-0000-4000-8000-000000000099'
+      );
+    `))).toThrow(/approval_retry_actor_mismatch/)
+    expect(psql(`
+      select status || '|' || coalesce(last_retry_status, 'none')
+      from public.agent_actions where id = '${ids.retryAction}';
+    `)).toBe('failed|none')
+
     const claim = asService(`
       select outcome, action_status from public.claim_failed_action_retry(
         '${ids.retryPlan}', '${ids.retryAction}', '${ids.retryApproval}',
@@ -289,6 +351,12 @@ describeIfDatabase('realized approval version and retry contract', () => {
       where id = '${ids.retryApproval}';
     `)
 
+    expect(psql(asService(`
+      select outcome, action_status from public.finalize_failed_action_retry(
+        '${ids.retryPlan}', '${ids.retryAction}', '${retryKey}', 'succeeded',
+        '{"gmail_message_ids":["gmail-1"]}'::jsonb, '${ids.user}'
+      );
+    `))).toBe('prior_success|complete')
     expect(psql(claim)).toBe('prior_success|complete')
     expect(psql(`
       select last_retry_status || '|' || status || '|' || (result_metadata -> 'gmail_message_ids' ->> 0)
@@ -315,5 +383,138 @@ describeIfDatabase('realized approval version and retry contract', () => {
         '${retryHash}', 'approval-retry-realized-002', '${ids.user}'
       );
     `))).toBe('claimed|executing')
+  })
+
+  it('rolls back both finalizers when the caller or linked authorization actor is wrong', () => {
+    expect(psql(asService(`
+      select outcome from public.claim_failed_action_retry(
+        '${ids.retryPlan}', '${ids.retryAction}', '${ids.retryApproval}',
+        '${retryHash}', '${retryKey}', '${ids.user}'
+      );
+    `))).toBe('claimed')
+
+    expect(() => psql(asService(`
+      select outcome from public.finalize_failed_action_retry(
+        '${ids.retryPlan}', '${ids.retryAction}', '${retryKey}', 'succeeded',
+        '{"gmail_message_ids":["must-not-persist"]}'::jsonb, '${ids.wrongActor}'
+      );
+    `))).toThrow(/approval_retry_actor_mismatch/)
+    expect(psql(`
+      select status || '|' || last_retry_status || '|' ||
+        coalesce(last_retry_completed_at::text, 'none') || '|' ||
+        coalesce(result_metadata -> 'gmail_message_ids' ->> 0, 'none')
+      from public.agent_actions where id = '${ids.retryAction}';
+    `)).toBe('executing|in_progress|none|none')
+    expect(psql(`
+      select count(*) from public.agent_action_audit_log
+      where action_id = '${ids.retryAction}'
+        and reason in ('approval.retry_succeeded', 'approval.retry_failed');
+    `)).toBe('0')
+
+    expect(psql(asService(`
+      select outcome from public.claim_failed_action_retry(
+        '${ids.handoffPlan}', '${ids.handoffAction}', '${ids.handoffApproval}',
+        '${handoffHash}', '${handoffKey}', '${ids.user}'
+      );
+    `))).toBe('claimed')
+    psql(`
+      update public.approvals
+      set authorized_by = '${ids.wrongActor}'
+      where id = '${ids.handoffApproval}';
+    `)
+
+    expect(() => psql(asService(`
+      select outcome from public.finalize_approved_action_handoff_retry(
+        '${ids.handoffPlan}', '${ids.handoffAction}', '${handoffKey}',
+        'succeeded', 'executing', '{"handoff_status":"ready"}'::jsonb, '${ids.user}'
+      );
+    `))).toThrow(/approval_retry_actor_mismatch/)
+    expect(psql(`
+      select status || '|' || last_retry_status || '|' ||
+        coalesce(last_retry_completed_at::text, 'none') || '|' ||
+        coalesce(result_metadata ->> 'handoff_status', 'none')
+      from public.agent_actions where id = '${ids.handoffAction}';
+    `)).toBe('executing|in_progress|none|none')
+    expect(psql(`
+      select count(*) from public.agent_action_audit_log
+      where action_id = '${ids.handoffAction}'
+        and reason in ('approval.handoff_retry_succeeded', 'approval.handoff_retry_failed');
+    `)).toBe('0')
+  })
+
+  it('serializes overlapping handoff claim/finalize without a plan-action deadlock', async () => {
+    expect(psql(`
+      select count(*) from pg_trigger
+      where tgname = 'enforce_agent_action_plan_execution_boundary_trigger'
+        and not tgisinternal;
+    `)).toBe('1')
+
+    const claim = asService(`
+      select outcome, action_status from public.claim_failed_action_retry(
+        '${ids.handoffPlan}', '${ids.handoffAction}', '${ids.handoffApproval}',
+        '${handoffHash}', '${handoffKey}', '${ids.user}'
+      );
+    `)
+    expect(psql(claim)).toBe('claimed|executing')
+
+    psql(`
+      create or replace function public.test_pause_retry_finalize_boundary()
+      returns trigger
+      language plpgsql
+      set search_path = public, pg_temp
+      as $function$
+      begin
+        perform pg_sleep(1);
+        return new;
+      end;
+      $function$;
+
+      create trigger a_test_pause_retry_finalize_boundary
+        before update on public.agent_actions
+        for each row
+        when (
+          old.id = '${ids.handoffAction}'::uuid
+          and old.last_retry_status = 'in_progress'
+          and new.last_retry_status in ('succeeded', 'failed')
+        )
+        execute function public.test_pause_retry_finalize_boundary();
+    `)
+
+    const finalize = asService(`
+      /* retry-finalize-concurrency-marker */
+      select outcome, action_status
+      from public.finalize_approved_action_handoff_retry(
+        '${ids.handoffPlan}', '${ids.handoffAction}', '${handoffKey}',
+        'succeeded', 'executing', '{"handoff_status":"ready"}'::jsonb, '${ids.user}'
+      );
+    `)
+
+    let results: PromiseSettledResult<string>[] = []
+    try {
+      const finalizing = psqlAsync(finalize)
+      waitForRetryFinalizePause()
+      results = await Promise.allSettled([finalizing, psqlAsync(claim)])
+    } finally {
+      psql(`
+        drop trigger if exists a_test_pause_retry_finalize_boundary on public.agent_actions;
+        drop function if exists public.test_pause_retry_finalize_boundary();
+      `)
+    }
+
+    expect(results[0].status).toBe('fulfilled')
+    expect(results[1].status).toBe('fulfilled')
+    expect((results[0] as PromiseFulfilledResult<string>).value).toBe('succeeded|executing')
+    expect((results[1] as PromiseFulfilledResult<string>).value).toBe('prior_success|executing')
+    expect(psql(`
+      select status || '|' || last_retry_status || '|' || (result_metadata ->> 'handoff_status')
+      from public.agent_actions where id = '${ids.handoffAction}';
+    `)).toBe('executing|succeeded|ready')
+
+    psql(`
+      update public.approvals
+      set status = 'expired', expires_at = now() - interval '1 minute'
+      where id = '${ids.handoffApproval}';
+    `)
+    expect(psql(finalize)).toBe('prior_success|executing')
   })
 })

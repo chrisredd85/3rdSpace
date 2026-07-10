@@ -2,14 +2,17 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import {
-  completeExternalCheckoutHandoff,
-  readExternalCheckoutHandoffEvidence,
-} from '@/lib/planner/execution/externalCheckout'
+import { readExternalCheckoutHandoffEvidence } from '@/lib/planner/execution/externalCheckout'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { AgentAction, Approval, Json, Plan, PlanMessage } from '@/lib/types'
 
-type PlannerDb = { from: (table: string) => any }
+type PlannerDb = {
+  from: (table: string) => any
+  rpc?: (name: string, args: Record<string, unknown>) => Promise<{
+    data: unknown
+    error: { code?: string; message?: string; details?: string; hint?: string } | null
+  }>
+}
 
 const paramsSchema = z.object({
   planId: z.string().uuid(),
@@ -97,50 +100,34 @@ export async function POST(request: NextRequest, context: RouteContext) {
       )
     }
 
-    if (action.status === 'complete' && existingEvidence.status === 'completed') {
-      return confirmationResponse(action, null)
-    }
-    if (action.status !== 'executing' || existingEvidence.status !== 'ready') {
+    const isExistingCompletion = action.status === 'complete' && existingEvidence.status === 'completed'
+    const isReadyCompletion = action.status === 'executing' && existingEvidence.status === 'ready'
+    if (!isExistingCompletion && !isReadyCompletion) {
       return NextResponse.json(
         { error: 'Only a ready external checkout can be confirmed complete' },
         { status: 409 }
       )
     }
 
-    const completed = completeExternalCheckoutHandoff({
-      resultMetadata: action.result_metadata,
-      confirmedBy: user.id,
-    })
     const writeDb = createServiceRoleClient() as unknown as PlannerDb
-    const { data: updatedData, error: updateError } = await writeDb
-      .from('agent_actions')
-      .update({
-        status: 'complete',
-        executed_at: completed.evidence.completed_at,
-        result_metadata: completed.resultMetadata,
-      })
-      .eq('id', action.id)
-      .eq('plan_id', plan.id)
-      .eq('status', 'executing')
-      .select(ACTION_SELECT_COLUMNS)
-      .maybeSingle()
-
-    if (updateError) throw new Error(updateError.message)
-    if (!updatedData) {
-      const racedAction = await loadAction(writeDb, plan.id, action.id)
-      const racedEvidence = readExternalCheckoutHandoffEvidence(racedAction?.result_metadata)
-      if (racedAction?.status === 'complete' && racedEvidence?.status === 'completed') {
-        return confirmationResponse(racedAction, null)
-      }
-      return NextResponse.json(
-        { error: 'Checkout confirmation was updated by another request' },
-        { status: 409 }
-      )
+    if (!writeDb.rpc) {
+      return NextResponse.json({ error: 'Checkout confirmation is unavailable' }, { status: 500 })
     }
+    const { data, error } = await writeDb.rpc('confirm_external_checkout_handoff', {
+      p_plan_id: plan.id,
+      p_action_id: action.id,
+      p_approval_id: approval.id,
+      p_expected_snapshot_hash: body.data.expectedSnapshotHash,
+      p_actor_id: user.id,
+    })
+    if (error) return mapConfirmationError(error)
 
-    const updatedAction = updatedData as AgentAction
-    await insertAuditLog(writeDb, updatedAction, user.id)
-    const planMessage = await insertCompletionMessage(writeDb, plan.id, updatedAction, approval.id)
+    const command = readRecord(data)
+    const updatedAction = readRecord(command?.agent_action) as unknown as AgentAction | null
+    const planMessage = readRecord(command?.plan_message) as unknown as PlanMessage | null
+    if (!updatedAction || updatedAction.id !== action.id || updatedAction.status !== 'complete') {
+      throw new Error('Checkout confirmation returned incomplete action evidence')
+    }
     return confirmationResponse(updatedAction, planMessage)
   } catch (error) {
     console.error('[planner.external-checkout.confirm] Failed to confirm checkout', error)
@@ -213,51 +200,6 @@ async function loadApproval(db: PlannerDb, planId: string, approvalId: string): 
   return data as Approval | null
 }
 
-async function insertAuditLog(db: PlannerDb, action: AgentAction, actorId: string) {
-  const { error } = await db.from('agent_action_audit_log').insert({
-    action_id: action.id,
-    plan_id: action.plan_id,
-    from_status: 'executing',
-    to_status: 'complete',
-    actor_id: actorId,
-    actor_role: 'user',
-    reason: 'external_checkout.host_confirmed',
-    metadata: {
-      approval_id: action.approval_id,
-      confirmation_source: 'host',
-    },
-  })
-  if (error) console.error('[planner.external-checkout.confirm] Audit insert failed', error)
-}
-
-async function insertCompletionMessage(
-  db: PlannerDb,
-  planId: string,
-  action: AgentAction,
-  approvalId: string
-): Promise<PlanMessage | null> {
-  const provider = action.provider?.trim() || 'the external provider'
-  const { data, error } = await db.from('plan_messages').insert({
-    plan_id: planId,
-    role: 'agent',
-    content: `You confirmed the external checkout with ${provider} was completed.`,
-    message_type: 'status_update',
-    metadata: {
-      state: 'external_checkout_completed',
-      action_status: 'complete',
-      agent_action_id: action.id,
-      approval_id: approvalId,
-      action_result: action.result_metadata,
-    } as Json,
-  }).select('*').single()
-
-  if (error) {
-    console.error('[planner.external-checkout.confirm] Plan message insert failed', error)
-    return null
-  }
-  return data as PlanMessage
-}
-
 function confirmationResponse(action: AgentAction, planMessage: PlanMessage | null) {
   return NextResponse.json({
     agentAction: action,
@@ -267,4 +209,27 @@ function confirmationResponse(action: AgentAction, planMessage: PlanMessage | nu
     availableActions: [],
     planMessage,
   })
+}
+
+function mapConfirmationError(error: { code?: string; message?: string; details?: string; hint?: string }) {
+  const text = [error.message, error.details, error.hint].filter(Boolean).join(' ')
+  if (error.code === '42501' || /unauthorized|approval_mismatch/i.test(text)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+  }
+  if (error.code === 'P0002' || /_not_found/i.test(text)) {
+    return NextResponse.json({ error: 'Checkout handoff not found' }, { status: 404 })
+  }
+  if (error.code === '23514' || error.code === '40001' || /not_confirmable|_race/i.test(text)) {
+    return NextResponse.json(
+      { error: 'Checkout confirmation changed. Refresh and try again.' },
+      { status: 409 }
+    )
+  }
+  return NextResponse.json({ error: 'Unable to confirm checkout completion' }, { status: 500 })
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
 }

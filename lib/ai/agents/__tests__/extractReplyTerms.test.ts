@@ -78,4 +78,32 @@ describe('extractReplyTerms', () => {
     expect(result.quoted_deposit_pct).toBe(0.5)
     expect(vendorReplyTermsSchema.safeParse(result).success).toBe(true)
   })
+
+  it('normalizes CHI into the canonical zero-upfront consumption-share model', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            classification: 'quote_received',
+            confidence: 0.95,
+            quoted_price_cents: null,
+            quoted_deal_model: 'CHI',
+            availability_confirmed: true,
+            capacity_confirmed: 100,
+            conditions: [{ type: 'commercial_model', detail: '10% bar consumption CHI' }],
+            raw_response_excerpt: 'No rental fee; 10% bar consumption CHI.',
+          }),
+        },
+      }],
+    })
+
+    const result = await extractReplyTerms({
+      entityType: 'venue',
+      entityName: 'Community Hall',
+      threadText: 'No rental fee; we can offer a 10% bar consumption CHI.',
+    }, { create })
+
+    expect(result.quoted_price_cents).toBeNull()
+    expect(result.quoted_deal_model).toBe('consumption_share')
+  })
 })

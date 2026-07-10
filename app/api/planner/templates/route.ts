@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
         { status: 409 }
       )
     }
-    if (plan.status !== 'completed' && plan.status !== 'complete') {
+    if (plan.status !== 'completed') {
       return NextResponse.json(
         {
           error: 'Templates can only be saved after the canonical event is completed',

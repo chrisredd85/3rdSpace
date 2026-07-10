@@ -52,7 +52,8 @@ const retryBodySchema = z.object({
 const PLAN_SELECT_COLUMNS = `
   id,user_id,title,event_type,status,guest_count,budget_cap_cents,neighborhood,
   date_window_start,date_window_end,ticketed,ticketing_model,food_responsibility,
-  venue_terms,agent_action,profit_goal_cents,notes,metadata,created_at,updated_at
+  venue_terms,agent_action,profit_goal_cents,notes,metadata,materialized_event_id,
+  created_at,updated_at
 `
 const APPROVAL_SELECT_COLUMNS = `
   id,plan_id,agent_action_id,action_label,provider,event_date,price_cents,fees_cents,
@@ -160,6 +161,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
     })
     if (claim.error) {
       logger.error('Approval retry claim failed', claim.error)
+      if (isRetryablePlanLockError(claim.error)) {
+        return NextResponse.json(retryablePlanLockBody(), { status: 409 })
+      }
       const conflict = ['40001', '23514', 'P0001', 'P0002'].includes(claim.error.code ?? '')
       const invalid = claim.error.code === '22023'
       return NextResponse.json(
@@ -245,6 +249,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
       })
       if (finalized.error) {
         logger.error('Approval retry failure finalization is pending', finalized.error)
+        if (isRetryablePlanLockError(finalized.error)) {
+          return NextResponse.json(
+            { ...(await buildResponse(writeDb, approval)), ...retryablePlanLockBody() },
+            { status: 409 },
+          )
+        }
         const pending = {
           ...result,
           recovery_pending: true,
@@ -276,6 +286,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
     })
     if (finalized.error) {
       logger.error('Approval retry success finalization is pending', finalized.error)
+      if (isRetryablePlanLockError(finalized.error)) {
+        return NextResponse.json(
+          { ...(await buildResponse(writeDb, approval)), ...retryablePlanLockBody() },
+          { status: 409 },
+        )
+      }
       const pending = {
         result: execution,
         retryable: true,
@@ -376,6 +392,12 @@ async function retryApprovedHandoff(input: {
     })
     if (finalized.error) {
       input.logger.error('Approved handoff retry failure finalization is pending', finalized.error)
+      if (isRetryablePlanLockError(finalized.error)) {
+        return NextResponse.json(
+          { ...(await buildResponse(input.writeDb, input.approval)), ...retryablePlanLockBody() },
+          { status: 409 },
+        )
+      }
       await syncApprovalMessageResult(
         input.readDb,
         input.writeDb,
@@ -447,6 +469,12 @@ async function finalizeSuccessfulHandoffRetry(
   })
   if (finalized.error) {
     input.logger.error('Approved handoff retry success finalization is pending', finalized.error)
+    if (isRetryablePlanLockError(finalized.error)) {
+      return NextResponse.json(
+        { ...(await buildResponse(input.writeDb, input.approval)), ...retryablePlanLockBody() },
+        { status: 409 },
+      )
+    }
     await syncApprovalMessageResult(
       input.readDb,
       input.writeDb,
@@ -558,4 +586,19 @@ function readRecord(value: unknown): Record<string, unknown> | null {
 
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function isRetryablePlanLockError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const record = error as { code?: unknown; message?: unknown }
+  return record.code === '55P03'
+    || (typeof record.message === 'string' && /could not obtain lock|lock not available|55P03/i.test(record.message))
+}
+
+function retryablePlanLockBody() {
+  return {
+    error: 'The plan changed at the same time. Refresh and retry from the current state.',
+    code: 'plan_execution_conflict',
+    retryable: true,
+  }
 }

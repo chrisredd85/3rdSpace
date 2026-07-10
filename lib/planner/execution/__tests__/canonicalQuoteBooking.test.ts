@@ -83,6 +83,79 @@ describe('canonical quote booking execution', () => {
     }))
   })
 
+  it('does not turn an unknown price into a zero-cent authorization', async () => {
+    const rpc = jest.fn()
+    const db = {
+      from: jest.fn(() => trustedResponseQuery({
+        id: RESPONSE_ID,
+        plan_id: PLAN_ID,
+        discovery_venue_id: DISCOVERY_ID,
+        classification: 'quote_received',
+        quoted_price_cents: null,
+        quoted_deal_model: null,
+        availability_confirmed: true,
+        conditions: [],
+        discovery_venues: { id: DISCOVERY_ID, name: 'Moongate Lounge' },
+      })),
+      rpc,
+    }
+
+    await expect(stageCanonicalQuoteBooking({
+      db,
+      plan: buildPlan(),
+      actorId: USER_ID,
+      quoteKind: 'venue',
+      responseId: RESPONSE_ID,
+    })).rejects.toThrow('canonical_quote_booking_price_required')
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
+  it.each(['free_space', 'CHI'])(
+    'freezes zero cents only for the explicit zero-upfront venue deal model %s',
+    async (dealModel) => {
+    const plan = buildPlan()
+    const rpc = jest.fn().mockImplementation(async (_name: string, args: Record<string, unknown>) => ({
+      data: {
+        existing: false,
+        plan,
+        agent_action: { id: args.p_action_id, plan_id: PLAN_ID, status: 'pending' },
+        approval: { id: args.p_approval_id, plan_id: PLAN_ID, status: 'pending' },
+        approval_message: { id: 'message-free' },
+      },
+      error: null,
+    }))
+    const db = {
+      from: jest.fn(() => trustedResponseQuery({
+        id: RESPONSE_ID,
+        plan_id: PLAN_ID,
+        discovery_venue_id: DISCOVERY_ID,
+        classification: 'quote_received',
+        quoted_price_cents: null,
+        quoted_deal_model: dealModel,
+        availability_confirmed: true,
+        conditions: [],
+        discovery_venues: { id: DISCOVERY_ID, name: 'Moongate Lounge' },
+      })),
+      rpc,
+    }
+
+    await stageCanonicalQuoteBooking({
+      db,
+      plan,
+      actorId: USER_ID,
+      quoteKind: 'venue',
+      responseId: RESPONSE_ID,
+    })
+
+    expect(rpc).toHaveBeenCalledWith('stage_plan_quote_booking', expect.objectContaining({
+      p_action_payload: expect.objectContaining({ requested_amount_cents: 0, price_cents: 0 }),
+      p_snapshot_json: expect.objectContaining({
+        approval: expect.objectContaining({ requested_amount_cents: 0, price_cents: 0 }),
+      }),
+    }))
+    },
+  )
+
   it('cancels the staged action and approval through one service-only RPC', async () => {
     const plan = buildPlan()
     const rpc = jest.fn().mockResolvedValue({
@@ -113,9 +186,11 @@ describe('canonical quote booking execution', () => {
     })
   })
 
-  it('accepts a trusted quote after reciprocal event materialization using the event date', async () => {
+  it.each(['executing', 'booked'] as const)(
+    'accepts a trusted quote after reciprocal event materialization while the plan is %s',
+    async (status) => {
     const plan = buildPlan({
-      status: 'executing',
+      status,
       materialized_event_id: EVENT_ID,
       date_window_start: '2026-08-18',
       date_window_end: '2026-08-22',
@@ -163,7 +238,8 @@ describe('canonical quote booking execution', () => {
         approval: expect.objectContaining({ event_date: '2026-08-20' }),
       }),
     }))
-  })
+    },
+  )
 
   it('waits truthfully until exact canonical event materialization', async () => {
     const action = buildAction()
@@ -246,43 +322,77 @@ describe('canonical quote booking execution', () => {
     })
   })
 
+  it('classifies a stale current approval as re-approval instead of a transient execution error', async () => {
+    const rpc = jest.fn()
+    const result = await executeCanonicalQuoteBooking({
+      db: { from: jest.fn(), rpc },
+      action: buildAction({ status: 'approved' }),
+      approval: buildApproval({ status: 're_approval_required' }),
+      plan: buildPlan({ status: 'executing', materialized_event_id: EVENT_ID }),
+      actorId: USER_ID,
+    })
+
+    expect(result).toEqual({
+      disposition: 'waiting',
+      metadata: expect.objectContaining({
+        canonical_booking_status: 'reapproval_required',
+        reapproval_required: true,
+        reapproval_reason: 'approval_stale',
+      }),
+    })
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
   it('idempotently resumes the approved action after event materialization', async () => {
     const plan = buildPlan({ status: 'executing', materialized_event_id: EVENT_ID })
     const approvedAction = buildAction({ status: 'approved' })
-    const executingAction = buildAction({ status: 'executing' })
+    const executingAction = buildAction({
+      status: 'executing',
+      result_metadata: { canonical_booking_status: 'resuming_after_event_materialization' },
+    })
     const approval = buildApproval()
     const actionUpdatePayloads: Array<Record<string, unknown>> = []
+    const operationOrder: string[] = []
 
     const db = {
       from: jest.fn((table: string) => {
         if (table === 'plans') return singleRowSelect(plan)
         if (table === 'approvals') return listSelect([approval])
-        if (table === 'agent_action_audit_log') {
-          return { insert: jest.fn().mockResolvedValue({ error: null }) }
-        }
         if (table === 'agent_actions') {
           return {
             select: jest.fn(() => listSelect([approvedAction])),
             update: jest.fn((payload: Record<string, unknown>) => {
+              operationOrder.push('action_update')
               actionUpdatePayloads.push(payload)
-              return actionUpdatePayloads.length === 1
-                ? updateReturningSingle(executingAction)
-                : updateWithoutReturn()
+              return updateReturningSingle({
+                ...executingAction,
+                result_metadata: payload.result_metadata,
+              })
             }),
           }
         }
         throw new Error(`Unexpected table: ${table}`)
       }),
-      rpc: jest.fn().mockResolvedValue({
-        data: {
-          disposition: 'executing',
-          existing: true,
-          booking_kind: 'venue',
-          booking_id: 'booking-1',
-          booking_status: 'pending',
-          event_id: EVENT_ID,
-        },
-        error: null,
+      rpc: jest.fn().mockImplementation(async (name: string) => {
+        if (name === 'claim_canonical_quote_booking_materialization_resume') {
+          operationOrder.push('claim_rpc')
+          return {
+            data: { existing: false, transitioned: true, agent_action: executingAction },
+            error: null,
+          }
+        }
+        operationOrder.push('booking_rpc')
+        return {
+          data: {
+            disposition: 'executing',
+            existing: true,
+            booking_kind: 'venue',
+            booking_id: 'booking-1',
+            booking_status: 'pending',
+            event_id: EVENT_ID,
+          },
+          error: null,
+        }
       }),
     }
 
@@ -303,19 +413,685 @@ describe('canonical quote booking execution', () => {
       }),
     ])
     expect(actionUpdatePayloads[0]).toEqual(expect.objectContaining({
-      status: 'executing',
-      result_metadata: expect.objectContaining({
-        canonical_booking_status: 'resuming_after_event_materialization',
-      }),
-    }))
-    expect(actionUpdatePayloads[1]).toEqual(expect.objectContaining({
       result_metadata: expect.objectContaining({
         booking_id: 'booking-1',
         agent_action_id: approvedAction.id,
       }),
     }))
-    expect(db.rpc).toHaveBeenCalledTimes(1)
+    expect(operationOrder).toEqual(['claim_rpc', 'booking_rpc', 'action_update'])
+    expect(db.rpc).toHaveBeenNthCalledWith(1, 'claim_canonical_quote_booking_materialization_resume', {
+      p_plan_id: PLAN_ID,
+      p_agent_action_id: approvedAction.id,
+      p_approval_id: approval.id,
+      p_actor_id: USER_ID,
+      p_expected_snapshot_hash: approval.snapshot_hash,
+    })
+    expect(db.rpc).toHaveBeenCalledTimes(2)
   })
+
+  it('requires re-approval when authorization expired before materialization could start the booking', async () => {
+    const plan = buildPlan({ status: 'executing', materialized_event_id: EVENT_ID })
+    const action = buildAction({ status: 'approved' })
+    const approval = buildApproval({
+      status: 'authorized',
+      expires_at: '2000-01-01T00:00:00.000Z',
+    })
+    const persistedApproval = buildApproval({
+      status: 're_approval_required',
+      expires_at: approval.expires_at,
+    })
+    const update = jest.fn()
+    const rpc = jest.fn().mockResolvedValue({
+      data: {
+        existing: false,
+        disposition: 'reapproval_required',
+        reason: 'approval_expired',
+        approval: persistedApproval,
+        agent_action: action,
+      },
+      error: null,
+    })
+    const db = {
+      from: jest.fn((table: string) => {
+        if (table === 'plans') return singleRowSelect(plan)
+        if (table === 'approvals') return listSelect([approval])
+        if (table === 'agent_actions') {
+          return {
+            select: jest.fn(() => listSelect([action], action)),
+            update,
+          }
+        }
+        throw new Error(`Unexpected table: ${table}`)
+      }),
+      rpc,
+    }
+
+    await expect(resumeCanonicalQuoteBookingsAfterMaterialization({
+      db,
+      planId: PLAN_ID,
+      actorId: USER_ID,
+    })).resolves.toEqual([{
+      disposition: 'waiting',
+      metadata: expect.objectContaining({
+        canonical_booking_status: 'reapproval_required',
+        reapproval_required: true,
+        reapproval_reason: 'approval_expired',
+        approval_id: approval.id,
+      }),
+    }])
+
+    expect(rpc).toHaveBeenCalledTimes(1)
+    expect(rpc).toHaveBeenCalledWith('require_canonical_quote_booking_reapproval', {
+      p_plan_id: PLAN_ID,
+      p_agent_action_id: action.id,
+      p_approval_id: approval.id,
+      p_actor_id: USER_ID,
+      p_expected_snapshot_hash: approval.snapshot_hash,
+      p_reason: 'approval_expired',
+    })
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('preserves already-started booking evidence after approval expiry without recreating it', async () => {
+    const plan = buildPlan({ status: 'executing', materialized_event_id: EVENT_ID })
+    const action = buildAction({
+      status: 'executing',
+      result_metadata: {
+        canonical_booking_status: 'pending_partner_confirmation',
+        booking_id: 'booking-started',
+        booking_kind: 'venue',
+        booking_status: 'pending',
+        event_id: EVENT_ID,
+      },
+    })
+    const approval = buildApproval({
+      status: 'authorized',
+      expires_at: '2000-01-01T00:00:00.000Z',
+    })
+    const update = jest.fn()
+    const rpc = jest.fn()
+    const db = {
+      from: jest.fn((table: string) => {
+        if (table === 'plans') return singleRowSelect(plan)
+        if (table === 'approvals') return listSelect([approval])
+        if (table === 'agent_actions') {
+          return {
+            select: jest.fn(() => listSelect([action], action)),
+            update,
+          }
+        }
+        throw new Error(`Unexpected table: ${table}`)
+      }),
+      rpc,
+    }
+
+    await expect(resumeCanonicalQuoteBookingsAfterMaterialization({
+      db,
+      planId: PLAN_ID,
+      actorId: USER_ID,
+    })).resolves.toEqual([expect.objectContaining({
+      disposition: 'executing',
+      metadata: expect.objectContaining({
+        existing: true,
+        canonical_booking_status: 'pending_partner_confirmation',
+        booking_id: 'booking-started',
+        booking_kind: 'venue',
+      }),
+    })])
+
+    expect(rpc).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('preserves an already-queued operator task after approval expiry', async () => {
+    const plan = buildPlan({ status: 'executing', materialized_event_id: EVENT_ID })
+    const action = buildAction({
+      status: 'executing',
+      result_metadata: {
+        canonical_booking_status: 'requires_concierge',
+        execution_mode: 'concierge_admin_queue',
+        handoff_status: 'queued',
+        admin_task_id: 'task-started',
+        event_id: EVENT_ID,
+        outbound_message_sent: false,
+      },
+    })
+    const approval = buildApproval({ expires_at: '2000-01-01T00:00:00.000Z' })
+    const update = jest.fn()
+    const rpc = jest.fn()
+    const db = {
+      from: jest.fn((table: string) => {
+        if (table === 'plans') return singleRowSelect(plan)
+        if (table === 'approvals') return listSelect([approval])
+        if (table === 'agent_actions') {
+          return {
+            select: jest.fn(() => listSelect([action], action)),
+            update,
+          }
+        }
+        throw new Error(`Unexpected table: ${table}`)
+      }),
+      rpc,
+    }
+
+    await expect(resumeCanonicalQuoteBookingsAfterMaterialization({
+      db,
+      planId: PLAN_ID,
+      actorId: USER_ID,
+    })).resolves.toEqual([expect.objectContaining({
+      disposition: 'executing',
+      metadata: expect.objectContaining({
+        existing: true,
+        canonical_booking_status: 'requires_concierge',
+        admin_task_id: 'task-started',
+      }),
+    })])
+    expect(rpc).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('moves an expired materialization wait to atomic re-approval without treating it as retryable', async () => {
+    const plan = buildPlan({ status: 'executing', materialized_event_id: EVENT_ID })
+    const waitingAction = buildAction({
+      status: 'executing',
+      result_metadata: {
+        canonical_booking_status: 'waiting_for_event_materialization',
+        outbound_message_sent: false,
+      },
+    })
+    const expiredApproval = buildApproval({ expires_at: '2000-01-01T00:00:00.000Z' })
+    const markedApproval = buildApproval({
+      status: 're_approval_required',
+      expires_at: expiredApproval.expires_at,
+    })
+    const resetAction = buildAction({
+      status: 'approved',
+      result_metadata: {
+        canonical_booking_status: 'reapproval_required',
+        reapproval_reason: 'approval_expired',
+        outbound_message_sent: false,
+      },
+    })
+    const rpc = jest.fn().mockImplementation(async (name: string) => {
+      if (name === 'create_canonical_booking_from_approval') {
+        return {
+          data: null,
+          error: { code: '23514', message: 'create_canonical_booking_requires_executable_approval' },
+        }
+      }
+      if (name === 'require_canonical_quote_booking_reapproval') {
+        return {
+          data: {
+            existing: false,
+            disposition: 'reapproval_required',
+            reason: 'approval_expired',
+            approval: markedApproval,
+            agent_action: resetAction,
+          },
+          error: null,
+        }
+      }
+      throw new Error(`Unexpected RPC: ${name}`)
+    })
+    const update = jest.fn()
+    const db = {
+      from: jest.fn((table: string) => {
+        if (table === 'plans') return singleRowSelect(plan)
+        if (table === 'approvals') return listSelect([expiredApproval])
+        if (table === 'agent_actions') {
+          return {
+            select: jest.fn(() => listSelect([waitingAction], waitingAction)),
+            update,
+          }
+        }
+        throw new Error(`Unexpected table: ${table}`)
+      }),
+      rpc,
+    }
+
+    const result = await resumeCanonicalQuoteBookingsAfterMaterialization({
+      db,
+      planId: PLAN_ID,
+      actorId: USER_ID,
+    })
+
+    expect(result).toEqual([expect.objectContaining({
+      disposition: 'waiting',
+      metadata: expect.objectContaining({
+        canonical_booking_status: 'reapproval_required',
+        reapproval_reason: 'approval_expired',
+        approval_id: markedApproval.id,
+      }),
+    })])
+    expect(rpc.mock.calls.map(([name]) => name)).toEqual([
+      'create_canonical_booking_from_approval',
+      'require_canonical_quote_booking_reapproval',
+    ])
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('binds each action to its current approval id instead of an older unordered version', async () => {
+    const plan = buildPlan({ status: 'executing', materialized_event_id: EVENT_ID })
+    const currentApproval = buildApproval({ id: 'approval-current' })
+    const oldApproval = buildApproval({
+      id: 'approval-old',
+      snapshot_hash: 'b'.repeat(64),
+      created_at: '2026-07-08T12:00:00.000Z',
+    })
+    const approvedAction = buildAction({ approval_id: currentApproval.id })
+    const executingAction = buildAction({
+      approval_id: currentApproval.id,
+      status: 'executing',
+      result_metadata: { canonical_booking_status: 'resuming_after_event_materialization' },
+    })
+    const update = jest.fn((payload: Record<string, unknown>) => updateReturningSingle({
+      ...executingAction,
+      result_metadata: payload.result_metadata,
+    }))
+    const rpc = jest.fn().mockImplementation(async (name: string) => name ===
+      'claim_canonical_quote_booking_materialization_resume'
+      ? { data: { existing: false, transitioned: true, agent_action: executingAction }, error: null }
+      : {
+          data: {
+            disposition: 'executing',
+            existing: true,
+            booking_kind: 'venue',
+            booking_id: 'booking-current',
+            booking_status: 'pending',
+            event_id: EVENT_ID,
+          },
+          error: null,
+        })
+    const db = {
+      from: jest.fn((table: string) => {
+        if (table === 'plans') return singleRowSelect(plan)
+        // Deliberately return the obsolete row last. Mapping by agent_action_id
+        // would select it; binding action.approval_id must select currentApproval.
+        if (table === 'approvals') return listSelect([currentApproval, oldApproval])
+        if (table === 'agent_actions') {
+          return {
+            select: jest.fn(() => listSelect([approvedAction], approvedAction)),
+            update,
+          }
+        }
+        throw new Error(`Unexpected table: ${table}`)
+      }),
+      rpc,
+    }
+
+    await resumeCanonicalQuoteBookingsAfterMaterialization({
+      db,
+      planId: PLAN_ID,
+      actorId: USER_ID,
+    })
+
+    expect(rpc).toHaveBeenCalledWith('create_canonical_booking_from_approval', expect.objectContaining({
+      p_agent_action_id: approvedAction.id,
+      p_approval_id: currentApproval.id,
+    }))
+    expect(rpc).toHaveBeenCalledWith(
+      'claim_canonical_quote_booking_materialization_resume',
+      expect.objectContaining({ p_approval_id: currentApproval.id }),
+    )
+  })
+
+  it('queues and persists one operator task when an approved quote still requires concierge', async () => {
+    const plan = buildPlan({ status: 'executing', materialized_event_id: EVENT_ID })
+    const approvedAction = buildAction({ status: 'approved' })
+    const executingAction = buildAction({
+      status: 'executing',
+      result_metadata: { canonical_booking_status: 'resuming_after_event_materialization' },
+    })
+    const approval = buildApproval()
+    const updatePayloads: Array<Record<string, unknown>> = []
+    const update = jest.fn((payload: Record<string, unknown>) => {
+      updatePayloads.push(payload)
+      return updateReturningSingle({
+        ...executingAction,
+        result_metadata: payload.result_metadata,
+      })
+    })
+    const rpc = jest.fn().mockImplementation(async (name: string) => {
+      if (name === 'claim_canonical_quote_booking_materialization_resume') {
+        return {
+          data: { existing: false, transitioned: true, agent_action: executingAction },
+          error: null,
+        }
+      }
+      if (name === 'create_canonical_booking_from_approval') {
+        return {
+          data: {
+            disposition: 'waiting',
+            reason: 'requires_concierge',
+            requires_concierge: true,
+            quote_kind: 'venue',
+            approval_id: approval.id,
+            event_id: EVENT_ID,
+          },
+          error: null,
+        }
+      }
+      if (name === 'enqueue_approved_admin_task') {
+        return {
+          data: { id: 'task-queued', event_id: EVENT_ID, status: 'open' },
+          error: null,
+        }
+      }
+      throw new Error(`Unexpected RPC: ${name}`)
+    })
+    const db = {
+      from: jest.fn((table: string) => {
+        if (table === 'plans') return singleRowSelect(plan)
+        if (table === 'approvals') return listSelect([approval])
+        if (table === 'agent_actions') {
+          return {
+            select: jest.fn(() => listSelect([approvedAction], approvedAction)),
+            update,
+          }
+        }
+        throw new Error(`Unexpected table: ${table}`)
+      }),
+      rpc,
+    }
+
+    const results = await resumeCanonicalQuoteBookingsAfterMaterialization({
+      db,
+      planId: PLAN_ID,
+      actorId: USER_ID,
+    })
+
+    expect(rpc.mock.calls.map(([name]) => name)).toEqual([
+      'claim_canonical_quote_booking_materialization_resume',
+      'create_canonical_booking_from_approval',
+      'enqueue_approved_admin_task',
+    ])
+    expect(results).toEqual([expect.objectContaining({
+      disposition: 'executing',
+      metadata: expect.objectContaining({
+        canonical_booking_status: 'requires_concierge',
+        execution_mode: 'concierge_admin_queue',
+        handoff_status: 'queued',
+        admin_task_id: 'task-queued',
+        outbound_message_sent: false,
+      }),
+    })])
+    expect(updatePayloads[0]).toEqual(expect.objectContaining({
+      result_metadata: expect.objectContaining({
+        admin_task_id: 'task-queued',
+        handoff_status: 'queued',
+      }),
+    }))
+  })
+
+  it('returns a pre-existing failed canonical action as recovery evidence without replaying it', async () => {
+    const plan = buildPlan({ status: 'executing', materialized_event_id: EVENT_ID })
+    const failedAction = buildAction({
+      status: 'failed',
+      result_metadata: {
+        canonical_booking_status: 'failed',
+        failure_code: 'partner_handoff_interrupted',
+      },
+    })
+    const actionQuery = listSelect([failedAction], failedAction)
+    const rpc = jest.fn()
+    const db = {
+      from: jest.fn((table: string) => {
+        if (table === 'plans') return singleRowSelect(plan)
+        if (table === 'approvals') return listSelect([])
+        if (table === 'agent_actions') return { select: jest.fn(() => actionQuery), update: jest.fn() }
+        throw new Error(`Unexpected table: ${table}`)
+      }),
+      rpc,
+    }
+
+    await expect(resumeCanonicalQuoteBookingsAfterMaterialization({
+      db,
+      planId: PLAN_ID,
+      actorId: USER_ID,
+    })).resolves.toEqual([{
+      disposition: 'waiting',
+      metadata: expect.objectContaining({
+        canonical_booking_status: 'failed',
+        action_status: 'failed',
+        agent_action_id: failedAction.id,
+        failure_code: 'partner_handoff_interrupted',
+      }),
+    }])
+
+    expect(actionQuery.in).toHaveBeenCalledWith('status', ['approved', 'executing', 'failed'])
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['completed', 'approved'],
+    ['archived', 'executing'],
+    ['approved', 'approved'],
+  ] as const)(
+    'returns non-mutating recovery evidence for a %s plan with an %s action',
+    async (planStatus, actionStatus) => {
+      const plan = buildPlan({ status: planStatus, materialized_event_id: EVENT_ID })
+      const action = buildAction({
+        status: actionStatus,
+        result_metadata: { prior_evidence: 'preserved' },
+      })
+      const actionQuery = listSelect([action], action)
+      const update = jest.fn()
+      const rpc = jest.fn()
+      const db = {
+        from: jest.fn((table: string) => {
+          if (table === 'plans') return singleRowSelect(plan)
+          if (table === 'agent_actions') return { select: jest.fn(() => actionQuery), update }
+          throw new Error(`Unexpected table: ${table}`)
+        }),
+        rpc,
+      }
+
+      await expect(resumeCanonicalQuoteBookingsAfterMaterialization({
+        db,
+        planId: PLAN_ID,
+        actorId: USER_ID,
+      })).resolves.toEqual([{
+        disposition: 'waiting',
+        metadata: expect.objectContaining({
+          canonical_booking_status: 'resume_blocked_plan_status',
+          resume_blocked: true,
+          recovery_required: true,
+          resume_blocked_reason: 'plan_status_not_executable',
+          plan_status: planStatus,
+          action_status: actionStatus,
+          agent_action_id: action.id,
+          prior_evidence: 'preserved',
+        }),
+      }])
+
+      expect(actionQuery.in).toHaveBeenCalledWith('status', ['approved', 'executing', 'failed'])
+      expect(db.from).not.toHaveBeenCalledWith('approvals')
+      expect(update).not.toHaveBeenCalled()
+      expect(rpc).not.toHaveBeenCalled()
+    },
+  )
+
+  it('preserves terminal truth won after the approved read but before the atomic claim', async () => {
+    const plan = buildPlan({ status: 'executing', materialized_event_id: EVENT_ID })
+    const approvedAction = buildAction({ status: 'approved' })
+    const cancelledAction = buildAction({
+      status: 'cancelled',
+      result_metadata: {
+        canonical_booking_status: 'cancelled',
+        cancellation_reason: 'Host cancelled concurrently',
+      },
+    })
+    const approval = buildApproval()
+    const rpc = jest.fn().mockResolvedValue({
+      data: {
+        existing: true,
+        transitioned: false,
+        concurrent_execution: true,
+        agent_action: cancelledAction,
+      },
+      error: null,
+    })
+    const db = {
+      from: jest.fn((table: string) => {
+        if (table === 'plans') return singleRowSelect(plan)
+        if (table === 'approvals') return listSelect([approval])
+        if (table === 'agent_actions') {
+          return { select: jest.fn(() => listSelect([approvedAction], approvedAction)), update: jest.fn() }
+        }
+        throw new Error(`Unexpected table: ${table}`)
+      }),
+      rpc,
+    }
+
+    await expect(resumeCanonicalQuoteBookingsAfterMaterialization({
+      db,
+      planId: PLAN_ID,
+      actorId: USER_ID,
+    })).resolves.toEqual([{
+      disposition: 'waiting',
+      metadata: expect.objectContaining({
+        canonical_booking_status: 'cancelled',
+        action_status: 'cancelled',
+        cancellation_reason: 'Host cancelled concurrently',
+      }),
+    }])
+
+    expect(rpc).toHaveBeenCalledTimes(1)
+    expect(db.from).not.toHaveBeenCalledWith('agent_action_audit_log')
+  })
+
+  it('converges through the idempotent booking command when another executor wins the claim race', async () => {
+    const plan = buildPlan({ status: 'executing', materialized_event_id: EVENT_ID })
+    const approvedAction = buildAction({ status: 'approved' })
+    const concurrentAction = buildAction({ status: 'executing', result_metadata: {} })
+    const approval = buildApproval()
+    const update = jest.fn((payload: Record<string, unknown>) => updateReturningSingle({
+      ...concurrentAction,
+      result_metadata: payload.result_metadata,
+    }))
+    const rpc = jest.fn().mockImplementation(async (name: string) => {
+      if (name === 'claim_canonical_quote_booking_materialization_resume') {
+        return {
+          data: {
+            existing: true,
+            transitioned: false,
+            concurrent_execution: true,
+            agent_action: concurrentAction,
+          },
+          error: null,
+        }
+      }
+      return {
+        data: {
+          disposition: 'executing',
+          existing: true,
+          booking_kind: 'venue',
+          booking_id: 'booking-concurrent',
+          booking_status: 'pending',
+          event_id: EVENT_ID,
+        },
+        error: null,
+      }
+    })
+    const db = {
+      from: jest.fn((table: string) => {
+        if (table === 'plans') return singleRowSelect(plan)
+        if (table === 'approvals') return listSelect([approval])
+        if (table === 'agent_actions') {
+          return { select: jest.fn(() => listSelect([approvedAction], approvedAction)), update }
+        }
+        throw new Error(`Unexpected table: ${table}`)
+      }),
+      rpc,
+    }
+
+    await expect(resumeCanonicalQuoteBookingsAfterMaterialization({
+      db,
+      planId: PLAN_ID,
+      actorId: USER_ID,
+    })).resolves.toEqual([expect.objectContaining({
+      metadata: expect.objectContaining({ booking_id: 'booking-concurrent' }),
+    })])
+
+    expect(rpc.mock.calls.map(([name]) => name)).toEqual([
+      'claim_canonical_quote_booking_materialization_resume',
+      'create_canonical_booking_from_approval',
+    ])
+  })
+
+  it.each([
+    ['complete', 'confirmed'],
+    ['cancelled', 'cancelled'],
+    ['failed', 'failed'],
+  ] as const)(
+    'preserves concurrent %s evidence when resume metadata loses its status CAS',
+    async (terminalStatus, canonicalStatus) => {
+      const plan = buildPlan({ status: 'executing', materialized_event_id: EVENT_ID })
+      const executingAction = buildAction({ status: 'executing' })
+      const terminalAction = buildAction({
+        status: terminalStatus,
+        result_metadata: {
+          canonical_booking_status: canonicalStatus,
+          terminal_marker: 'must-survive',
+        },
+      })
+      const approval = buildApproval()
+      let currentAction = executingAction
+      const updateQueries: ReturnType<typeof updateReturningSingle>[] = []
+      const update = jest.fn(() => {
+        const query = updateReturningSingle(null)
+        updateQueries.push(query)
+        return query
+      })
+      const rpc = jest.fn().mockImplementation(async () => {
+        currentAction = terminalAction
+        return {
+          data: {
+            disposition: 'executing',
+            existing: true,
+            booking_kind: 'venue',
+            booking_id: 'booking-race',
+            booking_status: 'pending',
+            event_id: EVENT_ID,
+          },
+          error: null,
+        }
+      })
+      const db = {
+        from: jest.fn((table: string) => {
+          if (table === 'plans') return singleRowSelect(plan)
+          if (table === 'approvals') return listSelect([approval])
+          if (table === 'agent_actions') {
+            const select = jest.fn(() => {
+              const query = listSelect([executingAction])
+              query.maybeSingle.mockImplementation(async () => ({ data: currentAction, error: null }))
+              return query
+            })
+            return { select, update }
+          }
+          throw new Error(`Unexpected table: ${table}`)
+        }),
+        rpc,
+      }
+
+      const results = await resumeCanonicalQuoteBookingsAfterMaterialization({
+        db,
+        planId: PLAN_ID,
+        actorId: USER_ID,
+      })
+
+      expect(update).toHaveBeenCalledTimes(1)
+      expect(updateQueries[0].eq).toHaveBeenCalledWith('status', 'executing')
+      expect(results).toEqual([expect.objectContaining({
+        disposition: terminalStatus === 'complete' ? 'complete' : 'waiting',
+        metadata: expect.objectContaining({
+          canonical_booking_status: canonicalStatus,
+          terminal_marker: 'must-survive',
+          action_status: terminalStatus,
+        }),
+      })])
+    },
+  )
 
   it('cancels an executing pending booking without rewriting the authorized approval', async () => {
     const action = buildAction({ status: 'executing' })
@@ -363,6 +1139,25 @@ describe('canonical quote booking execution', () => {
     })
   })
 
+  it('classifies a cancellation deadlock as a retryable conflict', async () => {
+    const action = buildAction({ status: 'executing' })
+    const approval = buildApproval({ status: 'authorized' })
+    const plan = buildPlan({ status: 'executing', materialized_event_id: EVENT_ID })
+    const rpc = jest.fn().mockResolvedValue({
+      data: null,
+      error: { code: '40P01', message: 'deadlock detected' },
+    })
+
+    await expect(cancelExecutingCanonicalQuoteBooking({
+      db: { from: jest.fn(), rpc },
+      action,
+      approval,
+      plan,
+      actorId: USER_ID,
+      reason: 'Host changed vendor strategy',
+    })).rejects.toThrow(/cancel_retryable_conflict.*40P01/)
+  })
+
   it('recognizes only the payload-tagged concierge action', () => {
     expect(isCanonicalQuoteBookingAction(buildAction())).toBe(true)
     expect(isCanonicalQuoteBookingAction(buildAction({ payload_json: { kind: 'venue_hold' } }))).toBe(false)
@@ -392,7 +1187,7 @@ function singleRowSelect(data: unknown) {
   return query
 }
 
-function listSelect(data: unknown[]) {
+function listSelect(data: unknown[], singleData: unknown = data[0] ?? null) {
   const query = {
     data,
     error: null,
@@ -401,6 +1196,7 @@ function listSelect(data: unknown[]) {
     contains: jest.fn(),
     in: jest.fn(),
     order: jest.fn().mockResolvedValue({ data, error: null }),
+    maybeSingle: jest.fn().mockResolvedValue({ data: singleData, error: null }),
   }
   query.select.mockReturnValue(query)
   query.eq.mockReturnValue(query)
@@ -417,12 +1213,6 @@ function updateReturningSingle(data: unknown) {
   }
   query.eq.mockReturnValue(query)
   query.select.mockReturnValue(query)
-  return query
-}
-
-function updateWithoutReturn() {
-  const query = { error: null, eq: jest.fn() }
-  query.eq.mockReturnValue(query)
   return query
 }
 
@@ -492,7 +1282,7 @@ function buildApproval(overrides: Partial<Approval> = {}): Approval {
     authorized_by: USER_ID,
     authorized_at: '2026-07-09T12:05:00.000Z',
     snapshot_hash: 'a'.repeat(64),
-    expires_at: '2026-07-10T12:00:00.000Z',
+    expires_at: '2099-07-10T12:00:00.000Z',
     created_at: '2026-07-09T12:00:00.000Z',
     updated_at: '2026-07-09T12:05:00.000Z',
     ...overrides,

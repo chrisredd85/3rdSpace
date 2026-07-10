@@ -58,11 +58,12 @@ describe('concierge execution migration', () => {
   })
 
   it('atomically projects operator completion into action and host-visible state', () => {
-    expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.complete_admin_task_execution/i)
-    expect(sql).toMatch(/SET status = 'complete',[\s\S]*executed_at = v_now/i)
-    expect(sql).toMatch(/SET latest_venue_hold_outcome = v_hold_outcome/i)
-    expect(sql).toMatch(/INSERT INTO public\.plan_messages[\s\S]*'concierge_task_completed'/i)
-    expect(sql).toMatch(/'admin_task_outcome', v_public_outcome/i)
+    const complete = functionBody('complete_admin_task_execution')
+    expect(complete).toMatch(/SET status = 'complete',[\s\S]*executed_at = v_now/i)
+    expect(complete).toMatch(/SET latest_venue_hold_outcome = v_hold_outcome/i)
+    expect(complete).toMatch(/INSERT INTO public\.plan_messages[\s\S]*'concierge_task_completed'/i)
+    expect(complete).toMatch(/'admin_task_outcome', v_public_outcome/i)
+    expectCanonicalTaskLockOrder(complete)
   })
 
   it('cancels approved or executing action work without a send, booking, or payment', () => {
@@ -72,5 +73,24 @@ describe('concierge execution migration', () => {
     expect(sql).toMatch(/SET status = 'cancelled',[\s\S]*'handoff_status', 'cancelled'/i)
     expect(sql).toMatch(/'concierge_task_cancelled'/i)
     expect(sql).toMatch(/Nothing was sent, booked, or paid/i)
+    expectCanonicalTaskLockOrder(functionBody('cancel_admin_task_execution'))
   })
 })
+
+function functionBody(name: string) {
+  return sql.match(
+    new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\([\\s\\S]+?\\$function\\$;`),
+  )?.[0] ?? ''
+}
+
+function expectCanonicalTaskLockOrder(body: string) {
+  const plan = body.indexOf('FROM public.plans AS plan_row')
+  const action = body.indexOf('FROM public.agent_actions AS action_row')
+  const approval = body.indexOf('FROM public.approvals AS approval_row')
+  const lockedTask = body.indexOf('FROM public.admin_tasks AS task_row', body.indexOf('FROM public.admin_tasks AS task_row') + 1)
+  expect(plan).toBeGreaterThan(-1)
+  expect(action).toBeGreaterThan(plan)
+  expect(approval).toBeGreaterThan(action)
+  expect(lockedTask).toBeGreaterThan(approval)
+  expect(body).toContain('_identity_conflict')
+}

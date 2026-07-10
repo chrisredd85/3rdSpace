@@ -168,6 +168,20 @@ describe('admin task service', () => {
       p_host_message: null,
     })
   })
+
+  it('surfaces a concierge deadlock as a retryable conflict', async () => {
+    const before = { ...baseTask, status: 'in_progress', priority: 'normal' } satisfies AdminTaskRow
+    const admin = makeExecutionMutationClient(before, before)
+    admin.rpcMock.mockResolvedValue({ data: null, error: { code: '40P01', message: 'deadlock detected' } })
+
+    await expect(mutateAdminTask(admin.client, {
+      taskId: before.id,
+      adminUserId: '66666666-6666-4666-8666-666666666666',
+      adminUserEmail: 'admin@example.com',
+      action: 'complete',
+      outcomePayload: { outcome: 'hold_confirmed' },
+    })).rejects.toMatchObject({ status: 409, message: 'deadlock detected' })
+  })
 })
 
 function makeListClient(tasks: AdminTaskRow[], plans: PlanRow[], users: UserRow[]): AdminTasksDb {

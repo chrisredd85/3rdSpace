@@ -87,8 +87,8 @@ describe('POST /api/planner/templates canonical eligibility', () => {
     jest.clearAllMocks()
   })
 
-  it.each(['completed', 'complete'])('saves a %s plan only after verifying its completed canonical event evidence', async (status) => {
-    const mock = mockPlannerDb({ plan: { ...completedPlan, status } })
+  it('saves a completed plan only after verifying its completed canonical event evidence', async () => {
+    const mock = mockPlannerDb()
 
     const response = await POST(request())
 
@@ -109,6 +109,18 @@ describe('POST /api/planner/templates canonical eligibility', () => {
     expect(mock.from).not.toHaveBeenCalledWith('venue_bookings')
     expect(mock.from).not.toHaveBeenCalledWith('vendor_bookings')
     expect(mock.from).not.toHaveBeenCalledWith('payments')
+  })
+
+  it('rejects a legacy complete plan before canonical event or template writes', async () => {
+    const mock = mockPlannerDb({ plan: { ...completedPlan, status: 'complete' } })
+
+    const response = await POST(request())
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual(expect.objectContaining({ code: 'template_source_plan_incomplete' }))
+    expect(mock.from).not.toHaveBeenCalledWith('events')
+    expect(mock.from).not.toHaveBeenCalledWith('recommendations')
+    expect(mock.from).not.toHaveBeenCalledWith('templates')
   })
 
   it('rejects a completed plan without canonical identity before recommendation or template writes', async () => {

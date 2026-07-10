@@ -171,14 +171,20 @@ boolean.
 
 - `plans.materialized_event_id` is the authoritative canonical event id for
   planner execution. Callers must not select a same-owner or same-date event as
-  a substitute.
+  a substitute. `plans.metadata.event_id` is legacy display/import lineage only
+  and must not be used to authorize invitations, bookings, payments, analytics
+  deep links, or other planner execution.
 - Analytics continues to read `events`; planner-native materialization now
   writes a normal builder-owned event, so it is visible without a second
   planner-only projection. Analytics may still display null-linked legacy and
   imported records, but that visibility does not make them executable.
-- Venue and vendor bookings must reference `plans.materialized_event_id`.
-  Confirmed canonical bookings advance the plan only through evidence-driven
-  triggers.
+- Venue and vendor bookings must reference `plans.materialized_event_id` and
+  carry the exact reciprocal `plan_id`, `agent_action_id`, and `approval_id`.
+  A canonical booking is execution evidence only when its approved V2 snapshot,
+  integer-cent quote, organizer, event, action target, discovery target, and
+  claimed physical partner all agree. A same-owner or same-date booking without
+  that provenance cannot advance a plan. Confirmed canonical bookings advance
+  the plan only through evidence-driven triggers.
 - Templates may store `source_event_id` alongside `source_plan_id`; a deferred
   database constraint requires both pointers to identify the same owned,
   completed canonical event with outcome evidence. Both may become null for
@@ -207,6 +213,64 @@ plan, booking on that event, approved agent action, executable approval and its
 exact immutable snapshot, and the resulting payment transaction. A quote row,
 an imported event, or `canonical_event_id` copied outside that lineage is not
 payment authority.
+
+## Canonical booking execution boundary
+
+Planner-native quote bookings are created only after the exact approval is
+authorized and the canonical event exists. Legacy venue auto-approval settings
+do not auto-confirm these rows: a claimed venue or vendor must confirm through
+the service-owned canonical confirmation command. The command atomically
+updates the booking and action, records audit evidence, publishes a host-visible
+plan message, and advances the plan when the confirmed evidence is sufficient.
+It verifies the exact venue owner or vendor user inside the same locked
+transaction, including on replay. Confirmation, decline, cancellation, and
+canonical batch commands use the same plan, event, action, approval, partner,
+booking lock order. Exact retries return the prior result rather than creating
+a second transition; a residual database deadlock is a retryable conflict, not
+a false success or an unclassified server error.
+
+Once an approval is linked, the action's execution-sensitive provider,
+currency, target, amount, type, and payload cannot be edited in place. Booking
+schedule, headcount, approved price, package/offering selection, deposit,
+requirements, services, special requests, and confirmation schedule likewise
+remain tied to the event and approved snapshot. Payment-state fields are left
+to their dedicated approval-gated payment commands; changing commercial or
+event terms requires a superseding approval version.
+
+Partner decline is also a service-owned terminal outcome, not an ordinary row
+patch. It atomically marks the pending booking declined, terminates the action
+without making it generically retryable, preserves the immutable approval,
+writes audit evidence, and tells the host. Canonical bulk confirmation and
+decline commands lock complete aggregates in deterministic order so an invalid
+member cannot leave a partially applied canonical batch. Browser insert/update
+policies admit provenance-null legacy bookings only. Definer validation still
+resolves the event/plan edge through caller RLS, so a browser cannot disguise a
+canonical row as legacy. The temporary ready-plan bridge additionally requires
+the booking organizer to own the linked plan and freezes event, organizer, and
+partner identity. Legacy bookings continue to use their existing partner
+routes without claiming canonical provenance.
+
+If an authorized quote is waiting only for event materialization and expires or
+becomes stale before any booking, admin task, outreach, or financial side effect
+exists, a narrow service command can mark it for re-approval. That command does
+not erase the original authorization. It proves the absence of work, preserves
+the old approval as history, and permits the normal superseding-version flow.
+Once durable work exists, expiry never rewinds or duplicates it.
+
+Post-materialization quote recovery claims `approved -> executing` and writes
+its transition audit in one service-only database command. A failed audit rolls
+the claim back. Exact replay validates the same marker and one audit row;
+concurrent executing or terminal truth wins without being overwritten. Already
+failed actions are returned as review evidence and are never silently omitted.
+Only `executing` or `booked` plans can claim recovery. Completed, archived, or
+otherwise ineligible plans return non-mutating blocked-handoff evidence so the
+UI offers review rather than a retry that cannot succeed.
+
+The approval supersession command uses the same aggregate-root lock discipline:
+plan, then action, then approval. It revalidates the unlocked identity hint and
+locked plan owner before creating a successor. This keeps stale-quote recovery
+from deadlocking against resume/reapproval commands or applying a successor to
+the wrong aggregate.
 
 Future calls to the existing `materialize_builder_event_with_access` RPC are
 linked by a compatibility trigger after its current atomic billing operation.

@@ -130,6 +130,23 @@ describe('planner canonical event outcome route', () => {
     expect(await response.json()).toEqual(expect.objectContaining({ code: responseCode }))
   })
 
+  it('maps a PostgreSQL deadlock to a retryable outcome conflict', async () => {
+    const rpc = jest.fn().mockResolvedValue({
+      data: null,
+      error: { message: 'deadlock detected', code: '40P01' },
+    })
+    mockClients({ rpc })
+
+    const response = await POST(request('POST', { notes: 'Outcome notes' }), context())
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      code: 'outcome_retryable_conflict',
+      retryable: true,
+      error: expect.stringContaining('Refresh'),
+    }))
+  })
+
   it('does not reveal plan state to an unauthenticated caller', async () => {
     ;(createClient as jest.Mock).mockReturnValue({
       auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null }, error: { message: 'missing' } }) },

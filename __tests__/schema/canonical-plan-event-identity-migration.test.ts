@@ -130,6 +130,31 @@ describe('canonical plan and event identity migration', () => {
     expect(migration).not.toMatch(/p_(is_)?completed\s+BOOLEAN/i)
   })
 
+  it('records outcomes with an unlocked identity read followed by plan then event locks', () => {
+    const outcomeFunction = migration.match(
+      /CREATE OR REPLACE FUNCTION public\.record_plan_event_outcome\([\s\S]+?\n\$function\$;/,
+    )?.[0] ?? ''
+    const identityRead = outcomeFunction.indexOf('SELECT event_row.plan_id')
+    const identityValidation = outcomeFunction.indexOf('IF NOT FOUND', identityRead)
+    const planLock = outcomeFunction.indexOf('SELECT plan_row.*', identityValidation)
+    const eventLock = outcomeFunction.indexOf('SELECT event_row.*', planLock)
+    const actorCheck = outcomeFunction.indexOf('v_plan.user_id IS DISTINCT FROM p_actor_id', eventLock)
+    const lifecycleChecks = outcomeFunction.indexOf("IF v_plan.status::TEXT = 'completed'", actorCheck)
+
+    expect(identityRead).toBeGreaterThan(-1)
+    expect(outcomeFunction.slice(identityRead, identityValidation)).not.toContain('FOR UPDATE')
+    expect(planLock).toBeGreaterThan(identityValidation)
+    expect(eventLock).toBeGreaterThan(planLock)
+    expect(actorCheck).toBeGreaterThan(eventLock)
+    expect(lifecycleChecks).toBeGreaterThan(actorCheck)
+    expect(outcomeFunction.slice(planLock, eventLock)).toContain('FOR UPDATE')
+    expect(outcomeFunction.slice(eventLock, lifecycleChecks)).toContain('FOR UPDATE')
+    expect(outcomeFunction).toContain('plan_row.id = v_identity_plan_id')
+    expect(outcomeFunction).toContain('plan_row.materialized_event_id = p_event_id')
+    expect(outcomeFunction).toContain('event_row.plan_id = v_plan.id')
+    expect(outcomeFunction).toContain('v_event.plan_id IS DISTINCT FROM v_identity_plan_id')
+  })
+
   it('connects templates and future legacy materializations without changing purchase safety', () => {
     expect(migration).toContain('ADD COLUMN IF NOT EXISTS source_event_id UUID')
     expect(migration).toContain('REFERENCES public.events(id) ON DELETE SET NULL')

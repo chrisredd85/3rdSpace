@@ -74,7 +74,7 @@ describe('plan vendor selections', () => {
     expect(estimateCommittedPriceCents(35, 'per_person', 40)).toBe(140000)
   })
 
-  it('uses the canonical plan event before legacy metadata lineage', () => {
+  it('uses only the canonical plan event identity', () => {
     expect(getPlanSourceEventId({
       materialized_event_id: 'canonical-event',
       metadata: { event_id: 'legacy-event' },
@@ -82,6 +82,6 @@ describe('plan vendor selections', () => {
     expect(getPlanSourceEventId({
       materialized_event_id: null,
       metadata: { event_id: 'legacy-event' },
-    } as Plan)).toBe('legacy-event')
+    } as Plan)).toBeNull()
   })
 })

@@ -128,7 +128,7 @@ async function getPlanSourceEventId(admin: any, userId: string, planId?: string 
 
   const { data: plan, error } = await admin
     .from('plans')
-    .select('id, user_id, materialized_event_id, metadata')
+    .select('id, user_id, materialized_event_id')
     .eq('id', planId)
     .eq('user_id', userId)
     .maybeSingle()

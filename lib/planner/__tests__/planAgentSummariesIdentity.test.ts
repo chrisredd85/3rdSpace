@@ -43,6 +43,26 @@ describe('plan agent summaries canonical event identity', () => {
       'event_financial_summary',
     ]))
   })
+
+  it('does not query operating records from legacy metadata lineage', async () => {
+    const db = buildDb()
+
+    await loadPlanAgentFields({
+      db: db.client,
+      plan: buildPlan({
+        materialized_event_id: null,
+        metadata: { event_id: 'legacy-event' },
+      }),
+      userId: 'user-1',
+    })
+
+    expect(db.tables).not.toEqual(expect.arrayContaining([
+      'event_tasks',
+      'venue_bookings',
+      'vendor_bookings',
+      'event_financial_summary',
+    ]))
+  })
 })
 
 function buildPlan(overrides: Partial<Plan>): Plan {

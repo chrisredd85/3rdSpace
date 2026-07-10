@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'next/navigation'
 import {
   Activity,
   AlertTriangle,
@@ -150,9 +151,24 @@ const emptyTicketingSummary: TicketingSummary = {
 }
 
 export default function PlannerAnalyticsPage() {
+  return (
+    <Suspense fallback={<PageShell><EmptyState title="Loading analytics" body="Preparing your planner scorecard." /></PageShell>}>
+      <PlannerAnalyticsContent />
+    </Suspense>
+  )
+}
+
+function PlannerAnalyticsContent() {
+  const searchParams = useSearchParams()
   const { user, isLoading: isUserLoading, error: userError } = useUser()
   const userId = user?.id || null
   const { data: events = [], isLoading: isEventsLoading } = useEvents(userId)
+  const requestedEventId = normalizeEventId(searchParams.get('eventId'))
+  const requestedEventLookupId = userId ? requestedEventId : null
+  const {
+    data: requestedEventDetails,
+    isLoading: isRequestedEventLoading,
+  } = useEvent(requestedEventLookupId)
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const { data: selectedEventDetails } = useEvent(selectedEventId)
   const [loadState, setLoadState] = useState<LoadState>({
@@ -162,17 +178,29 @@ export default function PlannerAnalyticsPage() {
   })
 
   const sortedEvents = useMemo(() => {
-    return [...events].sort((first, second) => {
+    const ownedEvents = [...events]
+    if (
+      requestedEventId &&
+      requestedEventDetails?.id === requestedEventId &&
+      !ownedEvents.some((event) => event.id === requestedEventId)
+    ) {
+      ownedEvents.push(requestedEventDetails)
+    }
+    return ownedEvents.sort((first, second) => {
       const firstDate = Date.parse(first.event_date ?? '')
       const secondDate = Date.parse(second.event_date ?? '')
       return (Number.isNaN(secondDate) ? 0 : secondDate) - (Number.isNaN(firstDate) ? 0 : firstDate)
     })
-  }, [events])
+  }, [events, requestedEventDetails, requestedEventId])
 
   useEffect(() => {
-    if (selectedEventId && sortedEvents.some((event) => event.id === selectedEventId)) return
-    setSelectedEventId(sortedEvents[0]?.id ?? null)
-  }, [selectedEventId, sortedEvents])
+    if (requestedEventId && isRequestedEventLoading) return
+    setSelectedEventId((currentEventId) => selectOwnedAnalyticsEventId({
+      events: sortedEvents,
+      currentEventId,
+      requestedEventId,
+    }))
+  }, [isRequestedEventLoading, requestedEventId, sortedEvents])
 
   useEffect(() => {
     if (!selectedEventId) {
@@ -265,7 +293,7 @@ export default function PlannerAnalyticsPage() {
     return <PageShell><EmptyState title="Please log in" body="Planner analytics are available after signing in." tone="warning" /></PageShell>
   }
 
-  if (!isEventsLoading && sortedEvents.length === 0) {
+  if (!isEventsLoading && !isRequestedEventLoading && sortedEvents.length === 0) {
     return (
       <PageShell>
         <EmptyState
@@ -601,6 +629,34 @@ export default function PlannerAnalyticsPage() {
       )}
     </PageShell>
   )
+}
+
+function selectOwnedAnalyticsEventId(input: {
+  events: Array<Pick<EventWithRelations, 'id'>>
+  currentEventId: string | null
+  requestedEventId: string | null
+}): string | null {
+  if (
+    input.requestedEventId &&
+    input.events.some((event) => event.id === input.requestedEventId)
+  ) {
+    return input.requestedEventId
+  }
+
+  if (
+    input.currentEventId &&
+    input.events.some((event) => event.id === input.currentEventId)
+  ) {
+    return input.currentEventId
+  }
+
+  return input.events[0]?.id ?? null
+}
+
+function normalizeEventId(value: string | null): string | null {
+  return value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : null
 }
 
 async function loadAnalytics(eventId: string, recalculate: boolean, signal?: AbortSignal): Promise<AnalyticsState> {

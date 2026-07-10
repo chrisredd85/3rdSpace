@@ -232,6 +232,16 @@ function mapOutcomeError(error: { code?: string; message?: string; details?: str
       { status: 409 }
     )
   }
+  if (error.code === '40P01' || /deadlock/i.test(text)) {
+    return NextResponse.json(
+      {
+        error: 'Another event update completed at the same time. Refresh and retry the outcome.',
+        code: 'outcome_retryable_conflict',
+        retryable: true,
+      },
+      { status: 409 }
+    )
+  }
   if (/idempotency_conflict/i.test(text) || error.code === '40001') {
     return NextResponse.json(
       { error: 'An outcome is already recorded with different evidence', code: 'outcome_conflict' },

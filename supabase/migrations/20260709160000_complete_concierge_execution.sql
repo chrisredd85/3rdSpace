@@ -689,6 +689,7 @@ SECURITY INVOKER
 SET search_path = public, pg_temp
 AS $function$
 DECLARE
+  v_task_ref public.admin_tasks%ROWTYPE;
   v_task public.admin_tasks%ROWTYPE;
   v_action public.agent_actions%ROWTYPE;
   v_now TIMESTAMPTZ := clock_timestamp();
@@ -712,6 +713,57 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
+  -- Resolve identity without a row lock, then acquire the same lifecycle lock
+  -- order used by enqueue/retry: plan -> action -> approval -> task. The task
+  -- is revalidated after it is locked so a concurrent identity change fails
+  -- closed instead of being applied to a different aggregate.
+  SELECT task_row.*
+  INTO v_task_ref
+  FROM public.admin_tasks AS task_row
+  WHERE task_row.id = p_task_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'complete_admin_task_execution_task_not_found'
+      USING ERRCODE = 'P0002';
+  END IF;
+
+  PERFORM plan_row.id
+  FROM public.plans AS plan_row
+  WHERE plan_row.id = v_task_ref.plan_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'complete_admin_task_execution_plan_not_found'
+      USING ERRCODE = 'P0002';
+  END IF;
+
+  IF v_task_ref.agent_action_id IS NOT NULL THEN
+    SELECT action_row.*
+    INTO v_action
+    FROM public.agent_actions AS action_row
+    WHERE action_row.id = v_task_ref.agent_action_id
+      AND action_row.plan_id = v_task_ref.plan_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'complete_admin_task_execution_action_not_completable'
+        USING ERRCODE = '23514';
+    END IF;
+
+    PERFORM approval_row.id
+    FROM public.approvals AS approval_row
+    WHERE approval_row.id = v_task_ref.approval_id
+      AND approval_row.plan_id = v_task_ref.plan_id
+      AND approval_row.agent_action_id = v_task_ref.agent_action_id
+      AND v_action.approval_id = approval_row.id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'complete_admin_task_execution_approval_not_completable'
+        USING ERRCODE = '23514';
+    END IF;
+  END IF;
+
   SELECT task_row.*
   INTO v_task
   FROM public.admin_tasks AS task_row
@@ -721,6 +773,14 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'complete_admin_task_execution_task_not_found'
       USING ERRCODE = 'P0002';
+  END IF;
+  IF v_task.plan_id IS DISTINCT FROM v_task_ref.plan_id
+    OR v_task.agent_action_id IS DISTINCT FROM v_task_ref.agent_action_id
+    OR v_task.approval_id IS DISTINCT FROM v_task_ref.approval_id
+    OR v_task.event_id IS DISTINCT FROM v_task_ref.event_id
+  THEN
+    RAISE EXCEPTION 'complete_admin_task_execution_identity_conflict'
+      USING ERRCODE = '40001';
   END IF;
 
   IF v_task.status = 'complete' THEN
@@ -736,14 +796,7 @@ BEGIN
   END IF;
 
   IF v_task.agent_action_id IS NOT NULL THEN
-    SELECT action_row.*
-    INTO v_action
-    FROM public.agent_actions AS action_row
-    WHERE action_row.id = v_task.agent_action_id
-      AND action_row.plan_id = v_task.plan_id
-    FOR UPDATE;
-
-    IF NOT FOUND OR v_action.status NOT IN ('approved', 'executing', 'complete') THEN
+    IF v_action.status NOT IN ('approved', 'executing', 'complete') THEN
       RAISE EXCEPTION 'complete_admin_task_execution_action_not_completable'
         USING ERRCODE = '23514';
     END IF;
@@ -911,7 +964,9 @@ SECURITY INVOKER
 SET search_path = public, pg_temp
 AS $function$
 DECLARE
+  v_task_ref public.admin_tasks%ROWTYPE;
   v_task public.admin_tasks%ROWTYPE;
+  v_plan public.plans%ROWTYPE;
   v_action public.agent_actions%ROWTYPE;
   v_now TIMESTAMPTZ := clock_timestamp();
   v_host_message TEXT;
@@ -927,6 +982,55 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
+  -- Match enqueue and completion lock order: plan -> action -> approval -> task.
+  SELECT task_row.*
+  INTO v_task_ref
+  FROM public.admin_tasks AS task_row
+  WHERE task_row.id = p_task_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'cancel_admin_task_execution_task_not_found'
+      USING ERRCODE = 'P0002';
+  END IF;
+
+  SELECT plan_row.*
+  INTO v_plan
+  FROM public.plans AS plan_row
+  WHERE plan_row.id = v_task_ref.plan_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'cancel_admin_task_execution_plan_not_found'
+      USING ERRCODE = 'P0002';
+  END IF;
+
+  IF v_task_ref.agent_action_id IS NOT NULL THEN
+    SELECT action_row.*
+    INTO v_action
+    FROM public.agent_actions AS action_row
+    WHERE action_row.id = v_task_ref.agent_action_id
+      AND action_row.plan_id = v_task_ref.plan_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'cancel_admin_task_execution_action_not_cancellable'
+        USING ERRCODE = '23514';
+    END IF;
+
+    PERFORM approval_row.id
+    FROM public.approvals AS approval_row
+    WHERE approval_row.id = v_task_ref.approval_id
+      AND approval_row.plan_id = v_task_ref.plan_id
+      AND approval_row.agent_action_id = v_task_ref.agent_action_id
+      AND v_action.approval_id = approval_row.id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'cancel_admin_task_execution_approval_not_cancellable'
+        USING ERRCODE = '23514';
+    END IF;
+  END IF;
+
   SELECT task_row.*
   INTO v_task
   FROM public.admin_tasks AS task_row
@@ -936,6 +1040,14 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'cancel_admin_task_execution_task_not_found'
       USING ERRCODE = 'P0002';
+  END IF;
+  IF v_task.plan_id IS DISTINCT FROM v_task_ref.plan_id
+    OR v_task.agent_action_id IS DISTINCT FROM v_task_ref.agent_action_id
+    OR v_task.approval_id IS DISTINCT FROM v_task_ref.approval_id
+    OR v_task.event_id IS DISTINCT FROM v_task_ref.event_id
+  THEN
+    RAISE EXCEPTION 'cancel_admin_task_execution_identity_conflict'
+      USING ERRCODE = '40001';
   END IF;
 
   IF v_task.status = 'cancelled' THEN
@@ -949,14 +1061,7 @@ BEGIN
   v_before_task := to_jsonb(v_task);
 
   IF v_task.agent_action_id IS NOT NULL THEN
-    SELECT action_row.*
-    INTO v_action
-    FROM public.agent_actions AS action_row
-    WHERE action_row.id = v_task.agent_action_id
-      AND action_row.plan_id = v_task.plan_id
-    FOR UPDATE;
-
-    IF NOT FOUND OR v_action.status NOT IN ('approved', 'executing', 'cancelled') THEN
+    IF v_action.status NOT IN ('approved', 'executing', 'cancelled') THEN
       RAISE EXCEPTION 'cancel_admin_task_execution_action_not_cancellable'
         USING ERRCODE = '23514';
     END IF;
@@ -1001,7 +1106,7 @@ BEGIN
       v_action.status,
       'cancelled',
       p_actor_id,
-      CASE WHEN p_actor_id = (SELECT user_id FROM public.plans WHERE id = v_task.plan_id)
+      CASE WHEN p_actor_id = v_plan.user_id
         THEN 'user' ELSE 'admin' END,
       'concierge.task_cancelled',
       jsonb_build_object('task_id', v_task.id, 'reason', NULLIF(btrim(p_reason), ''))

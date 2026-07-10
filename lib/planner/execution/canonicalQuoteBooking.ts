@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import type { AgentAction, Approval, Json, Plan } from '@/lib/types'
 import {
+  executeGenericConciergeHandoff,
+  type ConciergeExecutionDb,
+} from '@/lib/server/concierge-execution'
+import {
   APPROVAL_SNAPSHOT_SCHEMA_VERSION,
   buildApprovalSnapshotHashV2,
   buildApprovalSnapshotV2,
@@ -22,15 +26,17 @@ type TrustedQuote = {
   discoveryId: string
   partnerName: string
   serviceType: string | null
-  amountCents: number
+  amountCents: number | null
   dealModel: string | null
   terms: Record<string, unknown>
 }
 
 export type CanonicalQuoteBookingExecutionResult = {
-  disposition: 'executing' | 'waiting'
+  disposition: 'executing' | 'complete' | 'waiting'
   metadata: Record<string, unknown>
 }
+
+type CanonicalQuoteBookingReapprovalReason = 'approval_expired' | 'approval_stale'
 
 export type StagedCanonicalQuoteBooking = {
   existing: boolean
@@ -87,7 +93,7 @@ export async function stageCanonicalQuoteBooking(input: {
   const acceptsBeforeMaterialization = !input.plan.materialized_event_id &&
     ['drafting', 'ready'].includes(input.plan.status)
   const acceptsAfterMaterialization = Boolean(input.plan.materialized_event_id) &&
-    input.plan.status === 'executing'
+    ['executing', 'booked'].includes(input.plan.status)
   if (!acceptsBeforeMaterialization && !acceptsAfterMaterialization) {
     throw new Error('canonical_quote_booking_plan_requires_reapproval')
   }
@@ -95,6 +101,10 @@ export async function stageCanonicalQuoteBooking(input: {
 
   const quote = await loadTrustedQuote(input.db, input.quoteKind, input.responseId, input.plan.id)
   if (!quote) throw new Error('canonical_quote_booking_response_not_found')
+  if (quote.amountCents === null && !isExplicitZeroUpfrontQuote(quote)) {
+    throw new Error('canonical_quote_booking_price_required')
+  }
+  const amountCents = quote.amountCents ?? 0
 
   const actionId = randomUUID()
   const approvalId = randomUUID()
@@ -109,8 +119,8 @@ export async function stageCanonicalQuoteBooking(input: {
     target_type: targetType,
     target_id: quote.discoveryId,
     target_name: quote.partnerName,
-    requested_amount_cents: quote.amountCents,
-    price_cents: quote.amountCents,
+    requested_amount_cents: amountCents,
+    price_cents: amountCents,
     event_date: eventDate,
     service_type: quote.serviceType,
     quoted_deal_model: quote.dealModel,
@@ -125,16 +135,16 @@ export async function stageCanonicalQuoteBooking(input: {
     action_type: 'concierge_queue' as const,
     target_type: targetType,
     target_id: quote.discoveryId,
-    amount_cents: quote.amountCents,
+    amount_cents: amountCents,
     payload_json: actionPayload as unknown as Json,
   }
   const approvalForSnapshot = {
     action_label: `Approve booking request with ${quote.partnerName}`,
     provider: quote.partnerName,
     event_date: eventDate,
-    price_cents: quote.amountCents,
+    price_cents: amountCents,
     fees_cents: 0,
-    requested_amount_cents: quote.amountCents,
+    requested_amount_cents: amountCents,
     package_details: quote.kind === 'venue'
       ? quote.dealModel ?? 'Venue quote'
       : quote.serviceType ?? 'Vendor service',
@@ -271,6 +281,11 @@ export async function executeCanonicalQuoteBooking(input: {
   }
   if (!input.db.rpc) throw new Error('canonical_quote_booking_rpc_unavailable')
 
+  const reapprovalReason = canonicalQuoteBookingReapprovalReason(input.action, input.approval)
+  if (reapprovalReason) {
+    return canonicalQuoteBookingReapprovalResult(input.action, input.approval, reapprovalReason)
+  }
+
   const currentPlan = await ensureCanonicalQuoteBookingPlanApproved(input)
   if (!currentPlan.materialized_event_id) {
     return {
@@ -290,7 +305,18 @@ export async function executeCanonicalQuoteBooking(input: {
     p_approval_id: input.approval.id,
     p_actor_id: input.actorId,
   })
-  if (error) throw new Error(readDatabaseError(error))
+  if (error) {
+    const databaseError = readDatabaseError(error)
+    const databaseReapprovalReason = canonicalQuoteBookingDatabaseReapprovalReason(databaseError)
+    if (databaseReapprovalReason) {
+      return canonicalQuoteBookingReapprovalResult(
+        input.action,
+        input.approval,
+        databaseReapprovalReason,
+      )
+    }
+    throw new Error(databaseError)
+  }
   const result = readRecord(data)
   if (!result) throw new Error('canonical_quote_booking_execution_returned_no_result')
 
@@ -336,7 +362,12 @@ export async function cancelExecutingCanonicalQuoteBooking(input: {
     p_actor_id: input.actorId,
     p_reason: input.reason.trim(),
   })
-  if (error) throw new Error(readDatabaseError(error))
+  if (error) {
+    if (error.code === '40P01') {
+      throw new Error('canonical_quote_booking_cancel_retryable_conflict 40P01')
+    }
+    throw new Error(readDatabaseError(error))
+  }
   const result = readRecord(data)
   if (!result) throw new Error('canonical_quote_booking_cancel_returned_no_result')
 
@@ -373,82 +404,441 @@ export async function resumeCanonicalQuoteBookingsAfterMaterialization(input: {
     .select(ACTION_SELECT)
     .eq('plan_id', input.planId)
     .contains('payload_json', { kind: 'canonical_quote_booking' })
-    .in('status', ['approved', 'executing'])
+    .in('status', ['approved', 'executing', 'failed'])
     .order('created_at', { ascending: true })
   if (actionsError) throw new Error(actionsError.message)
 
   const actions = (Array.isArray(actionsData) ? actionsData : []) as AgentAction[]
   if (actions.length === 0) return []
-  const actionIds = actions.map((action) => action.id)
-  const { data: approvalsData, error: approvalsError } = await input.db
-    .from('approvals')
-    .select(APPROVAL_SELECT)
-    .in('agent_action_id', actionIds)
-    .in('status', ['approved', 'authorized'])
-  if (approvalsError) throw new Error(approvalsError.message)
+  const planStatus = readString(readRecord(planData)?.status) ?? 'unknown'
+  if (!isCanonicalQuoteBookingResumePlanStatus(planStatus)) {
+    return loadCanonicalQuoteBookingBlockedPlanResults(
+      input.db,
+      actions,
+      input.planId,
+      planStatus,
+    )
+  }
+  const approvalIds = [...new Set(
+    actions
+      .map((action) => readString(action.approval_id))
+      .filter((approvalId): approvalId is string => Boolean(approvalId))
+  )]
+  let approvalsData: unknown[] = []
+  if (approvalIds.length > 0) {
+    const { data, error } = await input.db
+      .from('approvals')
+      .select(APPROVAL_SELECT)
+      .in('id', approvalIds)
+      .in('status', ['approved', 'authorized', 'expired', 're_approval_required'])
+    if (error) throw new Error(error.message)
+    approvalsData = Array.isArray(data) ? data : []
+  }
 
-  const approvalsByAction = new Map(
-    ((Array.isArray(approvalsData) ? approvalsData : []) as Approval[])
-      .map((approval) => [approval.agent_action_id, approval])
+  const approvalsById = new Map(
+    (approvalsData as Approval[])
+      .map((approval) => [approval.id, approval])
   )
   const results: CanonicalQuoteBookingExecutionResult[] = []
   for (const originalAction of actions) {
-    const approval = approvalsByAction.get(originalAction.id)
-    if (!approval) continue
-    let action = originalAction
+    let action = await loadCanonicalQuoteBookingAction(input.db, originalAction.id, input.planId)
+    if (!action) continue
+    if (isTerminalAgentActionStatus(action.status)) {
+      results.push(canonicalQuoteBookingTerminalActionResult(action))
+      continue
+    }
+    if (action.status !== 'approved' && action.status !== 'executing') continue
 
+    const currentApprovalId = readString(action.approval_id)
+    const approval = currentApprovalId ? approvalsById.get(currentApprovalId) : null
+    if (
+      !approval ||
+      approval.agent_action_id !== action.id ||
+      approval.plan_id !== input.planId
+    ) continue
+
+    const existingExecution = canonicalQuoteBookingExistingExecutionResult(action)
+    if (existingExecution) {
+      results.push(existingExecution)
+      continue
+    }
+
+    const reapprovalReason = canonicalQuoteBookingReapprovalReason(action, approval)
+    if (reapprovalReason) {
+      const persistedApproval = await markCanonicalQuoteBookingReapprovalRequired(
+        input.db,
+        action,
+        approval,
+        reapprovalReason,
+        input.actorId,
+      )
+      results.push(canonicalQuoteBookingReapprovalResult(action, persistedApproval, reapprovalReason))
+      continue
+    }
+
+    // Claim execution before the RPC can create a partner-visible booking. A
+    // failed CAS reloads current truth, so concurrent complete/cancel evidence
+    // wins and no stale resume call can start or overwrite terminal work.
     if (action.status === 'approved') {
-      const nextMetadata = {
-        ...(readRecord(action.result_metadata) ?? {}),
-        canonical_booking_status: 'resuming_after_event_materialization',
-      }
-      const { data: updated, error } = await input.db
-        .from('agent_actions')
-        .update({ status: 'executing', result_metadata: nextMetadata })
-        .eq('id', action.id)
-        .eq('plan_id', input.planId)
-        .eq('status', 'approved')
-        .select(ACTION_SELECT)
-        .maybeSingle()
-      if (error) throw new Error(error.message)
-      if (updated) {
-        const { error: auditError } = await input.db.from('agent_action_audit_log').insert({
-          action_id: action.id,
-          plan_id: input.planId,
-          from_status: 'approved',
-          to_status: 'executing',
-          actor_id: input.actorId,
-          actor_role: 'user',
-          reason: 'canonical_quote_booking.materialization_resume',
-          metadata: nextMetadata,
-        })
-        if (auditError) throw new Error(auditError.message)
-        action = updated as AgentAction
+      try {
+        action = await claimCanonicalQuoteBookingMaterializationResume(
+          input.db,
+          action,
+          approval,
+          input.actorId,
+        )
+      } catch (claimError) {
+        const blocked = await loadCanonicalQuoteBookingPlanRaceResult(
+          input.db,
+          action.id,
+          input.planId,
+          input.actorId,
+        )
+        if (blocked) {
+          results.push(blocked)
+          continue
+        }
+        throw claimError
       }
     }
 
-    const result = await executeCanonicalQuoteBooking({
-      db: input.db,
-      action,
-      approval,
-      plan: planData as Plan,
-      actorId: input.actorId,
-    })
+    if (isTerminalAgentActionStatus(action.status)) {
+      results.push(canonicalQuoteBookingTerminalActionResult(action))
+      continue
+    }
+    if (action.status !== 'executing') {
+      throw new Error('canonical_quote_booking_resume_status_conflict')
+    }
+
+    let result: CanonicalQuoteBookingExecutionResult
+    try {
+      result = await executeCanonicalQuoteBooking({
+        db: input.db,
+        action,
+        approval,
+        plan: planData as Plan,
+        actorId: input.actorId,
+      })
+    } catch (executionError) {
+      const reloaded = await loadCanonicalQuoteBookingAction(input.db, action.id, input.planId)
+      if (reloaded && isTerminalAgentActionStatus(reloaded.status)) {
+        results.push(canonicalQuoteBookingTerminalActionResult(reloaded))
+        continue
+      }
+      const blocked = await loadCanonicalQuoteBookingPlanRaceResult(
+        input.db,
+        action.id,
+        input.planId,
+        input.actorId,
+      )
+      if (blocked) {
+        results.push(blocked)
+        continue
+      }
+      throw executionError
+    }
+
+    if (result.metadata.reapproval_required === true) {
+      const persistedApproval = await markCanonicalQuoteBookingReapprovalRequired(
+        input.db,
+        action,
+        approval,
+        readString(result.metadata.reapproval_reason) === 'approval_stale'
+          ? 'approval_stale'
+          : 'approval_expired',
+        input.actorId,
+      )
+      results.push({
+        ...result,
+        metadata: { ...result.metadata, approval_id: persistedApproval.id },
+      })
+      continue
+    }
+
+    if (result.metadata.requires_concierge === true) {
+      const queued = await executeGenericConciergeHandoff({
+        db: input.db as ConciergeExecutionDb,
+        action,
+        approval,
+        plan: planData as Plan,
+        actorId: input.actorId,
+      }, {
+        description: `Claim or coordinate the approved ${String(result.metadata.quote_kind ?? 'partner')} quote before creating its canonical booking.`,
+        hostMessage: '3rdPlace queued the approved quote for operator follow-up because the partner is not claimed. Nothing has been booked or paid.',
+        metadata: result.metadata,
+      })
+      if (!queued.handled) throw new Error(queued.reason)
+      result = {
+        disposition: queued.disposition,
+        metadata: { ...result.metadata, ...queued.metadata },
+      }
+    }
+
     const mergedMetadata = {
       ...(readRecord(action.result_metadata) ?? {}),
       ...result.metadata,
       agent_action_id: action.id,
     }
-    const { error: metadataError } = await input.db
+    const { data: metadataUpdated, error: metadataError } = await input.db
       .from('agent_actions')
       .update({ result_metadata: mergedMetadata })
       .eq('id', action.id)
       .eq('plan_id', input.planId)
+      .eq('status', 'executing')
+      .select(ACTION_SELECT)
+      .maybeSingle()
     if (metadataError) throw new Error(metadataError.message)
+    if (!metadataUpdated) {
+      const reloaded = await loadCanonicalQuoteBookingAction(input.db, action.id, input.planId)
+      if (reloaded && isTerminalAgentActionStatus(reloaded.status)) {
+        result = canonicalQuoteBookingTerminalActionResult(reloaded)
+      } else {
+        throw new Error('canonical_quote_booking_resume_metadata_status_conflict')
+      }
+    }
     results.push(result)
   }
 
   return results
+}
+
+async function loadCanonicalQuoteBookingBlockedPlanResults(
+  db: PlannerDb,
+  actions: AgentAction[],
+  planId: string,
+  planStatus: string,
+): Promise<CanonicalQuoteBookingExecutionResult[]> {
+  const results: CanonicalQuoteBookingExecutionResult[] = []
+  for (const originalAction of actions) {
+    const action = await loadCanonicalQuoteBookingAction(db, originalAction.id, planId)
+    if (!action) continue
+    if (isTerminalAgentActionStatus(action.status)) {
+      results.push(canonicalQuoteBookingTerminalActionResult(action))
+      continue
+    }
+    if (action.status === 'approved' || action.status === 'executing') {
+      results.push(canonicalQuoteBookingPlanStatusBlockedResult(action, planStatus))
+    }
+  }
+  return results
+}
+
+async function loadCanonicalQuoteBookingPlanRaceResult(
+  db: PlannerDb,
+  actionId: string,
+  planId: string,
+  actorId: string,
+): Promise<CanonicalQuoteBookingExecutionResult | null> {
+  const { data, error } = await db
+    .from('plans')
+    .select('id, user_id, status, materialized_event_id')
+    .eq('id', planId)
+    .eq('user_id', actorId)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  const planStatus = readString(readRecord(data)?.status)
+  if (!planStatus || isCanonicalQuoteBookingResumePlanStatus(planStatus)) return null
+
+  const action = await loadCanonicalQuoteBookingAction(db, actionId, planId)
+  if (!action) return null
+  if (isTerminalAgentActionStatus(action.status)) {
+    return canonicalQuoteBookingTerminalActionResult(action)
+  }
+  return action.status === 'approved' || action.status === 'executing'
+    ? canonicalQuoteBookingPlanStatusBlockedResult(action, planStatus)
+    : null
+}
+
+function isCanonicalQuoteBookingResumePlanStatus(status: string): boolean {
+  return status === 'executing' || status === 'booked'
+}
+
+function canonicalQuoteBookingPlanStatusBlockedResult(
+  action: AgentAction,
+  planStatus: string,
+): CanonicalQuoteBookingExecutionResult {
+  return {
+    disposition: 'waiting',
+    metadata: {
+      ...(readRecord(action.result_metadata) ?? {}),
+      canonical_booking_status: 'resume_blocked_plan_status',
+      resume_blocked: true,
+      recovery_required: true,
+      resume_blocked_reason: 'plan_status_not_executable',
+      plan_status: planStatus,
+      agent_action_id: action.id,
+      approval_id: action.approval_id,
+      action_status: action.status,
+    },
+  }
+}
+
+async function claimCanonicalQuoteBookingMaterializationResume(
+  db: PlannerDb,
+  action: AgentAction,
+  approval: Approval,
+  actorId: string,
+): Promise<AgentAction> {
+  if (!db.rpc) throw new Error('canonical_quote_booking_resume_claim_rpc_unavailable')
+  const { data, error } = await db.rpc('claim_canonical_quote_booking_materialization_resume', {
+    p_plan_id: action.plan_id,
+    p_agent_action_id: action.id,
+    p_approval_id: approval.id,
+    p_actor_id: actorId,
+    p_expected_snapshot_hash: approval.snapshot_hash,
+  })
+  if (error) throw new Error(readDatabaseError(error))
+  const result = readRecord(data)
+  const claimedAction = readRecord(result?.agent_action)
+  if (
+    !claimedAction ||
+    !['executing', 'complete', 'cancelled', 'failed'].includes(readString(claimedAction.status) ?? '')
+  ) {
+    throw new Error('canonical_quote_booking_resume_claim_returned_incomplete_aggregate')
+  }
+  return claimedAction as unknown as AgentAction
+}
+
+async function loadCanonicalQuoteBookingAction(
+  db: PlannerDb,
+  actionId: string,
+  planId: string,
+): Promise<AgentAction | null> {
+  const { data, error } = await db
+    .from('agent_actions')
+    .select(ACTION_SELECT)
+    .eq('id', actionId)
+    .eq('plan_id', planId)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  return data as AgentAction | null
+}
+
+async function markCanonicalQuoteBookingReapprovalRequired(
+  db: PlannerDb,
+  action: AgentAction,
+  approval: Approval,
+  reason: CanonicalQuoteBookingReapprovalReason,
+  actorId: string,
+): Promise<Approval> {
+  if (!db.rpc) throw new Error('canonical_quote_booking_reapproval_rpc_unavailable')
+  const { data, error } = await db.rpc('require_canonical_quote_booking_reapproval', {
+    p_plan_id: action.plan_id,
+    p_agent_action_id: action.id,
+    p_approval_id: approval.id,
+    p_actor_id: actorId,
+    p_expected_snapshot_hash: approval.snapshot_hash,
+    p_reason: reason,
+  })
+  if (error) throw new Error(readDatabaseError(error))
+  const result = readRecord(data)
+  const persistedApproval = readRecord(result?.approval)
+  if (!result || result.disposition !== 'reapproval_required' || !persistedApproval) {
+    throw new Error('canonical_quote_booking_reapproval_returned_incomplete_aggregate')
+  }
+  return persistedApproval as unknown as Approval
+}
+
+function canonicalQuoteBookingReapprovalReason(
+  action: AgentAction,
+  approval: Approval,
+): CanonicalQuoteBookingReapprovalReason | null {
+  if (approval.status === 're_approval_required') return 'approval_stale'
+  if (action.status !== 'approved') return null
+  if (approval.status === 'expired') return 'approval_expired'
+  if (!approval.expires_at) return null
+  const expiresAt = Date.parse(approval.expires_at)
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now()
+    ? 'approval_expired'
+    : null
+}
+
+function canonicalQuoteBookingDatabaseReapprovalReason(
+  error: string,
+): CanonicalQuoteBookingReapprovalReason | null {
+  if (/expired|start_requires_unexpired|requires_executable_approval/i.test(error)) {
+    return 'approval_expired'
+  }
+  if (/requires_reapproval|approved_(?:date|amount)_mismatch|snapshot.*(?:stale|mismatch)/i.test(error)) {
+    return 'approval_stale'
+  }
+  return null
+}
+
+function canonicalQuoteBookingReapprovalResult(
+  action: AgentAction,
+  approval: Approval,
+  reason: CanonicalQuoteBookingReapprovalReason,
+): CanonicalQuoteBookingExecutionResult {
+  return {
+    disposition: 'waiting',
+    metadata: {
+      canonical_booking_status: 'reapproval_required',
+      reapproval_required: true,
+      reapproval_reason: reason,
+      approval_id: approval.id,
+      agent_action_id: action.id,
+      outbound_message_sent: false,
+    },
+  }
+}
+
+function canonicalQuoteBookingTerminalActionResult(
+  action: AgentAction,
+): CanonicalQuoteBookingExecutionResult {
+  const persistedMetadata = readRecord(action.result_metadata) ?? {}
+  return {
+    disposition: action.status === 'complete' ? 'complete' : 'waiting',
+    metadata: {
+      ...persistedMetadata,
+      canonical_booking_status: readString(persistedMetadata.canonical_booking_status) ?? action.status,
+      agent_action_id: action.id,
+      action_status: action.status,
+    },
+  }
+}
+
+function canonicalQuoteBookingExistingExecutionResult(
+  action: AgentAction,
+): CanonicalQuoteBookingExecutionResult | null {
+  if (action.status !== 'executing') return null
+  const persistedMetadata = readRecord(action.result_metadata)
+  const adminTaskId = readString(persistedMetadata?.admin_task_id)
+  if (adminTaskId) {
+    return {
+      disposition: 'executing',
+      metadata: {
+        ...persistedMetadata,
+        existing: true,
+        canonical_booking_status: readString(persistedMetadata?.canonical_booking_status) ??
+          'requires_concierge',
+        admin_task_id: adminTaskId,
+        agent_action_id: action.id,
+        action_status: action.status,
+      },
+    }
+  }
+  const bookingId = readString(persistedMetadata?.booking_id)
+  const bookingKind = readString(persistedMetadata?.booking_kind)
+  if (!bookingId || (bookingKind !== 'venue' && bookingKind !== 'vendor')) return null
+
+  return {
+    disposition: 'executing',
+    metadata: {
+      ...persistedMetadata,
+      existing: true,
+      canonical_booking_status: readString(persistedMetadata?.canonical_booking_status) ??
+        'pending_partner_confirmation',
+      booking_id: bookingId,
+      booking_kind: bookingKind,
+      agent_action_id: action.id,
+      action_status: action.status,
+    },
+  }
+}
+
+function isTerminalAgentActionStatus(status: AgentAction['status']): boolean {
+  return status === 'complete' || status === 'cancelled' || status === 'failed'
 }
 
 async function resolveCanonicalBookingDate(db: PlannerDb, plan: Plan): Promise<string> {
@@ -507,7 +897,7 @@ async function loadTrustedQuote(
       discoveryId,
       partnerName: readString(venue?.name) ?? 'Venue',
       serviceType: null,
-      amountCents: readNonnegativeInteger(row.quoted_price_cents),
+      amountCents: readNullableInteger(row.quoted_price_cents),
       dealModel: readString(row.quoted_deal_model),
       terms: buildQuoteTerms(row, {
         quoted_price_cents: readNullableInteger(row.quoted_price_cents),
@@ -537,7 +927,7 @@ async function loadTrustedQuote(
   if (!discoveryId) return null
   const amountCents = readNullableInteger(row.quoted_package_cents) ??
     readNullableInteger(row.quoted_minimum_cents) ??
-    readNullableInteger(row.quoted_hourly_cents) ?? 0
+    readNullableInteger(row.quoted_hourly_cents)
   return {
     kind,
     responseId,
@@ -571,6 +961,29 @@ function buildQuoteTerms(row: Record<string, unknown>, quote: Record<string, unk
   }
 }
 
+function isExplicitZeroUpfrontQuote(quote: TrustedQuote): boolean {
+  if (quote.kind !== 'venue') return false
+  const dealModel = quote.dealModel
+    ?.trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
+  return dealModel === 'free_space' ||
+    dealModel === 'complimentary' ||
+    dealModel === 'comped' ||
+    dealModel === 'chi' ||
+    dealModel === 'community_host_incentive' ||
+    dealModel === 'bar_consumption_chi' ||
+    dealModel === 'ticket_chi' ||
+    dealModel === 'per_head_chi' ||
+    dealModel === 'revenue_share' ||
+    dealModel === 'consumption_share' ||
+    dealModel === 'bar_revenue_share' ||
+    dealModel === 'bar_consumption_share' ||
+    dealModel === 'ticket_revenue_share' ||
+    dealModel === 'ticket_consumption_share'
+}
+
 function readDatabaseError(error: { code?: string; message?: string; details?: string; hint?: string }) {
   return [error.message, error.details, error.hint, error.code].filter(Boolean).join(' ')
 }
@@ -596,10 +1009,6 @@ function readNumber(value: unknown): number | null {
 
 function readNullableInteger(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
-}
-
-function readNonnegativeInteger(value: unknown): number {
-  return readNullableInteger(value) ?? 0
 }
 
 export const CANONICAL_QUOTE_BOOKING_SNAPSHOT_VERSION = APPROVAL_SNAPSHOT_SCHEMA_VERSION

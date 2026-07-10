@@ -67,11 +67,13 @@ const MUTATIONS = [
       response_id: RESPONSE_ID,
     }), context()),
     operation: 'stage',
+    quoteKind: 'venue',
   },
   {
     label: 'venue DELETE',
     invoke: () => cancelVenue(request('/commit-venue', 'DELETE', { response_id: RESPONSE_ID }), context()),
     operation: 'cancel',
+    quoteKind: 'venue',
   },
   {
     label: 'vendor POST',
@@ -79,6 +81,7 @@ const MUTATIONS = [
       response_id: RESPONSE_ID,
     }), context()),
     operation: 'stage',
+    quoteKind: 'vendor',
   },
   {
     label: 'vendor DELETE',
@@ -86,6 +89,7 @@ const MUTATIONS = [
       response_id: RESPONSE_ID,
     }), context()),
     operation: 'cancel',
+    quoteKind: 'vendor',
   },
 ]
 
@@ -94,15 +98,26 @@ const FROZEN_PLANS = [
   { label: 'approved plan', status: 'approved', materialized_event_id: null },
   { label: 'executing plan', status: 'executing', materialized_event_id: null },
   { label: 'booked plan', status: 'booked', materialized_event_id: null },
-  { label: 'completed plan', status: 'completed', materialized_event_id: null },
-  { label: 'legacy complete plan', status: 'complete', materialized_event_id: null },
-  { label: 'archived plan', status: 'archived', materialized_event_id: null },
+  { label: 'completed plan', status: 'completed', materialized_event_id: EVENT_ID },
+  { label: 'legacy complete plan', status: 'complete', materialized_event_id: EVENT_ID },
+  { label: 'archived plan', status: 'archived', materialized_event_id: EVENT_ID },
 ]
 
 const REJECTION_CASES = MUTATIONS.flatMap((mutation) =>
   FROZEN_PLANS.map((plan) => ({
     label: `${mutation.label} rejects ${plan.label}`,
     invoke: mutation.invoke,
+    plan,
+  }))
+)
+
+const ACTIVE_CANONICAL_CASES = MUTATIONS.flatMap((mutation) =>
+  [
+    { label: 'executing plan', status: 'executing' },
+    { label: 'booked plan', status: 'booked' },
+  ].map((plan) => ({
+    ...mutation,
+    label: `${mutation.label} accepts a materialized ${plan.label}`,
     plan,
   }))
 )
@@ -175,22 +190,36 @@ describe('partner quote commitments require a pre-authorization plan', () => {
     }
   })
 
-  it('accepts a new trusted quote on an executing plan with reciprocal event identity', async () => {
-    const executingPlan = buildPlan({ status: 'executing', materialized_event_id: EVENT_ID })
-    const db = buildDb(executingPlan)
+  it.each(ACTIVE_CANONICAL_CASES)('$label', async ({ invoke, operation, plan, quoteKind }) => {
+    const activePlan = buildPlan({ ...plan, materialized_event_id: EVENT_ID })
+    const db = buildDb(activePlan)
     mockClients(db)
 
-    const response = await commitVenue(request('/commit-venue', 'POST', {
-      response_id: RESPONSE_ID,
-    }), context())
+    const response = await invoke()
+    const payload = await response.json()
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual(expect.objectContaining({ canonical_event_id: EVENT_ID }))
-    expect(stageCanonicalQuoteBooking).toHaveBeenCalledWith(expect.objectContaining({
-      plan: executingPlan,
-      quoteKind: 'venue',
-      responseId: RESPONSE_ID,
+    expect(payload).toEqual(expect.objectContaining({
+      canonical_event_id: EVENT_ID,
+      booking_status: operation === 'stage' ? 'approval_required' : 'cancelled_before_authorization',
     }))
+    expect(createServiceRoleClient).toHaveBeenCalledTimes(1)
+    expect(recomputePlanDerivedState).toHaveBeenCalledTimes(1)
+    if (operation === 'stage') {
+      expect(stageCanonicalQuoteBooking).toHaveBeenCalledWith(expect.objectContaining({
+        plan: activePlan,
+        quoteKind,
+        responseId: RESPONSE_ID,
+      }))
+      expect(cancelStagedCanonicalQuoteBooking).not.toHaveBeenCalled()
+    } else {
+      expect(cancelStagedCanonicalQuoteBooking).toHaveBeenCalledWith(expect.objectContaining({
+        planId: PLAN_ID,
+        quoteKind,
+        responseId: RESPONSE_ID,
+      }))
+      expect(stageCanonicalQuoteBooking).not.toHaveBeenCalled()
+    }
   })
 })
 

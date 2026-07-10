@@ -126,13 +126,13 @@ describe('inviteVendor server action', () => {
     }))
   })
 
-  it('uses legacy metadata only when no canonical event FK exists', async () => {
+  it('does not use legacy metadata when no canonical event FK exists', async () => {
     planRow.materialized_event_id = null
 
     await inviteVendor(baseInviteInput({ planId }))
 
     expect(rpcMock).toHaveBeenCalledWith('create_vendor_invite', expect.objectContaining({
-      p_source_event_id: legacyEventId,
+      p_source_event_id: null,
     }))
   })
 

@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server'
-import { POST } from '@/app/api/planner/plans/[planId]/materialize/route'
+import { PATCH, POST } from '@/app/api/planner/plans/[planId]/materialize/route'
 import { resumeCanonicalQuoteBookingsAfterMaterialization } from '@/lib/planner/execution/canonicalQuoteBooking'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
@@ -112,7 +112,7 @@ describe('POST /api/planner/plans/[planId]/materialize', () => {
       event_id: EVENT_ID,
       existing: false,
       plan_status: 'executing',
-      booking_resume: { results: [], error: null },
+      booking_resume: { status: 'complete', results: [], error: null },
       event: expect.objectContaining({
         plan_id: PLAN_ID,
         event_type: 'founder_operator_dinner',
@@ -155,7 +155,194 @@ describe('POST /api/planner/plans/[planId]/materialize', () => {
 
     expect(await response.json()).toEqual(expect.objectContaining({
       event_id: EVENT_ID,
-      booking_resume: { results: [resumed], error: null },
+      booking_resume: { status: 'complete', results: [resumed], error: null },
+    }))
+  })
+
+  it('returns structured re-approval state when authorization expired before materialization', async () => {
+    const resumed = {
+      disposition: 'waiting',
+      metadata: {
+        canonical_booking_status: 'reapproval_required',
+        reapproval_required: true,
+        reapproval_reason: 'approval_expired',
+        approval_id: 'approval-expired',
+        agent_action_id: 'action-expired',
+      },
+    }
+    ;(resumeCanonicalQuoteBookingsAfterMaterialization as jest.Mock).mockResolvedValue([resumed])
+    const rpc = jest.fn().mockResolvedValue({
+      data: [{ event_id: EVENT_ID, existing: false, event_record: eventRecord, plan_status: 'executing' }],
+      error: null,
+    })
+    mockClients({ rpc })
+
+    const response = await POST(request(validSchedule()), context())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      event_id: EVENT_ID,
+      booking_resume: {
+        status: 'reapproval_required',
+        results: [resumed],
+        error: null,
+        reapproval: {
+          approval_ids: ['approval-expired'],
+          review_href: `/planner?plan=${encodeURIComponent(PLAN_ID)}&tab=approvals`,
+        },
+      },
+    }))
+  })
+
+  it('does not report a raced persisted failed action as a completed resume', async () => {
+    const failed = {
+      disposition: 'waiting',
+      metadata: {
+        canonical_booking_status: 'failed',
+        action_status: 'failed',
+        agent_action_id: 'action-failed',
+        failure_code: 'partner_handoff_interrupted',
+      },
+    }
+    ;(resumeCanonicalQuoteBookingsAfterMaterialization as jest.Mock).mockResolvedValue([failed])
+    const rpc = jest.fn().mockResolvedValue({
+      data: [{ event_id: EVENT_ID, existing: true, event_record: eventRecord, plan_status: 'executing' }],
+      error: null,
+    })
+    mockClients({ rpc, plan: { ...plan, status: 'executing', materialized_event_id: EVENT_ID } })
+
+    const response = await POST(request(validSchedule()), context())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      booking_resume: {
+        status: 'failed',
+        results: [failed],
+        error: 'canonical_quote_booking_action_failed',
+        recovery: {
+          action_ids: ['action-failed'],
+          review_href: `/planner?plan=${encodeURIComponent(PLAN_ID)}&tab=approvals`,
+          reason: 'action_failed',
+        },
+      },
+    }))
+  })
+
+  it('retries approved booking handoffs without rematerializing the event', async () => {
+    const resumed = {
+      disposition: 'executing',
+      metadata: { booking_id: 'booking-1', booking_status: 'pending', event_id: EVENT_ID },
+    }
+    ;(resumeCanonicalQuoteBookingsAfterMaterialization as jest.Mock).mockResolvedValue([resumed])
+    const rpc = jest.fn()
+    mockClients({ rpc, plan: { ...plan, status: 'executing', materialized_event_id: EVENT_ID } })
+
+    const response = await PATCH(
+      new Request(`http://localhost/api/planner/plans/${PLAN_ID}/materialize`, { method: 'PATCH' }) as NextRequest,
+      context(),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      event_id: EVENT_ID,
+      booking_resume: { status: 'complete', results: [resumed], error: null },
+    }))
+    expect(rpc).not.toHaveBeenCalled()
+    expect(resumeCanonicalQuoteBookingsAfterMaterialization).toHaveBeenCalledWith(expect.objectContaining({
+      planId: PLAN_ID,
+      actorId: USER_ID,
+    }))
+  })
+
+  it('reports a pre-existing failed canonical action on PATCH without replaying materialization', async () => {
+    const failed = {
+      disposition: 'waiting',
+      metadata: {
+        canonical_booking_status: 'failed',
+        action_status: 'failed',
+        agent_action_id: 'action-preexisting-failed',
+        failure_code: 'partner_handoff_interrupted',
+      },
+    }
+    ;(resumeCanonicalQuoteBookingsAfterMaterialization as jest.Mock).mockResolvedValue([failed])
+    const rpc = jest.fn()
+    mockClients({ rpc, plan: { ...plan, status: 'executing', materialized_event_id: EVENT_ID } })
+
+    const response = await PATCH(
+      new Request(`http://localhost/api/planner/plans/${PLAN_ID}/materialize`, { method: 'PATCH' }) as NextRequest,
+      context(),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      booking_resume: {
+        status: 'failed',
+        results: [failed],
+        error: 'canonical_quote_booking_action_failed',
+        recovery: {
+          action_ids: ['action-preexisting-failed'],
+          review_href: `/planner?plan=${encodeURIComponent(PLAN_ID)}&tab=approvals`,
+          reason: 'action_failed',
+        },
+      },
+    }))
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
+  it.each(['completed', 'archived'])('reports blocked recovery on a %s plan without replaying work', async (status) => {
+    const blocked = {
+      disposition: 'waiting',
+      metadata: {
+        canonical_booking_status: 'resume_blocked_plan_status',
+        resume_blocked: true,
+        recovery_required: true,
+        resume_blocked_reason: 'plan_status_not_executable',
+        plan_status: status,
+        action_status: 'approved',
+        agent_action_id: `action-${status}`,
+      },
+    }
+    ;(resumeCanonicalQuoteBookingsAfterMaterialization as jest.Mock).mockResolvedValue([blocked])
+    const rpc = jest.fn()
+    mockClients({ rpc, plan: { ...plan, status, materialized_event_id: EVENT_ID } })
+
+    const response = await PATCH(
+      new Request(`http://localhost/api/planner/plans/${PLAN_ID}/materialize`, { method: 'PATCH' }) as NextRequest,
+      context(),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      booking_resume: {
+        status: 'failed',
+        results: [blocked],
+        error: 'canonical_quote_booking_resume_blocked',
+        recovery: {
+          action_ids: [`action-${status}`],
+          review_href: `/planner?plan=${encodeURIComponent(PLAN_ID)}&tab=approvals`,
+          reason: 'plan_status_ineligible',
+          plan_statuses: [status],
+        },
+      },
+    }))
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
+  it('returns an actionable failure when booking handoff recovery is interrupted', async () => {
+    ;(resumeCanonicalQuoteBookingsAfterMaterialization as jest.Mock).mockRejectedValue(new Error('temporary failure'))
+    mockClients({
+      rpc: jest.fn(),
+      plan: { ...plan, status: 'executing', materialized_event_id: EVENT_ID },
+    })
+
+    const response = await PATCH(
+      new Request(`http://localhost/api/planner/plans/${PLAN_ID}/materialize`, { method: 'PATCH' }) as NextRequest,
+      context(),
+    )
+
+    expect(response.status).toBe(502)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      code: 'canonical_quote_booking_resume_failed',
     }))
   })
 

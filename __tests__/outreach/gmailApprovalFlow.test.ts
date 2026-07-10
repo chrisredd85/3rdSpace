@@ -63,6 +63,7 @@ class MemoryDb {
     plans: [],
   }
   private sequence = 0
+  rpcCalls: Array<{ name: string; params: Record<string, unknown> }> = []
 
   from(table: string) {
     if (!this.rows[table]) this.rows[table] = []
@@ -72,6 +73,55 @@ class MemoryDb {
   nextId(table: string) {
     this.sequence += 1
     return `${table}-${this.sequence}`
+  }
+
+  async rpc(name: string, params: Record<string, unknown>) {
+    this.rpcCalls.push({ name, params })
+    if (name !== 'supersede_approval_version') {
+      return { data: null, error: { message: `Unsupported RPC: ${name}` } }
+    }
+
+    const previous = this.rows.approvals.find((row) => row.id === params.p_approval_id)
+    if (!previous) return { data: null, error: { message: 'Approval not found' } }
+    const action = this.rows.agent_actions.find((row) => row.id === previous.agent_action_id)
+    if (!action) return { data: null, error: { message: 'Action not found' } }
+
+    const now = new Date().toISOString()
+    const replacement = {
+      ...previous,
+      id: this.nextId('approvals'),
+      status: 'pending',
+      price_cents: params.p_requested_amount_cents,
+      requested_amount_cents: params.p_requested_amount_cents,
+      authorized_amount_cents: null,
+      authorized_by: null,
+      authorized_at: null,
+      approved_by: null,
+      approved_at: null,
+      event_date: params.p_event_date,
+      notes: params.p_notes,
+      expires_at: params.p_expires_at,
+      snapshot_json: params.p_snapshot_json,
+      snapshot_hash: params.p_snapshot_hash,
+      snapshot_schema_version: 2,
+      supersedes_approval_id: previous.id,
+      superseded_by_approval_id: null,
+      created_at: now,
+      updated_at: now,
+    }
+    previous.status = 'superseded'
+    previous.superseded_by_approval_id = replacement.id
+    previous.superseded_at = now
+    this.rows.approvals.push(replacement)
+    Object.assign(action, {
+      approval_id: replacement.id,
+      amount_cents: params.p_requested_amount_cents,
+      payload_json: params.p_action_payload_json,
+      status: 'pending',
+      executed_at: null,
+      updated_at: now,
+    })
+    return { data: replacement, error: null }
   }
 }
 
@@ -342,12 +392,96 @@ describe('Gmail approval flow', () => {
     expect(created.approval.id).toBe(approval.id)
     expect(approval).toEqual(expect.objectContaining({
       snapshot_schema_version: 2,
+      price_cents: 0,
       requested_amount_cents: 0,
       action_label: 'Send outreach to 1 venue',
       delivery_email: 'moongate@example.com',
       expires_at: expect.any(String),
       snapshot_hash: buildApprovalSnapshotHashV2(snapshotInput as any),
       snapshot_json: buildApprovalSnapshotV2(snapshotInput as any),
+    }))
+    expect(action).toEqual(expect.objectContaining({
+      amount_cents: 0,
+      payload_json: expect.objectContaining({
+        amount_cents: 0,
+        price_cents: 0,
+        requested_amount_cents: 0,
+        requestedAmountCents: 0,
+      }),
+    }))
+    expect(approval.snapshot_json).toEqual(expect.objectContaining({
+      approval: expect.objectContaining({ price_cents: 0, requested_amount_cents: 0 }),
+      action: expect.objectContaining({
+        amount_cents: 0,
+        payload_json: expect.objectContaining({
+          amount_cents: 0,
+          price_cents: 0,
+          requested_amount_cents: 0,
+          requestedAmountCents: 0,
+        }),
+      }),
+    }))
+  })
+
+  it('keeps zero-cent money fields consistent when replacing a reusable Gmail approval', async () => {
+    const db = new MemoryDb()
+    const plan = {
+      ...buildExecutionInput([]).plan,
+      metadata: { gmail_approval_flow: true },
+    }
+    db.rows.plans.push(plan)
+    mockCreateServiceRoleClient.mockReturnValue(db)
+
+    const first = await createOrReuseGmailOutreachApproval(db, {
+      userId: 'user-1',
+      planId: 'plan-1',
+      reuseExisting: false,
+      targets: [{ kind: 'venue', name: 'Moongate Lounge', email: 'moongate@example.com' }],
+      subject: 'First event partnership',
+      bodyText: 'First approved body',
+    })
+    const replacement = await createOrReuseGmailOutreachApproval(db, {
+      userId: 'user-1',
+      targets: [{ kind: 'vendor', name: 'Mission Photo Co.', email: 'photo@example.com' }],
+      subject: 'Updated event partnership',
+      bodyText: 'Updated approved body',
+    })
+
+    expect(db.rpcCalls).toHaveLength(1)
+    const rpc = db.rpcCalls[0]
+    expect(rpc).toEqual(expect.objectContaining({ name: 'supersede_approval_version' }))
+    expect(rpc.params).toEqual(expect.objectContaining({
+      p_approval_id: first.approval.id,
+      p_requested_amount_cents: 0,
+      p_action_payload_json: expect.objectContaining({
+        amount_cents: 0,
+        price_cents: 0,
+        requested_amount_cents: 0,
+        requestedAmountCents: 0,
+      }),
+      p_snapshot_json: expect.objectContaining({
+        approval: expect.objectContaining({ price_cents: 0, requested_amount_cents: 0 }),
+        action: expect.objectContaining({
+          amount_cents: 0,
+          payload_json: expect.objectContaining({
+            amount_cents: 0,
+            price_cents: 0,
+            requested_amount_cents: 0,
+            requestedAmountCents: 0,
+          }),
+        }),
+      }),
+    }))
+    expect(replacement.approval).toEqual(expect.objectContaining({
+      status: 'pending',
+      price_cents: 0,
+      requested_amount_cents: 0,
+      supersedes_approval_id: first.approval.id,
+    }))
+    expect(replacement.agentAction).toEqual(expect.objectContaining({
+      approval_id: replacement.approval.id,
+      amount_cents: 0,
+      payload_json: expect.objectContaining({ price_cents: 0, requested_amount_cents: 0 }),
     }))
   })
 
@@ -381,6 +515,12 @@ describe('Gmail approval flow', () => {
     expect(db.rows.outreach_messages).toHaveLength(2)
     expect(db.rows.outreach_messages.every((row) => row.delivery_status === 'sent')).toBe(true)
     expect(db.rows.outreach_threads).toHaveLength(2)
+
+    const exactReplay = await executeApprovedGmailOutreach(db, input)
+    expect(exactReplay).toEqual(expect.objectContaining({ sent_count: 2, outbound_message_sent: true }))
+    expect(mockSendGmailMessage).toHaveBeenCalledTimes(3)
+    expect(db.rows.plan_messages).toHaveLength(1)
+    expect(db.rows.plan_messages[0].id).toMatch(/^[0-9a-f-]{36}$/)
   })
 
   it('reserves one provider side effect when identical executions overlap', async () => {

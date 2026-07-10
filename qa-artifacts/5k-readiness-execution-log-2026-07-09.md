@@ -267,3 +267,50 @@ billing policy can be called enforceable.
   are in
   `qa-artifacts/5k-readiness-prompt8-handoff-2026-07-09.md`.
 - No hosted or production state changed.
+
+## 2026-07-10 Prompt 7/8 verification correction
+
+This section supersedes only the earlier Prompt 7 and Prompt 8 completion
+verdicts. It does not erase the July 9 commits or their test evidence; those
+results describe the checkpoint that was audited.
+
+| Prompt | Corrected branch status | Release status |
+|---|---|---|
+| 7 | The prior identity/lifecycle implementation required further enforcement at booking provenance, claimed-partner binding, canonical term immutability, authoritative event reads, analytics deep links, rebook state, and template eligibility. The corrected candidate passed the clean local gate. | **LOCALLY_VERIFIED**; not in `origin/main` |
+| 8 | The prior execution-mode implementation required atomic confirm/decline/bulk/external commands, authoritative partner-claim binding, unknown-price fail-closed behavior, terminal/multi-partner boundaries, authorization/materialization recovery, replay-safe confirmation effects, unresolved-partner task durability, and strict quote re-approval predicates. The corrected candidate passed the clean local gate. | **LOCALLY_VERIFIED**; not in `origin/main` |
+
+The detailed gap matrix and corrected contract are in
+`qa-artifacts/5k-readiness-prompts7-8-verification-2026-07-10.md`. Prompt 9 owns
+controlled-payment provider execution; Prompt 8 does not call Stripe or move
+money.
+
+Final verification receipt (root fills from the final tree):
+
+- Final release commit: **PENDING_ROOT_FINAL_GATE**
+- Clean reset / generated types / database lint: **PASS** through migration
+  `20260709178000`; zero lint errors and three established warnings
+- Realized stored-function, RLS, privilege, canonical identity, Prompt 7,
+  Prompt 8, terminal, vendor-claim, re-approval, and decline suites: **PASS**,
+  12 suites / 297 tests
+- Focused route/component/schema matrix: **PASS**
+- Full Jest / lint / type-check / optimized build / browser smoke:
+  **PASS**; Jest 301 suites / 1,845 tests, Chromium 26 passed and six
+  credential-dependent checks skipped by contract
+- Ready PR / GitHub checks / Vercel preview: **PENDING_ROOT_FINAL_GATE**
+- Hosted migration apply / merge: **BLOCKED_PENDING_OPERATOR_SEQUENCE**
+
+Release truth observed on 2026-07-10:
+
+- `origin/main` remains `461e3da`; none of the Prompt 1–8 branch commits are on
+  main.
+- The hosted Supabase ledger was observed only through `20260627000000`, even
+  though deployed application behavior already expects the Prompt 1 incident
+  migration `20260701090000`.
+- Draft PR #203 on `codex/payment-capture-race-hardening` owns the earlier
+  `20260709090000_add_payment_intents_capturing_status.sql` migration. It must be
+  released first or intentionally renumbered and reverified by its owner before
+  this branch's `20260709110000+` migration bundle is applied.
+- Applying the schema first can revoke browser write paths still used by old
+  code; merging code first can reference absent columns and RPCs. No hosted
+  apply or merge should occur without the operator-controlled sequence in
+  `docs/runbooks/20260710-prompts-1-8-release.md`.

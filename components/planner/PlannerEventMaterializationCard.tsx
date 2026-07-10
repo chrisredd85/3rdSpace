@@ -25,13 +25,37 @@ export interface PlannerEventMaterializationCardProps {
 
 type MaterializationPayload = {
   error?: string
+  code?: string
   event_id?: string
   existing?: boolean
+  booking_resume?: BookingResumeState
+}
+
+type BookingResumeResult = {
+  disposition?: 'executing' | 'complete' | 'waiting'
+  metadata?: Record<string, unknown>
+}
+
+type BookingResumeState = {
+  status: 'complete' | 'failed' | 'reapproval_required'
+  results: BookingResumeResult[]
+  error: string | null
+  reapproval?: {
+    approval_ids: string[]
+    review_href: string
+  }
+  recovery?: {
+    action_ids: string[]
+    review_href: string
+    reason: 'action_failed' | 'plan_status_ineligible'
+    plan_statuses?: string[]
+  }
 }
 
 /**
  * Explicit host confirmation for converting an approved plan into its one
- * canonical event. This does not create a booking, payment, or outbound send.
+ * canonical event. Afterward, already-approved quote handoffs may resume; this
+ * step never sends an outbound message or initiates payment.
  */
 export function PlannerEventMaterializationCard({
   planId,
@@ -53,8 +77,16 @@ export function PlannerEventMaterializationCard({
   const [error, setError] = useState<string | null>(null)
   const [canonicalEventId, setCanonicalEventId] = useState(materializedEventId)
   const [wasExisting, setWasExisting] = useState(false)
+  const [bookingResume, setBookingResume] = useState<BookingResumeState | null>(null)
+  const [isResumingBookings, setIsResumingBookings] = useState(false)
 
   if (canonicalEventId) {
+    const resumeFailed = bookingResume?.status === 'failed'
+    const resumeBlocked = bookingResume?.recovery?.reason === 'plan_status_ineligible'
+    const reapprovalRequired = bookingResume?.status === 'reapproval_required'
+    const approvalReviewHref = bookingResume?.reapproval?.review_href ??
+      `/planner?plan=${encodeURIComponent(planId)}&tab=approvals`
+    const failedActionReviewHref = bookingResume?.recovery?.review_href
     return (
       <section className="rounded-lg border border-forest/25 bg-forest/10 p-4" aria-live="polite">
         <div className="flex items-start gap-3">
@@ -64,13 +96,49 @@ export function PlannerEventMaterializationCard({
               {wasExisting ? 'Canonical event already confirmed' : 'Exact event schedule confirmed'}
             </p>
             <p className="mt-1 text-sm leading-6 text-ink-soft">
-              This event now feeds Experiences and Analytics. No booking, payment, or partner message was created.
+              {describeBookingResume(bookingResume)}
             </p>
-            <Button asChild variant="outline" size="sm" className="mt-3 border-forest/30 bg-cream text-forest">
-              <Link href={`/planner/analytics?eventId=${encodeURIComponent(canonicalEventId)}`}>
-                Open event analytics
-              </Link>
-            </Button>
+            {resumeFailed ? (
+              <p className="mt-2 text-sm font-semibold text-brick" role="alert">
+                {resumeBlocked
+                  ? 'The event is safe, but this plan is no longer executable and an approved booking handoff needs review.'
+                  : 'The event is safe, but an approved booking handoff still needs attention.'}
+              </p>
+            ) : null}
+            {reapprovalRequired ? (
+              <p className="mt-2 text-sm font-semibold text-brick" role="alert">
+                The event is safe, but the booking terms expired or changed before execution started.
+              </p>
+            ) : null}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button asChild variant="outline" size="sm" className="border-forest/30 bg-cream text-forest">
+                <Link href={`/planner/analytics?eventId=${encodeURIComponent(canonicalEventId)}`}>
+                  Open event analytics
+                </Link>
+              </Button>
+              {reapprovalRequired ? (
+                <Button asChild size="sm">
+                  <Link href={approvalReviewHref}>Review approval</Link>
+                </Button>
+              ) : failedActionReviewHref ? (
+                <Button asChild size="sm">
+                  <Link href={failedActionReviewHref}>
+                    {resumeBlocked ? 'Review blocked handoff' : 'Review failed handoff'}
+                  </Link>
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant={resumeFailed ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => void handleResumeBookings()}
+                  disabled={isResumingBookings}
+                >
+                  {isResumingBookings ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                  {resumeFailed ? 'Retry approved booking handoffs' : 'Sync approved booking handoffs'}
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </section>
@@ -127,6 +195,7 @@ export function PlannerEventMaterializationCard({
       }
 
       setWasExisting(Boolean(payload.existing))
+      setBookingResume(payload.booking_resume ?? null)
       setCanonicalEventId(payload.event_id)
       try {
         await invalidatePlannerEventQueries(queryClient)
@@ -147,6 +216,35 @@ export function PlannerEventMaterializationCard({
     }
   }
 
+  async function handleResumeBookings() {
+    setIsResumingBookings(true)
+    try {
+      const response = await fetch(`/api/planner/plans/${planId}/materialize`, {
+        method: 'PATCH',
+        credentials: 'include',
+      })
+      const payload = await response.json().catch(() => ({} as MaterializationPayload)) as MaterializationPayload
+      if (!response.ok) {
+        throw new Error(payload.error ?? 'Approved booking handoffs could not be resumed.')
+      }
+
+      setBookingResume(payload.booking_resume ?? { status: 'complete', results: [], error: null })
+      await invalidatePlannerEventQueries(queryClient).catch((invalidationError) => {
+        console.warn('[planner.materialize] Booking resume succeeded but query invalidation failed', invalidationError)
+      })
+      router.refresh()
+      await onMaterialized?.()
+    } catch (resumeError) {
+      setBookingResume({
+        status: 'failed',
+        results: [],
+        error: resumeError instanceof Error ? resumeError.message : 'Approved booking handoffs could not be resumed.',
+      })
+    } finally {
+      setIsResumingBookings(false)
+    }
+  }
+
   function updateConfirmedField(update: () => void) {
     update()
     setIsConfirmed(false)
@@ -163,7 +261,7 @@ export function PlannerEventMaterializationCard({
           <p className="label-caps text-clay">Exact schedule</p>
           <h3 className="mt-1 font-display text-lg font-semibold text-ink">Confirm the event record</h3>
           <p className="mt-2 text-sm leading-6 text-ink-soft">
-            Choose the exact local start and duration. This creates the event used by Experiences and Analytics; it does not book, pay, or contact anyone.
+            Choose the exact local start and duration. This creates the event used by Experiences and Analytics, then safely resumes any booking request you already approved. It never pays or contacts anyone automatically.
           </p>
         </div>
       </div>
@@ -230,7 +328,7 @@ export function PlannerEventMaterializationCard({
             className="mt-1 h-4 w-4 rounded border-tan text-clay focus:ring-clay"
           />
           <span>
-            I confirm this exact date, local start time, duration, and timezone. I understand this creates an event record only—not a purchase, booking, payment, or outbound message.
+            I confirm this exact date, local start time, duration, and timezone. I understand this creates the canonical event and may resume an already-approved booking request—not a purchase, payment, or outbound message.
           </span>
         </label>
 
@@ -252,6 +350,33 @@ export function PlannerEventMaterializationCard({
       </form>
     </section>
   )
+}
+
+function describeBookingResume(state: BookingResumeState | null): string {
+  if (!state) {
+    return 'This event now feeds Experiences and Analytics. Approved quote handoffs remain separate and can be synchronized safely; 3rdPlace never sends or pays from this step.'
+  }
+  if (state.status === 'failed') {
+    if (state.recovery?.reason === 'plan_status_ineligible') {
+      return 'The exact event schedule is confirmed, but approved booking work cannot resume after this plan left an executable state.'
+    }
+    return 'The exact event schedule is confirmed, but one or more approved booking handoffs did not resume.'
+  }
+  if (state.status === 'reapproval_required') {
+    return 'The exact event schedule is confirmed. One or more booking approvals must be reviewed again before 3rdPlace can start those handoffs.'
+  }
+
+  const bookingCount = state.results.filter((result) => {
+    const metadata = result.metadata
+    return metadata && typeof metadata.booking_id === 'string' && metadata.booking_id.length > 0
+  }).length
+  if (bookingCount > 0) {
+    return `${bookingCount} approved booking request${bookingCount === 1 ? ' is' : 's are'} now linked to this canonical event. No payment or outbound send occurred.`
+  }
+  if (state.results.length > 0) {
+    return `${state.results.length} approved booking handoff${state.results.length === 1 ? ' was' : 's were'} synchronized. No payment or outbound send occurred.`
+  }
+  return 'This event now feeds Experiences and Analytics. No approved booking handoff needed recovery, and no payment or outbound send occurred.'
 }
 
 function validateSchedule(input: {

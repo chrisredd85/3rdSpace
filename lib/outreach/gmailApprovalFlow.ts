@@ -206,7 +206,7 @@ export async function createOrReuseGmailOutreachApproval(
     const { approval, action, messageId } = existing
     const approvalUpdates = buildApprovalUpdates(targets, subject)
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-    const nextAction = { ...action, payload_json: actionPayload as Json }
+    const nextAction = { ...action, amount_cents: 0, payload_json: actionPayload as Json }
     const nextApproval = {
       ...approval,
       ...approvalUpdates,
@@ -465,8 +465,18 @@ export async function executeApprovedGmailOutreach(
         rfcMessageId,
       })
     } catch (error) {
-      await markGmailDispatchAmbiguous(writeDb, dispatch, error)
-      throw error
+      try {
+        await markGmailDispatchAmbiguous(writeDb, dispatch, error)
+      } catch (persistenceError) {
+        throw new GmailDispatchRecoveryPendingError(
+          `Gmail dispatch reconciliation is pending for ${target.email}`,
+          { cause: persistenceError }
+        )
+      }
+      throw new GmailDispatchRecoveryPendingError(
+        `${error instanceof Error ? error.message : 'Gmail delivery outcome is unknown'}; reconciliation is pending for ${target.email}`,
+        { cause: error }
+      )
     }
 
     try {
@@ -497,20 +507,41 @@ export async function executeApprovedGmailOutreach(
     })
   }
 
-  await writeDb.from('plan_messages').insert({
-    plan_id: input.plan.id,
-    role: 'system',
-    content: `Sent approved Gmail outreach to ${sent.length} partner${sent.length === 1 ? '' : 's'}. Replies will appear in Outreach for comparison and follow-up.`,
-    message_type: 'status_update',
-    metadata: {
-      kind: GMAIL_APPROVED_OUTREACH_KIND,
-      approval_id: input.approval.id,
-      agent_action_id: input.action.id,
-      sent_count: sent.length,
-      thread_ids: sent.map((item) => item.threadId),
-      outbound_message_sent: true,
-    } as Json,
+  const completionMessageId = deterministicUuid(
+    `gmail-completion:${input.action.id}:${input.approval.id}`,
+  )
+  const { data: existingCompletionMessages } = await writeDb
+    .from('plan_messages')
+    .select('id,metadata')
+    .eq('plan_id', input.plan.id)
+    .eq('message_type', 'status_update')
+  const hasCompletionMessage = (Array.isArray(existingCompletionMessages)
+    ? existingCompletionMessages
+    : []).some((message) => {
+    const metadata = readRecord(message.metadata)
+    return readString(metadata?.kind) === GMAIL_APPROVED_OUTREACH_KIND
+      && readString(metadata?.approval_id) === input.approval.id
+      && readString(metadata?.agent_action_id) === input.action.id
   })
+  if (!hasCompletionMessage) {
+    // A deterministic primary key makes concurrent exact replays converge even
+    // when both inspect before either status message commits.
+    await writeDb.from('plan_messages').insert({
+      id: completionMessageId,
+      plan_id: input.plan.id,
+      role: 'system',
+      content: `Sent approved Gmail outreach to ${sent.length} partner${sent.length === 1 ? '' : 's'}. Replies will appear in Outreach for comparison and follow-up.`,
+      message_type: 'status_update',
+      metadata: {
+        kind: GMAIL_APPROVED_OUTREACH_KIND,
+        approval_id: input.approval.id,
+        agent_action_id: input.action.id,
+        sent_count: sent.length,
+        thread_ids: sent.map((item) => item.threadId),
+        outbound_message_sent: true,
+      } as Json,
+    })
+  }
 
   return {
     prepared: true,
@@ -518,6 +549,14 @@ export async function executeApprovedGmailOutreach(
     thread_ids: sent.map((item) => item.threadId),
     outbound_message_sent: true,
   }
+}
+
+function deterministicUuid(value: string): string {
+  const hex = createHash('sha256').update(value).digest('hex').slice(0, 32).split('')
+  hex[12] = '5'
+  hex[16] = ((Number.parseInt(hex[16], 16) & 0x3) | 0x8).toString(16)
+  const normalized = hex.join('')
+  return `${normalized.slice(0, 8)}-${normalized.slice(8, 12)}-${normalized.slice(12, 16)}-${normalized.slice(16, 20)}-${normalized.slice(20)}`
 }
 
 export async function syncGmailOutreachThread(
@@ -615,6 +654,10 @@ function buildActionPayload(input: {
 }) {
   return {
     kind: GMAIL_APPROVED_OUTREACH_KIND,
+    amount_cents: 0,
+    price_cents: 0,
+    requested_amount_cents: 0,
+    requestedAmountCents: 0,
     targets: input.targets,
     subject: input.subject,
     body_text: input.bodyText,

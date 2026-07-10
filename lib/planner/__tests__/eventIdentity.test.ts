@@ -27,18 +27,12 @@ describe('canonical planner event identity', () => {
     expect(resolveCanonicalEventTaxonomy(null)).toBeNull()
   })
 
-  it('prefers the canonical FK and uses metadata only for legacy lineage', () => {
+  it('uses only the canonical FK and rejects legacy metadata as authority', () => {
     expect(getPlanCanonicalEventId({
       materialized_event_id: 'canonical-event',
-      metadata: { event_id: 'legacy-event' },
     })).toBe('canonical-event')
     expect(getPlanCanonicalEventId({
       materialized_event_id: null,
-      metadata: { event_id: 'legacy-event' },
-    })).toBe('legacy-event')
-    expect(getPlanCanonicalEventId({
-      materialized_event_id: null,
-      metadata: {},
     })).toBeNull()
   })
 })

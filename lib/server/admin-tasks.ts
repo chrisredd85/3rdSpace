@@ -211,7 +211,7 @@ async function mutateExecutionTask(
   const { data, error } = await command
 
   if (error) {
-    const conflict = ['23514', '40001'].includes(error.code ?? '')
+    const conflict = ['23514', '40001', '40P01'].includes(error.code ?? '')
     const invalid = error.code === '22023'
     const missing = error.code === 'P0002'
     throw new AdminTaskServiceError(

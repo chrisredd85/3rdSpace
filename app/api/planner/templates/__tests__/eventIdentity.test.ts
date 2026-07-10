@@ -15,7 +15,7 @@ describe('planner template canonical event identity', () => {
         user_id: '22222222-2222-4222-8222-222222222222',
         title: 'Oakland community dinner',
         event_type: 'community_meetup',
-        status: 'complete',
+        status: 'completed',
         guest_count: 60,
         budget_cap_cents: 500000,
         neighborhood: 'Oakland',

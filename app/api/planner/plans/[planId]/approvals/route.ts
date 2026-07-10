@@ -47,7 +47,10 @@ import {
   buildApprovalSnapshotHashV2,
   buildApprovalSnapshotV2,
 } from '@/lib/planner/execution/reapproval'
-import { executeApprovedGmailOutreach } from '@/lib/outreach/gmailApprovalFlow'
+import {
+  executeApprovedGmailOutreach,
+  GmailDispatchRecoveryPendingError,
+} from '@/lib/outreach/gmailApprovalFlow'
 import { enqueueDraftsAfterVenueApproval } from '@/lib/planner/discoveryOutreachDrafts'
 import {
   checkAuthorizationActionStripeGate,
@@ -76,9 +79,48 @@ type PlannerDb = {
   from: (table: string) => any
   rpc?: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message?: string; code?: string } | null }>
 }
+type DbError = { message?: string; code?: string } | null | undefined
 type PlannerAuth =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
+
+const TERMINAL_PLAN_EXECUTION_STATUSES = new Set(['complete', 'completed', 'archived'])
+
+function isTerminalPlanForPositiveExecution(status: unknown): boolean {
+  return typeof status === 'string' && TERMINAL_PLAN_EXECUTION_STATUSES.has(status)
+}
+
+function terminalPlanPositiveExecutionResponse(): NextResponse<PlannerApiErrorResponse> {
+  return NextResponse.json(
+    {
+      error: 'Completed or archived plans cannot start new execution work.',
+      code: 'plan_terminal',
+    },
+    { status: 409 },
+  )
+}
+
+function isTerminalPlanPositiveExecutionError(error: DbError): boolean {
+  return error?.code === '23514' && /terminal_plan_positive_execution_forbidden/i.test(error.message ?? '')
+}
+
+function isRetryablePlanLockError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const record = error as { code?: unknown; message?: unknown }
+  return record.code === '55P03'
+    || (typeof record.message === 'string' && /could not obtain lock|lock not available|55P03/i.test(record.message))
+}
+
+function retryablePlanLockResponse(): NextResponse<PlannerApiErrorResponse> {
+  return NextResponse.json(
+    {
+      error: 'The plan changed at the same time. Refresh and retry from the current state.',
+      code: 'plan_execution_conflict',
+      retryable: true,
+    },
+    { status: 409 },
+  )
+}
 
 const approvalIdSchema = z.string().uuid()
 const snapshotHashSchema = z.string().trim().regex(/^[a-f0-9]{64}$/i)
@@ -167,6 +209,7 @@ const PLAN_SELECT_COLUMNS = `
   profit_goal_cents,
   notes,
   metadata,
+  materialized_event_id,
   created_at,
   updated_at
 `
@@ -329,6 +372,17 @@ export async function PATCH(
       return NextResponse.json({ error: 'Linked approval action not found' }, { status: 409 })
     }
 
+    if (
+      isTerminalPlanForPositiveExecution(plan.status)
+      && (
+        command.command === 'edit'
+        || command.command === 'request_reapproval'
+        || (command.command === 'authorize' && existingApproval.status !== 'authorized')
+      )
+    ) {
+      return terminalPlanPositiveExecutionResponse()
+    }
+
     if (command.command === 'edit' || command.command === 'request_reapproval') {
       const snapshotConflict = command.command === 'request_reapproval'
         ? validateReapprovalVersion(existingApproval, command.expectedSnapshotHash)
@@ -391,6 +445,82 @@ export async function PATCH(
     }
 
     if (!approvalTransition.changed) {
+      if (shouldRecoverExactAuthorizeReplay({
+        command: command.command,
+        plan,
+        approval: existingApproval,
+        action: linkedAction,
+      })) {
+        const writeDb = createServiceRoleClient() as unknown as PlannerDb
+        let recoveryAction = linkedAction
+        try {
+          if (recoveryAction.status === 'pending' || recoveryAction.status === 'proposed') {
+            try {
+              await syncAgentActionStatusForApproval(auth.db, writeDb, {
+                actionId: recoveryAction.id,
+                planId,
+                actorId: auth.userId,
+                approvalStatus: existingApproval.status,
+              })
+            } catch (syncError) {
+              if (isRetryablePlanLockError(syncError)) throw syncError
+              const concurrentAction = await loadAgentAction(writeDb, recoveryAction.id)
+              if (
+                !concurrentAction
+                || concurrentAction.status === 'pending'
+                || concurrentAction.status === 'proposed'
+              ) {
+                throw syncError
+              }
+            }
+
+            const synchronizedAction = await loadAgentAction(writeDb, recoveryAction.id)
+            if (!synchronizedAction) {
+              throw new Error('Authorized action could not be reloaded after status recovery')
+            }
+            recoveryAction = synchronizedAction as RetryableAgentAction
+          }
+
+          if (!shouldRecoverExactAuthorizeReplay({
+            command: command.command,
+            plan,
+            approval: existingApproval,
+            action: recoveryAction,
+          })) {
+            await syncApprovalMessageMetadata(auth.db, writeDb, planId, existingApproval)
+            return NextResponse.json(await buildApprovalCommandResponse(writeDb, existingApproval))
+          }
+
+          await executeApprovedAction(auth.db, writeDb, {
+            actionId: recoveryAction.id,
+            planId,
+            actorId: auth.userId,
+            plan,
+            approval: existingApproval,
+          })
+        } catch (executionError) {
+          await syncApprovalMessageMetadata(auth.db, writeDb, planId, existingApproval)
+          const failedResponse = await buildApprovalCommandResponse(writeDb, existingApproval)
+          logger.error('Planner exact authorization recovery failed', executionError, {
+            approval_id: existingApproval.id,
+            action_id: recoveryAction.id,
+          })
+          if (isRetryablePlanLockError(executionError)) return retryablePlanLockResponse()
+          return NextResponse.json(
+            {
+              ...failedResponse,
+              error: executionError instanceof Error ? executionError.message : 'Approved action recovery failed',
+              code: executionError instanceof GmailDispatchRecoveryPendingError
+                ? 'approval_recovery_pending'
+                : 'approval_execution_failed',
+              retryable: true,
+            } as ApprovalCommandResponse & PlannerApiErrorResponse,
+            { status: executionError instanceof GmailDispatchRecoveryPendingError ? 202 : 502 },
+          )
+        }
+        await syncApprovalMessageMetadata(auth.db, writeDb, planId, existingApproval)
+        return NextResponse.json(await buildApprovalCommandResponse(writeDb, existingApproval))
+      }
       return NextResponse.json(await buildApprovalCommandResponse(auth.db, existingApproval))
     }
 
@@ -427,6 +557,10 @@ export async function PATCH(
         previous_status: existingApproval.status,
         attempted_status: approvalTransition.to,
       })
+      if (isTerminalPlanPositiveExecutionError(error)) {
+        return terminalPlanPositiveExecutionResponse()
+      }
+      if (isRetryablePlanLockError(error)) return retryablePlanLockResponse()
       return NextResponse.json({ error: 'Failed to update approval' }, { status: 500 })
     }
 
@@ -487,6 +621,7 @@ export async function PATCH(
           approval_id: approval.id,
           action_id: approval.agent_action_id,
         })
+        if (isRetryablePlanLockError(executionError)) return retryablePlanLockResponse()
         return NextResponse.json(
           {
             ...failedResponse,
@@ -639,6 +774,66 @@ function validateReapprovalVersion(
   }
 }
 
+function shouldRecoverExactAuthorizeReplay(input: {
+  command: string
+  plan: Plan
+  approval: VersionedApproval
+  action: RetryableAgentAction
+}): boolean {
+  if (
+    input.command !== 'authorize'
+    || input.approval.status !== 'authorized'
+    || isTerminalPlanForPositiveExecution(input.plan.status)
+    || !['pending', 'proposed', 'approved', 'executing'].includes(input.action.status)
+  ) {
+    return false
+  }
+
+  const retryPlan = planApprovedActionRetry({
+    action: input.action,
+    approval: input.approval,
+  })
+  if (!retryPlan.canRetry) return false
+
+  const metadata = readRecord(input.action.result_metadata)
+  if (retryPlan.kind === 'send_gmail_outreach') {
+    // Per-target dispatch rows and deterministic RFC Message-IDs own provider
+    // reconciliation. Until the action is complete, replay may resume them.
+    return true
+  }
+
+  if (retryPlan.kind === 'await_external_checkout') {
+    const evidence = readRecord(metadata?.external_checkout)
+    const exactReadyEvidence = ['ready', 'completed', 'cancelled'].includes(
+      readString(evidence?.status) ?? '',
+    ) && readString(evidence?.approval_id) === input.approval.id
+      && readString(evidence?.snapshot_hash) === input.approval.snapshot_hash
+      && Boolean(readString(evidence?.external_url))
+    return !exactReadyEvidence
+  }
+
+  if (retryPlan.kind === 'await_concierge_queue') {
+    const handoffStatus = readString(metadata?.handoff_status)
+    const durableTask = handoffStatus === 'queued' && Boolean(readString(metadata?.admin_task_id))
+    const durableDraft = handoffStatus === 'draft_ready'
+      && Boolean(readString(metadata?.outreach_message_id))
+      && Boolean(readString(metadata?.outreach_thread_id))
+    const durableBooking = Boolean(readString(metadata?.booking_id))
+    const canonicalStatus = readString(metadata?.canonical_booking_status)
+    const durableCanonicalWait = [
+      'waiting_for_event_materialization',
+      'pending_partner_confirmation',
+      'confirmed',
+      'cancelled',
+      'reapproval_required',
+      'resume_blocked_plan_status',
+    ].includes(canonicalStatus ?? '')
+    return !(durableTask || durableDraft || durableBooking || durableCanonicalWait)
+  }
+
+  return false
+}
+
 async function markApprovalReapprovalRequired(
   readDb: PlannerDb,
   planId: string,
@@ -684,8 +879,45 @@ async function supersedeApprovalVersion(
   const notes = input.changes ? input.changes.notes : input.approval.notes ?? null
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
   const currentPayload = readRecord(input.action.payload_json) ?? {}
+  const isCanonicalQuoteBooking = input.action.action_type === 'concierge_queue' &&
+    readString(currentPayload.kind) === 'canonical_quote_booking'
+  if (isCanonicalQuoteBooking) {
+    const currentRequestedAmountCents = readIntegerCents(input.approval.requested_amount_cents)
+    const currentApprovalEventDate = input.approval.event_date ?? null
+    const currentPayloadEventDate = Object.prototype.hasOwnProperty.call(currentPayload, 'event_date')
+      ? readString(currentPayload.event_date)
+      : Object.prototype.hasOwnProperty.call(currentPayload, 'eventDate')
+        ? readString(currentPayload.eventDate)
+        : null
+    const canonicalAmountsAreConsistent = currentRequestedAmountCents !== null && [
+      readIntegerCents(input.approval.price_cents),
+      readIntegerCents(input.action.amount_cents),
+      readIntegerCents(currentPayload.requested_amount_cents),
+      readIntegerCents(currentPayload.price_cents),
+    ].every((amount) => amount === currentRequestedAmountCents)
+    const canonicalEventDateIsConsistent = eventDate === currentApprovalEventDate &&
+      eventDate === currentPayloadEventDate
+
+    if (
+      !canonicalAmountsAreConsistent ||
+      requestedAmountCents !== currentRequestedAmountCents ||
+      !canonicalEventDateIsConsistent
+    ) {
+      return {
+        response: NextResponse.json(
+          {
+            error: 'Canonical quote pricing or event date changed. Capture and stage a fresh trusted quote before requesting approval.',
+            code: 'canonical_quote_fresh_quote_required',
+          },
+          { status: 409 },
+        ),
+      }
+    }
+  }
   const actionPayload = {
     ...currentPayload,
+    amount_cents: requestedAmountCents,
+    price_cents: requestedAmountCents,
     requestedAmountCents,
     requested_amount_cents: requestedAmountCents,
     event_date: eventDate,
@@ -694,6 +926,7 @@ async function supersedeApprovalVersion(
   }
   const nextApproval = {
     ...input.approval,
+    price_cents: requestedAmountCents,
     requested_amount_cents: requestedAmountCents,
     event_date: eventDate,
     notes,
@@ -739,14 +972,29 @@ async function supersedeApprovalVersion(
   })
 
   if (error || !data) {
-    const conflict = error?.code === 'P0001' || /snapshot|supersed|active approval/i.test(error?.message ?? '')
+    if (isTerminalPlanPositiveExecutionError(error)) {
+      return { response: terminalPlanPositiveExecutionResponse() }
+    }
+    if (isRetryablePlanLockError(error)) {
+      return { response: retryablePlanLockResponse() }
+    }
+    const deadlockConflict = error?.code === '40P01'
+    const staleVersionConflict = error?.code === 'P0001' ||
+      /snapshot|supersed|active approval/i.test(error?.message ?? '')
+    const conflict = deadlockConflict || staleVersionConflict
     return {
       response: NextResponse.json(
         {
-          error: conflict
-            ? 'This approval changed after it was displayed. Refresh and review the current version.'
-            : 'Failed to create a new approval version',
-          code: conflict ? 'approval_snapshot_mismatch' : 'approval_version_failed',
+          error: deadlockConflict
+            ? 'Another approval update completed at the same time. Refresh and retry from the current version.'
+            : staleVersionConflict
+              ? 'This approval changed after it was displayed. Refresh and review the current version.'
+              : 'Failed to create a new approval version',
+          code: deadlockConflict
+            ? 'approval_version_conflict'
+            : staleVersionConflict
+              ? 'approval_snapshot_mismatch'
+              : 'approval_version_failed',
         },
         { status: conflict ? 409 : 500 }
       ),
@@ -1181,23 +1429,52 @@ async function runHandoffActionExecutor(
 ) {
   let action = input.action
   if (action.status === 'approved') {
-    action = await persistAgentActionTransition(writeDb, {
-      action,
-      planId: input.planId,
-      actorId: input.actorId,
-      reason: 'approval.execution_started',
-      event: 'execution_started',
-      metadata: {
-        execution_kind: input.executionKind,
-        outbound_message_sent: false,
-      },
-    })
+    try {
+      action = await persistAgentActionTransition(writeDb, {
+        action,
+        planId: input.planId,
+        actorId: input.actorId,
+        reason: 'approval.execution_started',
+        event: 'execution_started',
+        metadata: {
+          execution_kind: input.executionKind,
+          outbound_message_sent: false,
+        },
+      })
+    } catch (transitionError) {
+      if (isRetryablePlanLockError(transitionError)) throw transitionError
+      const concurrentAction = await loadAgentAction(writeDb, action.id)
+      if (concurrentAction?.status === 'complete' || concurrentAction?.status === 'cancelled') {
+        return {
+          disposition: concurrentAction.status === 'complete' ? 'complete' : 'waiting',
+          metadata: (concurrentAction.result_metadata ?? {}) as Json,
+        }
+      }
+      if (!concurrentAction || concurrentAction.status !== 'executing') throw transitionError
+      action = concurrentAction
+    }
   } else if (action.status !== 'executing') {
     throw new Error(`Approved-action handoff cannot resume from ${action.status}`)
   }
 
   try {
     const result = await input.execute(action)
+    const executorAction = await loadAgentAction(writeDb, action.id)
+    if (!executorAction) {
+      throw new Error('Approved handoff action could not be reloaded after execution')
+    }
+
+    // Some database commands complete or cancel the action atomically with the
+    // underlying handoff. That terminal compare-and-swap is authoritative; do
+    // not overwrite it or report a false execution failure from this route.
+    if (executorAction.status === 'complete' || executorAction.status === 'cancelled') {
+      return result
+    }
+    if (executorAction.status !== 'executing') {
+      throw new Error(`Approved handoff returned with unexpected action status ${executorAction.status}`)
+    }
+
+    action = executorAction
     if (result.disposition === 'complete') {
       await persistAgentActionTransition(writeDb, {
         action,
@@ -1230,13 +1507,25 @@ async function runHandoffActionExecutor(
         .select(AGENT_ACTION_STATUS_SELECT_COLUMNS)
         .maybeSingle()
       if (error || !data) {
+        const racedAction = await loadAgentAction(writeDb, action.id)
+        if (racedAction?.status === 'complete' || racedAction?.status === 'cancelled') {
+          return result
+        }
         throw new Error(error?.message ?? 'Approved handoff evidence could not be persisted')
       }
     }
     return result
   } catch (error) {
+    const currentAction = await loadAgentAction(writeDb, action.id)
+    if (currentAction?.status === 'complete' || currentAction?.status === 'cancelled') {
+      return {
+        disposition: currentAction.status === 'complete' ? 'complete' : 'waiting',
+        metadata: (currentAction.result_metadata ?? {}) as Json,
+      }
+    }
+
     await persistAgentActionTransition(writeDb, {
-      action,
+      action: currentAction ?? action,
       planId: input.planId,
       actorId: input.actorId,
       reason: 'approval.execution_failed',
@@ -1262,22 +1551,47 @@ async function runCompletingActionExecutor(
     execute: (executingAction: AgentAction) => Promise<Record<string, unknown>>
   }
 ) {
-  let action = await persistAgentActionTransition(writeDb, {
-    action: input.action,
-    planId: input.planId,
-    actorId: input.actorId,
-    reason: 'approval.execution_started',
-    event: 'execution_started',
-    metadata: {
-      execution_kind: input.executionKind,
-      outbound_message_sent: false,
-    },
-  })
+  let action = input.action
+  if (action.status === 'approved') {
+    try {
+      action = await persistAgentActionTransition(writeDb, {
+        action,
+        planId: input.planId,
+        actorId: input.actorId,
+        reason: 'approval.execution_started',
+        event: 'execution_started',
+        metadata: {
+          execution_kind: input.executionKind,
+          outbound_message_sent: false,
+        },
+      })
+    } catch (transitionError) {
+      if (isRetryablePlanLockError(transitionError)) throw transitionError
+      const concurrentAction = await loadAgentAction(writeDb, action.id)
+      if (concurrentAction?.status === 'complete' || concurrentAction?.status === 'cancelled') {
+        return readRecord(concurrentAction.result_metadata) ?? {}
+      }
+      if (!concurrentAction || concurrentAction.status !== 'executing') throw transitionError
+      action = concurrentAction
+    }
+  } else if (action.status !== 'executing') {
+    throw new Error(`Approved completing action cannot resume from ${action.status}`)
+  }
 
+  let result: Record<string, unknown> | null = null
   try {
-    const result = await input.execute(action)
-    action = await persistAgentActionTransition(writeDb, {
-      action,
+    result = await input.execute(action)
+    const currentAction = await loadAgentAction(writeDb, action.id)
+    if (!currentAction) throw new Error('Approved completing action could not be reloaded')
+    if (currentAction.status === 'complete' || currentAction.status === 'cancelled') {
+      return result
+    }
+    if (currentAction.status !== 'executing') {
+      throw new Error(`Approved completing action returned with unexpected status ${currentAction.status}`)
+    }
+
+    await persistAgentActionTransition(writeDb, {
+      action: currentAction,
       planId: input.planId,
       actorId: input.actorId,
       reason: input.completionReason,
@@ -1289,8 +1603,15 @@ async function runCompletingActionExecutor(
     })
     return result
   } catch (error) {
+    const currentAction = await loadAgentAction(writeDb, action.id)
+    if (currentAction?.status === 'complete' || currentAction?.status === 'cancelled') {
+      return result ?? (readRecord(currentAction.result_metadata) ?? {})
+    }
+    if (error instanceof GmailDispatchRecoveryPendingError || isRetryablePlanLockError(error)) throw error
+    if (!currentAction || currentAction.status !== 'executing') throw error
+
     await persistAgentActionTransition(writeDb, {
-      action,
+      action: currentAction,
       planId: input.planId,
       actorId: input.actorId,
       reason: 'approval.execution_failed',
@@ -2007,6 +2328,12 @@ function readStringArray(value: unknown): string[] {
 
 function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function readIntegerCents(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {

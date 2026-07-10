@@ -55,26 +55,15 @@ export function resolveCanonicalEventTaxonomy(eventType: string | null | undefin
 }
 
 /**
- * Returns the event linked to a plan by the canonical FK, with the old metadata
- * projection retained only for pre-Prompt-7 rows.
+ * Returns the event linked to a plan by the canonical reciprocal identity.
  *
- * This is lineage, not authority: callers must never treat an event ID as
- * proof that a booking, outbound message, or payment was approved.
+ * Legacy `metadata.event_id` values are display/import lineage only. They are
+ * never authoritative for planner reads, invitations, bookings, or payments.
  */
 export function getPlanCanonicalEventId(
-  plan: Pick<Plan, 'materialized_event_id' | 'metadata'>
+  plan: Pick<Plan, 'materialized_event_id'>
 ): string | null {
-  const materializedEventId = readNonEmptyString(plan.materialized_event_id)
-  if (materializedEventId) return materializedEventId
-
-  const metadata = readRecord(plan.metadata)
-  return readNonEmptyString(metadata?.event_id)
-}
-
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null
+  return readNonEmptyString(plan.materialized_event_id)
 }
 
 function readNonEmptyString(value: unknown): string | null {

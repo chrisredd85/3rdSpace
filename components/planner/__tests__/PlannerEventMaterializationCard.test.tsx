@@ -31,6 +31,14 @@ describe('PlannerEventMaterializationCard', () => {
     global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
       event_id: EVENT_ID,
       existing: false,
+      booking_resume: {
+        status: 'complete',
+        results: [{
+          disposition: 'executing',
+          metadata: { booking_id: 'booking-1', booking_status: 'pending' },
+        }],
+        error: null,
+      },
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
 
     renderCard(queryClient, { onMaterialized })
@@ -60,7 +68,8 @@ describe('PlannerEventMaterializationCard', () => {
       }),
     }))
     expect(await screen.findByText('Exact event schedule confirmed')).toBeInTheDocument()
-    expect(screen.getByText(/No booking, payment, or partner message was created/i)).toBeInTheDocument()
+    expect(screen.getByText(/1 approved booking request is now linked/i)).toBeInTheDocument()
+    expect(screen.getByText(/No payment or outbound send occurred/i)).toBeInTheDocument()
     expect(onMaterialized).toHaveBeenCalledTimes(1)
     expect(mockRefresh).toHaveBeenCalledTimes(1)
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['events'] })
@@ -68,6 +77,200 @@ describe('PlannerEventMaterializationCard', () => {
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['planner-analytics'] })
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['planner-ticketing-analytics'] })
     expect((global.fetch as jest.Mock).mock.calls.every(([url]) => !/book|payment|purchase/i.test(String(url)))).toBe(true)
+  })
+
+  it('keeps booking-handoff recovery reachable after the canonical event already exists', async () => {
+    const user = userEvent.setup()
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      event_id: EVENT_ID,
+      booking_resume: {
+        status: 'complete',
+        results: [{ disposition: 'executing', metadata: { booking_id: 'booking-1' } }],
+        error: null,
+      },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    renderCard(queryClient, {
+      planStatus: 'executing',
+      materializedEventId: EVENT_ID,
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Sync approved booking handoffs' }))
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(
+      `/api/planner/plans/${PLAN_ID}/materialize`,
+      { method: 'PATCH', credentials: 'include' },
+    ))
+    expect(await screen.findByText(/1 approved booking request is now linked/i)).toBeInTheDocument()
+  })
+
+  it('shows a retry control when post-materialization booking resume fails', async () => {
+    const user = userEvent.setup()
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      event_id: EVENT_ID,
+      existing: false,
+      booking_resume: {
+        status: 'failed',
+        results: [],
+        error: 'canonical_quote_booking_resume_failed',
+      },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    renderCard(queryClient)
+    await user.click(screen.getByRole('checkbox', { name: /I confirm this exact date/i }))
+    await user.click(screen.getByRole('button', { name: 'Confirm exact schedule' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/booking handoff still needs attention/i)
+    expect(screen.getByRole('button', { name: 'Retry approved booking handoffs' })).toBeEnabled()
+  })
+
+  it('routes an expired pre-start booking approval to the existing approval review surface', async () => {
+    const user = userEvent.setup()
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      event_id: EVENT_ID,
+      existing: false,
+      booking_resume: {
+        status: 'reapproval_required',
+        results: [{
+          disposition: 'waiting',
+          metadata: {
+            canonical_booking_status: 'reapproval_required',
+            reapproval_required: true,
+            reapproval_reason: 'approval_expired',
+            approval_id: 'approval-expired',
+          },
+        }],
+        error: null,
+        reapproval: {
+          approval_ids: ['approval-expired'],
+          review_href: `/planner?plan=${encodeURIComponent(PLAN_ID)}&tab=approvals`,
+        },
+      },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    renderCard(queryClient)
+    await user.click(screen.getByRole('checkbox', { name: /I confirm this exact date/i }))
+    await user.click(screen.getByRole('button', { name: 'Confirm exact schedule' }))
+
+    expect(await screen.findByText('Exact event schedule confirmed')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(/terms expired or changed before execution started/i)
+    expect(screen.getByRole('link', { name: 'Review approval' })).toHaveAttribute(
+      'href',
+      `/planner?plan=${encodeURIComponent(PLAN_ID)}&tab=approvals`,
+    )
+    expect(screen.queryByRole('button', { name: /Retry approved booking handoffs/i })).not.toBeInTheDocument()
+  })
+
+  it('routes a persisted failed handoff to the approval recovery controls', async () => {
+    const user = userEvent.setup()
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      event_id: EVENT_ID,
+      booking_resume: {
+        status: 'failed',
+        results: [{
+          disposition: 'waiting',
+          metadata: { action_status: 'failed', agent_action_id: 'action-failed' },
+        }],
+        error: 'canonical_quote_booking_action_failed',
+        recovery: {
+          action_ids: ['action-failed'],
+          review_href: `/planner?plan=${encodeURIComponent(PLAN_ID)}&tab=approvals`,
+          reason: 'action_failed',
+        },
+      },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    renderCard(queryClient)
+    await user.click(screen.getByRole('checkbox', { name: /I confirm this exact date/i }))
+    await user.click(screen.getByRole('button', { name: 'Confirm exact schedule' }))
+
+    expect(await screen.findByRole('link', { name: 'Review failed handoff' })).toHaveAttribute(
+      'href',
+      `/planner?plan=${encodeURIComponent(PLAN_ID)}&tab=approvals`,
+    )
+    expect(screen.queryByRole('button', { name: /Retry approved booking handoffs/i })).not.toBeInTheDocument()
+  })
+
+  it('turns a pre-existing failed action found during manual sync into explicit review, not another retry', async () => {
+    const user = userEvent.setup()
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      event_id: EVENT_ID,
+      booking_resume: {
+        status: 'failed',
+        results: [{
+          disposition: 'waiting',
+          metadata: {
+            canonical_booking_status: 'failed',
+            action_status: 'failed',
+            agent_action_id: 'action-preexisting-failed',
+          },
+        }],
+        error: 'canonical_quote_booking_action_failed',
+        recovery: {
+          action_ids: ['action-preexisting-failed'],
+          review_href: `/planner?plan=${encodeURIComponent(PLAN_ID)}&tab=approvals`,
+          reason: 'action_failed',
+        },
+      },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    renderCard(queryClient, {
+      planStatus: 'executing',
+      materializedEventId: EVENT_ID,
+    })
+    await user.click(screen.getByRole('button', { name: 'Sync approved booking handoffs' }))
+
+    expect(await screen.findByRole('link', { name: 'Review failed handoff' })).toHaveAttribute(
+      'href',
+      `/planner?plan=${encodeURIComponent(PLAN_ID)}&tab=approvals`,
+    )
+    expect(screen.queryByRole('button', { name: /Retry approved booking handoffs/i })).not.toBeInTheDocument()
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows explicit review instead of retry when a completed plan blocks resume', async () => {
+    const user = userEvent.setup()
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      event_id: EVENT_ID,
+      booking_resume: {
+        status: 'failed',
+        results: [{
+          disposition: 'waiting',
+          metadata: {
+            canonical_booking_status: 'resume_blocked_plan_status',
+            resume_blocked: true,
+            plan_status: 'completed',
+            action_status: 'approved',
+            agent_action_id: 'action-completed',
+          },
+        }],
+        error: 'canonical_quote_booking_resume_blocked',
+        recovery: {
+          action_ids: ['action-completed'],
+          review_href: `/planner?plan=${encodeURIComponent(PLAN_ID)}&tab=approvals`,
+          reason: 'plan_status_ineligible',
+          plan_statuses: ['completed'],
+        },
+      },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    renderCard(queryClient, { planStatus: 'completed', materializedEventId: EVENT_ID })
+    await user.click(screen.getByRole('button', { name: 'Sync approved booking handoffs' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/plan is no longer executable/i)
+    expect(screen.getByText(/cannot resume after this plan left an executable state/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Review blocked handoff' })).toHaveAttribute(
+      'href',
+      `/planner?plan=${encodeURIComponent(PLAN_ID)}&tab=approvals`,
+    )
+    expect(screen.queryByRole('button', { name: /Retry approved booking handoffs/i })).not.toBeInTheDocument()
+    expect(global.fetch).toHaveBeenCalledTimes(1)
   })
 
   it('shows an accessible schedule error and blocks an invalid timezone before any write', async () => {

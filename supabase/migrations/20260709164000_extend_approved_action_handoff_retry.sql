@@ -16,6 +16,7 @@ SECURITY INVOKER
 SET search_path = public, pg_temp
 AS $function$
 DECLARE
+  v_plan public.plans%ROWTYPE;
   v_action public.agent_actions%ROWTYPE;
   v_approval public.approvals%ROWTYPE;
   v_now TIMESTAMPTZ := transaction_timestamp();
@@ -24,6 +25,34 @@ BEGIN
     OR length(p_idempotency_key) > 200
   THEN
     RAISE EXCEPTION 'approval_retry_identity_invalid' USING ERRCODE = '22023';
+  END IF;
+
+  -- Use the canonical lifecycle lock order for every execution boundary:
+  -- plan -> action -> approval. Partner confirmation/decline uses the same
+  -- order, preventing a failed-action retry from deadlocking with a response.
+  SELECT plan_row.*
+  INTO v_plan
+  FROM public.plans AS plan_row
+  WHERE plan_row.id = p_plan_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'approval_retry_plan_not_found' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_plan.user_id IS DISTINCT FROM p_actor_id THEN
+    RAISE EXCEPTION 'approval_retry_actor_mismatch' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT action.*
+  INTO v_action
+  FROM public.agent_actions AS action
+  WHERE action.id = p_action_id
+    AND action.plan_id = p_plan_id
+    AND action.approval_id = p_approval_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'approval_retry_action_not_found' USING ERRCODE = 'P0002';
   END IF;
 
   SELECT approval.*
@@ -37,20 +66,13 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'approval_retry_approval_not_found' USING ERRCODE = 'P0002';
   END IF;
+  IF v_approval.authorized_by IS DISTINCT FROM p_actor_id
+    OR v_approval.authorized_at IS NULL
+  THEN
+    RAISE EXCEPTION 'approval_retry_actor_mismatch' USING ERRCODE = '42501';
+  END IF;
   IF v_approval.snapshot_hash IS DISTINCT FROM p_expected_snapshot_hash THEN
     RAISE EXCEPTION 'approval_snapshot_mismatch' USING ERRCODE = '40001';
-  END IF;
-
-  SELECT action.*
-  INTO v_action
-  FROM public.agent_actions AS action
-  WHERE action.id = p_action_id
-    AND action.plan_id = p_plan_id
-    AND action.approval_id = p_approval_id
-  FOR UPDATE;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'approval_retry_action_not_found' USING ERRCODE = 'P0002';
   END IF;
 
   IF NOT (
@@ -175,7 +197,9 @@ SECURITY INVOKER
 SET search_path = public, pg_temp
 AS $function$
 DECLARE
+  v_plan public.plans%ROWTYPE;
   v_action public.agent_actions%ROWTYPE;
+  v_approval public.approvals%ROWTYPE;
   v_now TIMESTAMPTZ := transaction_timestamp();
   v_target_status TEXT;
   v_from_status TEXT;
@@ -189,16 +213,50 @@ BEGIN
     RAISE EXCEPTION 'approval_handoff_retry_finalize_invalid' USING ERRCODE = '22023';
   END IF;
 
-  SELECT action.*
+  -- Match retry claim and every canonical execution boundary: lock and verify
+  -- the aggregate root before its action. The agent-action boundary trigger
+  -- reads this plan row during UPDATE, so this order cannot invert with claim.
+  SELECT plan_row.*
+  INTO v_plan
+  FROM public.plans AS plan_row
+  WHERE plan_row.id = p_plan_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'approval_retry_plan_not_found' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_plan.user_id IS DISTINCT FROM p_actor_id THEN
+    RAISE EXCEPTION 'approval_retry_actor_mismatch' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT action_row.*
   INTO v_action
-  FROM public.agent_actions AS action
-  WHERE action.id = p_action_id
-    AND action.plan_id = p_plan_id
+  FROM public.agent_actions AS action_row
+  WHERE action_row.id = p_action_id
+    AND action_row.plan_id = p_plan_id
   FOR UPDATE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'approval_retry_action_not_found' USING ERRCODE = 'P0002';
   END IF;
+
+  SELECT approval_row.*
+  INTO v_approval
+  FROM public.approvals AS approval_row
+  WHERE approval_row.id = v_action.approval_id
+    AND approval_row.plan_id = p_plan_id
+    AND approval_row.agent_action_id = p_action_id
+  FOR SHARE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'approval_retry_approval_not_found' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_approval.authorized_by IS DISTINCT FROM p_actor_id
+    OR v_approval.authorized_at IS NULL
+  THEN
+    RAISE EXCEPTION 'approval_retry_actor_mismatch' USING ERRCODE = '42501';
+  END IF;
+
   IF v_action.last_retry_idempotency_key IS DISTINCT FROM p_idempotency_key THEN
     RAISE EXCEPTION 'approval_retry_idempotency_conflict' USING ERRCODE = '40001';
   END IF;

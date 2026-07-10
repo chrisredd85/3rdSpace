@@ -129,3 +129,44 @@ require stale generated-type workarounds.
 The local integration branch is `codex/5k-readiness-integration` in
 `/private/tmp/3rdplace-5k-readiness-integration`. Prompt 6 and Prompt 7 are the
 completed boundary. Begin Prompt 8 only in a later, explicitly resumed run.
+
+## 2026-07-10 verification correction
+
+This addendum preserves the July 9 handoff as the original Prompt 7 checkpoint,
+but supersedes its claim that Prompt 7 was a completed boundary. The later
+Prompt 7/8 audit found that the identity spine was not yet enforced at every
+operational edge:
+
+- a booking without the exact canonical action/approval provenance could
+  advance the plan;
+- canonical bookings and actions could be rebound, unlinked, or materially
+  changed through service-owned writes after approval;
+- the approved discovery target was not proven to be the claimed physical
+  venue/vendor on the booking;
+- legacy `plans.metadata.event_id` could still influence an operational read;
+- an exact analytics deep link could miss an older event outside the default
+  feed; and
+- rebook and template flows could retain the prior thread or accept the legacy
+  `complete` value instead of the canonical `completed` outcome contract.
+
+The current worktree adds exact reciprocal event, action, current approval,
+V2-snapshot, amount, target, claimed-partner, and booking-term enforcement; it
+also corrects the canonical analytics, rebook, and template readers. The
+realized proof and final release evidence must come from the root-owned clean
+gate documented in
+`qa-artifacts/5k-readiness-prompts7-8-verification-2026-07-10.md`.
+
+Corrected release receipt:
+
+- Final release commit: **PENDING_ROOT_FINAL_GATE**
+- Clean-reset Prompt 7 realized proof: **PASS** in the 12-suite / 297-test
+  realized database matrix
+- Full regression/build/browser evidence: **PASS**; 1,845 ordinary Jest tests,
+  type-check, lint, production build, and 26 targeted Chromium tests; six
+  credential-dependent browser checks skipped by contract
+- Hosted apply and merge: **BLOCKED_PENDING_OPERATOR_SEQUENCE**
+
+Prompt 8 has since been implemented and corrected in the same worktree, while
+Prompt 9 still owns controlled-payment provider execution. Prompts 1–8 are not
+in `origin/main` at observed SHA `461e3da`; no hosted database mutation or merge
+is authorized by this correction.

@@ -50,6 +50,19 @@ type ServiceOnlyFunction = {
 
 const serviceOnlyFunctions: ServiceOnlyFunction[] = [
   {
+    signature: 'advance_plan_after_confirmed_booking()',
+    call: 'select public.advance_plan_after_confirmed_booking();',
+    triggerOnly: true,
+  },
+  {
+    signature: 'assert_canonical_booking_partner_binding(text,uuid,uuid,uuid,uuid)',
+    call: "select public.assert_canonical_booking_partner_binding('venue', null, null, null, null);",
+  },
+  {
+    signature: 'bind_discovery_vendor_claim(uuid,uuid,uuid)',
+    call: 'select public.bind_discovery_vendor_claim(null, null, null);',
+  },
+  {
     signature: 'block_inflight_stripe_account_payments(text,text,text)',
     call: 'select public.block_inflight_stripe_account_payments(null::text, null::text, null::text);',
   },
@@ -58,12 +71,42 @@ const serviceOnlyFunctions: ServiceOnlyFunction[] = [
     call: 'select public.calculate_event_kickback(null::uuid);',
   },
   {
+    signature: 'cancel_executing_canonical_quote_booking(uuid,uuid,uuid,uuid,text)',
+    call: "select public.cancel_executing_canonical_quote_booking(null, null, null, null, 'acl');",
+  },
+  {
+    signature: 'canonical_booking_has_execution_provenance(text,uuid,uuid,uuid,uuid,uuid,uuid,integer,jsonb,text)',
+    call: "select public.canonical_booking_has_execution_provenance('venue', null, null, null, null, null, null, null, null, 'pending');",
+  },
+  {
     signature: 'claim_app_jobs(integer,text)',
     call: "select * from public.claim_app_jobs(0, 'acl-test');",
   },
   {
     signature: 'consume_webhook_rate_limit(text,integer,integer)',
     call: "select public.consume_webhook_rate_limit('acl-test', 1, 60);",
+  },
+  {
+    signature: 'confirm_canonical_booking(text,uuid,uuid,jsonb)',
+    call: "select public.confirm_canonical_booking('venue', null, null, '{}'::jsonb);",
+  },
+  {
+    signature: 'decline_canonical_bookings(text,uuid[],uuid,text,jsonb)',
+    call: "select public.decline_canonical_bookings('venue', '{}'::uuid[], null, 'acl', '{}'::jsonb);",
+  },
+  {
+    signature: 'enforce_canonical_booking_execution_provenance()',
+    call: 'select public.enforce_canonical_booking_execution_provenance();',
+    triggerOnly: true,
+  },
+  {
+    signature: 'ensure_canonical_booking_partner_binding(text,uuid,uuid,uuid,uuid)',
+    call: "select public.ensure_canonical_booking_partner_binding('venue', null, null, null, null);",
+  },
+  {
+    signature: 'freeze_canonical_booking_partner_binding()',
+    call: 'select public.freeze_canonical_booking_partner_binding();',
+    triggerOnly: true,
   },
   {
     signature: 'handle_new_user()',
@@ -105,6 +148,11 @@ const serviceOnlyFunctions: ServiceOnlyFunction[] = [
     triggerOnly: true,
   },
   {
+    signature: 'protect_vendor_profile_discovery_claim_link()',
+    call: 'select public.protect_vendor_profile_discovery_claim_link();',
+    triggerOnly: true,
+  },
+  {
     signature: 'recalculate_vendor_review_stats(uuid)',
     call: 'select public.recalculate_vendor_review_stats(null::uuid);',
   },
@@ -131,6 +179,11 @@ const serviceOnlyFunctions: ServiceOnlyFunction[] = [
   {
     signature: 'sync_vendor_review_stats()',
     call: 'select public.sync_vendor_review_stats();',
+    triggerOnly: true,
+  },
+  {
+    signature: 'sync_vendor_profile_discovery_claim_link()',
+    call: 'select public.sync_vendor_profile_discovery_claim_link();',
     triggerOnly: true,
   },
   {
@@ -268,14 +321,68 @@ async function expectRpcPermissionDenied(
 
 function rpcArgsFor(signature: string): Record<string, unknown> {
   switch (signature) {
+    case 'assert_canonical_booking_partner_binding(text,uuid,uuid,uuid,uuid)':
+      return {
+        p_booking_kind: 'venue',
+        p_plan_id: null,
+        p_agent_action_id: null,
+        p_approval_id: null,
+        p_physical_partner_id: null,
+      }
+    case 'bind_discovery_vendor_claim(uuid,uuid,uuid)':
+      return { p_discovery_vendor_id: null, p_vendor_profile_id: null, p_actor_id: null }
     case 'block_inflight_stripe_account_payments(text,text,text)':
       return { p_stripe_account_id: 'acct_acl', p_reason: 'acl_test', p_event_id: 'evt_acl' }
     case 'calculate_event_kickback(uuid)':
       return { p_event_id: ids.eventA }
+    case 'cancel_executing_canonical_quote_booking(uuid,uuid,uuid,uuid,text)':
+      return {
+        p_plan_id: null,
+        p_agent_action_id: null,
+        p_approval_id: null,
+        p_actor_id: null,
+        p_reason: 'acl',
+      }
+    case 'canonical_booking_has_execution_provenance(text,uuid,uuid,uuid,uuid,uuid,uuid,integer,jsonb,text)':
+      return {
+        p_booking_kind: 'venue',
+        p_partner_id: null,
+        p_event_id: null,
+        p_plan_id: null,
+        p_agent_action_id: null,
+        p_approval_id: null,
+        p_organizer_id: null,
+        p_quoted_price_cents: null,
+        p_approved_terms_snapshot: null,
+        p_booking_status: 'pending',
+      }
     case 'claim_app_jobs(integer,text)':
       return { p_limit: 0, p_worker_id: 'acl-test' }
     case 'consume_webhook_rate_limit(text,integer,integer)':
       return { p_key: 'acl-test', p_limit: 1, p_window_seconds: 60 }
+    case 'confirm_canonical_booking(text,uuid,uuid,jsonb)':
+      return {
+        p_booking_kind: 'venue',
+        p_booking_id: null,
+        p_actor_id: null,
+        p_confirmation_context: {},
+      }
+    case 'decline_canonical_bookings(text,uuid[],uuid,text,jsonb)':
+      return {
+        p_booking_kind: 'venue',
+        p_booking_ids: [],
+        p_actor_id: null,
+        p_reason: 'acl',
+        p_decline_context: {},
+      }
+    case 'ensure_canonical_booking_partner_binding(text,uuid,uuid,uuid,uuid)':
+      return {
+        p_booking_kind: 'venue',
+        p_plan_id: null,
+        p_agent_action_id: null,
+        p_approval_id: null,
+        p_physical_partner_id: null,
+      }
     case 'increment_stripe_webhook_duplicate_count(text,text)':
       return { p_stripe_event_id: 'evt_acl', p_endpoint_path: '/acl' }
     case 'increment_stripe_webhook_duplicate_count(text)':
@@ -566,7 +673,7 @@ describeIfDatabase('database privilege lockdown', () => {
     })
 
     it('keeps trigger-only functions out of the PostgREST callable surface', () => {
-      expect(triggerFunctions).toHaveLength(8)
+      expect(triggerFunctions).toHaveLength(13)
     })
   })
 

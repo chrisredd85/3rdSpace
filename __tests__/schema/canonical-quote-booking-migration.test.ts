@@ -31,13 +31,20 @@ describe('canonical quote booking migration', () => {
     const stage = functionBody('stage_plan_quote_booking')
 
     expect(stage).toContain('response.plan_id = p_plan_id')
-    expect(stage).toContain("v_plan.status::TEXT = 'executing'")
+    expect(stage).toContain("v_plan.status::TEXT IN ('executing', 'booked')")
     expect(stage).toContain("set_config('app.canonical_plan_lineage_plan_id'")
     expect(stage).toContain('v_event_date := v_plan.date_window_start')
     expect(stage).toContain('event_row.id = v_plan.materialized_event_id')
     expect(stage).toContain('FOR KEY SHARE OF response')
     expect(stage).toContain('stage_plan_quote_booking_response_not_actionable')
+    expect(stage).toContain('stage_plan_quote_booking_price_required')
+    expect(stage).toContain("regexp_replace(lower(btrim(COALESCE(v_deal_model, '')))")
+    expect(stage).toContain("'community_host_incentive', 'bar_consumption_chi', 'ticket_chi'")
     expect(stage).toContain("action_row.payload_json ->> 'quote_response_id' = p_response_id::TEXT")
+    expect(stage).toContain("action_row.status IN ('pending', 'proposed', 'approved', 'executing')")
+    expect(stage).toContain("OR action_row.status IN ('failed', 'complete')")
+    expect(stage).toContain("active_action.status IN ('pending', 'proposed', 'approved', 'executing')")
+    expect(stage).toContain("OR active_action.status IN ('failed', 'complete')")
     expect(stage).toContain('stage_plan_quote_booking_active_slot_exists')
     expect(stage).toContain("'concierge_queue'")
     expect(stage).toContain("'canonical_quote_booking'")
@@ -52,6 +59,7 @@ describe('canonical quote booking migration', () => {
 
     expect(cancel).toContain("v_action.status NOT IN ('pending', 'proposed')")
     expect(cancel).toContain("v_approval.status <> 'pending'")
+    expect(cancel).toContain("v_plan.status::TEXT IN ('executing', 'booked')")
     expect(cancel).toContain("SET status = 'cancelled'")
     expect(cancel).toContain('committed_venue_id = NULL')
     expect(cancel).toContain('committed_vendors = v_next_vendors')
@@ -80,7 +88,19 @@ describe('canonical quote booking migration', () => {
   it('turns external confirmation into action completion and host-visible booked evidence', () => {
     const confirm = functionBody('confirm_canonical_booking')
 
+    expect(confirm).toContain('venue.owner_id')
+    expect(confirm).toContain('vendor.user_id')
+    expect(confirm).toContain('confirm_canonical_booking_partner_mismatch')
+    expect(confirm.indexOf('FOR UPDATE;')).toBeLessThan(confirm.indexOf('FOR UPDATE;', confirm.indexOf('FOR UPDATE;') + 1))
+    expect(confirm.indexOf('FROM public.plans AS plan_row')).toBeLessThan(confirm.indexOf('FROM public.agent_actions AS action_row'))
+    expect(confirm.indexOf('FROM public.agent_actions AS action_row')).toBeLessThan(confirm.indexOf('FROM public.approvals AS approval_row'))
+    expect(confirm.indexOf('FROM public.approvals AS approval_row')).toBeLessThan(confirm.indexOf('FROM public.venues AS venue'))
     expect(confirm).toContain("v_status = 'confirmed' AND v_action.status = 'complete'")
+    expect(confirm).toContain("v_plan_status NOT IN ('executing', 'booked')")
+    expect(confirm).toContain('confirm_canonical_booking_plan_not_confirmable')
+    expect(confirm.indexOf("v_status = 'confirmed' AND v_action.status = 'complete'")).toBeLessThan(
+      confirm.indexOf("v_plan_status NOT IN ('executing', 'booked')"),
+    )
     expect(confirm).toContain("v_status <> 'pending'")
     expect(confirm).toContain("SET status = 'confirmed'")
     expect(confirm).toContain("SET status = 'complete'")
@@ -107,7 +127,11 @@ describe('canonical quote booking migration', () => {
   it('exposes an idempotent post-authorization cancellation command without mutating approval history', () => {
     const cancel = functionBody('cancel_executing_canonical_quote_booking')
 
+    expect(cancel.indexOf('FROM public.plans AS plan_row')).toBeLessThan(cancel.indexOf('FROM public.agent_actions AS action_row'))
+    expect(cancel.indexOf('FROM public.agent_actions AS action_row')).toBeLessThan(cancel.indexOf('FROM public.approvals AS approval_row'))
+    expect(cancel.indexOf('FROM public.approvals AS approval_row')).toBeLessThan(cancel.indexOf('FROM public.venue_bookings AS booking'))
     expect(cancel).toContain("v_approval.status NOT IN ('approved', 'authorized')")
+    expect(cancel).toContain("v_plan.status::TEXT NOT IN ('approved', 'executing', 'booked', 'completed', 'archived')")
     expect(cancel).toContain("v_action.status = 'cancelled'")
     expect(cancel).toContain("v_booking_status = 'cancelled'")
     expect(cancel).toContain("v_booking_status <> 'pending'")

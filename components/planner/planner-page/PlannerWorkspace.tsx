@@ -1115,8 +1115,15 @@ export function PlannerWorkspace() {
           router.replace(`/planner?plan=${nextPlan.id}`, { scroll: false })
         }
       }
-      if (Array.isArray(payload?.messages) && payload.messages.length > 0) {
-        setMessages((currentMessages) => [...currentMessages, ...(payload.messages as PlanMessage[])])
+      const appliedMessages = Array.isArray(payload?.messages)
+        ? payload.messages as PlanMessage[]
+        : []
+      if (shouldCreateNewPlan || appliedMessages.length > 0) {
+        setMessages((currentMessages) => resolveTemplateApplyMessages({
+          currentMessages,
+          appliedMessages,
+          createsNewPlan: shouldCreateNewPlan,
+        }))
       }
       addToast({
         title: shouldCreateNewPlan ? 'Rebook plan created' : 'Template applied',
@@ -1973,8 +1980,18 @@ export function PlannerWorkspace() {
 export function isTemplateEligiblePlan(plan: Plan | null) {
   return Boolean(
     plan?.materialized_event_id &&
-    (plan.status === 'completed' || plan.status === 'complete')
+    plan.status === 'completed'
   )
+}
+
+export function resolveTemplateApplyMessages(input: {
+  currentMessages: PlanMessage[]
+  appliedMessages: PlanMessage[]
+  createsNewPlan: boolean
+}) {
+  return input.createsNewPlan
+    ? input.appliedMessages
+    : [...input.currentMessages, ...input.appliedMessages]
 }
 
 /**

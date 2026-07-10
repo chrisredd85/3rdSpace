@@ -211,7 +211,7 @@ BEGIN
     OR
     (
       v_plan.materialized_event_id IS NOT NULL
-      AND v_plan.status::TEXT = 'executing'
+      AND v_plan.status::TEXT IN ('executing', 'booked')
       AND EXISTS (
         SELECT 1
         FROM public.events AS event_row
@@ -313,8 +313,7 @@ BEGIN
   END IF;
 
   -- A plan-owned response is trusted provenance, but a decline or an explicit
-  -- unavailable response is never a bookable quote. Missing price remains
-  -- valid for genuinely free or terms-only offers and will freeze as 0 cents.
+  -- unavailable response is never a bookable quote.
   IF v_terms ->> 'classification' = 'no'
     OR v_terms ->> 'availability_confirmed' = 'false'
     OR (
@@ -324,6 +323,24 @@ BEGIN
     )
   THEN
     RAISE EXCEPTION 'stage_plan_quote_booking_response_not_actionable'
+      USING ERRCODE = '23514';
+  END IF;
+
+  -- Never reinterpret an extraction miss as a free booking. Only a venue
+  -- response with an explicit zero-upfront commercial model may freeze at 0.
+  IF v_amount_cents IS NULL
+    AND NOT (
+      p_quote_kind = 'venue'
+      AND regexp_replace(lower(btrim(COALESCE(v_deal_model, ''))), '[^a-z0-9]+', '_', 'g') IN (
+        'free_space', 'complimentary', 'comped', 'chi',
+        'community_host_incentive', 'bar_consumption_chi', 'ticket_chi',
+        'per_head_chi', 'revenue_share', 'consumption_share',
+        'bar_revenue_share', 'bar_consumption_share',
+        'ticket_revenue_share', 'ticket_consumption_share'
+      )
+    )
+  THEN
+    RAISE EXCEPTION 'stage_plan_quote_booking_price_required'
       USING ERRCODE = '23514';
   END IF;
 
@@ -355,8 +372,15 @@ BEGIN
   WHERE action_row.plan_id = p_plan_id
     AND action_row.payload_json ->> 'kind' = 'canonical_quote_booking'
     AND action_row.payload_json ->> 'quote_response_id' = p_response_id::TEXT
-    AND action_row.status IN ('pending', 'proposed', 'approved', 'executing')
-    AND approval_row.status IN ('pending', 'approved', 'authorized', 're_approval_required')
+    -- A failed action may already own a durable booking/admin-task side effect.
+    -- Keep it as the exact recovery record instead of creating a duplicate.
+    AND (
+      (
+        action_row.status IN ('pending', 'proposed', 'approved', 'executing')
+        AND approval_row.status IN ('pending', 'approved', 'authorized', 're_approval_required')
+      )
+      OR action_row.status IN ('failed', 'complete')
+    )
   ORDER BY action_row.created_at
   LIMIT 1;
 
@@ -391,8 +415,16 @@ BEGIN
     WHERE active_action.plan_id = p_plan_id
       AND active_action.payload_json ->> 'kind' = 'canonical_quote_booking'
       AND active_action.payload_json ->> 'booking_slot' = v_booking_slot
-      AND active_action.status IN ('pending', 'proposed', 'approved', 'executing')
-      AND active_approval.status IN ('pending', 'approved', 'authorized', 're_approval_required')
+      -- A completed slot is a fulfilled commitment, not free capacity for a
+      -- second venue/vendor booking. Replacement needs an explicit later
+      -- cancellation/reapproval flow rather than silently stacking bookings.
+      AND (
+        (
+          active_action.status IN ('pending', 'proposed', 'approved', 'executing')
+          AND active_approval.status IN ('pending', 'approved', 'authorized', 're_approval_required')
+        )
+        OR active_action.status IN ('failed', 'complete')
+      )
   ) THEN
     RAISE EXCEPTION 'stage_plan_quote_booking_active_slot_exists'
       USING ERRCODE = '23505';
@@ -665,7 +697,7 @@ BEGIN
     OR
     (
       v_plan.materialized_event_id IS NOT NULL
-      AND v_plan.status::TEXT = 'executing'
+      AND v_plan.status::TEXT IN ('executing', 'booked')
       AND EXISTS (
         SELECT 1
         FROM public.events AS event_row
@@ -1248,7 +1280,7 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  IF v_plan.status::TEXT NOT IN ('approved', 'executing', 'booked') THEN
+  IF v_plan.status::TEXT NOT IN ('approved', 'executing', 'booked', 'completed', 'archived') THEN
     RAISE EXCEPTION 'cancel_executing_canonical_quote_booking_plan_not_cancellable'
       USING ERRCODE = '23514', DETAIL = v_plan.status::TEXT;
   END IF;
@@ -1514,6 +1546,8 @@ DECLARE
   v_event_id UUID;
   v_action_id UUID;
   v_approval_id UUID;
+  v_partner_id UUID;
+  v_partner_actor_id UUID;
   v_status TEXT;
   v_plan_status TEXT;
   v_action_from_status TEXT;
@@ -1536,25 +1570,52 @@ BEGIN
 
   IF p_booking_kind = 'venue' THEN
     SELECT booking.plan_id, booking.event_id, booking.agent_action_id,
-      booking.approval_id, booking.status
-    INTO v_plan_id, v_event_id, v_action_id, v_approval_id, v_status
+      booking.approval_id, booking.venue_id, booking.status
+    INTO v_plan_id, v_event_id, v_action_id, v_approval_id, v_partner_id, v_status
     FROM public.venue_bookings AS booking
     WHERE booking.id = p_booking_id
-      AND booking.plan_id IS NOT NULL
-    FOR UPDATE;
+      AND booking.plan_id IS NOT NULL;
   ELSE
     SELECT booking.plan_id, booking.event_id, booking.agent_action_id,
-      booking.approval_id, booking.status
-    INTO v_plan_id, v_event_id, v_action_id, v_approval_id, v_status
+      booking.approval_id, booking.vendor_id, booking.status
+    INTO v_plan_id, v_event_id, v_action_id, v_approval_id, v_partner_id, v_status
     FROM public.vendor_bookings AS booking
     WHERE booking.id = p_booking_id
-      AND booking.plan_id IS NOT NULL
-    FOR UPDATE;
+      AND booking.plan_id IS NOT NULL;
   END IF;
 
-  IF v_plan_id IS NULL OR v_action_id IS NULL OR v_approval_id IS NULL THEN
+  IF v_plan_id IS NULL OR v_event_id IS NULL OR v_action_id IS NULL
+    OR v_approval_id IS NULL OR v_partner_id IS NULL
+  THEN
     RAISE EXCEPTION 'confirm_canonical_booking_not_found'
       USING ERRCODE = 'P0002';
+  END IF;
+
+  -- Every canonical booking lifecycle command takes aggregate locks in this
+  -- order: plan, event, action, approval, partner, booking. The first booking
+  -- read above is only an immutable-lineage lookup; every value is rechecked
+  -- after the authoritative booking lock below.
+  SELECT plan_row.status::TEXT
+  INTO v_plan_status
+  FROM public.plans AS plan_row
+  WHERE plan_row.id = v_plan_id
+    AND plan_row.materialized_event_id = v_event_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'confirm_canonical_booking_plan_mismatch'
+      USING ERRCODE = '23514';
+  END IF;
+
+  PERFORM event_row.id
+  FROM public.events AS event_row
+  WHERE event_row.id = v_event_id
+    AND event_row.plan_id = v_plan_id
+  FOR SHARE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'confirm_canonical_booking_event_mismatch'
+      USING ERRCODE = '23514';
   END IF;
 
   SELECT action_row.* INTO v_action
@@ -1569,10 +1630,65 @@ BEGIN
       USING ERRCODE = '23514';
   END IF;
 
-  SELECT plan_row.status::TEXT
-  INTO v_plan_status
-  FROM public.plans AS plan_row
-  WHERE plan_row.id = v_plan_id;
+  PERFORM approval_row.id
+  FROM public.approvals AS approval_row
+  WHERE approval_row.id = v_approval_id
+    AND approval_row.plan_id = v_plan_id
+    AND approval_row.agent_action_id = v_action_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'confirm_canonical_booking_approval_mismatch'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF p_booking_kind = 'venue' THEN
+    SELECT venue.owner_id
+    INTO v_partner_actor_id
+    FROM public.venues AS venue
+    WHERE venue.id = v_partner_id
+    FOR SHARE;
+  ELSE
+    SELECT vendor.user_id
+    INTO v_partner_actor_id
+    FROM public.vendor_profiles AS vendor
+    WHERE vendor.id = v_partner_id
+    FOR SHARE;
+  END IF;
+
+  IF NOT FOUND OR v_partner_actor_id IS DISTINCT FROM p_actor_id THEN
+    RAISE EXCEPTION 'confirm_canonical_booking_partner_mismatch'
+      USING ERRCODE = '42501', DETAIL = p_booking_id::TEXT;
+  END IF;
+
+  IF p_booking_kind = 'venue' THEN
+    SELECT booking.status
+    INTO v_status
+    FROM public.venue_bookings AS booking
+    WHERE booking.id = p_booking_id
+      AND booking.plan_id = v_plan_id
+      AND booking.event_id = v_event_id
+      AND booking.agent_action_id = v_action_id
+      AND booking.approval_id = v_approval_id
+      AND booking.venue_id = v_partner_id
+    FOR UPDATE;
+  ELSE
+    SELECT booking.status
+    INTO v_status
+    FROM public.vendor_bookings AS booking
+    WHERE booking.id = p_booking_id
+      AND booking.plan_id = v_plan_id
+      AND booking.event_id = v_event_id
+      AND booking.agent_action_id = v_action_id
+      AND booking.approval_id = v_approval_id
+      AND booking.vendor_id = v_partner_id
+    FOR UPDATE;
+  END IF;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'confirm_canonical_booking_provenance_mismatch'
+      USING ERRCODE = '23514';
+  END IF;
 
   IF v_status = 'confirmed' AND v_action.status = 'complete' THEN
     RETURN jsonb_build_object(
@@ -1585,6 +1701,13 @@ BEGIN
       'plan_status', v_plan_status,
       'event_id', v_event_id
     );
+  END IF;
+
+  -- A terminal plan may replay already-confirmed evidence above, but it may
+  -- never turn a still-pending booking into new positive execution.
+  IF v_plan_status NOT IN ('executing', 'booked') THEN
+    RAISE EXCEPTION 'confirm_canonical_booking_plan_not_confirmable'
+      USING ERRCODE = '23514', DETAIL = v_plan_status;
   END IF;
 
   IF v_status <> 'pending' OR v_action.status NOT IN ('approved', 'executing') THEN

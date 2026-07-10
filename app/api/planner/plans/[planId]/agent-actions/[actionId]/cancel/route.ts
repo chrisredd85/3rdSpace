@@ -144,7 +144,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return cancellationResponse(approval, updatedAction)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to cancel execution'
-    const conflict = /not.cancell|mismatch|complete|confirmed|conflict|race/i.test(message)
+    const conflict = /not.cancell|mismatch|complete|confirmed|conflict|race|deadlock|40P01/i.test(message)
     console.error('[planner.approved-action.cancel] Failed to cancel execution', error)
     return NextResponse.json(
       { error: message, code: conflict ? 'execution_cancel_not_allowed' : 'execution_cancel_failed' },

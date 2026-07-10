@@ -1569,6 +1569,70 @@ export type Database = {
           },
         ]
       }
+      canonical_booking_partner_bindings: {
+        Row: {
+          agent_action_id: string
+          approval_id: string
+          approval_snapshot_hash: string
+          binding_source: string
+          booking_kind: string
+          bound_at: string
+          bound_by: string | null
+          discovery_partner_id: string
+          id: string
+          physical_partner_id: string
+          plan_id: string
+        }
+        Insert: {
+          agent_action_id: string
+          approval_id: string
+          approval_snapshot_hash: string
+          binding_source?: string
+          booking_kind: string
+          bound_at?: string
+          bound_by?: string | null
+          discovery_partner_id: string
+          id?: string
+          physical_partner_id: string
+          plan_id: string
+        }
+        Update: {
+          agent_action_id?: string
+          approval_id?: string
+          approval_snapshot_hash?: string
+          binding_source?: string
+          booking_kind?: string
+          bound_at?: string
+          bound_by?: string | null
+          discovery_partner_id?: string
+          id?: string
+          physical_partner_id?: string
+          plan_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canonical_booking_partner_bindings_action_plan_fkey"
+            columns: ["agent_action_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id", "plan_id"]
+          },
+          {
+            foreignKeyName: "canonical_booking_partner_bindings_approval_plan_fkey"
+            columns: ["approval_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "plan_id"]
+          },
+          {
+            foreignKeyName: "canonical_booking_partner_bindings_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chi_network_defaults: {
         Row: {
           archetype: string
@@ -2387,6 +2451,52 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      discovery_vendor_claims: {
+        Row: {
+          binding_source: string
+          bound_at: string
+          bound_by: string | null
+          discovery_vendor_id: string
+          vendor_profile_id: string
+        }
+        Insert: {
+          binding_source?: string
+          bound_at?: string
+          bound_by?: string | null
+          discovery_vendor_id: string
+          vendor_profile_id: string
+        }
+        Update: {
+          binding_source?: string
+          bound_at?: string
+          bound_by?: string | null
+          discovery_vendor_id?: string
+          vendor_profile_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_vendor_claims_discovery_vendor_id_fkey"
+            columns: ["discovery_vendor_id"]
+            isOneToOne: true
+            referencedRelation: "discovery_vendors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discovery_vendor_claims_vendor_profile_id_fkey"
+            columns: ["vendor_profile_id"]
+            isOneToOne: true
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "discovery_vendor_claims_vendor_profile_id_fkey"
+            columns: ["vendor_profile_id"]
+            isOneToOne: true
+            referencedRelation: "vendor_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       discovery_vendors: {
         Row: {
@@ -5024,6 +5134,7 @@ export type Database = {
       notifications: {
         Row: {
           action_url: string | null
+          canonical_venue_confirmation_booking_id: string | null
           created_at: string | null
           group_key: string | null
           id: string
@@ -5041,6 +5152,7 @@ export type Database = {
         }
         Insert: {
           action_url?: string | null
+          canonical_venue_confirmation_booking_id?: string | null
           created_at?: string | null
           group_key?: string | null
           id?: string
@@ -5058,6 +5170,7 @@ export type Database = {
         }
         Update: {
           action_url?: string | null
+          canonical_venue_confirmation_booking_id?: string | null
           created_at?: string | null
           group_key?: string | null
           id?: string
@@ -5074,6 +5187,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "notifications_canonical_venue_confirmation_booking_id_fkey"
+            columns: ["canonical_venue_confirmation_booking_id"]
+            isOneToOne: false
+            referencedRelation: "venue_bookings"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "notifications_user_id_fkey"
             columns: ["user_id"]
@@ -8923,6 +9043,7 @@ export type Database = {
       }
       vendor_invoices: {
         Row: {
+          booking_generation_key: string | null
           booking_id: string
           builder_id: string
           created_at: string
@@ -8949,6 +9070,7 @@ export type Database = {
           vendor_id: string
         }
         Insert: {
+          booking_generation_key?: string | null
           booking_id: string
           builder_id: string
           created_at?: string
@@ -8975,6 +9097,7 @@ export type Database = {
           vendor_id: string
         }
         Update: {
+          booking_generation_key?: string | null
           booking_id?: string
           builder_id?: string
           created_at?: string
@@ -10098,6 +10221,7 @@ export type Database = {
           action: string
           actor_id: string | null
           booking_id: string
+          canonical_confirmation_booking_id: string | null
           created_at: string | null
           id: string
           message: string | null
@@ -10110,6 +10234,7 @@ export type Database = {
           action: string
           actor_id?: string | null
           booking_id: string
+          canonical_confirmation_booking_id?: string | null
           created_at?: string | null
           id?: string
           message?: string | null
@@ -10122,6 +10247,7 @@ export type Database = {
           action?: string
           actor_id?: string | null
           booking_id?: string
+          canonical_confirmation_booking_id?: string | null
           created_at?: string | null
           id?: string
           message?: string | null
@@ -10134,6 +10260,13 @@ export type Database = {
           {
             foreignKeyName: "venue_booking_approval_audit_booking_id_fkey"
             columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "venue_bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_booking_approval_audit_canonical_confirmation_bookin_fkey"
+            columns: ["canonical_confirmation_booking_id"]
             isOneToOne: false
             referencedRelation: "venue_bookings"
             referencedColumns: ["id"]
@@ -11797,6 +11930,24 @@ export type Database = {
         }
         Returns: Json
       }
+      assert_canonical_booking_partner_binding: {
+        Args: {
+          p_agent_action_id: string
+          p_approval_id: string
+          p_booking_kind: string
+          p_physical_partner_id: string
+          p_plan_id: string
+        }
+        Returns: undefined
+      }
+      bind_discovery_vendor_claim: {
+        Args: {
+          p_actor_id?: string
+          p_discovery_vendor_id: string
+          p_vendor_profile_id: string
+        }
+        Returns: Json
+      }
       block_inflight_stripe_account_payments: {
         Args: {
           p_event_id: string
@@ -11912,6 +12063,16 @@ export type Database = {
         }
         Returns: Json
       }
+      cancel_executing_canonical_quote_booking_pre_frozen_binding: {
+        Args: {
+          p_actor_id: string
+          p_agent_action_id: string
+          p_approval_id: string
+          p_plan_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       cancel_external_checkout_handoff: {
         Args: {
           p_action_id: string
@@ -11932,6 +12093,21 @@ export type Database = {
           p_response_id: string
         }
         Returns: Json
+      }
+      canonical_booking_has_execution_provenance: {
+        Args: {
+          p_agent_action_id: string
+          p_approval_id: string
+          p_approved_terms_snapshot: Json
+          p_booking_kind: string
+          p_booking_status: string
+          p_event_id: string
+          p_organizer_id: string
+          p_partner_id: string
+          p_plan_id: string
+          p_quoted_price_cents: number
+        }
+        Returns: boolean
       }
       claim_app_jobs: {
         Args: { p_limit?: number; p_worker_id?: string }
@@ -11959,6 +12135,16 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      claim_canonical_quote_booking_materialization_resume: {
+        Args: {
+          p_actor_id: string
+          p_agent_action_id: string
+          p_approval_id: string
+          p_expected_snapshot_hash: string
+          p_plan_id: string
+        }
+        Returns: Json
       }
       claim_failed_action_retry: {
         Args: {
@@ -12023,6 +12209,33 @@ export type Database = {
           p_changed_by: string
           p_expected_revision: number
           p_reason: string
+        }
+        Returns: Json
+      }
+      confirm_canonical_booking_pre_frozen_binding: {
+        Args: {
+          p_actor_id: string
+          p_booking_id: string
+          p_booking_kind: string
+          p_confirmation_context?: Json
+        }
+        Returns: Json
+      }
+      confirm_canonical_venue_bookings_batch: {
+        Args: {
+          p_actor_id: string
+          p_booking_ids: string[]
+          p_confirmation_context?: Json
+        }
+        Returns: Json
+      }
+      confirm_external_checkout_handoff: {
+        Args: {
+          p_action_id: string
+          p_actor_id: string
+          p_approval_id: string
+          p_expected_snapshot_hash: string
+          p_plan_id: string
         }
         Returns: Json
       }
@@ -12108,6 +12321,26 @@ export type Database = {
         }
         Returns: Json
       }
+      decline_canonical_bookings: {
+        Args: {
+          p_actor_id: string
+          p_booking_ids: string[]
+          p_booking_kind: string
+          p_decline_context?: Json
+          p_reason: string
+        }
+        Returns: Json
+      }
+      decline_canonical_bookings_pre_frozen_binding: {
+        Args: {
+          p_actor_id: string
+          p_booking_ids: string[]
+          p_booking_kind: string
+          p_decline_context?: Json
+          p_reason: string
+        }
+        Returns: Json
+      }
       discovery_venues_search_document: {
         Args: {
           venue_name: string
@@ -12154,6 +12387,42 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      ensure_canonical_booking_partner_binding: {
+        Args: {
+          p_agent_action_id: string
+          p_approval_id: string
+          p_booking_kind: string
+          p_physical_partner_id: string
+          p_plan_id: string
+        }
+        Returns: {
+          agent_action_id: string
+          approval_id: string
+          approval_snapshot_hash: string
+          binding_source: string
+          booking_kind: string
+          bound_at: string
+          bound_by: string | null
+          discovery_partner_id: string
+          id: string
+          physical_partner_id: string
+          plan_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "canonical_booking_partner_bindings"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      ensure_canonical_venue_confirmation_effects: {
+        Args: {
+          p_actor_id: string
+          p_booking_ids: string[]
+          p_message?: string
+        }
+        Returns: Json
       }
       finalize_approved_action_handoff_retry: {
         Args: {
@@ -12528,6 +12797,17 @@ export type Database = {
           p_metadata?: Json
           p_new_base_rate_cents: number
           p_vendor_id: string
+        }
+        Returns: Json
+      }
+      require_canonical_quote_booking_reapproval: {
+        Args: {
+          p_actor_id: string
+          p_agent_action_id: string
+          p_approval_id: string
+          p_expected_snapshot_hash: string
+          p_plan_id: string
+          p_reason: string
         }
         Returns: Json
       }

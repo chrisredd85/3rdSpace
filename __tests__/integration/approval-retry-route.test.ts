@@ -81,19 +81,28 @@ const mockExecuteConcierge = executeConciergeApprovedAction as jest.Mock
 type Row = Record<string, any>
 
 class ReadDb {
+  readonly selects: Array<{ table: string; columns: string }> = []
+
   constructor(readonly rows: Record<string, Row[]>) {}
 
   from(table: string) {
-    return new ReadQuery(this.rows[table] ?? [])
+    return new ReadQuery(this.rows[table] ?? [], table, this.selects)
   }
 }
 
 class ReadQuery {
   private filters: Array<[string, unknown]> = []
 
-  constructor(private readonly rows: Row[]) {}
+  constructor(
+    private readonly rows: Row[],
+    private readonly table: string,
+    private readonly selects: Array<{ table: string; columns: string }>,
+  ) {}
 
-  select() { return this }
+  select(columns = '*') {
+    this.selects.push({ table: this.table, columns })
+    return this
+  }
   eq(field: string, value: unknown) {
     this.filters.push([field, value])
     return this
@@ -220,7 +229,7 @@ function seed(actionOverrides: Row = {}) {
   })
   mockCreateServiceRoleClient.mockReturnValue(serviceDb)
   mockBuildSnapshotHash.mockReturnValue(SNAPSHOT_HASH)
-  return { plan, approval, action, rpc }
+  return { plan, approval, action, rpc, readDb }
 }
 
 function request(idempotencyKey: string, expectedSnapshotHash = SNAPSHOT_HASH) {
@@ -238,6 +247,25 @@ async function body(response: Response) {
 describe('approval retry route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+  })
+
+  it('maps plan-lock contention to a retryable conflict', async () => {
+    const { rpc } = seed()
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: '55P03', message: 'could not obtain lock on row in relation plans' },
+    })
+
+    const response = await retryApproval(request('retry-plan-lock'), {
+      params: Promise.resolve({ planId: PLAN_ID, approvalId: APPROVAL_ID }),
+    })
+
+    expect(response.status).toBe(409)
+    expect(await body(response)).toEqual({
+      error: 'The plan changed at the same time. Refresh and retry from the current state.',
+      code: 'plan_execution_conflict',
+      retryable: true,
+    })
   })
 
   it('retries an external handoff through the shared dispatcher and remains executing', async () => {
@@ -291,6 +319,35 @@ describe('approval retry route', () => {
       p_success_action_status: 'executing',
     }))
     expect(action.status).toBe('executing')
+  })
+
+  it('loads canonical event identity when retrying an approved quote booking', async () => {
+    const eventId = '550e8400-e29b-41d4-a716-446655440099'
+    const { plan, readDb } = seed({
+      action_type: 'concierge_queue',
+      payload_json: { kind: 'canonical_quote_booking', quote_kind: 'venue' },
+    })
+    plan.status = 'executing'
+    plan.materialized_event_id = eventId
+    mockExecuteConcierge.mockResolvedValue({
+      disposition: 'executing',
+      metadata: { canonical_booking_status: 'pending_partner_confirmation' },
+    })
+
+    const response = await retryApproval(request('retry-canonical-booking'), {
+      params: Promise.resolve({ planId: PLAN_ID, approvalId: APPROVAL_ID }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(mockExecuteConcierge).toHaveBeenCalledWith(expect.objectContaining({
+      plan: expect.objectContaining({ materialized_event_id: eventId }),
+    }))
+    expect(readDb.selects).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        table: 'plans',
+        columns: expect.stringContaining('materialized_event_id'),
+      }),
+    ]))
   })
 
   it('does not cross Prompt 9 by retrying a controlled-payment proposal', async () => {

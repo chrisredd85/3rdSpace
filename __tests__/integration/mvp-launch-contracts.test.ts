@@ -11,10 +11,14 @@ import {
   buildApprovalSnapshotHashV2,
   buildApprovalSnapshotV2,
 } from '@/lib/planner/execution/reapproval'
-import { prepareExternalCheckoutHandoff } from '@/lib/planner/execution/externalCheckout'
+import {
+  completeExternalCheckoutHandoff,
+  prepareExternalCheckoutHandoff,
+} from '@/lib/planner/execution/externalCheckout'
 import { buildTicketTierRollups, classifyTicketTier } from '@/lib/server/ticket-normalization'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { enqueueOpportunityInviteSendJobs } from '@/lib/server/opportunity-email-worker'
+import { executeApprovedGmailOutreach } from '@/lib/outreach/gmailApprovalFlow'
 
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
@@ -30,6 +34,11 @@ jest.mock('@/lib/server/admin-auth', () => ({
 
 jest.mock('@/lib/server/opportunity-email-worker', () => ({
   enqueueOpportunityInviteSendJobs: jest.fn().mockResolvedValue(undefined),
+}))
+
+jest.mock('@/lib/outreach/gmailApprovalFlow', () => ({
+  ...jest.requireActual('@/lib/outreach/gmailApprovalFlow'),
+  executeApprovedGmailOutreach: jest.fn(),
 }))
 
 jest.mock('next/server', () => ({
@@ -50,6 +59,7 @@ jest.mock('next/server', () => ({
 const mockCreateClient = createClient as jest.Mock
 const mockCreateServiceRoleClient = createServiceRoleClient as jest.Mock
 const mockEnqueueOpportunityInviteSendJobs = enqueueOpportunityInviteSendJobs as jest.Mock
+const mockExecuteApprovedGmailOutreach = executeApprovedGmailOutreach as jest.Mock
 
 const USER_ID = '550e8400-e29b-41d4-a716-446655440000'
 const PLAN_ID = '550e8400-e29b-41d4-a716-446655440001'
@@ -65,6 +75,7 @@ class MemoryDb {
   rows: Record<string, Row[]> = {
     plans: [],
     agent_actions: [],
+    agent_action_audit_log: [],
     approvals: [],
     plan_messages: [],
     venue_opportunity_briefs: [],
@@ -85,6 +96,7 @@ class MemoryDb {
 
   selects: Array<{ table: string; columns: string }> = []
   mutations: Array<{ table: string; operation: 'insert' | 'update' }> = []
+  nextMutationError: { table: string; operation: 'insert' | 'update'; code: string; message: string } | null = null
   private sequence = 0
   private rpcQueue = Promise.resolve()
 
@@ -98,10 +110,14 @@ class MemoryDb {
       ? this.rpcQueue.then(() => this.consumeBuilderEventAccess(params))
       : name === 'supersede_approval_version'
         ? Promise.resolve(this.supersedeApprovalVersion(params))
-        : name === 'enqueue_approved_admin_task'
+      : name === 'enqueue_approved_admin_task'
           ? Promise.resolve(this.enqueueApprovedAdminTask(params))
-          : name === 'prepare_approved_vendor_contact_draft'
+      : name === 'prepare_approved_vendor_contact_draft'
             ? Promise.resolve(this.prepareVendorContactDraft(params))
+            : name === 'create_canonical_booking_from_approval'
+              ? Promise.resolve(this.createCanonicalBookingFromApproval(params))
+            : name === 'confirm_external_checkout_handoff'
+              ? Promise.resolve(this.confirmExternalCheckoutHandoff(params))
         : Promise.resolve({ data: null, error: { message: `Unknown RPC ${name}` } })
     if (name === 'consume_builder_event_access') {
       this.rpcQueue = result.then(() => undefined, () => undefined)
@@ -213,6 +229,131 @@ class MemoryDb {
     }
   }
 
+  private createCanonicalBookingFromApproval(params: Record<string, unknown>) {
+    const action = this.rows.agent_actions.find((row) => row.id === params.p_agent_action_id)
+    const approval = this.rows.approvals.find((row) => row.id === params.p_approval_id)
+    const plan = this.rows.plans.find((row) => row.id === params.p_plan_id)
+    if (!action || !approval || !plan?.materialized_event_id) {
+      return { data: null, error: { message: 'canonical_quote_booking_identity_missing' } }
+    }
+
+    const bookingId = this.nextId('venue_bookings')
+    action.status = 'complete'
+    action.executed_at = new Date().toISOString()
+    action.result_metadata = {
+      ...(action.result_metadata as Row ?? {}),
+      canonical_booking_status: 'confirmed',
+      canonical_booking_kind: 'venue',
+      canonical_booking_id: bookingId,
+      canonical_event_id: plan.materialized_event_id,
+      outbound_message_sent: false,
+    }
+
+    return {
+      data: {
+        existing: false,
+        disposition: 'executing',
+        booking_kind: 'venue',
+        booking_id: bookingId,
+        booking_status: 'confirmed',
+        action_status: 'complete',
+        event_id: plan.materialized_event_id,
+      },
+      error: null,
+    }
+  }
+
+  private confirmExternalCheckoutHandoff(params: Record<string, unknown>) {
+    const plan = this.rows.plans.find((row) => row.id === params.p_plan_id)
+    const action = this.rows.agent_actions.find((row) => row.id === params.p_action_id)
+    const approval = this.rows.approvals.find((row) => row.id === params.p_approval_id)
+    if (!plan || !action || !approval) {
+      return { data: null, error: { code: 'P0002', message: 'confirm_external_checkout_action_not_found' } }
+    }
+    if (
+      plan.user_id !== params.p_actor_id ||
+      action.plan_id !== plan.id ||
+      action.approval_id !== approval.id ||
+      approval.agent_action_id !== action.id ||
+      approval.snapshot_hash !== params.p_expected_snapshot_hash
+    ) {
+      return { data: null, error: { code: '23514', message: 'confirm_external_checkout_approval_mismatch' } }
+    }
+
+    const currentEvidence = (action.result_metadata as Row | undefined)?.external_checkout as Row | undefined
+    const existing = action.status === 'complete' && currentEvidence?.status === 'completed'
+    if (!existing) {
+      if (action.status !== 'executing' || currentEvidence?.status !== 'ready') {
+        return { data: null, error: { code: '23514', message: 'confirm_external_checkout_not_confirmable' } }
+      }
+      const completed = completeExternalCheckoutHandoff({
+        resultMetadata: action.result_metadata,
+        confirmedBy: String(params.p_actor_id),
+      })
+      action.status = 'complete'
+      action.executed_at = completed.evidence.completed_at
+      action.result_metadata = completed.resultMetadata
+    }
+
+    const hasAudit = this.rows.agent_action_audit_log.some((row) =>
+      row.action_id === action.id &&
+      row.reason === 'external_checkout.host_confirmed' &&
+      row.metadata?.approval_id === approval.id
+    )
+    if (!hasAudit) {
+      this.rows.agent_action_audit_log.push({
+        id: this.nextId('agent_action_audit_log'),
+        action_id: action.id,
+        plan_id: plan.id,
+        from_status: 'executing',
+        to_status: 'complete',
+        actor_id: params.p_actor_id,
+        actor_role: 'user',
+        reason: 'external_checkout.host_confirmed',
+        metadata: {
+          approval_id: approval.id,
+          snapshot_hash: params.p_expected_snapshot_hash,
+          confirmation_source: 'host',
+        },
+      })
+    }
+
+    let message = this.rows.plan_messages.find((row) =>
+      row.plan_id === plan.id &&
+      row.metadata?.state === 'external_checkout_completed' &&
+      row.metadata?.agent_action_id === action.id
+    )
+    if (!message) {
+      message = {
+        id: this.nextId('plan_messages'),
+        plan_id: plan.id,
+        role: 'agent',
+        content: `You confirmed the external checkout with ${action.provider || 'the external provider'} was completed.`,
+        message_type: 'status_update',
+        metadata: {
+          state: 'external_checkout_completed',
+          action_status: 'complete',
+          agent_action_id: action.id,
+          approval_id: approval.id,
+          action_result: action.result_metadata,
+        },
+      }
+      this.rows.plan_messages.push(message)
+    }
+
+    return {
+      data: {
+        existing,
+        action_status: action.status,
+        approval_status: approval.status,
+        result_metadata: action.result_metadata,
+        agent_action: action,
+        plan_message: message,
+      },
+      error: null,
+    }
+  }
+
   nextId(table: string) {
     this.sequence += 1
     return `${table}-${this.sequence}`
@@ -310,14 +451,33 @@ class MemoryDb {
     if (!previous || (previous.snapshot_hash ?? 'legacy-missing') !== params.p_expected_snapshot_hash) {
       return { data: null, error: { code: '40001', message: 'approval_snapshot_mismatch' } }
     }
+    if (!['pending', 'expired', 're_approval_required'].includes(String(previous.status))) {
+      return { data: null, error: { code: '23514', message: 'approval_version_source_not_editable' } }
+    }
     const action = this.rows.agent_actions.find((row) => row.id === previous.agent_action_id)
     if (!action) return { data: null, error: { code: 'P0002', message: 'approval_version_action_not_found' } }
+    const canResetWaitingCanonicalQuote = action.status === 'executing' &&
+      previous.status === 're_approval_required' &&
+      action.approval_id === previous.id &&
+      action.payload_json?.kind === 'canonical_quote_booking' &&
+      action.payload_json?.requires_event_materialization === true &&
+      ['waiting_for_event_materialization', 'resuming_after_event_materialization', 'reapproval_required']
+        .includes(String(action.result_metadata?.canonical_booking_status)) &&
+      action.result_metadata?.outbound_message_sent !== true &&
+      !(this.rows.venue_bookings ?? []).some((row) => row.agent_action_id === action.id || row.approval_id === previous.id) &&
+      !(this.rows.vendor_bookings ?? []).some((row) => row.agent_action_id === action.id || row.approval_id === previous.id) &&
+      !this.rows.admin_tasks.some((row) => row.agent_action_id === action.id || row.approval_id === previous.id) &&
+      !this.rows.outreach_messages.some((row) => row.agent_action_id === action.id || row.approval_id === previous.id)
+    if (['executing', 'complete', 'failed', 'cancelled'].includes(String(action.status)) && !canResetWaitingCanonicalQuote) {
+      return { data: null, error: { code: '23514', message: 'approval_version_action_not_editable' } }
+    }
 
     const now = new Date().toISOString()
     const replacement = {
       ...previous,
       id: '650e8400-e29b-41d4-a716-446655440099',
       status: 'pending',
+      price_cents: params.p_requested_amount_cents,
       requested_amount_cents: params.p_requested_amount_cents,
       event_date: params.p_event_date,
       notes: params.p_notes,
@@ -408,12 +568,14 @@ class MemoryQuery {
 
   async single() {
     const result = await this.execute()
+    if (result.error) return { data: null, error: result.error }
     const row = Array.isArray(result.data) ? result.data[0] : result.data
     return { data: row ?? null, error: row ? null : { message: 'No row' } }
   }
 
   async maybeSingle() {
     const result = await this.execute()
+    if (result.error) return { data: null, error: result.error }
     const row = Array.isArray(result.data) ? result.data[0] : result.data
     return { data: row ?? null, error: null }
   }
@@ -426,6 +588,15 @@ class MemoryQuery {
   }
 
   private async execute() {
+    if (
+      this.operation !== 'select'
+      && this.db.nextMutationError?.table === this.table
+      && this.db.nextMutationError.operation === this.operation
+    ) {
+      const error = this.db.nextMutationError
+      this.db.nextMutationError = null
+      return { data: null, error }
+    }
     if (this.operation === 'insert') {
       this.db.mutations.push({ table: this.table, operation: 'insert' })
       const values = Array.isArray(this.payload) ? this.payload : [this.payload]
@@ -536,6 +707,23 @@ function remapCreatedActionApproval(db: MemoryDb, created: Row) {
   created.approval.agent_action_id = ACTION_ID
 }
 
+function markAuthorizedCrashWindow(
+  db: MemoryDb,
+  resultMetadata: Row = { execution_kind: 'crash_window', outbound_message_sent: false },
+) {
+  const approval = db.rows.approvals.find((row) => row.id === APPROVAL_ID)!
+  const action = db.rows.agent_actions.find((row) => row.id === ACTION_ID)!
+  approval.status = 'authorized'
+  approval.authorized_amount_cents = approval.requested_amount_cents
+  approval.authorized_by = USER_ID
+  approval.authorized_at = new Date().toISOString()
+  approval.approved_by = USER_ID
+  approval.approved_at = approval.authorized_at
+  action.status = 'executing'
+  action.result_metadata = resultMetadata
+  return { approval, action }
+}
+
 function mockPlannerClient(db: MemoryDb, writeDb: MemoryDb = db) {
   mockCreateClient.mockReturnValue({
     auth: {
@@ -562,6 +750,7 @@ describe('MVP launch API contracts', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockExecuteApprovedGmailOutreach.mockReset()
     db = new MemoryDb()
     db.rows.plans.push({
       id: PLAN_ID,
@@ -656,6 +845,386 @@ describe('MVP launch API contracts', () => {
       }),
     ]))
   })
+
+  it.each(['completed', 'archived'] as const)(
+    'rejects new actions and authorization on a %s plan while retaining negative cancellation',
+    async (terminalStatus) => {
+      db.rows.plans[0].status = terminalStatus
+      const rejectedCreate = await createAgentAction(
+        makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+          actionType: 'hold_request',
+          targetType: 'venue',
+          targetId: VENUE_ID_1,
+          requestedAmountCents: 50_000,
+          payloadJson: {
+            action_label: 'Request hold',
+            provider: 'Foundry Rooftop',
+            package_details: '48-hour soft hold',
+          },
+        }),
+        { params: { planId: PLAN_ID } },
+      )
+
+      expect(rejectedCreate.status).toBe(409)
+      expect(await readJson(rejectedCreate)).toEqual({
+        error: 'Completed or archived plans cannot start new execution work.',
+        code: 'plan_terminal',
+      })
+      expect(db.rows.agent_actions).toHaveLength(0)
+      expect(db.rows.approvals).toHaveLength(0)
+      expect(db.rows.plan_messages).toHaveLength(0)
+      expect(db.rows.agent_action_audit_log).toHaveLength(0)
+
+      db.rows.plans[0].status = 'ready'
+      const createdResponse = await createAgentAction(
+        makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+          actionType: 'vendor_contact',
+          targetType: 'vendor',
+          targetId: VENDOR_ID,
+          requestedAmountCents: 0,
+          payloadJson: {
+            action_label: 'Contact vendor',
+            provider: 'Mission Photo Co.',
+          },
+        }),
+        { params: { planId: PLAN_ID } },
+      )
+      const created = await readJson(createdResponse)
+      expect(createdResponse.status).toBe(200)
+      remapCreatedActionApproval(db, created)
+      db.rows.plans[0].status = terminalStatus
+      const mutationCountBeforeAuthorization = db.mutations.length
+
+      const rejectedAuthorization = await updateApproval(
+        makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+          approvalId: created.approval.id,
+          command: 'authorize',
+          expectedSnapshotHash: created.approval.snapshot_hash,
+        }, 'PATCH'),
+        { params: { planId: PLAN_ID } },
+      )
+
+      expect(rejectedAuthorization.status).toBe(409)
+      expect(await readJson(rejectedAuthorization)).toEqual({
+        error: 'Completed or archived plans cannot start new execution work.',
+        code: 'plan_terminal',
+      })
+      expect(db.mutations).toHaveLength(mutationCountBeforeAuthorization)
+      expect(db.rows.approvals[0].status).toBe('pending')
+      expect(db.rows.agent_actions[0].status).toBe('pending')
+      expect(db.rows.admin_tasks).toHaveLength(0)
+      expect(db.rows.outreach_messages).toHaveLength(0)
+
+      const cancelled = await updateApproval(
+        makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+          approvalId: created.approval.id,
+          command: 'cancel',
+        }, 'PATCH'),
+        { params: { planId: PLAN_ID } },
+      )
+      expect(cancelled.status).toBe(200)
+      expect(db.rows.approvals[0].status).toBe('cancelled')
+      expect(db.rows.agent_actions[0].status).toBe('cancelled')
+    },
+  )
+
+  it('recovers an exact external-checkout authorization replay only when handoff evidence is missing', async () => {
+    const createdResponse = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'external_checkout',
+        targetType: 'external',
+        requestedAmountCents: 9_500,
+        payloadJson: {
+          kind: 'external_checkout',
+          action_label: 'Open checkout',
+          provider: 'Ticketing partner',
+          external_url: 'https://tickets.example/recovery',
+          package_details: 'Two tickets',
+        },
+      }),
+      { params: { planId: PLAN_ID } },
+    )
+    const created = await readJson(createdResponse)
+    remapCreatedActionApproval(db, created)
+    markAuthorizedCrashWindow(db)
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        command: 'authorize',
+        expectedSnapshotHash: created.approval.snapshot_hash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(db.rows.agent_actions[0].status).toBe('executing')
+    expect(db.rows.agent_actions[0].result_metadata).toEqual(expect.objectContaining({
+      execution_mode: 'external_checkout',
+      external_checkout: expect.objectContaining({
+        status: 'ready',
+        approval_id: APPROVAL_ID,
+        snapshot_hash: created.approval.snapshot_hash,
+      }),
+    }))
+
+    const mutationsAfterRecovery = db.mutations.length
+    const exactReplay = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        command: 'authorize',
+        expectedSnapshotHash: created.approval.snapshot_hash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } },
+    )
+    expect(exactReplay.status).toBe(200)
+    expect(db.mutations).toHaveLength(mutationsAfterRecovery)
+  })
+
+  it('maps plan-lock contention during action creation and authorization to retryable conflicts', async () => {
+    db.nextMutationError = {
+      table: 'agent_actions',
+      operation: 'insert',
+      code: '55P03',
+      message: 'could not obtain lock on row in relation plans',
+    }
+    const createConflict = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'hold_request',
+        requestedAmountCents: 0,
+        payloadJson: { action_label: 'Request hold', provider: 'Venue' },
+      }),
+      { params: { planId: PLAN_ID } },
+    )
+    expect(createConflict.status).toBe(409)
+    expect(await readJson(createConflict)).toEqual(expect.objectContaining({
+      code: 'plan_execution_conflict',
+      retryable: true,
+    }))
+
+    const createdResponse = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'hold_request',
+        requestedAmountCents: 0,
+        payloadJson: { action_label: 'Request hold', provider: 'Venue' },
+      }),
+      { params: { planId: PLAN_ID } },
+    )
+    const created = await readJson(createdResponse)
+    remapCreatedActionApproval(db, created)
+    db.nextMutationError = {
+      table: 'approvals',
+      operation: 'update',
+      code: '55P03',
+      message: 'lock not available',
+    }
+    const approvalConflict = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        command: 'authorize',
+        expectedSnapshotHash: created.approval.snapshot_hash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } },
+    )
+    expect(approvalConflict.status).toBe(409)
+    expect(await readJson(approvalConflict)).toEqual(expect.objectContaining({
+      code: 'plan_execution_conflict',
+      retryable: true,
+    }))
+    expect(db.rows.approvals[0].status).toBe('pending')
+
+    const crash = markAuthorizedCrashWindow(db)
+    crash.action.status = 'pending'
+    db.nextMutationError = {
+      table: 'agent_actions',
+      operation: 'update',
+      code: '55P03',
+      message: 'could not obtain lock on row in relation plans',
+    }
+    const recoveryConflict = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        command: 'authorize',
+        expectedSnapshotHash: created.approval.snapshot_hash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } },
+    )
+    expect(recoveryConflict.status).toBe(409)
+    expect(await readJson(recoveryConflict)).toEqual(expect.objectContaining({
+      code: 'plan_execution_conflict',
+      retryable: true,
+    }))
+    expect(db.rows.agent_actions[0].status).toBe('pending')
+  })
+
+  it.each(['pending', 'proposed', 'executing'] as const)(
+    'converges concurrent exact concierge recovery from %s on one durable task',
+    async (crashStatus) => {
+    const createdResponse = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'hold_request',
+        targetType: 'venue',
+        targetId: VENUE_ID_1,
+        requestedAmountCents: 50_000,
+        payloadJson: {
+          action_label: 'Request hold',
+          provider: 'Foundry Rooftop',
+          package_details: '48-hour hold',
+        },
+      }),
+      { params: { planId: PLAN_ID } },
+    )
+    const created = await readJson(createdResponse)
+    remapCreatedActionApproval(db, created)
+    const { action } = markAuthorizedCrashWindow(db)
+    action.status = crashStatus
+    const replayRequest = () => updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        command: 'authorize',
+        expectedSnapshotHash: created.approval.snapshot_hash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } },
+    )
+
+    const responses = await Promise.all([replayRequest(), replayRequest()])
+    expect(responses.map((response) => response.status)).toEqual([200, 200])
+    expect(db.rows.admin_tasks).toHaveLength(1)
+    expect(db.rows.plan_messages.filter((message) =>
+      message.metadata?.state === 'concierge_task_queued'
+    )).toHaveLength(1)
+    expect(db.rows.agent_actions[0].status).toBe('executing')
+    expect(db.rows.agent_actions[0].result_metadata).toEqual(expect.objectContaining({
+      handoff_status: 'queued',
+      admin_task_id: db.rows.admin_tasks[0].id,
+      outbound_message_sent: false,
+    }))
+    },
+  )
+
+  it('resumes a completing Gmail action from executing and converges on complete', async () => {
+    db.rows.agent_actions.push({
+      id: ACTION_ID,
+      plan_id: PLAN_ID,
+      action_type: 'email',
+      description: 'Send approved Gmail outreach',
+      provider: 'Gmail',
+      target_type: 'outreach',
+      target_id: null,
+      payload_json: { kind: 'gmail_approved_outreach', targets: [] },
+      amount_cents: 0,
+      currency: 'usd',
+      status: 'executing',
+      approval_id: APPROVAL_ID,
+      executed_at: null,
+      result_metadata: { execution_kind: 'send_gmail_outreach', outbound_message_sent: false },
+    })
+    db.rows.approvals.push({
+      id: APPROVAL_ID,
+      plan_id: PLAN_ID,
+      agent_action_id: ACTION_ID,
+      action_label: 'Send approved Gmail outreach',
+      provider: 'Gmail',
+      event_date: null,
+      price_cents: 0,
+      fees_cents: 0,
+      status: 'authorized',
+      requested_amount_cents: 0,
+      authorized_amount_cents: 0,
+      authorized_by: USER_ID,
+      authorized_at: new Date().toISOString(),
+      approved_by: USER_ID,
+      approved_at: new Date().toISOString(),
+      expires_at: '2099-01-01T00:00:00.000Z',
+    })
+    const snapshotHash = setV2ApprovalSnapshot(db, APPROVAL_ID)
+    mockExecuteApprovedGmailOutreach.mockResolvedValue({
+      prepared: true,
+      sent_count: 1,
+      thread_ids: ['gmail-thread-1'],
+      outbound_message_sent: true,
+    })
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        command: 'authorize',
+        expectedSnapshotHash: snapshotHash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } },
+    )
+    expect(response.status).toBe(200)
+    expect(mockExecuteApprovedGmailOutreach).toHaveBeenCalledWith(expect.objectContaining({
+      from: expect.any(Function),
+    }), expect.objectContaining({
+      action: expect.objectContaining({ status: 'executing' }),
+    }))
+    expect(db.rows.agent_actions[0]).toEqual(expect.objectContaining({
+      status: 'complete',
+      result_metadata: expect.objectContaining({ outbound_message_sent: true }),
+    }))
+  })
+
+  it.each([
+    ['outreach preparation', 'opportunity_send_venues', { kind: 'venue_outreach' }, 'ready', 'executing'],
+    ['payment', 'payment', { kind: 'venue_deposit' }, 'ready', 'executing'],
+    ['terminal plan', 'external_checkout', { kind: 'external_checkout', external_url: 'https://tickets.example/no-recovery' }, 'completed', 'executing'],
+    ['complete truth', 'external_checkout', { kind: 'external_checkout', external_url: 'https://tickets.example/complete' }, 'ready', 'complete'],
+    ['cancelled truth', 'external_checkout', { kind: 'external_checkout', external_url: 'https://tickets.example/cancelled' }, 'ready', 'cancelled'],
+    ['failed truth', 'external_checkout', { kind: 'external_checkout', external_url: 'https://tickets.example/failed' }, 'ready', 'failed'],
+  ] as const)(
+    'does not recover %s from an exact authorize replay',
+    async (_label, actionType, payload, planStatus, actionStatus) => {
+    db.rows.plans[0].status = planStatus
+    db.rows.agent_actions.push({
+      id: ACTION_ID,
+      plan_id: PLAN_ID,
+      action_type: actionType,
+      description: 'Must not recover',
+      provider: 'Provider',
+      target_type: null,
+      target_id: null,
+      payload_json: payload,
+      amount_cents: 0,
+      currency: 'usd',
+      status: actionStatus,
+      approval_id: APPROVAL_ID,
+      executed_at: null,
+      result_metadata: {},
+    })
+    db.rows.approvals.push({
+      id: APPROVAL_ID,
+      plan_id: PLAN_ID,
+      agent_action_id: ACTION_ID,
+      action_label: 'Must not recover',
+      provider: 'Provider',
+      status: 'authorized',
+      requested_amount_cents: 0,
+      authorized_amount_cents: 0,
+      authorized_by: USER_ID,
+      authorized_at: new Date().toISOString(),
+      approved_by: USER_ID,
+      approved_at: new Date().toISOString(),
+      expires_at: '2099-01-01T00:00:00.000Z',
+    })
+    const snapshotHash = setV2ApprovalSnapshot(db, APPROVAL_ID)
+    const mutationCount = db.mutations.length
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        command: 'authorize',
+        expectedSnapshotHash: snapshotHash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } },
+    )
+    expect(response.status).toBe(200)
+    expect(db.mutations).toHaveLength(mutationCount)
+    expect(db.rows.agent_actions[0].status).toBe(actionStatus)
+    expect(db.rows.admin_tasks).toHaveLength(0)
+    expect(mockExecuteApprovedGmailOutreach).not.toHaveBeenCalled()
+    },
+  )
 
   it('authorizes a venue hold into one cancellable concierge task with host-visible evidence', async () => {
     const createdResponse = await createAgentAction(
@@ -783,6 +1352,79 @@ describe('MVP launch API contracts', () => {
       }),
     ])
     expect(db.rows.admin_tasks).toHaveLength(0)
+  })
+
+  it('loads canonical event identity and accepts an executor-side atomic completion', async () => {
+    const eventId = '550e8400-e29b-41d4-a716-446655440007'
+    db.rows.plans[0].status = 'executing'
+    db.rows.plans[0].materialized_event_id = eventId
+    db.rows.agent_actions.push({
+      id: ACTION_ID,
+      plan_id: PLAN_ID,
+      action_type: 'concierge_queue',
+      description: 'Book the approved venue quote',
+      provider: 'Foundry Rooftop',
+      target_type: 'discovery_venue',
+      target_id: VENUE_ID_1,
+      payload_json: {
+        kind: 'canonical_quote_booking',
+        quote_kind: 'venue',
+        requested_amount_cents: 125_000,
+        execution_mode: 'concierge_admin_queue',
+        outbound_message_sent: false,
+      },
+      amount_cents: 125_000,
+      currency: 'usd',
+      status: 'pending',
+      approval_id: APPROVAL_ID,
+      executed_at: null,
+      result_metadata: {},
+    })
+    db.rows.approvals.push({
+      id: APPROVAL_ID,
+      plan_id: PLAN_ID,
+      agent_action_id: ACTION_ID,
+      action_label: 'Approve booking request with Foundry Rooftop',
+      provider: 'Foundry Rooftop',
+      event_date: '2026-08-01',
+      price_cents: 125_000,
+      fees_cents: 0,
+      requested_amount_cents: 125_000,
+      status: 'pending',
+      expires_at: '2026-08-02T00:00:00.000Z',
+    })
+    const snapshotHash = setV2ApprovalSnapshot(db, APPROVAL_ID)
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        command: 'authorize',
+        expectedSnapshotHash: snapshotHash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } }
+    )
+    const result = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(result).toEqual(expect.objectContaining({
+      actionStatus: 'complete',
+      uiStatus: 'succeeded',
+      actionResult: expect.objectContaining({
+        canonical_booking_status: 'confirmed',
+        canonical_event_id: eventId,
+        outbound_message_sent: false,
+      }),
+    }))
+    expect(db.rows.agent_actions[0]).toEqual(expect.objectContaining({
+      status: 'complete',
+      executed_at: expect.any(String),
+    }))
+    expect(db.selects).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        table: 'plans',
+        columns: expect.stringContaining('materialized_event_id'),
+      }),
+    ]))
   })
 
   it('POST planner agent-actions creates an approval before exposing external checkout', async () => {
@@ -1091,6 +1733,54 @@ describe('MVP launch API contracts', () => {
     expect(db.rows.plan_messages.filter((row) => row.metadata?.state === 'external_checkout_completed')).toHaveLength(1)
   })
 
+  it('maps an approval-version deadlock to a refreshable HTTP conflict', async () => {
+    const createResponse = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'external_checkout',
+        targetType: 'external',
+        requestedAmountCents: 9_500,
+        payloadJson: {
+          kind: 'external_checkout',
+          action_label: 'External checkout',
+          provider: 'Ticketing partner',
+          external_url: 'https://tickets.example/event/123',
+          package_details: 'External checkout handoff',
+          event_date: '2026-08-01',
+          notes: 'Initial terms',
+        },
+      }),
+      { params: { planId: PLAN_ID } },
+    )
+    const created = await readJson(createResponse)
+    remapCreatedActionApproval(db, created)
+    const rpc = jest.fn().mockResolvedValue({
+      data: null,
+      error: { code: '40P01', message: 'deadlock detected' },
+    })
+    mockCreateServiceRoleClient.mockReturnValue({
+      from: (table: string) => db.from(table),
+      rpc,
+    })
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        command: 'request_reapproval',
+        expectedSnapshotHash: created.approval.snapshot_hash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } },
+    )
+
+    expect(response.status).toBe(409)
+    expect(await readJson(response)).toEqual(expect.objectContaining({
+      code: 'approval_version_conflict',
+      error: expect.stringContaining('Refresh'),
+    }))
+    expect(rpc).toHaveBeenCalledWith('supersede_approval_version', expect.any(Object))
+    expect(db.rows.approvals).toHaveLength(1)
+    expect(db.rows.approvals[0].status).toBe('pending')
+  })
+
   it('edits $95.50 as a superseding pending version before separate authorization', async () => {
     const createResponse = await createAgentAction(
       makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
@@ -1143,6 +1833,7 @@ describe('MVP launch API contracts', () => {
     expect(edited.approval).toEqual(expect.objectContaining({
       id: '650e8400-e29b-41d4-a716-446655440099',
       status: 'pending',
+      price_cents: 9_550,
       requested_amount_cents: 9_550,
       authorized_amount_cents: null,
       event_date: '2026-08-02',
@@ -1156,6 +1847,12 @@ describe('MVP launch API contracts', () => {
       approval_id: edited.approval.id,
       amount_cents: 9_550,
       status: 'pending',
+      payload_json: expect.objectContaining({
+        amount_cents: 9_550,
+        price_cents: 9_550,
+        requested_amount_cents: 9_550,
+        requestedAmountCents: 9_550,
+      }),
     }))
     const editedSnapshotInput = {
       plan: db.rows.plans[0] as any,
@@ -1185,8 +1882,18 @@ describe('MVP launch API contracts', () => {
     expect(authorized.confirmationSnapshot).toEqual(expect.objectContaining({
       approval: expect.objectContaining({
         requested_amount_cents: 9_550,
+        price_cents: 9_550,
         event_date: '2026-08-02',
         notes: 'Exact host-edited terms',
+      }),
+      action: expect.objectContaining({
+        amount_cents: 9_550,
+        payload_json: expect.objectContaining({
+          amount_cents: 9_550,
+          price_cents: 9_550,
+          requested_amount_cents: 9_550,
+          requestedAmountCents: 9_550,
+        }),
       }),
     }))
     expect(db.rows.agent_actions[0]).toEqual(expect.objectContaining({
@@ -1201,6 +1908,200 @@ describe('MVP launch API contracts', () => {
           completion_confirmation_required: true,
         }),
       }),
+    }))
+  })
+
+  it('supersedes an authorized quote after materialization marks its clock expiry for re-approval', async () => {
+    const createResponse = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'hold_request',
+        targetType: 'venue',
+        targetId: VENUE_ID_1,
+        requestedAmountCents: 175_000,
+        payloadJson: {
+          action_label: 'Approve booking request',
+          provider: 'Moongate Lounge',
+          package_details: 'Venue quote',
+          event_date: '2026-08-01',
+          requested_amount_cents: 175_000,
+          requires_event_materialization: true,
+        },
+      }),
+      { params: { planId: PLAN_ID } },
+    )
+    const created = await readJson(createResponse)
+    remapCreatedActionApproval(db, created)
+    const action = db.rows.agent_actions.find((row) => row.id === ACTION_ID)!
+    const approval = db.rows.approvals.find((row) => row.id === APPROVAL_ID)!
+    action.action_type = 'concierge_queue'
+    action.payload_json = {
+      ...action.payload_json,
+      kind: 'canonical_quote_booking',
+      quote_kind: 'venue',
+      price_cents: 175_000,
+      requires_event_materialization: true,
+    }
+    action.status = 'executing'
+    action.result_metadata = {
+      canonical_booking_status: 'waiting_for_event_materialization',
+      outbound_message_sent: false,
+    }
+    approval.status = 're_approval_required'
+    approval.expires_at = '2000-01-01T00:00:00.000Z'
+    approval.authorized_amount_cents = 175_000
+    approval.authorized_by = USER_ID
+    approval.authorized_at = '2026-07-09T20:00:00.000Z'
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: approval.id,
+        command: 'request_reapproval',
+        expectedSnapshotHash: approval.snapshot_hash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } },
+    )
+    const payload = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(payload.approval).toEqual(expect.objectContaining({
+      status: 'pending',
+      supersedes_approval_id: approval.id,
+      authorized_by: null,
+      authorized_at: null,
+    }))
+    expect(approval).toEqual(expect.objectContaining({
+      status: 'superseded',
+      authorized_by: USER_ID,
+      authorized_at: '2026-07-09T20:00:00.000Z',
+    }))
+    expect(action).toEqual(expect.objectContaining({
+      status: 'pending',
+      approval_id: payload.approval.id,
+    }))
+  })
+
+  it('rejects canonical quote repricing until a fresh trusted quote is staged', async () => {
+    const createResponse = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'hold_request',
+        targetType: 'venue',
+        targetId: VENUE_ID_1,
+        requestedAmountCents: 175_000,
+        payloadJson: {
+          action_label: 'Approve booking request',
+          provider: 'Moongate Lounge',
+          package_details: 'Trusted venue quote',
+          event_date: '2026-08-01',
+        },
+      }),
+      { params: { planId: PLAN_ID } },
+    )
+    const created = await readJson(createResponse)
+    remapCreatedActionApproval(db, created)
+    const action = db.rows.agent_actions.find((row) => row.id === ACTION_ID)!
+    const approval = db.rows.approvals.find((row) => row.id === APPROVAL_ID)!
+    action.action_type = 'concierge_queue'
+    action.payload_json = {
+      ...action.payload_json,
+      kind: 'canonical_quote_booking',
+      quote_kind: 'venue',
+      requested_amount_cents: 175_000,
+      price_cents: 175_000,
+      quote_terms: { quoted_price_cents: 175_000 },
+      requires_event_materialization: true,
+    }
+    const canonicalSnapshotHash = setV2ApprovalSnapshot(db, approval.id)
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: approval.id,
+        command: 'edit',
+        expectedSnapshotHash: canonicalSnapshotHash,
+        changes: {
+          requestedAmountCents: 180_000,
+          eventDate: approval.event_date,
+          notes: approval.notes ?? null,
+        },
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } },
+    )
+
+    expect(response.status).toBe(409)
+    expect(await readJson(response)).toEqual(expect.objectContaining({
+      code: 'canonical_quote_fresh_quote_required',
+    }))
+    expect(db.rows.approvals).toHaveLength(1)
+    expect(approval).toEqual(expect.objectContaining({
+      status: 'pending',
+      price_cents: 175_000,
+      requested_amount_cents: 175_000,
+    }))
+    expect(action).toEqual(expect.objectContaining({
+      amount_cents: 175_000,
+      approval_id: approval.id,
+    }))
+  })
+
+  it('rejects a canonical quote event-date change until a fresh trusted quote is staged', async () => {
+    const createResponse = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'hold_request',
+        targetType: 'venue',
+        targetId: VENUE_ID_1,
+        requestedAmountCents: 175_000,
+        payloadJson: {
+          action_label: 'Approve booking request',
+          provider: 'Moongate Lounge',
+          package_details: 'Trusted venue quote',
+          event_date: '2026-08-01',
+        },
+      }),
+      { params: { planId: PLAN_ID } },
+    )
+    const created = await readJson(createResponse)
+    remapCreatedActionApproval(db, created)
+    const action = db.rows.agent_actions.find((row) => row.id === ACTION_ID)!
+    const approval = db.rows.approvals.find((row) => row.id === APPROVAL_ID)!
+    action.action_type = 'concierge_queue'
+    action.payload_json = {
+      ...action.payload_json,
+      kind: 'canonical_quote_booking',
+      quote_kind: 'venue',
+      requested_amount_cents: 175_000,
+      price_cents: 175_000,
+      quote_terms: { quoted_price_cents: 175_000 },
+      requires_event_materialization: true,
+    }
+    const canonicalSnapshotHash = setV2ApprovalSnapshot(db, approval.id)
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: approval.id,
+        command: 'edit',
+        expectedSnapshotHash: canonicalSnapshotHash,
+        changes: {
+          requestedAmountCents: 175_000,
+          eventDate: '2026-08-02',
+          notes: approval.notes ?? null,
+        },
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } },
+    )
+
+    expect(response.status).toBe(409)
+    expect(await readJson(response)).toEqual(expect.objectContaining({
+      code: 'canonical_quote_fresh_quote_required',
+      error: expect.stringContaining('event date'),
+    }))
+    expect(db.rows.approvals).toHaveLength(1)
+    expect(approval).toEqual(expect.objectContaining({
+      status: 'pending',
+      event_date: '2026-08-01',
+    }))
+    expect(action).toEqual(expect.objectContaining({
+      amount_cents: 175_000,
+      approval_id: approval.id,
+      payload_json: expect.objectContaining({ event_date: '2026-08-01' }),
     }))
   })
 

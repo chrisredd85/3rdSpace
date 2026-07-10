@@ -2,9 +2,20 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import {
+  CanonicalBookingConfirmationError,
+  hasCanonicalBookingProvenance,
+} from '@/lib/planner/execution/canonicalBookingConfirmation'
+import {
+  CanonicalBookingDeclineError,
+  declineCanonicalBookings,
+} from '@/lib/planner/execution/canonicalBookingDecline'
 
 const rejectSchema = z.object({
-  bookingIds: z.array(z.string().uuid()).min(1).max(100),
+  bookingIds: z.array(z.string().uuid()).min(1).max(100).refine(
+    (ids) => new Set(ids).size === ids.length,
+    'Booking ids must be unique',
+  ),
   reason: z.string().trim().min(1, 'Rejection reason required').max(1000),
 })
 
@@ -32,6 +43,9 @@ async function loadAuthorizedBookings(bookingIds: string[]) {
       event_id,
       venue_id,
       status,
+      plan_id,
+      agent_action_id,
+      approval_id,
       venues!inner (
         id,
         owner_id,
@@ -155,17 +169,71 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: context.error }, { status: context.status })
     }
 
-    const pendingBookings = context.bookings.filter((booking) => booking.status === 'pending')
-    const skipped = context.bookings
-      .filter((booking) => booking.status !== 'pending')
-      .map((booking) => ({ id: booking.id, reason: `Booking is ${booking.status}` }))
+    let canonicalBookings: any[]
+    let legacyBookings: any[]
+    try {
+      canonicalBookings = context.bookings.filter((booking) => hasCanonicalBookingProvenance(booking))
+      legacyBookings = context.bookings.filter((booking) => !hasCanonicalBookingProvenance(booking))
+    } catch (provenanceError) {
+      if (provenanceError instanceof CanonicalBookingConfirmationError) {
+        return NextResponse.json({ error: provenanceError.message }, { status: provenanceError.status })
+      }
+      throw provenanceError
+    }
 
-    if (pendingBookings.length === 0) {
+    const canonicalCandidates = canonicalBookings.filter(
+      (booking) => booking.status === 'pending' || booking.status === 'declined',
+    )
+    const legacyPending = legacyBookings.filter((booking) => booking.status === 'pending')
+    const skipped = [
+      ...canonicalBookings
+        .filter((booking) => booking.status !== 'pending' && booking.status !== 'declined')
+        .map((booking) => ({ id: booking.id, reason: `Booking is ${booking.status}` })),
+      ...legacyBookings
+        .filter((booking) => booking.status !== 'pending')
+        .map((booking) => ({ id: booking.id, reason: `Booking is ${booking.status}` })),
+    ]
+
+    if (canonicalCandidates.length === 0 && legacyPending.length === 0) {
       return NextResponse.json({ rejected: 0, skipped, bookings: [] })
     }
+
+    if (canonicalCandidates.length > 0 && legacyPending.length > 0) {
+      return NextResponse.json({
+        error: 'Canonical and legacy bookings must be declined in separate bulk requests.',
+        code: 'mixed_booking_execution_modes',
+      }, { status: 409 })
+    }
+
     const writeDb = createServiceRoleClient() as unknown as ReturnType<typeof createClient>
 
-    const { data: rejected, error } = await context.supabase
+    // One RPC owns every canonical booking/action/audit/message mutation. Any
+    // invalid canonical member rolls the whole canonical batch back before the
+    // legacy path is attempted.
+    if (canonicalCandidates.length > 0) {
+      try {
+        const result = await declineCanonicalBookings({
+          admin: writeDb,
+          bookingKind: 'venue',
+          bookingIds: canonicalCandidates.map((booking) => booking.id),
+          actorId: context.userId,
+          reason,
+          source: 'venue_bulk_rejection_route',
+        })
+        return NextResponse.json({
+          rejected: result.bookings.length,
+          skipped,
+          bookings: result.bookings,
+        })
+      } catch (declineError) {
+        if (declineError instanceof CanonicalBookingDeclineError) {
+          return NextResponse.json({ error: declineError.message }, { status: declineError.status })
+        }
+        throw declineError
+      }
+    }
+
+    const { data: legacyRejected, error } = await context.supabase
       .from('venue_bookings')
       .update({
         status: 'declined',
@@ -173,21 +241,27 @@ export async function POST(request: NextRequest) {
         approval_source: 'bulk',
         updated_at: new Date().toISOString(),
       } as never)
-      .in('id', pendingBookings.map((booking) => booking.id))
+      .in('id', legacyPending.map((booking) => booking.id))
       .select('*')
 
     if (error) {
-      console.error('[bulk-approval.reject] Failed to reject bookings', error)
+      console.error('[bulk-approval.reject] Failed to reject legacy bookings', error)
       return NextResponse.json({ error: 'Failed to reject bookings' }, { status: 500 })
     }
 
-    await notifyBuilders(context.supabase, pendingBookings, reason)
-    await auditRejections(writeDb, pendingBookings, context.userId, reason)
+    const legacyRows = (legacyRejected as Array<Record<string, unknown>> | null) ?? []
+    if (legacyRows.length !== legacyPending.length) {
+      console.error('[bulk-approval.reject] Legacy rejection returned an incomplete booking set')
+      return NextResponse.json({ error: 'Failed to reject all bookings' }, { status: 500 })
+    }
+
+    await notifyBuilders(context.supabase, legacyPending, reason)
+    await auditRejections(writeDb, legacyPending, context.userId, reason)
 
     return NextResponse.json({
-      rejected: rejected?.length || 0,
+      rejected: legacyRows.length,
       skipped,
-      bookings: rejected || [],
+      bookings: legacyRows,
     })
   } catch (error) {
     console.error('[bulk-approval.reject] Unexpected POST error', error)

@@ -20,7 +20,23 @@ on:
       - '__tests__/integration/stripe-webhook-*.test.ts'
       - '__tests__/integration/venue-rental-refund-routes.test.ts'
       - '__tests__/integration/write-pause-*.test.ts'
+      - '__tests__/integration/canonical-booking-partner-*-routes.test.ts'
+      - '__tests__/integration/canonical-booking-partner-decline-realized.test.ts'
+      - '__tests__/integration/canonical-vendor-claim-binding-realized.test.ts'
+      - '__tests__/integration/approval-version-retry-realized.test.ts'
+      - '__tests__/integration/terminal-plan-positive-execution-realized.test.ts'
+      - '__tests__/integration/canonical-quote-reapproval-realized.test.ts'
+      - '__tests__/integration/prompt8-execution-modes-realized.test.ts'
+      - '__tests__/schema/canonical-booking-decline-migration.test.ts'
+      - '__tests__/schema/canonical-booking-provenance-hardening-migration.test.ts'
+      - '__tests__/schema/canonical-vendor-claim-binding-migration.test.ts'
+      - '__tests__/schema/canonical-venue-confirmation-effects-migration.test.ts'
+      - '__tests__/schema/approval-version-retry-migration.test.ts'
+      - '__tests__/schema/terminal-plan-positive-execution-migration.test.ts'
+      - '__tests__/schema/canonical-booking-batch-confirmation-migration.test.ts'
+      - '__tests__/schema/canonical-quote-resume-claim-migration.test.ts'
       - '__tests__/schema/canonical-plan-event-identity-migration.test.ts'
+      - '__tests__/schema/prompt8-*-migration.test.ts'
       - '__tests__/security/stored-functions-realized.test.ts'
       - '__tests__/integration/vendor-base-rate-repair-db.test.ts'
       - 'app/api/builder/events/**'
@@ -33,6 +49,15 @@ on:
       - 'lib/stripe/webhookLedger.ts'
       - 'lib/stripe/webhookReplayAuth.ts'
       - 'middleware.ts'
+      - 'app/api/planner/plans/**/approvals/**'
+      - 'app/api/planner/plans/**/materialize/**'
+      - 'app/api/vendor/bookings/**'
+      - 'app/api/venue/bookings/**'
+      - 'app/api/venue/bulk-approval/**'
+      - 'lib/planner/execution/canonicalBooking*.ts'
+      - 'lib/planner/execution/__tests__/canonicalBooking*.test.ts'
+      - 'lib/outreach/gmailApprovalFlow.ts'
+      - 'lib/planner/execution/canonicalQuoteBooking.ts'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/rls-checks.yml'
@@ -54,7 +79,23 @@ on:
       - '__tests__/integration/stripe-webhook-*.test.ts'
       - '__tests__/integration/venue-rental-refund-routes.test.ts'
       - '__tests__/integration/write-pause-*.test.ts'
+      - '__tests__/integration/canonical-booking-partner-*-routes.test.ts'
+      - '__tests__/integration/canonical-booking-partner-decline-realized.test.ts'
+      - '__tests__/integration/canonical-vendor-claim-binding-realized.test.ts'
+      - '__tests__/integration/approval-version-retry-realized.test.ts'
+      - '__tests__/integration/terminal-plan-positive-execution-realized.test.ts'
+      - '__tests__/integration/canonical-quote-reapproval-realized.test.ts'
+      - '__tests__/integration/prompt8-execution-modes-realized.test.ts'
+      - '__tests__/schema/canonical-booking-decline-migration.test.ts'
+      - '__tests__/schema/canonical-booking-provenance-hardening-migration.test.ts'
+      - '__tests__/schema/canonical-vendor-claim-binding-migration.test.ts'
+      - '__tests__/schema/canonical-venue-confirmation-effects-migration.test.ts'
+      - '__tests__/schema/approval-version-retry-migration.test.ts'
+      - '__tests__/schema/terminal-plan-positive-execution-migration.test.ts'
+      - '__tests__/schema/canonical-booking-batch-confirmation-migration.test.ts'
+      - '__tests__/schema/canonical-quote-resume-claim-migration.test.ts'
       - '__tests__/schema/canonical-plan-event-identity-migration.test.ts'
+      - '__tests__/schema/prompt8-*-migration.test.ts'
       - '__tests__/security/stored-functions-realized.test.ts'
       - '__tests__/integration/vendor-base-rate-repair-db.test.ts'
       - 'app/api/builder/events/**'
@@ -67,6 +108,15 @@ on:
       - 'lib/stripe/webhookLedger.ts'
       - 'lib/stripe/webhookReplayAuth.ts'
       - 'middleware.ts'
+      - 'app/api/planner/plans/**/approvals/**'
+      - 'app/api/planner/plans/**/materialize/**'
+      - 'app/api/vendor/bookings/**'
+      - 'app/api/venue/bookings/**'
+      - 'app/api/venue/bulk-approval/**'
+      - 'lib/planner/execution/canonicalBooking*.ts'
+      - 'lib/planner/execution/__tests__/canonicalBooking*.test.ts'
+      - 'lib/outreach/gmailApprovalFlow.ts'
+      - 'lib/planner/execution/canonicalQuoteBooking.ts'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/rls-checks.yml'
@@ -129,9 +179,39 @@ jobs:
           npm run security:tied-house:delta -- "${delta_args[@]}"
 
       - name: Run canonical plan-event identity regression tests
-        run: npm test -- __tests__/schema/canonical-plan-event-identity-migration.test.ts __tests__/integration/canonical-plan-event-identity-realized.test.ts --runInBand
+        run: npm test -- __tests__/schema/canonical-plan-event-identity-migration.test.ts __tests__/schema/canonical-booking-provenance-hardening-migration.test.ts __tests__/integration/canonical-plan-event-identity-realized.test.ts --runInBand
         env:
           RUN_CANONICAL_EVENT_DB_TESTS: '1'
+
+      - name: Run realized three-mode execution lifecycle tests
+        run: npm test -- __tests__/schema/prompt8-external-confirm-migration.test.ts __tests__/schema/prompt8-confirmation-side-effects-migration.test.ts __tests__/schema/canonical-booking-batch-confirmation-migration.test.ts __tests__/schema/canonical-venue-confirmation-effects-migration.test.ts __tests__/schema/canonical-quote-resume-claim-migration.test.ts __tests__/integration/prompt8-execution-modes-realized.test.ts --runInBand
+        env:
+          RUN_PROMPT8_DB_TESTS: '1'
+
+      - name: Run canonical vendor claim-binding regression tests
+        run: npm test -- __tests__/schema/canonical-vendor-claim-binding-migration.test.ts __tests__/integration/canonical-vendor-claim-binding-realized.test.ts --runInBand
+        env:
+          RUN_CANONICAL_VENDOR_CLAIM_DB_TESTS: '1'
+
+      - name: Run approval retry and finalization concurrency tests
+        run: npm test -- __tests__/schema/approval-version-retry-migration.test.ts __tests__/integration/approval-version-retry-realized.test.ts --runInBand
+        env:
+          RUN_APPROVAL_VERSION_DB_TESTS: '1'
+
+      - name: Run terminal-plan execution boundary tests
+        run: npm test -- __tests__/schema/terminal-plan-positive-execution-migration.test.ts __tests__/integration/terminal-plan-positive-execution-realized.test.ts --runInBand
+        env:
+          RUN_TERMINAL_PLAN_EXECUTION_DB_TESTS: '1'
+
+      - name: Run canonical partner decline regression tests
+        run: npm test -- __tests__/schema/canonical-booking-decline-migration.test.ts __tests__/integration/canonical-booking-partner-decline-routes.test.ts __tests__/integration/canonical-booking-partner-decline-realized.test.ts lib/planner/execution/__tests__/canonicalBookingConfirmation.test.ts lib/planner/execution/__tests__/canonicalBookingDecline.test.ts --runInBand
+        env:
+          RUN_CANONICAL_DECLINE_DB_TESTS: '1'
+
+      - name: Run canonical quote re-approval recovery tests
+        run: npm test -- __tests__/schema/canonical-quote-reapproval-migration.test.ts __tests__/schema/canonical-quote-reapproval-command-migration.test.ts __tests__/integration/canonical-quote-reapproval-realized.test.ts --runInBand
+        env:
+          RUN_CANONICAL_REAPPROVAL_DB_TESTS: '1'
 
       - name: Run builder event materialization route tests
         run: npm test -- __tests__/integration/builder-events-materialization-route.test.ts --runInBand

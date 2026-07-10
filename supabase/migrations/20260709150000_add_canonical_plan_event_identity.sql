@@ -1553,6 +1553,7 @@ AS $function$
 DECLARE
   v_event public.events%ROWTYPE;
   v_plan public.plans%ROWTYPE;
+  v_identity_plan_id UUID;
   v_recorded_at TIMESTAMPTZ := transaction_timestamp();
 BEGIN
   IF current_user <> 'postgres'
@@ -1621,14 +1622,16 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
-  SELECT event_row.*
-  INTO v_event
+  -- Discover only the reciprocal plan identity before locking. The exact
+  -- plan/event relationship is revalidated after locks are taken in the same
+  -- aggregate-root-first order as materialization and booking commands.
+  SELECT event_row.plan_id
+  INTO v_identity_plan_id
   FROM public.events AS event_row
   WHERE event_row.id = p_event_id
-    AND event_row.plan_id IS NOT NULL
-  FOR UPDATE;
+    AND event_row.plan_id IS NOT NULL;
 
-  IF NOT FOUND THEN
+  IF NOT FOUND OR v_identity_plan_id IS NULL THEN
     RAISE EXCEPTION 'record_plan_event_outcome_canonical_event_not_found'
       USING ERRCODE = 'P0002';
   END IF;
@@ -1636,11 +1639,27 @@ BEGIN
   SELECT plan_row.*
   INTO v_plan
   FROM public.plans AS plan_row
-  WHERE plan_row.id = v_event.plan_id
-    AND plan_row.materialized_event_id = v_event.id
+  WHERE plan_row.id = v_identity_plan_id
+    AND plan_row.materialized_event_id = p_event_id
   FOR UPDATE;
 
   IF NOT FOUND THEN
+    RAISE EXCEPTION 'record_plan_event_outcome_canonical_event_not_found'
+      USING ERRCODE = 'P0002';
+  END IF;
+
+  SELECT event_row.*
+  INTO v_event
+  FROM public.events AS event_row
+  WHERE event_row.id = p_event_id
+    AND event_row.plan_id = v_plan.id
+  FOR UPDATE;
+
+  IF NOT FOUND
+    OR v_plan.id IS DISTINCT FROM v_identity_plan_id
+    OR v_plan.materialized_event_id IS DISTINCT FROM p_event_id
+    OR v_event.plan_id IS DISTINCT FROM v_identity_plan_id
+  THEN
     RAISE EXCEPTION 'record_plan_event_outcome_canonical_event_not_found'
       USING ERRCODE = 'P0002';
   END IF;

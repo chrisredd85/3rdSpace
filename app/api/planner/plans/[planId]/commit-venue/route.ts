@@ -150,7 +150,7 @@ async function loadOwnedPlan(db: PlannerDb, planId: string, userId: string): Pro
 function requireMutableQuotePlan(plan: Plan) {
   if (
     (!plan.materialized_event_id && (plan.status === 'drafting' || plan.status === 'ready')) ||
-    (Boolean(plan.materialized_event_id) && plan.status === 'executing')
+    (Boolean(plan.materialized_event_id) && (plan.status === 'executing' || plan.status === 'booked'))
   ) {
     return null
   }

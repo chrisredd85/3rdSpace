@@ -48,6 +48,24 @@ type MaterializationRow = {
   plan_status?: string
 }
 
+type BookingResumeResults = Awaited<ReturnType<typeof resumeCanonicalQuoteBookingsAfterMaterialization>>
+
+type BookingResumeState = {
+  status: 'complete' | 'failed' | 'reapproval_required'
+  results: BookingResumeResults
+  error: string | null
+  reapproval?: {
+    approval_ids: string[]
+    review_href: string
+  }
+  recovery?: {
+    action_ids: string[]
+    review_href: string
+    reason: 'action_failed' | 'plan_status_ineligible'
+    plan_statuses?: string[]
+  }
+}
+
 /**
  * Explicitly turns a planner plan into its one canonical events row.
  * Ownership is proved with the session client before the service-only RPC is
@@ -132,24 +150,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Event materialization returned no event' }, { status: 500 })
     }
 
-    let bookingResume: {
-      results: Awaited<ReturnType<typeof resumeCanonicalQuoteBookingsAfterMaterialization>>
-      error: string | null
-    } = { results: [], error: null }
+    let bookingResume: BookingResumeState = { status: 'complete', results: [], error: null }
     try {
-      bookingResume = {
-        results: await resumeCanonicalQuoteBookingsAfterMaterialization({
-          db: writeDb,
-          planId: plan.id,
-          actorId: auth.userId,
-        }),
-        error: null,
-      }
+      const results = await resumeCanonicalQuoteBookingsAfterMaterialization({
+        db: writeDb,
+        planId: plan.id,
+        actorId: auth.userId,
+      })
+      bookingResume = buildBookingResumeState(plan.id, results)
     } catch (resumeError) {
       // Materialization already committed. Surface a truthful retryable resume
       // state rather than reporting that canonical event creation failed.
       console.error('[planner.materialize] Canonical quote booking resume failed', resumeError)
       bookingResume = {
+        status: 'failed',
         results: [],
         error: 'canonical_quote_booking_resume_failed',
       }
@@ -175,6 +189,108 @@ export async function POST(request: NextRequest, context: RouteContext) {
   } catch (error) {
     console.error('[planner.materialize] Unexpected materialization error', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
+  }
+}
+
+/**
+ * Replays only idempotent canonical quote-booking handoffs for an event that is
+ * already materialized. This gives the host a reachable recovery command after
+ * materialization succeeded but a downstream booking handoff was interrupted.
+ */
+export async function PATCH(_request: NextRequest, context: RouteContext) {
+  try {
+    const auth = await getCreatorAuth()
+    if ('response' in auth) return auth.response
+
+    const planIdResult = planIdSchema.safeParse((await context.params).planId)
+    if (!planIdResult.success) {
+      return NextResponse.json({ error: 'Invalid plan id' }, { status: 400 })
+    }
+
+    const plan = await loadOwnedPlan(auth.db, planIdResult.data, auth.userId)
+    if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+    if (!plan.materialized_event_id) {
+      return NextResponse.json(
+        { error: 'Create the canonical event before resuming booking handoffs', code: 'canonical_event_required' },
+        { status: 409 },
+      )
+    }
+
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
+    const results = await resumeCanonicalQuoteBookingsAfterMaterialization({
+      db: writeDb,
+      planId: plan.id,
+      actorId: auth.userId,
+    })
+
+    return NextResponse.json({
+      success: true,
+      plan_id: plan.id,
+      event_id: plan.materialized_event_id,
+      booking_resume: buildBookingResumeState(plan.id, results),
+    })
+  } catch (error) {
+    console.error('[planner.materialize] Canonical quote booking retry failed', error)
+    return NextResponse.json(
+      {
+        error: 'Approved booking handoffs could not be resumed. Try again.',
+        code: 'canonical_quote_booking_resume_failed',
+      },
+      { status: 502 },
+    )
+  }
+}
+
+function buildBookingResumeState(planId: string, results: BookingResumeResults): BookingResumeState {
+  const failedActionIds = [...new Set(results.flatMap((result) => {
+    if (readString(result.metadata.action_status) !== 'failed') return []
+    const actionId = readString(result.metadata.agent_action_id)
+    return actionId ? [actionId] : []
+  }))]
+  const blockedActionIds = [...new Set(results.flatMap((result) => {
+    if (result.metadata.resume_blocked !== true) return []
+    const actionId = readString(result.metadata.agent_action_id)
+    return actionId ? [actionId] : []
+  }))]
+  const blockedPlanStatuses = [...new Set(results.flatMap((result) => {
+    if (result.metadata.resume_blocked !== true) return []
+    const planStatus = readString(result.metadata.plan_status)
+    return planStatus ? [planStatus] : []
+  }))]
+
+  if (failedActionIds.length > 0 || blockedActionIds.length > 0) {
+    const actionFailed = failedActionIds.length > 0
+    return {
+      status: 'failed',
+      results,
+      error: actionFailed
+        ? 'canonical_quote_booking_action_failed'
+        : 'canonical_quote_booking_resume_blocked',
+      recovery: {
+        action_ids: [...new Set([...failedActionIds, ...blockedActionIds])],
+        review_href: `/planner?plan=${encodeURIComponent(planId)}&tab=approvals`,
+        reason: actionFailed ? 'action_failed' : 'plan_status_ineligible',
+        ...(blockedPlanStatuses.length > 0 ? { plan_statuses: blockedPlanStatuses } : {}),
+      },
+    }
+  }
+
+  const approvalIds = [...new Set(results.flatMap((result) => {
+    if (result.metadata.reapproval_required !== true) return []
+    const approvalId = readString(result.metadata.approval_id)
+    return approvalId ? [approvalId] : []
+  }))]
+
+  if (approvalIds.length === 0) return { status: 'complete', results, error: null }
+
+  return {
+    status: 'reapproval_required',
+    results,
+    error: null,
+    reapproval: {
+      approval_ids: approvalIds,
+      review_href: `/planner?plan=${encodeURIComponent(planId)}&tab=approvals`,
+    },
   }
 }
 

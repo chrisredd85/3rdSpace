@@ -58,6 +58,41 @@ type PlannerAuth =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
 
+const TERMINAL_PLAN_EXECUTION_STATUSES = new Set(['complete', 'completed', 'archived'])
+
+function isTerminalPlanForPositiveExecution(status: unknown): boolean {
+  return typeof status === 'string' && TERMINAL_PLAN_EXECUTION_STATUSES.has(status)
+}
+
+function terminalPlanPositiveExecutionResponse(): NextResponse<PlannerApiErrorResponse> {
+  return NextResponse.json(
+    {
+      error: 'Completed or archived plans cannot start new execution work.',
+      code: 'plan_terminal',
+    },
+    { status: 409 },
+  )
+}
+
+function isTerminalPlanPositiveExecutionError(error: DbError | null): boolean {
+  return error?.code === '23514' && /terminal_plan_positive_execution_forbidden/i.test(error.message)
+}
+
+function isRetryablePlanLockError(error: DbError | null): boolean {
+  return error?.code === '55P03' || /could not obtain lock|lock not available/i.test(error?.message ?? '')
+}
+
+function retryablePlanLockResponse(): NextResponse<PlannerApiErrorResponse> {
+  return NextResponse.json(
+    {
+      error: 'The plan changed at the same time. Refresh and retry from the current state.',
+      code: 'plan_execution_conflict',
+      retryable: true,
+    },
+    { status: 409 },
+  )
+}
+
 const safeCentsSchema = z.number().int().nonnegative().refine(Number.isSafeInteger)
 const paymentCentsSchema = z.number().int().min(50).refine(Number.isSafeInteger)
 const optionalTargetFields = {
@@ -296,6 +331,9 @@ export async function POST(
 
     const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+    if (isTerminalPlanForPositiveExecution(plan.status)) {
+      return terminalPlanPositiveExecutionResponse()
+    }
 
     const submittedPayload = (parsed.data.payloadJson ?? {}) as JsonObject
     const cents = readActionCents(submittedPayload, parsed.data.requestedAmountCents)
@@ -372,6 +410,10 @@ export async function POST(
 
     if (actionError || !actionData) {
       console.error('Planner agent action create error:', actionError)
+      if (isTerminalPlanPositiveExecutionError(actionError)) {
+        return terminalPlanPositiveExecutionResponse()
+      }
+      if (isRetryablePlanLockError(actionError)) return retryablePlanLockResponse()
       return NextResponse.json({ error: 'Failed to create agent action' }, { status: 500 })
     }
 

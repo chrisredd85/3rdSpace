@@ -572,6 +572,103 @@ describeIfDatabase('realized P0 stored functions', () => {
       expect(lines.slice(1)).toEqual(['confirmed', 'ready'])
     })
 
+    it('rejects an authenticated cross-tenant booking against a ready bridge event', () => {
+      expect(() => transaction(`
+        ${asRole('service_role', null, `
+          ${call('materialize-cross-tenant-booking')}
+          select set_config(
+            'test.ready_bridge_event_id',
+            (
+              select materialization.event_id::text
+              from public.builder_event_materializations as materialization
+              where materialization.idempotency_key = 'materialize-cross-tenant-booking'
+            ),
+            true
+          );
+        `)}
+        ${asRole('authenticated', ids.attacker, `
+          insert into public.venue_bookings (
+            id, venue_id, event_id, organizer_id, booking_date, status
+          )
+          select
+            '9d000000-0000-4000-8000-000000000003',
+            '${ids.venue}',
+            current_setting('test.ready_bridge_event_id')::uuid,
+            '${ids.attacker}',
+            '2026-09-01',
+            'pending'
+          ;
+        `)}
+      `)).toThrow(/ready_legacy_booking_organizer_does_not_match_plan_owner/)
+    })
+
+    it('allows the venue owner to update only provenance-free legacy bookings', () => {
+      const output = transaction(`
+        insert into public.venue_bookings (
+          id, venue_id, event_id, organizer_id, booking_date, status
+        ) values (
+          '9d000000-0000-4000-8000-000000000004', '${ids.venue}',
+          '${ids.event}', '${ids.organizer}', '2026-08-01', 'pending'
+        );
+
+        ${asRole('authenticated', ids.attacker, `
+          with updated as (
+            update public.venue_bookings
+            set status = 'declined'
+            where id = '9d000000-0000-4000-8000-000000000004'
+            returning id
+          )
+          select count(*) from updated;
+        `)}
+
+        ${asRole('authenticated', ids.venueOwner, `
+          with updated as (
+            update public.venue_bookings
+            set status = 'confirmed'
+            where id = '9d000000-0000-4000-8000-000000000004'
+            returning id
+          )
+          select count(*) from updated;
+        `)}
+
+        select status from public.venue_bookings
+        where id = '9d000000-0000-4000-8000-000000000004';
+      `)
+
+      expect(output.split('\n')).toEqual(['0', '1', 'confirmed'])
+    })
+
+    it('prevents a venue owner from rebinding a legacy booking into a ready bridge', () => {
+      expect(() => transaction(`
+        insert into public.venue_bookings (
+          id, venue_id, event_id, organizer_id, booking_date, status
+        ) values (
+          '9d000000-0000-4000-8000-000000000005', '${ids.venue}',
+          '${ids.event}', '${ids.organizer}', '2026-08-01', 'pending'
+        );
+
+        ${asRole('service_role', null, `
+          ${call('materialize-rebind-defense')}
+          select set_config(
+            'test.ready_bridge_event_id',
+            (
+              select materialization.event_id::text
+              from public.builder_event_materializations as materialization
+              where materialization.idempotency_key = 'materialize-rebind-defense'
+            ),
+            true
+          );
+        `)}
+
+        ${asRole('authenticated', ids.venueOwner, `
+          update public.venue_bookings
+          set event_id = current_setting('test.ready_bridge_event_id')::uuid,
+              booking_date = '2026-09-01'
+          where id = '9d000000-0000-4000-8000-000000000005';
+        `)}
+      `)).toThrow(/ready_legacy_booking_identity_is_immutable/)
+    })
+
     it('rolls back the request, plan, event, and counters when billing fails', () => {
       const output = transaction(asRole('service_role', null, `
         update public.builder_profiles

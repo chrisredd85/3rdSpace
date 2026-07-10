@@ -9,9 +9,18 @@ const ids = {
   otherUser: 'd7100000-0000-4000-8000-000000000002',
   builder: 'd7200000-0000-4000-8000-000000000001',
   venue: 'd7300000-0000-4000-8000-000000000001',
+  discoveryVenue: 'd7300000-0000-4000-8000-000000000002',
   plan: 'd7400000-0000-4000-8000-000000000001',
   action: 'd7500000-0000-4000-8000-000000000001',
   approval: 'd7600000-0000-4000-8000-000000000001',
+  bookingAction: 'd7500000-0000-4000-8000-000000000002',
+  bookingApproval: 'd7600000-0000-4000-8000-000000000002',
+  futureBookingAction: 'd7500000-0000-4000-8000-000000000003',
+  futureBookingApproval: 'd7600000-0000-4000-8000-000000000003',
+  deletionBookingAction: 'd7500000-0000-4000-8000-000000000008',
+  deletionBookingApproval: 'd7600000-0000-4000-8000-000000000008',
+  mismatchedBookingAction: 'd7500000-0000-4000-8000-000000000011',
+  mismatchedBookingApproval: 'd7600000-0000-4000-8000-000000000011',
   message: 'd7700000-0000-4000-8000-000000000001',
   template: 'd7800000-0000-4000-8000-000000000001',
   rebookPlan: 'd7400000-0000-4000-8000-000000000009',
@@ -32,6 +41,10 @@ const ids = {
   mismatchedBookingEvent: 'd7a00000-0000-4000-8000-000000000011',
   mismatchedBooking: 'd7900000-0000-4000-8000-000000000011',
   invalidTemplate: 'd7800000-0000-4000-8000-000000000011',
+  outcomeLockPlan: 'd7400000-0000-4000-8000-000000000012',
+  outcomeLockAction: 'd7500000-0000-4000-8000-000000000012',
+  outcomeLockApproval: 'd7600000-0000-4000-8000-000000000012',
+  outcomeLockBooking: 'd7900000-0000-4000-8000-000000000012',
 }
 
 const approvalHash = 'a'.repeat(64)
@@ -124,6 +137,97 @@ function asAuthenticatedUser(userId: string, sql: string): string {
   `
 }
 
+function jsonLiteral(value: unknown): string {
+  return `'${JSON.stringify(value).replaceAll("'", "''")}'::jsonb`
+}
+
+function canonicalVenueActionPayload(): Record<string, unknown> {
+  return {
+    kind: 'canonical_quote_booking',
+    quote_kind: 'venue',
+    target_type: 'discovery_venue',
+    target_id: ids.discoveryVenue,
+  }
+}
+
+function canonicalVenueApprovalSnapshot(amountCents: number): Record<string, unknown> {
+  const payload = canonicalVenueActionPayload()
+  return {
+    schema_version: 2,
+    approval: {
+      provider: 'Canonical Venue',
+      requested_amount_cents: amountCents,
+      price_cents: amountCents,
+    },
+    action: {
+      action_type: 'concierge_queue',
+      target_type: 'discovery_venue',
+      target_id: ids.discoveryVenue,
+      amount_cents: amountCents,
+      payload_json: payload,
+    },
+    counterparty: {
+      provider: 'Canonical Venue',
+      target_type: 'discovery_venue',
+      target_id: ids.discoveryVenue,
+    },
+  }
+}
+
+function prepareCanonicalVenueBookingProvenance(input: {
+  planId: string
+  eventId: string
+  actionId: string
+  approvalId: string
+  amountCents: number
+}): void {
+  const actionPayload = jsonLiteral(canonicalVenueActionPayload())
+  const approvalSnapshot = jsonLiteral(canonicalVenueApprovalSnapshot(input.amountCents))
+  psql(asService(`
+    insert into public.agent_actions (
+      id, plan_id, action_type, description, provider, target_type, target_id,
+      amount_cents, status, payload_json
+    ) values (
+      '${input.actionId}', '${input.planId}', 'concierge_queue',
+      'Create the approved canonical venue booking', 'Canonical Venue',
+      'discovery_venue', '${ids.discoveryVenue}', ${input.amountCents}, 'pending',
+      ${actionPayload}
+    );
+
+    insert into public.approvals (
+      id, plan_id, agent_action_id, action_label, provider, event_date,
+      status, price_cents, fees_cents, requested_amount_cents, expires_at,
+      snapshot_hash, snapshot_json, snapshot_schema_version
+    )
+    select
+      '${input.approvalId}', '${input.planId}', '${input.actionId}',
+      'Approve canonical venue booking', 'Canonical Venue', event_row.event_date,
+      'pending', ${input.amountCents}, 0, ${input.amountCents},
+      now() + interval '7 days', '${approvalHash}',
+      ${approvalSnapshot}, 2
+    from public.events as event_row
+    where event_row.id = '${input.eventId}'
+      and event_row.plan_id = '${input.planId}';
+
+    update public.agent_actions
+    set approval_id = '${input.approvalId}'
+    where id = '${input.actionId}';
+
+    update public.approvals
+    set status = 'authorized',
+        authorized_amount_cents = ${input.amountCents},
+        authorized_by = '${ids.user}',
+        authorized_at = now(),
+        approved_by = '${ids.user}',
+        approved_at = now()
+    where id = '${input.approvalId}';
+
+    update public.agent_actions
+    set status = 'approved'
+    where id = '${input.actionId}';
+  `))
+}
+
 function canConnect(): boolean {
   try {
     psql('select 1')
@@ -143,6 +247,7 @@ function cleanup(): void {
     delete from public.templates where user_id in ('${ids.user}', '${ids.otherUser}');
     delete from public.plans where user_id = '${ids.user}';
     delete from public.events where builder_id = '${ids.builder}';
+    delete from public.discovery_venues where id = '${ids.discoveryVenue}';
     delete from public.venues where id = '${ids.venue}';
     delete from public.builder_profiles where id = '${ids.builder}';
     delete from public.users where id in ('${ids.user}', '${ids.otherUser}');
@@ -183,6 +288,9 @@ function setup(): void {
     values (
       '${ids.venue}', 'Canonical Event Test Venue', true, 'invited_unclaimed'
     );
+
+    insert into public.discovery_venues (id, name, is_claimed, claimed_venue_id)
+    values ('${ids.discoveryVenue}', 'Canonical Event Discovery Venue', true, '${ids.venue}');
 
     insert into public.plans (
       id, user_id, title, event_type, status, guest_count,
@@ -325,13 +433,40 @@ describeIfDatabase('realized canonical plan and event identity', () => {
         and event_row.plan_id = '${ids.plan}';
     `)).toBe(canonicalEventId)
 
-    expect(psql(asService(`
+    expect(() => psql(asService(`
       insert into public.venue_bookings (
         id, venue_id, event_id, organizer_id, booking_date, status
       ) values (
         '${ids.booking}', '${ids.venue}', '${canonicalEventId}',
         '${ids.user}', current_date - 2, 'confirmed'
       ) returning status;
+    `))).toThrow(/canonical_booking_requires_exact_executable_provenance/)
+    expect(psql(`select status::text from public.plans where id = '${ids.plan}';`)).toBe('executing')
+
+    prepareCanonicalVenueBookingProvenance({
+      planId: ids.plan,
+      eventId: canonicalEventId,
+      actionId: ids.bookingAction,
+      approvalId: ids.bookingApproval,
+      amountCents: 9550,
+    })
+
+    expect(psql(asService(`
+      insert into public.venue_bookings (
+        id, venue_id, event_id, organizer_id, booking_date, start_time, end_time,
+        guest_count_min, guest_count_max, status, quoted_price, subtotal,
+        plan_id, agent_action_id, approval_id, quoted_price_cents,
+        approved_terms_snapshot
+      )
+      select
+        '${ids.booking}', '${ids.venue}', event_row.id, '${ids.user}',
+        event_row.event_date, event_row.start_time, event_row.end_time,
+        event_row.expected_attendance_min, event_row.expected_attendance_max,
+        'confirmed', 95.50, 95.50, '${ids.plan}', '${ids.bookingAction}',
+        '${ids.bookingApproval}', 9550, ${jsonLiteral(canonicalVenueApprovalSnapshot(9550))}
+      from public.events as event_row
+      where event_row.id = '${canonicalEventId}'
+      returning status;
     `))).toBe('confirmed')
     expect(psql(`select status::text from public.plans where id = '${ids.plan}';`)).toBe('booked')
 
@@ -520,13 +655,30 @@ describeIfDatabase('realized canonical plan and event identity', () => {
       select materialized_event_id from public.plans where id = '${ids.nonLaPlan}';
     `)
 
+    prepareCanonicalVenueBookingProvenance({
+      planId: ids.nonLaPlan,
+      eventId,
+      actionId: ids.futureBookingAction,
+      approvalId: ids.futureBookingApproval,
+      amountCents: 25000,
+    })
+
     expect(psql(asService(`
       insert into public.venue_bookings (
-        id, venue_id, event_id, organizer_id, booking_date, status
-      ) values (
-        '${ids.futureBooking}', '${ids.venue}', '${eventId}', '${ids.user}',
-        current_date + 30, 'confirmed'
-      ) returning status;
+        id, venue_id, event_id, organizer_id, booking_date, start_time, end_time,
+        guest_count_min, guest_count_max, status, quoted_price, subtotal,
+        plan_id, agent_action_id, approval_id, quoted_price_cents,
+        approved_terms_snapshot
+      )
+      select
+        '${ids.futureBooking}', '${ids.venue}', event_row.id, '${ids.user}',
+        event_row.event_date, event_row.start_time, event_row.end_time,
+        event_row.expected_attendance_min, event_row.expected_attendance_max,
+        'confirmed', 250, 250, '${ids.nonLaPlan}', '${ids.futureBookingAction}',
+        '${ids.futureBookingApproval}', 25000, ${jsonLiteral(canonicalVenueApprovalSnapshot(25000))}
+      from public.events as event_row
+      where event_row.id = '${eventId}'
+      returning status;
     `))).toBe('confirmed')
 
     expect(() => psql(asService(`
@@ -627,6 +779,115 @@ describeIfDatabase('realized canonical plan and event identity', () => {
     `)).toBe('1')
   })
 
+  it('records an outcome without deadlocking a concurrent plan-first event lock', async () => {
+    psql(`
+      insert into public.plans (
+        id, user_id, title, event_type, status, guest_count,
+        date_window_start, date_window_end, metadata
+      ) values (
+        '${ids.outcomeLockPlan}', '${ids.user}', 'Outcome lock-order event',
+        'Community meetup', 'approved', 40,
+        current_date - 1, current_date - 1,
+        '{"event_archetype_lock":{"key":"community_meetup"}}'::jsonb
+      );
+    `)
+
+    const eventId = psql(asService(`
+      select event_id
+      from public.materialize_plan_event(
+        '${ids.outcomeLockPlan}', '${ids.user}', 'community_meetup',
+        current_date - 1, '17:00'::time, 60, 'America/Los_Angeles'
+      );
+    `))
+
+    prepareCanonicalVenueBookingProvenance({
+      planId: ids.outcomeLockPlan,
+      eventId,
+      actionId: ids.outcomeLockAction,
+      approvalId: ids.outcomeLockApproval,
+      amountCents: 40000,
+    })
+
+    expect(psql(asService(`
+      insert into public.venue_bookings (
+        id, venue_id, event_id, organizer_id, booking_date, start_time, end_time,
+        guest_count_min, guest_count_max, status, quoted_price, subtotal,
+        plan_id, agent_action_id, approval_id, quoted_price_cents,
+        approved_terms_snapshot
+      )
+      select
+        '${ids.outcomeLockBooking}', '${ids.venue}', event_row.id, '${ids.user}',
+        event_row.event_date, event_row.start_time, event_row.end_time,
+        event_row.expected_attendance_min, event_row.expected_attendance_max,
+        'confirmed', 400, 400, '${ids.outcomeLockPlan}',
+        '${ids.outcomeLockAction}', '${ids.outcomeLockApproval}', 40000,
+        ${jsonLiteral(canonicalVenueApprovalSnapshot(40000))}
+      from public.events as event_row
+      where event_row.id = '${eventId}'
+      returning status;
+    `))).toBe('confirmed')
+
+    const advisorySignalKey = 7401500
+    const planFirstLock = psqlAsync(asService(`
+      select id
+      from public.plans
+      where id = '${ids.outcomeLockPlan}'
+      for update;
+
+      select pg_advisory_lock(${advisorySignalKey});
+      select pg_sleep(2);
+
+      select id
+      from public.events
+      where id = '${eventId}'
+        and plan_id = '${ids.outcomeLockPlan}'
+      for update;
+
+      select pg_advisory_unlock(${advisorySignalKey});
+    `))
+    let planLockIsHeld = false
+    for (let attempt = 0; attempt < 20 && !planLockIsHeld; attempt += 1) {
+      planLockIsHeld = psql(`
+        with lock_attempt as (
+          select pg_try_advisory_lock(${advisorySignalKey}) as acquired
+        )
+        select case
+          when acquired then not pg_advisory_unlock(${advisorySignalKey})
+          else true
+        end
+        from lock_attempt;
+      `) === 't'
+      if (!planLockIsHeld) {
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+    }
+    expect(planLockIsHeld).toBe(true)
+
+    const outcome = psqlAsync(asService(`
+      select id, status
+      from public.record_plan_event_outcome(
+        '${eventId}', '${ids.user}',
+        '{"actual_attendance":36,"notes":"Lock-order concurrency proof."}'::jsonb
+      );
+    `))
+
+    const [, outcomeResult] = await Promise.all([planFirstLock, outcome])
+
+    expect(outcomeResult).toBe(`${eventId}|completed`)
+    expect(psql(`
+      select plan_row.status::text || '|' || event_row.status
+      from public.plans as plan_row
+      join public.events as event_row on event_row.id = plan_row.materialized_event_id
+      where plan_row.id = '${ids.outcomeLockPlan}';
+    `)).toBe('completed|completed')
+    expect(psql(`
+      select count(*)
+      from public.plan_status_transitions
+      where plan_id = '${ids.outcomeLockPlan}'
+        and transition_trigger = 'outcome_recorded';
+    `)).toBe('1')
+  }, 10_000)
+
   it('requires exact compare-and-swap context for status retries', () => {
     psql(`
       insert into public.plans (id, user_id, title, status)
@@ -650,10 +911,20 @@ describeIfDatabase('realized canonical plan and event identity', () => {
     `)).toBe('1')
   })
 
-  it('rejects booking evidence owned by someone other than the plan owner', () => {
+  it('rejects canonical booking evidence owned by someone other than the plan owner', () => {
     psql(`
       begin;
       set constraints all deferred;
+
+      insert into public.plans (
+        id, user_id, title, event_type, status,
+        date_window_start, date_window_end, materialized_event_id, metadata
+      ) values (
+        '${ids.mismatchedBookingPlan}', '${ids.user}',
+        'Mismatched booking evidence', 'Networking mixer', 'executing',
+        current_date + 45, current_date + 45, '${ids.mismatchedBookingEvent}',
+        '{"event_archetype_lock":{"key":"networking_mixer"}}'::jsonb
+      );
 
       insert into public.events (
         id, builder_id, event_name, event_type, event_date,
@@ -668,32 +939,34 @@ describeIfDatabase('realized canonical plan and event identity', () => {
         'America/Los_Angeles'
       );
 
-      insert into public.venue_bookings (
-        id, venue_id, event_id, organizer_id, booking_date, status
-      ) values (
-        '${ids.mismatchedBooking}', '${ids.venue}', '${ids.mismatchedBookingEvent}',
-        '${ids.otherUser}', current_date + 45, 'confirmed'
-      );
-
-      insert into public.plans (
-        id, user_id, title, event_type, status,
-        date_window_start, date_window_end, materialized_event_id, metadata
-      ) values (
-        '${ids.mismatchedBookingPlan}', '${ids.user}',
-        'Mismatched booking evidence', 'Networking mixer', 'executing',
-        current_date + 45, current_date + 45, '${ids.mismatchedBookingEvent}',
-        '{"event_archetype_lock":{"key":"networking_mixer"}}'::jsonb
-      );
-
       commit;
     `)
 
+    prepareCanonicalVenueBookingProvenance({
+      planId: ids.mismatchedBookingPlan,
+      eventId: ids.mismatchedBookingEvent,
+      actionId: ids.mismatchedBookingAction,
+      approvalId: ids.mismatchedBookingApproval,
+      amountCents: 50000,
+    })
+
     expect(() => psql(asService(`
-      select (public.transition_plan_status(
-        '${ids.mismatchedBookingPlan}', 'executing', 'booked',
-        'booking_created', '${ids.user}', '{"source":"owner-negative"}'::jsonb
-      )).status::text;
-    `))).toThrow(/plan_confirmed_booking_evidence_missing/)
+      insert into public.venue_bookings (
+        id, venue_id, event_id, organizer_id, booking_date, start_time, end_time,
+        guest_count_min, guest_count_max, status, quoted_price, subtotal,
+        plan_id, agent_action_id, approval_id, quoted_price_cents,
+        approved_terms_snapshot
+      )
+      select
+        '${ids.mismatchedBooking}', '${ids.venue}', event_row.id, '${ids.otherUser}',
+        event_row.event_date, event_row.start_time, event_row.end_time,
+        event_row.expected_attendance_min, event_row.expected_attendance_max,
+        'confirmed', 500, 500, '${ids.mismatchedBookingPlan}',
+        '${ids.mismatchedBookingAction}', '${ids.mismatchedBookingApproval}', 50000,
+        ${jsonLiteral(canonicalVenueApprovalSnapshot(50000))}
+      from public.events as event_row
+      where event_row.id = '${ids.mismatchedBookingEvent}';
+    `))).toThrow(/canonical_booking_requires_exact_executable_provenance/)
 
     expect(psql(`
       select status::text from public.plans where id = '${ids.mismatchedBookingPlan}';
@@ -850,13 +1123,29 @@ describeIfDatabase('realized canonical plan and event identity', () => {
       );
     `))
 
+    prepareCanonicalVenueBookingProvenance({
+      planId: ids.deletionPlan,
+      eventId,
+      actionId: ids.deletionBookingAction,
+      approvalId: ids.deletionBookingApproval,
+      amountCents: 30000,
+    })
+
     psql(asService(`
       insert into public.venue_bookings (
-        id, venue_id, event_id, organizer_id, booking_date, status
-      ) values (
-        'd7900000-0000-4000-8000-000000000008', '${ids.venue}', '${eventId}',
-        '${ids.user}', current_date - 1, 'confirmed'
-      );
+        id, venue_id, event_id, organizer_id, booking_date, start_time, end_time,
+        guest_count_min, guest_count_max, status, quoted_price, subtotal,
+        plan_id, agent_action_id, approval_id, quoted_price_cents,
+        approved_terms_snapshot
+      )
+      select
+        'd7900000-0000-4000-8000-000000000008', '${ids.venue}', event_row.id,
+        '${ids.user}', event_row.event_date, event_row.start_time, event_row.end_time,
+        event_row.expected_attendance_min, event_row.expected_attendance_max,
+        'confirmed', 300, 300, '${ids.deletionPlan}', '${ids.deletionBookingAction}',
+        '${ids.deletionBookingApproval}', 30000, ${jsonLiteral(canonicalVenueApprovalSnapshot(30000))}
+      from public.events as event_row
+      where event_row.id = '${eventId}';
 
       select id from public.record_plan_event_outcome(
         '${eventId}', '${ids.user}',
