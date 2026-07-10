@@ -38,6 +38,7 @@ export type PlanRevisionImpact = {
 
 export async function applyPlanRevision(opts: {
   supabase: SupabaseAdminClient
+  baselineSupabase?: SupabaseAdminClient
   planId: string
   userId: string
   trigger: PlanRevisionTrigger
@@ -95,6 +96,7 @@ export async function applyPlanRevision(opts: {
 
   await recomputePlanDerivedState({
     supabase: opts.supabase,
+    baselineSupabase: opts.baselineSupabase,
     planId: opts.planId,
     trigger: 'plan_revision',
     revisionId,

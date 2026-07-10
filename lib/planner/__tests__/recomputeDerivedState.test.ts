@@ -135,6 +135,28 @@ describe('recomputePlanDerivedState', () => {
     }))
   })
 
+  it('reads protected organizer baselines through the separately authorized client', async () => {
+    const db = createDerivedStateDb({
+      plans: [planRow()],
+      recommendations: [],
+      approvals: [],
+      plan_derived_state: [],
+    })
+    const baselineDb = { from: jest.fn() }
+
+    await recomputePlanDerivedState({
+      supabase: db as any,
+      baselineSupabase: baselineDb as any,
+      planId: 'plan-1',
+      trigger: 'plan_revision',
+    })
+
+    expect(lookupBaselineMock).toHaveBeenCalledWith(
+      baselineDb,
+      expect.objectContaining({ organizerId: 'user-1' })
+    )
+  })
+
   it('omits stale discovery recommendations from the shopping list', async () => {
     const db = createDerivedStateDb({
       plans: [planRow()],

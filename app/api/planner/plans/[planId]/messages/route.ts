@@ -82,7 +82,7 @@ import {
   type BuilderAttendanceSummary,
 } from '@/lib/server/builderAttendanceHistory'
 import { checkRateLimit, rateLimitHeaders } from '@/lib/server/rate-limit'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { TicketPlatform } from '@/lib/constants/account-setup'
 import type {
   Json,
@@ -788,6 +788,7 @@ async function applyPlannerPlanRevision(input: {
   try {
     const result = await applyPlanRevision({
       supabase: input.db,
+      baselineSupabase: createServiceRoleClient() as unknown as PlannerDb,
       planId: input.planId,
       userId: input.userId,
       trigger: input.trigger,

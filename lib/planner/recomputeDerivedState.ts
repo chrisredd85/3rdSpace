@@ -30,6 +30,7 @@ type ExistingDerivedState = {
 
 type RecomputeInput = {
   supabase: PlannerDb
+  baselineSupabase?: PlannerDb
   planId: string
   trigger: RecomputeTrigger
   revisionId?: string
@@ -46,7 +47,7 @@ export async function recomputePlanDerivedState(opts: RecomputeInput): Promise<R
 
   if (!plan) throw new Error('Plan not found for derived state recompute')
 
-  const baseline = await lookupBaseline(opts.supabase as never, {
+  const baseline = await lookupBaseline((opts.baselineSupabase ?? opts.supabase) as never, {
     organizerId: plan.user_id,
     archetype: plan.event_type,
     neighborhood: plan.neighborhood,

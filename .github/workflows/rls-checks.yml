@@ -1,17 +1,6 @@
 name: RLS Checks
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'supabase/migrations/**'
-      - 'scripts/security/**'
-      - '__tests__/security/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/rls-checks.yml'
-      - '.github/workflows/test.yml'
   pull_request:
     paths:
       - 'supabase/migrations/**'
@@ -39,6 +28,18 @@ on:
       - 'package-lock.json'
       - '.github/workflows/rls-checks.yml'
       - '.github/workflows/test.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/security/**'
+      - '__tests__/security/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/rls-checks.yml'
+      - '.github/workflows/test.yml'
+  merge_group:
 
 jobs:
   rls:
@@ -95,8 +96,8 @@ jobs:
           fi
           npm run security:tied-house:delta -- "${delta_args[@]}"
 
-      - name: Run RLS regression tests
-        run: npm test -- __tests__/security/rls.test.ts --runInBand
+      - name: Run realized database security regression tests
+        run: npm test -- __tests__/security/rls.test.ts __tests__/security/database-privileges.test.ts --runInBand
         env:
           RUN_RLS_DB_TESTS: '1'
 

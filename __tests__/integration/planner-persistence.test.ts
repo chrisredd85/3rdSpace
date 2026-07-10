@@ -5,7 +5,7 @@ import { GET as getPlan, PATCH as patchPlan } from '@/app/api/planner/plans/[pla
 import { GET as listPlans, POST as createPlan } from '@/app/api/planner/plans/route'
 import { POST as postMessage } from '@/app/api/planner/plans/[planId]/messages/route'
 import { runAgent } from '@/lib/ai/agents'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 jest.mock('@/lib/ai/agents', () => ({
   runAgent: jest.fn(),
@@ -13,6 +13,7 @@ jest.mock('@/lib/ai/agents', () => ({
 
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
+  createServiceRoleClient: jest.fn(),
 }))
 
 jest.mock('next/server', () => ({
@@ -31,6 +32,7 @@ jest.mock('next/server', () => ({
 }))
 
 const mockCreateClient = createClient as jest.Mock
+const mockCreateServiceRoleClient = createServiceRoleClient as jest.Mock
 const mockRunAgent = runAgent as jest.Mock
 
 type Row = Record<string, any>
@@ -249,6 +251,9 @@ describe('Planner persistence integration', () => {
           error: null,
         }),
       },
+      from: (table: string) => db.from(table),
+    })
+    mockCreateServiceRoleClient.mockReturnValue({
       from: (table: string) => db.from(table),
     })
   })

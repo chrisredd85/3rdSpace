@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import { recomputePlanDerivedState } from '@/lib/planner/recomputeDerivedState'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan } from '@/lib/types'
 
 type PlannerDb = { from: (table: string) => any }
@@ -34,6 +34,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
   if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+  const baselineDb = createServiceRoleClient() as unknown as PlannerDb
 
   const committedAt = new Date().toISOString()
   const metadata = readRecord(plan.metadata) ?? {}
@@ -82,7 +83,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   const planId = (await context.params).planId
   await insertStatusMessage(auth.db, planId, 'Committed venue quote for planning. Other venue outreach was marked superseded, not cancelled.')
-  await recomputePlanDerivedState({ supabase: auth.db, planId, trigger: 'commit_changed' })
+  await recomputePlanDerivedState({
+    supabase: auth.db,
+    baselineSupabase: baselineDb,
+    planId,
+    trigger: 'commit_changed',
+  })
   const refreshedPlan = await loadOwnedPlan(auth.db, planId, auth.userId)
   return NextResponse.json({ plan: refreshedPlan ?? data })
 }
@@ -93,6 +99,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
 
   const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
   if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+  const baselineDb = createServiceRoleClient() as unknown as PlannerDb
 
   const metadata = readRecord(plan.metadata) ?? {}
   const acceptedQuoteState = readRecord(metadata.accepted_quote_state) ?? {}
@@ -127,7 +134,12 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
 
   const planId = (await context.params).planId
   await insertStatusMessage(auth.db, planId, 'Cancelled accepted venue quote. The brief returned to comparison mode.')
-  await recomputePlanDerivedState({ supabase: auth.db, planId, trigger: 'cancel_commit' })
+  await recomputePlanDerivedState({
+    supabase: auth.db,
+    baselineSupabase: baselineDb,
+    planId,
+    trigger: 'cancel_commit',
+  })
   const refreshedPlan = await loadOwnedPlan(auth.db, planId, auth.userId)
   return NextResponse.json({ plan: refreshedPlan ?? data })
 }
