@@ -42,6 +42,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
   if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+  const reapprovalResponse = requireMutableQuotePlan(plan)
+  if (reapprovalResponse) return reapprovalResponse
   const baselineDb = createServiceRoleClient() as unknown as PlannerDb
 
   const committedAt = new Date().toISOString()
@@ -131,6 +133,8 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 
   const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
   if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+  const reapprovalResponse = requireMutableQuotePlan(plan)
+  if (reapprovalResponse) return reapprovalResponse
   const baselineDb = createServiceRoleClient() as unknown as PlannerDb
   const canonicalEventId = plan.materialized_event_id ?? null
 
@@ -247,4 +251,21 @@ function readRecord(value: unknown): Record<string, unknown> | null {
 
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function requireMutableQuotePlan(plan: Plan) {
+  if (!plan.materialized_event_id && (plan.status === 'drafting' || plan.status === 'ready')) {
+    return null
+  }
+
+  return NextResponse.json(
+    {
+      error: 'Quote commitments are frozen after approval or event materialization. Revise the plan and complete re-approval before changing venue, vendor, price, or terms.',
+      code: 'PLAN_REAPPROVAL_REQUIRED',
+      plan_id: plan.id,
+      plan_status: plan.status,
+      materialized_event_id: plan.materialized_event_id ?? null,
+    },
+    { status: 409 }
+  )
 }
