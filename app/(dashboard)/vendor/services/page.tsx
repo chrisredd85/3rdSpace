@@ -18,8 +18,8 @@ import { VendorServicesManager } from '@/components/vendor/VendorServicesManager
 import type { ServiceType } from '@/lib/types'
 import type { VendorBaseRateCents } from '@/lib/money'
 import {
-  vendorRateCentsToFormDollars,
-  vendorRateFormDollarsToCents,
+  loadVendorServicesBaseRateDollars,
+  saveVendorServicesBaseRateCents,
 } from '@/lib/vendors/vendorRateUnits'
 
 const serviceAreaOptions = [
@@ -247,7 +247,7 @@ export default function VendorServicesPage() {
           service_area: (profile.service_area || 'all_bay_area') as VendorFormData['service_area'],
           setup_time: String(profile.setup_time_minutes || 60) as VendorFormData['setup_time'],
           is_published: profile.is_published !== false,
-          base_rate: vendorRateCentsToFormDollars(profile.base_rate),
+          base_rate: loadVendorServicesBaseRateDollars(profile.base_rate),
           deposit_percentage: profile.deposit_percentage ?? null,
           lead_time_days: profile.lead_time_days ?? null,
           availability_notes: profile.availability_notes || '',
@@ -344,7 +344,7 @@ export default function VendorServicesPage() {
           vendor_type: getVendorType(data.service_type),
           setup_time_minutes: Number(data.setup_time),
           is_published: data.is_published,
-          base_rate: vendorRateFormDollarsToCents(data.base_rate),
+          base_rate: saveVendorServicesBaseRateCents(data.base_rate),
           deposit_percentage: data.deposit_percentage,
           requires_deposit: typeof data.deposit_percentage === 'number' && data.deposit_percentage > 0,
           lead_time_days: data.lead_time_days,

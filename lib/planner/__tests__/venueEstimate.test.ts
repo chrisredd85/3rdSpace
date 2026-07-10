@@ -19,6 +19,18 @@ describe('venue recommendation estimate', () => {
     ).toBe(9550)
   })
 
+  it('honors a newly confirmed nightly rate over preserved ambiguous legacy fields', () => {
+    expect(
+      estimateVenueRecommendationPriceCents({
+        pricing_model: 'flat_rate',
+        hourly_rate_cents: 35_000,
+        daily_rate_cents: 120_000,
+        price_per_night_cents: 9550,
+        auto_approve_conditions: { nightly_rate_cents_authoritative: true },
+      })
+    ).toBe(9550)
+  })
+
   it('returns negative organizer payout cents for per-head CHI', () => {
     expect(
       estimateVenueRecommendationPriceCents(

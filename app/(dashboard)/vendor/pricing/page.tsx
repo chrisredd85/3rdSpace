@@ -30,8 +30,8 @@ import { VendorDepositSettings } from '@/components/vendor/VendorDepositSettings
 import { cn } from '@/lib/utils'
 import type { PricingModel, VendorPackage } from '@/lib/types'
 import {
-  vendorRateCentsToFormDollars,
-  vendorRateFormDollarsToCents,
+  loadVendorPricingFormMoney,
+  saveVendorPricingFormMoney,
 } from '@/lib/vendors/vendorRateUnits'
 
 const optionalMoney = z.preprocess((value) => {
@@ -138,12 +138,15 @@ export default function VendorPricingPage() {
       const storedBaseRateCents = vendor.pricing_model === 'hourly'
         ? vendor.hourly_rate ?? vendor.base_rate
         : vendor.base_rate ?? vendor.hourly_rate
+      const formMoney = loadVendorPricingFormMoney({
+        baseRateCents: storedBaseRateCents,
+        perPersonRateCents: vendor.per_person_rate ?? storedPerHeadRate,
+      })
       reset({
         pricing_model: vendor.pricing_model,
-        base_rate: vendorRateCentsToFormDollars(storedBaseRateCents) ?? undefined,
+        base_rate: formMoney.baseRateDollars ?? undefined,
         headcount_chi: storedPerHeadRate > 0,
-        per_person_rate:
-          vendorRateCentsToFormDollars(vendor.per_person_rate ?? storedPerHeadRate) ?? undefined,
+        per_person_rate: formMoney.perPersonRateDollars ?? undefined,
       })
     }
   }, [vendor, reset])
@@ -167,8 +170,10 @@ export default function VendorPricingPage() {
   const handleSave = async (data: PricingFormData) => {
     if (!vendorId || !vendor) return
     try {
-      const baseRateCents = vendorRateFormDollarsToCents(data.base_rate)
-      const perPersonRateCents = vendorRateFormDollarsToCents(data.per_person_rate)
+      const { baseRateCents, perPersonRateCents } = saveVendorPricingFormMoney({
+        baseRateDollars: data.base_rate,
+        perPersonRateDollars: data.per_person_rate,
+      })
       await updateVendor.mutateAsync({
         id: vendorId,
         updates: {
@@ -377,6 +382,8 @@ export default function VendorPricingPage() {
                       <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft/60" />
                       <Input
                         type="number"
+                        min="0"
+                        step="0.01"
                         {...register('per_person_rate', { valueAsNumber: true })}
                         className="pl-10"
                         placeholder="5"

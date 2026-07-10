@@ -1,5 +1,5 @@
 import type { VendorBaseRateCents } from '@/lib/money'
-import type { Database, Json } from '@/lib/types/database-generated'
+import type { Json } from '@/lib/types/database-generated'
 import { vendorRateFormDollarsToCents } from '@/lib/vendors/vendorRateUnits'
 
 export const REPAIRABLE_VENDOR_PRICING_MODELS = [
@@ -30,7 +30,14 @@ export type VendorBaseRateRepairCandidate = {
 
 const LEGACY_DOLLAR_HEURISTIC_MAX_EXCLUSIVE = 500
 const REALISTIC_MINIMUM_DOLLARS = 50
-type AdminAuditLogInsert = Database['public']['Tables']['admin_audit_log']['Insert']
+export type VendorBaseRateRepairRpcArgs = {
+  p_vendor_id: string
+  p_expected_base_rate: number
+  p_new_base_rate_cents: VendorBaseRateCents | null
+  p_audit_action: string
+  p_admin_user_id: string | null
+  p_metadata: Record<string, Json | undefined>
+}
 
 export function shouldApplyVendorBaseRateRepair(args: readonly string[]): boolean {
   return args.includes('--apply')
@@ -86,21 +93,19 @@ export function classifyVendorBaseRateRepair(
   }
 }
 
-export function buildVendorBaseRateRepairAuditInsert(input: {
+export function buildVendorBaseRateRepairRpcArgs(input: {
   candidate: VendorBaseRateRepairCandidate
   action: string
-  afterBaseRate: number | null
   adminUserId?: string | null
   metadata?: Record<string, Json | undefined>
-}): AdminAuditLogInsert {
+}): VendorBaseRateRepairRpcArgs {
   return {
-    admin_user_id: input.adminUserId ?? null,
-    action: input.action,
-    entity_type: 'vendor_profiles',
-    entity_id: input.candidate.row.id,
-    before_state: { base_rate: input.candidate.currentBaseRate },
-    after_state: { base_rate: input.afterBaseRate },
-    metadata: {
+    p_vendor_id: input.candidate.row.id,
+    p_expected_base_rate: input.candidate.currentBaseRate,
+    p_new_base_rate_cents: input.candidate.proposedBaseRateCents,
+    p_audit_action: input.action,
+    p_admin_user_id: input.adminUserId ?? null,
+    p_metadata: {
       script: VENDOR_BASE_RATE_REPAIR_SCRIPT,
       reason: VENDOR_BASE_RATE_REPAIR_REASON,
       classification: input.candidate.action,

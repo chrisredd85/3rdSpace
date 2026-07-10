@@ -382,7 +382,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
             total_revenue_cents: 392000,
             total_cost_cents: 400000,
             profit_cents: -8000,
-            profit_margin: -0.0204,
+            profit_margin: -2.0408,
           },
           expected: {
             attendance: 68,
@@ -391,7 +391,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
             total_revenue_cents: 476000,
             total_cost_cents: 400000,
             profit_cents: 76000,
-            profit_margin: 0.1596,
+            profit_margin: 15.9664,
           },
           optimistic: {
             attendance: 80,
@@ -400,7 +400,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
             total_revenue_cents: 560000,
             total_cost_cents: 400000,
             profit_cents: 160000,
-            profit_margin: 0.2857,
+            profit_margin: 28.5714,
           },
         },
         cost_summary_cents: {
@@ -554,7 +554,11 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
         type: 'external',
         metadata: expect.objectContaining({
           recommendation_type: 'economics',
-          revenue_scenarios: expect.any(Object),
+          revenue_scenarios: expect.objectContaining({
+            expected: expect.objectContaining({
+              profit_margin: 15.9664,
+            }),
+          }),
         }),
       }),
     ]))

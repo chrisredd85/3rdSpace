@@ -19,6 +19,10 @@ import type {
   VenueOpportunityInvite,
 } from '@/lib/types'
 import { getVenueComplianceStatus } from '@/lib/planner/venueComplianceGate'
+import {
+  hasAuthoritativeVenueNightlyRate,
+  readVenueRentalRateCents,
+} from '@/lib/venues/venueRateUnits'
 
 type PlannerDb = { from: (table: string) => any }
 
@@ -632,13 +636,16 @@ function readCapacity(venue: OpportunityVenueRow) {
 }
 
 function estimateVenuePriceCents(venue: OpportunityVenueRow, guestCount: number) {
+  const venueRecord = venue as unknown as Record<string, unknown>
   const hourlyRate = toCanonicalIntegerCents(venue.hourly_rate_cents) ?? toIntegerCents(venue.hourly_rate)
   const minimumHours = Math.max(venue.minimum_hours ?? 4, 4)
   const rental = hourlyRate ? hourlyRate * minimumHours : null
   const flatRate = toCanonicalIntegerCents(venue.daily_rate_cents) ??
     toCanonicalIntegerCents(venue.price_per_night_cents)
+  const venueRate = hasAuthoritativeVenueNightlyRate(venueRecord)
+    ? readVenueRentalRateCents(venueRecord)
+    : rental ?? flatRate
   const perGuestFloor = guestCount > 0 ? guestCount * 3500 : 0
-  const venueRate = rental ?? flatRate
   return venueRate ? Math.max(venueRate, perGuestFloor) : perGuestFloor || null
 }
 

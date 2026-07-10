@@ -1,7 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
-import type { Database, Json } from '@/lib/types/database-generated'
 import {
-  buildVendorBaseRateRepairAuditInsert,
+  buildVendorBaseRateRepairRpcArgs,
   classifyVendorBaseRateRepair,
   shouldApplyVendorBaseRateRepair,
   type VendorBaseRateRepairCandidate,
@@ -15,7 +14,7 @@ function createScriptServiceRoleClient() {
   if (!supabaseUrl) throw new Error('NEXT_PUBLIC_SUPABASE_URL is required')
   if (!serviceRoleKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY is required')
 
-  return createClient<Database, 'public'>(supabaseUrl, serviceRoleKey, {
+  return createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
     global: { fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }) },
   })
@@ -23,73 +22,26 @@ function createScriptServiceRoleClient() {
 
 type ScriptClient = ReturnType<typeof createScriptServiceRoleClient>
 
-async function writeAuditLog(
-  supabase: ScriptClient,
-  candidate: VendorBaseRateRepairCandidate,
-  action: string,
-  afterBaseRate: number | null,
-  metadata: Record<string, Json | undefined> = {}
-) {
-  const auditRow = buildVendorBaseRateRepairAuditInsert({
+async function applyCandidate(supabase: ScriptClient, candidate: VendorBaseRateRepairCandidate) {
+  const reviewOnly = candidate.action === 'review' || candidate.proposedBaseRateCents === null
+  const args = buildVendorBaseRateRepairRpcArgs({
     candidate,
-    action,
-    afterBaseRate,
+    action: reviewOnly
+      ? 'vendor_base_rate_unit_review_required'
+      : 'vendor_base_rate_unit_repaired',
     adminUserId: process.env.ADMIN_USER_ID || null,
-    metadata,
+    metadata: reviewOnly ? { review_reason: candidate.reason } : {},
   })
-  const { error } = await supabase.from('admin_audit_log').insert(auditRow)
+  const { error } = await supabase.rpc('repair_vendor_base_rate_atomic', args)
 
   if (error) {
-    throw new Error(`admin_audit_log insert failed for ${candidate.row.id}: ${error.message}`)
-  }
-}
-
-async function applyCandidate(supabase: ScriptClient, candidate: VendorBaseRateRepairCandidate) {
-  if (candidate.action === 'review' || candidate.proposedBaseRateCents === null) {
-    await writeAuditLog(
-      supabase,
-      candidate,
-      'vendor_base_rate_unit_review_required',
-      candidate.currentBaseRate,
-      { review_reason: candidate.reason }
-    )
-    return { id: candidate.row.id, status: 'flagged_for_review' as const }
+    throw new Error(`atomic vendor base-rate repair failed for ${candidate.row.id}: ${error.message}`)
   }
 
-  // The pre-mutation audit row is mandatory. If it cannot be written, no rate is changed.
-  await writeAuditLog(
-    supabase,
-    candidate,
-    'vendor_base_rate_unit_repair_started',
-    candidate.proposedBaseRateCents
-  )
-
-  const updatedAt = new Date().toISOString()
-  const { data, error } = await supabase
-    .from('vendor_profiles')
-    .update({
-      base_rate: candidate.proposedBaseRateCents,
-      updated_at: updatedAt,
-    })
-    .eq('id', candidate.row.id)
-    .eq('base_rate', candidate.currentBaseRate)
-    .select('id, base_rate')
-    .maybeSingle()
-
-  if (error) throw new Error(`vendor_profiles update failed for ${candidate.row.id}: ${error.message}`)
-  if (!data) {
-    throw new Error(`vendor_profiles:${candidate.row.id} changed after the dry-run read; no update applied`)
+  return {
+    id: candidate.row.id,
+    status: reviewOnly ? 'flagged_for_review' as const : 'converted' as const,
   }
-
-  await writeAuditLog(
-    supabase,
-    candidate,
-    'vendor_base_rate_unit_repaired',
-    candidate.proposedBaseRateCents,
-    { updated_at: updatedAt }
-  )
-
-  return { id: candidate.row.id, status: 'converted' as const }
 }
 
 async function run() {

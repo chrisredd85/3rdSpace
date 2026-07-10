@@ -1,9 +1,14 @@
 import {
+  loadVendorPricingFormMoney,
+  loadVendorServicesBaseRateDollars,
+  saveVendorPricingFormMoney,
+  saveVendorServicesBaseRateCents,
   vendorRateCentsToFormDollars,
   vendorRateFormDollarsToCents,
 } from '@/lib/vendors/vendorRateUnits'
+import { readMoneyCents } from '@/lib/vendors/vendorGates'
 import {
-  buildVendorBaseRateRepairAuditInsert,
+  buildVendorBaseRateRepairRpcArgs,
   classifyVendorBaseRateRepair,
   shouldApplyVendorBaseRateRepair,
 } from '@/lib/vendors/vendorBaseRateRepair'
@@ -15,6 +20,29 @@ describe('vendor rate unit boundaries', () => {
     expect(persistedCents).toBe(9550)
     expect(vendorRateCentsToFormDollars(persistedCents)).toBe(95.5)
     expect(vendorRateFormDollarsToCents(vendorRateCentsToFormDollars(persistedCents))).toBe(9550)
+  })
+
+  it('round-trips $95.50 through the pricing-page load/save adapter and ranker', () => {
+    const saved = saveVendorPricingFormMoney({
+      baseRateDollars: 95.5,
+      perPersonRateDollars: 5.25,
+    })
+    const loaded = loadVendorPricingFormMoney({
+      baseRateCents: saved.baseRateCents,
+      perPersonRateCents: saved.perPersonRateCents,
+    })
+
+    expect(saved).toEqual({ baseRateCents: 9550, perPersonRateCents: 525 })
+    expect(loaded).toEqual({ baseRateDollars: 95.5, perPersonRateDollars: 5.25 })
+    expect(readMoneyCents(saved.baseRateCents)).toBe(9550)
+  })
+
+  it('round-trips $95.50 through the services-page load/save adapter and ranker', () => {
+    const persistedCents = saveVendorServicesBaseRateCents(95.5)
+
+    expect(persistedCents).toBe(9550)
+    expect(loadVendorServicesBaseRateDollars(persistedCents)).toBe(95.5)
+    expect(readMoneyCents(persistedCents)).toBe(9550)
   })
 
   it('classifies a plausible legacy-dollar row for deterministic conversion', () => {
@@ -71,7 +99,7 @@ describe('vendor rate unit boundaries', () => {
     expect(shouldApplyVendorBaseRateRepair(['--apply'])).toBe(true)
   })
 
-  it('builds an admin_audit_log insert that matches the generated schema', () => {
+  it('builds service-role RPC arguments with audit context in metadata', () => {
     const candidate = classifyVendorBaseRateRepair({
       id: '550e8400-e29b-41d4-a716-446655440101',
       name: 'Cents Catering',
@@ -80,20 +108,18 @@ describe('vendor rate unit boundaries', () => {
     })
     if (!candidate) throw new Error('Expected a repair candidate')
 
-    const auditInsert = buildVendorBaseRateRepairAuditInsert({
+    const rpcArgs = buildVendorBaseRateRepairRpcArgs({
       candidate,
       action: 'vendor_base_rate_unit_repaired',
-      afterBaseRate: 9550,
     })
 
-    expect(auditInsert).not.toHaveProperty('reason')
-    expect(auditInsert).toMatchObject({
-      action: 'vendor_base_rate_unit_repaired',
-      entity_type: 'vendor_profiles',
-      entity_id: '550e8400-e29b-41d4-a716-446655440101',
-      before_state: { base_rate: 95.5 },
-      after_state: { base_rate: 9550 },
-      metadata: expect.objectContaining({
+    expect(rpcArgs).not.toHaveProperty('reason')
+    expect(rpcArgs).toMatchObject({
+      p_audit_action: 'vendor_base_rate_unit_repaired',
+      p_vendor_id: '550e8400-e29b-41d4-a716-446655440101',
+      p_expected_base_rate: 95.5,
+      p_new_base_rate_cents: 9550,
+      p_metadata: expect.objectContaining({
         reason: 'legacy_vendor_base_rate_dollars_to_cents',
       }),
     })
