@@ -829,6 +829,35 @@ describe('Planner persistence integration', () => {
     expect(db.rows.planner_plan_updates).toHaveLength(0)
   })
 
+  it('does not let generic PATCH change facts covered by an existing authorization', async () => {
+    db.rows.plans.push({
+      id: 'approved-plan',
+      user_id: 'user-1',
+      title: 'Approved mixer',
+      event_type: 'community_mixer',
+      status: 'approved',
+      materialized_event_id: null,
+      guest_count: 40,
+      budget_cap_cents: 100_000,
+      neighborhood: 'Mission',
+      date_window_start: '2026-08-15',
+      date_window_end: '2026-08-15',
+      ticketed: false,
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {},
+    })
+
+    const response = await patchPlan(
+      makeRequest('/api/planner/plans/approved-plan', { date_window_start: '2026-08-22' }, 'PATCH'),
+      { params: { planId: 'approved-plan' } }
+    )
+
+    expect(response.status).toBe(409)
+    expect(db.rows.plans.find((row) => row.id === 'approved-plan')?.date_window_start).toBe('2026-08-15')
+    expect(db.rows.planner_plan_updates).toHaveLength(0)
+  })
+
   it('does not let a confirmed chat change split a materialized plan from its event', async () => {
     db.rows.plans.push({
       id: 'materialized-chat-plan',

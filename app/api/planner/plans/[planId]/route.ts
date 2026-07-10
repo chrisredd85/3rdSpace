@@ -153,10 +153,10 @@ export async function PATCH(
 
     const updates = normalizePlanPatch(parsed.data, existingPlan)
     const changedUpdates = pickChangedFields(existingPlan, updates)
-    if (existingPlan.materialized_event_id && hasCanonicalEventSensitiveChanges(changedUpdates)) {
+    if (arePlanFactsLocked(existingPlan) && hasCanonicalEventSensitiveChanges(changedUpdates)) {
       return NextResponse.json(
         {
-          error: 'This plan already has a canonical event. Create a revision and re-authorize it before changing event facts.',
+          error: 'This plan has already been approved or materialized. Create a revision and re-authorize it before changing event facts.',
           details: { code: 'canonical_event_revision_required' },
         },
         { status: 409 }
@@ -583,6 +583,7 @@ function pickChangedFields(plan: Plan, updates: Record<string, unknown>) {
 
 function hasCanonicalEventSensitiveChanges(updates: Record<string, unknown>): boolean {
   const eventSensitiveFields = new Set([
+    'title',
     'event_type',
     'guest_count',
     'neighborhood',
@@ -595,8 +596,13 @@ function hasCanonicalEventSensitiveChanges(updates: Record<string, unknown>): bo
     'venue_terms',
     'agent_action',
     'profit_goal_cents',
+    'notes',
   ])
   return Object.keys(updates).some((field) => eventSensitiveFields.has(field))
+}
+
+function arePlanFactsLocked(plan: Plan): boolean {
+  return Boolean(plan.materialized_event_id) || !['drafting', 'ready'].includes(plan.status)
 }
 
 async function insertPlanUpdateRows(db: PlannerDb, plan: Plan, updates: Record<string, unknown>) {

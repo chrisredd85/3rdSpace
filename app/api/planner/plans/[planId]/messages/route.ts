@@ -254,10 +254,10 @@ export async function POST(
       body.data.message,
       buildPlanUpdates(intent, existingPlan, body.data.message)
     )
-    if (existingPlan.materialized_event_id && hasCanonicalEventSensitiveChanges(fieldUpdates)) {
+    if (arePlanFactsLocked(existingPlan) && hasCanonicalEventSensitiveChanges(fieldUpdates)) {
       return NextResponse.json(
         {
-          error: 'This plan already has a canonical event. Create a revision and re-authorize it before changing event facts.',
+          error: 'This plan has already been approved or materialized. Create a revision and re-authorize it before changing event facts.',
           details: { code: 'canonical_event_revision_required' },
         },
         { status: 409 }
@@ -917,8 +917,8 @@ async function updatePlanIfNeeded(
     Object.entries(updates).filter(([field, value]) => currentPlan[field as keyof Plan] !== value)
   )
   if (Object.keys(changedUpdates).length === 0) return currentPlan
-  if (currentPlan.materialized_event_id && hasCanonicalEventSensitiveChanges(changedUpdates)) {
-    console.warn('[planner.identity] Ignoring agent-proposed changes to an already materialized event')
+  if (arePlanFactsLocked(currentPlan) && hasCanonicalEventSensitiveChanges(changedUpdates)) {
+    console.warn('[planner.identity] Ignoring agent-proposed changes to locked approved or materialized plan facts')
     return currentPlan
   }
 
@@ -942,6 +942,7 @@ async function updatePlanIfNeeded(
 
 function hasCanonicalEventSensitiveChanges(updates: Record<string, unknown>): boolean {
   const eventSensitiveFields = new Set([
+    'title',
     'event_type',
     'guest_count',
     'neighborhood',
@@ -954,8 +955,13 @@ function hasCanonicalEventSensitiveChanges(updates: Record<string, unknown>): bo
     'venue_terms',
     'agent_action',
     'profit_goal_cents',
+    'notes',
   ])
   return Object.keys(updates).some((field) => eventSensitiveFields.has(field))
+}
+
+function arePlanFactsLocked(plan: Plan): boolean {
+  return Boolean(plan.materialized_event_id) || !['drafting', 'ready'].includes(plan.status)
 }
 
 function buildIntakeAgentDraft(
