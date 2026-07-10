@@ -5,6 +5,9 @@ DECLARE
   migration_present BOOLEAN;
   rls_enabled BOOLEAN;
   policy_count INTEGER;
+  missing_policies TEXT[];
+  unexpected_policies TEXT[];
+  missing_indexes TEXT[];
 BEGIN
   SELECT EXISTS (
     SELECT 1
@@ -35,8 +38,60 @@ BEGIN
   FROM pg_policies
   WHERE schemaname = 'public' AND tablename = 'plan_supply_intents';
 
-  IF policy_count < 5 THEN
-    RAISE EXCEPTION 'Expected at least 5 policies on plan_supply_intents, found %', policy_count;
+  SELECT array_agg(required.policy_name ORDER BY required.policy_name)
+  INTO missing_policies
+  FROM unnest(ARRAY[
+    'Plan owners can read supply intents',
+    'Plan owners can create supply intents',
+    'Plan owners can update supply intents',
+    'Plan owners can delete supply intents',
+    'Service role can manage supply intents'
+  ]) required(policy_name)
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM pg_policies p
+    WHERE p.schemaname = 'public'
+      AND p.tablename = 'plan_supply_intents'
+      AND p.policyname = required.policy_name
+  );
+
+  SELECT array_agg(p.policyname ORDER BY p.policyname)
+  INTO unexpected_policies
+  FROM pg_policies p
+  WHERE p.schemaname = 'public'
+    AND p.tablename = 'plan_supply_intents'
+    AND p.policyname <> ALL (ARRAY[
+      'Plan owners can read supply intents',
+      'Plan owners can create supply intents',
+      'Plan owners can update supply intents',
+      'Plan owners can delete supply intents',
+      'Service role can manage supply intents'
+    ]);
+
+  IF policy_count <> 5 OR missing_policies IS NOT NULL OR unexpected_policies IS NOT NULL THEN
+    RAISE EXCEPTION
+      'Supply-intent policy mismatch: count=%, missing=%, unexpected=%',
+      policy_count,
+      COALESCE(missing_policies, '{}'::TEXT[]),
+      COALESCE(unexpected_policies, '{}'::TEXT[]);
+  END IF;
+
+  SELECT array_agg(required.index_name ORDER BY required.index_name)
+  INTO missing_indexes
+  FROM unnest(ARRAY[
+    'idx_plan_supply_intents_unique_active',
+    'idx_plan_supply_intents_plan'
+  ]) required(index_name)
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM pg_indexes i
+    WHERE i.schemaname = 'public'
+      AND i.tablename = 'plan_supply_intents'
+      AND i.indexname = required.index_name
+  );
+
+  IF missing_indexes IS NOT NULL THEN
+    RAISE EXCEPTION 'Missing required plan_supply_intents indexes: %', missing_indexes;
   END IF;
 END
 $$;

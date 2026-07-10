@@ -55,8 +55,9 @@ npm ci
 ```
 
 The preflight fails unless the checked-out SHA matches production, migration
-files are unmodified, and `20260701090000` is the exact and only hosted-ledger
-gap. Its final `supabase db push --dry-run` must list only
+files exactly match that commit (including staged and untracked files), and
+`20260701090000` is the exact and only hosted-ledger gap. Its final
+`supabase db push --dry-run` must list only
 `20260701090000_add_plan_supply_intents.sql`.
 
 ## Apply: operator-owned mutation
@@ -64,13 +65,16 @@ gap. Its final `supabase db push --dry-run` must list only
 After reviewing the dry-run output:
 
 ```bash
+./scripts/release/preflight-hosted-migration.sh 20260701090000
 supabase db push \
   --linked \
   --password "$SUPABASE_DB_PASSWORD"
 ```
 
 Do not use `--include-all` for this incident. The preflight must be rerun if the
-deployed SHA or ledger changes before apply.
+deployed SHA or ledger changes before apply. Run it again immediately before
+the mutating command, as shown above; do not apply from a shell whose checkout
+changed after preflight.
 
 ## Post-apply verification
 
@@ -97,3 +101,11 @@ once and verify:
    integrity/constraint error rather than waiting for a count threshold.
 
 Do not deliberately violate the production constraint to test the alert.
+
+## Required repository gate
+
+The realized database workflow must run for pull requests, merge queues, and
+pushes to `main`. Configure branch protection/rulesets to require the
+`RLS Checks / rls` check before merge. Workflow coverage is committed in the
+repository; making the check required is an operator-owned GitHub setting and
+must be verified separately before this gate is considered enforced.

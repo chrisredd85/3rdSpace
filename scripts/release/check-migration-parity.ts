@@ -43,10 +43,25 @@ export function parseSupabaseMigrationList(output: string): MigrationList {
   const remoteVersions = new Set<string>()
 
   for (const line of output.split(/\r?\n/)) {
-    const match = line.match(/^\s*(?:([0-9]{14}))?\s*\|\s*(?:([0-9]{14}))?\s*\|/)
-    if (!match) continue
-    if (match[1]) localVersions.add(match[1])
-    if (match[2]) remoteVersions.add(match[2])
+    if (!line.includes('|')) continue
+    const cells = line.split('|').map((cell) => cell.trim())
+    if (cells.length < 3) {
+      throw new Error(`Malformed migration ledger row: ${line.trim()}`)
+    }
+
+    const [localVersion, remoteVersion] = cells
+    if (localVersion === 'Local' && remoteVersion === 'Remote') continue
+    if (/^-+$/.test(localVersion) && /^-+$/.test(remoteVersion)) continue
+    if (!localVersion && !remoteVersion) continue
+
+    for (const [label, version] of [['local', localVersion], ['remote', remoteVersion]] as const) {
+      if (version && !/^[0-9]{14}$/.test(version)) {
+        throw new Error(`Invalid ${label} migration version in ledger: ${version}`)
+      }
+    }
+
+    if (localVersion) localVersions.add(localVersion)
+    if (remoteVersion) remoteVersions.add(remoteVersion)
   }
 
   if (localVersions.size === 0 && remoteVersions.size === 0) {

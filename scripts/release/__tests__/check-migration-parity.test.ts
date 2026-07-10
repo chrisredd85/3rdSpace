@@ -19,6 +19,22 @@ describe('hosted migration parity checker', () => {
     })
   })
 
+  it('fails closed when a table-shaped row contains an invalid version', () => {
+    expect(() => parseSupabaseMigrationList(`
+      Local          | Remote         | Time (UTC)
+      ----------------|----------------|---------------------
+      20260701090000 | 20260701090000 | 2026-07-01 09:00:00
+                     | legacy_remote  | unknown
+    `)).toThrow('Invalid remote migration version in ledger: legacy_remote')
+  })
+
+  it('fails closed on a malformed ledger row after a valid row', () => {
+    expect(() => parseSupabaseMigrationList(`
+      20260701090000 | 20260701090000 | 2026-07-01 09:00:00
+      20260702000000 | 20260702000000
+    `)).toThrow('Malformed migration ledger row')
+  })
+
   it('fails on any unapproved code/schema drift', () => {
     const parity = compareMigrationParity(
       ['20260627000000', '20260701090000'],
