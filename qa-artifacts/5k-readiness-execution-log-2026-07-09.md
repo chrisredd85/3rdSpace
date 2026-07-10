@@ -30,7 +30,8 @@ and the attached 18-prompt wave plan.
 | 5 | Server-owned trusted execution state | Implemented locally | Commits `6817724`, `d0fe38a`; realized RLS/privilege/control-plane gate passed |
 | 6 | Separate editing, authorization, and retry | Implemented locally | Commits `94219d1`, `1386175`, `c4fb65e`; combined 220-test gate and full 1,446-test Jest suite passed |
 | 7 | Canonical plan to event identity | Implemented locally | Commits `bdfd345`, `924ac53`, `94ee189`, `b8a03db`, `b75ee19`, `9fcfce9`, `3574f50`; clean reset, realized lifecycle/provenance/compatibility gates passed; Prompt 8 is not started |
-| 8–18 | Later dependency waves | Pending | Out of scope for the current run |
+| 8 | Three execution modes | Implemented and locally verified | Mode commits through `74ec9b5`; clean reset, realized lifecycle, focused/security, full Jest, lint, type-check, and optimized build gates passed |
+| 9–18 | Later dependency waves | Pending | Prompt 9 has not started |
 
 ## Prompt 1 verification
 
@@ -234,3 +235,35 @@ billing policy can be called enforceable.
   existing environment guard.
 - No hosted Supabase, Vercel, GitHub, Stripe, webhook, or production state was
   changed. Prompt 8 and the separate duplicate-purchase work were not touched.
+
+## Prompt 8 verification
+
+- Integrated mode commits now cover canonical event outcomes, analytics and
+  template eligibility, external checkout handoff/host confirmation, controlled
+  payment proposal creation, post-approval concierge tasks and vendor drafts,
+  operator completion/cancellation, and trusted quote-to-booking execution.
+- Commit `74ec9b5` adds centralized cross-mode retryability, authenticated and
+  race-safe execution cancellation, current-evidence precedence,
+  compare-and-swap status writes, desktop/mobile controls, canonical mobile
+  completion, generated database types, and the realized three-mode lifecycle
+  suite.
+- Opportunity preparation is deliberately not offered a generic retry because
+  its multi-write steps do not yet have durable per-step identities. This avoids
+  advertising an unsafe command that could duplicate preparation work.
+- A clean local reset applied all migrations through `20260709165000`; generated
+  types were refreshed from the realized schema. Database lint passed with no
+  errors and only the three established older warnings.
+- The opt-in realized lifecycle suite passed 1 suite / 5 tests. The focused
+  Prompt 8 matrix passed 20 suites / 201 tests, with that opt-in suite run
+  separately. The final database security/canonical/approval gate passed 5
+  suites / 195 tests.
+- Full Jest passed 285 suites / 1,667 tests; 9 suites / 230 tests skipped; 5
+  snapshots passed. TypeScript passed. Lint passed with the same 16 existing
+  React hook warnings and none in the Prompt 8 changes.
+- The optimized production build passed using the local Supabase environment
+  with Sentry upload credentials unset. No external service was mutated.
+- Controlled-payment provider execution is intentionally deferred to Prompt 9.
+- Prompt 8 has no remaining local exit gate. Exact scope and handoff evidence
+  are in
+  `qa-artifacts/5k-readiness-prompt8-handoff-2026-07-09.md`.
+- No hosted or production state changed.
