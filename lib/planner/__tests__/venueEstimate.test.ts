@@ -10,6 +10,15 @@ describe('venue recommendation estimate', () => {
     ).toBe(150_000)
   })
 
+  it('reads a signup nightly rate without requiring hourly or daily duplicates', () => {
+    expect(
+      estimateVenueRecommendationPriceCents({
+        pricing_model: 'flat_rate',
+        price_per_night_cents: 9550,
+      })
+    ).toBe(9550)
+  })
+
   it('returns negative organizer payout cents for per-head CHI', () => {
     expect(
       estimateVenueRecommendationPriceCents(

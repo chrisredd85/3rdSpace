@@ -532,6 +532,9 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
         archetype_intake: expect.objectContaining({
           answer_text: expect.stringContaining('two hour load-in'),
         }),
+        budget_summary: expect.objectContaining({
+          profit_margin: 28.5714,
+        }),
       }),
     }))
     expect(db.rows.recommendations).toEqual(expect.arrayContaining([

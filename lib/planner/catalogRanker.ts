@@ -668,6 +668,12 @@ function estimateVenueCents(row: Record<string, unknown>): number {
   )
   if (dailyRate !== null && dailyRate > 0) return Math.round(dailyRate)
 
+  const nightlyRate = readCents(
+    row.price_per_night_cents as number | string | null | undefined,
+    row.price_per_night as number | string | null | undefined
+  )
+  if (nightlyRate !== null && nightlyRate > 0) return Math.round(nightlyRate)
+
   return 0
 }
 
@@ -1021,6 +1027,10 @@ function inferVenueTerms(row: Record<string, unknown>): string[] {
     readCents(
       row.hourly_rate_cents as number | string | null | undefined,
       row.hourly_rate as number | string | null | undefined
+    ) !== null ||
+    readCents(
+      row.price_per_night_cents as number | string | null | undefined,
+      row.price_per_night as number | string | null | undefined
     ) !== null
   ) {
     terms.add('flat_rental')

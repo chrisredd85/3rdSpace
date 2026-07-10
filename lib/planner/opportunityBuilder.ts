@@ -33,6 +33,9 @@ interface OpportunityVenueRow {
   standing_capacity?: number | null
   seated_capacity?: number | null
   hourly_rate?: number | null
+  hourly_rate_cents?: number | null
+  daily_rate_cents?: number | null
+  price_per_night_cents?: number | null
   minimum_hours?: number | null
   deposit_amount?: number | null
   deposit_percentage?: number | null
@@ -92,6 +95,9 @@ const VENUE_OPPORTUNITY_SELECT = `
   standing_capacity,
   seated_capacity,
   hourly_rate,
+  hourly_rate_cents,
+  daily_rate_cents,
+  price_per_night_cents,
   minimum_hours,
   deposit_amount,
   deposit_percentage,
@@ -626,11 +632,14 @@ function readCapacity(venue: OpportunityVenueRow) {
 }
 
 function estimateVenuePriceCents(venue: OpportunityVenueRow, guestCount: number) {
-  const hourlyRate = toIntegerCents(venue.hourly_rate)
+  const hourlyRate = toCanonicalIntegerCents(venue.hourly_rate_cents) ?? toIntegerCents(venue.hourly_rate)
   const minimumHours = Math.max(venue.minimum_hours ?? 4, 4)
   const rental = hourlyRate ? hourlyRate * minimumHours : null
+  const flatRate = toCanonicalIntegerCents(venue.daily_rate_cents) ??
+    toCanonicalIntegerCents(venue.price_per_night_cents)
   const perGuestFloor = guestCount > 0 ? guestCount * 3500 : 0
-  return rental ? Math.max(rental, perGuestFloor) : perGuestFloor || null
+  const venueRate = rental ?? flatRate
+  return venueRate ? Math.max(venueRate, perGuestFloor) : perGuestFloor || null
 }
 
 function estimateVendorPriceCents(vendor: OpportunityVendorRow, guestCount: number) {
@@ -643,6 +652,11 @@ function estimateVendorPriceCents(vendor: OpportunityVendorRow, guestCount: numb
 function toIntegerCents(value: number | null | undefined) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
   return value > 1000 ? Math.round(value) : Math.round(value * 100)
+}
+
+function toCanonicalIntegerCents(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
+  return Math.round(value)
 }
 
 function fitsBudget(estimatedPriceCents: number | null, budgetCents: number | null, allocation: number) {

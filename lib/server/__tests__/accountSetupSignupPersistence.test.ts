@@ -1,4 +1,8 @@
-import { ensureBuilderProfile, ensureVendorProfile } from '@/lib/server/account-setup'
+import {
+  buildVenueNightlyRateFields,
+  ensureBuilderProfile,
+  ensureVendorProfile,
+} from '@/lib/server/account-setup'
 
 describe('account setup signup persistence', () => {
   it('persists creator organizer context with optional ticketing setup', async () => {
@@ -100,7 +104,7 @@ describe('account setup signup persistence', () => {
       serviceType: 'dj',
       servicesOffered: ['DJ', 'Photographer'],
       availabilityNotes: 'Available Fridays.',
-      basePrice: 1200,
+      basePrice: 95.5,
       packageName: 'DJ + photo starter',
       packageDetails: 'Four hours of DJ coverage, arrival photos, and basic lighting.',
     })
@@ -111,6 +115,7 @@ describe('account setup signup persistence', () => {
         payload: expect.objectContaining({
           service_type: 'dj',
           services_offered: ['DJ', 'Photographer'],
+          base_rate: 9550,
         }),
       },
       {
@@ -119,11 +124,21 @@ describe('account setup signup persistence', () => {
           vendor_id: 'vendor-1',
           package_name: 'DJ + photo starter',
           description: 'Four hours of DJ coverage, arrival photos, and basic lighting.',
-          price: 1200,
+          price: 95.5,
           inclusions: ['Four hours of DJ coverage', 'arrival photos', 'and basic lighting.'],
           display_order: 0,
         }),
       },
     ])
+  })
+
+  it('persists the venue nightly input once in integer cents', () => {
+    const fields = buildVenueNightlyRateFields(95.5)
+
+    expect(fields).toEqual({
+      price_per_night_cents: 9550,
+    })
+    expect(fields).not.toHaveProperty('hourly_rate_cents')
+    expect(fields).not.toHaveProperty('daily_rate_cents')
   })
 })

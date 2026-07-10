@@ -82,6 +82,30 @@ describe('rankCatalogPartners', () => {
     }))
   })
 
+  it('ranks a signup venue from its single nightly cents field', () => {
+    const result = rankCatalogPartners({
+      plan,
+      venues: [
+        {
+          ...baseVenue,
+          id: 'venue-nightly-rate',
+          venue_name: 'Mission Nightly Room',
+          city: 'Mission',
+          standing_capacity: 80,
+          pricing_model: 'flat_rate',
+          price_per_night_cents: 9550,
+          unique_features_tags: ['AV', 'rooftop'],
+        },
+      ],
+      vendors: [],
+    })
+
+    expect(result.recommendations[0]).toEqual(expect.objectContaining({
+      partner_id: 'venue-nightly-rate',
+      estimate_cents: 9550,
+    }))
+  })
+
   it('scores known-capacity venues above otherwise similar unknown-capacity venues', () => {
     const result = rankCatalogPartners({
       plan,

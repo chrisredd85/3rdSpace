@@ -27,7 +27,7 @@ export const workspaceVendorBookingRowSchema = z.object({
 export const workspaceBudgetSummarySchema = z.object({
   event_id: z.string().trim().min(1),
   expected_profit: nullableNumberSchema,
-  profit_margin: nullableNumberSchema,
+  profit_margin: nullableNumberSchema.describe('Profit margin in percentage points, not a 0-1 ratio.'),
   break_even_tickets: nullableNumberSchema,
   net_revenue: nullableNumberSchema,
   total_costs: nullableNumberSchema,

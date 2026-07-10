@@ -11,6 +11,7 @@
     "worker:jobs:once": "node scripts/run-job-worker.mjs --once",
     "seed:catalog": "npx tsx scripts/seed-catalog.ts",
     "seed:archetypes": "npx tsx scripts/seed-archetypes.ts",
+    "repair:vendor-base-rate": "npx tsx scripts/admin/repair-vendor-base-rate-units.ts",
     "db:types": "supabase gen types typescript --local > lib/types/database-generated.ts",
     "db:audit": "psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -v ON_ERROR_STOP=1 -f scripts/schema-audit.sql",
     "security:rls": "npx tsx scripts/security/check-rls.ts",

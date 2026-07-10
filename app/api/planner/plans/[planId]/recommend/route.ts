@@ -88,7 +88,7 @@ import {
   type DiscoveryVendorRow,
   type VendorServiceType,
 } from '@/lib/server/places-vendor-search'
-import { readCents } from '@/lib/money'
+import { marginRatioToPercent, readCents } from '@/lib/money'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlanMessage, PlannerApiErrorResponse, Recommendation } from '@/lib/types'
 import {
@@ -2091,7 +2091,7 @@ function buildWorkspaceBudgetSummary(
     expected_profit: projection.net_profit_cents,
     profit_margin:
       projection.gross_revenue_cents > 0
-        ? projection.net_profit_cents / projection.gross_revenue_cents
+        ? marginRatioToPercent(projection.net_profit_cents / projection.gross_revenue_cents)
         : null,
     break_even_tickets: projection.break_even_tickets,
     net_revenue: projection.gross_revenue_cents,

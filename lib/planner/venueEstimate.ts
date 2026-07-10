@@ -75,6 +75,12 @@ export function estimateVenueRecommendationPriceCents(
   )
   if (dailyRate !== null && dailyRate > 0) return dailyRate
 
+  const nightlyRate = readCents(
+    readFirst(venue, ['price_per_night_cents']) as number | string | null | undefined,
+    readFirst(venue, ['price_per_night']) as number | string | null | undefined
+  )
+  if (nightlyRate !== null && nightlyRate > 0) return nightlyRate
+
   return null
 }
 

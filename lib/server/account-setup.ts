@@ -1,5 +1,5 @@
 import { SERVICE_TYPE_LABELS, VENUE_AMENITY_LABEL_BY_ID, type TicketPlatform } from '@/lib/constants/account-setup'
-import { dollarsToCents } from '@/lib/money'
+import { dollarsToCents, type VenueNightlyRateCents } from '@/lib/money'
 import { normalizeBuilderAmenityPreferences, normalizeBuilderEventTypes } from '@/lib/server/builderPreferences'
 import type { ServiceType, UserType, VenueType } from '@/lib/types'
 
@@ -104,6 +104,14 @@ function toPositiveNumberOrNull(value: number | null | undefined) {
 function toIntegerCentsOrNull(value: number | null | undefined) {
   const positiveValue = toPositiveNumberOrNull(value)
   return positiveValue === null ? null : dollarsToCents(positiveValue)
+}
+
+export function buildVenueNightlyRateFields(pricePerNight: number | null | undefined): {
+  price_per_night_cents: VenueNightlyRateCents | null
+} {
+  return {
+    price_per_night_cents: toIntegerCentsOrNull(pricePerNight) as VenueNightlyRateCents | null,
+  }
 }
 
 function toPositivePercentageOrNull(value: number | null | undefined) {
@@ -331,7 +339,7 @@ export async function ensureOwnerProfile(admin: SupabaseLikeClient, input: Venue
 export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSetupInput) {
   let venueId: string
   const depositAmountCents = toIntegerCentsOrNull(input.deposit)
-  const pricePerNightCents = toIntegerCentsOrNull(input.pricePerNight)
+  const nightlyRateFields = buildVenueNightlyRateFields(input.pricePerNight)
   const supportedCommercialTerms = normalizeVenueCommercialTerms(input.supportedCommercialTerms)
   const supportsMinimumSpend = supportedCommercialTerms.includes('minimum_spend')
   const supportsBarConsumptionChi = supportedCommercialTerms.includes('bar_consumption_chi')
@@ -369,10 +377,7 @@ export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSe
     venue_type: input.venueType,
     standing_capacity: input.capacity,
     seated_capacity: input.capacity,
-    pricing_model: 'hourly',
-    hourly_rate_cents: pricePerNightCents,
-    daily_rate_cents: pricePerNightCents,
-    price_per_night_cents: pricePerNightCents,
+    ...nightlyRateFields,
     bar_revenue_share_enabled: hasBar && supportsBarConsumptionChi,
     ticket_sales_share_enabled: supportsTicketChi,
     offers_kickbacks: hasBar && (supportsBarConsumptionChi || supportsTicketChi || supportsPerAttendeeChi),

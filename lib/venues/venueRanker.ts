@@ -612,6 +612,7 @@ function estimateVenueCents(row: Record<string, unknown>): number {
   return (
     readCents(row.hourly_rate_cents as number | string | null | undefined, row.hourly_rate as number | string | null | undefined) ??
     readCents(row.daily_rate_cents as number | string | null | undefined, row.daily_rate as number | string | null | undefined) ??
+    readCents(row.price_per_night_cents as number | string | null | undefined, row.price_per_night as number | string | null | undefined) ??
     0
   )
 }
