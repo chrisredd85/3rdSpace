@@ -157,11 +157,54 @@ describe('pending approvals planner helpers', () => {
           created_at: '2026-06-24T00:05:00.000Z',
           updated_at: '2026-06-24T00:05:00.000Z',
         },
+        {
+          id: 'approval-executing',
+          plan_id: plan.id,
+          agent_action_id: 'action-executing',
+          action_label: 'Venue hold follow-up',
+          provider: '3rdPlace',
+          status: 'authorized',
+          created_at: '2026-06-24T00:06:00.000Z',
+          updated_at: '2026-06-24T00:06:00.000Z',
+        },
+        {
+          id: 'approval-unsafe-preparation',
+          plan_id: plan.id,
+          agent_action_id: 'action-unsafe-preparation',
+          action_label: 'Prepare venue outreach',
+          provider: '3rdPlace',
+          status: 'authorized',
+          created_at: '2026-06-24T00:07:00.000Z',
+          updated_at: '2026-06-24T00:07:00.000Z',
+        },
       ],
       agent_actions: [
-        { id: 'action-expired', status: 'pending', result_metadata: null, last_retry_result: null },
-        { id: 'action-reapproval', status: 'pending', result_metadata: null, last_retry_result: null },
-        { id: 'action-failed', status: 'failed', result_metadata: { error: 'provider failed' }, last_retry_result: null },
+        { id: 'action-expired', action_type: 'hold_request', payload_json: {}, status: 'pending', result_metadata: null, last_retry_result: null },
+        { id: 'action-reapproval', action_type: 'hold_request', payload_json: {}, status: 'pending', result_metadata: null, last_retry_result: null },
+        { id: 'action-failed', action_type: 'email', payload_json: { kind: 'gmail_approved_outreach' }, status: 'failed', result_metadata: { error: 'provider failed' }, last_retry_result: null },
+        {
+          id: 'action-executing',
+          action_type: 'hold_request',
+          payload_json: {},
+          status: 'executing',
+          result_metadata: {
+            execution_mode: 'concierge_admin_queue',
+            admin_task_id: 'task-1',
+          },
+          last_retry_result: {
+            execution_mode: 'concierge_admin_queue',
+            handoff_status: 'retry_claimed',
+            admin_task_id: 'task-1',
+          },
+        },
+        {
+          id: 'action-unsafe-preparation',
+          action_type: 'opportunity_send_venues',
+          payload_json: { venue_ids: ['venue-1'] },
+          status: 'failed',
+          result_metadata: { error: 'partial preparation failed' },
+          last_retry_result: null,
+        },
       ],
     })
 
@@ -176,6 +219,7 @@ describe('pending approvals planner helpers', () => {
       'approval-expired',
       'approval-reapproval',
       'approval-failed',
+      'approval-executing',
     ])
     expect(approvals.map((approval) => [approval.id, approval.ui_status, approval.available_actions])).toEqual([
       ['approval-earlier', 'pending', ['edit', 'authorize', 'cancel']],
@@ -183,7 +227,13 @@ describe('pending approvals planner helpers', () => {
       ['approval-expired', 'expired', ['request_reapproval']],
       ['approval-reapproval', 'reapproval_required', ['request_reapproval']],
       ['approval-failed', 'failed', ['retry']],
+      ['approval-executing', 'executing', ['cancel_execution']],
     ])
+    expect(approvals.find((approval) => approval.id === 'approval-executing')?.action_result).toEqual({
+      execution_mode: 'concierge_admin_queue',
+      admin_task_id: 'task-1',
+    })
+    expect(approvals.find((approval) => approval.id === 'approval-unsafe-preparation')).toBeUndefined()
     expect(withPlan[0]?.plan?.title).toBe('Oakland happy hour')
   })
 })

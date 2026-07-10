@@ -1,4 +1,5 @@
 import {
+  cancelExternalCheckoutHandoff,
   completeExternalCheckoutHandoff,
   executeExternalCheckoutHandoff,
   normalizeExternalCheckoutUrl,
@@ -93,6 +94,46 @@ describe('external checkout execution handler', () => {
       confirmation_source: 'host',
       completed_at: '2026-07-09T20:05:00.000Z',
     }))
+  })
+
+  it('cancels through the service command and never completes cancelled evidence', async () => {
+    const cancelledMetadata = {
+      execution_mode: 'external_checkout',
+      external_checkout: {
+        status: 'cancelled',
+        external_url: 'https://tickets.example/checkout',
+        approval_id: APPROVAL_ID,
+        snapshot_hash: SNAPSHOT_HASH,
+        unlocked_at: '2026-07-09T20:00:00.000Z',
+        completion_confirmation_required: false,
+        cancelled_at: '2026-07-09T20:02:00.000Z',
+        cancelled_by: USER_ID,
+        cancellation_reason: 'Host changed plans.',
+      },
+    }
+    const rpc = jest.fn().mockResolvedValue({
+      data: { result_metadata: cancelledMetadata },
+      error: null,
+    })
+    const result = await cancelExternalCheckoutHandoff({
+      db: { from: jest.fn(), rpc },
+      action: makeAction(),
+      approval: makeApproval(),
+      plan: { id: PLAN_ID, user_id: USER_ID },
+      actorId: USER_ID,
+      idempotencyKey: 'external-cancel-test-1',
+      reason: 'Host changed plans.',
+    })
+
+    expect(result).toEqual({ cancelled: true, metadata: cancelledMetadata })
+    expect(rpc).toHaveBeenCalledWith('cancel_external_checkout_handoff', expect.objectContaining({
+      p_expected_snapshot_hash: SNAPSHOT_HASH,
+      p_idempotency_key: 'external-cancel-test-1',
+    }))
+    expect(() => completeExternalCheckoutHandoff({
+      resultMetadata: cancelledMetadata,
+      confirmedBy: USER_ID,
+    })).toThrow(/not ready/i)
   })
 })
 

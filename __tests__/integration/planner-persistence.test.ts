@@ -920,6 +920,7 @@ describe('Planner persistence integration', () => {
       id: 'failed-action',
       plan_id: 'failed-plan',
       action_type: 'email',
+      payload_json: { kind: 'gmail_approved_outreach' },
       status: 'failed',
       result_metadata: { error: 'Gmail unavailable' },
       last_retry_result: null,

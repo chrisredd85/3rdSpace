@@ -244,6 +244,55 @@ export async function executeOpportunityConciergeHandoff(
 }
 
 /**
+ * Queues a payload-tagged concierge action that has no narrower handler. This
+ * is also the safe fallback for an approved canonical quote whose discovery
+ * partner has not been claimed yet, so no legacy booking row can be created.
+ */
+export async function executeGenericConciergeHandoff(
+  input: ConciergeExecutionInput,
+  options: {
+    description?: string
+    hostMessage?: string
+    metadata?: Record<string, unknown>
+  } = {}
+): Promise<ConciergeExecutionResult> {
+  assertCommonExecutionIdentity(input)
+  const payload = readRecord(input.action.payload_json)
+  const provider = readString(input.action.provider) ??
+    readString(payload?.target_name) ??
+    readString(payload?.provider) ??
+    'the selected partner'
+  const task = await enqueueApprovedAdminTask(input, {
+    taskType: 'concierge_booking',
+    description: options.description ?? `Complete the approved concierge handoff with ${provider}.`,
+    priority: 'high',
+    metadata: {
+      target_type: input.action.target_type,
+      target_id: input.action.target_id,
+      provider,
+      approved_snapshot_hash: input.approval.snapshot_hash,
+      action_kind: readString(payload?.kind),
+      ...(options.metadata ?? {}),
+    },
+    hostMessage: options.hostMessage ??
+      `3rdPlace queued the approved request with ${provider} for operator follow-up. ` +
+      'Nothing has been sent, booked, or paid.',
+  })
+
+  return {
+    handled: true,
+    disposition: 'executing',
+    metadata: {
+      execution_mode: 'concierge_admin_queue',
+      handoff_status: 'queued',
+      admin_task_id: task.id,
+      event_id: task.event_id,
+      outbound_message_sent: false,
+    },
+  }
+}
+
+/**
  * Cancels post-authorization operator work by action identity. Approval routes
  * do not need access to the internal task id, and replay remains idempotent in
  * the database command.

@@ -29,9 +29,18 @@ import {
 } from '@/lib/planner/execution/approvalState'
 import {
   executeApprovedAction as dispatchApprovedAction,
+  planApprovedActionCancellation,
+  planApprovedActionRetry,
   type ApprovedActionExecutionKind,
 } from '@/lib/planner/execution/executeApprovedAction'
 import { executeExternalCheckoutHandoff } from '@/lib/planner/execution/externalCheckout'
+import {
+  executeOpportunityConciergeHandoff,
+} from '@/lib/server/concierge-execution'
+import {
+  executeConciergeApprovedAction,
+  requireApprovedHandoffDb,
+} from '@/lib/planner/execution/approvedActionHandoffs'
 import { deriveApprovalUiState } from '@/lib/planner/approvalUiState'
 import {
   APPROVAL_SNAPSHOT_SCHEMA_VERSION,
@@ -761,11 +770,17 @@ async function buildApprovalCommandResponse(
     actionStatus: action?.status ?? null,
     expiresAt: approval.expires_at,
     supersededAt: approval.superseded_at,
+    executionCancellable: action
+      ? planApprovedActionCancellation({ action, approval }) !== 'no_cancellation'
+      : false,
+    executionRetryable: action
+      ? planApprovedActionRetry({ action, approval }).canRetry
+      : false,
   })
   return {
     approval,
     actionStatus: action?.status ?? 'unknown',
-    actionResult: (action?.last_retry_result ?? action?.result_metadata ?? null) as Json | null,
+    actionResult: (action?.result_metadata ?? action?.last_retry_result ?? null) as Json | null,
     confirmationSnapshot: approval.snapshot_json ?? null,
     uiStatus: uiState.status,
     availableActions: [...uiState.availableActions],
@@ -1017,29 +1032,12 @@ async function executeApprovedAction(
           approval: payload.approval,
         }),
       }),
-      prepare_outreach_drafts: async () => runCompletingActionExecutor(readDb, writeDb, {
+      prepare_outreach_drafts: async () => runOutreachPreparationActionExecutor(readDb, writeDb, {
         action,
         planId: payload.planId,
         actorId: payload.actorId,
-        executionKind: 'prepare_outreach_drafts',
-        completionReason: 'approval.outreach_drafts_prepared',
-        execute: async () => {
-          const preparation = await syncOpportunityInviteStatuses(
-            readDb,
-            writeDb,
-            payload.plan,
-            payload.actorId,
-            payload.approval
-          )
-          if (!preparation.prepared) {
-            throw new Error(preparation.reason ?? 'Outreach drafts were not prepared')
-          }
-          return {
-            outbound_message_sent: false,
-            send_requires_explicit_flow: true,
-            ...preparation,
-          }
-        },
+        plan: payload.plan,
+        approval: payload.approval,
       }),
       await_external_checkout: async () => runHandoffActionExecutor(writeDb, {
         action,
@@ -1054,8 +1052,118 @@ async function executeApprovedAction(
           actorId: payload.actorId,
         }),
       }),
+      await_concierge_queue: async () => runHandoffActionExecutor(writeDb, {
+        action,
+        planId: payload.planId,
+        actorId: payload.actorId,
+        executionKind: 'await_concierge_queue',
+        execute: async (executingAction) => executeConciergeApprovedAction({
+          db: requireApprovedHandoffDb(writeDb),
+          action: executingAction,
+          approval: payload.approval,
+          plan: payload.plan,
+          actorId: payload.actorId,
+        }),
+      }),
     },
   })
+}
+
+async function runOutreachPreparationActionExecutor(
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
+  input: {
+    action: AgentAction
+    planId: string
+    actorId: string
+    plan: Plan
+    approval: Approval
+  }
+) {
+  let action = await persistAgentActionTransition(writeDb, {
+    action: input.action,
+    planId: input.planId,
+    actorId: input.actorId,
+    reason: 'approval.execution_started',
+    event: 'execution_started',
+    metadata: {
+      execution_kind: 'prepare_outreach_drafts',
+      outbound_message_sent: false,
+    },
+  })
+
+  try {
+    const preparation = await syncOpportunityInviteStatuses(
+      readDb,
+      writeDb,
+      input.plan,
+      input.actorId,
+      input.approval
+    )
+    if (!preparation.prepared) {
+      throw new Error(preparation.reason ?? 'Outreach drafts were not prepared')
+    }
+
+    const refreshedAction = await loadAgentAction(writeDb, action.id)
+    if (!refreshedAction) throw new Error('Prepared outreach action could not be reloaded')
+    const concierge = await executeOpportunityConciergeHandoff({
+      db: requireApprovedHandoffDb(writeDb),
+      action: refreshedAction,
+      approval: input.approval,
+      plan: input.plan,
+      actorId: input.actorId,
+    })
+    const preparationMetadata = {
+      outbound_message_sent: false,
+      send_requires_explicit_flow: true,
+      ...preparation,
+    }
+
+    if (concierge.handled) {
+      const resultMetadata = {
+        ...(readRecord(refreshedAction.result_metadata) ?? {}),
+        execution_kind: 'prepare_outreach_drafts',
+        ...preparationMetadata,
+        ...concierge.metadata,
+      } as Json
+      const { data, error } = await writeDb
+        .from('agent_actions')
+        .update({ result_metadata: resultMetadata })
+        .eq('id', action.id)
+        .eq('plan_id', input.planId)
+        .eq('status', 'executing')
+        .select(AGENT_ACTION_STATUS_SELECT_COLUMNS)
+        .maybeSingle()
+      if (error || !data) throw new Error(error?.message ?? 'Concierge handoff metadata was not persisted')
+      return { ...preparationMetadata, ...concierge.metadata }
+    }
+
+    action = await persistAgentActionTransition(writeDb, {
+      action,
+      planId: input.planId,
+      actorId: input.actorId,
+      reason: 'approval.outreach_drafts_prepared',
+      event: 'execution_completed',
+      metadata: {
+        execution_kind: 'prepare_outreach_drafts',
+        ...preparationMetadata,
+      },
+    })
+    return preparationMetadata
+  } catch (error) {
+    await persistAgentActionTransition(writeDb, {
+      action,
+      planId: input.planId,
+      actorId: input.actorId,
+      reason: 'approval.execution_failed',
+      event: 'execution_failed',
+      metadata: {
+        execution_kind: 'prepare_outreach_drafts',
+        error: error instanceof Error ? error.message : 'Unknown execution error',
+      },
+    })
+    throw error
+  }
 }
 
 async function runHandoffActionExecutor(
@@ -1102,6 +1210,28 @@ async function runHandoffActionExecutor(
           ...(readRecord(result.metadata) ?? {}),
         },
       })
+    } else {
+      // `waiting` and `executing` are durable host-visible outcomes too. Some
+      // handlers persist their own aggregate atomically, while others (notably
+      // a quote waiting for event materialization) only return evidence here.
+      // Merge that evidence under a status CAS so cancellation/completion wins
+      // any race instead of being overwritten by this request.
+      const resultMetadata = {
+        ...(readRecord(action.result_metadata) ?? {}),
+        execution_kind: input.executionKind,
+        ...(readRecord(result.metadata) ?? {}),
+      } as Json
+      const { data, error } = await writeDb
+        .from('agent_actions')
+        .update({ result_metadata: resultMetadata })
+        .eq('id', action.id)
+        .eq('plan_id', input.planId)
+        .eq('status', 'executing')
+        .select(AGENT_ACTION_STATUS_SELECT_COLUMNS)
+        .maybeSingle()
+      if (error || !data) {
+        throw new Error(error?.message ?? 'Approved handoff evidence could not be persisted')
+      }
     }
     return result
   } catch (error) {
@@ -1268,6 +1398,8 @@ async function persistAgentActionTransition(
     .from('agent_actions')
     .update(updates)
     .eq('id', input.action.id)
+    .eq('plan_id', input.planId)
+    .eq('status', transition.from)
     .select(AGENT_ACTION_STATUS_SELECT_COLUMNS)
     .single()
 

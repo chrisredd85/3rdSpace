@@ -75,6 +75,9 @@ class MemoryDb {
     venue_stripe_accounts: [],
     vendor_profiles: [],
     vendor_stripe_accounts: [],
+    admin_tasks: [],
+    outreach_threads: [],
+    outreach_messages: [],
     builder_profiles: [],
     builder_event_usage: [],
     builder_event_access_consumptions: [],
@@ -95,11 +98,119 @@ class MemoryDb {
       ? this.rpcQueue.then(() => this.consumeBuilderEventAccess(params))
       : name === 'supersede_approval_version'
         ? Promise.resolve(this.supersedeApprovalVersion(params))
+        : name === 'enqueue_approved_admin_task'
+          ? Promise.resolve(this.enqueueApprovedAdminTask(params))
+          : name === 'prepare_approved_vendor_contact_draft'
+            ? Promise.resolve(this.prepareVendorContactDraft(params))
         : Promise.resolve({ data: null, error: { message: `Unknown RPC ${name}` } })
     if (name === 'consume_builder_event_access') {
       this.rpcQueue = result.then(() => undefined, () => undefined)
     }
     return Object.assign(result, { maybeSingle: () => result })
+  }
+
+  private enqueueApprovedAdminTask(params: Record<string, unknown>) {
+    const actionId = String(params.p_action_id)
+    const existing = this.rows.admin_tasks.find((row) => row.agent_action_id === actionId)
+    if (existing) return { data: existing, error: null }
+    const action = this.rows.agent_actions.find((row) => row.id === actionId)
+    const plan = this.rows.plans.find((row) => row.id === params.p_plan_id)
+    if (!action || !plan) return { data: null, error: { message: 'concierge identity missing' } }
+    const task = {
+      id: this.nextId('admin_tasks'),
+      plan_id: params.p_plan_id,
+      agent_action_id: actionId,
+      approval_id: params.p_approval_id,
+      event_id: plan.materialized_event_id ?? null,
+      task_type: params.p_task_type,
+      description: params.p_description,
+      status: 'open',
+      priority: params.p_priority,
+      metadata: params.p_metadata,
+      outcome_payload: {},
+    }
+    this.rows.admin_tasks.push(task)
+    action.result_metadata = {
+      ...(action.result_metadata as Row ?? {}),
+      execution_mode: 'concierge_admin_queue',
+      handoff_status: 'queued',
+      admin_task_id: task.id,
+      outbound_message_sent: false,
+    }
+    this.rows.plan_messages.push({
+      id: this.nextId('plan_messages'),
+      plan_id: params.p_plan_id,
+      role: 'agent',
+      content: params.p_host_message,
+      message_type: 'status_update',
+      metadata: {
+        state: 'concierge_task_queued',
+        agent_action_id: actionId,
+        approval_id: params.p_approval_id,
+      },
+    })
+    return { data: task, error: null }
+  }
+
+  private prepareVendorContactDraft(params: Record<string, unknown>) {
+    const actionId = String(params.p_action_id)
+    const existing = this.rows.outreach_messages.find((row) => row.agent_action_id === actionId)
+    if (existing) {
+      return {
+        data: {
+          disposition: 'complete',
+          outreach_thread_id: existing.thread_id,
+          outreach_message_id: existing.id,
+          outbound_message_sent: false,
+        },
+        error: null,
+      }
+    }
+    const action = this.rows.agent_actions.find((row) => row.id === actionId)
+    const vendor = this.rows.vendor_profiles.find((row) => row.id === action?.target_id)
+    if (!action || !vendor?.contact_email) {
+      return { data: null, error: { message: 'vendor_contact_email_missing' } }
+    }
+    const thread = {
+      id: this.nextId('outreach_threads'),
+      plan_id: params.p_plan_id,
+      target_type: 'vendor',
+      target_id: vendor.id,
+      state: 'draft',
+    }
+    const message = {
+      id: this.nextId('outreach_messages'),
+      thread_id: thread.id,
+      agent_action_id: actionId,
+      approval_id: params.p_approval_id,
+      direction: 'outbound',
+      body_text: 'Draft only',
+      delivery_status: null,
+      provider_metadata_json: {
+        approval_required_for_send: true,
+        outbound_message_sent: false,
+      },
+    }
+    this.rows.outreach_threads.push(thread)
+    this.rows.outreach_messages.push(message)
+    action.result_metadata = {
+      ...(action.result_metadata as Row ?? {}),
+      execution_mode: 'concierge_admin_queue',
+      handoff_status: 'draft_ready',
+      outreach_thread_id: thread.id,
+      outreach_message_id: message.id,
+      outbound_message_sent: false,
+      send_requires_separate_approval: true,
+    }
+    return {
+      data: {
+        disposition: 'complete',
+        outreach_thread_id: thread.id,
+        outreach_message_id: message.id,
+        outbound_message_sent: false,
+      },
+      error: null,
+    }
   }
 
   nextId(table: string) {
@@ -412,6 +523,19 @@ function setV2ApprovalSnapshot(
   return approval.snapshot_hash as string
 }
 
+function remapCreatedActionApproval(db: MemoryDb, created: Row) {
+  const actionRow = db.rows.agent_actions.find((row) => row.id === created.agentAction.id)!
+  const approvalRow = db.rows.approvals.find((row) => row.id === created.approval.id)!
+  actionRow.id = ACTION_ID
+  actionRow.approval_id = APPROVAL_ID
+  approvalRow.id = APPROVAL_ID
+  approvalRow.agent_action_id = ACTION_ID
+  created.agentAction.id = ACTION_ID
+  created.agentAction.approval_id = APPROVAL_ID
+  created.approval.id = APPROVAL_ID
+  created.approval.agent_action_id = ACTION_ID
+}
+
 function mockPlannerClient(db: MemoryDb, writeDb: MemoryDb = db) {
   mockCreateClient.mockReturnValue({
     auth: {
@@ -531,6 +655,134 @@ describe('MVP launch API contracts', () => {
         }),
       }),
     ]))
+  })
+
+  it('authorizes a venue hold into one cancellable concierge task with host-visible evidence', async () => {
+    const createdResponse = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'hold_request',
+        targetType: 'venue',
+        targetId: VENUE_ID_1,
+        requestedAmountCents: 50_000,
+        payloadJson: {
+          action_label: 'Request hold',
+          provider: 'Foundry Rooftop',
+          package_details: '48-hour soft hold',
+          execution_mode: 'concierge_admin_queue',
+        },
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+    const created = await readJson(createdResponse)
+    expect(createdResponse.status).toBe(200)
+    expect(created.approval.snapshot_hash).toMatch(/^[a-f0-9]{64}$/)
+    remapCreatedActionApproval(db, created)
+
+    const authorizedResponse = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: created.approval.id,
+        command: 'authorize',
+        expectedSnapshotHash: created.approval.snapshot_hash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } }
+    )
+    const authorized = await readJson(authorizedResponse)
+
+    expect(authorizedResponse.status).toBe(200)
+    expect(authorized).toEqual(expect.objectContaining({
+      actionStatus: 'executing',
+      uiStatus: 'executing',
+      availableActions: ['cancel_execution'],
+      actionResult: expect.objectContaining({
+        execution_mode: 'concierge_admin_queue',
+        handoff_status: 'queued',
+        admin_task_id: expect.any(String),
+        outbound_message_sent: false,
+      }),
+    }))
+    expect(db.rows.admin_tasks).toEqual([
+      expect.objectContaining({
+        plan_id: PLAN_ID,
+        agent_action_id: created.agentAction.id,
+        approval_id: created.approval.id,
+        status: 'open',
+      }),
+    ])
+    expect(db.rows.plan_messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        message_type: 'status_update',
+        metadata: expect.objectContaining({ state: 'concierge_task_queued' }),
+      }),
+    ]))
+
+    const replay = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: created.approval.id,
+        command: 'authorize',
+        expectedSnapshotHash: created.approval.snapshot_hash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } }
+    )
+    expect(replay.status).toBe(200)
+    expect(db.rows.admin_tasks).toHaveLength(1)
+  })
+
+  it('authorizes vendor contact into one unsent draft instead of fake sent state', async () => {
+    db.rows.vendor_profiles.push({
+      id: VENDOR_ID,
+      name: 'Mission Photo Co.',
+      contact_email: 'bookings@example.com',
+      portfolio_url: 'https://example.com/mission-photo',
+      discovery_vendor_id: null,
+    })
+    const createdResponse = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'vendor_contact',
+        targetType: 'vendor',
+        targetId: VENDOR_ID,
+        requestedAmountCents: 0,
+        payloadJson: {
+          action_label: 'Contact vendor',
+          provider: 'Mission Photo Co.',
+          execution_mode: 'concierge_admin_queue',
+        },
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+    const created = await readJson(createdResponse)
+    expect(createdResponse.status).toBe(200)
+    expect(created.approval.snapshot_hash).toMatch(/^[a-f0-9]{64}$/)
+    remapCreatedActionApproval(db, created)
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: created.approval.id,
+        command: 'authorize',
+        expectedSnapshotHash: created.approval.snapshot_hash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } }
+    )
+    const authorized = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(authorized).toEqual(expect.objectContaining({
+      actionStatus: 'complete',
+      uiStatus: 'succeeded',
+      actionResult: expect.objectContaining({
+        handoff_status: 'draft_ready',
+        outbound_message_sent: false,
+        send_requires_separate_approval: true,
+      }),
+    }))
+    expect(db.rows.outreach_messages).toEqual([
+      expect.objectContaining({
+        agent_action_id: created.agentAction.id,
+        approval_id: created.approval.id,
+        direction: 'outbound',
+        delivery_status: null,
+      }),
+    ])
+    expect(db.rows.admin_tasks).toHaveLength(0)
   })
 
   it('POST planner agent-actions creates an approval before exposing external checkout', async () => {

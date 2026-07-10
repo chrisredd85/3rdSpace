@@ -42,8 +42,16 @@ jest.mock('@/lib/planner/approvalUiState', () => ({
 
 jest.mock('@/lib/outreach/gmailApprovalFlow', () => ({
   executeApprovedGmailOutreach: jest.fn(),
-  isGmailApprovedOutreachAction: jest.fn().mockReturnValue(true),
   GmailDispatchRecoveryPendingError: class GmailDispatchRecoveryPendingError extends Error {},
+}))
+
+jest.mock('@/lib/planner/execution/externalCheckout', () => ({
+  executeExternalCheckoutHandoff: jest.fn(),
+}))
+
+jest.mock('@/lib/planner/execution/approvedActionHandoffs', () => ({
+  executeConciergeApprovedAction: jest.fn(),
+  requireApprovedHandoffDb: (db: unknown) => db,
 }))
 
 import type { NextRequest } from 'next/server'
@@ -53,6 +61,8 @@ import {
   executeApprovedGmailOutreach,
   GmailDispatchRecoveryPendingError,
 } from '@/lib/outreach/gmailApprovalFlow'
+import { executeExternalCheckoutHandoff } from '@/lib/planner/execution/externalCheckout'
+import { executeConciergeApprovedAction } from '@/lib/planner/execution/approvedActionHandoffs'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 const USER_ID = '550e8400-e29b-41d4-a716-446655440000'
@@ -65,6 +75,8 @@ const mockCreateClient = createClient as jest.Mock
 const mockCreateServiceRoleClient = createServiceRoleClient as jest.Mock
 const mockBuildSnapshotHash = buildApprovalSnapshotHashV2 as jest.Mock
 const mockExecuteGmail = executeApprovedGmailOutreach as jest.Mock
+const mockExecuteExternalCheckout = executeExternalCheckoutHandoff as jest.Mock
+const mockExecuteConcierge = executeConciergeApprovedAction as jest.Mock
 
 type Row = Record<string, any>
 
@@ -101,7 +113,7 @@ class ReadQuery {
   }
 }
 
-function seed() {
+function seed(actionOverrides: Row = {}) {
   const plan = {
     id: PLAN_ID,
     user_id: USER_ID,
@@ -172,6 +184,7 @@ function seed() {
     last_retry_result: null,
     created_at: '2026-07-09T00:00:00.000Z',
     updated_at: '2026-07-09T00:00:00.000Z',
+    ...actionOverrides,
   }
   const rows = { plans: [plan], approvals: [approval], agent_actions: [action], plan_messages: [] }
   const readDb = new ReadDb(rows)
@@ -184,6 +197,14 @@ function seed() {
     if (name === 'finalize_failed_action_retry') {
       const outcome = String(args.p_outcome)
       action.status = outcome === 'succeeded' ? 'complete' : 'failed'
+      action.last_retry_status = outcome
+      action.last_retry_result = args.p_result
+      action.result_metadata = { ...action.result_metadata, ...(args.p_result as Row) }
+      return { data: [{ outcome, action_status: action.status, result_metadata: action.result_metadata }], error: null }
+    }
+    if (name === 'finalize_approved_action_handoff_retry') {
+      const outcome = String(args.p_outcome)
+      action.status = outcome === 'succeeded' ? String(args.p_success_action_status) : 'failed'
       action.last_retry_status = outcome
       action.last_retry_result = args.p_result
       action.result_metadata = { ...action.result_metadata, ...(args.p_result as Row) }
@@ -218,6 +239,95 @@ describe('approval retry route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
   })
+
+  it('retries an external handoff through the shared dispatcher and remains executing', async () => {
+    const { action, rpc } = seed({
+      action_type: 'external_checkout',
+      payload_json: { kind: 'external_checkout', external_url: 'https://tickets.example/checkout' },
+    })
+    mockExecuteExternalCheckout.mockResolvedValue({
+      disposition: 'executing',
+      metadata: {
+        execution_mode: 'external_checkout',
+        external_checkout: { status: 'ready', external_url: 'https://tickets.example/checkout' },
+      },
+    })
+
+    const response = await retryApproval(request('retry-external-handoff'), {
+      params: Promise.resolve({ planId: PLAN_ID, approvalId: APPROVAL_ID }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await body(response)).toEqual(expect.objectContaining({
+      actionStatus: 'executing',
+      uiStatus: 'executing',
+    }))
+    expect(mockExecuteExternalCheckout).toHaveBeenCalledTimes(1)
+    expect(rpc).toHaveBeenCalledWith('finalize_approved_action_handoff_retry', expect.objectContaining({
+      p_outcome: 'succeeded',
+      p_success_action_status: 'executing',
+    }))
+    expect(action.status).toBe('executing')
+  })
+
+  it('retries a concierge hold once without falsely completing operator work', async () => {
+    const { action, rpc } = seed({
+      action_type: 'hold_request',
+      payload_json: { kind: 'venue_hold' },
+    })
+    mockExecuteConcierge.mockResolvedValue({
+      disposition: 'executing',
+      metadata: { execution_mode: 'concierge_admin_queue', admin_task_id: 'task-1' },
+    })
+
+    const response = await retryApproval(request('retry-concierge-handoff'), {
+      params: Promise.resolve({ planId: PLAN_ID, approvalId: APPROVAL_ID }),
+    })
+
+    expect(response.status).toBe(200)
+    expect((await body(response)).actionStatus).toBe('executing')
+    expect(mockExecuteConcierge).toHaveBeenCalledTimes(1)
+    expect(rpc).toHaveBeenCalledWith('finalize_approved_action_handoff_retry', expect.objectContaining({
+      p_success_action_status: 'executing',
+    }))
+    expect(action.status).toBe('executing')
+  })
+
+  it('does not cross Prompt 9 by retrying a controlled-payment proposal', async () => {
+    seed({
+      action_type: 'payment',
+      payload_json: { kind: 'venue_deposit' },
+    })
+    const response = await retryApproval(request('retry-payment-proposal'), {
+      params: Promise.resolve({ planId: PLAN_ID, approvalId: APPROVAL_ID }),
+    })
+
+    expect(response.status).toBe(409)
+    expect(await body(response)).toEqual(expect.objectContaining({ code: 'retry_not_allowed' }))
+    expect(mockCreateServiceRoleClient).not.toHaveBeenCalled()
+  })
+
+  it.each(['opportunity_send_venues', 'opportunity_send_vendors'])(
+    'rejects %s preparation retry before claiming execution',
+    async (actionType) => {
+      const { rpc } = seed({
+        action_type: actionType,
+        payload_json: { venue_ids: ['550e8400-e29b-41d4-a716-446655440099'] },
+      })
+
+      const response = await retryApproval(request(`retry-${actionType}`), {
+        params: Promise.resolve({ planId: PLAN_ID, approvalId: APPROVAL_ID }),
+      })
+
+      expect(response.status).toBe(409)
+      expect(await body(response)).toEqual(expect.objectContaining({ code: 'retry_not_allowed' }))
+      expect(mockCreateServiceRoleClient).not.toHaveBeenCalled()
+      expect(rpc).not.toHaveBeenCalled()
+      expect(mockExecuteGmail).not.toHaveBeenCalled()
+      expect(mockExecuteExternalCheckout).not.toHaveBeenCalled()
+      expect(mockExecuteConcierge).not.toHaveBeenCalled()
+    }
+  )
 
   it('rejects a stale confirmation hash before creating a service writer', async () => {
     seed()

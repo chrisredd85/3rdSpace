@@ -29,6 +29,8 @@ import {
   readApprovalUiState,
   type ApprovalPresentationTone,
 } from '@/components/planner/approvalPresentation'
+import type { ApprovalUiAction } from '@/lib/planner/approvalUiState'
+import { readExternalCheckoutHandoffEvidence } from '@/lib/planner/execution/externalCheckout'
 import { PlannerTicketingSetupGuideSection } from '@/components/planner/PlannerTicketingSetupGuideSection'
 import { ReportIncorrectInfoModal, type ReportIncorrectInfoEntity } from '@/components/planner/ReportIncorrectInfoModal'
 import { StaleRecommendationNotice } from '@/components/planner/StaleRecommendationNotice'
@@ -135,6 +137,7 @@ interface Recommendation {
 
 interface Approval {
   id: string
+  agent_action_id?: string | null
   action_label: string
   provider: string | null
   event_date: string | null
@@ -147,6 +150,8 @@ interface Approval {
   action_status?: string | null
   ui_status?: string | null
   available_actions?: string[] | null
+  snapshot_hash?: string | null
+  action_result?: unknown
   requested_amount_cents?: number | null
   authorized_amount_cents?: number | null
   updated_at: string
@@ -176,6 +181,16 @@ interface MobileHome {
   problem: ActivityItem | null
   progress: ProgressItem[]
   updates: ActivityItem[]
+}
+
+interface MobileApprovalCommandResponse {
+  error?: string
+  message?: string
+  code?: string
+  actionStatus?: string
+  retryStatus?: string
+  uiStatus?: string
+  actionResult?: unknown
 }
 
 interface BudgetLine {
@@ -456,9 +471,13 @@ export function MobilePlanner({
   const [contactEmailFeedback, setContactEmailFeedback] = useState<Record<string, string>>({})
   const [batchFeedback, setBatchFeedback] = useState<string | null>(null)
   const [quoteFeedback, setQuoteFeedback] = useState<Record<string, string>>({})
+  const [approvalFeedback, setApprovalFeedback] = useState<Record<string, string>>({})
+  const [approvalBusyId, setApprovalBusyId] = useState<string | null>(null)
   const [isRefreshingRecommendations, setIsRefreshingRecommendations] = useState(false)
   const [reportIncorrectEntity, setReportIncorrectEntity] = useState<ReportIncorrectInfoEntity | null>(null)
   const hasAutoStartedInitialDraftRef = useRef(false)
+  const approvalRetryKeysRef = useRef(new Map<string, string>())
+  const approvalCancelKeysRef = useRef(new Map<string, string>())
 
   const reload = useCallback(async () => {
     setData((current) => ({ ...current, state: 'loading', error: null }))
@@ -779,6 +798,162 @@ export function MobilePlanner({
     }
   }
 
+  async function handleRetryApproval(approval: Approval) {
+    if (!data.activePlanId || !approval.snapshot_hash) {
+      setApprovalFeedback((current) => ({
+        ...current,
+        [approval.id]: 'The authorized snapshot is missing. Refresh before retrying.',
+      }))
+      return
+    }
+
+    const idempotencyKey = getMobileApprovalCommandKey(
+      approvalRetryKeysRef.current,
+      'approval-retry',
+      approval.id,
+      approval.snapshot_hash
+    )
+    setApprovalBusyId(approval.id)
+    setApprovalFeedback((current) => ({ ...current, [approval.id]: 'Retrying the authorized action…' }))
+    try {
+      const response = await fetch(
+        `/api/planner/plans/${encodeURIComponent(data.activePlanId)}/approvals/${encodeURIComponent(approval.id)}/retry`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey,
+          },
+          body: JSON.stringify({ expectedSnapshotHash: approval.snapshot_hash }),
+        }
+      )
+      const payload = await response.json().catch(() => ({})) as MobileApprovalCommandResponse
+      if (!response.ok) {
+        if (isTerminalMobileRetryFailure(payload.code)) {
+          approvalRetryKeysRef.current.delete(`${approval.id}:${approval.snapshot_hash}`)
+        }
+        throw new Error(payload.error ?? payload.message ?? 'Retry failed')
+      }
+
+      approvalRetryKeysRef.current.delete(`${approval.id}:${approval.snapshot_hash}`)
+      setApprovalFeedback((current) => ({
+        ...current,
+        [approval.id]: payload.retryStatus === 'in_progress'
+          ? 'Retry is still in progress. Refreshing its status…'
+          : 'Retry accepted. Refreshing the approval state…',
+      }))
+      await reload()
+    } catch (error) {
+      setApprovalFeedback((current) => ({
+        ...current,
+        [approval.id]: error instanceof Error ? error.message : 'Retry failed',
+      }))
+    } finally {
+      setApprovalBusyId(null)
+    }
+  }
+
+  async function handleCancelApprovalExecution(approval: Approval) {
+    if (!data.activePlanId || !approval.agent_action_id || !approval.snapshot_hash) {
+      setApprovalFeedback((current) => ({
+        ...current,
+        [approval.id]: 'The action or authorized snapshot is missing. Refresh before cancelling.',
+      }))
+      return
+    }
+
+    const idempotencyKey = getMobileApprovalCommandKey(
+      approvalCancelKeysRef.current,
+      'execution-cancel',
+      approval.id,
+      approval.snapshot_hash
+    )
+    setApprovalBusyId(approval.id)
+    setApprovalFeedback((current) => ({ ...current, [approval.id]: 'Cancelling queued work…' }))
+    try {
+      const response = await fetch(
+        `/api/planner/plans/${encodeURIComponent(data.activePlanId)}/agent-actions/${encodeURIComponent(approval.agent_action_id)}/cancel`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey,
+          },
+          body: JSON.stringify({
+            approvalId: approval.id,
+            expectedSnapshotHash: approval.snapshot_hash,
+            reason: 'Host cancelled the approved operational handoff.',
+          }),
+        }
+      )
+      const payload = await response.json().catch(() => ({})) as MobileApprovalCommandResponse
+      if (!response.ok) {
+        throw new Error(payload.error ?? payload.message ?? 'Execution could not be cancelled')
+      }
+
+      approvalCancelKeysRef.current.delete(`${approval.id}:${approval.snapshot_hash}`)
+      setApprovalFeedback((current) => ({
+        ...current,
+        [approval.id]: 'Queued work cancelled. The authorization remains in audit history.',
+      }))
+      await reload()
+    } catch (error) {
+      setApprovalFeedback((current) => ({
+        ...current,
+        [approval.id]: error instanceof Error ? error.message : 'Execution could not be cancelled',
+      }))
+    } finally {
+      setApprovalBusyId(null)
+    }
+  }
+
+  async function handleConfirmExternalCheckout(approval: Approval) {
+    if (!data.activePlanId || !approval.agent_action_id || !approval.snapshot_hash) {
+      setApprovalFeedback((current) => ({
+        ...current,
+        [approval.id]: 'The action or authorized snapshot is missing. Refresh before confirming completion.',
+      }))
+      return
+    }
+
+    setApprovalBusyId(approval.id)
+    setApprovalFeedback((current) => ({ ...current, [approval.id]: 'Recording checkout completion…' }))
+    try {
+      const response = await fetch(
+        `/api/planner/plans/${encodeURIComponent(data.activePlanId)}/agent-actions/${encodeURIComponent(approval.agent_action_id)}/confirm`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            approvalId: approval.id,
+            expectedSnapshotHash: approval.snapshot_hash,
+            outcome: 'completed',
+          }),
+        }
+      )
+      const payload = await response.json().catch(() => ({})) as MobileApprovalCommandResponse
+      if (!response.ok) {
+        throw new Error(payload.error ?? payload.message ?? 'Checkout completion could not be confirmed')
+      }
+
+      setApprovalFeedback((current) => ({
+        ...current,
+        [approval.id]: 'Checkout completion recorded. Refreshing the approval state…',
+      }))
+      await reload()
+    } catch (error) {
+      setApprovalFeedback((current) => ({
+        ...current,
+        [approval.id]: error instanceof Error ? error.message : 'Checkout completion could not be confirmed',
+      }))
+    } finally {
+      setApprovalBusyId(null)
+    }
+  }
+
   async function saveLocalDraftInstruction(trimmed: string, currentData: MobileData) {
     const currentPlan = currentData.planPayload?.plan
     if (!currentPlan) throw new Error('Unable to save instruction')
@@ -844,6 +1019,7 @@ export function MobilePlanner({
         <MobileHeader
           isMenuOpen={isMenuOpen}
           reviewCount={reviewCount}
+          onReview={() => navigate(reviewCount > 0 ? 'draft' : 'approval')}
           onToggleMenu={() => setIsMenuOpen((value) => !value)}
         />
 
@@ -888,6 +1064,8 @@ export function MobilePlanner({
             contactEmailFeedback={contactEmailFeedback}
             batchFeedback={batchFeedback}
             quoteFeedback={quoteFeedback}
+            approvalFeedback={approvalFeedback}
+            approvalBusyId={approvalBusyId}
             onContactEmailDraftChange={(id, value) => setContactEmailDrafts((current) => ({ ...current, [id]: value }))}
             onSaveContactEmail={handleSaveContactEmail}
             onCreateVenueOutreachApprovals={handleCreateVenueOutreachApprovals}
@@ -895,6 +1073,9 @@ export function MobilePlanner({
             onRefreshRecommendations={handleRefreshRecommendations}
             onCommitQuote={handleCommitQuote}
             onCancelQuote={handleCancelQuote}
+            onRetryApproval={handleRetryApproval}
+            onCancelApprovalExecution={handleCancelApprovalExecution}
+            onConfirmExternalCheckout={handleConfirmExternalCheckout}
             onReportIncorrectInfo={setReportIncorrectEntity}
           />
           <ReportIncorrectInfoModal
@@ -926,12 +1107,17 @@ function MobileContent({
   contactEmailFeedback,
   batchFeedback,
   quoteFeedback,
+  approvalFeedback,
+  approvalBusyId,
   onContactEmailDraftChange,
   onSaveContactEmail,
   onCreateVenueOutreachApprovals,
   onRefreshRecommendations,
   onCommitQuote,
   onCancelQuote,
+  onRetryApproval,
+  onCancelApprovalExecution,
+  onConfirmExternalCheckout,
   onReportIncorrectInfo,
 }: {
   activeSection: MobileSection
@@ -951,12 +1137,17 @@ function MobileContent({
   contactEmailFeedback: Record<string, string>
   batchFeedback: string | null
   quoteFeedback: Record<string, string>
+  approvalFeedback: Record<string, string>
+  approvalBusyId: string | null
   onContactEmailDraftChange: (id: string, value: string) => void
   onSaveContactEmail: (option: MobilePartnerOption) => void
   onCreateVenueOutreachApprovals: (options: MobilePartnerOption[]) => void
   onRefreshRecommendations: () => void
   onCommitQuote: (option: MobileQuoteOption) => void
   onCancelQuote: (option: MobileQuoteOption) => void
+  onRetryApproval: (approval: Approval) => void
+  onCancelApprovalExecution: (approval: Approval) => void
+  onConfirmExternalCheckout: (approval: Approval) => void
   onReportIncorrectInfo: (entity: ReportIncorrectInfoEntity) => void
 }) {
   if (data.state === 'loading') return <LoadingView />
@@ -1004,7 +1195,20 @@ function MobileContent({
     )
   }
   if (view === 'budget') return <BudgetView budget={data.budget} plan={data.planPayload.plan} onNavigate={onNavigate} />
-  if (view === 'draft') return <ApprovalsSection plan={data.planPayload.plan} approvals={approvals} onNavigate={onNavigate} />
+  if (view === 'draft') {
+    return (
+      <ApprovalsSection
+        plan={data.planPayload.plan}
+        approvals={approvals}
+        approvalFeedback={approvalFeedback}
+        approvalBusyId={approvalBusyId}
+        onRetryApproval={onRetryApproval}
+        onCancelApprovalExecution={onCancelApprovalExecution}
+        onConfirmExternalCheckout={onConfirmExternalCheckout}
+        onNavigate={onNavigate}
+      />
+    )
+  }
   if (view === 'approval') return <ApprovalPolicyView onNavigate={onNavigate} />
   if (view === 'deposit') return <DepositApprovalView approvals={approvals} data={data} onNavigate={onNavigate} />
   if (view === 'sent' || view === 'reply' || view === 'outreach-thread') {
@@ -1036,7 +1240,20 @@ function MobileContent({
     )
   }
 
-  if (activeSection === 'approvals') return <ApprovalsSection plan={data.planPayload.plan} approvals={approvals} onNavigate={onNavigate} />
+  if (activeSection === 'approvals') {
+    return (
+      <ApprovalsSection
+        plan={data.planPayload.plan}
+        approvals={approvals}
+        approvalFeedback={approvalFeedback}
+        approvalBusyId={approvalBusyId}
+        onRetryApproval={onRetryApproval}
+        onCancelApprovalExecution={onCancelApprovalExecution}
+        onConfirmExternalCheckout={onConfirmExternalCheckout}
+        onNavigate={onNavigate}
+      />
+    )
+  }
   if (activeSection === 'messages') return <MessagesSection messages={data.planPayload.messages} activity={data.activity} />
   if (activeSection === 'vendors') {
     return (
@@ -1212,10 +1429,12 @@ async function fetchJson<T>(url: string): Promise<T> {
 function MobileHeader({
   isMenuOpen,
   reviewCount,
+  onReview,
   onToggleMenu,
 }: {
   isMenuOpen: boolean
   reviewCount: number
+  onReview: () => void
   onToggleMenu: () => void
 }) {
   return (
@@ -1225,12 +1444,13 @@ function MobileHeader({
           3rdPlace
         </Link>
         <div className="flex items-center gap-2">
-          <Link
-            href={reviewCount > 0 ? '/planner/approvals' : '/planner?view=approval'}
+          <button
+            type="button"
+            onClick={onReview}
             className="inline-flex h-10 items-center rounded-full border border-tan bg-cream-deep px-3 font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-ink-soft"
           >
             {reviewCount > 0 ? `${reviewCount} review` : 'Next step'}
-          </Link>
+          </button>
           <button
             type="button"
             onClick={onToggleMenu}
@@ -1317,7 +1537,14 @@ function MobileNavigationPanel({
           <p className="mt-2 truncate font-display text-[26px] leading-tight text-ink">{planTitle ?? 'No active plan'}</p>
         </div>
         <nav className="mt-6 border-y border-tan">
-          {appSections.map((section) => (
+          {appSections.map((section) => section.id === 'approvals' ? (
+            <PanelInternalLink
+              key={section.id}
+              label={section.label}
+              isActive={activeSection === section.id || activeView === 'draft'}
+              onClick={() => onInternalNavigate('draft')}
+            />
+          ) : (
             <PanelLink
               key={section.id}
               href={section.href}
@@ -1402,9 +1629,9 @@ function PlannerView({
         ) : operatingLoop.primaryAction === 'compare-replies' ? (
           <PrimaryButton onClick={() => onNavigate('sent')}>Compare replies</PrimaryButton>
         ) : reviewCount > 0 ? (
-          <PrimaryLink href="/planner/approvals">
+          <PrimaryButton onClick={() => onNavigate('draft')}>
             {`Review ${reviewCount} approval${reviewCount === 1 ? '' : 's'}`}
-          </PrimaryLink>
+          </PrimaryButton>
         ) : (
           <PrimaryButton onClick={() => onNavigate('approval')}>Review approval policy</PrimaryButton>
         )}
@@ -1466,7 +1693,7 @@ function PlannerView({
                 detail={approval.provider ?? approval.package_details ?? 'Approval required'}
                 status={approvalStatusLabel(approval)}
                 tone={approvalTone(approval)}
-                href={`/planner?plan=${encodeURIComponent(plan.id)}&tab=approvals`}
+                onClick={() => onNavigate('draft')}
               />
             ))}
           </div>
@@ -2199,10 +2426,20 @@ function DepositApprovalView({
 function ApprovalsSection({
   plan,
   approvals,
+  approvalFeedback,
+  approvalBusyId,
+  onRetryApproval,
+  onCancelApprovalExecution,
+  onConfirmExternalCheckout,
   onNavigate,
 }: {
   plan: Plan | null
   approvals: Approval[]
+  approvalFeedback: Record<string, string>
+  approvalBusyId: string | null
+  onRetryApproval: (approval: Approval) => void
+  onCancelApprovalExecution: (approval: Approval) => void
+  onConfirmExternalCheckout: (approval: Approval) => void
   onNavigate: (view: MobileView) => void
 }) {
   const approvalQueue = approvals
@@ -2256,9 +2493,17 @@ function ApprovalsSection({
                 detail={approval.package_details ?? approval.refund_terms ?? presentation.description}
                 status={presentation.label}
                 tone={approvalTone(approval)}
-                actionLabel={primaryAction ? approvalActionLabel(primaryAction) : 'View details'}
-                href={plan ? `/planner?plan=${encodeURIComponent(plan.id)}&tab=approvals` : '/planner?tab=approvals'}
-              />
+              >
+                <MobileApprovalActions
+                  approval={approval}
+                  primaryAction={primaryAction ?? null}
+                  feedback={approvalFeedback[approval.id]}
+                  busy={approvalBusyId === approval.id}
+                  onRetry={onRetryApproval}
+                  onCancelExecution={onCancelApprovalExecution}
+                  onConfirmExternalCheckout={onConfirmExternalCheckout}
+                />
+              </ApprovalCard>
             )
           })}
         </div>
@@ -3072,12 +3317,21 @@ function CompactPrimaryButton({
   )
 }
 
-function SecondaryButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+function SecondaryButton({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: ReactNode
+  onClick: () => void
+  disabled?: boolean
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex min-h-12 w-full items-center justify-center rounded-lg border border-tan bg-cream-deep px-5 text-center text-sm font-semibold text-ink transition-colors hover:bg-cream"
+      disabled={disabled}
+      className="inline-flex min-h-12 w-full items-center justify-center rounded-lg border border-tan bg-cream-deep px-5 text-center text-sm font-semibold text-ink transition-colors hover:bg-cream disabled:cursor-not-allowed disabled:opacity-50"
     >
       {children}
     </button>
@@ -3335,22 +3589,17 @@ function ApprovalCard({
   detail,
   status,
   tone,
-  actionLabel,
-  href,
+  children,
 }: {
   title: string
   target: string
   detail: string
   status: string
   tone: StatusTone
-  actionLabel: string
-  href: string
+  children: ReactNode
 }) {
   return (
-    <Link
-      href={href}
-      className="w-full rounded-lg border border-tan bg-cream p-5 text-left shadow-card transition-colors hover:bg-cream-deep"
-    >
+    <article className="w-full rounded-lg border border-tan bg-cream p-5 text-left shadow-card">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="label-caps text-clay">{target}</p>
@@ -3359,8 +3608,118 @@ function ApprovalCard({
         <StatusPill tone={tone}>{status}</StatusPill>
       </div>
       <p className={cn(spacing.headlineToBody, 'text-base leading-7 text-ink-soft')}>{detail}</p>
-      <p className="mt-3 text-sm font-bold text-clay">{actionLabel} →</p>
-    </Link>
+      <div className="mt-4">{children}</div>
+    </article>
+  )
+}
+
+function MobileApprovalActions({
+  approval,
+  primaryAction,
+  feedback,
+  busy,
+  onRetry,
+  onCancelExecution,
+  onConfirmExternalCheckout,
+}: {
+  approval: Approval
+  primaryAction: ApprovalUiAction | null
+  feedback?: string
+  busy: boolean
+  onRetry: (approval: Approval) => void
+  onCancelExecution: (approval: Approval) => void
+  onConfirmExternalCheckout: (approval: Approval) => void
+}) {
+  const [confirmingCancellation, setConfirmingCancellation] = useState(false)
+  const approvalState = readApprovalUiState(approval as unknown as Record<string, unknown>)
+  const checkoutHandoff = readExternalCheckoutHandoffEvidence(approval.action_result)
+  const visibleCheckoutHandoff = checkoutHandoff &&
+    checkoutHandoff.status !== 'cancelled' &&
+    checkoutHandoff.approval_id === approval.id &&
+    checkoutHandoff.snapshot_hash === approval.snapshot_hash &&
+    (approvalState.status === 'executing' || approvalState.status === 'succeeded')
+      ? checkoutHandoff
+      : null
+  const cancellationHeadingId = `mobile-approval-cancel-${approval.id}`
+
+  let controls: ReactNode
+  if (primaryAction === 'retry') {
+    controls = (
+      <PrimaryButton onClick={() => onRetry(approval)} disabled={busy || !approval.snapshot_hash}>
+        {busy ? 'Retrying…' : 'Retry authorized action'}
+      </PrimaryButton>
+    )
+  } else if (primaryAction === 'cancel_execution') {
+    controls = confirmingCancellation ? (
+      <div
+        className="rounded-lg border border-brick/25 bg-brick-tint p-3"
+        role="group"
+        aria-labelledby={cancellationHeadingId}
+      >
+        <p id={cancellationHeadingId} className="text-sm font-bold text-ink">Cancel this approved operational handoff?</p>
+        <p className="mt-1 text-sm leading-6 text-ink-soft">
+          Pending checkout or 3rdPlace team work will stop. The authorization stays in audit history.
+        </p>
+        <div className="mt-3 grid gap-2">
+          <PrimaryButton onClick={() => onCancelExecution(approval)} disabled={busy}>
+            {busy ? 'Cancelling…' : 'Cancel execution'}
+          </PrimaryButton>
+          <SecondaryButton onClick={() => setConfirmingCancellation(false)} disabled={busy}>
+            Keep running
+          </SecondaryButton>
+        </div>
+      </div>
+    ) : (
+      <SecondaryButton onClick={() => setConfirmingCancellation(true)} disabled={busy}>
+        Cancel queued work
+      </SecondaryButton>
+    )
+  } else {
+    controls = (
+      <PrimaryLink href="/planner/approvals">
+        {primaryAction ? approvalActionLabel(primaryAction) : 'View approval details'}
+      </PrimaryLink>
+    )
+  }
+
+  return (
+    <>
+      {visibleCheckoutHandoff ? (
+        <div className="mb-3 rounded-lg border border-tan bg-cream-deep p-3">
+          <p className="text-sm font-bold text-ink">
+            {visibleCheckoutHandoff.status === 'completed'
+              ? 'External checkout completion recorded'
+              : 'Your approved checkout link is ready'}
+          </p>
+          <p className="mt-1 text-sm leading-6 text-ink-soft">
+            3rdPlace will not open or complete checkout automatically. Review the provider page before paying.
+          </p>
+          <a
+            href={visibleCheckoutHandoff.external_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-clay px-5 text-center text-sm font-semibold text-primary-foreground transition-colors hover:bg-clay-deep"
+          >
+            <ExternalLink className="h-4 w-4" aria-hidden="true" />
+            {visibleCheckoutHandoff.status === 'completed' ? 'View checkout' : 'Open checkout'}
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
+          {visibleCheckoutHandoff.status === 'ready' ? (
+            <div className="mt-2">
+              <SecondaryButton onClick={() => onConfirmExternalCheckout(approval)} disabled={busy}>
+                {busy ? 'Recording completion…' : 'Confirm completed'}
+              </SecondaryButton>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {controls}
+      {feedback ? (
+        <p className="mt-3 text-sm font-semibold leading-6 text-ink-soft" role="status">
+          {feedback}
+        </p>
+      ) : null}
+    </>
   )
 }
 
@@ -3760,6 +4119,28 @@ function readQuoteList(value: unknown, kind: 'venue' | 'vendor'): MobileQuoteOpt
 
 function quoteKey(option: MobileQuoteOption) {
   return `${option.kind}:${option.responseId}`
+}
+
+function getMobileApprovalCommandKey(
+  keys: Map<string, string>,
+  prefix: 'approval-retry' | 'execution-cancel',
+  approvalId: string,
+  snapshotHash: string
+) {
+  const cacheKey = `${approvalId}:${snapshotHash}`
+  const existing = keys.get(cacheKey)
+  if (existing) return existing
+
+  const nonce = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  const value = `${prefix}:${approvalId}:${nonce}`
+  keys.set(cacheKey, value)
+  return value
+}
+
+function isTerminalMobileRetryFailure(code: string | undefined) {
+  return code === 'approval_retry_failed' || code === 'retry_prior_failure'
 }
 
 function isQuoteCommitted(plan: Plan | null, option: MobileQuoteOption) {

@@ -152,6 +152,7 @@ DECLARE
   v_service_type TEXT;
   v_amount_cents INTEGER;
   v_deal_model TEXT;
+  v_terms JSONB;
   v_quote JSONB;
   v_existing_vendors JSONB;
   v_next_vendors JSONB;
@@ -880,7 +881,6 @@ DECLARE
   v_partner_id UUID;
   v_amount_cents INTEGER;
   v_action_from_status TEXT;
-  v_terms JSONB;
 BEGIN
   IF current_user <> 'postgres'
     AND NOT (current_user = 'service_role' AND auth.role() = 'service_role')
@@ -1514,7 +1514,6 @@ DECLARE
   v_event_id UUID;
   v_action_id UUID;
   v_approval_id UUID;
-  v_organizer_id UUID;
   v_status TEXT;
   v_plan_status TEXT;
   v_action_from_status TEXT;
@@ -1537,16 +1536,16 @@ BEGIN
 
   IF p_booking_kind = 'venue' THEN
     SELECT booking.plan_id, booking.event_id, booking.agent_action_id,
-      booking.approval_id, booking.organizer_id, booking.status
-    INTO v_plan_id, v_event_id, v_action_id, v_approval_id, v_organizer_id, v_status
+      booking.approval_id, booking.status
+    INTO v_plan_id, v_event_id, v_action_id, v_approval_id, v_status
     FROM public.venue_bookings AS booking
     WHERE booking.id = p_booking_id
       AND booking.plan_id IS NOT NULL
     FOR UPDATE;
   ELSE
     SELECT booking.plan_id, booking.event_id, booking.agent_action_id,
-      booking.approval_id, booking.organizer_id, booking.status
-    INTO v_plan_id, v_event_id, v_action_id, v_approval_id, v_organizer_id, v_status
+      booking.approval_id, booking.status
+    INTO v_plan_id, v_event_id, v_action_id, v_approval_id, v_status
     FROM public.vendor_bookings AS booking
     WHERE booking.id = p_booking_id
       AND booking.plan_id IS NOT NULL

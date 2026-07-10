@@ -1959,7 +1959,7 @@ class ApprovalCommandError extends Error {
   }
 }
 
-type ApprovalCardMode = 'view' | 'edit' | 'confirm_authorize' | 'confirm_cancel'
+type ApprovalCardMode = 'view' | 'edit' | 'confirm_authorize' | 'confirm_cancel' | 'confirm_execution_cancel'
 
 /**
  * Interactive approval card for booking, hold, and payment confirmation steps.
@@ -1995,6 +1995,7 @@ export function PlannerApprovalCard({
   )
   const [billingSummary, setBillingSummary] = useState<PlannerBillingSummary | null>(null)
   const retryKeysRef = useRef(new Map<string, string>())
+  const executionCancelKeysRef = useRef(new Map<string, string>())
 
   useEffect(() => {
     const nextStatus = readApprovalStatus(approval)
@@ -2077,9 +2078,16 @@ export function PlannerApprovalCard({
     isOutreachApproval
   )
   const presentation = getApprovalPresentation(status)
-  const externalCheckoutEvidence = readExternalCheckoutHandoffEvidence(
+  const externalCheckoutHandoffEvidence = readExternalCheckoutHandoffEvidence(
     displayApproval.action_result ?? displayApproval.actionResult
   )
+  const externalCheckoutEvidence = externalCheckoutHandoffEvidence &&
+    externalCheckoutHandoffEvidence.status !== 'cancelled' &&
+    externalCheckoutHandoffEvidence.approval_id === currentApprovalId &&
+    externalCheckoutHandoffEvidence.snapshot_hash === snapshotHash &&
+    (status === 'executing' || status === 'succeeded')
+      ? externalCheckoutHandoffEvidence
+      : null
   const agentActionId = readApprovalString(displayApproval, 'agent_action_id')
 
   function requestSignupForAuthorization(nextAuthorizedAmountCents: number) {
@@ -2373,6 +2381,57 @@ export function PlannerApprovalCard({
     }
   }
 
+  async function handleCancelExecution() {
+    if (!agentActionId || !snapshotHash) {
+      setInlineError('Execution cancellation is missing its action or approval snapshot. Refresh and try again.')
+      return
+    }
+
+    setIsSubmitting(true)
+    setInlineError(null)
+    const idempotencyKey = getExecutionCancelKey(
+      executionCancelKeysRef.current,
+      currentApprovalId,
+      snapshotHash
+    )
+    try {
+      const response = await fetch(
+        `/api/planner/plans/${planId}/agent-actions/${agentActionId}/cancel`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey,
+          },
+          body: JSON.stringify({
+            approvalId: currentApprovalId,
+            expectedSnapshotHash: snapshotHash,
+            reason: 'Host cancelled the approved operational handoff.',
+          }),
+        }
+      )
+      const payload = await response.json().catch(() => ({})) as ApprovalCommandResponse
+      if (!response.ok) {
+        if (hasApprovalResponseState(payload)) applyApprovalResponse(payload)
+        throw new Error(payload.error ?? payload.message ?? 'Execution could not be cancelled')
+      }
+
+      applyApprovalResponse(payload)
+      setMode('view')
+      onToast({
+        title: 'Execution cancelled',
+        description: 'Queued operational work was cancelled. The authorization remains in the audit history.',
+        variant: 'info',
+      })
+    } catch (error) {
+      setInlineError(error instanceof Error ? error.message : 'Execution could not be cancelled')
+      setMode('view')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   if (status === 'rejected' || status === 'cancelled' || status === 'superseded') {
     return (
       <div className="rounded-2xl border border-border bg-muted/40 p-4">
@@ -2643,7 +2702,23 @@ export function PlannerApprovalCard({
             </div>
           ) : null}
 
-          {mode === 'confirm_cancel' ? (
+          {mode === 'confirm_execution_cancel' ? (
+            <div className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+              <p className="text-sm font-semibold text-foreground">Cancel this approved operational handoff?</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Pending checkout or operator work will stop. The immutable approval stays in the audit history.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" variant="destructive" size="sm" onClick={() => void handleCancelExecution()} disabled={isSubmitting}>
+                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Cancel execution
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setMode('view')} disabled={isSubmitting}>
+                  Keep running
+                </Button>
+              </div>
+            </div>
+          ) : mode === 'confirm_cancel' ? (
             <div className="mt-4 rounded-xl border border-border bg-background/70 p-3">
               <p className="text-sm font-semibold text-foreground">Cancel this approval? This cannot be undone.</p>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -2727,6 +2802,17 @@ export function PlannerApprovalCard({
             <Button type="button" className="mt-4" size="sm" onClick={handleRequestReapproval} disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Request re-approval
+            </Button>
+          ) : availableActions.includes('cancel_execution') ? (
+            <Button
+              type="button"
+              className="mt-4"
+              variant="outline"
+              size="sm"
+              onClick={() => setMode('confirm_execution_cancel')}
+              disabled={isSubmitting}
+            >
+              Cancel queued work
             </Button>
           ) : null}
 
@@ -3122,6 +3208,22 @@ function getApprovalRetryKey(
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`
   const value = `approval-retry:${approvalId}:${nonce}`
+  keys.set(key, value)
+  return value
+}
+
+function getExecutionCancelKey(
+  keys: Map<string, string>,
+  approvalId: string,
+  snapshotHash: string
+) {
+  const key = `${approvalId}:${snapshotHash}`
+  const existing = keys.get(key)
+  if (existing) return existing
+  const nonce = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  const value = `execution-cancel:${approvalId}:${nonce}`
   keys.set(key, value)
   return value
 }

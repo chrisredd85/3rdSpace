@@ -846,6 +846,7 @@ function ApprovalStatusBadge({
 function preferredApprovalAction(actions: readonly ApprovalUiAction[]): ApprovalUiAction | null {
   if (actions.includes('authorize')) return 'authorize'
   if (actions.includes('retry')) return 'retry'
+  if (actions.includes('cancel_execution')) return 'cancel_execution'
   if (actions.includes('request_reapproval')) return 'request_reapproval'
   if (actions.includes('edit')) return 'edit'
   if (actions.includes('cancel')) return 'cancel'

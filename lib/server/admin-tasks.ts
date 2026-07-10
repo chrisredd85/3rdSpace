@@ -14,12 +14,7 @@ import type { AdminTaskPriority, AdminTaskStatus, AdminTaskType } from '@/lib/ty
 
 export type AdminTasksDb = SupabaseClient<Database, 'public'>
 
-type AdminTaskRow = Database['public']['Tables']['admin_tasks']['Row'] & {
-  agent_action_id: string | null
-  approval_id: string | null
-  event_id: string | null
-  outcome_payload: Json
-}
+type AdminTaskRow = Database['public']['Tables']['admin_tasks']['Row']
 type AdminTaskUpdate = Database['public']['Tables']['admin_tasks']['Update']
 type PlanRow = Pick<
   Database['public']['Tables']['plans']['Row'],
@@ -119,9 +114,7 @@ export class AdminTaskServiceError extends Error {
   }
 }
 
-// Kept as a runtime string until the migration is applied and generated
-// Supabase types are refreshed in the integration worktree.
-const ADMIN_TASK_SELECT: string =
+const ADMIN_TASK_SELECT =
   'id, plan_id, agent_action_id, approval_id, event_id, assigned_to, task_type, description, status, priority, metadata, outcome_payload, due_at, completed_at, notes, created_at, updated_at'
 const PLAN_SELECT = 'id, title, user_id, guest_count, neighborhood, date_window_start, date_window_end, event_type, status'
 const USER_SELECT = 'id, email, company_name, role, user_type'
@@ -141,7 +134,7 @@ export async function getAdminTaskQueueData(
 
   if (error) throw new AdminTaskServiceError(`Failed to load admin tasks: ${error.message}`)
 
-  const rows = (data ?? []) as unknown as AdminTaskRow[]
+  const rows = (data ?? []) as AdminTaskRow[]
   const planIds = Array.from(new Set(rows.map((row) => row.plan_id).filter(Boolean)))
   const assigneeIds = Array.from(new Set(rows.map((row) => row.assigned_to).filter((id): id is string => Boolean(id))))
 
@@ -186,9 +179,9 @@ export async function mutateAdminTask(admin: AdminTasksDb, input: AdminTaskMutat
     throw new AdminTaskServiceError(`Failed to update admin task: ${updateError?.message ?? 'not found'}`)
   }
 
-  await logAdminTaskAudit(admin, input, before, after as unknown as AdminTaskRow, update)
+  await logAdminTaskAudit(admin, input, before, after as AdminTaskRow, update)
 
-  return normalizeAdminTaskRow(after as unknown as AdminTaskRow, null, null)
+  return normalizeAdminTaskRow(after as AdminTaskRow, null, null)
 }
 
 async function mutateExecutionTask(
@@ -279,7 +272,7 @@ async function loadAdminTask(admin: AdminTasksDb, taskId: string) {
     throw new AdminTaskServiceError(`Admin task not found: ${error?.message ?? taskId}`, 404)
   }
 
-  return data as unknown as AdminTaskRow
+  return data as AdminTaskRow
 }
 
 async function loadPlans(admin: AdminTasksDb, planIds: string[]) {

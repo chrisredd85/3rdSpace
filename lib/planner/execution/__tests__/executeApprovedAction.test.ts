@@ -1,8 +1,11 @@
 import {
+  cancelApprovedActionExecution,
   executeApprovedAction,
   paymentAuthorizationTransitionEvents,
   paymentCaptureTransitionEvents,
   planApprovedActionExecution,
+  planApprovedActionCancellation,
+  planApprovedActionRetry,
 } from '../executeApprovedAction'
 
 describe('approved action execution planning', () => {
@@ -22,6 +25,42 @@ describe('approved action execution planning', () => {
       terminalActionStatus: 'complete',
       reason: 'Approval prepares outreach drafts but does not send outbound messages',
     })
+  })
+
+  it.each(['opportunity_send_venues', 'opportunity_send_vendors'])(
+    'does not advertise crash-unsafe retry for %s preparation',
+    (actionType) => {
+      expect(planApprovedActionRetry({
+        approval: { status: 'authorized' },
+        action: {
+          action_type: actionType,
+          payload_json: {},
+          result_metadata: {},
+        },
+      })).toEqual({
+        kind: 'no_retry',
+        canRetry: false,
+        reason: 'Outreach preparation retry is blocked until each preparation step has a durable identity',
+      })
+    }
+  )
+
+  it.each([
+    ['email', { kind: 'gmail_approved_outreach' }, 'send_gmail_outreach'],
+    ['external_checkout', { external_url: 'https://tickets.example/checkout' }, 'await_external_checkout'],
+    ['hold_request', {}, 'await_concierge_queue'],
+  ])('keeps %s in the durable retry subset', (actionType, payload, expectedKind) => {
+    expect(planApprovedActionRetry({
+      approval: { status: 'authorized' },
+      action: {
+        action_type: actionType,
+        payload_json: payload,
+        result_metadata: {},
+      },
+    })).toEqual(expect.objectContaining({
+      kind: expectedKind,
+      canRetry: true,
+    }))
   })
 
   it('classifies explicitly approved Gmail outreach as outbound send', () => {
@@ -75,6 +114,72 @@ describe('approved action execution planning', () => {
       terminalActionStatus: 'executing',
       reason: 'Approval unlocks a host-controlled external checkout handoff',
     })
+  })
+
+  it.each([
+    ['hold_request', {}],
+    ['vendor_contact', {}],
+    ['concierge_queue', { kind: 'canonical_quote_booking' }],
+  ])('routes %s through the concierge handoff executor', (actionType, payload) => {
+    expect(planApprovedActionExecution({
+      approval: { status: 'authorized' },
+      action: {
+        action_type: actionType,
+        payload_json: payload,
+        result_metadata: {},
+      },
+    })).toEqual({
+      kind: 'await_concierge_queue',
+      canStart: true,
+      terminalActionStatus: 'executing',
+      reason: 'Approval creates a durable concierge task, draft, or canonical booking handoff',
+    })
+  })
+
+  it('does not mistake a vendor reply capture for outbound concierge work', () => {
+    expect(planApprovedActionExecution({
+      approval: { status: 'authorized' },
+      action: {
+        action_type: 'vendor_contact',
+        payload_json: { kind: 'vendor_reply_capture' },
+        result_metadata: {},
+      },
+    })).toEqual(expect.objectContaining({ kind: 'no_execution', canStart: false }))
+  })
+
+  it('routes only durable executing handoffs to cancellation handlers', async () => {
+    const action = {
+      action_type: 'external_checkout',
+      payload_json: { kind: 'external_checkout' },
+      result_metadata: { external_checkout: { status: 'ready' } },
+      status: 'executing',
+    }
+    expect(planApprovedActionCancellation({
+      approval: { status: 'authorized' },
+      action,
+    })).toBe('cancel_external_checkout')
+
+    const cancel = jest.fn(async () => ({ cancelled: true }))
+    const result = await cancelApprovedActionExecution({
+      approval: { status: 'authorized' } as never,
+      action: action as never,
+      registry: { cancel_external_checkout: cancel },
+    })
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(result).toEqual(expect.objectContaining({
+      kind: 'cancel_external_checkout',
+      cancelled: true,
+    }))
+
+    expect(planApprovedActionCancellation({
+      approval: { status: 'authorized' },
+      action: {
+        action_type: 'payment',
+        payload_json: { kind: 'venue_deposit' },
+        result_metadata: {},
+        status: 'approved',
+      },
+    })).toBe('no_cancellation')
   })
 
   it('blocks payment transition planning for rejected or cancelled actions', () => {

@@ -19,6 +19,7 @@ describe('deriveApprovalUiState', () => {
     { label: 'reapproval required', input: { approvalStatus: 're_approval_required' }, status: 'reapproval_required', actions: ['request_reapproval'], terminal: false },
     { label: 'rejected', input: { approvalStatus: 'rejected' }, status: 'rejected', actions: [], terminal: true },
     { label: 'cancelled', input: { approvalStatus: 'cancelled' }, status: 'cancelled', actions: [], terminal: true },
+    { label: 'cancelled action', input: { approvalStatus: 'authorized', actionStatus: 'cancelled' }, status: 'cancelled', actions: [], terminal: true },
     { label: 'superseded', input: { approvalStatus: 'pending', supersededAt: '2026-07-09T17:00:00Z' }, status: 'superseded', actions: [], terminal: true },
   ])('maps $label to exactly one state and action set', ({ input, status, actions, terminal }) => {
     expect(deriveApprovalUiState({ now, ...input })).toEqual({
@@ -32,6 +33,46 @@ describe('deriveApprovalUiState', () => {
     expect(deriveApprovalUiState({ approvalStatus: 'pending', actionStatus: 'failed', now })).toEqual({
       status: 'pending',
       availableActions: ['edit', 'authorize', 'cancel'],
+      isTerminal: false,
+    })
+  })
+
+  it('keeps a failed action visible without advertising an unsafe retry', () => {
+    expect(deriveApprovalUiState({
+      approvalStatus: 'authorized',
+      actionStatus: 'failed',
+      executionRetryable: false,
+      now,
+    })).toEqual({
+      status: 'failed',
+      availableActions: [],
+      isTerminal: false,
+    })
+  })
+
+  it('exposes execution cancellation only for durable cancellable handoffs', () => {
+    expect(deriveApprovalUiState({
+      approvalStatus: 'authorized',
+      actionStatus: 'executing',
+      executionCancellable: true,
+      now,
+    })).toEqual({
+      status: 'executing',
+      availableActions: ['cancel_execution'],
+      isTerminal: false,
+    })
+  })
+
+  it('keeps already-started work visible and cancellable after approval expiry', () => {
+    expect(deriveApprovalUiState({
+      approvalStatus: 'authorized',
+      actionStatus: 'executing',
+      executionCancellable: true,
+      expiresAt: '2026-07-01T00:00:00Z',
+      now,
+    })).toEqual({
+      status: 'executing',
+      availableActions: ['cancel_execution'],
       isTerminal: false,
     })
   })

@@ -16,6 +16,7 @@ export type ApprovalUiAction =
   | 'edit'
   | 'authorize'
   | 'cancel'
+  | 'cancel_execution'
   | 'request_reapproval'
   | 'retry'
 
@@ -24,6 +25,8 @@ export interface ApprovalUiStateInput {
   actionStatus?: AgentActionStatus | string | null
   expiresAt?: string | null
   supersededAt?: string | null
+  executionCancellable?: boolean
+  executionRetryable?: boolean
   now?: Date
 }
 
@@ -48,17 +51,22 @@ export function deriveApprovalUiState(input: ApprovalUiStateInput): ApprovalUiSt
   }
   if (approvalStatus === 'rejected') return state('rejected', NO_ACTIONS, true)
   if (approvalStatus === 'cancelled') return state('cancelled', NO_ACTIONS, true)
+  if (actionStatus === 'cancelled') return state('cancelled', NO_ACTIONS, true)
   if (actionStatus === 'complete') return state('succeeded', NO_ACTIONS, true)
   if (approvalStatus === 're_approval_required') {
     return state('reapproval_required', ['request_reapproval'], false)
+  }
+  // Expiry prevents a new execution or retry, but it does not erase work that
+  // already started under a valid immutable authorization.
+  if (actionStatus === 'executing') {
+    return state('executing', input.executionCancellable ? ['cancel_execution'] : NO_ACTIONS, false)
   }
   if (approvalStatus === 'expired' || isExpired(input.expiresAt, input.now ?? new Date())) {
     return state('expired', ['request_reapproval'], false)
   }
   if (actionStatus === 'failed' && isExecutableApprovalStatus(approvalStatus)) {
-    return state('failed', ['retry'], false)
+    return state('failed', input.executionRetryable === false ? NO_ACTIONS : ['retry'], false)
   }
-  if (actionStatus === 'executing') return state('executing', NO_ACTIONS, false)
   if (isExecutableApprovalStatus(approvalStatus)) {
     return state('authorized', NO_ACTIONS, false)
   }

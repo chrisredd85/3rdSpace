@@ -2,7 +2,7 @@ import type { AgentAction, Approval, Json, Plan } from '@/lib/types'
 
 export const EXTERNAL_CHECKOUT_RESULT_KEY = 'external_checkout' as const
 
-export type ExternalCheckoutHandoffStatus = 'ready' | 'completed'
+export type ExternalCheckoutHandoffStatus = 'ready' | 'completed' | 'cancelled'
 
 export interface ExternalCheckoutHandoffEvidence {
   status: ExternalCheckoutHandoffStatus
@@ -14,6 +14,9 @@ export interface ExternalCheckoutHandoffEvidence {
   completed_at?: string
   confirmed_by?: string
   confirmation_source?: 'host' | 'webhook'
+  cancelled_at?: string
+  cancelled_by?: string
+  cancellation_reason?: string
 }
 
 export interface ExternalCheckoutHandoffResult {
@@ -22,7 +25,13 @@ export interface ExternalCheckoutHandoffResult {
   evidence: ExternalCheckoutHandoffEvidence
 }
 
-type ExternalCheckoutExecutionDb = { from: (table: string) => any }
+type ExternalCheckoutExecutionDb = {
+  from: (table: string) => any
+  rpc?: (name: string, args: Record<string, unknown>) => Promise<{
+    data: unknown
+    error: { message?: string; code?: string } | null
+  }>
+}
 
 /**
  * Validates and canonicalizes a newly supplied external checkout URL.
@@ -175,6 +184,44 @@ export async function executeExternalCheckoutHandoff(input: {
   return { disposition: 'executing', metadata: prepared.resultMetadata }
 }
 
+export async function cancelExternalCheckoutHandoff(input: {
+  db: ExternalCheckoutExecutionDb
+  action: Pick<AgentAction, 'id' | 'plan_id' | 'approval_id' | 'action_type'>
+  approval: Pick<Approval, 'id' | 'agent_action_id' | 'status' | 'snapshot_hash'>
+  plan: Pick<Plan, 'id' | 'user_id'>
+  actorId: string
+  idempotencyKey: string
+  reason: string
+}): Promise<{ cancelled: true; metadata: Json }> {
+  if (!input.db.rpc) throw new Error('External checkout cancellation RPC is unavailable')
+  if (input.plan.user_id !== input.actorId || input.action.plan_id !== input.plan.id) {
+    throw new Error('External checkout cancellation actor does not own this plan')
+  }
+  if (
+    input.action.action_type !== 'external_checkout' ||
+    input.action.approval_id !== input.approval.id ||
+    input.approval.agent_action_id !== input.action.id ||
+    !input.approval.snapshot_hash
+  ) {
+    throw new Error('External checkout cancellation identity is invalid')
+  }
+
+  const { data, error } = await input.db.rpc('cancel_external_checkout_handoff', {
+    p_plan_id: input.plan.id,
+    p_action_id: input.action.id,
+    p_approval_id: input.approval.id,
+    p_expected_snapshot_hash: input.approval.snapshot_hash,
+    p_idempotency_key: input.idempotencyKey,
+    p_actor_id: input.actorId,
+    p_reason: input.reason,
+  })
+  if (error) throw new Error(error.message ?? 'External checkout cancellation failed')
+  const result = readRecord(data)
+  const metadata = result?.result_metadata
+  if (!readRecord(metadata)) throw new Error('External checkout cancellation returned no evidence')
+  return { cancelled: true, metadata: metadata as Json }
+}
+
 export function readExternalCheckoutHandoffEvidence(
   resultMetadata: unknown
 ): ExternalCheckoutHandoffEvidence | null {
@@ -183,7 +230,7 @@ export function readExternalCheckoutHandoffEvidence(
   if (!evidence) return null
 
   const status = evidence.status
-  if (status !== 'ready' && status !== 'completed') return null
+  if (status !== 'ready' && status !== 'completed' && status !== 'cancelled') return null
 
   const externalUrl = readExternalCheckoutUrl(evidence)
   const approvalId = readString(evidence.approval_id)
@@ -194,6 +241,9 @@ export function readExternalCheckoutHandoffEvidence(
   const completedAt = readString(evidence.completed_at)
   const confirmedBy = readString(evidence.confirmed_by)
   const confirmationSource = evidence.confirmation_source
+  const cancelledAt = readString(evidence.cancelled_at)
+  const cancelledBy = readString(evidence.cancelled_by)
+  const cancellationReason = readString(evidence.cancellation_reason)
 
   return {
     status,
@@ -207,6 +257,9 @@ export function readExternalCheckoutHandoffEvidence(
     ...(confirmationSource === 'host' || confirmationSource === 'webhook'
       ? { confirmation_source: confirmationSource }
       : {}),
+    ...(cancelledAt ? { cancelled_at: cancelledAt } : {}),
+    ...(cancelledBy ? { cancelled_by: cancelledBy } : {}),
+    ...(cancellationReason ? { cancellation_reason: cancellationReason } : {}),
   }
 }
 
@@ -220,6 +273,9 @@ export function completeExternalCheckoutHandoff(input: {
 
   if (current.status === 'completed') {
     return { resultMetadata: input.resultMetadata as Json, evidence: current }
+  }
+  if (current.status !== 'ready') {
+    throw new Error('External checkout handoff is not ready for completion')
   }
 
   const evidence: ExternalCheckoutHandoffEvidence = {

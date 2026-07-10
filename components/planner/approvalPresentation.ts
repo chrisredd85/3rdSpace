@@ -56,7 +56,7 @@ const presentationByStatus = {
   },
   cancelled: {
     label: 'Cancelled',
-    description: 'This approval was cancelled. No action will execute from it.',
+    description: 'This action was cancelled. Its approval remains available as audit history.',
     tone: 'neutral',
   },
   superseded: {
@@ -67,7 +67,7 @@ const presentationByStatus = {
 } as const satisfies Record<ApprovalUiStatus, ApprovalPresentation>
 
 const statusValues = Object.keys(presentationByStatus) as ApprovalUiStatus[]
-const actionValues: ApprovalUiAction[] = ['edit', 'authorize', 'cancel', 'request_reapproval', 'retry']
+const actionValues: ApprovalUiAction[] = ['edit', 'authorize', 'cancel', 'cancel_execution', 'request_reapproval', 'retry']
 
 export function getApprovalPresentation(status: ApprovalUiStatus): ApprovalPresentation {
   return presentationByStatus[status]
@@ -103,6 +103,7 @@ export function approvalActionLabel(action: ApprovalUiAction): string {
   if (action === 'authorize') return 'Review authorization'
   if (action === 'request_reapproval') return 'Request re-approval'
   if (action === 'retry') return 'Retry'
+  if (action === 'cancel_execution') return 'Cancel execution'
   if (action === 'edit') return 'Edit'
   return 'Cancel'
 }

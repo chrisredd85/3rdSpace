@@ -303,11 +303,13 @@ describe('MobilePlanner operating loop parity', () => {
     const failedApproval = {
       ...outreachApproval,
       id: 'approval-failed',
+      agent_action_id: '33333333-3333-4333-8333-333333333333',
       action_label: 'Retry venue outreach',
       status: 'authorized',
       action_status: 'failed',
       ui_status: 'failed',
       available_actions: ['retry'],
+      snapshot_hash: 'a'.repeat(64),
     }
     const expiredApproval = {
       ...outreachApproval,
@@ -355,10 +357,273 @@ describe('MobilePlanner operating loop parity', () => {
 
     expect(await screen.findByText('Approvals need attention.')).toBeInTheDocument()
     expect(screen.getByText(/2 approvals need review, retry, or re-approval/i)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Review 2 approvals' })).toHaveAttribute('href', '/planner/approvals')
-    expect(screen.getByText('Retry venue outreach').closest('a')).toHaveAttribute('href', '/planner?plan=plan-1&tab=approvals')
-    expect(screen.getByText('Refresh expired venue hold').closest('a')).toHaveAttribute('href', '/planner?plan=plan-1&tab=approvals')
+    expect(screen.getByRole('button', { name: 'Review 2 approvals' })).toBeEnabled()
+    expect(screen.getByText('Retry venue outreach').closest('button')).toBeEnabled()
+    expect(screen.getByText('Refresh expired venue hold').closest('button')).toBeEnabled()
     expect(screen.queryByText('Completed venue outreach')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review 2 approvals' }))
+    expect(await screen.findByRole('button', { name: 'Retry authorized action' })).toBeEnabled()
+    expect(screen.getByRole('link', { name: 'Request re-approval' })).toHaveAttribute('href', '/planner/approvals')
+  })
+
+  it('retries a failed authorized action on mobile with a stable key after transport ambiguity', async () => {
+    const snapshotHash = 'b'.repeat(64)
+    const failedApproval = {
+      ...outreachApproval,
+      id: 'approval-mobile-retry',
+      agent_action_id: '33333333-3333-4333-8333-333333333333',
+      action_label: 'Retry venue outreach',
+      status: 'authorized',
+      action_status: 'failed',
+      ui_status: 'failed',
+      available_actions: ['retry'],
+      snapshot_hash: snapshotHash,
+    }
+    const retryKeys: string[] = []
+    const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/planner/plans?limit=10') return jsonResponse({ plans: [plan] })
+      if (url === '/api/planner/plans/plan-1') return jsonResponse({ ...plannerPayload, approvals: [failedApproval], recommendations: [] })
+      if (url === '/api/planner/plans/plan-1/mobile-home') return jsonResponse({ plan, pending_approvals: [failedApproval], pending_approval_count: 1, problem: null, progress: [], updates: [] })
+      if (url === '/api/planner/plans/plan-1/budget') return jsonResponse({ target_cents: 500000, low_total_cents: 0, high_total_cents: 0, committed_total_cents: 0, projected_delta_cents: null, projected_buffer_low_cents: null, projected_buffer_high_cents: null, lines: [] })
+      if (url === '/api/planner/plans/plan-1/activity') return jsonResponse({ activities: [] })
+      if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
+      if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
+      if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/integrations/gmail/account') return jsonResponse({ account: connectedGmailAccount })
+      if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
+      if (url.endsWith('/approvals/approval-mobile-retry/retry') && init?.method === 'POST') {
+        retryKeys.push((init.headers as Record<string, string>)['Idempotency-Key'])
+        if (retryKeys.length === 1) return Promise.reject(new TypeError('Network connection lost'))
+        return jsonResponse({ actionStatus: 'executing', retryStatus: 'in_progress' }, 202)
+      }
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    })
+    global.fetch = fetchMock as jest.Mock
+
+    render(<MobilePlanner initialView="draft" />)
+
+    const retry = await screen.findByRole('button', { name: 'Retry authorized action' })
+    fireEvent.click(retry)
+    expect(await screen.findByText('Network connection lost')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry authorized action' }))
+    await waitFor(() => expect(retryKeys).toHaveLength(2))
+    expect(retryKeys[1]).toBe(retryKeys[0])
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/planner/plans/plan-1/approvals/approval-mobile-retry/retry',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ expectedSnapshotHash: snapshotHash }),
+      })
+    )
+  })
+
+  it('records host checkout completion on mobile and renders completed evidence', async () => {
+    const snapshotHash = 'd'.repeat(64)
+    const actionId = '55555555-5555-4555-8555-555555555555'
+    const readyEvidence = {
+      status: 'ready',
+      external_url: 'https://tickets.example/checkout',
+      approval_id: 'approval-mobile-confirm',
+      snapshot_hash: snapshotHash,
+      unlocked_at: '2026-07-09T20:00:00.000Z',
+      completion_confirmation_required: true,
+    }
+    const executingApproval = {
+      ...outreachApproval,
+      id: 'approval-mobile-confirm',
+      agent_action_id: actionId,
+      action_label: 'External ticket checkout',
+      provider: 'Ticketing partner',
+      status: 'authorized',
+      action_status: 'executing',
+      ui_status: 'executing',
+      available_actions: ['cancel_execution'],
+      snapshot_hash: snapshotHash,
+      action_result: {
+        execution_mode: 'external_checkout',
+        external_checkout: readyEvidence,
+      },
+    }
+    const completedEvidence = {
+      ...readyEvidence,
+      status: 'completed',
+      completion_confirmation_required: false,
+      completed_at: '2026-07-09T20:05:00.000Z',
+      confirmed_by: '22222222-2222-4222-8222-222222222222',
+      confirmation_source: 'host',
+    }
+    let completed = false
+    const confirmRequests: RequestInit[] = []
+    const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const currentApproval = completed ? {
+        ...executingApproval,
+        action_status: 'complete',
+        ui_status: 'succeeded',
+        available_actions: [],
+        action_result: {
+          execution_mode: 'external_checkout',
+          external_checkout: completedEvidence,
+        },
+      } : executingApproval
+
+      if (url === '/api/planner/plans?limit=10') return jsonResponse({ plans: [plan] })
+      if (url === '/api/planner/plans/plan-1') return jsonResponse({ ...plannerPayload, approvals: [currentApproval], recommendations: [] })
+      if (url === '/api/planner/plans/plan-1/mobile-home') return jsonResponse({ plan, pending_approvals: completed ? [] : [currentApproval], pending_approval_count: completed ? 0 : 1, problem: null, progress: [], updates: [] })
+      if (url === '/api/planner/plans/plan-1/budget') return jsonResponse({ target_cents: 500000, low_total_cents: 0, high_total_cents: 0, committed_total_cents: 0, projected_delta_cents: null, projected_buffer_low_cents: null, projected_buffer_high_cents: null, lines: [] })
+      if (url === '/api/planner/plans/plan-1/activity') return jsonResponse({ activities: [] })
+      if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
+      if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
+      if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/integrations/gmail/account') return jsonResponse({ account: connectedGmailAccount })
+      if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
+      if (url.endsWith(`/agent-actions/${actionId}/confirm`) && init?.method === 'POST') {
+        confirmRequests.push(init)
+        completed = true
+        return jsonResponse({
+          actionStatus: 'complete',
+          uiStatus: 'succeeded',
+          availableActions: [],
+          actionResult: {
+            execution_mode: 'external_checkout',
+            external_checkout: completedEvidence,
+          },
+        })
+      }
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    })
+    global.fetch = fetchMock as jest.Mock
+
+    render(<MobilePlanner initialView="draft" />)
+
+    expect(await screen.findByRole('link', { name: /Open checkout/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm completed' }))
+
+    await waitFor(() => expect(confirmRequests).toHaveLength(1))
+    expect(JSON.parse(String(confirmRequests[0].body))).toEqual({
+      approvalId: 'approval-mobile-confirm',
+      expectedSnapshotHash: snapshotHash,
+      outcome: 'completed',
+    })
+    expect(await screen.findByText('Succeeded')).toBeInTheDocument()
+    expect(screen.getByText('External checkout completion recorded')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /View checkout/i })).toHaveAttribute(
+      'href',
+      'https://tickets.example/checkout'
+    )
+    expect(screen.queryByRole('button', { name: 'Confirm completed' })).not.toBeInTheDocument()
+  })
+
+  it('cancels queued execution on mobile and never renders a preserved cancelled checkout URL', async () => {
+    const snapshotHash = 'c'.repeat(64)
+    const actionId = '44444444-4444-4444-8444-444444444444'
+    const readyEvidence = {
+      status: 'ready',
+      external_url: 'https://tickets.example/checkout',
+      approval_id: 'approval-mobile-cancel',
+      snapshot_hash: snapshotHash,
+      unlocked_at: '2026-07-09T20:00:00.000Z',
+      completion_confirmation_required: true,
+    }
+    const executingApproval = {
+      ...outreachApproval,
+      id: 'approval-mobile-cancel',
+      agent_action_id: actionId,
+      action_label: 'External ticket checkout',
+      provider: 'Ticketing partner',
+      status: 'authorized',
+      action_status: 'executing',
+      ui_status: 'executing',
+      available_actions: ['cancel_execution'],
+      snapshot_hash: snapshotHash,
+      action_result: {
+        execution_mode: 'external_checkout',
+        external_checkout: readyEvidence,
+      },
+    }
+    const cancelledEvidence = {
+      ...readyEvidence,
+      status: 'cancelled',
+      completion_confirmation_required: false,
+      cancelled_at: '2026-07-09T20:05:00.000Z',
+      cancelled_by: '22222222-2222-4222-8222-222222222222',
+      cancellation_reason: 'Host cancelled the approved operational handoff.',
+    }
+    let cancelled = false
+    const cancelRequests: RequestInit[] = []
+    const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const currentApproval = cancelled ? {
+        ...executingApproval,
+        action_status: 'cancelled',
+        ui_status: 'cancelled',
+        available_actions: [],
+        action_result: {
+          execution_mode: 'external_checkout',
+          external_checkout: cancelledEvidence,
+        },
+      } : executingApproval
+
+      if (url === '/api/planner/plans?limit=10') return jsonResponse({ plans: [plan] })
+      if (url === '/api/planner/plans/plan-1') return jsonResponse({ ...plannerPayload, approvals: [currentApproval], recommendations: [] })
+      if (url === '/api/planner/plans/plan-1/mobile-home') return jsonResponse({ plan, pending_approvals: cancelled ? [] : [currentApproval], pending_approval_count: cancelled ? 0 : 1, problem: null, progress: [], updates: [] })
+      if (url === '/api/planner/plans/plan-1/budget') return jsonResponse({ target_cents: 500000, low_total_cents: 0, high_total_cents: 0, committed_total_cents: 0, projected_delta_cents: null, projected_buffer_low_cents: null, projected_buffer_high_cents: null, lines: [] })
+      if (url === '/api/planner/plans/plan-1/activity') return jsonResponse({ activities: [] })
+      if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
+      if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
+      if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/integrations/gmail/account') return jsonResponse({ account: connectedGmailAccount })
+      if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
+      if (url.endsWith(`/agent-actions/${actionId}/cancel`) && init?.method === 'POST') {
+        cancelRequests.push(init)
+        if (cancelRequests.length === 1) {
+          return Promise.reject(new TypeError('Network connection lost'))
+        }
+        cancelled = true
+        return jsonResponse({
+          actionStatus: 'cancelled',
+          uiStatus: 'cancelled',
+          availableActions: [],
+          actionResult: {
+            execution_mode: 'external_checkout',
+            external_checkout: cancelledEvidence,
+          },
+        })
+      }
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    })
+    global.fetch = fetchMock as jest.Mock
+
+    render(<MobilePlanner initialView="draft" />)
+
+    const checkoutLink = await screen.findByRole('link', { name: /Open checkout/i })
+    expect(checkoutLink).toHaveAttribute('href', 'https://tickets.example/checkout')
+    expect(checkoutLink).toHaveAttribute('target', '_blank')
+    expect(checkoutLink).toHaveAttribute('rel', 'noopener noreferrer')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel queued work' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel execution' }))
+
+    expect(await screen.findByText('Network connection lost')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel execution' }))
+
+    await waitFor(() => expect(cancelRequests).toHaveLength(2))
+    expect(cancelRequests[0].headers).toEqual(expect.objectContaining({
+      'Idempotency-Key': expect.stringMatching(/^execution-cancel:approval-mobile-cancel:/),
+    }))
+    expect((cancelRequests[1].headers as Record<string, string>)['Idempotency-Key'])
+      .toBe((cancelRequests[0].headers as Record<string, string>)['Idempotency-Key'])
+    expect(JSON.parse(String(cancelRequests[0].body))).toEqual({
+      approvalId: 'approval-mobile-cancel',
+      expectedSnapshotHash: snapshotHash,
+      reason: 'Host cancelled the approved operational handoff.',
+    })
+    expect(await screen.findByText('Cancelled')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /checkout/i })).not.toBeInTheDocument()
+    expect(screen.queryByText('https://tickets.example/checkout')).not.toBeInTheDocument()
   })
 
   it('requires Gmail connection before mobile can create a venue outreach batch', async () => {
@@ -688,7 +953,6 @@ describe('MobilePlanner operating loop parity', () => {
       ['Vendors', '/planner/vendors'],
       ['Outreach', '/planner/outreach'],
       ['Messages', '/planner/messages'],
-      ['Approvals', '/planner/approvals'],
       ['Payments', '/planner/payments'],
       ['Settlements', '/planner/settlements'],
       ['Billing', '/planner/billing'],
@@ -700,6 +964,9 @@ describe('MobilePlanner operating loop parity', () => {
     for (const [label, href] of expectedLinks) {
       expect(screen.getByRole('link', { name: new RegExp(label, 'i') })).toHaveAttribute('href', href)
     }
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approvals' }))
+    expect(await screen.findByText('Approve the moves that need you.')).toBeInTheDocument()
   })
 
   it('gives mobile settings direct links for integrations, billing, and data actions', async () => {

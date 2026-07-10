@@ -3,7 +3,11 @@ import {
   PLAN_SELECT_COLUMNS,
 } from '@/lib/planner/dbSelects'
 import { deriveApprovalUiState } from '@/lib/planner/approvalUiState'
-import type { Approval, Json, Plan } from '@/lib/types'
+import {
+  planApprovedActionCancellation,
+  planApprovedActionRetry,
+} from '@/lib/planner/execution/executeApprovedAction'
+import type { AgentAction, Approval, Json, Plan } from '@/lib/types'
 
 export type PlannerDb = { from: (table: string) => any }
 
@@ -72,12 +76,7 @@ export async function loadPendingApprovalsForPlan(
   }
 
   const approvals = await enrichApprovalsWithActionState(db, (data ?? []) as Approval[])
-  return approvals.filter((approval) => (
-    !(
-      (approval.status === 'authorized' || approval.status === 'approved') &&
-      approval.action_status !== 'failed'
-    )
-  ))
+  return approvals.filter((approval) => approval.available_actions.length > 0)
 }
 
 /** Adds the canonical action/result/UI truth to approval rows without changing scope. */
@@ -86,11 +85,13 @@ export async function enrichApprovalsWithActionState(
   approvals: Approval[]
 ): Promise<CurrentApproval[]> {
   const actionIds = [...new Set(approvals.map((approval) => approval.agent_action_id).filter(Boolean))]
-  const actionsById = new Map<string, { status: string; result_metadata: Json | null; last_retry_result?: Json | null }>()
+  const actionsById = new Map<string, Pick<AgentAction, 'action_type' | 'payload_json' | 'status' | 'result_metadata'> & {
+    last_retry_result?: Json | null
+  }>()
   if (actionIds.length > 0) {
     const { data: actions, error: actionError } = await db
       .from('agent_actions')
-      .select('id,status,result_metadata,last_retry_result')
+      .select('id,action_type,payload_json,status,result_metadata,last_retry_result')
       .in('id', actionIds)
     if (actionError) {
       console.error('[planner.approvals] Approval action-state lookup failed', actionError)
@@ -106,11 +107,20 @@ export async function enrichApprovalsWithActionState(
       actionStatus: action?.status ?? null,
       expiresAt: approval.expires_at,
       supersededAt: approval.superseded_at,
+      executionCancellable: action
+        ? planApprovedActionCancellation({ action, approval }) !== 'no_cancellation'
+        : false,
+      executionRetryable: action
+        ? planApprovedActionRetry({ action, approval }).canRetry
+        : false,
     })
     return {
       ...approval,
       action_status: action?.status ?? null,
-      action_result: action?.last_retry_result ?? action?.result_metadata ?? null,
+      // result_metadata is the current lifecycle truth. A successful retry may
+      // leave a handoff executing, after which operator/host completion updates
+      // result_metadata while last_retry_result remains the older retry receipt.
+      action_result: action?.result_metadata ?? action?.last_retry_result ?? null,
       ui_status: ui.status,
       available_actions: [...ui.availableActions],
     }

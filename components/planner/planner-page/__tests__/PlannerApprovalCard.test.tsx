@@ -235,7 +235,99 @@ describe('PlannerApprovalCard', () => {
     }))
   })
 
-  it('does not expose a checkout URL from unapproved action payload metadata', () => {
+  it('cancels queued execution with a stable command key and hides the checkout link', async () => {
+    const user = userEvent.setup()
+    const actionId = '33333333-3333-4333-8333-333333333333'
+    const snapshotHash = 'c'.repeat(64)
+    const cancelRequests: RequestInit[] = []
+    global.fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/builder/billing/status') {
+        return jsonResponse({ billing: { canCreateEvent: true } })
+      }
+      if (url.endsWith(`/agent-actions/${actionId}/cancel`)) {
+        cancelRequests.push(init ?? {})
+        if (cancelRequests.length === 1) {
+          throw new TypeError('Network connection lost')
+        }
+        return jsonResponse({
+          approval: {
+            id: oldApprovalId,
+            status: 'authorized',
+            snapshot_hash: snapshotHash,
+          },
+          actionStatus: 'cancelled',
+          actionResult: {
+            execution_mode: 'external_checkout',
+            external_checkout: {
+              status: 'cancelled',
+              external_url: 'https://tickets.example/checkout',
+              approval_id: oldApprovalId,
+              snapshot_hash: snapshotHash,
+              unlocked_at: '2026-07-09T20:00:00.000Z',
+              completion_confirmation_required: false,
+              cancelled_at: '2026-07-09T20:05:00.000Z',
+              cancelled_by: '22222222-2222-4222-8222-222222222222',
+              cancellation_reason: 'Host cancelled the approved operational handoff.',
+            },
+          },
+          uiStatus: 'cancelled',
+          availableActions: [],
+        })
+      }
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    }) as jest.Mock
+
+    renderApprovalCard({
+      approvalId: oldApprovalId,
+      approval: {
+        id: oldApprovalId,
+        agent_action_id: actionId,
+        status: 'authorized',
+        ui_status: 'executing',
+        action_status: 'executing',
+        action_label: 'External checkout',
+        snapshot_hash: snapshotHash,
+        action_result: {
+          execution_mode: 'external_checkout',
+          external_checkout: {
+            status: 'ready',
+            external_url: 'https://tickets.example/checkout',
+            approval_id: oldApprovalId,
+            snapshot_hash: snapshotHash,
+            unlocked_at: '2026-07-09T20:00:00.000Z',
+            completion_confirmation_required: true,
+          },
+        },
+        available_actions: ['cancel_execution'],
+      },
+    })
+
+    expect(screen.getByRole('link', { name: 'Open checkout' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancel queued work' }))
+    await user.click(screen.getByRole('button', { name: 'Cancel execution' }))
+
+    expect(await screen.findByText('Network connection lost')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open checkout' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancel queued work' }))
+    await user.click(screen.getByRole('button', { name: 'Cancel execution' }))
+
+    await waitFor(() => expect(cancelRequests).toHaveLength(2))
+    expect(cancelRequests[0].headers).toEqual(expect.objectContaining({
+      'Idempotency-Key': expect.stringMatching(new RegExp(`^execution-cancel:${oldApprovalId}:`)),
+    }))
+    expect((cancelRequests[1].headers as Record<string, string>)['Idempotency-Key'])
+      .toBe((cancelRequests[0].headers as Record<string, string>)['Idempotency-Key'])
+    expect(JSON.parse(String(cancelRequests[0].body))).toEqual({
+      approvalId: oldApprovalId,
+      expectedSnapshotHash: snapshotHash,
+      reason: 'Host cancelled the approved operational handoff.',
+    })
+    expect(await screen.findByText('Cancelled')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /checkout/i })).not.toBeInTheDocument()
+  })
+
+  it('does not expose server-shaped checkout evidence before authorization', () => {
     global.fetch = jest.fn(async () => jsonResponse({ billing: { canCreateEvent: true } })) as jest.Mock
 
     renderApprovalCard({
@@ -247,7 +339,15 @@ describe('PlannerApprovalCard', () => {
         provider: 'Ticketing partner',
         snapshot_hash: 'b'.repeat(64),
         action_result: {
-          payload: { external_url: 'https://tickets.example/checkout' },
+          execution_mode: 'external_checkout',
+          external_checkout: {
+            status: 'ready',
+            external_url: 'https://tickets.example/checkout',
+            approval_id: oldApprovalId,
+            snapshot_hash: 'b'.repeat(64),
+            unlocked_at: '2026-07-09T20:00:00.000Z',
+            completion_confirmation_required: true,
+          },
         },
         available_actions: ['edit', 'authorize', 'cancel'],
       },
