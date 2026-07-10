@@ -371,6 +371,16 @@ export interface AgentAction {
   executed_at: string | null
   /** Provider response, export result, payment receipt, or execution error details. */
   result_metadata: Json
+  /** Idempotency key for the most recently claimed failed-action retry. */
+  last_retry_idempotency_key?: string | null
+  /** Current-state retry outcome; generalized attempt history is stored separately in a later phase. */
+  last_retry_status?: 'in_progress' | 'succeeded' | 'failed' | null
+  /** Timestamp when the current retry key was claimed. */
+  last_retry_started_at?: string | null
+  /** Timestamp when the current retry key reached a terminal outcome. */
+  last_retry_completed_at?: string | null
+  /** Result returned by the most recently finalized retry. */
+  last_retry_result?: Json | null
   /** Timestamp when the action was created. */
   created_at: string
   /** Timestamp when the action was last updated. */
@@ -423,6 +433,24 @@ export interface Approval {
   expires_at: string | null
   /** Hash of important approval fields for detecting price, date, or provider changes. */
   snapshot_hash: string | null
+  /** Organizer notes included in the exact authorization snapshot. */
+  notes?: string | null
+  /** First approval row in this immutable version lineage. */
+  root_approval_id?: string
+  /** Monotonic version number within the approval lineage. */
+  version_number?: number
+  /** Approval version immediately replaced by this row. */
+  supersedes_approval_id?: string | null
+  /** Approval version that replaced this row. */
+  superseded_by_approval_id?: string | null
+  /** User who created this version. */
+  version_created_by?: string | null
+  /** Reason this version was created. */
+  version_reason?: string | null
+  /** Canonical full snapshot presented before authorization. */
+  snapshot_json?: Json | null
+  /** Schema version for snapshot_json. */
+  snapshot_schema_version?: number | null
   /** Timestamp when the approval was created. */
   created_at: string
   /** Timestamp when the approval was last updated. */

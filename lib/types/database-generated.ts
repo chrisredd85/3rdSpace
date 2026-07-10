@@ -200,6 +200,11 @@ export type Database = {
           description: string
           executed_at: string | null
           id: string
+          last_retry_completed_at: string | null
+          last_retry_idempotency_key: string | null
+          last_retry_result: Json | null
+          last_retry_started_at: string | null
+          last_retry_status: string | null
           payload_json: Json
           plan_id: string
           provider: string | null
@@ -218,6 +223,11 @@ export type Database = {
           description: string
           executed_at?: string | null
           id?: string
+          last_retry_completed_at?: string | null
+          last_retry_idempotency_key?: string | null
+          last_retry_result?: Json | null
+          last_retry_started_at?: string | null
+          last_retry_status?: string | null
           payload_json?: Json
           plan_id: string
           provider?: string | null
@@ -236,6 +246,11 @@ export type Database = {
           description?: string
           executed_at?: string | null
           id?: string
+          last_retry_completed_at?: string | null
+          last_retry_idempotency_key?: string | null
+          last_retry_result?: Json | null
+          last_retry_started_at?: string | null
+          last_retry_status?: string | null
           payload_json?: Json
           plan_id?: string
           provider?: string | null
@@ -501,20 +516,29 @@ export type Database = {
           expires_at: string | null
           fees_cents: number | null
           id: string
+          notes: string | null
           package_details: string | null
           payment_method_id: string | null
           plan_id: string
           price_cents: number | null
           provider: string | null
           refund_terms: string | null
+          root_approval_id: string
           requested_amount_cents: number
           settlement_run_id: string | null
           snapshot_hash: string | null
+          snapshot_json: Json | null
+          snapshot_schema_version: number | null
           status: string
           superseded_at: string | null
+          superseded_by_approval_id: string | null
           superseded_by_revision_id: string | null
           superseded_reason: string | null
+          supersedes_approval_id: string | null
           updated_at: string
+          version_created_by: string | null
+          version_number: number
+          version_reason: string | null
         }
         Insert: {
           action_label: string
@@ -532,20 +556,29 @@ export type Database = {
           expires_at?: string | null
           fees_cents?: number | null
           id?: string
+          notes?: string | null
           package_details?: string | null
           payment_method_id?: string | null
           plan_id: string
           price_cents?: number | null
           provider?: string | null
           refund_terms?: string | null
+          root_approval_id?: string
           requested_amount_cents?: number
           settlement_run_id?: string | null
           snapshot_hash?: string | null
+          snapshot_json?: Json | null
+          snapshot_schema_version?: number | null
           status?: string
           superseded_at?: string | null
+          superseded_by_approval_id?: string | null
           superseded_by_revision_id?: string | null
           superseded_reason?: string | null
+          supersedes_approval_id?: string | null
           updated_at?: string
+          version_created_by?: string | null
+          version_number?: number
+          version_reason?: string | null
         }
         Update: {
           action_label?: string
@@ -563,20 +596,29 @@ export type Database = {
           expires_at?: string | null
           fees_cents?: number | null
           id?: string
+          notes?: string | null
           package_details?: string | null
           payment_method_id?: string | null
           plan_id?: string
           price_cents?: number | null
           provider?: string | null
           refund_terms?: string | null
+          root_approval_id?: string
           requested_amount_cents?: number
           settlement_run_id?: string | null
           snapshot_hash?: string | null
+          snapshot_json?: Json | null
+          snapshot_schema_version?: number | null
           status?: string
           superseded_at?: string | null
+          superseded_by_approval_id?: string | null
           superseded_by_revision_id?: string | null
           superseded_reason?: string | null
+          supersedes_approval_id?: string | null
           updated_at?: string
+          version_created_by?: string | null
+          version_number?: number
+          version_reason?: string | null
         }
         Relationships: [
           {
@@ -613,6 +655,27 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "plan_revisions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "approvals_root_plan_fkey"
+            columns: ["root_approval_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "plan_id"]
+          },
+          {
+            foreignKeyName: "approvals_superseded_by_plan_fkey"
+            columns: ["superseded_by_approval_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "plan_id"]
+          },
+          {
+            foreignKeyName: "approvals_supersedes_plan_fkey"
+            columns: ["supersedes_approval_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "plan_id"]
           },
         ]
       }
@@ -5061,17 +5124,22 @@ export type Database = {
           classification_json: Json | null
           created_at: string
           direction: string
+          dispatch_idempotency_key: string | null
+          delivery_status: string | null
           gmail_message_id: string | null
           gmail_thread_id: string | null
           headers_json: Json
           id: string
+          last_send_error: string | null
           provider_cost_cents: number | null
           provider_metadata_json: Json
           received_at: string | null
           recording_url: string | null
+          rfc_message_id: string | null
           scheduled_send_at: string | null
           sent_at: string | null
           sent_manually: boolean
+          send_started_at: string | null
           subject: string
           thread_id: string
           transcript_text: string | null
@@ -5092,17 +5160,22 @@ export type Database = {
           classification_json?: Json | null
           created_at?: string
           direction: string
+          dispatch_idempotency_key?: string | null
+          delivery_status?: string | null
           gmail_message_id?: string | null
           gmail_thread_id?: string | null
           headers_json?: Json
           id?: string
+          last_send_error?: string | null
           provider_cost_cents?: number | null
           provider_metadata_json?: Json
           received_at?: string | null
           recording_url?: string | null
+          rfc_message_id?: string | null
           scheduled_send_at?: string | null
           sent_at?: string | null
           sent_manually?: boolean
+          send_started_at?: string | null
           subject: string
           thread_id: string
           transcript_text?: string | null
@@ -5123,17 +5196,22 @@ export type Database = {
           classification_json?: Json | null
           created_at?: string
           direction?: string
+          dispatch_idempotency_key?: string | null
+          delivery_status?: string | null
           gmail_message_id?: string | null
           gmail_thread_id?: string | null
           headers_json?: Json
           id?: string
+          last_send_error?: string | null
           provider_cost_cents?: number | null
           provider_metadata_json?: Json
           received_at?: string | null
           recording_url?: string | null
+          rfc_message_id?: string | null
           scheduled_send_at?: string | null
           sent_at?: string | null
           sent_manually?: boolean
+          send_started_at?: string | null
           subject?: string
           thread_id?: string
           transcript_text?: string | null
@@ -11389,6 +11467,21 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      claim_failed_action_retry: {
+        Args: {
+          p_action_id: string
+          p_actor_id: string
+          p_approval_id: string
+          p_expected_snapshot_hash: string
+          p_idempotency_key: string
+          p_plan_id: string
+        }
+        Returns: {
+          action_status: string
+          outcome: string
+          result_metadata: Json
+        }[]
+      }
       complete_write_pause_drain: {
         Args: {
           p_changed_by: string
@@ -11481,6 +11574,21 @@ export type Database = {
       ensure_planner_deposit_payout: {
         Args: { p_payment_intent_id: string }
         Returns: Json
+      }
+      finalize_failed_action_retry: {
+        Args: {
+          p_action_id: string
+          p_actor_id: string
+          p_idempotency_key: string
+          p_outcome: string
+          p_plan_id: string
+          p_result: Json
+        }
+        Returns: {
+          action_status: string
+          outcome: string
+          result_metadata: Json
+        }[]
       }
       get_event_kickback_summary: {
         Args: { p_event_id: string }
@@ -11719,6 +11827,23 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      supersede_approval_version: {
+        Args: {
+          p_action_payload_json: Json
+          p_actor_id: string
+          p_approval_id: string
+          p_event_date: string | null
+          p_expected_snapshot_hash: string
+          p_expires_at: string | null
+          p_notes: string | null
+          p_plan_id: string
+          p_reason: string
+          p_requested_amount_cents: number
+          p_snapshot_hash: string
+          p_snapshot_json: Json
+        }
+        Returns: Database["public"]["Tables"]["approvals"]["Row"]
       }
       sync_planner_refund_reversal_task: {
         Args: {
