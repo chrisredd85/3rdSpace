@@ -27,6 +27,24 @@ export SUPABASE_DB_URL='postgresql://...'
 export DEPLOYED_SHA='461e3da4e569a41d27c6e972fc467ef3ba042d17'
 ```
 
+## One-time GitHub Actions secret setup
+
+The post-deploy parity workflow fails closed unless all three Supabase secrets
+exist in GitHub Actions. An authorized repository operator can provision them
+from the password-manager-backed shell above without printing their values:
+
+```bash
+printf '%s' "$SUPABASE_ACCESS_TOKEN" | gh secret set SUPABASE_ACCESS_TOKEN
+printf '%s' "$SUPABASE_PROJECT_REF" | gh secret set SUPABASE_PROJECT_REF
+printf '%s' "$SUPABASE_DB_PASSWORD" | gh secret set SUPABASE_DB_PASSWORD
+gh secret list --app actions
+```
+
+Do not reuse a browser/session key as the access token or service-role key as
+the database password. Secret creation is an operator-owned GitHub mutation;
+the implementation agent does not perform it as part of the read-only hosted
+migration runbook.
+
 ## Pre-flight: no mutation
 
 ```bash
