@@ -26,6 +26,7 @@ import {
   WalletCards,
 } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { EntityReadinessBadge } from '@/components/planner/EntityReadinessBadge'
 import { InviteVendorModal } from '@/components/planner/InviteVendorModal'
 import { InviteVenueModal } from '@/components/planner/InviteVenueModal'
@@ -68,6 +69,8 @@ interface CustomCostItem {
 
 interface PendingApproval {
   id: string
+  approvalId: string | null
+  messageId: string
   label: string
   amountCents: number | null
   status: string
@@ -387,6 +390,7 @@ interface AuthorizationCardModel {
   amountLabel: string
   amountCents: number
   approvalId?: string
+  approvalMessageId?: string
   targetType?: string | null
   targetId?: string | null
   readinessIndicator?: EntityReadinessIndicator | null
@@ -921,7 +925,8 @@ function deriveApprovals(messages: PlanMessage[]): PendingApproval[] {
     .map((message) => {
       const metadata = asRecord(message.metadata)
       const approval = asRecord(metadata?.approval) ?? metadata ?? {}
-      const id = readString(approval.id) ?? message.id
+      const approvalId = readString(approval.id)
+      const id = approvalId ?? message.id
       const amountCents =
         readNumber(approval.requested_amount_cents) ??
         readNumber(approval.authorized_amount_cents) ??
@@ -936,6 +941,8 @@ function deriveApprovals(messages: PlanMessage[]): PendingApproval[] {
 
       return {
         id,
+        approvalId,
+        messageId: message.id,
         label,
         amountCents: amountCents ?? null,
         status: readString(approval.status) ?? readString(metadata?.status) ?? 'pending',
@@ -1408,6 +1415,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   onDateChangeRequest,
   onNavigateToTab,
 }: PlannerLivePlanPanelProps) {
+  const router = useRouter()
   const [livePayload, setLivePayload] = useState<LivePlanPanelPayload>(emptyPayload)
   const [actionFeedback, setActionFeedback] = useState<Record<string, 'loading' | 'sent' | 'error'>>({})
   const [expandedAuthorizationDetails, setExpandedAuthorizationDetails] = useState<Record<string, boolean>>({})
@@ -1899,6 +1907,15 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   }
 
   async function handleAuthorizationAction(card: AuthorizationCardModel) {
+    if (card.approvalId && activePlanId && !activePlanId.startsWith('mock-plan-')) {
+      if (onNavigateToTab) {
+        onNavigateToTab('approvals', card.approvalMessageId)
+      } else {
+        router.push(`/planner?plan=${encodeURIComponent(activePlanId)}&tab=approvals`)
+      }
+      return
+    }
+
     if (!activePlanId || activePlanId.startsWith('mock-plan-')) {
       requestSignupGateForAuthorization(card)
       return
@@ -1907,45 +1924,38 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
     setActionFeedback((current) => ({ ...current, [card.id]: 'loading' }))
 
     try {
-      if (card.approvalId) {
-        const response = await fetch(`/api/planner/plans/${activePlanId}/approvals`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            approvalId: card.approvalId,
-            action: 'authorize',
-            authorizedAmountCents: card.amountCents,
-          }),
-        })
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
-          if (billingGate.handleBillingRequiredResponse(response, payload)) {
-            throw new Error('Choose a billing path to continue.')
-          }
-          throw new Error('Unable to authorize approval')
+      const response = await fetch(`/api/planner/plans/${activePlanId}/agent-actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actionType: 'hold_request',
+          targetType: 'venue',
+          payloadJson: {
+            source: 'live_plan_panel',
+            label: card.label,
+            amountLabel: card.amountLabel,
+          },
+          requestedAmountCents: card.amountCents,
+        }),
+      })
+      const payload = await response.json().catch(() => ({} as {
+        error?: string
+        message?: string
+        billingRequired?: boolean
+        approvalMessage?: { id?: string }
+      }))
+      if (!response.ok) {
+        if (billingGate.handleBillingRequiredResponse(response, payload)) {
+          throw new Error('Choose a billing path to continue.')
         }
+        throw new Error('Unable to create approval request')
+      }
+
+      const approvalMessageId = payload.approvalMessage?.id
+      if (onNavigateToTab) {
+        onNavigateToTab('approvals', approvalMessageId)
       } else {
-        const response = await fetch(`/api/planner/plans/${activePlanId}/agent-actions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            actionType: 'hold_request',
-            targetType: 'venue',
-            payloadJson: {
-              source: 'live_plan_panel',
-              label: card.label,
-              amountLabel: card.amountLabel,
-            },
-            requestedAmountCents: card.amountCents,
-          }),
-        })
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
-          if (billingGate.handleBillingRequiredResponse(response, payload)) {
-            throw new Error('Choose a billing path to continue.')
-          }
-          throw new Error('Unable to create hold request')
-        }
+        router.push(`/planner?plan=${encodeURIComponent(activePlanId)}&tab=approvals`)
       }
 
       setActionFeedback((current) => ({ ...current, [card.id]: 'sent' }))
@@ -1958,21 +1968,12 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
    * Asks the planner page to sign up the anonymous user, then resume this authorization.
    */
   function requestSignupGateForAuthorization(card: AuthorizationCardModel) {
-    const detail: PendingConversionAction = card.approvalId
-      ? {
-          type: 'authorize',
-          payload: {
-            approvalId: card.approvalId,
-            authorizedAmountCents: card.amountCents,
-            agentAction: buildLivePlanAgentActionPayload(card),
-          },
-        }
-      : {
-          type: 'hold',
-          payload: {
-            agentAction: buildLivePlanAgentActionPayload(card),
-          },
-        }
+    const detail: PendingConversionAction = {
+      type: 'hold',
+      payload: {
+        agentAction: buildLivePlanAgentActionPayload(card),
+      },
+    }
 
     window.dispatchEvent(new CustomEvent('planner:signup-gate', { detail }))
   }
@@ -2593,7 +2594,11 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                     <div className="mt-4 rounded-md border border-tan bg-cream p-3 text-sm text-ink-soft">
                       <p className="font-semibold text-ink">Action details</p>
                       <p className="mt-1">{approval.subtitle}</p>
-                      <p className="mt-2">Approval is recorded before the agent contacts the venue or places a hold.</p>
+                      <p className="mt-2">
+                        {approval.approvalId
+                          ? 'Open the canonical approval card to review the exact snapshot before authorization.'
+                          : 'Create an approval request first. This panel never authorizes a purchase or send directly.'}
+                      </p>
                     </div>
                   ) : null}
 
@@ -2623,7 +2628,15 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                         (isLoading || isSent || approval.isStripeGated) && 'cursor-not-allowed opacity-70'
                       )}
                     >
-                      {isLoading ? 'Sending...' : isSent ? 'Request sent ✓' : approval.isStripeGated ? 'Stripe setup needed' : approval.amountCents === 0 ? 'Authorize' : 'Approve'}
+                      {isLoading
+                        ? 'Creating approval...'
+                        : isSent
+                          ? 'Approval created ✓'
+                          : approval.isStripeGated
+                            ? 'Stripe setup needed'
+                            : approval.approvalId
+                              ? 'Review approval'
+                              : 'Create approval'}
                     </button>
                     <button
                       type="button"
@@ -2640,7 +2653,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                     </button>
                   </div>
                   {feedback === 'error' ? (
-                    <p className="mt-3 text-sm font-medium text-brick">Failed - try again</p>
+                    <p className="mt-3 text-sm font-medium text-brick">Approval request failed — try again</p>
                   ) : null}
                 </div>
               )
@@ -4549,6 +4562,8 @@ function buildAuthorizationCards(
   if (approvals.length > 0) {
     return approvals.map((approval) => ({
       id: approval.id,
+      approvalId: approval.approvalId ?? undefined,
+      approvalMessageId: approval.messageId,
       label: approval.label,
       subtitle: approval.subtitle ?? approval.status,
       amountLabel: formatCents(approval.amountCents),

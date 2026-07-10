@@ -1283,39 +1283,12 @@ export function PlannerWorkspace() {
     status: ApprovalUiStatus,
     updatedApproval?: Record<string, unknown>
   ) {
-    setMessages((currentMessages) =>
-      currentMessages.map((message) => {
-        if (!message.metadata || typeof message.metadata !== 'object' || Array.isArray(message.metadata)) {
-          return message
-        }
-
-        const approval = message.metadata.approval
-        if (!approval || typeof approval !== 'object' || Array.isArray(approval)) {
-          return message
-        }
-
-        const storedApprovalId = typeof approval.id === 'string' ? approval.id : message.id
-        if (storedApprovalId !== approvalId) {
-          return message
-        }
-
-        const nextStatus = typeof updatedApproval?.status === 'string' ? updatedApproval.status : status
-
-        return {
-          ...message,
-          metadata: {
-            ...message.metadata,
-            status: nextStatus,
-            approval: {
-              ...approval,
-              ...(updatedApproval ?? {}),
-              id: storedApprovalId,
-              status: nextStatus,
-            },
-          } as unknown as PlanMessage['metadata'],
-        }
-      })
-    )
+    setMessages((currentMessages) => updateApprovalMessageState(
+      currentMessages,
+      approvalId,
+      status,
+      updatedApproval
+    ))
   }
 
   /**
@@ -1406,14 +1379,17 @@ export function PlannerWorkspace() {
     const payload = action.payload ?? {}
 
     if (action.type === 'authorize' && payload.approvalId && isUuid(payload.approvalId)) {
+      if (!payload.expectedSnapshotHash) {
+        throw new Error('Open the approval and review its latest snapshot before authorizing.')
+      }
       const response = await fetch(`/api/planner/plans/${planId}/approvals`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           approvalId: payload.approvalId,
-          action: 'authorize',
-          authorizedAmountCents: payload.authorizedAmountCents,
+          command: 'authorize',
+          expectedSnapshotHash: payload.expectedSnapshotHash,
         }),
       })
 
@@ -1733,7 +1709,11 @@ export function PlannerWorkspace() {
             {activeTab === 'approvals' ? (
               <>
                 <div className="rounded-2xl border border-border bg-background/60 px-4 py-3 text-sm font-semibold text-muted-foreground">
-                  {approvalSummary.pending} pending · {approvalSummary.authorized} approved · {approvalSummary.cancelled} cancelled
+                  {approvalSummary.pending} pending · {approvalSummary.authorized} authorized · {approvalSummary.executing} executing · {approvalSummary.succeeded} succeeded
+                  {approvalSummary.failed > 0 ? ` · ${approvalSummary.failed} failed` : ''}
+                  {approvalSummary.expired > 0 ? ` · ${approvalSummary.expired} expired` : ''}
+                  {approvalSummary.reapproval_required > 0 ? ` · ${approvalSummary.reapproval_required} need re-approval` : ''}
+                  {approvalSummary.cancelled + approvalSummary.rejected > 0 ? ` · ${approvalSummary.cancelled + approvalSummary.rejected} closed` : ''}
                   {approvalSummary.superseded > 0 ? ` · ${approvalSummary.superseded} superseded` : ''}
                 </div>
                 {visibleMessages.length > 0 ? (
@@ -1942,6 +1922,55 @@ export function PlannerWorkspace() {
       {billingGate.modal}
     </div>
   )
+}
+
+/**
+ * Keeps a message-backed approval pointed at its newest immutable row so the
+ * next command cannot accidentally target the superseded approval id.
+ */
+export function updateApprovalMessageState(
+  currentMessages: PlanMessage[],
+  approvalId: string,
+  status: ApprovalUiStatus,
+  updatedApproval?: Record<string, unknown>
+) {
+  let didUpdate = false
+  const nextMessages = currentMessages.map((message) => {
+    if (!message.metadata || typeof message.metadata !== 'object' || Array.isArray(message.metadata)) {
+      return message
+    }
+
+    const approval = message.metadata.approval
+    if (!approval || typeof approval !== 'object' || Array.isArray(approval)) {
+      return message
+    }
+
+    const storedApprovalId = typeof approval.id === 'string' ? approval.id : message.id
+    if (storedApprovalId !== approvalId) return message
+    didUpdate = true
+
+    const nextApprovalId = typeof updatedApproval?.id === 'string' ? updatedApproval.id : storedApprovalId
+    const nextStatus = typeof updatedApproval?.status === 'string' ? updatedApproval.status : status
+    const nextUiStatus = typeof updatedApproval?.ui_status === 'string' ? updatedApproval.ui_status : status
+
+    return {
+      ...message,
+      metadata: {
+        ...message.metadata,
+        status: nextStatus,
+        ui_status: nextUiStatus,
+        approval: {
+          ...approval,
+          ...(updatedApproval ?? {}),
+          id: nextApprovalId,
+          status: nextStatus,
+          ui_status: nextUiStatus,
+        },
+      } as unknown as PlanMessage['metadata'],
+    }
+  })
+
+  return didUpdate ? nextMessages : currentMessages
 }
 
 function PlannerInitialDraftLoading() {

@@ -23,6 +23,12 @@ import {
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EntityReadinessBadge } from '@/components/planner/EntityReadinessBadge'
+import {
+  approvalActionLabel,
+  getApprovalPresentation,
+  readApprovalUiState,
+  type ApprovalPresentationTone,
+} from '@/components/planner/approvalPresentation'
 import { PlannerTicketingSetupGuideSection } from '@/components/planner/PlannerTicketingSetupGuideSection'
 import { ReportIncorrectInfoModal, type ReportIncorrectInfoEntity } from '@/components/planner/ReportIncorrectInfoModal'
 import { StaleRecommendationNotice } from '@/components/planner/StaleRecommendationNotice'
@@ -138,6 +144,9 @@ interface Approval {
   cancellation_terms: string | null
   package_details: string | null
   status: string
+  action_status?: string | null
+  ui_status?: string | null
+  available_actions?: string[] | null
   requested_amount_cents?: number | null
   authorized_amount_cents?: number | null
   updated_at: string
@@ -980,8 +989,12 @@ function MobileContent({
   if (data.state === 'unauthenticated') return <AuthRequiredView />
 
   if (!data.planPayload) return <EmptyState title="No active plan" description="Start a private plan to use the mobile planner." />
+  const approvals = mergeMobileApprovalReadModels(
+    data.planPayload.approvals,
+    data.home?.pending_approvals ?? []
+  )
 
-  if (view === 'brief') return <BriefView plan={data.planPayload.plan} approvals={data.planPayload.approvals} onNavigate={onNavigate} />
+  if (view === 'brief') return <BriefView plan={data.planPayload.plan} approvals={approvals} onNavigate={onNavigate} />
   if (view === 'venues' || view === 'venue-detail') {
     return (
       <VenuesView
@@ -1004,9 +1017,9 @@ function MobileContent({
     )
   }
   if (view === 'budget') return <BudgetView budget={data.budget} plan={data.planPayload.plan} onNavigate={onNavigate} />
-  if (view === 'draft') return <ApprovalsSection plan={data.planPayload.plan} approvals={data.planPayload.approvals} onNavigate={onNavigate} />
+  if (view === 'draft') return <ApprovalsSection plan={data.planPayload.plan} approvals={approvals} onNavigate={onNavigate} />
   if (view === 'approval') return <ApprovalPolicyView onNavigate={onNavigate} />
-  if (view === 'deposit') return <DepositApprovalView approvals={data.planPayload.approvals} data={data} onNavigate={onNavigate} />
+  if (view === 'deposit') return <DepositApprovalView approvals={approvals} data={data} onNavigate={onNavigate} />
   if (view === 'sent' || view === 'reply' || view === 'outreach-thread') {
     return (
       <OutreachSection
@@ -1036,7 +1049,7 @@ function MobileContent({
     )
   }
 
-  if (activeSection === 'approvals') return <ApprovalsSection plan={data.planPayload.plan} approvals={data.planPayload.approvals} onNavigate={onNavigate} />
+  if (activeSection === 'approvals') return <ApprovalsSection plan={data.planPayload.plan} approvals={approvals} onNavigate={onNavigate} />
   if (activeSection === 'messages') return <MessagesSection messages={data.planPayload.messages} activity={data.activity} />
   if (activeSection === 'vendors') {
     return (
@@ -1368,8 +1381,12 @@ function PlannerView({
   const home = data.home
   if (!plan) return null
 
-  const reviewCount = home?.pending_approval_count ?? 0
-  const operatingLoop = mobileOperatingLoopState(data)
+  const approvalSource = home?.pending_approvals.length
+    ? home.pending_approvals
+    : data.planPayload?.approvals ?? []
+  const attentionApprovals = mobileAttentionApprovals(approvalSource)
+  const reviewCount = Math.max(attentionApprovals.length, home?.pending_approval_count ?? 0)
+  const operatingLoop = mobileOperatingLoopState(data, approvalSource, reviewCount)
   const description = operatingLoop.description
   const isPrivateDraft = plan.id.startsWith('mock-plan-') || plan.user_id === 'mock-user'
 
@@ -1452,9 +1469,9 @@ function PlannerView({
               />
             ))}
           </div>
-        ) : home?.pending_approvals.length ? (
+        ) : attentionApprovals.length > 0 ? (
           <div className="divide-y divide-tan">
-            {home.pending_approvals.map((approval) => (
+            {attentionApprovals.map((approval) => (
               <ReviewQueueRow
                 key={approval.id}
                 icon={approvalIcon(approval)}
@@ -1462,7 +1479,7 @@ function PlannerView({
                 detail={approval.provider ?? approval.package_details ?? 'Approval required'}
                 status={approvalStatusLabel(approval)}
                 tone={approvalTone(approval)}
-                onClick={() => onNavigate(approval.price_cents && approval.price_cents > 0 ? 'deposit' : 'approval')}
+                href={`/planner?plan=${encodeURIComponent(plan.id)}&tab=approvals`}
               />
             ))}
           </div>
@@ -1499,16 +1516,22 @@ type MobileOperatingLoopPrimaryAction =
   | 'review-approvals'
   | 'confirm-details'
 
-function mobileOperatingLoopState(data: MobileData): {
+function mobileOperatingLoopState(
+  data: MobileData,
+  approvals = data.planPayload?.approvals ?? [],
+  attentionCount?: number
+): {
   primaryAction: MobileOperatingLoopPrimaryAction
   headline: string
   description: string
   detail: string
   readyVenues: MobilePartnerOption[]
 } {
-  const approvals = data.planPayload?.approvals ?? []
-  const pendingApprovals = approvals.filter((approval) => approval.status === 'pending')
-  const pendingOutreachApprovals = pendingApprovals.filter(isOutreachApproval)
+  const attentionApprovals = mobileAttentionApprovals(approvals)
+  const pendingOutreachApprovals = attentionApprovals.filter((approval) => (
+    readApprovalUiState(approval as unknown as Record<string, unknown>).status === 'pending' &&
+    isOutreachApproval(approval)
+  ))
   const readyVenues = venueRecommendations(data.planPayload?.recommendations ?? [])
     .filter((venue) => venue.contactStatus === 'ready_to_reach_out')
   const quotes = mobileQuoteOptions(data.planPayload?.plan)
@@ -1543,12 +1566,13 @@ function mobileOperatingLoopState(data: MobileData): {
     }
   }
 
-  if (pendingApprovals.length > 0) {
+  if (attentionApprovals.length > 0) {
+    const count = Math.max(attentionApprovals.length, attentionCount ?? 0)
     return {
       primaryAction: 'review-approvals',
-      headline: 'Decisions ready.',
-      description: `${pendingApprovals.length} approval${pendingApprovals.length === 1 ? '' : 's'} waiting. Nothing sends, holds, books, or pays until you approve it.`,
-      detail: 'Review the approval details before 3rdPlace executes the next action.',
+      headline: 'Approvals need attention.',
+      description: `${count} approval${count === 1 ? '' : 's'} need review, retry, or re-approval. Nothing new executes without the required action.`,
+      detail: 'Open the canonical approval details to see the exact state and permitted next action.',
       readyVenues,
     }
   }
@@ -1560,6 +1584,28 @@ function mobileOperatingLoopState(data: MobileData): {
     detail: 'Use the composer for corrections, then review the message approval. Nothing sends from this draft.',
     readyVenues,
   }
+}
+
+function mobileAttentionApprovals(approvals: Approval[]) {
+  return approvals.filter((approval) => (
+    readApprovalUiState(approval as unknown as Record<string, unknown>).availableActions.length > 0
+  ))
+}
+
+function mergeMobileApprovalReadModels(allApprovals: Approval[], attentionApprovals: Approval[]) {
+  if (attentionApprovals.length === 0) return allApprovals
+
+  const attentionById = new Map(attentionApprovals.map((approval) => [approval.id, approval]))
+  const merged = allApprovals.map((approval) => ({
+    ...approval,
+    ...(attentionById.get(approval.id) ?? {}),
+  }))
+  const allIds = new Set(allApprovals.map((approval) => approval.id))
+
+  return [
+    ...merged,
+    ...attentionApprovals.filter((approval) => !allIds.has(approval.id)),
+  ]
 }
 
 function NewPlanView({
@@ -2172,7 +2218,7 @@ function ApprovalsSection({
   approvals: Approval[]
   onNavigate: (view: MobileView) => void
 }) {
-  const pendingApprovals = approvals.filter((approval) => approval.status === 'pending')
+  const approvalQueue = approvals
 
   return (
     <section>
@@ -2205,22 +2251,29 @@ function ApprovalsSection({
       />
 
       <p className={cn(spacing.sectionGap, 'label-caps text-ink-soft')}>
-        {pendingApprovals.length} pending
+        {approvalQueue.length} approval record{approvalQueue.length === 1 ? '' : 's'}
       </p>
 
-      {pendingApprovals.length > 0 ? (
+      {approvalQueue.length > 0 ? (
         <div className={cn(spacing.sectionGap, 'space-y-5')}>
-          {pendingApprovals.map((approval) => (
-            <ApprovalCard
-              key={approval.id}
-              title={approval.action_label}
-              target={approval.provider ?? 'Approval required'}
-              detail={approval.package_details ?? approval.refund_terms ?? 'Review this action before 3rdPlace proceeds.'}
-              status={approvalStatusLabel(approval)}
-              tone={approvalTone(approval)}
-              onClick={() => onNavigate(approval.price_cents && approval.price_cents > 0 ? 'deposit' : 'approval')}
-            />
-          ))}
+          {approvalQueue.map((approval) => {
+            const approvalState = readApprovalUiState(approval as unknown as Record<string, unknown>)
+            const presentation = getApprovalPresentation(approvalState.status)
+            const primaryAction = approvalState.availableActions.find((action) => action !== 'cancel')
+
+            return (
+              <ApprovalCard
+                key={approval.id}
+                title={approval.action_label}
+                target={approval.provider ?? 'Approval required'}
+                detail={approval.package_details ?? approval.refund_terms ?? presentation.description}
+                status={presentation.label}
+                tone={approvalTone(approval)}
+                actionLabel={primaryAction ? approvalActionLabel(primaryAction) : 'View details'}
+                href={plan ? `/planner?plan=${encodeURIComponent(plan.id)}&tab=approvals` : '/planner?tab=approvals'}
+              />
+            )
+          })}
         </div>
       ) : (
         <EmptyState title="No approvals waiting" description="Reviewed actions appear here after the planner creates approval records." />
@@ -2844,6 +2897,7 @@ function ReviewQueueRow({
   detail,
   status,
   tone,
+  href,
   onClick,
 }: {
   icon: ReactNode
@@ -2851,14 +2905,15 @@ function ReviewQueueRow({
   detail: string
   status: string
   tone: StatusTone
-  onClick: () => void
+  href?: string
+  onClick?: () => void
 }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn('grid w-full grid-cols-[40px_minmax(0,1fr)_16px] items-center gap-3 text-left transition-colors hover:bg-cream-deep', spacing.rowPadding)}
-    >
+  const className = cn(
+    'grid w-full grid-cols-[40px_minmax(0,1fr)_16px] items-center gap-3 text-left transition-colors hover:bg-cream-deep',
+    spacing.rowPadding
+  )
+  const content = (
+    <>
       <IconBox>{icon}</IconBox>
       <span className="min-w-0">
         <span className="block truncate font-display text-[18px] font-semibold leading-tight text-ink">{label}</span>
@@ -2868,6 +2923,24 @@ function ReviewQueueRow({
         </span>
       </span>
       <ChevronRight className="h-4 w-4 text-ink-soft" />
+    </>
+  )
+
+  if (href) {
+    return (
+      <Link href={href} className={className}>
+        {content}
+      </Link>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={className}
+    >
+      {content}
     </button>
   )
 }
@@ -3275,19 +3348,20 @@ function ApprovalCard({
   detail,
   status,
   tone,
-  onClick,
+  actionLabel,
+  href,
 }: {
   title: string
   target: string
   detail: string
   status: string
   tone: StatusTone
-  onClick: () => void
+  actionLabel: string
+  href: string
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <Link
+      href={href}
       className="w-full rounded-lg border border-tan bg-cream p-5 text-left shadow-card transition-colors hover:bg-cream-deep"
     >
       <div className="flex items-start justify-between gap-4">
@@ -3298,7 +3372,8 @@ function ApprovalCard({
         <StatusPill tone={tone}>{status}</StatusPill>
       </div>
       <p className={cn(spacing.headlineToBody, 'text-base leading-7 text-ink-soft')}>{detail}</p>
-    </button>
+      <p className="mt-3 text-sm font-bold text-clay">{actionLabel} →</p>
+    </Link>
   )
 }
 
@@ -3617,16 +3692,24 @@ function approvalIcon(approval: Approval) {
 }
 
 function approvalTone(approval: Approval): StatusTone {
-  if ((approval.price_cents ?? approval.requested_amount_cents ?? 0) > 0) return 'clay'
-  if (approval.action_label.toLowerCase().includes('hold')) return 'ochre'
-  return 'forest'
+  const presentation = getApprovalPresentation(
+    readApprovalUiState(approval as unknown as Record<string, unknown>).status
+  )
+  return approvalPresentationTone(presentation.tone)
+}
+
+function approvalPresentationTone(tone: ApprovalPresentationTone): StatusTone {
+  if (tone === 'success') return 'forest'
+  if (tone === 'danger') return 'brick'
+  if (tone === 'warning') return 'ochre'
+  if (tone === 'info') return 'clay'
+  return 'muted'
 }
 
 function approvalStatusLabel(approval: Approval) {
-  if ((approval.price_cents ?? approval.requested_amount_cents ?? 0) > 0) return 'Money'
-  if (approval.action_label.toLowerCase().includes('hold')) return 'Hold'
-  if (approval.action_label.toLowerCase().includes('send')) return 'Send'
-  return titleize(approval.status)
+  return getApprovalPresentation(
+    readApprovalUiState(approval as unknown as Record<string, unknown>).status
+  ).label
 }
 
 function isOutreachApproval(approval: Approval) {

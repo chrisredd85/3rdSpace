@@ -299,6 +299,68 @@ describe('MobilePlanner operating loop parity', () => {
     expect(screen.getByText('1 outreach batch waiting on you.')).toBeInTheDocument()
   })
 
+  it('counts failed and expired approvals as attention while excluding succeeded actions', async () => {
+    const failedApproval = {
+      ...outreachApproval,
+      id: 'approval-failed',
+      action_label: 'Retry venue outreach',
+      status: 'authorized',
+      action_status: 'failed',
+      ui_status: 'failed',
+      available_actions: ['retry'],
+    }
+    const expiredApproval = {
+      ...outreachApproval,
+      id: 'approval-expired',
+      action_label: 'Refresh expired venue hold',
+      status: 'expired',
+      ui_status: 'expired',
+      available_actions: ['request_reapproval'],
+    }
+    const succeededApproval = {
+      ...outreachApproval,
+      id: 'approval-succeeded',
+      action_label: 'Completed venue outreach',
+      status: 'authorized',
+      action_status: 'complete',
+      ui_status: 'succeeded',
+      available_actions: [],
+    }
+    const approvalPayload = {
+      ...plannerPayload,
+      approvals: [
+        { ...failedApproval, action_status: undefined, ui_status: undefined, available_actions: undefined },
+        { ...expiredApproval, ui_status: undefined, available_actions: undefined },
+        { ...succeededApproval, action_status: undefined, ui_status: undefined, available_actions: undefined },
+      ],
+      recommendations: [],
+    }
+
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/planner/plans?limit=10') return jsonResponse({ plans: [plan] })
+      if (url === '/api/planner/plans/plan-1') return jsonResponse(approvalPayload)
+      if (url === '/api/planner/plans/plan-1/mobile-home') return jsonResponse({ plan, pending_approvals: [failedApproval, expiredApproval], pending_approval_count: 2, problem: null, progress: [], updates: [] })
+      if (url === '/api/planner/plans/plan-1/budget') return jsonResponse({ target_cents: 500000, low_total_cents: 0, high_total_cents: 0, committed_total_cents: 0, projected_delta_cents: null, projected_buffer_low_cents: null, projected_buffer_high_cents: null, lines: [] })
+      if (url === '/api/planner/plans/plan-1/activity') return jsonResponse({ activities: [] })
+      if (url === '/api/builder/billing/status') return jsonResponse({ billing: { tier: 'free', status: 'active', freeEventsRemaining: 1, canCreateEvent: true } })
+      if (url === '/api/planner/ticketing/analytics') return jsonResponse({ summary: { tickets_sold: 0, net_revenue_cents: 0 }, events: [] })
+      if (url === '/api/integrations/ticketing/connections') return jsonResponse({ connections: [] })
+      if (url === '/api/integrations/gmail/account') return jsonResponse({ account: connectedGmailAccount })
+      if (url === '/api/planner/analytics') return jsonResponse({ events_per_year: 0, average_margin_percent: null, rebook_rate_percent: null, best_format: null, recommendation: 'No data', recent_events: [] })
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    }) as jest.Mock
+
+    render(<MobilePlanner />)
+
+    expect(await screen.findByText('Approvals need attention.')).toBeInTheDocument()
+    expect(screen.getByText(/2 approvals need review, retry, or re-approval/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Review 2 approvals' })).toHaveAttribute('href', '/planner/approvals')
+    expect(screen.getByText('Retry venue outreach').closest('a')).toHaveAttribute('href', '/planner?plan=plan-1&tab=approvals')
+    expect(screen.getByText('Refresh expired venue hold').closest('a')).toHaveAttribute('href', '/planner?plan=plan-1&tab=approvals')
+    expect(screen.queryByText('Completed venue outreach')).not.toBeInTheDocument()
+  })
+
   it('requires Gmail connection before mobile can create a venue outreach batch', async () => {
     const fetchMock = jest.fn((input: RequestInfo | URL) => {
       const url = String(input)
@@ -570,7 +632,8 @@ describe('MobilePlanner operating loop parity', () => {
     expect(await screen.findByText('Active event')).toBeInTheDocument()
     expect(screen.getByText('Oakland happy hour')).toBeInTheDocument()
     expect(screen.getByText(/Downtown Oakland · 40 guests/)).toBeInTheDocument()
-    expect(screen.getByText('1 pending')).toBeInTheDocument()
+    expect(screen.getByText('1 approval record')).toBeInTheDocument()
+    expect(screen.getByText('Pending review')).toBeInTheDocument()
   })
 
   it('loads the same requested plan as desktop when the mobile URL includes plan', async () => {

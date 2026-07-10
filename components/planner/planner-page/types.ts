@@ -1,6 +1,8 @@
 import { plannerDraftStorageKey } from '@/lib/planner/migrateDraft'
 import type { Plan, PlanMessage } from '@/lib/types'
 
+export type { ApprovalUiStatus } from '@/lib/planner/approvalUiState'
+
 export const planTabs = [
   { id: 'chat', label: 'Chat' },
   { id: 'recommendations', label: 'Recommendations' },
@@ -18,7 +20,6 @@ export const quickActionChips = [
 export const activeConversationStorageKey = plannerDraftStorageKey
 
 export type PlannerTab = (typeof planTabs)[number]['id']
-export type ApprovalUiStatus = 'approved' | 'rejected' | 'superseded'
 export type PlannerPersistenceMode = 'loading' | 'server' | 'draft'
 export type PendingConversionActionType = 'save' | 'hold' | 'authorize'
 export type BillingRequiredHandler = (message?: string | null) => void
@@ -37,6 +38,7 @@ export interface PendingConversionAction {
     agentAction?: PlannerAgentActionRequest
     approvalId?: string
     authorizedAmountCents?: number
+    expectedSnapshotHash?: string
     externalUrl?: string
     reason?: 'recommendations' | string
   }
