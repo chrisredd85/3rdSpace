@@ -64,6 +64,10 @@ import {
   type PlanRevisionTrigger,
 } from '@/lib/planner/planRevisions'
 import {
+  transitionPlanStatus,
+  type PlanStatusRpcClient,
+} from '@/lib/planner/planStatusTransitions'
+import {
   buildSpecialSupplyTransitionPhrase,
   mergeSpecialSupplyMetadata,
   pickSpecialSupplyIntakeQuestion,
@@ -128,6 +132,7 @@ const PLAN_SELECT_COLUMNS = `
   excluded_vendor_attributes,
   preferred_vendor_attributes,
   plan_revision_count,
+  materialized_event_id,
   metadata,
   created_at,
   updated_at
@@ -249,6 +254,15 @@ export async function POST(
       body.data.message,
       buildPlanUpdates(intent, existingPlan, body.data.message)
     )
+    if (existingPlan.materialized_event_id && hasCanonicalEventSensitiveChanges(fieldUpdates)) {
+      return NextResponse.json(
+        {
+          error: 'This plan already has a canonical event. Create a revision and re-authorize it before changing event facts.',
+          details: { code: 'canonical_event_revision_required' },
+        },
+        { status: 409 }
+      )
+    }
     const planAfterFieldUpdates = await updatePlanIfNeeded(
       auth.db,
       writeDb,
@@ -303,10 +317,11 @@ export async function POST(
       ? buildRequestedRecommendationDraft(agentResponse.agentDraft, agentResponse.plan)
       : agentResponse.agentDraft
     const finalPlan = await maybeMarkPlanReady(
-      auth.db,
+      writeDb as unknown as PlanStatusRpcClient,
       (await context.params).planId,
       agentResponse.plan,
-      agentDraft.message_type
+      agentDraft.message_type,
+      auth.userId
     )
 
     const { data: agentMessageData, error: agentMessageError } = await writeDb
@@ -902,6 +917,10 @@ async function updatePlanIfNeeded(
     Object.entries(updates).filter(([field, value]) => currentPlan[field as keyof Plan] !== value)
   )
   if (Object.keys(changedUpdates).length === 0) return currentPlan
+  if (currentPlan.materialized_event_id && hasCanonicalEventSensitiveChanges(changedUpdates)) {
+    console.warn('[planner.identity] Ignoring agent-proposed changes to an already materialized event')
+    return currentPlan
+  }
 
   const { data, error } = await db
     .from('plans')
@@ -919,6 +938,24 @@ async function updatePlanIfNeeded(
   await syncPlanSupplyIntentRows(db, (data as Plan).id, (data as Plan).metadata)
 
   return data as Plan
+}
+
+function hasCanonicalEventSensitiveChanges(updates: Record<string, unknown>): boolean {
+  const eventSensitiveFields = new Set([
+    'event_type',
+    'guest_count',
+    'neighborhood',
+    'date_window_start',
+    'date_window_end',
+    'budget_cap_cents',
+    'ticketed',
+    'ticketing_model',
+    'food_responsibility',
+    'venue_terms',
+    'agent_action',
+    'profit_goal_cents',
+  ])
+  return Object.keys(updates).some((field) => eventSensitiveFields.has(field))
 }
 
 function buildIntakeAgentDraft(
@@ -1276,26 +1313,27 @@ function normalizePlanningMoneyToCents(value: number): number {
 }
 
 async function maybeMarkPlanReady(
-  db: PlannerDb,
+  db: PlanStatusRpcClient,
   planId: string,
   currentPlan: Plan,
-  messageType: PlanMessage['message_type']
+  messageType: PlanMessage['message_type'],
+  actorId: string
 ): Promise<Plan> {
   if (messageType !== 'recommendation' || currentPlan.status !== 'drafting') return currentPlan
 
-  const { data, error } = await db
-    .from('plans')
-    .update({ status: 'ready' })
-    .eq('id', planId)
-    .select(PLAN_SELECT_COLUMNS)
-    .single()
-
-  if (error || !data) {
-    console.error('Planner ready status update error:', error)
+  try {
+    return await transitionPlanStatus(db, {
+      planId,
+      expectedStatus: 'drafting',
+      toStatus: 'ready',
+      trigger: 'intake_completed',
+      actorId,
+      context: { source: 'planner_message' },
+    })
+  } catch (error) {
+    console.error('Planner ready status transition error:', error)
     return currentPlan
   }
-
-  return data as Plan
 }
 
 async function hasExistingRecommendationPipelineArtifacts(

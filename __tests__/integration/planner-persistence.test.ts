@@ -57,6 +57,21 @@ class MemoryDb {
     return new MemoryQuery(this, table)
   }
 
+  async rpc(functionName: string, args: Row) {
+    if (functionName !== 'transition_plan_status') {
+      return { data: null, error: { message: `Unknown RPC ${functionName}` } }
+    }
+
+    const plan = this.rows.plans.find((row) => row.id === args.p_plan_id)
+    if (!plan || plan.status !== args.p_expected_status) {
+      return { data: null, error: { code: '40001', message: 'Plan status compare-and-swap failed' } }
+    }
+
+    plan.status = args.p_to_status
+    plan.updated_at = new Date().toISOString()
+    return { data: [{ ...plan }], error: null }
+  }
+
   nextId(table: string) {
     this.sequence += 1
     return `${table}-${this.sequence}`
@@ -256,6 +271,7 @@ describe('Planner persistence integration', () => {
     })
     mockCreateServiceRoleClient.mockReturnValue({
       from: (table: string) => db.from(table),
+      rpc: (functionName: string, args: Row) => db.rpc(functionName, args),
     })
   })
 
@@ -690,7 +706,7 @@ describe('Planner persistence integration', () => {
     }
   })
 
-  it('creates a plan, appends messages, transitions status, and reloads persisted state', async () => {
+  it('creates a plan, persists messages, and blocks generic lifecycle authorization', async () => {
     const createResponse = await createPlan(makeRequest('/api/planner/plans', {
       message: 'I want to plan an event',
     }))
@@ -700,27 +716,39 @@ describe('Planner persistence integration', () => {
     expect(createResponse.status).toBe(200)
     expect(created.messages).toHaveLength(2)
 
-    for (const message of ['Event type: mixer', 'Date: June 12', '40 people']) {
+    for (const message of ['Event type: mixer', 'Date: June 12', '40 people', 'Neighborhood: Mission District']) {
       const response = await postMessage(makeRequest(`/api/planner/plans/${planId}/messages`, { message }), {
         params: { planId },
       })
       expect(response.status).toBe(200)
     }
 
+    const persistedPlan = db.rows.plans.find((row) => row.id === planId)!
+    if (persistedPlan.status === 'drafting') {
+      await db.rpc('transition_plan_status', {
+        p_plan_id: planId,
+        p_expected_status: 'drafting',
+        p_to_status: 'ready',
+      })
+    }
+
     const readyResponse = await patchPlan(makeRequest(`/api/planner/plans/${planId}`, { status: 'ready' }, 'PATCH'), {
       params: { planId },
     })
-    expect(readyResponse.status).toBe(200)
+    expect(readyResponse.status).toBe(422)
 
     const approvedResponse = await patchPlan(makeRequest(`/api/planner/plans/${planId}`, { status: 'approved' }, 'PATCH'), {
       params: { planId },
     })
-    expect(approvedResponse.status).toBe(200)
+    expect(approvedResponse.status).toBe(422)
+    await expect(readJson(approvedResponse)).resolves.toMatchObject({
+      details: { code: 'plan_status_command_required' },
+    })
 
     const listResponse = await listPlans(makeRequest('/api/planner/plans?limit=10'))
     const list = await readJson(listResponse)
     expect(list.plans[0].id).toBe(planId)
-    expect(list.plans[0].status).toBe('approved')
+    expect(list.plans[0].status).toBe('ready')
 
     const reloadResponse = await getPlan(makeRequest(`/api/planner/plans/${planId}`), {
       params: { planId },
@@ -728,7 +756,7 @@ describe('Planner persistence integration', () => {
     const reloaded = await readJson(reloadResponse)
 
     expect(reloadResponse.status).toBe(200)
-    expect(reloaded.plan.status).toBe('approved')
+    expect(reloaded.plan.status).toBe('ready')
     expect(reloaded.workspace_summary).toEqual(expect.objectContaining({
       current_status: 'on_track',
       blockers: [],
@@ -737,8 +765,105 @@ describe('Planner persistence integration', () => {
       impossible_timeline: expect.any(Boolean),
       planning_milestones: expect.any(Array),
     }))
-    expect(reloaded.messages).toHaveLength(8)
-    expect(db.rows.planner_plan_updates.filter((row) => row.field === 'status')).toHaveLength(2)
+    expect(reloaded.messages).toHaveLength(10)
+    expect(db.rows.planner_plan_updates.filter((row) => row.field === 'status')).toHaveLength(0)
+  })
+
+  it('archives through the centralized lifecycle command', async () => {
+    db.rows.plans.push({
+      id: 'archive-plan',
+      user_id: 'user-1',
+      title: 'Archive me',
+      event_type: 'community_mixer',
+      status: 'ready',
+      guest_count: 40,
+      budget_cap_cents: 100_000,
+      neighborhood: 'Mission',
+      date_window_start: '2026-08-15',
+      date_window_end: '2026-08-15',
+      ticketed: false,
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {},
+    })
+
+    const response = await patchPlan(
+      makeRequest('/api/planner/plans/archive-plan', { status: 'archived' }, 'PATCH'),
+      { params: { planId: 'archive-plan' } }
+    )
+
+    expect(response.status).toBe(200)
+    await expect(readJson(response)).resolves.toMatchObject({ plan: { id: 'archive-plan', status: 'archived' } })
+    expect(db.rows.plans.find((row) => row.id === 'archive-plan')?.status).toBe('archived')
+  })
+
+  it('does not let generic PATCH split a materialized plan from its event', async () => {
+    db.rows.plans.push({
+      id: 'materialized-plan',
+      user_id: 'user-1',
+      title: 'Canonical mixer',
+      event_type: 'community_mixer',
+      status: 'executing',
+      materialized_event_id: 'canonical-event-1',
+      guest_count: 40,
+      budget_cap_cents: 100_000,
+      neighborhood: 'Mission',
+      date_window_start: '2026-08-15',
+      date_window_end: '2026-08-15',
+      ticketed: false,
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {},
+    })
+
+    const response = await patchPlan(
+      makeRequest('/api/planner/plans/materialized-plan', { guest_count: 75 }, 'PATCH'),
+      { params: { planId: 'materialized-plan' } }
+    )
+
+    expect(response.status).toBe(409)
+    await expect(readJson(response)).resolves.toMatchObject({
+      details: { code: 'canonical_event_revision_required' },
+    })
+    expect(db.rows.plans.find((row) => row.id === 'materialized-plan')?.guest_count).toBe(40)
+    expect(db.rows.planner_plan_updates).toHaveLength(0)
+  })
+
+  it('does not let a confirmed chat change split a materialized plan from its event', async () => {
+    db.rows.plans.push({
+      id: 'materialized-chat-plan',
+      user_id: 'user-1',
+      title: 'Canonical dinner',
+      event_type: 'private_dinner_celebration',
+      status: 'executing',
+      materialized_event_id: 'canonical-event-2',
+      guest_count: 24,
+      budget_cap_cents: 200_000,
+      neighborhood: 'Mission',
+      date_window_start: '2026-08-15',
+      date_window_end: '2026-08-15',
+      ticketed: false,
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {
+        pending_plan_change: {
+          field: 'date_window_start',
+          from: '2026-08-15',
+          to: '2026-08-22',
+          raw_value: '2026-08-22',
+          prompt: 'Should I update the date?',
+        },
+      },
+    })
+
+    const response = await postMessage(
+      makeRequest('/api/planner/plans/materialized-chat-plan/messages', { message: 'Yes, update it' }),
+      { params: { planId: 'materialized-chat-plan' } }
+    )
+
+    expect(response.status).toBe(409)
+    expect(db.rows.plans.find((row) => row.id === 'materialized-chat-plan')?.date_window_start).toBe('2026-08-15')
+    expect(db.rows.plan_messages).toHaveLength(0)
   })
 
   it('returns action-aware approval truth from the full plan read model', async () => {

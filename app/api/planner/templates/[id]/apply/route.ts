@@ -4,6 +4,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS, RECOMMENDATION_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import {
+  transitionPlanStatus,
+  type PlanStatusRpcClient,
+} from '@/lib/planner/planStatusTransitions'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlanMessage, Recommendation } from '@/lib/types'
 
@@ -130,14 +134,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const applyInput = parsed.data
     const shouldCreateNewPlan = applyInput.create_new_plan === true || !applyInput.plan_id
+    const writeSupabase = createServiceRoleClient()
     const planResult = shouldCreateNewPlan
       ? await createPlanFromTemplate(supabase, user.id, templateRow, applyInput)
-      : await updatePlanFromTemplate(supabase, user.id, templateRow, applyInput)
+      : await updatePlanFromTemplate(
+        supabase,
+        writeSupabase as unknown as PlanStatusRpcClient,
+        user.id,
+        templateRow,
+        applyInput
+      )
 
     if ('response' in planResult) return planResult.response
 
     const { plan: updatedPlan, changedFields, wasCreated } = planResult
-    const writeSupabase = createServiceRoleClient()
 
     const insertTemplateRun = supabase.from('template_runs').insert as unknown as InsertTemplateRun
     const { error: insertError } = await insertTemplateRun({
@@ -287,6 +297,7 @@ async function createPlanFromTemplate(
 
 async function updatePlanFromTemplate(
   supabase: ReturnType<typeof createClient>,
+  writeDb: PlanStatusRpcClient,
   userId: string,
   template: TemplateRow,
   input: ApplyTemplateInput
@@ -312,8 +323,23 @@ async function updatePlanFromTemplate(
     return { response: NextResponse.json({ error: 'Plan not found' }, { status: 404 }) }
   }
 
+  if (planRow.materialized_event_id || !['drafting', 'ready'].includes(planRow.status)) {
+    return {
+      response: NextResponse.json(
+        {
+          error: 'This template cannot replace an approved or materialized event. Create a new rebook plan instead.',
+        },
+        { status: 409 }
+      ),
+    }
+  }
+
   const planUpdates = buildPlanUpdatesFromTemplate(planRow, template, input)
   const changedFields = Object.keys(planUpdates).filter((field) => field !== 'metadata')
+  const shouldMarkReady = planRow.status === 'drafting' && isReadyForRecommendations({
+    ...planRow,
+    ...planUpdates,
+  })
   const updatePlan = supabase.from('plans').update as unknown as (
     values: Record<string, unknown>
   ) => {
@@ -338,8 +364,26 @@ async function updatePlanFromTemplate(
     return { response: NextResponse.json({ error: 'Failed to apply template to plan' }, { status: 500 }) }
   }
 
+  let finalPlan = updatedPlan as Plan
+  if (shouldMarkReady) {
+    try {
+      finalPlan = await transitionPlanStatus(writeDb, {
+        planId: planRow.id,
+        expectedStatus: 'drafting',
+        toStatus: 'ready',
+        trigger: 'intake_completed',
+        actorId: userId,
+        context: { source: 'template_apply', template_id: template.id },
+      })
+      changedFields.push('status')
+    } catch (error) {
+      console.error('[agent.run] Planner template apply status transition failed', error)
+      return { response: NextResponse.json({ error: 'Failed to advance templated plan status' }, { status: 500 }) }
+    }
+  }
+
   return {
-    plan: updatedPlan as Plan,
+    plan: finalPlan,
     changedFields,
     wasCreated: false,
   }
@@ -431,11 +475,6 @@ function buildPlanUpdatesFromTemplate(plan: Plan, template: TemplateRow, input: 
 
   const venueTerms = readString(budgetModel?.venue_terms)
   if (!plan.venue_terms && venueTerms) updates.venue_terms = venueTerms
-
-  const nextPlan = { ...plan, ...updates } as Plan
-  if (nextPlan.status !== 'ready' && isReadyForRecommendations(nextPlan)) {
-    updates.status = 'ready'
-  }
 
   return updates
 }

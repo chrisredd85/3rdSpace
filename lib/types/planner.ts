@@ -5,7 +5,15 @@ import type { Json } from '@/lib/types/database'
 import type { ServiceType, VenueType } from '@/lib/types/enums'
 
 /** Lifecycle states for an Agent Planner plan. */
-export type PlanStatus = 'drafting' | 'ready' | 'approved' | 'executing' | 'complete' | 'archived'
+export type PlanStatus =
+  | 'drafting'
+  | 'ready'
+  | 'approved'
+  | 'executing'
+  | 'booked'
+  | 'completed'
+  | 'complete' // Legacy read compatibility; new transitions use `completed`.
+  | 'archived'
 
 /** Author roles for planner timeline messages. */
 export type PlanMessageRole = 'user' | 'agent' | 'system'

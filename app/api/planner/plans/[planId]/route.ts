@@ -19,6 +19,10 @@ import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendatio
 import { loadPlanAgentFields } from '@/lib/planner/planAgentSummaries'
 import { enrichPlanSelectedVendors } from '@/lib/planner/planVendorSelections'
 import { enrichApprovalsWithActionState } from '@/lib/planner/pendingApprovals'
+import {
+  transitionPlanStatus,
+  type PlanStatusRpcClient,
+} from '@/lib/planner/planStatusTransitions'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type {
   Approval,
@@ -27,7 +31,6 @@ import type {
   PlannerApiErrorResponse,
   PlannerFullPlanResponse,
   PlanMessage,
-  PlanStatus,
   Recommendation,
 } from '@/lib/types'
 
@@ -36,7 +39,16 @@ type PlannerAuth =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
 
-const planStatusSchema = z.enum(['drafting', 'ready', 'approved', 'executing', 'complete', 'archived'])
+const planStatusSchema = z.enum([
+  'drafting',
+  'ready',
+  'approved',
+  'executing',
+  'booked',
+  'completed',
+  'complete',
+  'archived',
+])
 
 const patchPlanSchema = z.object({
   status: planStatusSchema.optional(),
@@ -129,18 +141,63 @@ export async function PATCH(
     const existingPlan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!existingPlan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const updates = normalizePlanPatch(parsed.data, existingPlan)
-    if (updates.status && !isAllowedPlanStatusTransition(existingPlan.status, updates.status as PlanStatus)) {
+    if (parsed.data.status && parsed.data.status !== 'archived') {
       return NextResponse.json(
-        { error: `Illegal status transition from ${existingPlan.status} to ${updates.status}` },
+        {
+          error: 'Plan lifecycle status is advanced by the corresponding planner command, not by a generic update.',
+          details: { code: 'plan_status_command_required' },
+        },
         { status: 422 }
       )
     }
 
+    const updates = normalizePlanPatch(parsed.data, existingPlan)
     const changedUpdates = pickChangedFields(existingPlan, updates)
-    if (Object.keys(changedUpdates).length === 0) {
-      return NextResponse.json({ plan: existingPlan })
+    if (existingPlan.materialized_event_id && hasCanonicalEventSensitiveChanges(changedUpdates)) {
+      return NextResponse.json(
+        {
+          error: 'This plan already has a canonical event. Create a revision and re-authorize it before changing event facts.',
+          details: { code: 'canonical_event_revision_required' },
+        },
+        { status: 409 }
+      )
     }
+
+    if (parsed.data.status === 'archived') {
+      if (Object.keys(changedUpdates).length > 0) {
+        return NextResponse.json(
+          {
+            error: 'Archive a plan separately from editing its details.',
+            details: { code: 'archive_command_must_be_isolated' },
+          },
+          { status: 422 }
+        )
+      }
+      if (existingPlan.status === 'archived') return NextResponse.json({ plan: existingPlan })
+
+      try {
+        const plan = await transitionPlanStatus(
+          createServiceRoleClient() as unknown as PlanStatusRpcClient,
+          {
+            planId: existingPlan.id,
+            expectedStatus: existingPlan.status,
+            toStatus: 'archived',
+            trigger: 'plan_archived',
+            actorId: auth.userId,
+            context: { source: 'planner_plan_patch' },
+          }
+        )
+        return NextResponse.json({ plan })
+      } catch (error) {
+        console.error('Planner plan archive transition error:', error)
+        return NextResponse.json(
+          { error: 'Plan could not be archived', details: { code: 'plan_status_transition_failed' } },
+          { status: 409 }
+        )
+      }
+    }
+
+    if (Object.keys(changedUpdates).length === 0) return NextResponse.json({ plan: existingPlan })
 
     const writeDb = createServiceRoleClient() as unknown as PlannerDb
 
@@ -263,7 +320,6 @@ function normalizePlanPatch(input: z.infer<typeof patchPlanSchema>, currentPlan:
   const updates: Record<string, unknown> = {}
 
   for (const key of [
-    'status',
     'title',
     'event_type',
     'date_window_start',
@@ -525,19 +581,22 @@ function pickChangedFields(plan: Plan, updates: Record<string, unknown>) {
   )
 }
 
-function isAllowedPlanStatusTransition(current: PlanStatus, next: PlanStatus) {
-  if (current === next) return true
-
-  const allowed: Record<PlanStatus, PlanStatus[]> = {
-    drafting: ['ready', 'archived'],
-    ready: ['approved', 'drafting', 'archived'],
-    approved: ['executing', 'archived'],
-    executing: ['complete', 'archived'],
-    complete: ['archived'],
-    archived: [],
-  }
-
-  return allowed[current].includes(next)
+function hasCanonicalEventSensitiveChanges(updates: Record<string, unknown>): boolean {
+  const eventSensitiveFields = new Set([
+    'event_type',
+    'guest_count',
+    'neighborhood',
+    'date_window_start',
+    'date_window_end',
+    'budget_cap_cents',
+    'ticketed',
+    'ticketing_model',
+    'food_responsibility',
+    'venue_terms',
+    'agent_action',
+    'profit_goal_cents',
+  ])
+  return Object.keys(updates).some((field) => eventSensitiveFields.has(field))
 }
 
 async function insertPlanUpdateRows(db: PlannerDb, plan: Plan, updates: Record<string, unknown>) {

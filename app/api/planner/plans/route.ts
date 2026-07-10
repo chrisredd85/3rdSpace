@@ -36,6 +36,10 @@ import {
 } from '@/lib/planner/archetypes'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import { hasUnknownBudgetSignal, parseEventIntent } from '@/lib/planner/intentParser'
+import {
+  transitionPlanStatus,
+  type PlanStatusRpcClient,
+} from '@/lib/planner/planStatusTransitions'
 import { mergeUserPreferenceSignalsIntoMetadata } from '@/lib/planner/userPreferenceSignals'
 import { BYO_VENDORS_METADATA_KEY, mergeByoVendors, readByoVendors } from '@/lib/planner/byoVendors'
 import {
@@ -406,7 +410,12 @@ async function insertInitialMessages(
     userMessage: message,
     messages: [userMessage],
   })
-  const finalPlan = await maybeMarkPlanReady(db, agentResponse.plan, agentResponse.agentDraft.message_type)
+  const finalPlan = await maybeMarkPlanReady(
+    writeDb as unknown as PlanStatusRpcClient,
+    agentResponse.plan,
+    agentResponse.agentDraft.message_type,
+    userId
+  )
   const { data: agentMessageData, error: agentMessageError } = await writeDb
     .from('plan_messages')
     .insert({
@@ -552,25 +561,26 @@ function toIntakeBuilderHistory(summary: BuilderAttendanceSummary) {
 }
 
 async function maybeMarkPlanReady(
-  db: PlannerDb,
+  db: PlanStatusRpcClient,
   currentPlan: Plan,
-  messageType: PlanMessage['message_type']
+  messageType: PlanMessage['message_type'],
+  actorId: string
 ): Promise<Plan> {
   if (messageType !== 'recommendation' || currentPlan.status !== 'drafting') return currentPlan
 
-  const { data, error } = await db
-    .from('plans')
-    .update({ status: 'ready' })
-    .eq('id', currentPlan.id)
-    .select(PLAN_SELECT_COLUMNS)
-    .single()
-
-  if (error || !data) {
-    console.error('Planner initial ready status update error:', error)
+  try {
+    return await transitionPlanStatus(db, {
+      planId: currentPlan.id,
+      expectedStatus: 'drafting',
+      toStatus: 'ready',
+      trigger: 'intake_completed',
+      actorId,
+      context: { source: 'planner_initial_message' },
+    })
+  } catch (error) {
+    console.error('Planner initial ready status transition error:', error)
     return currentPlan
   }
-
-  return data as Plan
 }
 
 function buildIntakeAgentDraft(
