@@ -86,6 +86,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Event materialization is unavailable' }, { status: 500 })
     }
 
+    // This transition establishes lineage only. It does not create or
+    // authorize a booking, payment, transaction, or outbound message.
     const { data, error } = await writeDb.rpc('materialize_plan_event', {
       p_plan_id: plan.id,
       p_actor_id: auth.userId,

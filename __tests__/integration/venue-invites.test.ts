@@ -38,6 +38,7 @@ const organizerUser = {
 
 const planId = '22222222-2222-4222-8222-222222222222'
 const eventId = '33333333-3333-4333-8333-333333333333'
+const legacyEventId = '33333333-3333-4333-8333-333333333334'
 const venueId = '44444444-4444-4444-8444-444444444444'
 const relationshipId = '55555555-5555-4555-8555-555555555555'
 const agreementId = '66666666-6666-4666-8666-666666666666'
@@ -46,6 +47,7 @@ const invitedAt = '2026-06-25T12:00:00.000Z'
 describe('inviteVenue server action', () => {
   let rpcMock: jest.Mock
   let fromMock: jest.Mock
+  let planRow: Record<string, unknown>
   const originalSecret = process.env.VENUE_INVITE_SECRET
 
   beforeEach(() => {
@@ -62,6 +64,12 @@ describe('inviteVenue server action', () => {
       ok: true,
       plan: { id: planId, metadata: { shopping_list: { selected_venue: { venue_id: venueId } } } },
     })
+    planRow = {
+      id: planId,
+      user_id: organizerUser.id,
+      materialized_event_id: eventId,
+      metadata: { event_id: legacyEventId },
+    }
     rpcMock = jest.fn().mockResolvedValue({
       data: [{
         venue_id: venueId,
@@ -73,11 +81,7 @@ describe('inviteVenue server action', () => {
     })
     fromMock = jest.fn((table: string) => {
       if (table === 'plans') {
-        return makeQueryBuilder({
-          id: planId,
-          user_id: organizerUser.id,
-          metadata: { event_id: eventId },
-        })
+        return makeQueryBuilder(planRow)
       }
       if (table === 'venues') {
         return makeQueryBuilder({
@@ -139,6 +143,16 @@ describe('inviteVenue server action', () => {
       p_source_event_id: null,
     }))
     expect(mockAttachVenueToActivePlan).not.toHaveBeenCalled()
+  })
+
+  it('uses legacy metadata only when no canonical event FK exists', async () => {
+    planRow.materialized_event_id = null
+
+    await inviteVenue(baseInviteInput({ planId }))
+
+    expect(rpcMock).toHaveBeenCalledWith('create_venue_invite', expect.objectContaining({
+      p_source_event_id: legacyEventId,
+    }))
   })
 
   it('reuses an existing organizer venue invite without throwing', async () => {

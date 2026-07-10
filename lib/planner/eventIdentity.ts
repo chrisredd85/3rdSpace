@@ -1,4 +1,5 @@
 import { resolveArchetypeKey } from '@/lib/planner/archetypes'
+import type { Plan } from '@/lib/types'
 
 /**
  * Canonical event taxonomy for planner-materialized events.
@@ -51,4 +52,31 @@ export function resolveCanonicalEventTaxonomy(eventType: string | null | undefin
     archetypeKey,
     eventType: CANONICAL_EVENT_TYPE_BY_ARCHETYPE[archetypeKey],
   }
+}
+
+/**
+ * Returns the event linked to a plan by the canonical FK, with the old metadata
+ * projection retained only for pre-Prompt-7 rows.
+ *
+ * This is lineage, not authority: callers must never treat an event ID as
+ * proof that a booking, outbound message, or payment was approved.
+ */
+export function getPlanCanonicalEventId(
+  plan: Pick<Plan, 'materialized_event_id' | 'metadata'>
+): string | null {
+  const materializedEventId = readNonEmptyString(plan.materialized_event_id)
+  if (materializedEventId) return materializedEventId
+
+  const metadata = readRecord(plan.metadata)
+  return readNonEmptyString(metadata?.event_id)
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }

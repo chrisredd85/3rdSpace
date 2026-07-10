@@ -161,7 +161,7 @@ export async function PATCH(request: NextRequest, props: RouteContext) {
     // Verify event belongs to user
     const { data: existingEvent } = await supabase
       .from('events')
-      .select('id')
+      .select('id, plan_id')
       .eq('id', id)
       .eq('builder_id', builderProfileId)
       .single()
@@ -173,6 +173,13 @@ export async function PATCH(request: NextRequest, props: RouteContext) {
       )
     }
 
+    const canonicalPlanId = readCanonicalPlanId(existingEvent)
+    if (canonicalPlanId) {
+      return canonicalRevisionRequired(canonicalPlanId)
+    }
+
+    // The direct FK is authoritative. The bridge remains a compatibility
+    // fallback for rows materialized before events.plan_id was introduced.
     const { data: materialization, error: materializationError } = await (admin as any)
       .from('builder_event_materializations')
       .select('plan_id')
@@ -188,14 +195,7 @@ export async function PATCH(request: NextRequest, props: RouteContext) {
     }
 
     if (materialization) {
-      return NextResponse.json(
-        {
-          error: 'This event is linked to a planner record. Update it through the planner so date, seats, vendor, terms, and approvals stay in sync.',
-          code: 'canonical_event_revision_required',
-          planId: materialization.plan_id,
-        },
-        { status: 409 }
-      )
+      return canonicalRevisionRequired(materialization.plan_id)
     }
 
     // Update event
@@ -294,6 +294,27 @@ export async function DELETE(request: NextRequest, props: RouteContext) {
 
     const { id } = params
 
+    const { data: existingEvent } = await supabase
+      .from('events')
+      .select('id, plan_id')
+      .eq('id', id)
+      .eq('builder_id', builderProfileId)
+      .single()
+
+    if (!existingEvent) {
+      return NextResponse.json(
+        { error: 'Event not found' },
+        { status: 404 }
+      )
+    }
+
+    const canonicalPlanId = readCanonicalPlanId(existingEvent)
+    if (canonicalPlanId) {
+      return canonicalCancellationRequired(canonicalPlanId)
+    }
+
+    // The direct FK is authoritative. The bridge remains a compatibility
+    // fallback for rows materialized before events.plan_id was introduced.
     const { data: materialization, error: materializationError } = await (admin as any)
       .from('builder_event_materializations')
       .select('plan_id')
@@ -309,34 +330,12 @@ export async function DELETE(request: NextRequest, props: RouteContext) {
     }
 
     if (materialization) {
-      return NextResponse.json(
-        {
-          error: 'This event is linked to a planner and billing record. Cancel it through the canonical planner flow so bookings, approvals, outreach, payments, and access history remain consistent.',
-          code: 'canonical_event_cancellation_required',
-          planId: materialization.plan_id,
-          creditRestored: false,
-        },
-        { status: 409 }
-      )
+      return canonicalCancellationRequired(materialization.plan_id)
     }
 
     // Preserve the legacy destructive behavior only for events that predate
     // the plan/access bridge. Prompt 7 owns aggregate cancellation semantics
     // for canonical materializations.
-    const { data: existingEvent } = await supabase
-      .from('events')
-      .select('id')
-      .eq('id', id)
-      .eq('builder_id', builderProfileId)
-      .single()
-
-    if (!existingEvent) {
-      return NextResponse.json(
-        { error: 'Event not found' },
-        { status: 404 }
-      )
-    }
-
     const { error } = await supabase.from('events').delete().eq('id', id)
     if (error) {
       console.error('Error deleting legacy event:', error)
@@ -357,4 +356,35 @@ export async function DELETE(request: NextRequest, props: RouteContext) {
       { status: 500 }
     )
   }
+}
+
+function readCanonicalPlanId(event: unknown): string | null {
+  // This FK protects aggregate lineage from legacy writes. It is not payment
+  // authorization; execution still requires its linked action and approval.
+  if (!event || typeof event !== 'object' || Array.isArray(event)) return null
+  const planId = (event as { plan_id?: unknown }).plan_id
+  return typeof planId === 'string' && planId.trim().length > 0 ? planId : null
+}
+
+function canonicalRevisionRequired(planId: string) {
+  return NextResponse.json(
+    {
+      error: 'This event is linked to a planner record. Update it through the planner so date, seats, vendor, terms, and approvals stay in sync.',
+      code: 'canonical_event_revision_required',
+      planId,
+    },
+    { status: 409 }
+  )
+}
+
+function canonicalCancellationRequired(planId: string) {
+  return NextResponse.json(
+    {
+      error: 'This event is linked to a planner and billing record. Cancel it through the canonical planner flow so bookings, approvals, outreach, payments, and access history remain consistent.',
+      code: 'canonical_event_cancellation_required',
+      planId,
+      creditRestored: false,
+    },
+    { status: 409 }
+  )
 }

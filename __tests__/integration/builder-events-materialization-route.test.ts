@@ -89,6 +89,7 @@ const consumptionId = '50000000-0000-4000-8000-000000000001'
 
 let rpcMock: jest.Mock
 let fromMock: jest.Mock
+let sessionFromMock: jest.Mock
 
 function materializationRow(existing = false) {
   return {
@@ -144,6 +145,7 @@ async function json(response: Response) {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  sessionFromMock = jest.fn()
   mockCreateClient.mockReturnValue({
     auth: {
       getUser: jest.fn().mockResolvedValue({
@@ -156,6 +158,7 @@ beforeEach(() => {
         error: null,
       }),
     },
+    from: sessionFromMock,
   })
   mockGetBuilderProfileId.mockResolvedValue({ builderProfileId: builderId, error: null })
   mockLoadBillingProfile.mockResolvedValue({
@@ -303,7 +306,48 @@ describe('POST /api/builder/events atomic materialization', () => {
 describe('materialized builder event lifecycle', () => {
   const context = { params: Promise.resolve({ id: eventId }) }
 
+  it('blocks edits using the canonical events.plan_id FK before the bridge fallback', async () => {
+    const eventLookup = makeOwnedEventLookup(planId)
+    sessionFromMock.mockReturnValue(eventLookup)
+
+    const response = await updateBuilderEvent(
+      new Request(`http://localhost/api/builder/events/${eventId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ event_date: '2026-09-10' }),
+      }) as NextRequest,
+      context,
+    )
+    const body = await json(response)
+
+    expect(response.status).toBe(409)
+    expect(body).toMatchObject({ code: 'canonical_event_revision_required', planId })
+    expect(fromMock).not.toHaveBeenCalled()
+    expect(eventLookup.update).not.toHaveBeenCalled()
+  })
+
+  it('blocks deletion using the canonical events.plan_id FK before the bridge fallback', async () => {
+    const eventLookup = makeOwnedEventLookup(planId)
+    sessionFromMock.mockReturnValue(eventLookup)
+
+    const response = await cancelBuilderEvent(
+      new Request(`http://localhost/api/builder/events/${eventId}`, { method: 'DELETE' }) as NextRequest,
+      context,
+    )
+    const body = await json(response)
+
+    expect(response.status).toBe(409)
+    expect(body).toMatchObject({
+      code: 'canonical_event_cancellation_required',
+      planId,
+      creditRestored: false,
+    })
+    expect(fromMock).not.toHaveBeenCalled()
+    expect(eventLookup.delete).not.toHaveBeenCalled()
+  })
+
   it('rejects destructive deletion until Prompt 7 can cancel the full aggregate', async () => {
+    sessionFromMock.mockReturnValue(makeOwnedEventLookup(null))
     const bridgeLookup = {
       select: jest.fn(),
       eq: jest.fn(),
@@ -342,7 +386,7 @@ describe('materialized builder event lifecycle', () => {
     const ownerLookup = {
       select: jest.fn(),
       eq: jest.fn(),
-      single: jest.fn().mockResolvedValue({ data: { id: eventId }, error: null }),
+      single: jest.fn().mockResolvedValue({ data: { id: eventId, plan_id: null }, error: null }),
     }
     ownerLookup.select.mockReturnValue(ownerLookup)
     ownerLookup.eq.mockReturnValue(ownerLookup)
@@ -380,7 +424,7 @@ describe('materialized builder event lifecycle', () => {
     const eventLookup = {
       select: jest.fn(),
       eq: jest.fn(),
-      single: jest.fn().mockResolvedValue({ data: { id: eventId }, error: null }),
+      single: jest.fn().mockResolvedValue({ data: { id: eventId, plan_id: null }, error: null }),
     }
     eventLookup.select.mockReturnValue(eventLookup)
     eventLookup.eq.mockReturnValue(eventLookup)
@@ -419,3 +463,19 @@ describe('materialized builder event lifecycle', () => {
     expect(bridgeLookup.maybeSingle).toHaveBeenCalled()
   })
 })
+
+function makeOwnedEventLookup(canonicalPlanId: string | null) {
+  const builder = {
+    select: jest.fn(),
+    eq: jest.fn(),
+    single: jest.fn().mockResolvedValue({
+      data: { id: eventId, plan_id: canonicalPlanId },
+      error: null,
+    }),
+    update: jest.fn(),
+    delete: jest.fn(),
+  }
+  builder.select.mockReturnValue(builder)
+  builder.eq.mockReturnValue(builder)
+  return builder
+}

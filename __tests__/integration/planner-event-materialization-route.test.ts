@@ -75,7 +75,7 @@ describe('POST /api/planner/plans/[planId]/materialize', () => {
       data: [{ event_id: EVENT_ID, existing: false, event_record: eventRecord, plan_status: 'executing' }],
       error: null,
     })
-    mockClients({ rpc })
+    const { serviceFrom } = mockClients({ rpc })
 
     const response = await POST(request({
       eventDate: '2026-08-20',
@@ -106,6 +106,7 @@ describe('POST /api/planner/plans/[planId]/materialize', () => {
         time_zone: 'America/Los_Angeles',
       }),
     }))
+    expect(serviceFrom).not.toHaveBeenCalled()
   })
 
   it('returns an idempotent existing event from the RPC', async () => {
@@ -213,8 +214,12 @@ function mockClients(input: {
     },
     from: jest.fn().mockReturnValue({ select }),
   }
+  const serviceFrom = jest.fn(() => {
+    throw new Error('Materialization must not perform booking, approval, payment, or transaction table writes')
+  })
   ;(createClient as jest.Mock).mockReturnValue(session)
-  ;(createServiceRoleClient as jest.Mock).mockReturnValue({ rpc: input.rpc })
+  ;(createServiceRoleClient as jest.Mock).mockReturnValue({ rpc: input.rpc, from: serviceFrom })
+  return { serviceFrom }
 }
 
 function validSchedule() {

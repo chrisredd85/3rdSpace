@@ -31,6 +31,17 @@ const PLAN_ID = '11111111-1111-4111-8111-111111111111'
 const USER_ID = '22222222-2222-4222-8222-222222222222'
 const EVENT_ID = '33333333-3333-4333-8333-333333333333'
 const PARTNER_ID = '44444444-4444-4444-8444-444444444444'
+const AUTHORIZATION_OR_EXECUTION_TABLES = [
+  'agent_actions',
+  'approvals',
+  'venue_bookings',
+  'vendor_bookings',
+  'payment_transactions',
+  'planner_payment_transactions',
+  'venue_payment_transactions',
+  'payment_intents',
+  'kickback_payments',
+]
 
 const plan = {
   id: PLAN_ID,
@@ -83,7 +94,7 @@ describe('accepted partner quotes keep canonical event identity', () => {
     expect(db.messageInserts[0]).toEqual(expect.objectContaining({
       metadata: expect.objectContaining({ canonical_event_id: EVENT_ID }),
     }))
-    expect(db.tables).not.toEqual(expect.arrayContaining(['events', 'venue_bookings', 'vendor_bookings']))
+    expect(db.tables).not.toEqual(expect.arrayContaining(['events', ...AUTHORIZATION_OR_EXECUTION_TABLES]))
   })
 
   it('persists and exposes canonical_event_id for an accepted vendor quote without creating a booking', async () => {
@@ -113,7 +124,7 @@ describe('accepted partner quotes keep canonical event identity', () => {
     expect(db.messageInserts[0]).toEqual(expect.objectContaining({
       metadata: expect.objectContaining({ canonical_event_id: EVENT_ID }),
     }))
-    expect(db.tables).not.toEqual(expect.arrayContaining(['events', 'venue_bookings', 'vendor_bookings']))
+    expect(db.tables).not.toEqual(expect.arrayContaining(['events', ...AUTHORIZATION_OR_EXECUTION_TABLES]))
     expect(recomputePlanDerivedState).toHaveBeenCalled()
   })
 })

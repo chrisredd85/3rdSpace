@@ -1,8 +1,10 @@
 import {
   buildSelectedVendorLine,
   estimateCommittedPriceCents,
+  getPlanSourceEventId,
   mergeSelectedVendorIntoMetadata,
 } from '@/lib/planner/planVendorSelections'
+import type { Plan } from '@/lib/types'
 
 describe('plan vendor selections', () => {
   it('merges invited vendors into shopping_list.selected_vendors without dropping existing metadata', () => {
@@ -70,5 +72,16 @@ describe('plan vendor selections', () => {
 
   it('converts per-person private rates into total selected vendor cost', () => {
     expect(estimateCommittedPriceCents(35, 'per_person', 40)).toBe(140000)
+  })
+
+  it('uses the canonical plan event before legacy metadata lineage', () => {
+    expect(getPlanSourceEventId({
+      materialized_event_id: 'canonical-event',
+      metadata: { event_id: 'legacy-event' },
+    } as Plan)).toBe('canonical-event')
+    expect(getPlanSourceEventId({
+      materialized_event_id: null,
+      metadata: { event_id: 'legacy-event' },
+    } as Plan)).toBe('legacy-event')
   })
 })

@@ -1,6 +1,7 @@
 import { ARCHETYPES } from '@/lib/planner/archetypes'
 import {
   CANONICAL_EVENT_TYPE_BY_ARCHETYPE,
+  getPlanCanonicalEventId,
   resolveCanonicalEventTaxonomy,
 } from '@/lib/planner/eventIdentity'
 
@@ -24,5 +25,20 @@ describe('canonical planner event identity', () => {
     })
     expect(resolveCanonicalEventTaxonomy('conference')).toBeNull()
     expect(resolveCanonicalEventTaxonomy(null)).toBeNull()
+  })
+
+  it('prefers the canonical FK and uses metadata only for legacy lineage', () => {
+    expect(getPlanCanonicalEventId({
+      materialized_event_id: 'canonical-event',
+      metadata: { event_id: 'legacy-event' },
+    })).toBe('canonical-event')
+    expect(getPlanCanonicalEventId({
+      materialized_event_id: null,
+      metadata: { event_id: 'legacy-event' },
+    })).toBe('legacy-event')
+    expect(getPlanCanonicalEventId({
+      materialized_event_id: null,
+      metadata: {},
+    })).toBeNull()
   })
 })

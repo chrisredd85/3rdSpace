@@ -37,6 +37,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const baselineDb = createServiceRoleClient() as unknown as PlannerDb
 
   const committedAt = new Date().toISOString()
+  // Canonical event identity is lineage, not proof that these quote terms or
+  // any booking/payment were approved. Execution must validate its approval.
   const canonicalEventId = plan.materialized_event_id ?? null
   const metadata = readRecord(plan.metadata) ?? {}
   const committedVenue = {
