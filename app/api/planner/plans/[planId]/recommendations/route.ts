@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { PLAN_SELECT_COLUMNS, RECOMMENDATION_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type {
   Json,
   Plan,
@@ -199,7 +199,8 @@ export async function POST(
       venue: recommendation.reference_id ? venueById.get(recommendation.reference_id) ?? null : null,
     }))
 
-    await insertAuditLog(auth.db, {
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
+    await insertAuditLog(writeDb, {
       user_id: auth.userId,
       plan_id: plan.id,
       action: 'planner.recommendations.generated',

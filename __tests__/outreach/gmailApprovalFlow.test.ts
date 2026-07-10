@@ -7,6 +7,10 @@ jest.mock('@/lib/outreach/gmail', () => ({
   modifyGmailThreadLabels: jest.fn().mockResolvedValue({ id: 'gmail-thread-1' }),
 }))
 
+jest.mock('@/lib/supabase/server', () => ({
+  createServiceRoleClient: jest.fn(),
+}))
+
 import {
   executeApprovedGmailOutreach,
   markGmailOutreachThreadHandled,
@@ -18,10 +22,12 @@ import {
   modifyGmailThreadLabels,
   sendGmailMessage,
 } from '@/lib/outreach/gmail'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 
 const mockSendGmailMessage = sendGmailMessage as jest.Mock
 const mockListGmailThreadMessages = listGmailThreadMessages as jest.Mock
 const mockModifyGmailThreadLabels = modifyGmailThreadLabels as jest.Mock
+const mockCreateServiceRoleClient = createServiceRoleClient as jest.Mock
 
 type Row = Record<string, any>
 
@@ -43,6 +49,7 @@ class MemoryDb {
     outreach_threads: [],
     outreach_messages: [],
     plan_messages: [],
+    plans: [],
   }
   private sequence = 0
 
@@ -166,6 +173,8 @@ describe('Gmail approval flow', () => {
 
   it('sends Gmail only after approved execution and records outreach threads', async () => {
     const db = new MemoryDb()
+    db.rows.plans.push({ id: 'plan-1', user_id: 'user-1' })
+    mockCreateServiceRoleClient.mockReturnValue({ from: (table: string) => db.from(table) })
 
     const result = await executeApprovedGmailOutreach(db, {
       userId: 'user-1',
@@ -288,6 +297,7 @@ describe('Gmail approval flow', () => {
 
   it('syncs Gmail replies and marks the thread handled using modify', async () => {
     const db = new MemoryDb()
+    mockCreateServiceRoleClient.mockReturnValue({ from: (table: string) => db.from(table) })
     db.rows.outreach_threads.push({
       id: 'thread-1',
       user_id: 'user-1',

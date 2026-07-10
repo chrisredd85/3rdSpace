@@ -240,6 +240,7 @@ export async function POST(
 
     const existingPlan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!existingPlan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
 
     const pendingResolution = buildPendingPlanChangeResolution(existingPlan, body.data.message)
     const intent = pendingResolution ? { confidence: {} } : parseEventIntent(body.data.message)
@@ -250,12 +251,13 @@ export async function POST(
     )
     const planAfterFieldUpdates = await updatePlanIfNeeded(
       auth.db,
+      writeDb,
       (await context.params).planId,
       existingPlan,
       fieldUpdates
     )
 
-    const { data: userMessageData, error: userMessageError } = await auth.db
+    const { data: userMessageData, error: userMessageError } = await writeDb
       .from('plan_messages')
       .insert({
         plan_id: (await context.params).planId,
@@ -284,6 +286,7 @@ export async function POST(
         }
       : await buildPlannerAgentResponse({
           db: auth.db,
+          writeDb,
           planId: (await context.params).planId,
           userId: auth.userId,
           userMessage: body.data.message,
@@ -306,7 +309,7 @@ export async function POST(
       agentDraft.message_type
     )
 
-    const { data: agentMessageData, error: agentMessageError } = await auth.db
+    const { data: agentMessageData, error: agentMessageError } = await writeDb
       .from('plan_messages')
       .insert({
         plan_id: (await context.params).planId,
@@ -331,6 +334,7 @@ export async function POST(
     if (didRefreshRecommendations) {
       const refreshStatusMessages = await invalidateRecommendationsForPlanChange({
         db: auth.db,
+        writeDb,
         plan: finalPlan,
         changedFields: findMatchAffectingChangedFields(existingPlan, finalPlan),
       })
@@ -359,6 +363,7 @@ export async function POST(
     if (!shouldCreateAutoRecommendations && agentMessage.message_type === 'recommendation') {
       const opportunityBundle = await createVenueOpportunityBundle({
         db: auth.db,
+        writeDb,
         plan: finalPlan,
         messages: [...messages, agentMessage, ...followUpMessages],
         userId: auth.userId,
@@ -373,7 +378,7 @@ export async function POST(
       planId: (await context.params).planId,
       intent,
     })
-    await insertAuditLog(auth.db, {
+    await insertAuditLog(writeDb, {
       user_id: auth.userId,
       plan_id: (await context.params).planId,
       action: 'planner.message.exchange',
@@ -467,6 +472,7 @@ async function loadMessages(db: PlannerDb, planId: string): Promise<PlanMessage[
  */
 async function invalidateRecommendationsForPlanChange(input: {
   db: PlannerDb
+  writeDb: PlannerDb
   plan: Plan
   changedFields: string[]
 }): Promise<PlanMessage[]> {
@@ -475,9 +481,9 @@ async function invalidateRecommendationsForPlanChange(input: {
 
   const supersededAt = new Date().toISOString()
   await Promise.all(recommendations.map((recommendation) => supersedeRecommendation(input.db, recommendation, supersededAt, input.changedFields)))
-  await invalidatePendingOutreachApprovals(input.db, input.plan.id, supersededAt, input.changedFields)
+  await invalidatePendingOutreachApprovals(input.db, input.writeDb, input.plan.id, supersededAt, input.changedFields)
 
-  const statusMessage = await insertRecommendationRefreshStatusMessage(input.db, input.plan.id, input.changedFields)
+  const statusMessage = await insertRecommendationRefreshStatusMessage(input.writeDb, input.plan.id, input.changedFields)
   return [statusMessage].filter((message): message is PlanMessage => message !== null)
 }
 
@@ -520,12 +526,13 @@ async function supersedeRecommendation(
 }
 
 async function invalidatePendingOutreachApprovals(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   planId: string,
   supersededAt: string,
   changedFields: string[]
 ) {
-  const { data, error } = await db
+  const { data, error } = await readDb
     .from('agent_actions')
     .select('id, action_type, status, payload_json')
     .eq('plan_id', planId)
@@ -543,7 +550,7 @@ async function invalidatePendingOutreachApprovals(
     .filter((id): id is string => Boolean(id))
   if (actionIds.length === 0) return
 
-  const { error: approvalError } = await db
+  const { error: approvalError } = await writeDb
     .from('approvals')
     .update({ status: 're_approval_required' })
     .in('agent_action_id', actionIds)
@@ -551,16 +558,17 @@ async function invalidatePendingOutreachApprovals(
 
   if (approvalError) console.error('Planner outreach approval invalidation error:', approvalError)
 
-  await markOutreachApprovalMessagesReapprovalRequired(db, planId, supersededAt, changedFields)
+  await markOutreachApprovalMessagesReapprovalRequired(readDb, writeDb, planId, supersededAt, changedFields)
 }
 
 async function markOutreachApprovalMessagesReapprovalRequired(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   planId: string,
   supersededAt: string,
   changedFields: string[]
 ) {
-  const { data, error } = await db
+  const { data, error } = await readDb
     .from('plan_messages')
     .select(PLAN_MESSAGE_SELECT_COLUMNS)
     .eq('plan_id', planId)
@@ -588,7 +596,7 @@ async function markOutreachApprovalMessagesReapprovalRequired(
         : approval,
     } as Json
 
-    const { error: updateError } = await db
+    const { error: updateError } = await writeDb
       .from('plan_messages')
       .update({ metadata: nextMetadata })
       .eq('id', message.id)
@@ -652,6 +660,7 @@ function buildMatchAffectingSnapshot(plan: Plan): Record<string, unknown> {
 
 async function buildPlannerAgentResponse(input: {
   db: PlannerDb
+  writeDb: PlannerDb
   planId: string
   userId: string
   userMessage: string
@@ -758,6 +767,7 @@ async function buildPlannerAgentResponse(input: {
     )
     const planWithAgentUpdates = await updatePlanIfNeeded(
       input.db,
+      input.writeDb,
       input.planId,
       input.plan,
       agentPlanUpdates
@@ -786,9 +796,11 @@ async function applyPlannerPlanRevision(input: {
   sourceMessageId?: string
 }): Promise<{ revision_id: string; impact: PlanRevisionImpact; plan: Plan } | null> {
   try {
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
     const result = await applyPlanRevision({
       supabase: input.db,
-      baselineSupabase: createServiceRoleClient() as unknown as PlannerDb,
+      writeSupabase: writeDb,
+      baselineSupabase: writeDb,
       planId: input.planId,
       userId: input.userId,
       trigger: input.trigger,
@@ -881,6 +893,7 @@ function toIntakeBuilderHistory(summary: BuilderAttendanceSummary) {
 
 async function updatePlanIfNeeded(
   db: PlannerDb,
+  writeDb: PlannerDb,
   planId: string,
   currentPlan: Plan,
   updates: Record<string, unknown>
@@ -902,7 +915,7 @@ async function updatePlanIfNeeded(
     return currentPlan
   }
 
-  await insertPlanUpdateRows(db, currentPlan, changedUpdates)
+  await insertPlanUpdateRows(writeDb, currentPlan, changedUpdates)
   await syncPlanSupplyIntentRows(db, (data as Plan).id, (data as Plan).metadata)
 
   return data as Plan

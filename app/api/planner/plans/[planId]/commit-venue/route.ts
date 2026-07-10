@@ -82,9 +82,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     .in('status', ['candidate', 'approval_created'])
 
   const planId = (await context.params).planId
-  await insertStatusMessage(auth.db, planId, 'Committed venue quote for planning. Other venue outreach was marked superseded, not cancelled.')
+  await insertStatusMessage(baselineDb, planId, 'Committed venue quote for planning. Other venue outreach was marked superseded, not cancelled.')
   await recomputePlanDerivedState({
     supabase: auth.db,
+    writeSupabase: baselineDb,
     baselineSupabase: baselineDb,
     planId,
     trigger: 'commit_changed',
@@ -133,9 +134,10 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
   }
 
   const planId = (await context.params).planId
-  await insertStatusMessage(auth.db, planId, 'Cancelled accepted venue quote. The brief returned to comparison mode.')
+  await insertStatusMessage(baselineDb, planId, 'Cancelled accepted venue quote. The brief returned to comparison mode.')
   await recomputePlanDerivedState({
     supabase: auth.db,
+    writeSupabase: baselineDb,
     baselineSupabase: baselineDb,
     planId,
     trigger: 'cancel_commit',

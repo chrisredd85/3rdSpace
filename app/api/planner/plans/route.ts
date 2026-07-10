@@ -67,7 +67,7 @@ import {
   summarizeBuilderAttendance,
   type BuilderAttendanceSummary,
 } from '@/lib/server/builderAttendanceHistory'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { TicketPlatform } from '@/lib/constants/account-setup'
 import type {
   Json,
@@ -216,14 +216,15 @@ export async function POST(
     }
 
     const plan = planData as Plan
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
     await syncPlanSupplyIntentRows(auth.db, plan.id, plan.metadata)
     const initialExchange: InitialMessageResult = draftMessages.length > 0
       ? {
         plan,
-        messages: await insertDraftMessages(auth.db, plan.id, draftMessages),
+        messages: await insertDraftMessages(writeDb, plan.id, draftMessages),
         agentMode: 'deterministic',
       }
-      : await insertInitialMessages(auth.db, plan, body.data.message, intent, auth.userId)
+      : await insertInitialMessages(auth.db, writeDb, plan, body.data.message, intent, auth.userId)
 
     if (!initialExchange.messages) {
       return NextResponse.json({ error: 'Failed to create initial messages' }, { status: 500 })
@@ -248,7 +249,7 @@ export async function POST(
       planId: finalPlan.id,
       intent,
     })
-    await insertAuditLog(auth.db, {
+    await insertAuditLog(writeDb, {
       user_id: auth.userId,
       plan_id: finalPlan.id,
       action: 'planner.plan.created',
@@ -373,12 +374,13 @@ function buildPlanInsert(
 
 async function insertInitialMessages(
   db: PlannerDb,
+  writeDb: PlannerDb,
   plan: Plan,
   message: string,
   intent: Partial<PlanIntent>,
   userId: string
 ): Promise<InitialMessageResult> {
-  const { data: userMessageData, error: userMessageError } = await db
+  const { data: userMessageData, error: userMessageError } = await writeDb
     .from('plan_messages')
     .insert({
       plan_id: plan.id,
@@ -398,13 +400,14 @@ async function insertInitialMessages(
   const userMessage = userMessageData as PlanMessage
   const agentResponse = await buildInitialAgentResponse({
     db,
+    writeDb,
     plan,
     userId,
     userMessage: message,
     messages: [userMessage],
   })
   const finalPlan = await maybeMarkPlanReady(db, agentResponse.plan, agentResponse.agentDraft.message_type)
-  const { data: agentMessageData, error: agentMessageError } = await db
+  const { data: agentMessageData, error: agentMessageError } = await writeDb
     .from('plan_messages')
     .insert({
       plan_id: plan.id,
@@ -430,6 +433,7 @@ async function insertInitialMessages(
 
 async function buildInitialAgentResponse(input: {
   db: PlannerDb
+  writeDb: PlannerDb
   plan: Plan
   userId: string
   userMessage: string
@@ -478,6 +482,7 @@ async function buildInitialAgentResponse(input: {
     const intakeOutput = agentResult.output as IntakeAgentOutput
     const planWithAgentUpdates = await updatePlanIfNeeded(
       input.db,
+      input.writeDb,
       input.plan,
       buildPlanUpdatesFromIntakeOutput(intakeOutput, input.plan, input.userMessage)
     )
@@ -495,6 +500,7 @@ async function buildInitialAgentResponse(input: {
 
 async function updatePlanIfNeeded(
   db: PlannerDb,
+  writeDb: PlannerDb,
   currentPlan: Plan,
   updates: Record<string, unknown>
 ): Promise<Plan> {
@@ -515,7 +521,7 @@ async function updatePlanIfNeeded(
     return currentPlan
   }
 
-  await insertPlanUpdateRows(db, currentPlan, changedUpdates)
+  await insertPlanUpdateRows(writeDb, currentPlan, changedUpdates)
   await syncPlanSupplyIntentRows(db, (data as Plan).id, (data as Plan).metadata)
 
   return data as Plan

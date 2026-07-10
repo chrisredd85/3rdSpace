@@ -46,6 +46,7 @@ export type PlanRevisionImpact = {
 
 export async function applyPlanRevision(opts: {
   supabase: SupabaseAdminClient
+  writeSupabase: SupabaseAdminClient
   baselineSupabase?: SupabaseAdminClient
   planId: string
   userId: string
@@ -87,6 +88,7 @@ export async function applyPlanRevision(opts: {
   try {
     await triggerRediscovery({
       supabase: opts.supabase,
+      writeSupabase: opts.writeSupabase,
       planId: opts.planId,
       revisionId,
       trigger: opts.trigger,
@@ -104,6 +106,7 @@ export async function applyPlanRevision(opts: {
 
   await recomputePlanDerivedState({
     supabase: opts.supabase,
+    writeSupabase: opts.writeSupabase,
     baselineSupabase: opts.baselineSupabase,
     planId: opts.planId,
     trigger: 'plan_revision',
@@ -186,6 +189,7 @@ export async function computeRevisionImpact(opts: {
 
 export async function supersedeAffectedEntities(opts: {
   supabase: SupabaseAdminClient
+  writeSupabase: SupabaseAdminClient
   planId: string
   revisionId: string
   impact: PlanRevisionImpact
@@ -193,15 +197,16 @@ export async function supersedeAffectedEntities(opts: {
 }): Promise<void> {
   const supersededAt = new Date().toISOString()
   await Promise.all([
-    supersedeRecommendations(opts.supabase, opts.impact.invalidated_recommendation_ids, opts.revisionId, supersededAt, opts.reason),
-    supersedeApprovals(opts.supabase, opts.impact.superseded_approval_ids, opts.revisionId, supersededAt, opts.reason),
-    supersedeOutreachThreads(opts.supabase, opts.impact.superseded_outreach_thread_ids, opts.revisionId, supersededAt, opts.reason),
-    markApprovalMessagesSuperseded(opts.supabase, opts.planId, opts.impact.superseded_approval_ids, opts.revisionId, supersededAt, opts.reason),
+    supersedeRecommendations(opts.writeSupabase, opts.impact.invalidated_recommendation_ids, opts.revisionId, supersededAt, opts.reason),
+    supersedeApprovals(opts.writeSupabase, opts.impact.superseded_approval_ids, opts.revisionId, supersededAt, opts.reason),
+    supersedeOutreachThreads(opts.writeSupabase, opts.impact.superseded_outreach_thread_ids, opts.revisionId, supersededAt, opts.reason),
+    markApprovalMessagesSuperseded(opts.supabase, opts.writeSupabase, opts.planId, opts.impact.superseded_approval_ids, opts.revisionId, supersededAt, opts.reason),
   ])
 }
 
 export async function triggerRediscovery(opts: {
   supabase: SupabaseAdminClient
+  writeSupabase: SupabaseAdminClient
   planId: string
   revisionId: string
   trigger: PlanRevisionTrigger
@@ -211,7 +216,7 @@ export async function triggerRediscovery(opts: {
   if (opts.targets.length === 0) return { job_ids: [] }
   if (await hasRecentRediscovery(opts.supabase, opts.planId, opts.revisionId)) return { job_ids: [] }
 
-  const { data, error } = await opts.supabase
+  const { data, error } = await opts.writeSupabase
     .from('plan_messages')
     .insert({
       plan_id: opts.planId,
@@ -527,7 +532,8 @@ async function insertOutreachSupersessionMessages(
 }
 
 async function markApprovalMessagesSuperseded(
-  db: SupabaseAdminClient,
+  readDb: SupabaseAdminClient,
+  writeDb: SupabaseAdminClient,
   planId: string,
   approvalIds: string[],
   revisionId: string,
@@ -535,7 +541,7 @@ async function markApprovalMessagesSuperseded(
   reason: string
 ) {
   if (approvalIds.length === 0) return
-  const { data, error } = await db
+  const { data, error } = await readDb
     .from('plan_messages')
     .select('id, metadata')
     .eq('plan_id', planId)
@@ -567,7 +573,7 @@ async function markApprovalMessagesSuperseded(
       } : approval,
     } as Json
 
-    const { error: updateError } = await db
+    const { error: updateError } = await writeDb
       .from('plan_messages')
       .update({ metadata: nextMetadata })
       .eq('id', message.id)

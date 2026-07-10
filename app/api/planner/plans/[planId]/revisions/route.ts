@@ -127,9 +127,11 @@ export async function POST(
     const plan = await loadOwnedPlan(auth.db, planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
     const result = await applyPlanRevision({
       supabase: auth.db,
-      baselineSupabase: createServiceRoleClient() as unknown as PlannerDb,
+      writeSupabase: writeDb,
+      baselineSupabase: writeDb,
       planId,
       userId: auth.userId,
       trigger: parsed.data.trigger as PlanRevisionTrigger,

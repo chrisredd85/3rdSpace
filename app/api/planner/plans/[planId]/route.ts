@@ -18,7 +18,7 @@ import {
 import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
 import { loadPlanAgentFields } from '@/lib/planner/planAgentSummaries'
 import { enrichPlanSelectedVendors } from '@/lib/planner/planVendorSelections'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type {
   Approval,
   Json,
@@ -141,6 +141,8 @@ export async function PATCH(
       return NextResponse.json({ plan: existingPlan })
     }
 
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
+
     const { data, error } = await auth.db
       .from('plans')
       .update(changedUpdates)
@@ -154,11 +156,12 @@ export async function PATCH(
       return NextResponse.json({ error: 'Failed to update plan' }, { status: 500 })
     }
 
-    await insertPlanUpdateRows(auth.db, existingPlan, changedUpdates)
+    await insertPlanUpdateRows(writeDb, existingPlan, changedUpdates)
     const plan = data as Plan
     const followUpMessages = didMatchAffectingFieldsChange(existingPlan, plan)
       ? await refreshRecommendationsAfterPlanChange({
           db: auth.db,
+          writeDb,
           request,
           plan,
           changedFields: findMatchAffectingChangedFields(existingPlan, plan),
@@ -308,6 +311,7 @@ function normalizePlanPatch(input: z.infer<typeof patchPlanSchema>, currentPlan:
 
 async function refreshRecommendationsAfterPlanChange(input: {
   db: PlannerDb
+  writeDb: PlannerDb
   request: NextRequest
   plan: Plan
   changedFields: string[]
@@ -317,11 +321,12 @@ async function refreshRecommendationsAfterPlanChange(input: {
 
   const supersededAt = new Date().toISOString()
   await Promise.all(recommendations.map((recommendation) => supersedeRecommendation(input.db, recommendation, supersededAt, input.changedFields)))
-  await invalidatePendingOutreachApprovals(input.db, input.plan.id, supersededAt, input.changedFields)
+  await invalidatePendingOutreachApprovals(input.db, input.writeDb, input.plan.id, supersededAt, input.changedFields)
 
-  const statusMessage = await insertRecommendationRefreshStatusMessage(input.db, input.plan.id, input.changedFields)
+  const statusMessage = await insertRecommendationRefreshStatusMessage(input.writeDb, input.plan.id, input.changedFields)
   const recommendationMessages = await createAutoRecommendationMessage({
     db: input.db,
+    writeDb: input.writeDb as Parameters<typeof createAutoRecommendationMessage>[0]['writeDb'],
     request: input.request,
     planId: input.plan.id,
   })
@@ -368,12 +373,13 @@ async function supersedeRecommendation(
 }
 
 async function invalidatePendingOutreachApprovals(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   planId: string,
   supersededAt: string,
   changedFields: string[]
 ) {
-  const { data, error } = await db
+  const { data, error } = await readDb
     .from('agent_actions')
     .select('id, action_type, status, payload_json')
     .eq('plan_id', planId)
@@ -391,7 +397,7 @@ async function invalidatePendingOutreachApprovals(
     .filter((id): id is string => Boolean(id))
   if (actionIds.length === 0) return
 
-  const { error: approvalError } = await db
+  const { error: approvalError } = await writeDb
     .from('approvals')
     .update({ status: 're_approval_required' })
     .in('agent_action_id', actionIds)
@@ -399,16 +405,17 @@ async function invalidatePendingOutreachApprovals(
 
   if (approvalError) console.error('Planner outreach approval invalidation error:', approvalError)
 
-  await markOutreachApprovalMessagesReapprovalRequired(db, planId, supersededAt, changedFields)
+  await markOutreachApprovalMessagesReapprovalRequired(readDb, writeDb, planId, supersededAt, changedFields)
 }
 
 async function markOutreachApprovalMessagesReapprovalRequired(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   planId: string,
   supersededAt: string,
   changedFields: string[]
 ) {
-  const { data, error } = await db
+  const { data, error } = await readDb
     .from('plan_messages')
     .select(PLAN_MESSAGE_SELECT_COLUMNS)
     .eq('plan_id', planId)
@@ -436,7 +443,7 @@ async function markOutreachApprovalMessagesReapprovalRequired(
         : approval,
     } as Json
 
-    const { error: updateError } = await db
+    const { error: updateError } = await writeDb
       .from('plan_messages')
       .update({ metadata: nextMetadata })
       .eq('id', message.id)

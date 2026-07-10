@@ -4,6 +4,7 @@ import type { NextRequest } from 'next/server'
 import { PATCH as updateApproval } from '@/app/api/planner/plans/[planId]/approvals/route'
 import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
 import * as Sentry from '@sentry/nextjs'
 
 jest.mock('@/lib/supabase/server', () => ({

@@ -30,6 +30,7 @@ type ExistingDerivedState = {
 
 type RecomputeInput = {
   supabase: PlannerDb
+  writeSupabase: PlannerDb
   baselineSupabase?: PlannerDb
   planId: string
   trigger: RecomputeTrigger
@@ -66,7 +67,7 @@ export async function recomputePlanDerivedState(opts: RecomputeInput): Promise<R
     new_brief_render_version: nextVersion,
   }
 
-  const { error: upsertError } = await opts.supabase
+  const { error: upsertError } = await opts.writeSupabase
     .from('plan_derived_state')
     .upsert({
       plan_id: opts.planId,
@@ -83,7 +84,7 @@ export async function recomputePlanDerivedState(opts: RecomputeInput): Promise<R
     throw new Error(`Failed to cache plan derived state: ${upsertError.message}`)
   }
 
-  const { error: planUpdateError } = await opts.supabase
+  const { error: planUpdateError } = await opts.writeSupabase
     .from('plans')
     .update({
       brief_render_version: nextVersion,

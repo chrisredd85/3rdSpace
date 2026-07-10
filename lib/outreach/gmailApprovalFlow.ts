@@ -10,6 +10,8 @@ import {
 import { extractReplyTerms } from '@/lib/ai/agents/extractReplyTerms'
 import { APPROVAL_SELECT_COLUMNS, PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import { rootLogger } from '@/lib/server/logger'
+import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 import type { AgentAction, Approval, Json, Plan } from '@/lib/types'
 import type { Database } from '@/lib/types/database-generated'
 
@@ -151,10 +153,13 @@ export async function createOrReuseGmailOutreachApproval(
   const existing = input.planId || input.reuseExisting === false
     ? null
     : await loadReusableApprovalBundle(db, plan.id)
+  // The session client proved the Gmail account and plan belong to this user.
+  // Only trusted-state mutations below use the service writer.
+  const writeDb = createServiceRoleClient() as unknown as PlannerDb
 
   if (existing) {
     const { approval, action, messageId } = existing
-    const { data: updatedAction } = await db
+    const { data: updatedAction } = await writeDb
       .from('agent_actions')
       .update({
         description: buildActionDescription(targets),
@@ -172,16 +177,28 @@ export async function createOrReuseGmailOutreachApproval(
       .select(AGENT_ACTION_SELECT_COLUMNS)
       .single()
 
-    const { data: updatedApproval } = await db
+    const finalAction = (updatedAction ?? action) as AgentAction
+    const approvalUpdates = buildApprovalUpdates(targets, subject)
+    const { data: updatedApproval } = await writeDb
       .from('approvals')
-      .update(buildApprovalUpdates(targets, subject))
+      .update({
+        ...approvalUpdates,
+        snapshot_hash: buildApprovalSnapshotHash({
+          plan,
+          approval: {
+            ...approval,
+            ...approvalUpdates,
+          },
+          action: finalAction,
+          payload: actionPayload,
+        }),
+      })
       .eq('id', approval.id)
       .select(APPROVAL_SELECT_COLUMNS)
       .single()
 
-    const finalAction = (updatedAction ?? action) as AgentAction
     const finalApproval = (updatedApproval ?? approval) as Approval
-    await updateApprovalMessage(db, messageId, plan, finalAction, finalApproval, actionPayload)
+    await updateApprovalMessage(writeDb, messageId, plan, finalAction, finalApproval, actionPayload)
 
     return {
       plan,
@@ -192,7 +209,7 @@ export async function createOrReuseGmailOutreachApproval(
     }
   }
 
-  const { data: agentAction, error: actionError } = await db
+  const { data: agentAction, error: actionError } = await writeDb
     .from('agent_actions')
     .insert({
       plan_id: plan.id,
@@ -217,7 +234,7 @@ export async function createOrReuseGmailOutreachApproval(
 
   if (actionError || !agentAction) throw new Error(actionError?.message ?? 'Failed to create Gmail outreach action')
 
-  await insertAgentActionAuditLog(db, {
+  await insertAgentActionAuditLog(writeDb, {
     actionId: String(agentAction.id),
     planId: plan.id,
     actorId: input.userId,
@@ -225,23 +242,30 @@ export async function createOrReuseGmailOutreachApproval(
     reason: 'gmail_outreach_approval.created',
   })
 
-  const { data: approval, error: approvalError } = await db
+  const approvalUpdates = buildApprovalUpdates(targets, subject)
+  const { data: approval, error: approvalError } = await writeDb
     .from('approvals')
     .insert({
-      ...buildApprovalUpdates(targets, subject),
+      ...approvalUpdates,
       plan_id: plan.id,
       agent_action_id: agentAction.id,
       status: 'pending',
       requested_amount_cents: 0,
+      snapshot_hash: buildApprovalSnapshotHash({
+        plan,
+        approval: approvalUpdates,
+        action: agentAction as AgentAction,
+        payload: actionPayload,
+      }),
     })
     .select(APPROVAL_SELECT_COLUMNS)
     .single()
 
   if (approvalError || !approval) throw new Error(approvalError?.message ?? 'Failed to create Gmail outreach approval')
 
-  await db.from('agent_actions').update({ approval_id: approval.id }).eq('id', agentAction.id)
+  await writeDb.from('agent_actions').update({ approval_id: approval.id }).eq('id', agentAction.id)
 
-  const { data: message, error: messageError } = await db
+  const { data: message, error: messageError } = await writeDb
     .from('plan_messages')
     .insert({
       plan_id: plan.id,
@@ -280,6 +304,9 @@ export async function executeApprovedGmailOutreach(
 
   const account = await loadActiveGmailAccount(db, input.userId)
   if (!account) throw new GmailConnectionRequiredError()
+  const ownedPlan = await loadPlanForGmailApproval(db, input.plan.id, input.userId)
+  if (!ownedPlan) throw new Error('Plan not found')
+  const writeDb = createServiceRoleClient() as unknown as PlannerDb
 
   const accessToken = await getUsableGmailAccessToken({ db, account })
   const targets = normalizeTargets(readTargets(payload))
@@ -300,7 +327,7 @@ export async function executeApprovedGmailOutreach(
       bodyHtml: textToHtml(bodyText),
     })
 
-    const thread = await insertOutreachThread(db, {
+    const thread = await insertOutreachThread(writeDb, {
       userId: input.userId,
       planId: input.plan.id,
       actionId: input.action.id,
@@ -308,7 +335,7 @@ export async function executeApprovedGmailOutreach(
       now,
     })
 
-    await db.from('outreach_messages').insert({
+    await writeDb.from('outreach_messages').insert({
       thread_id: thread.id,
       direction: 'outbound',
       subject,
@@ -339,7 +366,7 @@ export async function executeApprovedGmailOutreach(
     })
   }
 
-  await db.from('plan_messages').insert({
+  await writeDb.from('plan_messages').insert({
     plan_id: input.plan.id,
     role: 'system',
     content: `Sent approved Gmail outreach to ${sent.length} partner${sent.length === 1 ? '' : 's'}. Replies will appear in Outreach for comparison and follow-up.`,
@@ -374,15 +401,16 @@ export async function syncGmailOutreachThread(
 
   const thread = await loadOwnedThread(db, input.userId, input.threadId)
   if (!thread) throw new Error('Outreach thread not found')
+  const writeDb = createServiceRoleClient() as unknown as PlannerDb
 
   const gmailThreadId = await loadGmailThreadIdForThread(db, input.threadId)
   if (!gmailThreadId) throw new Error('Outreach thread does not have a Gmail thread id yet')
 
   const accessToken = await getUsableGmailAccessToken({ db, account })
   const messages = await listGmailThreadMessages({ accessToken, gmailThreadId })
-  const inserted = await insertMissingGmailMessages(db, thread, messages, account.email_address)
+  const inserted = await insertMissingGmailMessages(db, writeDb, thread, messages, account.email_address)
   if (inserted > 0) {
-    await analyzeInboundReplyTerms(db, thread, messages).catch((error) => {
+    await analyzeInboundReplyTerms(db, writeDb, thread, messages).catch((error) => {
       rootLogger.error('Gmail outreach reply terms extraction failed', error, {
         thread_id: input.threadId,
       })
@@ -408,6 +436,7 @@ export async function markGmailOutreachThreadHandled(
 
   const thread = await loadOwnedThread(db, input.userId, input.threadId)
   if (!thread) throw new Error('Outreach thread not found')
+  const writeDb = createServiceRoleClient() as unknown as PlannerDb
 
   const gmailThreadId = await loadGmailThreadIdForThread(db, input.threadId)
   if (!gmailThreadId) throw new Error('Outreach thread does not have a Gmail thread id yet')
@@ -420,7 +449,7 @@ export async function markGmailOutreachThreadHandled(
   })
 
   const now = new Date().toISOString()
-  await db
+  await writeDb
     .from('outreach_threads')
     .update({
       state: 'confirmed',
@@ -826,7 +855,8 @@ async function loadGmailThreadIdForThread(db: PlannerDb, threadId: string): Prom
 }
 
 async function insertMissingGmailMessages(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   thread: Record<string, unknown>,
   messages: ParsedGmailMessage[],
   accountEmail: string
@@ -836,13 +866,13 @@ async function insertMissingGmailMessages(
   const targetEmail = readString(thread.target_email)
 
   for (const message of messages) {
-    const exists = await gmailMessageExists(db, message.gmailMessageId)
+    const exists = await gmailMessageExists(readDb, message.gmailMessageId)
     if (exists) continue
 
     const fromEmail = extractEmail(message.from)
     const isOutbound = fromEmail?.toLowerCase() === accountEmail.toLowerCase()
     const direction = isOutbound ? 'outbound' : 'inbound'
-    await db.from('outreach_messages').insert({
+    await writeDb.from('outreach_messages').insert({
       thread_id: threadId,
       direction,
       subject: message.subject,
@@ -863,7 +893,7 @@ async function insertMissingGmailMessages(
     inserted += 1
 
     if (direction === 'inbound') {
-      await db
+      await writeDb
         .from('outreach_threads')
         .update({
           state: 'in_negotiation',
@@ -880,7 +910,8 @@ async function insertMissingGmailMessages(
 }
 
 async function analyzeInboundReplyTerms(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   thread: Record<string, unknown>,
   messages: ParsedGmailMessage[]
 ) {
@@ -906,7 +937,7 @@ async function analyzeInboundReplyTerms(
   const gmailThreadId = latestInbound.gmailThreadId
 
   if (targetType === 'vendor' && discoveryVendorId) {
-    const serviceType = await loadDiscoveryVendorServiceType(db, discoveryVendorId)
+    const serviceType = await loadDiscoveryVendorServiceType(readDb, discoveryVendorId)
     const terms = await extractReplyTerms({
       entityType: 'vendor',
       entityName: targetName,
@@ -932,7 +963,7 @@ async function analyzeInboundReplyTerms(
       model: terms.model,
     }
 
-    const { data, error } = await db
+    const { data, error } = await writeDb
       .from('vendor_outreach_responses')
       .upsert(row, { onConflict: 'plan_id,discovery_vendor_id,gmail_thread_id' })
       .select('*')
@@ -940,7 +971,7 @@ async function analyzeInboundReplyTerms(
 
     if (error) throw new Error(error.message)
     if (terms.confidence >= 0.5) {
-      await updatePlanOutreachResponseSummary(db, {
+      await updatePlanOutreachResponseSummary(readDb, writeDb, {
         planId,
         entityType: 'vendor',
         response: {
@@ -987,7 +1018,7 @@ async function analyzeInboundReplyTerms(
       model: terms.model,
     }
 
-    const { data, error } = await db
+    const { data, error } = await writeDb
       .from('venue_outreach_responses')
       .upsert(row, { onConflict: 'plan_id,discovery_venue_id,gmail_thread_id' })
       .select('*')
@@ -995,7 +1026,7 @@ async function analyzeInboundReplyTerms(
 
     if (error) throw new Error(error.message)
     if (terms.confidence >= 0.5) {
-      await updatePlanOutreachResponseSummary(db, {
+      await updatePlanOutreachResponseSummary(readDb, writeDb, {
         planId,
         entityType: 'venue',
         response: {
@@ -1027,14 +1058,15 @@ async function loadDiscoveryVendorServiceType(db: PlannerDb, discoveryVendorId: 
 }
 
 async function updatePlanOutreachResponseSummary(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   input: {
     planId: string
     entityType: 'venue' | 'vendor'
     response: Record<string, unknown>
   }
 ) {
-  const { data: plan, error } = await db
+  const { data: plan, error } = await readDb
     .from('plans')
     .select('id,title,metadata')
     .eq('id', input.planId)
@@ -1065,11 +1097,11 @@ async function updatePlanOutreachResponseSummary(
     },
   }
 
-  await db.from('plans').update({ metadata: nextMetadata as Json }).eq('id', input.planId)
+  await writeDb.from('plans').update({ metadata: nextMetadata as Json }).eq('id', input.planId)
 
   if (isFavorableReply(readString(input.response.classification))) {
     const quoteLabel = formatResponseQuote(input.entityType, input.response)
-    await db.from('plan_messages').insert({
+    await writeDb.from('plan_messages').insert({
       plan_id: input.planId,
       role: 'agent',
       content: `Heard back from ${readString(input.response.name) ?? 'a partner'}${quoteLabel ? ` — ${quoteLabel}` : ''}. I updated the brief so you can compare options before accepting anything.`,

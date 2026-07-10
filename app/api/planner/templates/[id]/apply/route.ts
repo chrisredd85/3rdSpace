@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS, RECOMMENDATION_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlanMessage, Recommendation } from '@/lib/types'
 
 type DbError = { message: string }
@@ -135,6 +135,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if ('response' in planResult) return planResult.response
 
     const { plan: updatedPlan, changedFields, wasCreated } = planResult
+    const writeSupabase = createServiceRoleClient()
 
     const insertTemplateRun = supabase.from('template_runs').insert as unknown as InsertTemplateRun
     const { error: insertError } = await insertTemplateRun({
@@ -154,7 +155,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const messages: PlanMessage[] = []
-    const statusMessage = await insertPlanStatusMessage(supabase, {
+    const statusMessage = await insertPlanStatusMessage(writeSupabase as unknown as ReturnType<typeof createClient>, {
       planId: updatedPlan.id,
       template: templateRow,
       wasCreated,
@@ -171,6 +172,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (applyInput.rerun_recommendations && updatedPlan.status === 'ready') {
       const recommendationMessages = await createAutoRecommendationMessage({
         db: supabase as never,
+        writeDb: writeSupabase as never,
         request,
         planId: updatedPlan.id,
       })

@@ -70,6 +70,7 @@ export async function cascadeInvalidationForEntityChange(input: CascadeInput): P
     try {
       await applyPlanRevision({
         supabase: input.supabase,
+        writeSupabase: input.supabase,
         planId: plan.plan_id,
         // The revision RPC's p_user_id is the plan ownership identity, not the
         // vendor/admin actor that caused this service-owned cascade. Passing a
@@ -122,6 +123,7 @@ export async function cascadeInvalidationForEntityChange(input: CascadeInput): P
   await Promise.all(planRefs.map((plan) =>
     recomputePlanDerivedState({
       supabase: input.supabase,
+      writeSupabase: input.supabase,
       planId: plan.plan_id,
       trigger: 'discovery_change',
       discoveryChangeId: `${input.entityType}:${input.entityId}:${input.changedField}`,

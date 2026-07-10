@@ -76,6 +76,7 @@ class MemoryDb {
   }
 
   selects: Array<{ table: string; columns: string }> = []
+  mutations: Array<{ table: string; operation: 'insert' | 'update' }> = []
   private sequence = 0
   private rpcQueue = Promise.resolve()
 
@@ -270,6 +271,7 @@ class MemoryQuery {
 
   private async execute() {
     if (this.operation === 'insert') {
+      this.db.mutations.push({ table: this.table, operation: 'insert' })
       const values = Array.isArray(this.payload) ? this.payload : [this.payload]
       const inserted = values.map((value) => this.withDefaults(value as Row))
       this.db.rows[this.table].push(...inserted)
@@ -277,6 +279,7 @@ class MemoryQuery {
     }
 
     if (this.operation === 'update') {
+      this.db.mutations.push({ table: this.table, operation: 'update' })
       const updated: Row[] = []
       this.db.rows[this.table] = this.db.rows[this.table].map((row) => {
         if (!this.matches(row)) return row
@@ -344,7 +347,7 @@ async function readJson(response: Response) {
   return JSON.parse(await response.text()) as Row
 }
 
-function mockPlannerClient(db: MemoryDb) {
+function mockPlannerClient(db: MemoryDb, writeDb: MemoryDb = db) {
   mockCreateClient.mockReturnValue({
     auth: {
       getUser: jest.fn().mockResolvedValue({
@@ -360,8 +363,8 @@ function mockPlannerClient(db: MemoryDb) {
     from: (table: string) => db.from(table),
   })
   mockCreateServiceRoleClient.mockReturnValue({
-    from: (table: string) => db.from(table),
-    rpc: (name: string, params: Record<string, unknown>) => db.rpc(name, params),
+    from: (table: string) => writeDb.from(table),
+    rpc: (name: string, params: Record<string, unknown>) => writeDb.rpc(name, params),
   })
 }
 
@@ -544,6 +547,58 @@ describe('MVP launch API contracts', () => {
     }))
   })
 
+  it('POST planner agent-actions keeps trusted mutations on the service writer', async () => {
+    const writeDb = new MemoryDb()
+    writeDb.rows = db.rows
+    mockPlannerClient(db, writeDb)
+
+    const response = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'hold_request',
+        targetType: 'venue',
+        targetId: VENUE_ID_1,
+        requestedAmountCents: 500_000,
+        payloadJson: {
+          action_label: 'Request hold',
+          provider: 'Foundry Rooftop',
+          package_details: '48-hour soft hold',
+        },
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(response.status).toBe(200)
+    expect(db.mutations.filter(({ table }) => [
+      'agent_actions',
+      'approvals',
+      'agent_action_audit_log',
+      'plan_messages',
+    ].includes(table))).toEqual([])
+    expect(writeDb.mutations).toEqual(expect.arrayContaining([
+      { table: 'agent_actions', operation: 'insert' },
+      { table: 'approvals', operation: 'insert' },
+      { table: 'agent_action_audit_log', operation: 'insert' },
+      { table: 'plan_messages', operation: 'insert' },
+    ]))
+  })
+
+  it('POST planner agent-actions never creates a service writer for a non-owned plan', async () => {
+    db.rows.plans[0].user_id = 'another-user'
+
+    const response = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'hold_request',
+        targetType: 'venue',
+        targetId: VENUE_ID_1,
+        requestedAmountCents: 500_000,
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(response.status).toBe(404)
+    expect(mockCreateServiceRoleClient).not.toHaveBeenCalled()
+  })
+
   it('PATCH planner approvals prepares outreach drafts without sending outbound jobs', async () => {
     db.rows.venues.push(
       { id: VENUE_ID_1, venue_name: 'Foundry Rooftop', city: 'San Francisco', state: 'CA', standing_capacity: 160, is_claimed: true },
@@ -565,16 +620,21 @@ describe('MVP launch API contracts', () => {
       },
       status: 'pending',
     })
-    db.rows.approvals.push({
+    const outreachApproval = {
       id: APPROVAL_ID,
       plan_id: PLAN_ID,
       agent_action_id: ACTION_ID,
       action_label: 'Send to venues',
       status: 'pending',
       price_cents: 0,
+      fees_cents: 0,
+      requested_amount_cents: 0,
+    }
+    db.rows.approvals.push({
+      ...outreachApproval,
       snapshot_hash: buildApprovalSnapshotHash({
         plan: db.rows.plans[0] as any,
-        approval: { price_cents: 0 },
+        approval: outreachApproval as any,
         action: db.rows.agent_actions[0] as any,
       }),
     })
@@ -653,16 +713,21 @@ describe('MVP launch API contracts', () => {
       },
       status: 'pending',
     })
-    db.rows.approvals.push({
+    const mixedOutreachApproval = {
       id: APPROVAL_ID,
       plan_id: PLAN_ID,
       agent_action_id: ACTION_ID,
       action_label: 'Approve outreach to 2 venues, 1 vendor',
       status: 'pending',
       price_cents: 0,
+      fees_cents: 0,
+      requested_amount_cents: 0,
+    }
+    db.rows.approvals.push({
+      ...mixedOutreachApproval,
       snapshot_hash: buildApprovalSnapshotHash({
         plan: db.rows.plans[0] as any,
-        approval: { price_cents: 0 },
+        approval: mixedOutreachApproval as any,
         action: db.rows.agent_actions[0] as any,
       }),
     })
@@ -893,16 +958,21 @@ describe('MVP launch API contracts', () => {
       },
       status: 'pending',
     })
-    db.rows.approvals.push({
+    const accessApproval = {
       id: APPROVAL_ID,
       plan_id: PLAN_ID,
       agent_action_id: ACTION_ID,
       action_label: 'Send to venues',
       status: 'pending',
       price_cents: 0,
+      fees_cents: 0,
+      requested_amount_cents: 0,
+    }
+    db.rows.approvals.push({
+      ...accessApproval,
       snapshot_hash: buildApprovalSnapshotHash({
         plan: db.rows.plans[0] as any,
-        approval: { price_cents: 0 },
+        approval: accessApproval as any,
         action: db.rows.agent_actions[0] as any,
       }),
     })

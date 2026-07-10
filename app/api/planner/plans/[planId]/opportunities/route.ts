@@ -16,7 +16,7 @@ import {
   VENUE_OPPORTUNITY_INVITE_SELECT_COLUMNS,
 } from '@/lib/planner/dbSelects'
 import { createVenueOpportunityBundle } from '@/lib/planner/opportunityBuilder'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type {
   Json,
   Plan,
@@ -102,8 +102,10 @@ export async function POST(
     }
 
     const messages = await loadMessages(auth.db, (await context.params).planId)
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
     const bundle = await createVenueOpportunityBundle({
       db: auth.db,
+      writeDb,
       plan,
       messages,
       userId: auth.userId,

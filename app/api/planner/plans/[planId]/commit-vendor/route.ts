@@ -98,9 +98,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     .in('status', ['candidate', 'approval_created'])
 
   const planId = (await context.params).planId
-  await insertStatusMessage(auth.db, planId, `Committed ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote for planning.`)
+  await insertStatusMessage(baselineDb, planId, `Committed ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote for planning.`)
   await recomputePlanDerivedState({
     supabase: auth.db,
+    writeSupabase: baselineDb,
     baselineSupabase: baselineDb,
     planId,
     trigger: 'commit_changed',
@@ -156,9 +157,10 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   }
 
   const planId = (await context.params).planId
-  await insertStatusMessage(auth.db, planId, `Cancelled accepted ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote.`)
+  await insertStatusMessage(baselineDb, planId, `Cancelled accepted ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote.`)
   await recomputePlanDerivedState({
     supabase: auth.db,
+    writeSupabase: baselineDb,
     baselineSupabase: baselineDb,
     planId,
     trigger: 'cancel_commit',

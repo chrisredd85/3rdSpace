@@ -225,13 +225,15 @@ export async function PATCH(
       return NextResponse.json({ approval: existingApproval })
     }
 
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
+
     if (
       (parsed.data.action === 'authorize' || parsed.data.action === 'approve') &&
-      (await approvalRequiresFreshReview(auth.db, plan, existingApproval))
+      (!readString(existingApproval.snapshot_hash) || await approvalRequiresFreshReview(auth.db, plan, existingApproval))
     ) {
-      const staleApproval = await markApprovalReapprovalRequired(auth.db, (await context.params).planId, existingApproval.id)
+      const staleApproval = await markApprovalReapprovalRequired(writeDb, (await context.params).planId, existingApproval.id)
       if (staleApproval) {
-        await syncApprovalMessageMetadata(auth.db, (await context.params).planId, staleApproval)
+        await syncApprovalMessageMetadata(auth.db, writeDb, (await context.params).planId, staleApproval)
       }
       return NextResponse.json(
         { error: 'Plan details changed after this approval was created. Review the latest recommendations and approve again.' },
@@ -241,7 +243,7 @@ export async function PATCH(
 
     if (parsed.data.action === 'authorize' || parsed.data.action === 'approve') {
       const stripeGate = await checkApprovalStripeGate({
-        db: createServiceRoleClient() as unknown as PlannerDb,
+        db: writeDb,
         approval: existingApproval,
         planId: (await context.params).planId,
         organizerId: auth.userId,
@@ -250,7 +252,7 @@ export async function PATCH(
     }
 
     const updates = buildApprovalUpdates(approvalTransition.to, auth.userId, parsed.data.authorizedAmountCents)
-    const { data, error } = await auth.db
+    const { data, error } = await writeDb
       .from('approvals')
       .update(updates)
       .eq('id', parsed.data.approvalId)
@@ -288,7 +290,7 @@ export async function PATCH(
           reason: 'approval',
         })
       } catch (accessError) {
-        await rollbackApprovalAfterAccessFailure(auth.db, {
+        await rollbackApprovalAfterAccessFailure(auth.db, writeDb, {
           planId: (await context.params).planId,
           approval,
           originalStatus: existingApproval.status,
@@ -304,14 +306,14 @@ export async function PATCH(
       }
     }
 
-    await syncAgentActionStatusForApproval(auth.db, {
+    await syncAgentActionStatusForApproval(auth.db, writeDb, {
       actionId: approval.agent_action_id,
       planId: (await context.params).planId,
       actorId: auth.userId,
       approvalStatus: approval.status,
     })
     if (isApprovalExecutable(approval.status)) {
-      await executeApprovedAction(auth.db, {
+      await executeApprovedAction(auth.db, writeDb, {
         actionId: approval.agent_action_id,
         planId: (await context.params).planId,
         actorId: auth.userId,
@@ -319,9 +321,9 @@ export async function PATCH(
         approval,
       })
     } else if (approval.status === 'cancelled' || approval.status === 'rejected') {
-      await syncOpportunityInviteStatuses(auth.db, plan, auth.userId, approval)
+      await syncOpportunityInviteStatuses(auth.db, writeDb, plan, auth.userId, approval)
     }
-    await syncApprovalMessageMetadata(auth.db, (await context.params).planId, approval)
+    await syncApprovalMessageMetadata(auth.db, writeDb, (await context.params).planId, approval)
 
     return NextResponse.json({ approval })
   } catch (error) {
@@ -442,7 +444,8 @@ async function markApprovalReapprovalRequired(
 }
 
 async function rollbackApprovalAfterAccessFailure(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   input: {
     planId: string
     approval: Approval
@@ -450,7 +453,7 @@ async function rollbackApprovalAfterAccessFailure(
     actorId: string
   }
 ) {
-  const { data, error } = await db
+  const { data, error } = await writeDb
     .from('approvals')
     .update({
       status: input.originalStatus,
@@ -483,7 +486,7 @@ async function rollbackApprovalAfterAccessFailure(
     return null
   }
 
-  await markAgentActionAccessGateRollback(db, {
+  await markAgentActionAccessGateRollback(readDb, writeDb, {
     actionId: input.approval.agent_action_id,
     actorId: input.actorId,
     planId: input.planId,
@@ -491,12 +494,13 @@ async function rollbackApprovalAfterAccessFailure(
     attemptedStatus: input.approval.status,
   })
 
-  await syncApprovalMessageMetadata(db, input.planId, data as Approval)
+  await syncApprovalMessageMetadata(readDb, writeDb, input.planId, data as Approval)
   return data as Approval
 }
 
 async function markAgentActionAccessGateRollback(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   input: {
     actionId: string
     actorId: string
@@ -505,7 +509,7 @@ async function markAgentActionAccessGateRollback(
     attemptedStatus: ApprovalStatus
   }
 ) {
-  const action = await loadAgentAction(db, input.actionId)
+  const action = await loadAgentAction(readDb, input.actionId)
   if (!action) return
 
   const nextMetadata = {
@@ -518,7 +522,7 @@ async function markAgentActionAccessGateRollback(
     },
   } as Json
 
-  const { error } = await db
+  const { error } = await writeDb
     .from('agent_actions')
     .update({ result_metadata: nextMetadata })
     .eq('id', input.actionId)
@@ -541,7 +545,8 @@ async function markAgentActionAccessGateRollback(
 }
 
 async function syncAgentActionStatusForApproval(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   payload: {
     actionId: string
     planId: string
@@ -549,7 +554,7 @@ async function syncAgentActionStatusForApproval(
     approvalStatus: ApprovalStatus
   }
 ) {
-  const action = await loadAgentAction(db, payload.actionId)
+  const action = await loadAgentAction(readDb, payload.actionId)
   if (!action) return
 
   const transition = agentActionStatusForApprovalStatus(payload.approvalStatus, action.status)
@@ -570,7 +575,7 @@ async function syncAgentActionStatusForApproval(
   }
   if (!transition.changed) return
 
-  await persistAgentActionTransition(db, {
+  await persistAgentActionTransition(writeDb, {
     action,
     planId: payload.planId,
     actorId: payload.actorId,
@@ -583,7 +588,8 @@ async function syncAgentActionStatusForApproval(
 }
 
 async function executeApprovedAction(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   payload: {
     actionId: string
     planId: string
@@ -592,13 +598,13 @@ async function executeApprovedAction(
     approval: Approval
   }
 ) {
-  let action = await loadAgentAction(db, payload.actionId)
+  let action = await loadAgentAction(readDb, payload.actionId)
   if (!action) return
 
   const executionPlan = planApprovedActionExecution({ action, approval: payload.approval })
   if (!executionPlan.canStart) return
 
-  action = await persistAgentActionTransition(db, {
+  action = await persistAgentActionTransition(writeDb, {
     action,
     planId: payload.planId,
     actorId: payload.actorId,
@@ -612,14 +618,14 @@ async function executeApprovedAction(
 
   try {
     if (executionPlan.kind === 'send_gmail_outreach') {
-      const gmailExecution = await executeApprovedGmailOutreach(db, {
+      const gmailExecution = await executeApprovedGmailOutreach(readDb, {
         userId: payload.actorId,
         plan: payload.plan,
         action,
         approval: payload.approval,
       })
 
-      await persistAgentActionTransition(db, {
+      await persistAgentActionTransition(writeDb, {
         action,
         planId: payload.planId,
         actorId: payload.actorId,
@@ -633,13 +639,13 @@ async function executeApprovedAction(
       return
     }
 
-    const preparation = await syncOpportunityInviteStatuses(db, payload.plan, payload.actorId, payload.approval)
+    const preparation = await syncOpportunityInviteStatuses(readDb, writeDb, payload.plan, payload.actorId, payload.approval)
 
     if (!preparation.prepared) {
       throw new Error(preparation.reason ?? 'Outreach drafts were not prepared')
     }
 
-    await persistAgentActionTransition(db, {
+    await persistAgentActionTransition(writeDb, {
       action,
       planId: payload.planId,
       actorId: payload.actorId,
@@ -653,7 +659,7 @@ async function executeApprovedAction(
       },
     })
   } catch (error) {
-    await persistAgentActionTransition(db, {
+    await persistAgentActionTransition(writeDb, {
       action,
       planId: payload.planId,
       actorId: payload.actorId,
@@ -799,12 +805,13 @@ type OutreachPreparationSummary = {
 }
 
 async function syncOpportunityInviteStatuses(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   plan: Plan,
   userId: string,
   approval: Approval
 ): Promise<OutreachPreparationSummary> {
-  const { data, error } = await db
+  const { data, error } = await readDb
     .from('agent_actions')
     .select(AGENT_ACTION_OPPORTUNITY_SELECT_COLUMNS)
     .eq('id', approval.agent_action_id)
@@ -825,19 +832,19 @@ async function syncOpportunityInviteStatuses(
   const opportunityBriefId = readString(payloadRecord.opportunity_brief_id)
 
   if (isVenueOutreachAction(action)) {
-    return syncVenueOpportunitySendApproval(db, plan, userId, approval, payloadRecord, opportunityBriefId)
+    return syncVenueOpportunitySendApproval(readDb, writeDb, plan, userId, approval, payloadRecord, opportunityBriefId)
   }
 
   if (isVendorOutreachAction(action)) {
-    return syncVendorOpportunitySendApproval(db, plan, userId, approval, payloadRecord)
+    return syncVendorOpportunitySendApproval(readDb, writeDb, plan, userId, approval, payloadRecord)
   }
 
   if (!opportunityBriefId) return { prepared: false, reason: 'not_outreach_action' }
 
   if (approval.status === 'authorized' || approval.status === 'approved') {
-    const invites = await ensureVenueOpportunityInviteTokens(db, opportunityBriefId)
+    const invites = await ensureVenueOpportunityInviteTokens(readDb, opportunityBriefId, writeDb)
 
-    const { error: briefUpdateError } = await db
+    const { error: briefUpdateError } = await writeDb
       .from('venue_opportunity_briefs')
       .update({ status: 'approval_requested' })
       .eq('id', opportunityBriefId)
@@ -847,7 +854,7 @@ async function syncOpportunityInviteStatuses(
       console.error('Planner opportunity brief authorized status update error:', briefUpdateError)
     }
 
-    await insertOpportunityStatusMessage(db, plan.id, {
+    await insertOpportunityStatusMessage(writeDb, plan.id, {
       opportunity_brief_id: opportunityBriefId,
       approval_id: approval.id,
       status: 'drafts_prepared',
@@ -861,7 +868,7 @@ async function syncOpportunityInviteStatuses(
   }
 
   if (approval.status === 'cancelled' || approval.status === 'rejected') {
-    const { error: inviteUpdateError } = await db
+    const { error: inviteUpdateError } = await writeDb
       .from('venue_opportunity_invites')
       .update({ status: 'cancelled' })
       .eq('brief_id', opportunityBriefId)
@@ -870,7 +877,7 @@ async function syncOpportunityInviteStatuses(
       console.error('Planner opportunity invite cancelled status update error:', inviteUpdateError)
     }
 
-    const { error: briefUpdateError } = await db
+    const { error: briefUpdateError } = await writeDb
       .from('venue_opportunity_briefs')
       .update({ status: 'cancelled' })
       .eq('id', opportunityBriefId)
@@ -885,7 +892,8 @@ async function syncOpportunityInviteStatuses(
 }
 
 async function syncVendorOpportunitySendApproval(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   plan: Plan,
   userId: string,
   approval: Approval,
@@ -898,7 +906,7 @@ async function syncVendorOpportunitySendApproval(
   if (approval.status === 'cancelled' || approval.status === 'rejected') {
     if (!vendorBriefId) return { prepared: false, reason: `approval_${approval.status}` }
 
-    const { error: inviteUpdateError } = await db
+    const { error: inviteUpdateError } = await writeDb
       .from('vendor_opportunity_invites')
       .update({ status: 'cancelled' })
       .eq('brief_id', vendorBriefId)
@@ -914,14 +922,14 @@ async function syncVendorOpportunitySendApproval(
   }
 
   if (vendorBriefId) {
-    const invites = await ensureVendorOpportunityInviteTokens(db, vendorBriefId)
-    await updateActionPayload(db, approval.agent_action_id, {
+    const invites = await ensureVendorOpportunityInviteTokens(readDb, vendorBriefId, writeDb)
+    await updateActionPayload(writeDb, approval.agent_action_id, {
       ...payload,
       vendor_opportunity_brief_id: vendorBriefId,
       vendor_invite_ids: invites.map((invite) => invite.id),
       queued_vendor_invite_count: invites.length,
     })
-    await insertOpportunityStatusMessage(db, plan.id, {
+    await insertOpportunityStatusMessage(writeDb, plan.id, {
       opportunity_brief_id: vendorBriefId,
       approval_id: approval.id,
       status: 'drafts_prepared',
@@ -941,7 +949,8 @@ async function syncVendorOpportunitySendApproval(
   }
 
   const result = await createVendorOpportunityBrief({
-    db,
+    db: readDb,
+    writeDb,
     plan,
     userId,
     vendorIds,
@@ -953,14 +962,14 @@ async function syncVendorOpportunitySendApproval(
     issueTokens: true,
   })
 
-  await updateActionPayload(db, approval.agent_action_id, {
+  await updateActionPayload(writeDb, approval.agent_action_id, {
     ...payload,
     vendor_opportunity_brief_id: result.brief.id,
     vendor_invite_ids: result.invites.map((invite) => invite.id),
     queued_vendor_invite_count: result.invites.length,
   })
 
-  await insertOpportunityStatusMessage(db, plan.id, {
+  await insertOpportunityStatusMessage(writeDb, plan.id, {
     opportunity_brief_id: String(result.brief.id),
     approval_id: approval.id,
     status: 'drafts_prepared',
@@ -975,7 +984,8 @@ async function syncVendorOpportunitySendApproval(
 }
 
 async function syncVenueOpportunitySendApproval(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   plan: Plan,
   userId: string,
   approval: Approval,
@@ -985,7 +995,7 @@ async function syncVenueOpportunitySendApproval(
   if (approval.status === 'cancelled' || approval.status === 'rejected') {
     if (!opportunityBriefId) return { prepared: false, reason: `approval_${approval.status}` }
 
-    const { error: inviteUpdateError } = await db
+    const { error: inviteUpdateError } = await writeDb
       .from('venue_opportunity_invites')
       .update({ status: 'cancelled' })
       .eq('brief_id', opportunityBriefId)
@@ -1001,15 +1011,15 @@ async function syncVenueOpportunitySendApproval(
   }
 
   if (opportunityBriefId) {
-    const invites = await ensureVenueOpportunityInviteTokens(db, opportunityBriefId)
+    const invites = await ensureVenueOpportunityInviteTokens(readDb, opportunityBriefId, writeDb)
     const venuePayload = {
       ...payload,
       opportunity_brief_id: opportunityBriefId,
       invite_ids: invites.map((invite) => invite.id),
       queued_invite_count: invites.length,
     }
-    await updateActionPayload(db, approval.agent_action_id, venuePayload)
-    await insertOpportunityStatusMessage(db, plan.id, {
+    await updateActionPayload(writeDb, approval.agent_action_id, venuePayload)
+    await insertOpportunityStatusMessage(writeDb, plan.id, {
       opportunity_brief_id: opportunityBriefId,
       approval_id: approval.id,
       status: 'drafts_prepared',
@@ -1017,7 +1027,7 @@ async function syncVenueOpportunitySendApproval(
     })
     let vendorSummary: OutreachPreparationSummary = { prepared: false }
     if (hasVendorOutreachPayload(payload)) {
-      vendorSummary = await syncVendorOpportunitySendApproval(db, plan, userId, approval, venuePayload)
+      vendorSummary = await syncVendorOpportunitySendApproval(readDb, writeDb, plan, userId, approval, venuePayload)
     }
     return {
       prepared: true,
@@ -1031,21 +1041,22 @@ async function syncVenueOpportunitySendApproval(
   const venueIds = readStringArray(payload.venue_ids).filter(isUuid)
   if (venueIds.length === 0) {
     if (hasVendorOutreachPayload(payload)) {
-      return syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
+      return syncVendorOpportunitySendApproval(readDb, writeDb, plan, userId, approval, payload)
     }
     console.error('Planner venue opportunity send approval missing venue_ids')
     return { prepared: false, reason: 'missing_venue_ids' }
   }
 
   const discoveryDrafts = await enqueueDraftsAfterVenueApproval({
-    db,
+    db: readDb,
+    writeDb,
     planId: plan.id,
     userId,
     venueIds,
   })
 
   if (discoveryDrafts.prepared) {
-    await updateActionPayload(db, approval.agent_action_id, {
+    await updateActionPayload(writeDb, approval.agent_action_id, {
       ...payload,
       venue_ids: discoveryDrafts.unhandledVenueIds,
       discovery_outreach_results: discoveryDrafts.results,
@@ -1053,7 +1064,7 @@ async function syncVenueOpportunitySendApproval(
       contact_extraction_pending_count: discoveryDrafts.extractionPendingCount,
       contact_email_required_count: discoveryDrafts.emailRequiredCount,
     })
-    await insertOpportunityStatusMessage(db, plan.id, {
+    await insertOpportunityStatusMessage(writeDb, plan.id, {
       opportunity_brief_id: approval.id,
       approval_id: approval.id,
       status: 'drafts_prepared',
@@ -1063,7 +1074,8 @@ async function syncVenueOpportunitySendApproval(
     let legacySummary: OutreachPreparationSummary = { prepared: false }
     if (discoveryDrafts.unhandledVenueIds.length > 0) {
       const result = await createVenueOpportunityBrief({
-        db,
+        db: readDb,
+        writeDb,
         plan,
         userId,
         venueIds: discoveryDrafts.unhandledVenueIds,
@@ -1073,7 +1085,7 @@ async function syncVenueOpportunitySendApproval(
         issueTokens: true,
       })
 
-      await updateActionPayload(db, approval.agent_action_id, {
+      await updateActionPayload(writeDb, approval.agent_action_id, {
         ...payload,
         venue_ids: discoveryDrafts.unhandledVenueIds,
         opportunity_brief_id: result.brief.id,
@@ -1085,7 +1097,7 @@ async function syncVenueOpportunitySendApproval(
         contact_email_required_count: discoveryDrafts.emailRequiredCount,
       })
 
-      await insertOpportunityStatusMessage(db, plan.id, {
+      await insertOpportunityStatusMessage(writeDb, plan.id, {
         opportunity_brief_id: String(result.brief.id),
         approval_id: approval.id,
         status: 'drafts_prepared',
@@ -1101,7 +1113,7 @@ async function syncVenueOpportunitySendApproval(
 
     let vendorSummary: OutreachPreparationSummary = { prepared: false }
     if (hasVendorOutreachPayload(payload)) {
-      vendorSummary = await syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
+      vendorSummary = await syncVendorOpportunitySendApproval(readDb, writeDb, plan, userId, approval, payload)
     }
 
     return {
@@ -1118,7 +1130,8 @@ async function syncVenueOpportunitySendApproval(
   }
 
   const result = await createVenueOpportunityBrief({
-    db,
+    db: readDb,
+    writeDb,
     plan,
     userId,
     venueIds,
@@ -1134,9 +1147,9 @@ async function syncVenueOpportunitySendApproval(
     invite_ids: result.invites.map((invite) => invite.id),
     queued_invite_count: result.invites.length,
   }
-  await updateActionPayload(db, approval.agent_action_id, venuePayload)
+  await updateActionPayload(writeDb, approval.agent_action_id, venuePayload)
 
-  await insertOpportunityStatusMessage(db, plan.id, {
+  await insertOpportunityStatusMessage(writeDb, plan.id, {
     opportunity_brief_id: String(result.brief.id),
     approval_id: approval.id,
     status: 'drafts_prepared',
@@ -1145,7 +1158,7 @@ async function syncVenueOpportunitySendApproval(
 
   let vendorSummary: OutreachPreparationSummary = { prepared: false }
   if (hasVendorOutreachPayload(payload)) {
-    vendorSummary = await syncVendorOpportunitySendApproval(db, plan, userId, approval, venuePayload)
+    vendorSummary = await syncVendorOpportunitySendApproval(readDb, writeDb, plan, userId, approval, venuePayload)
   }
 
   return {
@@ -1234,10 +1247,15 @@ async function insertOpportunityStatusMessage(
   if (error) console.error('Planner opportunity status message insert error:', error)
 }
 
-async function syncApprovalMessageMetadata(db: PlannerDb, planId: string, approval: Approval) {
-  const actionPayload = await loadAgentActionPayload(db, approval.agent_action_id)
+async function syncApprovalMessageMetadata(
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
+  planId: string,
+  approval: Approval
+) {
+  const actionPayload = await loadAgentActionPayload(readDb, approval.agent_action_id)
   const executionMetadata = actionPayload ? buildApprovalExecutionMetadata(actionPayload) : {}
-  const { data, error } = await db
+  const { data, error } = await readDb
     .from('plan_messages')
     .select(PLAN_MESSAGE_METADATA_SELECT_COLUMNS)
     .eq('plan_id', planId)
@@ -1269,7 +1287,7 @@ async function syncApprovalMessageMetadata(db: PlannerDb, planId: string, approv
         },
       } as Json
 
-      const { error: updateError } = await db
+      const { error: updateError } = await writeDb
         .from('plan_messages')
         .update({ metadata: nextMetadata })
         .eq('id', row.id)

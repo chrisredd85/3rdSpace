@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 const rejectSchema = z.object({
   bookingIds: z.array(z.string().uuid()).min(1).max(100),
@@ -163,6 +163,7 @@ export async function POST(request: NextRequest) {
     if (pendingBookings.length === 0) {
       return NextResponse.json({ rejected: 0, skipped, bookings: [] })
     }
+    const writeDb = createServiceRoleClient() as unknown as ReturnType<typeof createClient>
 
     const { data: rejected, error } = await context.supabase
       .from('venue_bookings')
@@ -181,7 +182,7 @@ export async function POST(request: NextRequest) {
     }
 
     await notifyBuilders(context.supabase, pendingBookings, reason)
-    await auditRejections(context.supabase, pendingBookings, context.userId, reason)
+    await auditRejections(writeDb, pendingBookings, context.userId, reason)
 
     return NextResponse.json({
       rejected: rejected?.length || 0,

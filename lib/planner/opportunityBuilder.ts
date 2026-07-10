@@ -19,6 +19,7 @@ import type {
   VenueOpportunityInvite,
 } from '@/lib/types'
 import { getVenueComplianceStatus } from '@/lib/planner/venueComplianceGate'
+import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
 import {
   hasAuthoritativeVenueNightlyRate,
   readVenueRentalRateCents,
@@ -75,6 +76,7 @@ interface OpportunityVendorRow {
 
 interface CreateVenueOpportunityBundleInput {
   db: PlannerDb
+  writeDb: PlannerDb
   plan: Plan
   messages: PlanMessage[]
   userId: string
@@ -357,7 +359,7 @@ export async function createVenueOpportunityBundle(
     must_haves: briefDraft.must_haves as unknown as Json,
     requested_terms: briefDraft.requested_terms as unknown as Json,
   }
-  const { data: briefData, error: briefError } = await input.db
+  const { data: briefData, error: briefError } = await input.writeDb
     .from('venue_opportunity_briefs')
     .insert(briefInsert)
     .select('*')
@@ -398,7 +400,7 @@ export async function createVenueOpportunityBundle(
     admin_notes: match.route_to_concierge ? 'Unclaimed or concierge-only target. Route through internal queue.' : null,
   }))
 
-  const { data: inviteData, error: inviteError } = await input.db
+  const { data: inviteData, error: inviteError } = await input.writeDb
     .from('venue_opportunity_invites')
     .insert(invitePayloads)
     .select('*')
@@ -418,7 +420,28 @@ export async function createVenueOpportunityBundle(
     route_to_concierge: match.route_to_concierge,
   }))
 
-  const { data: actionData, error: actionError } = await input.db
+  const actionPayload = {
+    opportunity_brief_id: opportunity.id,
+    invite_ids: invites.map((invite) => invite.id),
+    venue_ids: matches
+      .filter((match) => match.target_type === 'venue' && match.target_id)
+      .map((match) => match.target_id),
+    vendor_ids: matches
+      .filter((match) => match.target_type === 'vendor' && match.target_id)
+      .map((match) => match.target_id),
+    summary: `${briefDraft.title}: ${briefDraft.guest_count ?? 'TBD'} guests in ${briefDraft.neighborhood ?? 'the Bay Area'}.`,
+    requirements: {
+      must_haves: briefDraft.must_haves,
+      requested_terms: briefDraft.requested_terms,
+      date_window_start: briefDraft.date_window_start,
+      date_window_end: briefDraft.date_window_end,
+      budget_cents: briefDraft.budget_cents,
+    },
+    response_deadline: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+    targets: targetSummary,
+    action: 'send_to_venues',
+  }
+  const { data: actionData, error: actionError } = await input.writeDb
     .from('agent_actions')
     .insert({
       plan_id: input.plan.id,
@@ -430,24 +453,7 @@ export async function createVenueOpportunityBundle(
       status: 'pending',
       target_type: 'opportunity',
       target_id: opportunity.id,
-      payload_json: {
-        opportunity_brief_id: opportunity.id,
-        invite_ids: invites.map((invite) => invite.id),
-        venue_ids: matches
-          .filter((match) => match.target_type === 'venue' && match.target_id)
-          .map((match) => match.target_id),
-        summary: `${briefDraft.title}: ${briefDraft.guest_count ?? 'TBD'} guests in ${briefDraft.neighborhood ?? 'the Bay Area'}.`,
-        requirements: {
-          must_haves: briefDraft.must_haves,
-          requested_terms: briefDraft.requested_terms,
-          date_window_start: briefDraft.date_window_start,
-          date_window_end: briefDraft.date_window_end,
-          budget_cents: briefDraft.budget_cents,
-        },
-        response_deadline: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
-        targets: targetSummary,
-        action: 'send_to_venues',
-      } as Json,
+      payload_json: actionPayload as Json,
       result_metadata: {
         source: 'planner_opportunity_marketplace',
       } as Json,
@@ -461,7 +467,17 @@ export async function createVenueOpportunityBundle(
   }
 
   const agentAction = actionData as AgentAction
-  const { data: approvalData, error: approvalError } = await input.db
+  const approvalSnapshot = {
+    event_date: input.plan.date_window_start,
+    price_cents: approvalDraft.requested_amount_cents,
+    fees_cents: 0,
+    requested_amount_cents: approvalDraft.requested_amount_cents,
+    provider: approvalDraft.provider,
+    refund_terms: approvalDraft.refund_terms,
+    cancellation_terms: approvalDraft.cancellation_terms,
+    package_details: approvalDraft.package_details,
+  }
+  const { data: approvalData, error: approvalError } = await input.writeDb
     .from('approvals')
     .insert({
       plan_id: input.plan.id,
@@ -477,6 +493,12 @@ export async function createVenueOpportunityBundle(
       requested_amount_cents: approvalDraft.requested_amount_cents,
       status: 'pending',
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      snapshot_hash: buildApprovalSnapshotHash({
+        plan: input.plan,
+        approval: approvalSnapshot,
+        action: agentAction,
+        payload: actionPayload,
+      }),
     })
     .select('*')
     .single()
@@ -487,10 +509,10 @@ export async function createVenueOpportunityBundle(
   }
 
   const approval = approvalData as Approval
-  await input.db.from('agent_actions').update({ approval_id: approval.id }).eq('id', agentAction.id)
-  await createConciergeFallbackTask(input.db, input.plan, opportunity, invites)
+  await input.writeDb.from('agent_actions').update({ approval_id: approval.id }).eq('id', agentAction.id)
+  await createConciergeFallbackTask(input.writeDb, input.plan, opportunity, invites)
 
-  const { data: messageData, error: messageError } = await input.db
+  const { data: messageData, error: messageError } = await input.writeDb
     .from('plan_messages')
     .insert({
       plan_id: input.plan.id,

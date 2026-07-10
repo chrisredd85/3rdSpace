@@ -256,6 +256,10 @@ export async function POST(
     })
     if (stripeGate) return stripeGate
 
+    // Ownership was proved with the session/RLS client above. Trusted state is
+    // service-owned, so use a narrowly scoped writer only after that check.
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
+
     const agentActionInsert: TableInsert<'agent_actions'> = {
       plan_id: (await context.params).planId,
       action_type: parsed.data.actionType,
@@ -274,7 +278,7 @@ export async function POST(
       },
     }
 
-    const { data: actionData, error: actionError } = await auth.db
+    const { data: actionData, error: actionError } = await writeDb
       .from('agent_actions')
       .insert(agentActionInsert)
       .select(AGENT_ACTION_SELECT_COLUMNS)
@@ -286,7 +290,7 @@ export async function POST(
     }
 
     const agentAction = actionData as AgentAction
-    await insertAgentActionAuditLog(auth.db, {
+    await insertAgentActionAuditLog(writeDb, {
       actionId: agentAction.id,
       planId: (await context.params).planId,
       fromStatus: null,
@@ -338,7 +342,7 @@ export async function POST(
       }),
     }
 
-    const { data: approvalData, error: approvalError } = await auth.db
+    const { data: approvalData, error: approvalError } = await writeDb
       .from('approvals')
       .insert(approvalInsert)
       .select(APPROVAL_SELECT_COLUMNS)
@@ -351,12 +355,12 @@ export async function POST(
 
     const approval = approvalData as Approval
 
-    await auth.db
+    await writeDb
       .from('agent_actions')
       .update({ approval_id: approval.id })
       .eq('id', agentAction.id)
 
-    const { data: approvalMessageData, error: approvalMessageError } = await auth.db
+    const { data: approvalMessageData, error: approvalMessageError } = await writeDb
       .from('plan_messages')
       .insert({
         plan_id: (await context.params).planId,

@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 const approveSchema = z.object({
   bookingIds: z.array(z.string().uuid()).min(1).max(100),
@@ -163,6 +163,7 @@ export async function POST(request: NextRequest) {
     if (pendingBookings.length === 0) {
       return NextResponse.json({ approved: 0, skipped, bookings: [] })
     }
+    const writeDb = createServiceRoleClient() as unknown as ReturnType<typeof createClient>
 
     const { data: approved, error } = await context.supabase
       .from('venue_bookings')
@@ -182,7 +183,7 @@ export async function POST(request: NextRequest) {
     }
 
     await notifyBuilders(context.supabase, pendingBookings, message)
-    await auditApprovals(context.supabase, pendingBookings, context.userId, message)
+    await auditApprovals(writeDb, pendingBookings, context.userId, message)
 
     return NextResponse.json({
       approved: approved?.length || 0,

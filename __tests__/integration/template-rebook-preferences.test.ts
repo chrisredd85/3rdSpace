@@ -9,7 +9,7 @@
 
 import type { NextRequest } from 'next/server'
 import { POST as applyTemplate } from '@/app/api/planner/templates/[id]/apply/route'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 jest.mock('@/lib/planner/autoRecommendations', () => ({
   createAutoRecommendationMessage: jest.fn().mockResolvedValue([]),
@@ -17,6 +17,7 @@ jest.mock('@/lib/planner/autoRecommendations', () => ({
 
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
+  createServiceRoleClient: jest.fn(),
 }))
 
 jest.mock('next/server', () => ({
@@ -177,6 +178,7 @@ describe('template apply — rebook preferences in plan metadata', () => {
     })
 
     ;(createClient as jest.Mock).mockReturnValue(mockSupabase)
+    ;(createServiceRoleClient as jest.Mock).mockReturnValue(mockSupabase)
 
     const request = buildRequest({
       create_new_plan: true,
@@ -219,6 +221,7 @@ describe('template apply — rebook preferences in plan metadata', () => {
     })
 
     ;(createClient as jest.Mock).mockReturnValue(mockSupabase)
+    ;(createServiceRoleClient as jest.Mock).mockReturnValue(mockSupabase)
 
     const request = buildRequest({
       create_new_plan: true,
@@ -260,6 +263,7 @@ describe('template apply — rebook preferences in plan metadata', () => {
     })
 
     ;(createClient as jest.Mock).mockReturnValue(mockSupabase)
+    ;(createServiceRoleClient as jest.Mock).mockReturnValue(mockSupabase)
 
     const request = buildRequest({
       create_new_plan: true,
@@ -299,6 +303,7 @@ describe('template apply — rebook preferences in plan metadata', () => {
     })
 
     ;(createClient as jest.Mock).mockReturnValue(mockSupabase)
+    ;(createServiceRoleClient as jest.Mock).mockReturnValue(mockSupabase)
 
     const request = buildRequest({
       create_new_plan: true,

@@ -87,15 +87,15 @@ export async function POST(
       )
     }
 
-    const admin = createServiceRoleClient() as unknown as PlannerDb
-    let paymentIntent = await loadOwnedPaymentIntent(admin, parsed.data.paymentIntentId, user.id)
+    const readDb = supabase as unknown as PlannerDb
+    let paymentIntent = await loadOwnedPaymentIntent(readDb, parsed.data.paymentIntentId, user.id)
     if (!paymentIntent) return NextResponse.json({ error: 'Payment intent not found' }, { status: 404 })
 
     if (paymentIntent.approval_id !== parsed.data.approvalId) {
       return NextResponse.json({ error: 'Approval does not match payment intent' }, { status: 422 })
     }
 
-    const approval = await loadApproval(admin, parsed.data.approvalId, paymentIntent.plan_id)
+    const approval = await loadApproval(readDb, parsed.data.approvalId, paymentIntent.plan_id)
     if (!approval) return NextResponse.json({ error: 'Approval not found' }, { status: 404 })
     if (approval.status !== 'authorized' && approval.status !== 'approved') {
       return NextResponse.json({ error: 'Approval must be authorized before capture' }, { status: 422 })
@@ -108,10 +108,10 @@ export async function POST(
       )
     }
 
-    const plan = await loadPlan(admin, paymentIntent.plan_id)
+    const plan = await loadPlan(readDb, paymentIntent.plan_id)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const action = await loadAgentAction(admin, approval.agent_action_id)
+    const action = await loadAgentAction(readDb, approval.agent_action_id)
     if (!action) return NextResponse.json({ error: 'Linked approval action not found' }, { status: 422 })
     try {
       paymentCaptureTransitionEvents(action.status)
@@ -137,6 +137,7 @@ export async function POST(
       )
     }
 
+    const admin = createServiceRoleClient() as unknown as PlannerDb
     await assertPlannerPartnerStripeReady({
       db: admin,
       partnerKind: paymentIntent.partner_kind,

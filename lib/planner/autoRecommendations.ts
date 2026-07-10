@@ -26,12 +26,13 @@ type PlanMessageInsertDb = {
 
 export async function createAutoRecommendationMessage(input: {
   db: PlanMessageInsertDb
+  writeDb: PlanMessageInsertDb
   request: NextRequest
   planId: string
 }): Promise<PlanMessage[]> {
   const recommendationData = await requestRecommendationRun(input.request, input.planId)
   if (!recommendationData) {
-    const fallbackMessage = await insertRecommendationFallbackMessage(input.db, input.planId)
+    const fallbackMessage = await insertRecommendationFallbackMessage(input.writeDb, input.planId)
     return fallbackMessage ? [fallbackMessage] : []
   }
 
@@ -42,7 +43,7 @@ export async function createAutoRecommendationMessage(input: {
 
   // Message 1 — venues only
   const venueContent = buildVenueOnlyContent(recommendationData)
-  const { data: venueMessageData, error: venueMessageError } = await input.db
+  const { data: venueMessageData, error: venueMessageError } = await input.writeDb
     .from('plan_messages')
     .insert({
       plan_id: input.planId,
@@ -76,7 +77,7 @@ export async function createAutoRecommendationMessage(input: {
   const hasVendors = vendorRecommendations.length > 0
   if (hasVendors || approvalMessageId) {
     const vendorContent = buildVendorFollowUpContent(recommendationData)
-    const { data: vendorMessageData, error: vendorMessageError } = await input.db
+    const { data: vendorMessageData, error: vendorMessageError } = await input.writeDb
       .from('plan_messages')
       .insert({
         plan_id: input.planId,
