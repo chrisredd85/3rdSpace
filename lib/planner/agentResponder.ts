@@ -10,7 +10,7 @@
  * - Drafting plans begin in intake, then clarify missing fields in a fixed order.
  * - Once date, headcount, neighborhood, and ticketing intent are known, the
  *   response switches to recommendation mode.
- * - Approved, executing, and complete plans map directly to their execution states.
+ * - Approved, executing, booked, and completed plans map directly to their execution states.
  */
 import {
   buildArchetypeAnswerText,
@@ -39,8 +39,8 @@ type PlanReadModel = Pick<
  * - `drafting` + missing required planning fields => `clarifying`.
  * - `drafting` or `ready` + complete required fields => `recommending`.
  * - `approved` => `awaiting_approval`.
- * - `executing` => `executing`.
- * - `complete` or `archived` => `complete`.
+ * - `executing` or `booked` => `executing`.
+ * - `completed`, legacy `complete`, or `archived` => `complete`.
  *
  * @param plan - Current persisted plan row.
  * @param messages - Existing plan messages, ordered or unordered.
@@ -143,8 +143,8 @@ export function determineNextResponse(plan: Plan, messages: PlanMessage[]): Agen
 
 function determineState(plan: Plan, missingFieldCount: number, hasPriorAgentReply: boolean): AgentPlannerState {
   if (plan.status === 'approved') return 'awaiting_approval'
-  if (plan.status === 'executing') return 'executing'
-  if (plan.status === 'complete' || plan.status === 'archived') return 'complete'
+  if (plan.status === 'executing' || plan.status === 'booked') return 'executing'
+  if (plan.status === 'completed' || plan.status === 'complete' || plan.status === 'archived') return 'complete'
   if (missingFieldCount === 0) return 'recommending'
   return hasPriorAgentReply ? 'clarifying' : 'intake'
 }

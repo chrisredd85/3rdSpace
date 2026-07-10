@@ -665,7 +665,7 @@ function buildExperiencesData({
 
   const activeStatuses = new Set(['draft', 'planning', 'venue_pending', 'confirmed', 'live'])
   const activeEvents = events.filter((event) => activeStatuses.has((event.status ?? '').toLowerCase()))
-  const activePlans = plans.filter((plan) => !['complete', 'archived'].includes(plan.status))
+  const activePlans = plans.filter((plan) => !['completed', 'complete', 'archived'].includes(plan.status))
   const connectedTicketingCount = ticketingConnections.filter((connection) => isConnectedTicketingStatus(connection.status) || Boolean(connection.last_webhook_received_at)).length
   const eventsWithTicketing = events.filter((event) => {
     const financial = financialsByEvent.get(event.id)
@@ -882,7 +882,7 @@ function buildPlanRecord(plan: PlanRow): ExperienceRecord {
       recordHref: planHref,
       hasTicketing: Boolean(plan.ticketed || plan.ticketing_model),
       hasFinancials: Boolean(plan.budget_cap_cents || plan.profit_goal_cents),
-      isCompleted: plan.status === 'complete',
+      isCompleted: plan.status === 'completed' || plan.status === 'complete',
     }),
     bookingItems: [],
     money: null,
@@ -1632,8 +1632,8 @@ function getPlanNextAction(plan: PlanRow) {
   if (plan.status === 'drafting') return 'Clarify plan'
   if (plan.status === 'ready') return 'Review approvals'
   if (plan.status === 'approved') return 'Prepare execution'
-  if (plan.status === 'executing') return 'Track execution'
-  if (plan.status === 'complete') return 'Save or rebook'
+  if (plan.status === 'executing' || plan.status === 'booked') return 'Track execution'
+  if (plan.status === 'completed' || plan.status === 'complete') return 'Save or rebook'
   return 'Review record'
 }
 

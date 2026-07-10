@@ -991,6 +991,33 @@ describe('Planner persistence integration', () => {
     expect(db.rows.plans).toHaveLength(2)
   })
 
+  it.each(['approved', 'executing', 'booked', 'completed', 'complete', 'archived'])(
+    'does not let a migrated client draft insert the %s lifecycle state',
+    async (requestedStatus) => {
+      const response = await createPlan(makeRequest('/api/planner/plans', {
+        message: 'Start an incomplete event draft',
+        draft: {
+          plan: {
+            title: 'Incomplete imported draft',
+            event_type: 'Networking mixer',
+            status: requestedStatus,
+          },
+          messages: [{
+            role: 'user',
+            content: 'Start an incomplete event draft',
+            message_type: 'text',
+            metadata: {},
+          }],
+        },
+      }))
+      const created = await readJson(response)
+
+      expect(response.status).toBe(200)
+      expect(created.plan.status).toBe('drafting')
+      expect(created.plan.status).not.toBe(requestedStatus)
+    }
+  )
+
   it('marks migrated ready public drafts as needing recommendations', async () => {
     const createResponse = await createPlan(makeRequest('/api/planner/plans', {
       message: 'Game night in downtown Oakland',

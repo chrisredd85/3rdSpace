@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { PlannerWorkspace, updateApprovalMessageState } from '@/components/planner/planner-page/PlannerWorkspace'
+import { isTemplateEligiblePlan, PlannerWorkspace, updateApprovalMessageState } from '@/components/planner/planner-page/PlannerWorkspace'
 import {
   getRecommendationActionKind,
   isControlledPaymentApprovalMetadata,
@@ -331,6 +331,19 @@ describe('PlannerWorkspace desktop draft handoff', () => {
     expect(shouldStartNewPlanFromReply('new chat', makePlan())).toBe(true)
     expect(shouldStartNewPlanFromReply('fresh conversation please', makePlan())).toBe(true)
     expect(shouldStartNewPlanFromReply('start over with a clean workspace', makePlan())).toBe(true)
+  })
+
+  it('starts fresh from both canonical and legacy completed plans while keeping booked plans active', () => {
+    expect(shouldStartNewPlanFromReply('summarize this', makePlan({ status: 'completed' }))).toBe(true)
+    expect(shouldStartNewPlanFromReply('summarize this', makePlan({ status: 'complete' }))).toBe(true)
+    expect(shouldStartNewPlanFromReply('summarize this', makePlan({ status: 'booked' }))).toBe(false)
+  })
+
+  it('only offers a new template from a canonical completed plan', () => {
+    expect(isTemplateEligiblePlan(makePlan({ status: 'completed', materialized_event_id: 'event-1' }))).toBe(true)
+    expect(isTemplateEligiblePlan(makePlan({ status: 'complete', materialized_event_id: 'event-legacy' }))).toBe(true)
+    expect(isTemplateEligiblePlan(makePlan({ status: 'completed', materialized_event_id: null }))).toBe(false)
+    expect(isTemplateEligiblePlan(makePlan({ status: 'booked', materialized_event_id: 'event-1' }))).toBe(false)
   })
 })
 

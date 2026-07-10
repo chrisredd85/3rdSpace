@@ -239,6 +239,7 @@ export function publishLivePlan(plan: Plan | null, messages: PlanMessage[]) {
     neighborhood: plan.neighborhood,
     dateWindowStart: plan.date_window_start,
     dateWindowEnd: plan.date_window_end,
+    materializedEventId: plan.materialized_event_id ?? null,
     ticketed: plan.ticketed,
     ticketingModel: plan.ticketing_model ?? null,
     ticketPriceTargetCents: readPlanTicketPriceTargetCents(plan),
@@ -275,7 +276,7 @@ export function readPlanTicketPriceTargetCents(plan: Plan): number | null {
 }
 
 export function shouldStartNewPlanFromReply(message: string, activePlan: Plan): boolean {
-  if (activePlan.status === 'complete' || activePlan.status === 'archived') return true
+  if (activePlan.status === 'completed' || activePlan.status === 'complete' || activePlan.status === 'archived') return true
   const normalized = message.toLowerCase()
   if (isNewConversationResetRequest(normalized)) return true
 
@@ -384,7 +385,7 @@ export function clearStoredPlannerConversation() {
  * Returns true for terminal plan states that should not restore as an active chat.
  */
 export function isExecutedPlanStatus(status: Plan['status']) {
-  return status === 'complete' || status === 'archived'
+  return status === 'completed' || status === 'complete' || status === 'archived'
 }
 
 

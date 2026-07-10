@@ -28,6 +28,7 @@ import {
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { EntityReadinessBadge } from '@/components/planner/EntityReadinessBadge'
+import { PlannerEventMaterializationCard } from '@/components/planner/PlannerEventMaterializationCard'
 import { InviteVendorModal } from '@/components/planner/InviteVendorModal'
 import { InviteVenueModal } from '@/components/planner/InviteVenueModal'
 import { ReportIncorrectInfoModal, type ReportIncorrectInfoEntity } from '@/components/planner/ReportIncorrectInfoModal'
@@ -183,6 +184,7 @@ interface PlannerLivePlanPanelProps {
   /** When true, renders as an inline block (no fixed height, no border-l, no shadow). */
   inline?: boolean
   onDateChangeRequest?: (input: PlannerDateChangeRequestInput) => Promise<void>
+  onEventMaterialized?: () => Promise<void> | void
   onNavigateToTab?: (tabId: 'approvals', messageId?: string) => void
 }
 
@@ -207,6 +209,7 @@ interface LivePlanSnapshot {
   eventCity: string | null
   dateWindowStart: string | null
   dateWindowEnd: string | null
+  materializedEventId: string | null
   ticketed: boolean | null
   ticketingModel: string | null
   ticketPriceTargetCents: number | null
@@ -511,6 +514,7 @@ function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
     eventCity: readString(record.eventCity) ?? readString(record.event_city) ?? readString(metadata?.event_city),
     dateWindowStart: readString(record.dateWindowStart) ?? readString(record.date_window_start),
     dateWindowEnd: readString(record.dateWindowEnd) ?? readString(record.date_window_end),
+    materializedEventId: readString(record.materializedEventId) ?? readString(record.materialized_event_id),
     ticketed: readBoolean(record.ticketed) ?? isPaidTicketingModel(ticketingModel),
     ticketingModel,
     ticketPriceTargetCents:
@@ -1413,6 +1417,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   sources = defaultSources,
   inline = false,
   onDateChangeRequest,
+  onEventMaterialized,
   onNavigateToTab,
 }: PlannerLivePlanPanelProps) {
   const router = useRouter()
@@ -2078,6 +2083,21 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
               onGenerate={handleGenerateTimeline}
             />
           </div>
+
+          {activePlanId && livePlan && (livePlan.status === 'approved' || livePlan.materializedEventId) ? (
+            <div className="mt-6">
+              <PlannerEventMaterializationCard
+                key={`${activePlanId}:${livePlan.materializedEventId ?? 'pending'}`}
+                planId={activePlanId}
+                planStatus={livePlan.status}
+                materializedEventId={livePlan.materializedEventId}
+                dateWindowStart={livePlan.dateWindowStart}
+                dateWindowEnd={livePlan.dateWindowEnd}
+                onMaterialized={onEventMaterialized}
+                compact
+              />
+            </div>
+          ) : null}
 
           {eventSummary.special_supply ? (
             <SpecialSupplyBrief specialSupply={eventSummary.special_supply} />

@@ -29,7 +29,7 @@ const plan = {
   id: PLAN_ID,
   user_id: USER_ID,
   title: 'Founder dinner',
-  event_type: 'founders dinner',
+  event_type: 'Founder/operator dinner',
   status: 'approved',
   guest_count: 40,
   budget_cap_cents: 500000,
@@ -39,7 +39,13 @@ const plan = {
   ticketed: false,
   profit_goal_cents: null,
   notes: null,
-  metadata: {},
+  materialized_event_id: null,
+  metadata: {
+    event_archetype_lock: {
+      key: 'founder_operator_dinner',
+      display_name: 'Founder/operator dinner',
+    },
+  },
   created_at: '2026-07-09T12:00:00.000Z',
   updated_at: '2026-07-09T12:00:00.000Z',
 }
@@ -81,6 +87,7 @@ describe('POST /api/planner/plans/[planId]/materialize', () => {
       eventDate: '2026-08-20',
       startTime: '18:30',
       durationMinutes: 180,
+      confirmed: true,
     }), context())
     const payload = await response.json()
 
@@ -105,16 +112,24 @@ describe('POST /api/planner/plans/[planId]/materialize', () => {
         starts_at: '2026-08-21T01:30:00.000Z',
         time_zone: 'America/Los_Angeles',
       }),
+      schedule_confirmation: {
+        confirmed: true,
+        confirmed_by: USER_ID,
+        event_date: '2026-08-20',
+        start_time: '18:30',
+        duration_minutes: 180,
+        time_zone: 'America/Los_Angeles',
+      },
     }))
     expect(serviceFrom).not.toHaveBeenCalled()
   })
 
-  it('returns an idempotent existing event from the RPC', async () => {
+  it.each(['executing', 'booked', 'completed'])('allows an exact idempotent retry after the plan has advanced to %s', async (status) => {
     const rpc = jest.fn().mockResolvedValue({
       data: [{ event_id: EVENT_ID, existing: true, event_record: eventRecord, plan_status: 'executing' }],
       error: null,
     })
-    mockClients({ rpc })
+    mockClients({ rpc, plan: { ...plan, status, materialized_event_id: EVENT_ID } })
 
     const response = await POST(request(validSchedule()), context())
     expect(await response.json()).toEqual(expect.objectContaining({ event_id: EVENT_ID, existing: true }))
@@ -122,7 +137,7 @@ describe('POST /api/planner/plans/[planId]/materialize', () => {
 
   it('rejects an unresolved archetype without calling the service writer', async () => {
     const rpc = jest.fn()
-    mockClients({ rpc, plan: { ...plan, event_type: 'conference' } })
+    mockClients({ rpc, plan: { ...plan, event_type: 'conference', metadata: {} } })
 
     const response = await POST(request(validSchedule()), context())
 
@@ -131,11 +146,45 @@ describe('POST /api/planner/plans/[planId]/materialize', () => {
     expect(rpc).not.toHaveBeenCalled()
   })
 
+  it('does not use a fuzzy alias when a legacy plan has no confirmed archetype lock', async () => {
+    const rpc = jest.fn()
+    mockClients({ rpc, plan: { ...plan, event_type: 'founders dinner', metadata: {} } })
+
+    const response = await POST(request(validSchedule()), context())
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual(expect.objectContaining({ code: 'plan_archetype_unresolved' }))
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
+  it('rejects a display type that conflicts with the confirmed archetype lock', async () => {
+    const rpc = jest.fn()
+    mockClients({ rpc, plan: { ...plan, event_type: 'Networking mixer' } })
+
+    const response = await POST(request(validSchedule()), context())
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual(expect.objectContaining({ code: 'plan_archetype_lock_conflict' }))
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
+  it('requires approval before a first materialization', async () => {
+    const rpc = jest.fn()
+    mockClients({ rpc, plan: { ...plan, status: 'ready' } })
+
+    const response = await POST(request(validSchedule()), context())
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual(expect.objectContaining({ code: 'plan_materialization_requires_approval' }))
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
   it.each([
-    [{ eventDate: '2026-02-30', startTime: '18:30', durationMinutes: 180 }, 'invalid calendar date'],
-    [{ eventDate: '2026-08-20', startTime: '24:00', durationMinutes: 180 }, 'invalid clock time'],
-    [{ eventDate: '2026-08-20', startTime: '18:30', durationMinutes: 0 }, 'invalid duration'],
+    [{ eventDate: '2026-02-30', startTime: '18:30', durationMinutes: 180, confirmed: true }, 'invalid calendar date'],
+    [{ eventDate: '2026-08-20', startTime: '24:00', durationMinutes: 180, confirmed: true }, 'invalid clock time'],
+    [{ eventDate: '2026-08-20', startTime: '18:30', durationMinutes: 0, confirmed: true }, 'invalid duration'],
     [{ ...validSchedule(), timeZone: 'Mars/Olympus_Mons' }, 'invalid timezone'],
+    [{ ...validSchedule(), confirmed: false }, 'missing host confirmation'],
   ])('rejects %s as an invalid exact schedule (%s)', async (body) => {
     const rpc = jest.fn()
     mockClients({ rpc })
@@ -157,30 +206,36 @@ describe('POST /api/planner/plans/[planId]/materialize', () => {
     expect(rpc).not.toHaveBeenCalled()
   })
 
-  it('maps an ineligible plan transition to a conflict', async () => {
-    const rpc = jest.fn().mockResolvedValue({
-      data: null,
-      error: { code: 'P0001', message: 'plan_materialization_status_ineligible' },
-    })
+  it.each([
+    ['materialize_plan_event_plan_must_be_approved', '23514', 409, 'plan_materialization_ineligible'],
+    ['materialize_plan_event_date_outside_plan_window', '22023', 409, 'plan_event_date_outside_window'],
+    ['materialize_plan_event_idempotency_conflict', '22023', 409, 'plan_event_identity_conflict'],
+    ['materialize_plan_event_unknown_archetype', '22023', 422, 'plan_archetype_unresolved'],
+    ['materialize_plan_event_nonexistent_local_time', '22023', 422, 'plan_event_local_time_nonexistent'],
+    ['materialize_plan_event_ambiguous_local_time', '22023', 422, 'plan_event_local_time_ambiguous'],
+    ['materialize_plan_event_unknown_time_zone', '22023', 422, 'plan_event_time_zone_invalid'],
+    ['materialize_plan_event_actor_mismatch', '42501', 403, 'plan_materialization_actor_mismatch'],
+  ])('maps migration error %s to a stable route response', async (message, code, status, responseCode) => {
+    const rpc = jest.fn().mockResolvedValue({ data: null, error: { code, message } })
     mockClients({ rpc })
 
     const response = await POST(request(validSchedule()), context())
 
-    expect(response.status).toBe(409)
-    expect(await response.json()).toEqual(expect.objectContaining({ code: 'plan_materialization_ineligible' }))
+    expect(response.status).toBe(status)
+    expect(await response.json()).toEqual(expect.objectContaining({ code: responseCode }))
   })
 
-  it('maps an idempotency payload mismatch to an identity conflict', async () => {
+  it('maps the migration plan-not-found error without leaking internals', async () => {
     const rpc = jest.fn().mockResolvedValue({
       data: null,
-      error: { code: 'P0001', message: 'plan_event_identity_conflict' },
+      error: { code: 'P0002', message: 'materialize_plan_event_plan_not_found' },
     })
     mockClients({ rpc })
 
     const response = await POST(request(validSchedule()), context())
 
-    expect(response.status).toBe(409)
-    expect(await response.json()).toEqual(expect.objectContaining({ code: 'plan_event_identity_conflict' }))
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Plan not found' })
   })
 
   it('does not expose plan existence to an unauthenticated caller', async () => {
@@ -228,6 +283,7 @@ function validSchedule() {
     startTime: '18:30',
     durationMinutes: 180,
     timeZone: 'America/Los_Angeles',
+    confirmed: true,
   }
 }
 

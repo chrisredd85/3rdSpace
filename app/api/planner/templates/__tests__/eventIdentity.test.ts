@@ -1,4 +1,4 @@
-import { buildTemplateInsert, normalizeTemplateRow } from '@/app/api/planner/templates/route'
+import { buildTemplateInsert, normalizeTemplateRow } from '@/lib/planner/templateIdentity'
 import type { Plan } from '@/lib/types'
 
 jest.mock('@/lib/supabase/server', () => ({

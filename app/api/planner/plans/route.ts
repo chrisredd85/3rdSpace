@@ -91,7 +91,9 @@ type AuthResult =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
 
-const planStatusSchema = z.enum(['drafting', 'ready', 'approved', 'executing', 'complete', 'archived'])
+// Imported/public drafts can only enter pre-approval lifecycle states. Every
+// later state is evidence-driven through the service transition command.
+const planStatusSchema = z.enum(['drafting', 'ready'])
 const planMessageRoleSchema = z.enum(['user', 'agent', 'system'])
 const planMessageTypeSchema = z.enum(['text', 'confirmation_card', 'recommendation', 'approval_request', 'status_update'])
 const draftMessageSchema = z.object({
@@ -1043,7 +1045,7 @@ function readBoolean(value: unknown): boolean | null {
 }
 
 function isTerminalStatus(status: Plan['status']) {
-  return status === 'complete' || status === 'archived'
+  return status === 'completed' || status === 'complete' || status === 'archived'
 }
 
 function normalizeCreatedAt(value: string | undefined, fallbackMs: number) {
