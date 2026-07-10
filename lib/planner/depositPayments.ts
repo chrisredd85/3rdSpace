@@ -15,7 +15,7 @@ export interface PlannerPaymentIntentRow {
   partner_id: string
   amount_cents: number
   currency: string
-  status: 'pending' | 'requested' | 'authorized' | 'captured' | 'refunded' | 'failed' | 'blocked_by_account_state'
+  status: 'pending' | 'requested' | 'authorized' | 'capturing' | 'captured' | 'refunded' | 'failed' | 'blocked_by_account_state'
   stripe_payment_intent_id: string | null
   authorized_at: string | null
   captured_at: string | null
@@ -45,7 +45,16 @@ export const PAYMENT_INTENT_SELECT_COLUMNS = `
   updated_at
 `
 
-const ACTIVE_PAYMENT_INTENT_STATUSES = ['pending', 'requested', 'authorized', 'captured'] as const
+const ACTIVE_PAYMENT_INTENT_STATUSES = ['pending', 'requested', 'authorized', 'capturing', 'captured'] as const
+
+export class PaymentCaptureAlreadyInProgressError extends Error {
+  code = 'payment_capture_in_progress'
+
+  constructor(message = 'Payment capture is already in progress. Refresh and try again.') {
+    super(message)
+    this.name = 'PaymentCaptureAlreadyInProgressError'
+  }
+}
 
 /**
  * Creates or returns a planner deposit payment authorization record.
@@ -141,13 +150,23 @@ export async function capturePlannerDeposit(input: {
   if (input.approval.status !== 'authorized' && input.approval.status !== 'approved') {
     throw new Error('Approval must be authorized before capture')
   }
+  if (input.paymentIntent.status === 'capturing') {
+    throw new PaymentCaptureAlreadyInProgressError()
+  }
   if (input.paymentIntent.status !== 'authorized' && input.paymentIntent.status !== 'requested') {
     throw new Error(`Cannot capture a ${input.paymentIntent.status} deposit`)
   }
 
-  if (input.paymentIntent.stripe_payment_intent_id) {
-    const stripe = getStripeClient()
-    await stripe.paymentIntents.capture(input.paymentIntent.stripe_payment_intent_id)
+  const capturing = await reservePlannerPaymentIntentCapture(input.db, input.paymentIntent)
+
+  try {
+    if (capturing.stripe_payment_intent_id) {
+      const stripe = getStripeClient()
+      await stripe.paymentIntents.capture(capturing.stripe_payment_intent_id)
+    }
+  } catch (error) {
+    await releasePlannerPaymentIntentCapture(input.db, capturing.id, input.paymentIntent.status, getErrorMessage(error))
+    throw error
   }
 
   const capturedAt = new Date().toISOString()
@@ -156,12 +175,19 @@ export async function capturePlannerDeposit(input: {
     .update({
       status: 'captured',
       captured_at: capturedAt,
+      failure_reason: null,
     })
-    .eq('id', input.paymentIntent.id)
+    .eq('id', capturing.id)
+    .eq('status', 'capturing')
     .select(PAYMENT_INTENT_SELECT_COLUMNS)
-    .single()
+    .maybeSingle()
 
-  if (error || !data) throw new Error(error?.message ?? 'Failed to capture planner deposit')
+  if (error) throw new Error(error.message ?? 'Failed to capture planner deposit')
+  if (!data) {
+    const existing = await loadPaymentIntentById(input.db, capturing.id)
+    if (existing?.status === 'captured') return existing
+    throw new PaymentCaptureAlreadyInProgressError()
+  }
 
   const captured = data as PlannerPaymentIntentRow
   const payoutAmountCents = Math.max(0, captured.amount_cents - captured.platform_fee_cents)
@@ -191,6 +217,55 @@ export async function capturePlannerDeposit(input: {
   }
 
   return captured
+}
+
+async function reservePlannerPaymentIntentCapture(
+  db: PlannerDb,
+  paymentIntent: PlannerPaymentIntentRow
+): Promise<PlannerPaymentIntentRow> {
+  const { data, error } = await db
+    .from('payment_intents')
+    .update({
+      status: 'capturing',
+      failure_reason: null,
+    })
+    .eq('id', paymentIntent.id)
+    .eq('status', paymentIntent.status)
+    .select(PAYMENT_INTENT_SELECT_COLUMNS)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to reserve planner deposit capture')
+  if (!data) throw new PaymentCaptureAlreadyInProgressError()
+  return data as PlannerPaymentIntentRow
+}
+
+async function releasePlannerPaymentIntentCapture(
+  db: PlannerDb,
+  paymentIntentId: string,
+  previousStatus: PlannerPaymentIntentRow['status'],
+  failureReason: string
+) {
+  const { error } = await db
+    .from('payment_intents')
+    .update({
+      status: previousStatus,
+      failure_reason: failureReason,
+    })
+    .eq('id', paymentIntentId)
+    .eq('status', 'capturing')
+
+  if (error) {
+    Sentry.captureException(new Error(error.message ?? 'Failed to release planner deposit capture reservation'), {
+      tags: {
+        action: 'payment_capture_reservation_release_failed',
+        payment_intent_id: paymentIntentId,
+      },
+      extra: {
+        previous_status: previousStatus,
+        failure_reason: failureReason,
+      },
+    })
+  }
 }
 
 /**
@@ -251,6 +326,17 @@ async function loadExistingActivePaymentIntent(db: PlannerDb, approvalId: string
     .in('status', [...ACTIVE_PAYMENT_INTENT_STATUSES])
     .order('created_at', { ascending: false })
     .limit(1)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return (data as PlannerPaymentIntentRow | null) ?? null
+}
+
+async function loadPaymentIntentById(db: PlannerDb, paymentIntentId: string) {
+  const { data, error } = await db
+    .from('payment_intents')
+    .select(PAYMENT_INTENT_SELECT_COLUMNS)
+    .eq('id', paymentIntentId)
     .maybeSingle()
 
   if (error) throw new Error(error.message)

@@ -364,7 +364,7 @@ class MemoryQuery {
   }
 
   private hasActivePaymentIntent(approvalId: unknown) {
-    const activeStatuses = new Set(['pending', 'requested', 'authorized', 'captured'])
+    const activeStatuses = new Set(['pending', 'requested', 'authorized', 'capturing', 'captured'])
     return this.db.rows.payment_intents.some((row) => (
       row.approval_id === approvalId &&
       activeStatuses.has(String(row.status))

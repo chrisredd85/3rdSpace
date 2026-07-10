@@ -15,6 +15,7 @@ jest.mock('@/lib/stripe/connect', () => ({
 import {
   authorizePlannerDeposit,
   capturePlannerDeposit,
+  PaymentCaptureAlreadyInProgressError,
   type PlannerPaymentIntentRow,
 } from '../depositPayments'
 import type { Approval, Plan } from '@/lib/types'
@@ -93,6 +94,13 @@ class MemoryQuery {
     return this
   }
 
+  then<TResult1 = unknown, TResult2 = never>(
+    onfulfilled?: ((value: { data: unknown; error: unknown }) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+  ) {
+    return this.execute().then(onfulfilled, onrejected)
+  }
+
   async single() {
     const result = await this.execute()
     if (result.error) return result
@@ -111,7 +119,7 @@ class MemoryQuery {
       if (this.table === 'payment_intents') {
         const incoming = this.payload as Record<string, unknown>
         const approvalId = incoming.approval_id
-        const activeStatuses = new Set(['pending', 'requested', 'authorized', 'captured'])
+        const activeStatuses = new Set(['pending', 'requested', 'authorized', 'capturing', 'captured'])
         const duplicate = this.rows.payment_intents.some((row) => (
           row.approval_id === approvalId &&
           activeStatuses.has(String(row.status))
@@ -215,6 +223,68 @@ describe('planner deposit payments', () => {
       approval,
       explicitUserConfirmation: false,
     })).rejects.toThrow(/Explicit user confirmation/)
+  })
+
+  it('reserves capture before Stripe so only one concurrent capture reaches Stripe', async () => {
+    const db = memoryDb()
+    const intent = {
+      id: 'payment-intent-1',
+      plan_id: 'plan-1',
+      approval_id: 'approval-1',
+      partner_kind: 'venue',
+      partner_id: 'venue-1',
+      amount_cents: 12_500,
+      currency: 'usd',
+      status: 'authorized',
+      stripe_payment_intent_id: 'pi_manual_capture',
+      authorized_at: new Date().toISOString(),
+      captured_at: null,
+      refund_terms: 'Refundable',
+      platform_fee_cents: 500,
+      failure_reason: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    } satisfies PlannerPaymentIntentRow
+    db.rows.payment_intents.push(intent)
+
+    const results = await Promise.allSettled([
+      capturePlannerDeposit({
+        db,
+        paymentIntent: intent,
+        approval,
+        explicitUserConfirmation: true,
+      }),
+      capturePlannerDeposit({
+        db,
+        paymentIntent: intent,
+        approval,
+        explicitUserConfirmation: true,
+      }),
+    ])
+
+    const fulfilled = results.filter((result) => result.status === 'fulfilled')
+    const rejected = results.filter((result) => result.status === 'rejected')
+
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect(rejected[0]).toMatchObject({
+      reason: expect.any(PaymentCaptureAlreadyInProgressError),
+    })
+    expect(mockStripePaymentIntentsCapture).toHaveBeenCalledTimes(1)
+    expect(mockStripePaymentIntentsCapture).toHaveBeenCalledWith('pi_manual_capture')
+    expect(db.rows.payment_intents[0]).toEqual(expect.objectContaining({
+      status: 'captured',
+      captured_at: expect.any(String),
+    }))
+    expect(db.rows.payouts).toEqual([
+      expect.objectContaining({
+        payment_intent_id: intent.id,
+        partner_kind: 'venue',
+        partner_id: 'venue-1',
+        amount_cents: 12_000,
+        status: 'pending',
+      }),
+    ])
   })
 
   it('returns the winning active intent when concurrent authorizations race the unique index', async () => {

@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import {
   capturePlannerDeposit,
+  PaymentCaptureAlreadyInProgressError,
   PAYMENT_INTENT_SELECT_COLUMNS,
   type PlannerPaymentIntentRow,
 } from '@/lib/planner/depositPayments'
@@ -146,6 +147,13 @@ export async function POST(
 
     return NextResponse.json({ paymentIntent: captured })
   } catch (error) {
+    if (error instanceof PaymentCaptureAlreadyInProgressError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 409 }
+      )
+    }
+
     console.error('Planner deposit capture error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unable to capture deposit' },
