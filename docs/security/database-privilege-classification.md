@@ -59,6 +59,32 @@ not need API-role `EXECUTE` grants to fire as table triggers.
 | `organizer_baselines` | Materialized view | `service_role` | Materialized views cannot apply source RLS; commit, revision, and planner-message flows prove plan ownership with the session client, then pass a separate service client only to the organizer-scoped baseline lookup |
 | `vendor_analytics` | Materialized view | `service_role` | Vendor analytics resolves the session-owned vendor id first, then performs the single-vendor read with a service client |
 
+## Trusted table classification
+
+Migration `20260709130000_server_owned_execution_control_plane.sql` classifies
+execution and provenance tables separately from ordinary user-authored planner
+data. Authenticated roles have no direct `INSERT`, `UPDATE`, or `DELETE`
+privilege on any relation in this section.
+
+| Classification | Relations | Authenticated access | Mutation authority |
+|---|---|---|---|
+| Planner authorization | `agent_actions`, `approvals`, `agent_authorizations`, `payment_intents` | Owner-scoped `SELECT` | Caller-validating service routes |
+| Planner provenance and caches | `plan_messages`, `plan_versions`, `plan_revisions`, `planner_plan_updates`, `plan_derived_state`, `plan_activity`, `audit_logs`, `agent_action_audit_log`, `agent_runs` | Owner-scoped `SELECT` | Service routes; `apply_plan_revision_atomic` remains the reviewed aggregate RPC |
+| Outreach execution | `outreach_threads`, `outreach_messages`, `creator_outreach_policies`, `venue_opportunity_briefs`, `venue_opportunity_invites`, `vendor_opportunity_briefs`, `vendor_opportunity_invites` | Owner/participant-scoped `SELECT` | Caller-validating service routes and workers |
+| Approval and financial ledgers | `venue_booking_approval_audit`, `vendor_transactions`, `platform_fee_transactions`, `settlement_charges` | Existing participant-scoped `SELECT` | Service routes, workers, and verified webhooks |
+| Internal/service-only | `admin_tasks`, `kickback_payments` | No base-table access | Service routes and workers only |
+
+`admin_tasks` is intentionally not owner-readable at the base table because it
+contains internal notes, metadata, assignments, and operator status. Any
+host-facing progress is an explicit server projection. `kickback_payments` had
+no authenticated SELECT policy before this migration; removing its inherited
+table privileges makes that existing service-only behavior explicit.
+
+The invariant functions `enforce_approval_execution_invariants()` and
+`enforce_agent_action_approval_consistency()` are `SECURITY INVOKER` trigger
+functions. They are not API RPCs and do not expand the `SECURITY DEFINER`
+classification above.
+
 ## Caller-audit conclusion
 
 All application callers of service-only RPCs construct or receive a
