@@ -12,6 +12,7 @@ import type { Json, Plan, Recommendation } from '@/lib/types'
 const TEMPLATE_SELECT_COLUMNS = `
   id,
   name,
+  source_event_id,
   event_type,
   target_audience,
   guest_count_min,
@@ -32,6 +33,7 @@ const TEMPLATE_SELECT_COLUMNS = `
 type TemplateRow = {
   id: string
   name: string
+  source_event_id: string | null
   event_type: string | null
   target_audience: string | null
   guest_count_min: number | null
@@ -53,6 +55,7 @@ type PlannerTemplate = {
   id: string
   name: string
   description: string | null
+  source_event_id: string | null
   snapshot: Json
   created_at: string
 }
@@ -194,12 +197,14 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function normalizeTemplateRow(row: TemplateRow): PlannerTemplate {
+export function normalizeTemplateRow(row: TemplateRow): PlannerTemplate {
   return {
     id: row.id,
     name: row.name,
     description: row.target_audience ?? row.event_type ?? row.export_copy,
+    source_event_id: row.source_event_id ?? null,
     snapshot: {
+      source_event_id: row.source_event_id ?? null,
       event_type: row.event_type,
       target_audience: row.target_audience,
       guest_count_min: row.guest_count_min,
@@ -229,7 +234,7 @@ type AttendanceSummaryInput = {
   confidence: 'low' | 'medium' | 'high'
 } | null
 
-function buildTemplateInsert(input: {
+export function buildTemplateInsert(input: {
   userId: string
   plan: Plan
   recommendations: Recommendation[]
@@ -258,6 +263,7 @@ function buildTemplateInsert(input: {
   return {
     user_id: input.userId,
     source_plan_id: input.plan.id,
+    source_event_id: input.plan.materialized_event_id ?? null,
     name: input.requestedName ?? buildDefaultTemplateName(input.plan),
     event_type: input.plan.event_type,
     target_audience: input.plan.neighborhood,

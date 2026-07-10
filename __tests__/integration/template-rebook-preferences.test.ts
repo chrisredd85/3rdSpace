@@ -39,10 +39,12 @@ const USER_ID = 'user-rebook-test-001'
 const PREFERRED_VENUE_ID = 'venue-saved-001'
 const PREFERRED_VENDOR_ID_1 = 'vendor-saved-001'
 const PREFERRED_VENDOR_ID_2 = 'vendor-saved-002'
+const SOURCE_EVENT_ID = 'event-source-001'
 
 const MOCK_TEMPLATE = {
   id: TEMPLATE_ID,
   name: 'Hayes Mixer Template',
+  source_event_id: SOURCE_EVENT_ID,
   event_type: 'mixer',
   target_audience: 'Hayes Valley',
   guest_count_min: 80,
@@ -283,9 +285,16 @@ describe('template apply — rebook preferences in plan metadata', () => {
     const metadata = capturedInsertArg!.metadata as Record<string, unknown>
     const rebookPrefs = metadata.template_rebook_preferences as Record<string, unknown>
     expect(rebookPrefs.template_id).toBe(TEMPLATE_ID)
+    expect(rebookPrefs.source_event_id).toBe(SOURCE_EVENT_ID)
     expect((rebookPrefs.preferred_venue_ids as string[])).toContain(PREFERRED_VENUE_ID)
     expect((rebookPrefs.preferred_vendor_ids as string[])).toContain(PREFERRED_VENDOR_ID_1)
     expect((rebookPrefs.preferred_vendor_ids as string[])).toContain(PREFERRED_VENDOR_ID_2)
+    expect(metadata.applied_template).toEqual(expect.objectContaining({
+      source_event_id: SOURCE_EVENT_ID,
+    }))
+    expect(metadata.template_snapshot).toEqual(expect.objectContaining({
+      source_event_id: SOURCE_EVENT_ID,
+    }))
   })
 
   it('does not set template_rebook_preferences when both flags are false', async () => {

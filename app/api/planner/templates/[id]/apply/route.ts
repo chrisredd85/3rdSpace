@@ -48,6 +48,7 @@ type PlanApplyResult =
 const TEMPLATE_SELECT_COLUMNS = `
   id,
   name,
+  source_event_id,
   event_type,
   target_audience,
   guest_count_min,
@@ -67,6 +68,7 @@ const TEMPLATE_SELECT_COLUMNS = `
 type TemplateRow = {
   id: string
   name: string
+  source_event_id: string | null
   event_type: string | null
   target_audience: string | null
   guest_count_min: number | null
@@ -186,6 +188,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       template_run: {
         template_id: templateRow.id,
         plan_id: updatedPlan.id,
+        source_event_id: templateRow.source_event_id ?? null,
         new_date: updatedPlan.date_window_start,
         expected_guest_count: updatedPlan.guest_count,
         budget_override_cents: updatedPlan.budget_cap_cents,
@@ -233,6 +236,7 @@ async function insertPlanStatusMessage(
       metadata: {
         template_id: input.template.id,
         template_name: input.template.name,
+        source_event_id: input.template.source_event_id ?? null,
         template_applied: true,
         created_new_plan: input.wasCreated,
         changed_fields: input.changedFields,
@@ -443,9 +447,11 @@ function buildTemplateMetadata(currentMetadata: unknown, template: TemplateRow, 
       id: template.id,
       name: template.name,
       source: 'planner_template',
+      source_event_id: template.source_event_id ?? null,
       applied_at: new Date().toISOString(),
     },
     template_snapshot: {
+      source_event_id: template.source_event_id ?? null,
       budget_model: template.budget_model,
       ticket_price_model: template.ticket_price_model,
       profit_assumptions: template.profit_assumptions,
@@ -490,6 +496,7 @@ function buildTemplateMetadata(currentMetadata: unknown, template: TemplateRow, 
   if (preferredVenueIds.length > 0 || preferredVendorIds.length > 0 || useSameVenue || useSameVendors) {
     base.template_rebook_preferences = {
       template_id: template.id,
+      source_event_id: template.source_event_id ?? null,
       use_same_venue: useSameVenue,
       use_same_vendors: useSameVendors,
       preferred_venue_ids: preferredVenueIds,

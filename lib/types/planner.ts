@@ -239,6 +239,8 @@ export interface Plan {
   committed_venue_at?: string | null
   /** Accepted vendor quote snapshots used for planning comparison. */
   committed_vendors?: Json
+  /** Canonical event created by the explicit plan materialization transition. */
+  materialized_event_id?: string | null
   /** Planner-owned metadata cache for generated agent summaries and timelines. */
   metadata?: Json
   /** Timestamp when the plan was created. */
@@ -493,6 +495,8 @@ export interface PlannerTemplate {
   user_id: string
   /** Original plan this template was created from, when applicable. */
   source_plan_id: string | null
+  /** Canonical materialized event this template was saved from, when applicable. */
+  source_event_id?: string | null
   /** Template name displayed in the rebook flow. */
   name: string
   /** Event category this template supports. */

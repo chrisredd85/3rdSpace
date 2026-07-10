@@ -67,6 +67,7 @@ export function mapAppEventTypeToDb(eventType: string | null | undefined) {
 export function mapDbEventToApp(row: Record<string, any>): Event {
   return {
     id: row.id,
+    plan_id: row.plan_id ?? null,
     builder_id: row.builder_id,
     title: row.event_name,
     description: row.description ?? row.event_description,
@@ -74,6 +75,9 @@ export function mapDbEventToApp(row: Record<string, any>): Event {
     event_date: typeof row.event_date === 'string' ? row.event_date : String(row.event_date),
     start_time: row.start_time,
     end_time: row.end_time,
+    starts_at: row.starts_at ?? null,
+    ends_at: row.ends_at ?? null,
+    time_zone: row.time_zone ?? null,
     expected_attendees:
       row.expected_attendance ??
       row.expected_attendance_min ??

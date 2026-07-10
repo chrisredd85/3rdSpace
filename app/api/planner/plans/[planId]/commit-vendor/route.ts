@@ -45,6 +45,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const baselineDb = createServiceRoleClient() as unknown as PlannerDb
 
   const committedAt = new Date().toISOString()
+  const canonicalEventId = plan.materialized_event_id ?? null
   const current = readCommittedVendors((plan as unknown as Record<string, unknown>).committed_vendors)
   const committedVendor = {
     vendor_id: parsed.data.discovery_vendor_id,
@@ -56,6 +57,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     quoted_deposit_pct: parsed.data.quoted_deposit_pct ?? null,
     quoted_terms: parsed.data.quoted_terms,
     committed_at: committedAt,
+    ...(canonicalEventId ? { canonical_event_id: canonicalEventId } : {}),
   }
   const nextCommitted = [
     committedVendor,
@@ -98,7 +100,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
     .in('status', ['candidate', 'approval_created'])
 
   const planId = (await context.params).planId
-  await insertStatusMessage(baselineDb, planId, `Committed ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote for planning.`)
+  await insertStatusMessage(
+    baselineDb,
+    planId,
+    `Committed ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote for planning.`,
+    canonicalEventId
+  )
   await recomputePlanDerivedState({
     supabase: auth.db,
     writeSupabase: baselineDb,
@@ -107,7 +114,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     trigger: 'commit_changed',
   })
   const refreshedPlan = await loadOwnedPlan(auth.db, planId, auth.userId)
-  return NextResponse.json({ plan: refreshedPlan ?? data })
+  return NextResponse.json({ plan: refreshedPlan ?? data, canonical_event_id: canonicalEventId })
 }
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
@@ -123,6 +130,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
   if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
   const baselineDb = createServiceRoleClient() as unknown as PlannerDb
+  const canonicalEventId = plan.materialized_event_id ?? null
 
   const nextCommitted = readCommittedVendors((plan as unknown as Record<string, unknown>).committed_vendors)
     .filter((vendor) => !sameCommittedVendor(vendor, {
@@ -157,7 +165,12 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   }
 
   const planId = (await context.params).planId
-  await insertStatusMessage(baselineDb, planId, `Cancelled accepted ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote.`)
+  await insertStatusMessage(
+    baselineDb,
+    planId,
+    `Cancelled accepted ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote.`,
+    canonicalEventId
+  )
   await recomputePlanDerivedState({
     supabase: auth.db,
     writeSupabase: baselineDb,
@@ -166,7 +179,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     trigger: 'cancel_commit',
   })
   const refreshedPlan = await loadOwnedPlan(auth.db, planId, auth.userId)
-  return NextResponse.json({ plan: refreshedPlan ?? data })
+  return NextResponse.json({ plan: refreshedPlan ?? data, canonical_event_id: canonicalEventId })
 }
 
 async function getCreatorAuth(): Promise<
@@ -194,13 +207,21 @@ async function loadOwnedPlan(db: PlannerDb, planId: string, userId: string): Pro
   return data as Plan | null
 }
 
-async function insertStatusMessage(db: PlannerDb, planId: string, content: string) {
+async function insertStatusMessage(
+  db: PlannerDb,
+  planId: string,
+  content: string,
+  canonicalEventId: string | null
+) {
   await db.from('plan_messages').insert({
     plan_id: planId,
     role: 'system',
     content,
     message_type: 'status_update',
-    metadata: { kind: 'accepted_quote_state' } as Json,
+    metadata: {
+      kind: 'accepted_quote_state',
+      ...(canonicalEventId ? { canonical_event_id: canonicalEventId } : {}),
+    } as Json,
   })
 }
 

@@ -33,6 +33,7 @@ export const PLAN_SELECT_COLUMNS = `
   committed_venue_quoted_terms,
   committed_venue_at,
   committed_vendors,
+  materialized_event_id,
   metadata,
   created_at,
   updated_at

@@ -408,6 +408,8 @@ export interface VendorPackage {
  */
 export interface Event {
   id: string
+  /** Planner plan that materialized this event; null for legacy events. */
+  plan_id?: string | null
   builder_id: string
   title: string
   description: string | null
@@ -415,6 +417,12 @@ export interface Event {
   event_date: string
   start_time: string | null
   end_time: string | null
+  /** Exact timezone-aware start timestamp for planner-materialized events. */
+  starts_at?: string | null
+  /** Exact timezone-aware end timestamp for planner-materialized events. */
+  ends_at?: string | null
+  /** IANA timezone used to interpret the canonical schedule. */
+  time_zone?: string | null
   expected_attendees: number | null
   status: EventStatus
   venue_id: string | null
