@@ -27,6 +27,10 @@ type GmailSendResponse = {
   labelIds?: string[]
 }
 
+type GmailMessageListResponse = {
+  messages?: Array<{ id?: string; threadId?: string }>
+}
+
 export type GmailHeader = {
   name?: string
   value?: string
@@ -193,6 +197,7 @@ export async function sendGmailMessage(input: {
   bodyText: string
   bodyHtml?: string | null
   gmailThreadId?: string | null
+  rfcMessageId?: string | null
 }) {
   const raw = encodeBase64Url(buildMimeMessage(input))
   const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
@@ -216,6 +221,29 @@ export async function sendGmailMessage(input: {
     gmailThreadId: payload.threadId,
     labelIds: payload.labelIds ?? [],
   }
+}
+
+export async function reconcileGmailMessageByRfcMessageId(input: {
+  accessToken: string
+  rfcMessageId: string
+}) {
+  const params = new URLSearchParams({
+    q: `rfc822msgid:${input.rfcMessageId}`,
+    maxResults: '2',
+  })
+  const response = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params.toString()}`,
+    {
+      headers: { Authorization: `Bearer ${input.accessToken}` },
+      cache: 'no-store',
+    }
+  )
+  const payload = await readJson<GmailMessageListResponse>(response)
+  if (!response.ok) throw new Error(readGoogleError(payload, 'Failed to reconcile Gmail message'))
+  const match = payload.messages?.find((message) => message.id && message.threadId)
+  return match?.id && match.threadId
+    ? { gmailMessageId: match.id, gmailThreadId: match.threadId }
+    : null
 }
 
 export async function listGmailThreadMessages(input: {
@@ -334,12 +362,14 @@ function buildMimeMessage(input: {
   subject: string
   bodyText: string
   bodyHtml?: string | null
+  rfcMessageId?: string | null
 }) {
   const headers = [
     `From: ${input.from}`,
     `To: ${input.to}`,
     `Reply-To: ${input.replyTo}`,
     `Subject: ${encodeMimeHeader(input.subject)}`,
+    ...(input.rfcMessageId ? [`Message-ID: ${validateRfcMessageId(input.rfcMessageId)}`] : []),
     'MIME-Version: 1.0',
   ]
 
@@ -371,6 +401,13 @@ function buildMimeMessage(input: {
     `--${boundary}--`,
     '',
   ].join('\r\n')
+}
+
+function validateRfcMessageId(value: string) {
+  if (!/^<[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+>$/.test(value)) {
+    throw new Error('Invalid RFC Message-ID')
+  }
+  return value
 }
 
 function encodeMimeHeader(value: string) {

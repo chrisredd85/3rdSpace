@@ -24,6 +24,11 @@ class Query {
     return this
   }
 
+  in(column: string, values: unknown[]) {
+    this.filters.push((row) => values.includes(row[column]))
+    return this
+  }
+
   order(column: string, options?: { ascending?: boolean }) {
     this.orderColumn = column
     this.ascending = options?.ascending ?? true
@@ -122,6 +127,41 @@ describe('pending approvals planner helpers', () => {
           created_at: '2026-06-24T00:00:00.000Z',
           updated_at: '2026-06-24T00:00:00.000Z',
         },
+        {
+          id: 'approval-expired',
+          plan_id: plan.id,
+          agent_action_id: 'action-expired',
+          action_label: 'Expired hold',
+          provider: 'Venue',
+          status: 'expired',
+          created_at: '2026-06-24T00:03:00.000Z',
+          updated_at: '2026-06-24T00:03:00.000Z',
+        },
+        {
+          id: 'approval-reapproval',
+          plan_id: plan.id,
+          agent_action_id: 'action-reapproval',
+          action_label: 'Changed quote',
+          provider: 'Venue',
+          status: 're_approval_required',
+          created_at: '2026-06-24T00:04:00.000Z',
+          updated_at: '2026-06-24T00:04:00.000Z',
+        },
+        {
+          id: 'approval-failed',
+          plan_id: plan.id,
+          agent_action_id: 'action-failed',
+          action_label: 'Failed Gmail send',
+          provider: 'Gmail',
+          status: 'authorized',
+          created_at: '2026-06-24T00:05:00.000Z',
+          updated_at: '2026-06-24T00:05:00.000Z',
+        },
+      ],
+      agent_actions: [
+        { id: 'action-expired', status: 'pending', result_metadata: null, last_retry_result: null },
+        { id: 'action-reapproval', status: 'pending', result_metadata: null, last_retry_result: null },
+        { id: 'action-failed', status: 'failed', result_metadata: { error: 'provider failed' }, last_retry_result: null },
       ],
     })
 
@@ -130,7 +170,20 @@ describe('pending approvals planner helpers', () => {
     const withPlan = attachPendingApprovalPlanContext(approvals, plans as Plan[])
 
     expect(plans.map((row) => row.id)).toEqual(['plan-1', 'archived-plan'])
-    expect(approvals.map((approval) => approval.id)).toEqual(['approval-earlier', 'approval-later'])
+    expect(approvals.map((approval) => approval.id)).toEqual([
+      'approval-earlier',
+      'approval-later',
+      'approval-expired',
+      'approval-reapproval',
+      'approval-failed',
+    ])
+    expect(approvals.map((approval) => [approval.id, approval.ui_status, approval.available_actions])).toEqual([
+      ['approval-earlier', 'pending', ['edit', 'authorize', 'cancel']],
+      ['approval-later', 'pending', ['edit', 'authorize', 'cancel']],
+      ['approval-expired', 'expired', ['request_reapproval']],
+      ['approval-reapproval', 'reapproval_required', ['request_reapproval']],
+      ['approval-failed', 'failed', ['retry']],
+    ])
     expect(withPlan[0]?.plan?.title).toBe('Oakland happy hour')
   })
 })

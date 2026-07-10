@@ -43,6 +43,7 @@ class MemoryDb {
     plan_messages: [],
     recommendations: [],
     approvals: [],
+    agent_actions: [],
     planner_plan_updates: [],
     audit_logs: [],
     event_type_candidates: [],
@@ -738,6 +739,64 @@ describe('Planner persistence integration', () => {
     }))
     expect(reloaded.messages).toHaveLength(8)
     expect(db.rows.planner_plan_updates.filter((row) => row.field === 'status')).toHaveLength(2)
+  })
+
+  it('returns action-aware approval truth from the full plan read model', async () => {
+    db.rows.plans.push({
+      id: 'failed-plan',
+      user_id: 'user-1',
+      title: 'Failed outreach plan',
+      event_type: 'Happy hour',
+      status: 'ready',
+      guest_count: 40,
+      budget_cap_cents: 100_000,
+      neighborhood: 'Mission',
+      date_window_start: '2026-08-10',
+      date_window_end: '2026-08-10',
+      ticketed: false,
+      ticketing_model: 'rsvp',
+      food_responsibility: 'venue',
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {},
+      created_at: '2026-07-09T00:00:00.000Z',
+      updated_at: '2026-07-09T00:00:00.000Z',
+    })
+    db.rows.agent_actions.push({
+      id: 'failed-action',
+      plan_id: 'failed-plan',
+      action_type: 'email',
+      status: 'failed',
+      result_metadata: { error: 'Gmail unavailable' },
+      last_retry_result: null,
+    })
+    db.rows.approvals.push({
+      id: 'failed-approval',
+      plan_id: 'failed-plan',
+      agent_action_id: 'failed-action',
+      action_label: 'Send outreach',
+      provider: 'Gmail',
+      status: 'authorized',
+      expires_at: '2099-01-01T00:00:00.000Z',
+      created_at: '2026-07-09T00:00:00.000Z',
+      updated_at: '2026-07-09T00:00:00.000Z',
+    })
+
+    const response = await getPlan(makeRequest('/api/planner/plans/failed-plan'), {
+      params: { planId: 'failed-plan' },
+    })
+    const result = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(result.approvals).toEqual([
+      expect.objectContaining({
+        id: 'failed-approval',
+        action_status: 'failed',
+        action_result: { error: 'Gmail unavailable' },
+        ui_status: 'failed',
+        available_actions: ['retry'],
+      }),
+    ])
   })
 
   it('blocks free-tier creation after two active plans', async () => {

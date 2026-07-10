@@ -18,6 +18,7 @@ import {
 import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
 import { loadPlanAgentFields } from '@/lib/planner/planAgentSummaries'
 import { enrichPlanSelectedVendors } from '@/lib/planner/planVendorSelections'
+import { enrichApprovalsWithActionState } from '@/lib/planner/pendingApprovals'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type {
   Approval,
@@ -255,7 +256,7 @@ async function loadApprovals(db: PlannerDb, planId: string): Promise<Approval[]>
     return []
   }
 
-  return (data ?? []) as Approval[]
+  return enrichApprovalsWithActionState(db, (data ?? []) as Approval[])
 }
 
 function normalizePlanPatch(input: z.infer<typeof patchPlanSchema>, currentPlan: Plan): Record<string, unknown> {

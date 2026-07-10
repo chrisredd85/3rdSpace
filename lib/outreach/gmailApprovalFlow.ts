@@ -1,22 +1,40 @@
 import 'server-only'
 
+import { createHash } from 'node:crypto'
 import {
   getUsableGmailAccessToken,
   listGmailThreadMessages,
   modifyGmailThreadLabels,
+  reconcileGmailMessageByRfcMessageId,
   sendGmailMessage,
   type ParsedGmailMessage,
 } from '@/lib/outreach/gmail'
 import { extractReplyTerms } from '@/lib/ai/agents/extractReplyTerms'
 import { APPROVAL_SELECT_COLUMNS, PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import { rootLogger } from '@/lib/server/logger'
-import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
+import {
+  APPROVAL_SNAPSHOT_SCHEMA_VERSION,
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import type { AgentAction, Approval, Json, Plan } from '@/lib/types'
 import type { Database } from '@/lib/types/database-generated'
 
 type CreatorEmailAccount = Database['public']['Tables']['creator_email_accounts']['Row']
-type PlannerDb = { from: (table: string) => any }
+type PlannerDb = {
+  from: (table: string) => any
+  rpc?: (name: string, args: Record<string, unknown>) => Promise<{
+    data: unknown
+    error: { message?: string; code?: string } | null
+  }>
+}
+
+type VersionedApproval = Approval & {
+  notes?: string | null
+  snapshot_json?: Json | null
+  snapshot_schema_version?: number | null
+}
 
 export const GMAIL_APPROVED_OUTREACH_KIND = 'gmail_approved_outreach'
 export const GMAIL_APPROVAL_DEMO_TARGET_SOURCE = 'discovery'
@@ -38,6 +56,18 @@ const AGENT_ACTION_SELECT_COLUMNS = `
   result_metadata,
   created_at,
   updated_at
+`
+
+const VERSIONED_APPROVAL_SELECT_COLUMNS = `${APPROVAL_SELECT_COLUMNS},
+  notes,
+  root_approval_id,
+  version_number,
+  supersedes_approval_id,
+  superseded_by_approval_id,
+  version_created_by,
+  version_reason,
+  snapshot_json,
+  snapshot_schema_version
 `
 
 export type GmailOutreachTarget = {
@@ -86,6 +116,21 @@ export class GmailConnectionRequiredError extends Error {
   constructor() {
     super('Connect Gmail before creating outreach approvals.')
     this.name = 'GmailConnectionRequiredError'
+  }
+}
+
+/**
+ * The provider may already have accepted a deterministic Message-ID, but the
+ * local dispatch row could not yet be reconciled/finalized. Callers must keep
+ * the same idempotency key in progress rather than recording a failed retry.
+ */
+export class GmailDispatchRecoveryPendingError extends Error {
+  readonly cause?: unknown
+
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message)
+    this.name = 'GmailDispatchRecoveryPendingError'
+    this.cause = options?.cause
   }
 }
 
@@ -159,13 +204,43 @@ export async function createOrReuseGmailOutreachApproval(
 
   if (existing) {
     const { approval, action, messageId } = existing
-    const { data: updatedAction } = await writeDb
+    const approvalUpdates = buildApprovalUpdates(targets, subject)
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    const nextAction = { ...action, payload_json: actionPayload as Json }
+    const nextApproval = {
+      ...approval,
+      ...approvalUpdates,
+      status: 'pending' as const,
+      requested_amount_cents: 0,
+      notes: null,
+      expires_at: expiresAt,
+    }
+    const snapshotInput = { plan, approval: nextApproval, action: nextAction, payload: actionPayload }
+    const snapshotJson = buildApprovalSnapshotV2(snapshotInput)
+    const snapshotHash = buildApprovalSnapshotHashV2(snapshotInput)
+    if (!writeDb.rpc) throw new Error('Approval versioning is unavailable')
+    const { data: replacementData, error: replacementError } = await writeDb.rpc('supersede_approval_version', {
+      p_plan_id: plan.id,
+      p_approval_id: approval.id,
+      p_expected_snapshot_hash: approval.snapshot_hash ?? 'legacy-missing',
+      p_actor_id: input.userId,
+      p_requested_amount_cents: 0,
+      p_event_date: null,
+      p_notes: null,
+      p_expires_at: expiresAt,
+      p_action_payload_json: actionPayload,
+      p_snapshot_json: snapshotJson,
+      p_snapshot_hash: snapshotHash,
+      p_reason: 'gmail_approval_replaced',
+    })
+    if (replacementError || !replacementData) {
+      throw new Error(replacementError?.message ?? 'Failed to replace Gmail outreach approval')
+    }
+    const finalApproval = (Array.isArray(replacementData) ? replacementData[0] : replacementData) as VersionedApproval
+    const { data: updatedAction, error: actionUpdateError } = await writeDb
       .from('agent_actions')
       .update({
         description: buildActionDescription(targets),
-        payload_json: actionPayload as Json,
-        provider: 'Gmail',
-        target_type: getBatchTargetType(targets),
         result_metadata: {
           ...(readRecord(action.result_metadata) ?? {}),
           target_count: targets.length,
@@ -176,36 +251,28 @@ export async function createOrReuseGmailOutreachApproval(
       .eq('id', action.id)
       .select(AGENT_ACTION_SELECT_COLUMNS)
       .single()
+    if (actionUpdateError || !updatedAction) throw new Error(actionUpdateError?.message ?? 'Failed to update Gmail outreach action')
+    const finalAction = updatedAction as AgentAction
 
-    const finalAction = (updatedAction ?? action) as AgentAction
-    const approvalUpdates = buildApprovalUpdates(targets, subject)
-    const { data: updatedApproval } = await writeDb
-      .from('approvals')
-      .update({
-        ...approvalUpdates,
-        snapshot_hash: buildApprovalSnapshotHash({
-          plan,
-          approval: {
-            ...approval,
-            ...approvalUpdates,
-          },
-          action: finalAction,
-          payload: actionPayload,
-        }),
-      })
-      .eq('id', approval.id)
-      .select(APPROVAL_SELECT_COLUMNS)
-      .single()
-
-    const finalApproval = (updatedApproval ?? approval) as Approval
-    await updateApprovalMessage(writeDb, messageId, plan, finalAction, finalApproval, actionPayload)
+    const supersededApproval = await loadApproval(writeDb, approval.id)
+    if (supersededApproval) {
+      await updateApprovalMessage(writeDb, messageId, plan, finalAction, supersededApproval, readRecord(action.payload_json) ?? {})
+    }
+    const newMessage = await insertGmailApprovalMessage(writeDb, {
+      plan,
+      action: finalAction,
+      approval: finalApproval,
+      payload: actionPayload,
+      targetCount: targets.length,
+      supersedesMessageId: messageId,
+    })
 
     return {
       plan,
       agentAction: finalAction,
       approval: finalApproval,
-      approvalMessageId: messageId,
-      redirectUrl: buildPlannerApprovalUrl(plan.id, messageId),
+      approvalMessageId: newMessage.id,
+      redirectUrl: buildPlannerApprovalUrl(plan.id, newMessage.id),
     }
   }
 
@@ -242,7 +309,19 @@ export async function createOrReuseGmailOutreachApproval(
     reason: 'gmail_outreach_approval.created',
   })
 
-  const approvalUpdates = buildApprovalUpdates(targets, subject)
+  const approvalExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  const approvalUpdates = {
+    ...buildApprovalUpdates(targets, subject),
+    requested_amount_cents: 0,
+    expires_at: approvalExpiresAt,
+    notes: null,
+  }
+  const approvalSnapshotInput = {
+    plan,
+    approval: approvalUpdates,
+    action: agentAction as AgentAction,
+    payload: actionPayload,
+  }
   const { data: approval, error: approvalError } = await writeDb
     .from('approvals')
     .insert({
@@ -250,15 +329,11 @@ export async function createOrReuseGmailOutreachApproval(
       plan_id: plan.id,
       agent_action_id: agentAction.id,
       status: 'pending',
-      requested_amount_cents: 0,
-      snapshot_hash: buildApprovalSnapshotHash({
-        plan,
-        approval: approvalUpdates,
-        action: agentAction as AgentAction,
-        payload: actionPayload,
-      }),
+      snapshot_hash: buildApprovalSnapshotHashV2(approvalSnapshotInput),
+      snapshot_json: buildApprovalSnapshotV2(approvalSnapshotInput) as unknown as Json,
+      snapshot_schema_version: APPROVAL_SNAPSHOT_SCHEMA_VERSION,
     })
-    .select(APPROVAL_SELECT_COLUMNS)
+    .select(VERSIONED_APPROVAL_SELECT_COLUMNS)
     .single()
 
   if (approvalError || !approval) throw new Error(approvalError?.message ?? 'Failed to create Gmail outreach approval')
@@ -312,56 +387,112 @@ export async function executeApprovedGmailOutreach(
   const targets = normalizeTargets(readTargets(payload))
   const subject = readString(payload?.subject) ?? `${input.plan.title} partnership inquiry`
   const bodyTemplate = readString(payload?.body_text) ?? defaultBodyText()
-  const now = new Date().toISOString()
   const sent: Array<{ target: GmailOutreachTarget; threadId: string; messageId: string }> = []
 
   for (const target of targets) {
     const bodyText = renderBodyForTarget(bodyTemplate, target, account.email_address)
-    const sendResult = await sendGmailMessage({
-      accessToken,
-      from: account.email_address,
-      to: target.email,
-      replyTo: account.email_address,
-      subject,
-      bodyText,
-      bodyHtml: textToHtml(bodyText),
-    })
-
-    const thread = await insertOutreachThread(writeDb, {
+    const dispatchIdempotencyKey = buildDispatchIdempotencyKey(input.action.id, target.email)
+    const rfcMessageId = buildDeterministicRfcMessageId(input.action.id, target.email)
+    let dispatch = await loadOrCreateGmailDispatch(writeDb, {
       userId: input.userId,
       planId: input.plan.id,
       actionId: input.action.id,
+      approvalId: input.approval.id,
       target,
-      now,
+      subject,
+      bodyText,
+      senderEmail: account.email_address,
+      dispatchIdempotencyKey,
+      rfcMessageId,
     })
 
-    await writeDb.from('outreach_messages').insert({
-      thread_id: thread.id,
-      direction: 'outbound',
-      subject,
-      body_text: bodyText,
-      body_html: textToHtml(bodyText),
-      headers_json: {
+    if (readString(dispatch.delivery_status) === 'sent' && readString(dispatch.gmail_message_id)) {
+      sent.push({
+        target,
+        threadId: String(dispatch.thread_id),
+        messageId: String(dispatch.gmail_message_id),
+      })
+      continue
+    }
+
+    if (['sending', 'ambiguous'].includes(readString(dispatch.delivery_status) ?? '')) {
+      let reconciled: Awaited<ReturnType<typeof reconcileGmailMessageByRfcMessageId>>
+      try {
+        reconciled = await reconcileGmailMessageByRfcMessageId({ accessToken, rfcMessageId })
+      } catch (error) {
+        throw new GmailDispatchRecoveryPendingError(
+          `Gmail dispatch reconciliation is pending for ${target.email}`,
+          { cause: error }
+        )
+      }
+      if (reconciled) {
+        try {
+          dispatch = await markGmailDispatchSent(writeDb, dispatch, reconciled, [])
+        } catch (error) {
+          throw new GmailDispatchRecoveryPendingError(
+            `Gmail accepted the message for ${target.email}, but local finalization is pending`,
+            { cause: error }
+          )
+        }
+        sent.push({ target, threadId: String(dispatch.thread_id), messageId: reconciled.gmailMessageId })
+        continue
+      }
+    }
+
+    const claimed = await claimGmailDispatch(writeDb, dispatch)
+    if (!claimed) {
+      const current = await loadGmailDispatch(writeDb, input.action.id, dispatchIdempotencyKey)
+      if (current && readString(current.delivery_status) === 'sent' && readString(current.gmail_message_id)) {
+        sent.push({ target, threadId: String(current.thread_id), messageId: String(current.gmail_message_id) })
+        continue
+      }
+      throw new GmailDispatchRecoveryPendingError(
+        `Gmail dispatch for ${target.email} is already in progress`
+      )
+    }
+    dispatch = claimed
+
+    let sendResult: Awaited<ReturnType<typeof sendGmailMessage>>
+    try {
+      sendResult = await sendGmailMessage({
+        accessToken,
         from: account.email_address,
         to: target.email,
-      } as Json,
-      provider_metadata_json: {
-        provider: 'gmail',
-        label_ids: sendResult.labelIds,
-        approval_flow: GMAIL_APPROVED_OUTREACH_KIND,
-      } as Json,
-      attachments_json: [] as Json,
-      gmail_message_id: sendResult.gmailMessageId,
-      gmail_thread_id: sendResult.gmailThreadId,
-      agent_action_id: input.action.id,
-      approval_id: input.approval.id,
-      sent_at: now,
-      sent_manually: true,
-    })
+        replyTo: account.email_address,
+        subject,
+        bodyText,
+        bodyHtml: textToHtml(bodyText),
+        rfcMessageId,
+      })
+    } catch (error) {
+      await markGmailDispatchAmbiguous(writeDb, dispatch, error)
+      throw error
+    }
+
+    try {
+      dispatch = await markGmailDispatchSent(writeDb, dispatch, sendResult, sendResult.labelIds)
+    } catch (persistenceError) {
+      // Gmail returned provider identifiers, so a local write failure cannot
+      // be treated as a failed side effect. Reconcile with the deterministic
+      // Message-ID and make one more idempotent finalize attempt.
+      try {
+        const reconciled = await reconcileGmailMessageByRfcMessageId({ accessToken, rfcMessageId })
+        if (reconciled) {
+          dispatch = await markGmailDispatchSent(writeDb, dispatch, reconciled, sendResult.labelIds)
+        } else {
+          throw new Error('Gmail message is not queryable yet')
+        }
+      } catch (reconciliationError) {
+        throw new GmailDispatchRecoveryPendingError(
+          `Gmail accepted the message for ${target.email}, but local finalization is pending`,
+          { cause: reconciliationError ?? persistenceError }
+        )
+      }
+    }
 
     sent.push({
       target,
-      threadId: String(thread.id),
+      threadId: String(dispatch.thread_id),
       messageId: sendResult.gmailMessageId,
     })
   }
@@ -587,7 +718,37 @@ async function updateApprovalMessage(
     .update({
       metadata: buildApprovalMessageMetadata(plan, action, approval, payload) as Json,
     })
-    .eq('id', messageId)
+      .eq('id', messageId)
+}
+
+async function insertGmailApprovalMessage(
+  db: PlannerDb,
+  input: {
+    plan: Plan
+    action: AgentAction
+    approval: Approval
+    payload: Record<string, unknown>
+    targetCount: number
+    supersedesMessageId?: string | null
+  }
+): Promise<{ id: string }> {
+  const metadata = {
+    ...buildApprovalMessageMetadata(input.plan, input.action, input.approval, input.payload),
+    ...(input.supersedesMessageId ? { supersedes_message_id: input.supersedesMessageId } : {}),
+  }
+  const { data, error } = await db
+    .from('plan_messages')
+    .insert({
+      plan_id: input.plan.id,
+      role: 'agent',
+      content: `Review this Gmail outreach batch before anything sends. Approving sends ${input.targetCount} email${input.targetCount === 1 ? '' : 's'} from your connected Gmail account so replies can be compared in 3rdPlace.`,
+      message_type: 'approval_request',
+      metadata: metadata as Json,
+    })
+    .select('id')
+    .single()
+  if (error || !data) throw new Error(error?.message ?? 'Failed to create Gmail approval message')
+  return { id: String(data.id) }
 }
 
 async function getOrCreateGmailApprovalPlan(db: PlannerDb, userId: string): Promise<Plan> {
@@ -684,7 +845,7 @@ async function loadReusableApprovalBundle(
 async function loadApproval(db: PlannerDb, approvalId: string): Promise<Approval | null> {
   const { data, error } = await db
     .from('approvals')
-    .select(APPROVAL_SELECT_COLUMNS)
+    .select(VERSIONED_APPROVAL_SELECT_COLUMNS)
     .eq('id', approvalId)
     .maybeSingle()
 
@@ -783,6 +944,173 @@ async function loadGmailOutreachThreads(
   }))
 }
 
+type GmailDispatchRow = Record<string, unknown> & {
+  id: string
+  thread_id: string
+}
+
+function buildDispatchIdempotencyKey(actionId: string, email: string) {
+  const recipientHash = createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 24)
+  return `gmail:${actionId}:recipient:${recipientHash}`
+}
+
+function buildDeterministicRfcMessageId(actionId: string, email: string) {
+  const recipientHash = createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 24)
+  return `<approval.${actionId}.${recipientHash}@mail.3rdplace.app>`
+}
+
+async function loadGmailDispatch(
+  db: PlannerDb,
+  actionId: string,
+  dispatchIdempotencyKey: string
+): Promise<GmailDispatchRow | null> {
+  const { data, error } = await db
+    .from('outreach_messages')
+    .select('*')
+    .eq('agent_action_id', actionId)
+    .eq('dispatch_idempotency_key', dispatchIdempotencyKey)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  return data ? data as GmailDispatchRow : null
+}
+
+async function loadOrCreateGmailDispatch(
+  db: PlannerDb,
+  input: {
+    userId: string
+    planId: string
+    actionId: string
+    approvalId: string
+    target: GmailOutreachTarget
+    subject: string
+    bodyText: string
+    senderEmail: string
+    dispatchIdempotencyKey: string
+    rfcMessageId: string
+  }
+): Promise<GmailDispatchRow> {
+  const existing = await loadGmailDispatch(db, input.actionId, input.dispatchIdempotencyKey)
+  if (existing) return existing
+
+  const now = new Date().toISOString()
+  const thread = await insertOutreachThread(db, {
+    userId: input.userId,
+    planId: input.planId,
+    actionId: input.actionId,
+    target: input.target,
+    now,
+  })
+  const { data, error } = await db.from('outreach_messages').insert({
+    thread_id: thread.id,
+    direction: 'outbound',
+    subject: input.subject,
+    body_text: input.bodyText,
+    body_html: textToHtml(input.bodyText),
+    headers_json: {
+      from: input.senderEmail,
+      to: input.target.email,
+      'message-id': input.rfcMessageId,
+    } as Json,
+    provider_metadata_json: {
+      provider: 'gmail',
+      approval_flow: GMAIL_APPROVED_OUTREACH_KIND,
+    } as Json,
+    attachments_json: [] as Json,
+    agent_action_id: input.actionId,
+    approval_id: input.approvalId,
+    dispatch_idempotency_key: input.dispatchIdempotencyKey,
+    rfc_message_id: input.rfcMessageId,
+    delivery_status: 'pending',
+    sent_manually: true,
+  }).select('*').single()
+
+  if (error || !data) {
+    if (error?.code === '23505') {
+      // A racing request may have reserved the same per-recipient dispatch
+      // after this request created its thread. Remove only this unused thread
+      // before returning the winning dispatch so the inbox has no ghost row.
+      await db.from('outreach_threads').delete().eq('id', thread.id)
+      const raced = await loadGmailDispatch(db, input.actionId, input.dispatchIdempotencyKey)
+      if (raced) return raced
+    }
+    throw new Error(error?.message ?? 'Failed to create durable Gmail dispatch')
+  }
+  return data as GmailDispatchRow
+}
+
+async function claimGmailDispatch(
+  db: PlannerDb,
+  dispatch: GmailDispatchRow
+): Promise<GmailDispatchRow | null> {
+  const status = readString(dispatch.delivery_status)
+  if (!status || !['pending', 'failed', 'ambiguous'].includes(status)) return null
+  const { data, error } = await db
+    .from('outreach_messages')
+    .update({
+      delivery_status: 'sending',
+      send_started_at: new Date().toISOString(),
+      last_send_error: null,
+    })
+    .eq('id', dispatch.id)
+    .eq('delivery_status', status)
+    .select('*')
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  return data ? data as GmailDispatchRow : null
+}
+
+async function markGmailDispatchAmbiguous(
+  db: PlannerDb,
+  dispatch: GmailDispatchRow,
+  error: unknown
+) {
+  const { error: updateError } = await db
+    .from('outreach_messages')
+    .update({
+      delivery_status: 'ambiguous',
+      last_send_error: error instanceof Error ? error.message.slice(0, 2000) : 'Unknown Gmail send error',
+    })
+    .eq('id', dispatch.id)
+    .eq('delivery_status', 'sending')
+  if (updateError) throw new Error(updateError.message)
+}
+
+async function markGmailDispatchSent(
+  db: PlannerDb,
+  dispatch: GmailDispatchRow,
+  result: { gmailMessageId: string; gmailThreadId: string },
+  labelIds: string[]
+): Promise<GmailDispatchRow> {
+  const now = new Date().toISOString()
+  const metadata = {
+    ...(readRecord(dispatch.provider_metadata_json) ?? {}),
+    provider: 'gmail',
+    label_ids: labelIds,
+    approval_flow: GMAIL_APPROVED_OUTREACH_KIND,
+    reconciled_by_rfc_message_id: labelIds.length === 0,
+  }
+  const { data, error } = await db
+    .from('outreach_messages')
+    .update({
+      delivery_status: 'sent',
+      gmail_message_id: result.gmailMessageId,
+      gmail_thread_id: result.gmailThreadId,
+      provider_metadata_json: metadata as Json,
+      sent_at: now,
+      last_send_error: null,
+    })
+    .eq('id', dispatch.id)
+    .select('*')
+    .single()
+  if (error || !data) throw new Error(error?.message ?? 'Failed to finalize Gmail dispatch')
+  await db.from('outreach_threads').update({
+    state: 'awaiting_reply',
+    last_event_at: now,
+    last_outbound_at: now,
+  }).eq('id', dispatch.thread_id)
+  return data as GmailDispatchRow
+}
+
 async function insertOutreachThread(
   db: PlannerDb,
   input: {
@@ -810,10 +1138,10 @@ async function insertOutreachThread(
         source: GMAIL_APPROVED_OUTREACH_KIND,
         approval_required: true,
       } as Json,
-      state: 'awaiting_reply',
+      state: 'draft',
       needs_attention: false,
       last_event_at: input.now,
-      last_outbound_at: input.now,
+      last_outbound_at: null,
     })
     .select('id, plan_id, target_name, target_email, state, needs_attention, last_event_at, last_inbound_at, last_outbound_at')
     .single()
@@ -1183,10 +1511,11 @@ function normalizeTargets(targets: GmailOutreachTarget[]) {
       discoveryVendorId: readUuid(target.discoveryVendorId),
     }))
     .filter((target) => target.name && isValidEmail(target.email))
+  const unique = [...new Map(cleaned.map((target) => [target.email, target])).values()]
 
-  if (cleaned.length === 0) throw new Error('Add at least one venue or vendor with a valid email address.')
-  if (cleaned.length > 6) throw new Error('Send at most six outreach emails at a time.')
-  return cleaned
+  if (unique.length === 0) throw new Error('Add at least one venue or vendor with a valid email address.')
+  if (unique.length > 6) throw new Error('Send at most six outreach emails at a time.')
+  return unique
 }
 
 function readTargets(payload: Record<string, unknown> | null): GmailOutreachTarget[] {

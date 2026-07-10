@@ -14,7 +14,6 @@ import {
   createVenueOpportunityBrief,
   ensureVenueOpportunityInviteTokens,
 } from '@/lib/planner/venueOpportunityBriefs'
-import { loadPendingApprovalsForPlan } from '@/lib/planner/pendingApprovals'
 import {
   createVendorOpportunityBrief,
   ensureVendorOpportunityInviteTokens,
@@ -29,7 +28,12 @@ import {
   type AgentActionTransitionEvent,
 } from '@/lib/planner/execution/approvalState'
 import { planApprovedActionExecution } from '@/lib/planner/execution/executeApprovedAction'
-import { approvalRequiresReapproval } from '@/lib/planner/execution/reapproval'
+import { deriveApprovalUiState } from '@/lib/planner/approvalUiState'
+import {
+  APPROVAL_SNAPSHOT_SCHEMA_VERSION,
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
 import { executeApprovedGmailOutreach } from '@/lib/outreach/gmailApprovalFlow'
 import { enqueueDraftsAfterVenueApproval } from '@/lib/planner/discoveryOutreachDrafts'
 import {
@@ -55,16 +59,81 @@ import type {
   Plan,
 } from '@/lib/types'
 
-type PlannerDb = { from: (table: string) => any }
+type PlannerDb = {
+  from: (table: string) => any
+  rpc?: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message?: string; code?: string } | null }>
+}
 type PlannerAuth =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
 
-const patchApprovalSchema = z.object({
-  approvalId: z.string().uuid(),
-  action: z.enum(['authorize', 'approve', 'reject', 'cancel']),
-  authorizedAmountCents: z.number().int().nonnegative().refine(Number.isSafeInteger).nullable().optional(),
-})
+const approvalIdSchema = z.string().uuid()
+const snapshotHashSchema = z.string().trim().regex(/^[a-f0-9]{64}$/i)
+const centsSchema = z.number().int().nonnegative().refine(Number.isSafeInteger)
+const eventDateSchema = z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).nullable()
+
+const patchApprovalCommandSchema = z.discriminatedUnion('command', [
+  z.object({
+    approvalId: approvalIdSchema,
+    command: z.literal('edit'),
+    expectedSnapshotHash: snapshotHashSchema,
+    changes: z.object({
+      requestedAmountCents: centsSchema,
+      eventDate: eventDateSchema,
+      notes: z.string().trim().max(4000).nullable(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    approvalId: approvalIdSchema,
+    command: z.literal('authorize'),
+    expectedSnapshotHash: snapshotHashSchema,
+  }).strict(),
+  z.object({
+    approvalId: approvalIdSchema,
+    command: z.literal('request_reapproval'),
+    expectedSnapshotHash: snapshotHashSchema.nullable(),
+  }).strict(),
+  z.object({
+    approvalId: approvalIdSchema,
+    command: z.literal('cancel'),
+  }).strict(),
+])
+
+const legacyTerminalApprovalCommandSchema = z.object({
+  approvalId: approvalIdSchema,
+  action: z.enum(['reject', 'cancel']),
+}).strict()
+
+type PatchApprovalCommand = z.infer<typeof patchApprovalCommandSchema>
+
+type VersionedApproval = Approval & {
+  notes?: string | null
+  root_approval_id?: string | null
+  version_number?: number | null
+  supersedes_approval_id?: string | null
+  superseded_by_approval_id?: string | null
+  version_created_by?: string | null
+  version_reason?: string | null
+  snapshot_json?: Json | null
+  snapshot_schema_version?: number | null
+}
+
+type RetryableAgentAction = AgentAction & {
+  last_retry_idempotency_key?: string | null
+  last_retry_status?: string | null
+  last_retry_started_at?: string | null
+  last_retry_completed_at?: string | null
+  last_retry_result?: Json | null
+}
+
+type ApprovalCommandResponse = {
+  approval: VersionedApproval
+  actionStatus: string
+  actionResult: Json | null
+  confirmationSnapshot: Json | null
+  uiStatus: string
+  availableActions: string[]
+}
 
 const PLAN_SELECT_COLUMNS = `
   id,
@@ -112,6 +181,15 @@ const APPROVAL_SELECT_COLUMNS = `
   approved_at,
   expires_at,
   snapshot_hash,
+  notes,
+  root_approval_id,
+  version_number,
+  supersedes_approval_id,
+  superseded_by_approval_id,
+  version_created_by,
+  version_reason,
+  snapshot_json,
+  snapshot_schema_version,
   superseded_at,
   superseded_by_revision_id,
   superseded_reason,
@@ -134,6 +212,11 @@ const AGENT_ACTION_STATUS_SELECT_COLUMNS = `
   approval_id,
   executed_at,
   result_metadata,
+  last_retry_idempotency_key,
+  last_retry_status,
+  last_retry_started_at,
+  last_retry_completed_at,
+  last_retry_result,
   created_at,
   updated_at
 `
@@ -167,7 +250,7 @@ export async function GET(
     const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const approvals = await loadPendingApprovalsForPlan(auth.db, plan.id)
+    const approvals = await loadCurrentApprovalsForPlan(auth.db, plan.id)
 
     return NextResponse.json({ approvals })
   } catch (error) {
@@ -186,24 +269,36 @@ export async function GET(
 export async function PATCH(
   request: NextRequest,
   context: RouteContext
-): Promise<NextResponse<{ approval: Approval } | PlannerApiErrorResponse>> {
-  const logger = getRequestLogger(request).child({ plan_id: (await context.params).planId })
+): Promise<NextResponse<ApprovalCommandResponse | PlannerApiErrorResponse>> {
+  const planId = (await context.params).planId
+  const logger = getRequestLogger(request).child({ plan_id: planId })
   try {
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
 
-    const parsed = patchApprovalSchema.safeParse(await request.json())
-    if (!parsed.success) {
+    const rawBody: unknown = await request.json()
+    const parsed = patchApprovalCommandSchema.safeParse(rawBody)
+    const legacyParsed = parsed.success ? null : legacyTerminalApprovalCommandSchema.safeParse(rawBody)
+    if (!parsed.success && !legacyParsed?.success) {
       return NextResponse.json(
         { error: 'Invalid request body', details: parsed.error.flatten() as Json },
         { status: 400 }
       )
     }
+    const legacyCommand = legacyParsed?.success
+      ? {
+        approvalId: legacyParsed.data.approvalId,
+        command: legacyParsed.data.action === 'reject' ? 'reject' as const : 'cancel' as const,
+      }
+      : null
+    const command: PatchApprovalCommand | { approvalId: string; command: 'reject' | 'cancel' } = parsed.success
+      ? parsed.data
+      : legacyCommand!
 
-    let plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
+    let plan = await loadOwnedPlan(auth.db, planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const existingApproval = await loadApproval(auth.db, (await context.params).planId, parsed.data.approvalId)
+    const existingApproval = await loadApproval(auth.db, planId, command.approvalId) as VersionedApproval | null
     if (!existingApproval) return NextResponse.json({ error: 'Approval not found' }, { status: 404 })
 
     if (existingApproval.status === 'superseded' || existingApproval.superseded_at) {
@@ -216,47 +311,98 @@ export async function PATCH(
       )
     }
 
-    const approvalTransition = transitionApprovalStatus(existingApproval.status, parsed.data.action)
+    const linkedAction = await loadAgentAction(auth.db, existingApproval.agent_action_id) as RetryableAgentAction | null
+    if (!linkedAction || linkedAction.plan_id !== planId) {
+      return NextResponse.json({ error: 'Linked approval action not found' }, { status: 409 })
+    }
+
+    if (command.command === 'edit' || command.command === 'request_reapproval') {
+      const snapshotConflict = command.command === 'request_reapproval'
+        ? validateReapprovalVersion(existingApproval, command.expectedSnapshotHash)
+        : validateExpectedSnapshot({
+          plan,
+          approval: existingApproval,
+          action: linkedAction,
+          expectedSnapshotHash: command.expectedSnapshotHash,
+        })
+      if (snapshotConflict) {
+        if (snapshotConflict.persistedSnapshotIsStale) {
+          await markApprovalReapprovalRequired(auth.db, planId, existingApproval)
+        }
+        return snapshotConflict.response
+      }
+
+      const writeDb = createServiceRoleClient() as unknown as PlannerDb
+      const replacement = await supersedeApprovalVersion(writeDb, {
+        plan,
+        approval: existingApproval,
+        action: linkedAction,
+        actorId: auth.userId,
+        expectedSnapshotHash: command.command === 'request_reapproval'
+          ? existingApproval.snapshot_hash ?? 'legacy-missing'
+          : command.expectedSnapshotHash,
+        changes: command.command === 'edit' ? command.changes : null,
+        reason: command.command === 'edit' ? 'host_edit' : 'host_requested_reapproval',
+      })
+      if ('response' in replacement) return replacement.response
+
+      const superseded = await loadApproval(writeDb, planId, existingApproval.id) as VersionedApproval | null
+      if (superseded) await syncApprovalMessageMetadata(auth.db, writeDb, planId, superseded)
+      await insertSupersedingApprovalMessage(auth.db, writeDb, {
+        planId,
+        oldApprovalId: existingApproval.id,
+        approval: replacement.approval,
+      })
+      return NextResponse.json(await buildApprovalCommandResponse(writeDb, replacement.approval))
+    }
+
+    if (command.command === 'authorize') {
+      const snapshotConflict = validateExpectedSnapshot({
+        plan,
+        approval: existingApproval,
+        action: linkedAction,
+        expectedSnapshotHash: command.expectedSnapshotHash,
+      })
+      if (snapshotConflict) {
+        if (snapshotConflict.persistedSnapshotIsStale) {
+          await markApprovalReapprovalRequired(auth.db, planId, existingApproval)
+        }
+        return snapshotConflict.response
+      }
+    }
+
+    const decision = command.command === 'reject' ? 'reject' : command.command
+    const approvalTransition = transitionApprovalStatus(existingApproval.status, decision)
     if (!approvalTransition.ok) {
       return NextResponse.json({ error: approvalTransition.reason }, { status: 409 })
     }
 
     if (!approvalTransition.changed) {
-      return NextResponse.json({ approval: existingApproval })
+      return NextResponse.json(await buildApprovalCommandResponse(auth.db, existingApproval))
     }
 
     const writeDb = createServiceRoleClient() as unknown as PlannerDb
 
-    if (
-      (parsed.data.action === 'authorize' || parsed.data.action === 'approve') &&
-      (!readString(existingApproval.snapshot_hash) || await approvalRequiresFreshReview(auth.db, plan, existingApproval))
-    ) {
-      const staleApproval = await markApprovalReapprovalRequired(writeDb, (await context.params).planId, existingApproval.id)
-      if (staleApproval) {
-        await syncApprovalMessageMetadata(auth.db, writeDb, (await context.params).planId, staleApproval)
-      }
-      return NextResponse.json(
-        { error: 'Plan details changed after this approval was created. Review the latest recommendations and approve again.' },
-        { status: 409 }
-      )
-    }
-
-    if (parsed.data.action === 'authorize' || parsed.data.action === 'approve') {
+    if (command.command === 'authorize') {
       const stripeGate = await checkApprovalStripeGate({
         db: writeDb,
         approval: existingApproval,
-        planId: (await context.params).planId,
+        planId,
         organizerId: auth.userId,
       })
       if (stripeGate) return stripeGate
     }
 
-    const updates = buildApprovalUpdates(approvalTransition.to, auth.userId, parsed.data.authorizedAmountCents)
+    const updates = buildApprovalUpdates(
+      approvalTransition.to,
+      auth.userId,
+      command.command === 'authorize' ? existingApproval.requested_amount_cents : undefined
+    )
     const { data, error } = await writeDb
       .from('approvals')
       .update(updates)
-      .eq('id', parsed.data.approvalId)
-      .eq('plan_id', (await context.params).planId)
+      .eq('id', command.approvalId)
+      .eq('plan_id', planId)
       .eq('status', existingApproval.status)
       .select(APPROVAL_SELECT_COLUMNS)
       .maybeSingle()
@@ -264,7 +410,7 @@ export async function PATCH(
     if (error) {
       logger.error('Planner approval update failed', error, {
         user_id: auth.userId,
-        approval_id: parsed.data.approvalId,
+        approval_id: command.approvalId,
         previous_status: existingApproval.status,
         attempted_status: approvalTransition.to,
       })
@@ -281,8 +427,8 @@ export async function PATCH(
       )
     }
 
-    const approval = data as Approval
-    if (parsed.data.action === 'authorize' || parsed.data.action === 'approve') {
+    const approval = data as VersionedApproval
+    if (command.command === 'authorize') {
       try {
         plan = await ensurePlannerEventAccess({
           plan,
@@ -291,7 +437,7 @@ export async function PATCH(
         })
       } catch (accessError) {
         await rollbackApprovalAfterAccessFailure(auth.db, writeDb, {
-          planId: (await context.params).planId,
+          planId,
           approval,
           originalStatus: existingApproval.status,
           actorId: auth.userId,
@@ -308,24 +454,42 @@ export async function PATCH(
 
     await syncAgentActionStatusForApproval(auth.db, writeDb, {
       actionId: approval.agent_action_id,
-      planId: (await context.params).planId,
+      planId,
       actorId: auth.userId,
       approvalStatus: approval.status,
     })
     if (isApprovalExecutable(approval.status)) {
-      await executeApprovedAction(auth.db, writeDb, {
-        actionId: approval.agent_action_id,
-        planId: (await context.params).planId,
-        actorId: auth.userId,
-        plan,
-        approval,
-      })
+      try {
+        await executeApprovedAction(auth.db, writeDb, {
+          actionId: approval.agent_action_id,
+          planId,
+          actorId: auth.userId,
+          plan,
+          approval,
+        })
+      } catch (executionError) {
+        await syncApprovalMessageMetadata(auth.db, writeDb, planId, approval)
+        const failedResponse = await buildApprovalCommandResponse(writeDb, approval)
+        logger.error('Planner approval execution failed', executionError, {
+          approval_id: approval.id,
+          action_id: approval.agent_action_id,
+        })
+        return NextResponse.json(
+          {
+            ...failedResponse,
+            error: executionError instanceof Error ? executionError.message : 'Approved action failed',
+            code: 'approval_execution_failed',
+            retryable: failedResponse.availableActions.includes('retry'),
+          } as ApprovalCommandResponse & PlannerApiErrorResponse,
+          { status: 502 }
+        )
+      }
     } else if (approval.status === 'cancelled' || approval.status === 'rejected') {
       await syncOpportunityInviteStatuses(auth.db, writeDb, plan, auth.userId, approval)
     }
-    await syncApprovalMessageMetadata(auth.db, writeDb, (await context.params).planId, approval)
+    await syncApprovalMessageMetadata(auth.db, writeDb, planId, approval)
 
-    return NextResponse.json({ approval })
+    return NextResponse.json(await buildApprovalCommandResponse(writeDb, approval))
   } catch (error) {
     logger.error('Planner approvals PATCH failed', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
@@ -383,6 +547,268 @@ async function loadApproval(db: PlannerDb, planId: string, approvalId: string): 
   return (data as Approval | null) ?? null
 }
 
+async function loadCurrentApprovalsForPlan(db: PlannerDb, planId: string): Promise<VersionedApproval[]> {
+  const { data, error } = await db
+    .from('approvals')
+    .select(APPROVAL_SELECT_COLUMNS)
+    .eq('plan_id', planId)
+    .in('status', ['pending', 'expired', 're_approval_required', 'authorized', 'approved'])
+    .order('created_at', { ascending: true })
+  if (error) throw new Error(error.message)
+  return (Array.isArray(data) ? data : []) as VersionedApproval[]
+}
+
+function validateExpectedSnapshot(input: {
+  plan: Plan
+  approval: VersionedApproval
+  action: RetryableAgentAction
+  expectedSnapshotHash: string
+}): {
+  response: NextResponse<PlannerApiErrorResponse>
+  persistedSnapshotIsStale: boolean
+} | null {
+  const storedSnapshotHash = readString(input.approval.snapshot_hash)
+  const freshSnapshotHash = buildApprovalSnapshotHashV2({
+    plan: input.plan,
+    approval: input.approval,
+    action: input.action,
+    payload: readRecord(input.action.payload_json),
+  })
+
+  if (
+    !storedSnapshotHash ||
+    input.approval.snapshot_schema_version !== APPROVAL_SNAPSHOT_SCHEMA_VERSION ||
+    input.expectedSnapshotHash !== storedSnapshotHash ||
+    storedSnapshotHash !== freshSnapshotHash
+  ) {
+    return {
+      response: NextResponse.json(
+        {
+          error: 'This approval changed after it was displayed. Refresh and review the current version before continuing.',
+          code: 'approval_snapshot_mismatch',
+          details: {
+            expected_snapshot_hash: input.expectedSnapshotHash,
+            current_snapshot_hash: storedSnapshotHash,
+            snapshot_schema_version: input.approval.snapshot_schema_version ?? null,
+          } as Json,
+        },
+        { status: 409 }
+      ),
+      persistedSnapshotIsStale: Boolean(
+        storedSnapshotHash &&
+        input.approval.snapshot_schema_version === APPROVAL_SNAPSHOT_SCHEMA_VERSION &&
+        input.expectedSnapshotHash === storedSnapshotHash &&
+        storedSnapshotHash !== freshSnapshotHash
+      ),
+    }
+  }
+
+  return null
+}
+
+function validateReapprovalVersion(
+  approval: VersionedApproval,
+  expectedSnapshotHash: string | null
+): {
+  response: NextResponse<PlannerApiErrorResponse>
+  persistedSnapshotIsStale: false
+} | null {
+  if ((approval.snapshot_hash ?? null) === expectedSnapshotHash) return null
+  return {
+    response: NextResponse.json(
+      {
+        error: 'This approval changed after it was displayed. Refresh before requesting a new version.',
+        code: 'approval_snapshot_mismatch',
+      },
+      { status: 409 }
+    ),
+    persistedSnapshotIsStale: false,
+  }
+}
+
+async function markApprovalReapprovalRequired(
+  readDb: PlannerDb,
+  planId: string,
+  approval: VersionedApproval
+) {
+  if (approval.status === 're_approval_required') return
+  const writeDb = createServiceRoleClient() as unknown as PlannerDb
+  const { data, error } = await writeDb
+    .from('approvals')
+    .update({ status: 're_approval_required' })
+    .eq('id', approval.id)
+    .eq('plan_id', planId)
+    .eq('status', approval.status)
+    .select(APPROVAL_SELECT_COLUMNS)
+    .maybeSingle()
+  if (error || !data) return
+  await syncApprovalMessageMetadata(readDb, writeDb, planId, data as VersionedApproval)
+}
+
+async function supersedeApprovalVersion(
+  db: PlannerDb,
+  input: {
+    plan: Plan
+    approval: VersionedApproval
+    action: RetryableAgentAction
+    actorId: string
+    expectedSnapshotHash: string
+    changes: { requestedAmountCents: number; eventDate: string | null; notes: string | null } | null
+    reason: string
+  }
+): Promise<
+  | { approval: VersionedApproval }
+  | { response: NextResponse<PlannerApiErrorResponse> }
+> {
+  if (!db.rpc) {
+    return { response: NextResponse.json({ error: 'Approval versioning is unavailable' }, { status: 500 }) }
+  }
+
+  const requestedAmountCents = input.changes
+    ? assertIntegerCents(input.changes.requestedAmountCents, 'requestedAmountCents')
+    : assertIntegerCents(input.approval.requested_amount_cents ?? 0, 'requestedAmountCents')
+  const eventDate = input.changes ? input.changes.eventDate : input.approval.event_date
+  const notes = input.changes ? input.changes.notes : input.approval.notes ?? null
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  const currentPayload = readRecord(input.action.payload_json) ?? {}
+  const actionPayload = {
+    ...currentPayload,
+    requestedAmountCents,
+    requested_amount_cents: requestedAmountCents,
+    event_date: eventDate,
+    notes,
+    expires_at: expiresAt,
+  }
+  const nextApproval = {
+    ...input.approval,
+    requested_amount_cents: requestedAmountCents,
+    event_date: eventDate,
+    notes,
+    expires_at: expiresAt,
+    status: 'pending' as const,
+    authorized_amount_cents: null,
+    authorized_by: null,
+    authorized_at: null,
+    approved_by: null,
+    approved_at: null,
+  }
+  const nextAction = {
+    ...input.action,
+    amount_cents: requestedAmountCents,
+    payload_json: actionPayload as Json,
+    status: 'pending' as const,
+  }
+  const snapshotJson = buildApprovalSnapshotV2({
+    plan: input.plan,
+    approval: nextApproval,
+    action: nextAction,
+    payload: actionPayload,
+  })
+  const snapshotHash = buildApprovalSnapshotHashV2({
+    plan: input.plan,
+    approval: nextApproval,
+    action: nextAction,
+    payload: actionPayload,
+  })
+  const { data, error } = await db.rpc('supersede_approval_version', {
+    p_plan_id: input.plan.id,
+    p_approval_id: input.approval.id,
+    p_expected_snapshot_hash: input.expectedSnapshotHash,
+    p_actor_id: input.actorId,
+    p_requested_amount_cents: requestedAmountCents,
+    p_event_date: eventDate,
+    p_notes: notes,
+    p_expires_at: expiresAt,
+    p_action_payload_json: actionPayload,
+    p_snapshot_json: snapshotJson,
+    p_snapshot_hash: snapshotHash,
+    p_reason: input.reason,
+  })
+
+  if (error || !data) {
+    const conflict = error?.code === 'P0001' || /snapshot|supersed|active approval/i.test(error?.message ?? '')
+    return {
+      response: NextResponse.json(
+        {
+          error: conflict
+            ? 'This approval changed after it was displayed. Refresh and review the current version.'
+            : 'Failed to create a new approval version',
+          code: conflict ? 'approval_snapshot_mismatch' : 'approval_version_failed',
+        },
+        { status: conflict ? 409 : 500 }
+      ),
+    }
+  }
+
+  const approval = (Array.isArray(data) ? data[0] : data) as VersionedApproval | undefined
+  if (!approval) {
+    return { response: NextResponse.json({ error: 'Failed to create a new approval version' }, { status: 500 }) }
+  }
+  return { approval }
+}
+
+async function buildApprovalCommandResponse(
+  db: PlannerDb,
+  approval: VersionedApproval
+): Promise<ApprovalCommandResponse> {
+  const action = await loadAgentAction(db, approval.agent_action_id) as RetryableAgentAction | null
+  const uiState = deriveApprovalUiState({
+    approvalStatus: approval.status,
+    actionStatus: action?.status ?? null,
+    expiresAt: approval.expires_at,
+    supersededAt: approval.superseded_at,
+  })
+  return {
+    approval,
+    actionStatus: action?.status ?? 'unknown',
+    actionResult: (action?.last_retry_result ?? action?.result_metadata ?? null) as Json | null,
+    confirmationSnapshot: approval.snapshot_json ?? null,
+    uiStatus: uiState.status,
+    availableActions: [...uiState.availableActions],
+  }
+}
+
+async function insertSupersedingApprovalMessage(
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
+  input: {
+    planId: string
+    oldApprovalId: string
+    approval: VersionedApproval
+  }
+) {
+  const { data, error } = await readDb
+    .from('plan_messages')
+    .select('id, content, metadata')
+    .eq('plan_id', input.planId)
+    .eq('message_type', 'approval_request')
+
+  if (error) return
+  const source = (Array.isArray(data) ? data : []).find((row) => {
+    const metadata = readRecord(row.metadata)
+    return readString(readRecord(metadata?.approval)?.id) === input.oldApprovalId
+  })
+  if (!source) return
+  const metadata = readRecord(source.metadata) ?? {}
+  const oldEmbeddedApproval = readRecord(metadata.approval) ?? {}
+  const { error: insertError } = await writeDb.from('plan_messages').insert({
+    plan_id: input.planId,
+    role: 'agent',
+    content: source.content,
+    message_type: 'approval_request',
+    metadata: {
+      ...metadata,
+      status: input.approval.status,
+      supersedes_message_id: source.id,
+      approval: {
+        ...oldEmbeddedApproval,
+        ...input.approval,
+      },
+    } as Json,
+  })
+  if (insertError) console.error('Planner superseding approval message insert error:', insertError)
+}
+
 function buildApprovalUpdates(
   status: ApprovalStatus,
   userId: string,
@@ -410,37 +836,6 @@ function buildSupersededApprovalMessage(approval: Approval): string {
     ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(approval.superseded_at))
     : 'a recent update'
   return `This approval was superseded by a plan update on ${date}. Please re-approve from the current recommendation.`
-}
-
-async function approvalRequiresFreshReview(db: PlannerDb, plan: Plan, approval: Approval): Promise<boolean> {
-  const action = await loadAgentAction(db, approval.agent_action_id)
-  return approvalRequiresReapproval({
-    plan,
-    approval,
-    action,
-    storedSnapshotHash: approval.snapshot_hash,
-  })
-}
-
-async function markApprovalReapprovalRequired(
-  db: PlannerDb,
-  planId: string,
-  approvalId: string
-): Promise<Approval | null> {
-  const { data, error } = await db
-    .from('approvals')
-    .update({ status: 're_approval_required' })
-    .eq('id', approvalId)
-    .eq('plan_id', planId)
-    .select(APPROVAL_SELECT_COLUMNS)
-    .single()
-
-  if (error || !data) {
-    console.error('Planner approval stale status update error:', error)
-    return null
-  }
-
-  return data as Approval
 }
 
 async function rollbackApprovalAfterAccessFailure(

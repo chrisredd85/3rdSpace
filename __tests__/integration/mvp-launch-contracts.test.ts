@@ -6,7 +6,10 @@ import { PATCH as updateApproval } from '@/app/api/planner/plans/[planId]/approv
 import { POST as createVenueOpportunity } from '@/app/api/planner/plans/[planId]/opportunities/venues/route'
 import { GET as listPublicVendors } from '@/app/api/vendors/route'
 import { GET as listAdminVendors } from '@/app/api/admin/catalog/vendors/route'
-import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
+import {
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
 import { buildTicketTierRollups, classifyTicketTier } from '@/lib/server/ticket-normalization'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { enqueueOpportunityInviteSendJobs } from '@/lib/server/opportunity-email-worker'
@@ -86,22 +89,15 @@ class MemoryDb {
   }
 
   rpc(name: string, params: Record<string, unknown>) {
-    if (name !== 'consume_builder_event_access') {
-      return {
-        maybeSingle: async () => ({
-          data: null,
-          error: { message: `Unknown RPC ${name}` },
-        }),
-      }
+    const result = name === 'consume_builder_event_access'
+      ? this.rpcQueue.then(() => this.consumeBuilderEventAccess(params))
+      : name === 'supersede_approval_version'
+        ? Promise.resolve(this.supersedeApprovalVersion(params))
+        : Promise.resolve({ data: null, error: { message: `Unknown RPC ${name}` } })
+    if (name === 'consume_builder_event_access') {
+      this.rpcQueue = result.then(() => undefined, () => undefined)
     }
-
-    return {
-      maybeSingle: () => {
-        const result = this.rpcQueue.then(() => this.consumeBuilderEventAccess(params))
-        this.rpcQueue = result.then(() => undefined, () => undefined)
-        return result
-      },
-    }
+    return Object.assign(result, { maybeSingle: () => result })
   }
 
   nextId(table: string) {
@@ -192,6 +188,53 @@ class MemoryDb {
     }
 
     return { data: row, error: null }
+  }
+
+  private supersedeApprovalVersion(params: Record<string, unknown>) {
+    const previous = this.rows.approvals.find((row) => (
+      row.id === params.p_approval_id && row.plan_id === params.p_plan_id
+    ))
+    if (!previous || (previous.snapshot_hash ?? 'legacy-missing') !== params.p_expected_snapshot_hash) {
+      return { data: null, error: { code: '40001', message: 'approval_snapshot_mismatch' } }
+    }
+    const action = this.rows.agent_actions.find((row) => row.id === previous.agent_action_id)
+    if (!action) return { data: null, error: { code: 'P0002', message: 'approval_version_action_not_found' } }
+
+    const now = new Date().toISOString()
+    const replacement = {
+      ...previous,
+      id: '650e8400-e29b-41d4-a716-446655440099',
+      status: 'pending',
+      requested_amount_cents: params.p_requested_amount_cents,
+      event_date: params.p_event_date,
+      notes: params.p_notes,
+      expires_at: params.p_expires_at,
+      snapshot_json: params.p_snapshot_json,
+      snapshot_hash: params.p_snapshot_hash,
+      snapshot_schema_version: 2,
+      root_approval_id: previous.root_approval_id ?? previous.id,
+      version_number: (previous.version_number ?? 1) + 1,
+      supersedes_approval_id: previous.id,
+      superseded_by_approval_id: null,
+      version_created_by: params.p_actor_id,
+      version_reason: params.p_reason,
+      authorized_amount_cents: null,
+      authorized_by: null,
+      authorized_at: null,
+      approved_by: null,
+      approved_at: null,
+      created_at: now,
+      updated_at: now,
+    }
+    previous.status = 'superseded'
+    previous.superseded_at = now
+    previous.superseded_by_approval_id = replacement.id
+    action.approval_id = replacement.id
+    action.amount_cents = params.p_requested_amount_cents
+    action.payload_json = params.p_action_payload_json
+    action.status = 'pending'
+    this.rows.approvals.push(replacement)
+    return { data: replacement, error: null }
   }
 }
 
@@ -347,6 +390,26 @@ async function readJson(response: Response) {
   return JSON.parse(await response.text()) as Row
 }
 
+function setV2ApprovalSnapshot(
+  db: MemoryDb,
+  approvalId: string,
+  planOverride?: Row,
+) {
+  const approval = db.rows.approvals.find((row) => row.id === approvalId)!
+  const action = db.rows.agent_actions.find((row) => row.id === approval.agent_action_id)!
+  const plan = planOverride ?? db.rows.plans.find((row) => row.id === approval.plan_id)!
+  const snapshotInput = {
+    plan: plan as any,
+    approval: approval as any,
+    action: action as any,
+    payload: action.payload_json as Record<string, unknown>,
+  }
+  approval.snapshot_hash = buildApprovalSnapshotHashV2(snapshotInput)
+  approval.snapshot_json = buildApprovalSnapshotV2(snapshotInput)
+  approval.snapshot_schema_version = 2
+  return approval.snapshot_hash as string
+}
+
 function mockPlannerClient(db: MemoryDb, writeDb: MemoryDb = db) {
   mockCreateClient.mockReturnValue({
     auth: {
@@ -444,6 +507,17 @@ describe('MVP launch API contracts', () => {
     }))
     expect(db.rows.agent_actions).toHaveLength(1)
     expect(db.rows.approvals).toHaveLength(1)
+    const snapshotInput = {
+      plan: db.rows.plans[0] as any,
+      approval: db.rows.approvals[0] as any,
+      action: db.rows.agent_actions[0] as any,
+      payload: db.rows.agent_actions[0].payload_json as Record<string, unknown>,
+    }
+    expect(db.rows.approvals[0]).toEqual(expect.objectContaining({
+      snapshot_schema_version: 2,
+      snapshot_hash: buildApprovalSnapshotHashV2(snapshotInput),
+      snapshot_json: buildApprovalSnapshotV2(snapshotInput),
+    }))
     expect(db.rows.plan_messages).toEqual(expect.arrayContaining([
       expect.objectContaining({
         plan_id: PLAN_ID,
@@ -547,6 +621,106 @@ describe('MVP launch API contracts', () => {
     }))
   })
 
+  it('edits $95.50 as a superseding pending version before separate authorization', async () => {
+    const createResponse = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'external_checkout',
+        targetType: 'external',
+        requestedAmountCents: 9_500,
+        payloadJson: {
+          action_label: 'External checkout',
+          provider: 'Ticketing partner',
+          url: 'https://tickets.example/event/123',
+          package_details: 'External checkout handoff',
+          event_date: '2026-08-01',
+          notes: 'Initial terms',
+        },
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+    const created = await readJson(createResponse)
+    const generatedActionId = created.agentAction.id as string
+    const generatedApprovalId = created.approval.id as string
+    const actionRow = db.rows.agent_actions.find((row) => row.id === generatedActionId)!
+    const approvalRow = db.rows.approvals.find((row) => row.id === generatedApprovalId)!
+    actionRow.id = ACTION_ID
+    actionRow.approval_id = APPROVAL_ID
+    approvalRow.id = APPROVAL_ID
+    approvalRow.agent_action_id = ACTION_ID
+    created.agentAction.id = ACTION_ID
+    created.agentAction.approval_id = APPROVAL_ID
+    created.approval.id = APPROVAL_ID
+    created.approval.agent_action_id = ACTION_ID
+    const originalApprovalId = APPROVAL_ID
+
+    const editResponse = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: originalApprovalId,
+        command: 'edit',
+        expectedSnapshotHash: created.approval.snapshot_hash,
+        changes: {
+          requestedAmountCents: 9_550,
+          eventDate: '2026-08-02',
+          notes: 'Exact host-edited terms',
+        },
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } }
+    )
+    const edited = await readJson(editResponse)
+
+    expect(editResponse.status).toBe(200)
+    expect(edited.approval).toEqual(expect.objectContaining({
+      id: '650e8400-e29b-41d4-a716-446655440099',
+      status: 'pending',
+      requested_amount_cents: 9_550,
+      authorized_amount_cents: null,
+      event_date: '2026-08-02',
+      notes: 'Exact host-edited terms',
+      supersedes_approval_id: originalApprovalId,
+      snapshot_schema_version: 2,
+    }))
+    expect(new Date(edited.approval.expires_at).getTime()).toBeGreaterThan(Date.now())
+    expect(db.rows.approvals.find((row) => row.id === originalApprovalId)?.status).toBe('superseded')
+    expect(db.rows.agent_actions[0]).toEqual(expect.objectContaining({
+      approval_id: edited.approval.id,
+      amount_cents: 9_550,
+      status: 'pending',
+    }))
+    const editedSnapshotInput = {
+      plan: db.rows.plans[0] as any,
+      approval: edited.approval as any,
+      action: db.rows.agent_actions[0] as any,
+      payload: db.rows.agent_actions[0].payload_json as Record<string, unknown>,
+    }
+    expect(edited.approval.snapshot_hash).toBe(buildApprovalSnapshotHashV2(editedSnapshotInput))
+    expect(edited.approval.snapshot_json).toEqual(buildApprovalSnapshotV2(editedSnapshotInput))
+
+    const authorizeResponse = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: edited.approval.id,
+        command: 'authorize',
+        expectedSnapshotHash: edited.approval.snapshot_hash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } }
+    )
+    const authorized = await readJson(authorizeResponse)
+
+    expect(authorizeResponse.status).toBe(200)
+    expect(authorized.approval).toEqual(expect.objectContaining({
+      status: 'authorized',
+      requested_amount_cents: 9_550,
+      authorized_amount_cents: 9_550,
+    }))
+    expect(authorized.confirmationSnapshot).toEqual(expect.objectContaining({
+      approval: expect.objectContaining({
+        requested_amount_cents: 9_550,
+        event_date: '2026-08-02',
+        notes: 'Exact host-edited terms',
+      }),
+    }))
+    expect(db.rows.agent_actions[0].status).toBe('approved')
+  })
+
   it('POST planner agent-actions keeps trusted mutations on the service writer', async () => {
     const writeDb = new MemoryDb()
     writeDb.rows = db.rows
@@ -630,19 +804,14 @@ describe('MVP launch API contracts', () => {
       fees_cents: 0,
       requested_amount_cents: 0,
     }
-    db.rows.approvals.push({
-      ...outreachApproval,
-      snapshot_hash: buildApprovalSnapshotHash({
-        plan: db.rows.plans[0] as any,
-        approval: outreachApproval as any,
-        action: db.rows.agent_actions[0] as any,
-      }),
-    })
+    db.rows.approvals.push(outreachApproval)
+    const snapshotHash = setV2ApprovalSnapshot(db, APPROVAL_ID)
 
     const response = await updateApproval(
       makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
         approvalId: APPROVAL_ID,
-        action: 'authorize',
+        command: 'authorize',
+        expectedSnapshotHash: snapshotHash,
       }, 'PATCH'),
       { params: { planId: PLAN_ID } }
     )
@@ -723,19 +892,14 @@ describe('MVP launch API contracts', () => {
       fees_cents: 0,
       requested_amount_cents: 0,
     }
-    db.rows.approvals.push({
-      ...mixedOutreachApproval,
-      snapshot_hash: buildApprovalSnapshotHash({
-        plan: db.rows.plans[0] as any,
-        approval: mixedOutreachApproval as any,
-        action: db.rows.agent_actions[0] as any,
-      }),
-    })
+    db.rows.approvals.push(mixedOutreachApproval)
+    const snapshotHash = setV2ApprovalSnapshot(db, APPROVAL_ID)
 
     const response = await updateApproval(
       makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
         approvalId: APPROVAL_ID,
-        action: 'approve',
+        command: 'authorize',
+        expectedSnapshotHash: snapshotHash,
       }, 'PATCH'),
       { params: { planId: PLAN_ID } }
     )
@@ -779,17 +943,6 @@ describe('MVP launch API contracts', () => {
       result_metadata: {},
       status: 'pending',
     })
-    const staleSnapshotHash = buildApprovalSnapshotHash({
-      plan: { ...db.rows.plans[0], guest_count: 70 } as any,
-      approval: {
-        event_date: '2026-08-01',
-        price_cents: 50_000,
-        fees_cents: 0,
-        requested_amount_cents: 50_000,
-        provider: 'Foundry Rooftop',
-      },
-      action: db.rows.agent_actions[0] as any,
-    })
     db.rows.approvals.push({
       id: APPROVAL_ID,
       plan_id: PLAN_ID,
@@ -801,13 +954,17 @@ describe('MVP launch API contracts', () => {
       requested_amount_cents: 50_000,
       provider: 'Foundry Rooftop',
       event_date: '2026-08-01',
-      snapshot_hash: staleSnapshotHash,
+    })
+    const staleSnapshotHash = setV2ApprovalSnapshot(db, APPROVAL_ID, {
+      ...db.rows.plans[0],
+      guest_count: 70,
     })
 
     const response = await updateApproval(
       makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
         approvalId: APPROVAL_ID,
-        action: 'authorize',
+        command: 'authorize',
+        expectedSnapshotHash: staleSnapshotHash,
       }, 'PATCH'),
       { params: { planId: PLAN_ID } }
     )
@@ -968,19 +1125,14 @@ describe('MVP launch API contracts', () => {
       fees_cents: 0,
       requested_amount_cents: 0,
     }
-    db.rows.approvals.push({
-      ...accessApproval,
-      snapshot_hash: buildApprovalSnapshotHash({
-        plan: db.rows.plans[0] as any,
-        approval: accessApproval as any,
-        action: db.rows.agent_actions[0] as any,
-      }),
-    })
+    db.rows.approvals.push(accessApproval)
+    const snapshotHash = setV2ApprovalSnapshot(db, APPROVAL_ID)
 
     const response = await updateApproval(
       makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
         approvalId: APPROVAL_ID,
-        action: 'authorize',
+        command: 'authorize',
+        expectedSnapshotHash: snapshotHash,
       }, 'PATCH'),
       { params: { planId: PLAN_ID } }
     )

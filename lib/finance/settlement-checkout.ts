@@ -22,7 +22,11 @@ import {
 import { checkStripeReadinessForAuthorization } from '@/lib/planner/stripeReadinessGate'
 import { getAppBaseUrl, getStripeClient } from '@/lib/stripe/connect'
 import { assertIntegerCents } from '@/lib/planner/execution/approvalState'
-import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
+import {
+  APPROVAL_SNAPSHOT_SCHEMA_VERSION,
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
 
 type SupabaseAdminClient = SupabaseClient<any, 'public', any>
 
@@ -355,14 +359,27 @@ export async function ensureSettlementApproval(
   if (actionError) throw new Error(actionError.message ?? 'Failed to create CHI settlement action')
 
   const approvalSnapshot = {
+    action_label: 'Community host incentive settlement',
     event_date: context.event?.event_date ? context.event.event_date.slice(0, 10) : null,
     price_cents: amountCents,
     fees_cents: 0,
     requested_amount_cents: amountCents,
     provider: context.venue.venue_name,
+    delivery_email: context.venue.contact_email ?? context.venueOwner?.email ?? null,
     refund_terms: 'No booking or payment changes occur without the venue completing the settlement checkout.',
     cancellation_terms: 'Venue may dispute before payment.',
     package_details: `CHI settlement for ${context.event?.event_name ?? context.plan.title}.`,
+    expires_at: null,
+    notes: null,
+  }
+  const approvalSnapshotInput = {
+    plan: {
+      ...context.plan,
+      ticketed: context.plan.ticketed ?? false,
+    },
+    approval: approvalSnapshot,
+    action,
+    payload,
   }
 
   const { data: approval, error: approvalError } = await (admin as any)
@@ -370,9 +387,7 @@ export async function ensureSettlementApproval(
     .insert({
       plan_id: context.plan.id,
       agent_action_id: action.id,
-      action_label: 'Community host incentive settlement',
       ...approvalSnapshot,
-      delivery_email: context.venue.contact_email ?? context.venueOwner?.email ?? null,
       status: 'authorized',
       approved_by: input.organizerId,
       approved_at: now,
@@ -382,15 +397,9 @@ export async function ensureSettlementApproval(
       authorized_at: now,
       approval_type: 'chi_settlement',
       settlement_run_id: input.run.id,
-      snapshot_hash: buildApprovalSnapshotHash({
-        plan: {
-          ...context.plan,
-          ticketed: context.plan.ticketed ?? false,
-        },
-        approval: approvalSnapshot,
-        action,
-        payload,
-      }),
+      snapshot_hash: buildApprovalSnapshotHashV2(approvalSnapshotInput),
+      snapshot_json: buildApprovalSnapshotV2(approvalSnapshotInput),
+      snapshot_schema_version: APPROVAL_SNAPSHOT_SCHEMA_VERSION,
     })
     .select('*')
     .single()

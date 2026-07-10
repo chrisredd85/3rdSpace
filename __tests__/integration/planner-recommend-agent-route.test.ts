@@ -8,6 +8,10 @@ import { runEconomicsAgent } from '@/lib/ai/agents/economicsAgent'
 import { runVenueMatchingAgent } from '@/lib/ai/agents/venueMatchingAgent'
 import { ARCHETYPES } from '@/lib/planner/archetypes'
 import { attachControlledPaymentRecommendationReadiness } from '@/lib/planner/recommendationPaymentReadiness'
+import {
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
 import { searchPlacesForPlan } from '@/lib/server/places-outreach'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
@@ -589,6 +593,17 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
         snapshot_hash: expect.any(String),
       }),
     ]))
+    const approval = db.rows.approvals.find((row) => row.plan_id === 'plan-1')!
+    const action = db.rows.agent_actions.find((row) => row.id === approval.agent_action_id)!
+    const snapshotInput = {
+      plan: db.rows.plans.find((row) => row.id === 'plan-1') as any,
+      approval: approval as any,
+      action: action as any,
+      payload: action.payload_json as Record<string, unknown>,
+    }
+    expect(approval.snapshot_schema_version).toBe(2)
+    expect(approval.snapshot_hash).toBe(buildApprovalSnapshotHashV2(snapshotInput))
+    expect(approval.snapshot_json).toEqual(buildApprovalSnapshotV2(snapshotInput))
     expect(db.rows.plan_messages).toEqual(expect.arrayContaining([
       expect.objectContaining({
         plan_id: 'plan-1',

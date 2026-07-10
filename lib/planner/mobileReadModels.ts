@@ -148,7 +148,9 @@ export async function buildMobileHomeReadModel(db: PlannerDb, plan: Plan): Promi
 
   return {
     plan,
-    pending_approvals: pendingApprovals.slice(0, 3),
+    // Approval attention is a correctness queue, not a recommendation teaser.
+    // Return the full owner-scoped set so failed/expired work cannot disappear.
+    pending_approvals: pendingApprovals,
     pending_approval_count: pendingApprovals.length,
     problem: activity.find((item) => item.kind === 'problem') ?? null,
     progress: buildProgress(plan, recommendations, pendingApprovals),

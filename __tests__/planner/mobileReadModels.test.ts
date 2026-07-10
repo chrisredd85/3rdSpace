@@ -151,6 +151,16 @@ describe('mobile planner read models', () => {
           created_at: '2026-06-04T00:00:00.000Z',
           updated_at: '2026-06-04T00:00:00.000Z',
         },
+        ...['2', '3', '4'].map((suffix) => ({
+          id: `approval-${suffix}`,
+          plan_id: basePlan.id,
+          action_label: `Approval ${suffix}`,
+          provider: 'Venue',
+          price_cents: 0,
+          status: 'pending',
+          created_at: `2026-06-04T00:0${suffix}:00.000Z`,
+          updated_at: `2026-06-04T00:0${suffix}:00.000Z`,
+        })),
       ],
       recommendations: [
         {
@@ -188,7 +198,8 @@ describe('mobile planner read models', () => {
 
     const home = await buildMobileHomeReadModel(db, basePlan)
 
-    expect(home.pending_approval_count).toBe(1)
+    expect(home.pending_approval_count).toBe(4)
+    expect(home.pending_approvals).toHaveLength(4)
     expect(home.problem?.summary).toBe('Venue declined')
     expect(home.progress.find((item) => item.id === 'venues')?.status).toBe('In review')
     expect(home.updates[0]?.summary).toBe('Budget refreshed')

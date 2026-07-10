@@ -19,7 +19,11 @@ import type {
   VenueOpportunityInvite,
 } from '@/lib/types'
 import { getVenueComplianceStatus } from '@/lib/planner/venueComplianceGate'
-import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
+import {
+  APPROVAL_SNAPSHOT_SCHEMA_VERSION,
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
 import {
   hasAuthoritativeVenueNightlyRate,
   readVenueRentalRateCents,
@@ -467,38 +471,37 @@ export async function createVenueOpportunityBundle(
   }
 
   const agentAction = actionData as AgentAction
+  const approvalExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
   const approvalSnapshot = {
+    action_label: approvalDraft.action_label,
     event_date: input.plan.date_window_start,
     price_cents: approvalDraft.requested_amount_cents,
     fees_cents: 0,
     requested_amount_cents: approvalDraft.requested_amount_cents,
     provider: approvalDraft.provider,
+    delivery_email: approvalDraft.delivery_email,
     refund_terms: approvalDraft.refund_terms,
     cancellation_terms: approvalDraft.cancellation_terms,
     package_details: approvalDraft.package_details,
+    expires_at: approvalExpiresAt,
+    notes: null,
+  }
+  const approvalSnapshotInput = {
+    plan: input.plan,
+    approval: approvalSnapshot,
+    action: agentAction,
+    payload: actionPayload,
   }
   const { data: approvalData, error: approvalError } = await input.writeDb
     .from('approvals')
     .insert({
       plan_id: input.plan.id,
       agent_action_id: agentAction.id,
-      action_label: approvalDraft.action_label,
-      provider: approvalDraft.provider,
-      price_cents: approvalDraft.requested_amount_cents,
-      fees_cents: 0,
-      package_details: approvalDraft.package_details,
-      refund_terms: approvalDraft.refund_terms,
-      cancellation_terms: approvalDraft.cancellation_terms,
-      delivery_email: approvalDraft.delivery_email,
-      requested_amount_cents: approvalDraft.requested_amount_cents,
+      ...approvalSnapshot,
       status: 'pending',
-      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      snapshot_hash: buildApprovalSnapshotHash({
-        plan: input.plan,
-        approval: approvalSnapshot,
-        action: agentAction,
-        payload: actionPayload,
-      }),
+      snapshot_hash: buildApprovalSnapshotHashV2(approvalSnapshotInput),
+      snapshot_json: buildApprovalSnapshotV2(approvalSnapshotInput) as unknown as Json,
+      snapshot_schema_version: APPROVAL_SNAPSHOT_SCHEMA_VERSION,
     })
     .select('*')
     .single()

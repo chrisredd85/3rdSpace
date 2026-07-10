@@ -37,7 +37,9 @@ import { deriveEventCity, formatVendorLocationContext, isVendorEligibleForDefaul
 import { evaluateVendorPoolSparsity, type VendorPoolSparsityResult } from '@/lib/planner/vendorDiscoverySparsity'
 import { estimateVenueRecommendationPriceCents } from '@/lib/planner/venueEstimate'
 import {
-  buildApprovalSnapshotHash,
+  APPROVAL_SNAPSHOT_SCHEMA_VERSION,
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
   buildLegacyPlanApprovalSnapshotHash,
 } from '@/lib/planner/execution/reapproval'
 import { getVenueComplianceStatus } from '@/lib/planner/venueComplianceGate'
@@ -1243,27 +1245,13 @@ async function ensureOutreachApprovalRequest(input: {
     plan_snapshot_hash: planSnapshotHash,
     source: 'planner_recommendations',
   }
-  const snapshotHash = buildApprovalSnapshotHash({
-    plan: input.plan,
-    approval: {
-      event_date: input.plan.date_window_start,
-      price_cents: projectedCostsCents,
-      fees_cents: 0,
-      requested_amount_cents: projectedCostsCents,
-      provider: '3rdPlace partners',
-      refund_terms: 'No charge is made now. This only approves outreach and quote requests.',
-      cancellation_terms: 'You can cancel before outreach drafts are sent; changed plan details require fresh approval.',
-      package_details: buildOutreachApprovalPackageDetails(venueIds.length, vendorIds.length),
-    },
-    action: {
-      action_type: 'email',
-      target_type: 'outreach',
-      target_id: null,
-      amount_cents: projectedCostsCents,
-      payload_json: actionPayload as Json,
-    },
-    payload: actionPayload,
-  })
+  const snapshotAction = {
+    action_type: 'email' as const,
+    target_type: 'outreach' as const,
+    target_id: null,
+    amount_cents: projectedCostsCents,
+    payload_json: actionPayload as Json,
+  }
   let { data: actionRows, error: actionError } = await input.writeDb
     .from('agent_actions')
     .insert({
@@ -1319,26 +1307,39 @@ async function ensureOutreachApprovalRequest(input: {
 
   // Look up contact emails from catalog so the approval card can show "Contact info on file"
   const contactEmail = await resolveOutreachContactEmail(input.db, venueIds, vendorIds)
+  const approvalExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  const approvalSnapshotFields = {
+    action_label: buildOutreachApprovalLabel(venueIds.length, vendorIds.length),
+    event_date: input.plan.date_window_start,
+    price_cents: projectedCostsCents,
+    fees_cents: 0,
+    requested_amount_cents: projectedCostsCents,
+    provider: '3rdPlace partners',
+    delivery_email: contactEmail,
+    refund_terms: 'No charge is made now. This only approves outreach and quote requests.',
+    cancellation_terms: 'You can cancel before outreach drafts are sent; changed plan details require fresh approval.',
+    package_details: buildOutreachApprovalPackageDetails(venueIds.length, vendorIds.length),
+    expires_at: approvalExpiresAt,
+    notes: null,
+  }
+  const approvalSnapshotInput = {
+    plan: input.plan,
+    approval: approvalSnapshotFields,
+    action: snapshotAction,
+    payload: actionPayload,
+  }
 
   const { data: approvalRows, error: approvalError } = await input.writeDb
     .from('approvals')
     .insert({
       plan_id: input.plan.id,
       agent_action_id: String(agentAction.id),
-      action_label: buildOutreachApprovalLabel(venueIds.length, vendorIds.length),
-      provider: '3rdPlace partners',
-      event_date: input.plan.date_window_start,
-      price_cents: projectedCostsCents,
-      fees_cents: 0,
-      package_details: buildOutreachApprovalPackageDetails(venueIds.length, vendorIds.length),
-      refund_terms: 'No charge is made now. This only approves outreach and quote requests.',
-      cancellation_terms: 'You can cancel before outreach drafts are sent; changed plan details require fresh approval.',
-      delivery_email: contactEmail,
+      ...approvalSnapshotFields,
       payment_method_id: null,
-      requested_amount_cents: projectedCostsCents,
       status: 'pending',
-      snapshot_hash: snapshotHash,
-      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      snapshot_hash: buildApprovalSnapshotHashV2(approvalSnapshotInput),
+      snapshot_json: buildApprovalSnapshotV2(approvalSnapshotInput) as unknown as Json,
+      snapshot_schema_version: APPROVAL_SNAPSHOT_SCHEMA_VERSION,
     })
     .select('*')
 

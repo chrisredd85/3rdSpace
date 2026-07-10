@@ -11,7 +11,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { readIntegerCents } from '@/lib/planner/execution/approvalState'
 import { classifyExecutionMode, requiresApprovalForAgentAction } from '@/lib/planner/executionModes'
-import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
+import {
+  APPROVAL_SNAPSHOT_SCHEMA_VERSION,
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
 import {
   checkAuthorizationActionStripeGate,
   getStripeGateErrorMessage,
@@ -134,6 +138,15 @@ const APPROVAL_SELECT_COLUMNS = `
   approved_at,
   expires_at,
   snapshot_hash,
+  notes,
+  root_approval_id,
+  version_number,
+  supersedes_approval_id,
+  superseded_by_approval_id,
+  version_created_by,
+  version_reason,
+  snapshot_json,
+  snapshot_schema_version,
   created_at,
   updated_at
 `
@@ -304,43 +317,37 @@ export async function POST(
       return NextResponse.json({ agentAction })
     }
 
-    const approvalInsert: TableInsert<'approvals'> = {
-      plan_id: (await context.params).planId,
-      agent_action_id: agentAction.id,
+    const approvalExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    const approvalSnapshotFields = {
       action_label: actionLabel,
-      provider,
       event_date: normalizeDate(readString(payload.event_date)),
       price_cents: requestedAmountCents,
       fees_cents: feesCents,
-      package_details: readString(payload.package_details),
+      requested_amount_cents: requestedAmountCents,
+      provider,
+      delivery_email: readString(payload.delivery_email),
       refund_terms: readString(payload.refund_terms),
       cancellation_terms: readString(payload.cancellation_terms),
-      delivery_email: readString(payload.delivery_email),
-      payment_method_id: readString(payload.payment_method_id),
-      requested_amount_cents: requestedAmountCents,
-      status: 'pending',
-      snapshot_hash: buildApprovalSnapshotHash({
-        plan,
-        approval: {
-          event_date: normalizeDate(readString(payload.event_date)),
-          price_cents: requestedAmountCents,
-          fees_cents: feesCents,
-          requested_amount_cents: requestedAmountCents,
-          provider,
-          refund_terms: readString(payload.refund_terms),
-          cancellation_terms: readString(payload.cancellation_terms),
-          package_details: readString(payload.package_details),
-        },
-        action: {
-          action_type: parsed.data.actionType,
-          target_type: targetType,
-          target_id: targetId,
-          amount_cents: requestedAmountCents,
-          payload_json: payload,
-        },
-        payload,
-      }),
+      package_details: readString(payload.package_details),
+      expires_at: approvalExpiresAt,
+      notes: readString(payload.notes),
     }
+    const approvalSnapshotInput = {
+      plan,
+      approval: approvalSnapshotFields,
+      action: agentAction,
+      payload,
+    }
+    const approvalInsert = {
+      plan_id: (await context.params).planId,
+      agent_action_id: agentAction.id,
+      ...approvalSnapshotFields,
+      payment_method_id: readString(payload.payment_method_id),
+      status: 'pending',
+      snapshot_hash: buildApprovalSnapshotHashV2(approvalSnapshotInput),
+      snapshot_json: buildApprovalSnapshotV2(approvalSnapshotInput) as unknown as Json,
+      snapshot_schema_version: APPROVAL_SNAPSHOT_SCHEMA_VERSION,
+    } as unknown as TableInsert<'approvals'>
 
     const { data: approvalData, error: approvalError } = await writeDb
       .from('approvals')

@@ -35,11 +35,18 @@ export async function GET(
 
     if (!activePlan) return NextResponse.json({ active_plan: null, approvals: [] })
 
-    const approvals = await loadPendingApprovalsForPlan(auth.db, activePlan.id)
+    const scopedPlans = requestedPlanId
+      ? [activePlan]
+      : plans.filter((plan) => plan.status !== 'archived')
+    const approvals = (await Promise.all(
+      scopedPlans.map((plan) => loadPendingApprovalsForPlan(auth.db, plan.id))
+    )).flat().sort((left, right) => (
+      String(left.created_at).localeCompare(String(right.created_at))
+    ))
 
     return NextResponse.json({
       active_plan: activePlan,
-      approvals: attachPendingApprovalPlanContext(approvals, [activePlan]),
+      approvals: attachPendingApprovalPlanContext(approvals, scopedPlans),
     })
   } catch (error) {
     console.error('[planner.approvals.pending] GET failed', error)

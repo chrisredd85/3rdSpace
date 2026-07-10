@@ -58,6 +58,7 @@ const APPROVAL_CAPTURE_SELECT = `
   approved_at,
   expires_at,
   snapshot_hash,
+  snapshot_schema_version,
   created_at,
   updated_at
 `
@@ -122,7 +123,13 @@ export async function POST(
       )
     }
 
-    if (approvalRequiresReapproval({ plan, approval, action, storedSnapshotHash: approval.snapshot_hash })) {
+    if (approvalRequiresReapproval({
+      plan,
+      approval,
+      action,
+      storedSnapshotHash: approval.snapshot_hash,
+      storedSnapshotVersion: approval.snapshot_schema_version,
+    })) {
       return NextResponse.json(
         { error: 'Approval details changed. Review the latest payment terms and approve again.' },
         { status: 409 }

@@ -3,6 +3,7 @@ jest.mock('server-only', () => ({}))
 jest.mock('@/lib/outreach/gmail', () => ({
   getUsableGmailAccessToken: jest.fn().mockResolvedValue('gmail-access-token'),
   sendGmailMessage: jest.fn(),
+  reconcileGmailMessageByRfcMessageId: jest.fn(),
   listGmailThreadMessages: jest.fn(),
   modifyGmailThreadLabels: jest.fn().mockResolvedValue({ id: 'gmail-thread-1' }),
 }))
@@ -12,19 +13,26 @@ jest.mock('@/lib/supabase/server', () => ({
 }))
 
 import {
+  createOrReuseGmailOutreachApproval,
   executeApprovedGmailOutreach,
   markGmailOutreachThreadHandled,
   renderBodyForTarget,
   syncGmailOutreachThread,
 } from '@/lib/outreach/gmailApprovalFlow'
 import {
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
+import {
   listGmailThreadMessages,
   modifyGmailThreadLabels,
+  reconcileGmailMessageByRfcMessageId,
   sendGmailMessage,
 } from '@/lib/outreach/gmail'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 
 const mockSendGmailMessage = sendGmailMessage as jest.Mock
+const mockReconcileGmailMessage = reconcileGmailMessageByRfcMessageId as jest.Mock
 const mockListGmailThreadMessages = listGmailThreadMessages as jest.Mock
 const mockModifyGmailThreadLabels = modifyGmailThreadLabels as jest.Mock
 const mockCreateServiceRoleClient = createServiceRoleClient as jest.Mock
@@ -48,6 +56,9 @@ class MemoryDb {
     }],
     outreach_threads: [],
     outreach_messages: [],
+    agent_actions: [],
+    agent_action_audit_log: [],
+    approvals: [],
     plan_messages: [],
     plans: [],
   }
@@ -68,7 +79,7 @@ class MemoryQuery {
   private filters: Array<[string, unknown]> = []
   private inFilters: Array<[string, unknown[]]> = []
   private nullFilters: string[] = []
-  private operation: 'select' | 'insert' | 'update' = 'select'
+  private operation: 'select' | 'insert' | 'update' | 'delete' = 'select'
   private payload: unknown
   private orderBy: { field: string; ascending: boolean } | null = null
   private limitCount: number | null = null
@@ -106,13 +117,19 @@ class MemoryQuery {
     this.payload = payload
     return this
   }
+  delete() {
+    this.operation = 'delete'
+    return this
+  }
   async single() {
     const result = await this.execute()
+    if (result.error) return { data: null, error: result.error }
     const row = Array.isArray(result.data) ? result.data[0] : result.data
     return { data: row ?? null, error: row ? null : { message: 'No row' } }
   }
   async maybeSingle() {
     const result = await this.execute()
+    if (result.error) return { data: null, error: result.error }
     const row = Array.isArray(result.data) ? result.data[0] : result.data
     return { data: row ?? null, error: null }
   }
@@ -125,6 +142,15 @@ class MemoryQuery {
   private async execute() {
     if (this.operation === 'insert') {
       const values = Array.isArray(this.payload) ? this.payload : [this.payload]
+      if (this.table === 'outreach_messages') {
+        const duplicate = values.find((value) => this.db.rows.outreach_messages.some((row) => (
+          row.agent_action_id === (value as Row).agent_action_id &&
+          row.dispatch_idempotency_key === (value as Row).dispatch_idempotency_key
+        )))
+        if (duplicate) {
+          return { data: null, error: { code: '23505', message: 'duplicate dispatch' } }
+        }
+      }
       const inserted = values.map((value) => ({
         id: (value as Row).id ?? this.db.nextId(this.table),
         created_at: (value as Row).created_at ?? new Date().toISOString(),
@@ -133,6 +159,11 @@ class MemoryQuery {
       }))
       this.db.rows[this.table].push(...inserted)
       return { data: Array.isArray(this.payload) ? inserted : inserted[0], error: null }
+    }
+    if (this.operation === 'delete') {
+      const deleted = this.db.rows[this.table].filter((row) => this.matches(row))
+      this.db.rows[this.table] = this.db.rows[this.table].filter((row) => !this.matches(row))
+      return { data: deleted, error: null }
     }
     if (this.operation === 'update') {
       const updated: Row[] = []
@@ -166,6 +197,7 @@ class MemoryQuery {
 describe('Gmail approval flow', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockReconcileGmailMessage.mockResolvedValue(null)
     mockSendGmailMessage
       .mockResolvedValueOnce({ gmailMessageId: 'gmail-message-1', gmailThreadId: 'gmail-thread-1', labelIds: ['SENT'] })
       .mockResolvedValueOnce({ gmailMessageId: 'gmail-message-2', gmailThreadId: 'gmail-thread-2', labelIds: ['SENT'] })
@@ -284,6 +316,161 @@ describe('Gmail approval flow', () => {
     }))
   })
 
+  it('persists an exactly recomputable V2 snapshot for a new Gmail approval', async () => {
+    const db = new MemoryDb()
+    const plan = buildExecutionInput([]).plan
+    db.rows.plans.push(plan)
+    mockCreateServiceRoleClient.mockReturnValue({ from: (table: string) => db.from(table) })
+
+    const created = await createOrReuseGmailOutreachApproval(db, {
+      userId: 'user-1',
+      planId: 'plan-1',
+      reuseExisting: false,
+      targets: [{ kind: 'venue', name: 'Moongate Lounge', email: 'moongate@example.com' }],
+      subject: 'Event partnership',
+      bodyText: 'Hi {{place_name}}, can you host us?',
+    })
+
+    const approval = db.rows.approvals[0]
+    const action = db.rows.agent_actions[0]
+    const snapshotInput = {
+      plan,
+      approval,
+      action,
+      payload: action.payload_json,
+    }
+    expect(created.approval.id).toBe(approval.id)
+    expect(approval).toEqual(expect.objectContaining({
+      snapshot_schema_version: 2,
+      requested_amount_cents: 0,
+      action_label: 'Send outreach to 1 venue',
+      delivery_email: 'moongate@example.com',
+      expires_at: expect.any(String),
+      snapshot_hash: buildApprovalSnapshotHashV2(snapshotInput as any),
+      snapshot_json: buildApprovalSnapshotV2(snapshotInput as any),
+    }))
+  })
+
+  it('retries only unsent recipients after a partial batch failure', async () => {
+    const db = new MemoryDb()
+    mockCreateServiceRoleClient.mockReturnValue({ from: (table: string) => db.from(table) })
+    mockSendGmailMessage.mockReset()
+    mockSendGmailMessage
+      .mockResolvedValueOnce({ gmailMessageId: 'gmail-message-1', gmailThreadId: 'gmail-thread-1', labelIds: ['SENT'] })
+      .mockRejectedValueOnce(new Error('temporary Gmail transport failure'))
+      .mockResolvedValueOnce({ gmailMessageId: 'gmail-message-2', gmailThreadId: 'gmail-thread-2', labelIds: ['SENT'] })
+
+    const input = buildExecutionInput([
+      { kind: 'venue', name: 'Moongate Lounge', email: 'moongate@example.com' },
+      { kind: 'vendor', name: 'Mission Photo Co.', email: 'photo@example.com' },
+    ])
+    db.rows.plans.push(input.plan)
+
+    await expect(executeApprovedGmailOutreach(db, input)).rejects.toThrow('temporary Gmail transport failure')
+    expect(db.rows.outreach_messages.map((row) => row.delivery_status)).toEqual(['sent', 'ambiguous'])
+
+    const result = await executeApprovedGmailOutreach(db, input)
+
+    expect(result).toEqual(expect.objectContaining({ sent_count: 2, outbound_message_sent: true }))
+    expect(mockSendGmailMessage).toHaveBeenCalledTimes(3)
+    expect(mockSendGmailMessage.mock.calls.map((call) => call[0].to)).toEqual([
+      'moongate@example.com',
+      'photo@example.com',
+      'photo@example.com',
+    ])
+    expect(db.rows.outreach_messages).toHaveLength(2)
+    expect(db.rows.outreach_messages.every((row) => row.delivery_status === 'sent')).toBe(true)
+    expect(db.rows.outreach_threads).toHaveLength(2)
+  })
+
+  it('reserves one provider side effect when identical executions overlap', async () => {
+    const db = new MemoryDb()
+    mockCreateServiceRoleClient.mockReturnValue({ from: (table: string) => db.from(table) })
+    mockSendGmailMessage.mockReset()
+    let releaseSend!: (value: { gmailMessageId: string; gmailThreadId: string; labelIds: string[] }) => void
+    mockSendGmailMessage.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseSend = resolve
+    }))
+    const input = buildExecutionInput([
+      { kind: 'venue', name: 'Moongate Lounge', email: 'moongate@example.com' },
+    ])
+    db.rows.plans.push(input.plan)
+
+    const first = executeApprovedGmailOutreach(db, input)
+    for (let index = 0; index < 20 && mockSendGmailMessage.mock.calls.length === 0; index += 1) {
+      await Promise.resolve()
+    }
+    expect(mockSendGmailMessage).toHaveBeenCalledTimes(1)
+
+    const second = executeApprovedGmailOutreach(db, input)
+    await Promise.resolve()
+    releaseSend({ gmailMessageId: 'gmail-message-1', gmailThreadId: 'gmail-thread-1', labelIds: ['SENT'] })
+    const outcomes = await Promise.allSettled([first, second])
+
+    expect(mockSendGmailMessage).toHaveBeenCalledTimes(1)
+    expect(outcomes.some((outcome) => outcome.status === 'fulfilled')).toBe(true)
+    expect(db.rows.outreach_messages).toHaveLength(1)
+    expect(db.rows.outreach_messages[0]).toEqual(expect.objectContaining({ delivery_status: 'sent' }))
+    expect(db.rows.outreach_threads).toHaveLength(1)
+  })
+
+  it('reconciles a stale sending dispatch by RFC Message-ID without another Gmail send', async () => {
+    const db = new MemoryDb()
+    mockCreateServiceRoleClient.mockReturnValue({ from: (table: string) => db.from(table) })
+    mockSendGmailMessage.mockReset()
+    const target = { kind: 'venue' as const, name: 'Moongate Lounge', email: 'moongate@example.com' }
+    const input = buildExecutionInput([target])
+    db.rows.plans.push(input.plan)
+    db.rows.outreach_threads.push({
+      id: 'thread-reserved',
+      user_id: 'user-1',
+      plan_id: 'plan-1',
+      target_name: target.name,
+      target_type: target.kind,
+      target_email: target.email,
+      target_source: 'discovery',
+      channel_strategy: { source: 'gmail_approved_outreach', approval_required: true },
+      state: 'draft',
+      needs_attention: false,
+      last_event_at: '2026-07-09T00:00:00.000Z',
+      last_outbound_at: null,
+    })
+    db.rows.outreach_messages.push({
+      id: 'dispatch-reserved',
+      thread_id: 'thread-reserved',
+      direction: 'outbound',
+      subject: 'Happy hour partnership inquiry',
+      body_text: 'Approved body',
+      headers_json: { to: target.email },
+      provider_metadata_json: { provider: 'gmail' },
+      attachments_json: [],
+      agent_action_id: 'action-1',
+      approval_id: 'approval-1',
+      dispatch_idempotency_key: 'gmail:action-1:recipient:10d1f2a312aa9fdf1c955ccc',
+      rfc_message_id: '<approval.action-1.10d1f2a312aa9fdf1c955ccc@mail.3rdplace.app>',
+      delivery_status: 'sending',
+      send_started_at: '2026-07-09T00:00:00.000Z',
+      gmail_message_id: null,
+      gmail_thread_id: null,
+      sent_at: null,
+    })
+    mockReconcileGmailMessage.mockResolvedValueOnce({
+      gmailMessageId: 'gmail-provider-message',
+      gmailThreadId: 'gmail-provider-thread',
+    })
+
+    const result = await executeApprovedGmailOutreach(db, input)
+
+    expect(result).toEqual(expect.objectContaining({ sent_count: 1, outbound_message_sent: true }))
+    expect(mockReconcileGmailMessage).toHaveBeenCalledTimes(1)
+    expect(mockSendGmailMessage).not.toHaveBeenCalled()
+    expect(db.rows.outreach_messages[0]).toEqual(expect.objectContaining({
+      delivery_status: 'sent',
+      gmail_message_id: 'gmail-provider-message',
+      gmail_thread_id: 'gmail-provider-thread',
+    }))
+  })
+
   it('renders approved outreach templates with the target place name and strips unresolved tokens', () => {
     const rendered = renderBodyForTarget(
       'Hi {{ venue_name }},\n\nProposal: {{event_name}}\n\nFrom {{sender_email}}',
@@ -358,3 +545,34 @@ describe('Gmail approval flow', () => {
     }))
   })
 })
+
+function buildExecutionInput(targets: Array<{ kind: 'venue' | 'vendor'; name: string; email: string }>) {
+  return {
+    userId: 'user-1',
+    plan: {
+      id: 'plan-1', user_id: 'user-1', title: 'Happy hour plan', event_type: 'Happy hour',
+      status: 'ready', guest_count: 40, budget_cap_cents: null, neighborhood: 'San Francisco',
+      date_window_start: null, date_window_end: null, ticketed: false, ticketing_model: 'rsvp',
+      food_responsibility: 'venue', venue_terms: null, agent_action: null, profit_goal_cents: null,
+      notes: null, metadata: {}, created_at: '2026-06-10T00:00:00.000Z', updated_at: '2026-06-10T00:00:00.000Z',
+    },
+    action: {
+      id: 'action-1', plan_id: 'plan-1', action_type: 'email', description: 'Send approved Gmail outreach',
+      provider: 'Gmail', target_type: 'outreach', target_id: null,
+      payload_json: {
+        kind: 'gmail_approved_outreach', targets, subject: 'Happy hour partnership inquiry',
+        body_text: 'Hi {{place_name}},\n\nCan you support this event?\n\nThanks,\n{{sender_email}}',
+      },
+      amount_cents: 0, currency: 'usd', status: 'executing', approval_id: 'approval-1',
+      executed_at: null, result_metadata: {}, created_at: '2026-06-10T00:00:00.000Z', updated_at: '2026-06-10T00:00:00.000Z',
+    },
+    approval: {
+      id: 'approval-1', plan_id: 'plan-1', agent_action_id: 'action-1', action_label: 'Send outreach',
+      provider: 'Gmail', event_date: null, price_cents: 0, fees_cents: 0, refund_terms: null,
+      cancellation_terms: null, package_details: null, delivery_email: null, payment_method_id: null,
+      status: 'approved', requested_amount_cents: 0, authorized_amount_cents: 0, authorized_by: 'user-1',
+      authorized_at: '2026-06-10T00:00:00.000Z', approved_by: 'user-1', approved_at: '2026-06-10T00:00:00.000Z',
+      expires_at: null, snapshot_hash: null, created_at: '2026-06-10T00:00:00.000Z', updated_at: '2026-06-10T00:00:00.000Z',
+    },
+  } as any
+}
