@@ -540,6 +540,38 @@ describeIfDatabase('realized P0 stored functions', () => {
       expect(lines.slice(2)).toEqual(['materialized|true|true', '1'])
     })
 
+    it('keeps legacy service booking behavior for ready bridge events', () => {
+      const output = transaction(`
+        ${asRole('service_role', null, `
+          ${call('materialize-booking-compat-001')}
+          insert into public.venue_bookings (
+            id, venue_id, event_id, organizer_id, booking_date, status
+          )
+          select
+            '9d000000-0000-4000-8000-000000000001',
+            '${ids.venue}',
+            materialization.event_id,
+            '${ids.organizer}',
+            '2026-09-01',
+            'confirmed'
+          from public.builder_event_materializations as materialization
+          where materialization.idempotency_key = 'materialize-booking-compat-001'
+          returning status;
+        `)}
+        select plan_row.status::text
+        from public.plans as plan_row
+        join public.builder_event_materializations as materialization
+          on materialization.plan_id = plan_row.id
+        where materialization.idempotency_key = 'materialize-booking-compat-001';
+      `)
+
+      const lines = output.split('\n')
+      expect(lines[0]).toMatch(
+        /^[0-9a-f-]{36}\|[0-9a-f-]{36}\|[0-9a-f-]{36}\|free_trial\|0\|false\|Atomic materialized event$/,
+      )
+      expect(lines.slice(1)).toEqual(['confirmed', 'ready'])
+    })
+
     it('rolls back the request, plan, event, and counters when billing fails', () => {
       const output = transaction(asRole('service_role', null, `
         update public.builder_profiles

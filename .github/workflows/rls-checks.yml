@@ -14,11 +14,14 @@ on:
       - '__tests__/server/admin-auth.test.ts'
       - '__tests__/stripe-webhook-replay-auth.test.ts'
       - '__tests__/integration/builder-events-materialization-route.test.ts'
+      - '__tests__/integration/canonical-plan-event-identity-realized.test.ts'
       - '__tests__/integration/stripe-connect-webhook.test.ts'
       - '__tests__/integration/stripe-kickback-invoice-webhook.test.ts'
       - '__tests__/integration/stripe-webhook-*.test.ts'
       - '__tests__/integration/venue-rental-refund-routes.test.ts'
       - '__tests__/integration/write-pause-*.test.ts'
+      - '__tests__/schema/canonical-plan-event-identity-migration.test.ts'
+      - '__tests__/security/stored-functions-realized.test.ts'
       - '__tests__/integration/vendor-base-rate-repair-db.test.ts'
       - 'app/api/builder/events/**'
       - 'app/api/internal/write-pause/**'
@@ -45,11 +48,14 @@ on:
       - '__tests__/server/admin-auth.test.ts'
       - '__tests__/stripe-webhook-replay-auth.test.ts'
       - '__tests__/integration/builder-events-materialization-route.test.ts'
+      - '__tests__/integration/canonical-plan-event-identity-realized.test.ts'
       - '__tests__/integration/stripe-connect-webhook.test.ts'
       - '__tests__/integration/stripe-kickback-invoice-webhook.test.ts'
       - '__tests__/integration/stripe-webhook-*.test.ts'
       - '__tests__/integration/venue-rental-refund-routes.test.ts'
       - '__tests__/integration/write-pause-*.test.ts'
+      - '__tests__/schema/canonical-plan-event-identity-migration.test.ts'
+      - '__tests__/security/stored-functions-realized.test.ts'
       - '__tests__/integration/vendor-base-rate-repair-db.test.ts'
       - 'app/api/builder/events/**'
       - 'app/api/internal/write-pause/**'
@@ -121,6 +127,11 @@ jobs:
             delta_args+=(--allowlist scripts/security/tied-house-pr205-allowlist.json)
           fi
           npm run security:tied-house:delta -- "${delta_args[@]}"
+
+      - name: Run canonical plan-event identity regression tests
+        run: npm test -- __tests__/schema/canonical-plan-event-identity-migration.test.ts __tests__/integration/canonical-plan-event-identity-realized.test.ts --runInBand
+        env:
+          RUN_CANONICAL_EVENT_DB_TESTS: '1'
 
       - name: Run builder event materialization route tests
         run: npm test -- __tests__/integration/builder-events-materialization-route.test.ts --runInBand
