@@ -1,13 +1,43 @@
-# 3rdPlace 5k-readiness pause handoff — after Prompt 5, during Prompt 6
+# 3rdPlace 5k-readiness Prompt 6 handoff — resumed and completed
 
-Paused at the user's request because the current task was near its usage limit.
-Do not start Prompt 7 or any later prompt when resuming; finish and verify Prompt 6 first.
+This file began as the usage-limit pause handoff after Prompt 5. Prompt 6 has
+now been resumed, integrated, and verified. Prompt 7 was subsequently completed;
+Prompt 8 and later remain unstarted and out of scope for this run.
+
+## Prompt 6 completion state
+
+- Integration worktree: `/private/tmp/3rdplace-5k-readiness-integration`
+- Branch: `codex/5k-readiness-integration`
+- Prompt 6 integration commits:
+  - `94219d1` — immutable approval versions, V2 snapshots, retry coordination,
+    durable Gmail dispatch identity, and shared truthful UI state
+  - `1386175` — edit-versus-authorize UI, exact-cent confirmation, truthful
+    Payments/mobile states, and canonical approval-card navigation
+  - `c4fb65e` — server commands, exact persisted hashes, retry route, and
+    one-send Gmail reconciliation
+- The dirty canonical checkout was not modified.
+
+Prompt 6 verification on the combined integration branch:
+
+- Clean local Supabase reset applied every migration through
+  `20260709140000_add_approval_version_retry_contract.sql`.
+- Realized approval version/retry contract: 7/7 passed, including concurrent
+  superseding, hash-conflict rollback, exact 9,550-cent persistence, reciprocal
+  action/message repointing, aggregate deletion, ACL checks, retry concurrency,
+  prior-success replay, and fresh-key recovery after a failed attempt.
+- Combined Prompt 6 + realized control-plane gate: 220 tests passed.
+- Full integrated Jest suite: 259 suites / 1,446 tests passed; 7 suites / 213
+  tests skipped; 5 snapshots passed.
+- TypeScript passed.
+- Lint passed with the existing React hook warnings only.
+- No hosted database, deployment, GitHub configuration, Stripe webhook, or
+  production state was changed.
 
 ## Stable integration branch
 
 - Worktree: `/private/tmp/3rdplace-5k-readiness-integration`
 - Branch: `codex/5k-readiness-integration`
-- HEAD: `d0fe38a` (`fix(security): route trusted state through service writers`)
+- Prompt 7 code integration point: `3574f50`
 - Baseline: `origin/main` at `461e3da4e569a41d27c6e972fc467ef3ba042d17`
 - Canonical checkout remains dirty and was not modified by this program.
 
@@ -27,10 +57,10 @@ Prompt 5 integration verification completed before the pause:
 No hosted database, deployment, GitHub configuration, Stripe webhook, or
 production state was changed.
 
-## Prompt 6 work in progress — not committed, not verified
+## Historical pause snapshot — resolved
 
-All three agents were interrupted and their worktrees were intentionally left
-unchanged. None of these branches is ready to cherry-pick yet.
+The sections below preserve the exact unfinished state at the original pause.
+Every listed item was subsequently completed and verified as recorded above.
 
 ### Schema and shared-state lane
 
@@ -122,7 +152,7 @@ Still required before this lane is complete:
 - run component tests, lint, and commit only after importing the final shared
   schema helper contract.
 
-## Resume order
+## Historical resume order — completed
 
 1. Resume the three interrupted agents/worktrees above; do not recreate them.
 2. Finish schema lane and realized DB tests; commit it.
@@ -132,11 +162,12 @@ Still required before this lane is complete:
    `codex/5k-readiness-integration` in that order.
 5. Run clean Supabase reset, DB lint, all realized security/function suites,
    Prompt 6 route/component/Gmail tests, typecheck, lint, full Jest, and build.
-6. Update `qa-artifacts/5k-readiness-execution-log-2026-07-09.md` and stop.
-   Do not start Prompt 7 until the user explicitly resumes.
+6. Update `qa-artifacts/5k-readiness-execution-log-2026-07-09.md`.
+
+The user explicitly resumed Prompt 7 after Prompt 6 completed.
 
 ## Locked future decision
 
 Prompt 15 remains pre-decided as Option B: consume one event credit only at
 canonical event materialization/booking, not at first approval. It has not been
-implemented. Prompts 7–18 remain unstarted in this program.
+implemented. Prompt 7 is complete; Prompts 8–18 remain unstarted in this program.

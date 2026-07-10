@@ -27,7 +27,10 @@ and the attached 18-prompt wave plan.
 | 2 | Six stored functions + lint gate | Implemented locally | Commits `be09d7f`, `78d2826`; clean reset, DB lint, and 22/22 realized function tests passed |
 | 3 | Money and percent units | Implemented locally | Commits `670025b`, `c7b2251`; exact-cent UI round trips and 5/5 atomic repair DB tests passed |
 | 4 | Database privilege lockdown | Implemented locally | Commit `d93f1e6`; 36 definer functions classified, exact ACLs enforced, and 100/100 realized privilege tests passed |
-| 5–18 | Later dependency waves | Pending | Start only after predecessor gates pass |
+| 5 | Server-owned trusted execution state | Implemented locally | Commits `6817724`, `d0fe38a`; realized RLS/privilege/control-plane gate passed |
+| 6 | Separate editing, authorization, and retry | Implemented locally | Commits `94219d1`, `1386175`, `c4fb65e`; combined 220-test gate and full 1,446-test Jest suite passed |
+| 7 | Canonical plan to event identity | Implemented locally | Commits `bdfd345`, `924ac53`, `94ee189`, `b8a03db`, `b75ee19`, `9fcfce9`, `3574f50`; clean reset, realized lifecycle/provenance/compatibility gates passed; Prompt 8 is not started |
+| 8–18 | Later dependency waves | Pending | Out of scope for the current run |
 
 ## Prompt 1 verification
 
@@ -142,3 +145,92 @@ vendor-booking hook still bypass canonical plan identity, approval, access
 consumption, and command idempotency. Prompt 10 must remove the venue path and
 Prompt 15 must include every remaining booking/import entry point before the
 billing policy can be called enforceable.
+
+## Prompt 5 verification
+
+- Browser/session roles are read-only on trusted execution, approval, audit,
+  outreach, and financial command state; reviewed server routes use
+  owner-scoped session reads followed by service-owned writes.
+- Composite action/approval/plan and financial identity constraints reject
+  cross-plan state, executable approvals require actor/timestamp/snapshot, and
+  contradictory historical rows fail the migration preflight rather than being
+  silently rewritten.
+- Prompt 5 focused approval/deposit/Gmail/revision/date-change tests: 30 passed.
+- Realized RLS/privilege/control-plane tests: 177 passed.
+- TypeScript and the source caller branch full Jest suite passed.
+
+## Prompt 6 verification
+
+- Edits create immutable superseding approval rows and leave the new row
+  pending. The action and approval-card cache point to the new row atomically;
+  edit never authorizes.
+- V2 authorization snapshots contain the exact persisted action label,
+  counterparty, email, event date, notes, expiry, payload, and integer cents.
+  The `$95.50` path persists `9550` through edit, explicit confirmation,
+  authorization, and execution.
+- Every rendered approval state is derived from one shared mapping. Expired,
+  failed, reapproval-required, executing, succeeded, rejected, cancelled, and
+  superseded states no longer masquerade as pending.
+- Failed Gmail execution has an explicit idempotent retry command. A durable
+  per-recipient key and deterministic RFC Message-ID reserve before provider
+  send; partial retries skip sent recipients and ambiguous sends reconcile
+  before any second provider call.
+- Provider success followed by local finalization ambiguity remains HTTP 202
+  and keeps the same retry key. It is never rewritten as a failed side effect.
+  Terminal known failures rotate to a fresh key; completed actions replay prior
+  success even if the approval later expires.
+- Clean local migration reset passed through
+  `20260709140000_add_approval_version_retry_contract.sql`.
+- Realized version/retry database tests: 7 passed.
+- Combined Prompt 6 route/component/Gmail/control-plane tests: 220 passed.
+- TypeScript and lint passed; lint retained only the existing hook warnings.
+- Full integrated Jest: 259 suites / 1,446 tests passed, 7 suites / 213 tests
+  skipped, 5 snapshots passed.
+- No hosted or production state changed.
+
+## Prompt 7 verification
+
+- `events.plan_id` and `plans.materialized_event_id` now define one deferred,
+  reciprocal, owner-consistent canonical identity. Legacy and imported events
+  remain null-linked; no probabilistic backfill is attempted.
+- All 19 planner archetypes persist losslessly. Exact event schedules store UTC
+  instants plus IANA timezone intent, reject incomplete date windows and DST
+  gaps/folds, support overnight/non-Los-Angeles events, and serialize concurrent
+  materialization retries onto one event.
+- The audited lifecycle is centralized as `drafting -> ready -> approved ->
+  executing -> booked -> completed -> archived`. Exact compare-and-swap context,
+  executable approval, reciprocal event, owner-matched booking, ended-event
+  outcome, and explicit archive evidence gate the corresponding transitions.
+- Canonical plan/event facts, committed partner identity, quoted price, and terms
+  fail closed against direct browser or service drift. Existing lineage and
+  outcome commands use narrow scoped contexts; future changes require a
+  coordinated reapproval command.
+- Template source pointers are commit-time constrained to the same owned,
+  completed canonical event with outcome evidence. Noncanonical, incomplete,
+  cross-owner, and one-sided provenance are rejected.
+- Clean local Supabase resets applied every migration through
+  `20260709150000_add_canonical_plan_event_identity.sql`.
+- Canonical static/realized contract: 19 tests passed. Legacy materialization and
+  booking compatibility: 23 realized stored-function tests passed. Prompt 6
+  approval-version plus privilege/RLS/execution regressions: 184 tests passed.
+- Database lint passed with the three pre-existing warnings and no errors;
+  canonical schema audit and all-table RLS checks passed.
+- The Prompt 7 schema lane pre-commit gate passed TypeScript, lint, and its full
+  Jest suite: 256 suites / 1,413 tests passed; 8 suites / 225 tests skipped; 5
+  snapshots passed.
+- The generated Supabase database types were refreshed from the fully realized
+  local schema instead of adding more stale-type escapes.
+- Post-approval/materialization partner-quote guard: 32 route tests passed. All
+  POST/DELETE variants return 409 `PLAN_REAPPROVAL_REQUIRED` before any write for
+  materialized or approved-and-later plans; unmaterialized `drafting`/`ready`
+  plans remain editable.
+- Final opt-in database/security gate: 9 suites / 241 tests passed after a clean
+  integration reset.
+- Final integrated non-opt-in Jest gate: 272 suites / 1,557 tests passed; 8
+  suites / 225 tests skipped; 5 snapshots passed.
+- TypeScript passed. Lint passed with the same 16 pre-existing React hook
+  warnings. The optimized production build passed with local Supabase build
+  variables after the expected variable-free attempt stopped at the repository's
+  existing environment guard.
+- No hosted Supabase, Vercel, GitHub, Stripe, webhook, or production state was
+  changed. Prompt 8 and the separate duplicate-purchase work were not touched.

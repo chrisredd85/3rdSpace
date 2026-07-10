@@ -523,8 +523,8 @@ export type Database = {
           price_cents: number | null
           provider: string | null
           refund_terms: string | null
-          root_approval_id: string
           requested_amount_cents: number
+          root_approval_id: string
           settlement_run_id: string | null
           snapshot_hash: string | null
           snapshot_json: Json | null
@@ -563,8 +563,8 @@ export type Database = {
           price_cents?: number | null
           provider?: string | null
           refund_terms?: string | null
-          root_approval_id?: string
           requested_amount_cents?: number
+          root_approval_id: string
           settlement_run_id?: string | null
           snapshot_hash?: string | null
           snapshot_json?: Json | null
@@ -603,8 +603,8 @@ export type Database = {
           price_cents?: number | null
           provider?: string | null
           refund_terms?: string | null
-          root_approval_id?: string
           requested_amount_cents?: number
+          root_approval_id?: string
           settlement_run_id?: string | null
           snapshot_hash?: string | null
           snapshot_json?: Json | null
@@ -621,6 +621,13 @@ export type Database = {
           version_reason?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "approvals_action_plan_consistency_fkey"
+            columns: ["agent_action_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id", "plan_id"]
+          },
           {
             foreignKeyName: "approvals_agent_action_id_fkey"
             columns: ["agent_action_id"]
@@ -664,11 +671,25 @@ export type Database = {
             referencedColumns: ["id", "plan_id"]
           },
           {
+            foreignKeyName: "approvals_settlement_run_id_fkey"
+            columns: ["settlement_run_id"]
+            isOneToOne: false
+            referencedRelation: "settlement_runs"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "approvals_superseded_by_plan_fkey"
             columns: ["superseded_by_approval_id", "plan_id"]
             isOneToOne: false
             referencedRelation: "approvals"
             referencedColumns: ["id", "plan_id"]
+          },
+          {
+            foreignKeyName: "approvals_superseded_by_revision_id_fkey"
+            columns: ["superseded_by_revision_id"]
+            isOneToOne: false
+            referencedRelation: "plan_revisions"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "approvals_supersedes_plan_fkey"
@@ -992,6 +1013,87 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      builder_event_materializations: {
+        Row: {
+          builder_id: string
+          consumption_id: string | null
+          created_at: string
+          event_id: string | null
+          id: string
+          idempotency_key: string
+          materialized_at: string | null
+          payload_hash: string
+          plan_id: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          builder_id: string
+          consumption_id?: string | null
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          idempotency_key: string
+          materialized_at?: string | null
+          payload_hash: string
+          plan_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          builder_id?: string
+          consumption_id?: string | null
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          idempotency_key?: string
+          materialized_at?: string | null
+          payload_hash?: string
+          plan_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "builder_event_materializations_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "builder_event_materializations_consumption_id_fkey"
+            columns: ["consumption_id"]
+            isOneToOne: true
+            referencedRelation: "builder_event_access_consumptions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "builder_event_materializations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "builder_event_materializations_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: true
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "builder_event_materializations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -3974,6 +4076,7 @@ export type Database = {
           description: string | null
           duration_hours: number
           end_time: string
+          ends_at: string | null
           event_date: string
           event_description: string | null
           event_name: string
@@ -3987,14 +4090,19 @@ export type Database = {
           id: string
           is_recurring: boolean | null
           kickback_agreement_id: string | null
+          outcome_recorded_at: string | null
+          outcome_summary: Json | null
           parent_event_id: string | null
+          plan_id: string | null
           platform_fee_id: string | null
           platform_fee_paid: boolean | null
           posh_event_id: string | null
           recurring_frequency: string | null
           recurring_occurrences: number | null
           start_time: string
+          starts_at: string | null
           status: string | null
+          time_zone: string | null
           total_budget: number | null
           updated_at: string | null
           venue_confirmed: boolean | null
@@ -4009,6 +4117,7 @@ export type Database = {
           description?: string | null
           duration_hours: number
           end_time: string
+          ends_at?: string | null
           event_date: string
           event_description?: string | null
           event_name: string
@@ -4022,14 +4131,19 @@ export type Database = {
           id?: string
           is_recurring?: boolean | null
           kickback_agreement_id?: string | null
+          outcome_recorded_at?: string | null
+          outcome_summary?: Json | null
           parent_event_id?: string | null
+          plan_id?: string | null
           platform_fee_id?: string | null
           platform_fee_paid?: boolean | null
           posh_event_id?: string | null
           recurring_frequency?: string | null
           recurring_occurrences?: number | null
           start_time: string
+          starts_at?: string | null
           status?: string | null
+          time_zone?: string | null
           total_budget?: number | null
           updated_at?: string | null
           venue_confirmed?: boolean | null
@@ -4044,6 +4158,7 @@ export type Database = {
           description?: string | null
           duration_hours?: number
           end_time?: string
+          ends_at?: string | null
           event_date?: string
           event_description?: string | null
           event_name?: string
@@ -4057,14 +4172,19 @@ export type Database = {
           id?: string
           is_recurring?: boolean | null
           kickback_agreement_id?: string | null
+          outcome_recorded_at?: string | null
+          outcome_summary?: Json | null
           parent_event_id?: string | null
+          plan_id?: string | null
           platform_fee_id?: string | null
           platform_fee_paid?: boolean | null
           posh_event_id?: string | null
           recurring_frequency?: string | null
           recurring_occurrences?: number | null
           start_time?: string
+          starts_at?: string | null
           status?: string | null
+          time_zone?: string | null
           total_budget?: number | null
           updated_at?: string | null
           venue_confirmed?: boolean | null
@@ -4090,6 +4210,13 @@ export type Database = {
             columns: ["parent_event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: true
+            referencedRelation: "plans"
             referencedColumns: ["id"]
           },
           {
@@ -5123,9 +5250,9 @@ export type Database = {
           channel_external_id: string | null
           classification_json: Json | null
           created_at: string
+          delivery_status: string | null
           direction: string
           dispatch_idempotency_key: string | null
-          delivery_status: string | null
           gmail_message_id: string | null
           gmail_thread_id: string | null
           headers_json: Json
@@ -5137,9 +5264,9 @@ export type Database = {
           recording_url: string | null
           rfc_message_id: string | null
           scheduled_send_at: string | null
+          send_started_at: string | null
           sent_at: string | null
           sent_manually: boolean
-          send_started_at: string | null
           subject: string
           thread_id: string
           transcript_text: string | null
@@ -5159,9 +5286,9 @@ export type Database = {
           channel_external_id?: string | null
           classification_json?: Json | null
           created_at?: string
+          delivery_status?: string | null
           direction: string
           dispatch_idempotency_key?: string | null
-          delivery_status?: string | null
           gmail_message_id?: string | null
           gmail_thread_id?: string | null
           headers_json?: Json
@@ -5173,9 +5300,9 @@ export type Database = {
           recording_url?: string | null
           rfc_message_id?: string | null
           scheduled_send_at?: string | null
+          send_started_at?: string | null
           sent_at?: string | null
           sent_manually?: boolean
-          send_started_at?: string | null
           subject: string
           thread_id: string
           transcript_text?: string | null
@@ -5195,9 +5322,9 @@ export type Database = {
           channel_external_id?: string | null
           classification_json?: Json | null
           created_at?: string
+          delivery_status?: string | null
           direction?: string
           dispatch_idempotency_key?: string | null
-          delivery_status?: string | null
           gmail_message_id?: string | null
           gmail_thread_id?: string | null
           headers_json?: Json
@@ -5209,9 +5336,9 @@ export type Database = {
           recording_url?: string | null
           rfc_message_id?: string | null
           scheduled_send_at?: string | null
+          send_started_at?: string | null
           sent_at?: string | null
           sent_manually?: boolean
-          send_started_at?: string | null
           subject?: string
           thread_id?: string
           transcript_text?: string | null
@@ -5800,6 +5927,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "payment_intents_approval_plan_consistency_fkey"
+            columns: ["approval_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "plan_id"]
+          },
+          {
             foreignKeyName: "payment_intents_plan_id_fkey"
             columns: ["plan_id"]
             isOneToOne: false
@@ -6267,6 +6401,57 @@ export type Database = {
           },
         ]
       }
+      plan_status_transitions: {
+        Row: {
+          actor_id: string
+          event_id: string | null
+          from_status: Database["public"]["Enums"]["planner_plan_status"]
+          id: string
+          metadata: Json
+          plan_id: string
+          to_status: Database["public"]["Enums"]["planner_plan_status"]
+          transition_trigger: string
+          transitioned_at: string
+        }
+        Insert: {
+          actor_id: string
+          event_id?: string | null
+          from_status: Database["public"]["Enums"]["planner_plan_status"]
+          id?: string
+          metadata?: Json
+          plan_id: string
+          to_status: Database["public"]["Enums"]["planner_plan_status"]
+          transition_trigger: string
+          transitioned_at?: string
+        }
+        Update: {
+          actor_id?: string
+          event_id?: string | null
+          from_status?: Database["public"]["Enums"]["planner_plan_status"]
+          id?: string
+          metadata?: Json
+          plan_id?: string
+          to_status?: Database["public"]["Enums"]["planner_plan_status"]
+          transition_trigger?: string
+          transitioned_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_status_transitions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_status_transitions_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       plan_supply_intents: {
         Row: {
           activity_type: string | null
@@ -6359,6 +6544,27 @@ export type Database = {
           },
         ]
       }
+      planner_event_taxonomy: {
+        Row: {
+          archetype_key: string
+          created_at: string
+          display_name: string
+          event_type: string
+        }
+        Insert: {
+          archetype_key: string
+          created_at?: string
+          display_name: string
+          event_type: string
+        }
+        Update: {
+          archetype_key?: string
+          created_at?: string
+          display_name?: string
+          event_type?: string
+        }
+        Relationships: []
+      }
       planner_plan_updates: {
         Row: {
           created_at: string
@@ -6416,6 +6622,7 @@ export type Database = {
           food_responsibility: string | null
           guest_count: number | null
           id: string
+          materialized_event_id: string | null
           metadata: Json
           neighborhood: string | null
           notes: string | null
@@ -6455,6 +6662,7 @@ export type Database = {
           food_responsibility?: string | null
           guest_count?: number | null
           id?: string
+          materialized_event_id?: string | null
           metadata?: Json
           neighborhood?: string | null
           notes?: string | null
@@ -6494,6 +6702,7 @@ export type Database = {
           food_responsibility?: string | null
           guest_count?: number | null
           id?: string
+          materialized_event_id?: string | null
           metadata?: Json
           neighborhood?: string | null
           notes?: string | null
@@ -6518,6 +6727,13 @@ export type Database = {
             columns: ["committed_venue_id"]
             isOneToOne: false
             referencedRelation: "discovery_venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plans_materialized_event_id_fkey"
+            columns: ["materialized_event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
           {
@@ -7307,6 +7523,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "approvals"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "settlement_charges_approval_run_consistency_fkey"
+            columns: ["approval_id", "settlement_run_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "settlement_run_id"]
           },
           {
             foreignKeyName: "settlement_charges_settlement_run_id_fkey"
@@ -8158,6 +8381,7 @@ export type Database = {
           profit_assumptions: Json
           run_of_show: Json
           shopping_list: Json
+          source_event_id: string | null
           source_plan_id: string | null
           target_audience: string | null
           ticket_price_model: Json
@@ -8180,6 +8404,7 @@ export type Database = {
           profit_assumptions?: Json
           run_of_show?: Json
           shopping_list?: Json
+          source_event_id?: string | null
           source_plan_id?: string | null
           target_audience?: string | null
           ticket_price_model?: Json
@@ -8202,6 +8427,7 @@ export type Database = {
           profit_assumptions?: Json
           run_of_show?: Json
           shopping_list?: Json
+          source_event_id?: string | null
           source_plan_id?: string | null
           target_audience?: string | null
           ticket_price_model?: Json
@@ -8209,6 +8435,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "templates_source_event_id_fkey"
+            columns: ["source_event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "templates_source_plan_id_fkey"
             columns: ["source_plan_id"]
@@ -11376,6 +11609,55 @@ export type Database = {
       }
     }
     Functions: {
+      annotate_plan_quote_event_lineage: {
+        Args: { p_event_id: string; p_plan_id: string }
+        Returns: {
+          agent_action: string | null
+          brief_render_version: number
+          budget_cap_cents: number | null
+          committed_vendors: Json | null
+          committed_venue_at: string | null
+          committed_venue_id: string | null
+          committed_venue_quoted_deal_model: string | null
+          committed_venue_quoted_price_cents: number | null
+          committed_venue_quoted_terms: Json | null
+          created_at: string
+          date_window_end: string | null
+          date_window_start: string | null
+          derived_state_recomputed_at: string | null
+          event_city: string | null
+          event_type: string | null
+          excluded_cuisines: string[]
+          excluded_vendor_attributes: Json
+          food_responsibility: string | null
+          guest_count: number | null
+          id: string
+          materialized_event_id: string | null
+          metadata: Json
+          neighborhood: string | null
+          notes: string | null
+          plan_revision_count: number
+          preferred_vendor_attributes: Json
+          profit_goal_cents: number | null
+          special_supply_radius_miles: number
+          status: Database["public"]["Enums"]["planner_plan_status"]
+          ticketed: boolean
+          ticketing_model: string | null
+          title: string
+          updated_at: string
+          user_id: string
+          vendor_approved_adjacent_cities: string[]
+          vendor_out_of_city_approved: boolean
+          vendor_same_city_required: boolean
+          venue_terms: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "plans"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       apply_plan_revision_atomic: {
         Args: {
           p_impact?: Json
@@ -11667,6 +11949,50 @@ export type Database = {
       }
       is_event_builder: { Args: { p_event_id: string }; Returns: boolean }
       is_event_collaborator: { Args: { p_event_id: string }; Returns: boolean }
+      materialize_builder_event_with_access: {
+        Args: {
+          p_budget_cents: number
+          p_builder_id: string
+          p_description: string
+          p_duration_hours: number
+          p_end_time: string
+          p_event_date: string
+          p_event_type: string
+          p_expected_attendance: number
+          p_idempotency_key: string
+          p_payload_hash: string
+          p_start_time: string
+          p_status: string
+          p_title: string
+          p_user_id: string
+        }
+        Returns: {
+          access_source: string
+          amount_cents: number
+          consumption_id: string
+          event_id: string
+          event_record: Json
+          existing: boolean
+          plan_id: string
+        }[]
+      }
+      materialize_plan_event: {
+        Args: {
+          p_actor_id: string
+          p_archetype_key: string
+          p_duration_minutes: number
+          p_event_date: string
+          p_plan_id: string
+          p_start_time: string
+          p_time_zone: string
+        }
+        Returns: {
+          event_id: string
+          event_record: Json
+          existing: boolean
+          plan_status: string
+        }[]
+      }
       next_vendor_invoice_number: { Args: { p_year: number }; Returns: string }
       recalculate_vendor_review_stats: {
         Args: { p_vendor_id: string }
@@ -11702,6 +12028,60 @@ export type Database = {
             }
             Returns: Json
           }
+      record_plan_event_outcome: {
+        Args: {
+          p_actor_id: string
+          p_event_id: string
+          p_outcome_summary: Json
+        }
+        Returns: {
+          actual_cost: number | null
+          budget: number | null
+          builder_id: string
+          completion_percentage: number | null
+          created_at: string | null
+          description: string | null
+          duration_hours: number
+          end_time: string
+          ends_at: string | null
+          event_date: string
+          event_description: string | null
+          event_name: string
+          event_time: string | null
+          event_type: string
+          eventbrite_event_id: string | null
+          expected_attendance: number | null
+          expected_attendance_max: number | null
+          expected_attendance_min: number | null
+          field_confidence: Json
+          id: string
+          is_recurring: boolean | null
+          kickback_agreement_id: string | null
+          outcome_recorded_at: string | null
+          outcome_summary: Json | null
+          parent_event_id: string | null
+          plan_id: string | null
+          platform_fee_id: string | null
+          platform_fee_paid: boolean | null
+          posh_event_id: string | null
+          recurring_frequency: string | null
+          recurring_occurrences: number | null
+          start_time: string
+          starts_at: string | null
+          status: string | null
+          time_zone: string | null
+          total_budget: number | null
+          updated_at: string | null
+          venue_confirmed: boolean | null
+          venue_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "events"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       refresh_projection_baselines: {
         Args: never
         Returns: {
@@ -11804,6 +12184,17 @@ export type Database = {
               reserved_now: boolean
             }[]
           }
+      repair_vendor_base_rate_atomic: {
+        Args: {
+          p_admin_user_id?: string
+          p_audit_action: string
+          p_expected_base_rate: number
+          p_metadata?: Json
+          p_new_base_rate_cents: number
+          p_vendor_id: string
+        }
+        Returns: Json
+      }
       save_vendor_manual_availability: {
         Args: {
           p_dates: string[]
@@ -11833,17 +12224,118 @@ export type Database = {
           p_action_payload_json: Json
           p_actor_id: string
           p_approval_id: string
-          p_event_date: string | null
+          p_event_date: string
           p_expected_snapshot_hash: string
-          p_expires_at: string | null
-          p_notes: string | null
+          p_expires_at: string
+          p_notes: string
           p_plan_id: string
           p_reason: string
           p_requested_amount_cents: number
           p_snapshot_hash: string
           p_snapshot_json: Json
         }
-        Returns: Database["public"]["Tables"]["approvals"]["Row"]
+        Returns: {
+          action_label: string
+          agent_action_id: string
+          approval_type: string | null
+          approved_at: string | null
+          approved_by: string | null
+          authorized_amount_cents: number | null
+          authorized_at: string | null
+          authorized_by: string | null
+          cancellation_terms: string | null
+          created_at: string
+          delivery_email: string | null
+          event_date: string | null
+          expires_at: string | null
+          fees_cents: number | null
+          id: string
+          notes: string | null
+          package_details: string | null
+          payment_method_id: string | null
+          plan_id: string
+          price_cents: number | null
+          provider: string | null
+          refund_terms: string | null
+          requested_amount_cents: number
+          root_approval_id: string
+          settlement_run_id: string | null
+          snapshot_hash: string | null
+          snapshot_json: Json | null
+          snapshot_schema_version: number | null
+          status: string
+          superseded_at: string | null
+          superseded_by_approval_id: string | null
+          superseded_by_revision_id: string | null
+          superseded_reason: string | null
+          supersedes_approval_id: string | null
+          updated_at: string
+          version_created_by: string | null
+          version_number: number
+          version_reason: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "approvals"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      transition_plan_status: {
+        Args: {
+          p_actor_id: string
+          p_context: Json
+          p_expected_status: string
+          p_plan_id: string
+          p_to_status: string
+          p_trigger: string
+        }
+        Returns: {
+          agent_action: string | null
+          brief_render_version: number
+          budget_cap_cents: number | null
+          committed_vendors: Json | null
+          committed_venue_at: string | null
+          committed_venue_id: string | null
+          committed_venue_quoted_deal_model: string | null
+          committed_venue_quoted_price_cents: number | null
+          committed_venue_quoted_terms: Json | null
+          created_at: string
+          date_window_end: string | null
+          date_window_start: string | null
+          derived_state_recomputed_at: string | null
+          event_city: string | null
+          event_type: string | null
+          excluded_cuisines: string[]
+          excluded_vendor_attributes: Json
+          food_responsibility: string | null
+          guest_count: number | null
+          id: string
+          materialized_event_id: string | null
+          metadata: Json
+          neighborhood: string | null
+          notes: string | null
+          plan_revision_count: number
+          preferred_vendor_attributes: Json
+          profit_goal_cents: number | null
+          special_supply_radius_miles: number
+          status: Database["public"]["Enums"]["planner_plan_status"]
+          ticketed: boolean
+          ticketing_model: string | null
+          title: string
+          updated_at: string
+          user_id: string
+          vendor_approved_adjacent_cities: string[]
+          vendor_out_of_city_approved: boolean
+          vendor_same_city_required: boolean
+          venue_terms: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "plans"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       sync_planner_refund_reversal_task: {
         Args: {
@@ -11915,6 +12407,8 @@ export type Database = {
         | "executing"
         | "complete"
         | "archived"
+        | "booked"
+        | "completed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -12052,6 +12546,8 @@ export const Constants = {
         "executing",
         "complete",
         "archived",
+        "booked",
+        "completed",
       ],
     },
   },
