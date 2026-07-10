@@ -85,10 +85,12 @@ type PostEventSummary = {
   gross_revenue_cents: number
   refund_amount_cents: number
   net_revenue_cents: number
+  total_cost_cents?: number
   average_ticket_price_cents: number
   peak_arrival_hour: string | null
   venue_foot_traffic_proxy: number
-  source_confidence: 'imported_checkins_and_sales' | 'partial' | 'no_data'
+  source_confidence: 'canonical_outcome_and_imports' | 'canonical_outcome' | 'imported_checkins_and_sales' | 'partial' | 'no_data'
+  canonical_outcome_recorded?: boolean
   attendance_coverage?: number | null
 }
 
@@ -769,8 +771,10 @@ function buildScorecard(data: AnalyticsState | null) {
   const paidTickets = ticketSummary.tickets_sold || financial?.tickets_sold || postSummary?.tickets_sold || 0
   const checkedIn = postSummary?.checked_in ?? 0
   const importedAttendees = postSummary?.rsvps_or_imported_attendees ?? 0
-  const netRevenueDollars = readNumber(financial?.net_revenue) ?? centsToDollars(ticketSummary.net_revenue_cents)
-  const totalCostsDollars = readNumber(financial?.total_costs) ?? 0
+  const netRevenueDollars = readNumber(financial?.net_revenue) ?? centsToDollars(
+    ticketSummary.net_revenue_cents || postSummary?.net_revenue_cents || 0
+  )
+  const totalCostsDollars = readNumber(financial?.total_costs) ?? centsToDollars(postSummary?.total_cost_cents ?? 0)
   const expectedProfitDollars = readNumber(financial?.expected_profit) ?? netRevenueDollars - totalCostsDollars
   const breakEvenTickets = readNumber(financial?.break_even_tickets)
   const breakEvenDelta = breakEvenTickets === null ? null : paidTickets - breakEvenTickets
@@ -1226,6 +1230,8 @@ function isCommittedBookingStatus(value: string | null | undefined) {
 }
 
 function sourceConfidenceLabel(value?: PostEventSummary['source_confidence']) {
+  if (value === 'canonical_outcome_and_imports') return 'Recorded outcome plus imports'
+  if (value === 'canonical_outcome') return 'Recorded event outcome'
   if (value === 'imported_checkins_and_sales') return 'Ticketing and check-ins'
   if (value === 'partial') return 'Partial data'
   return 'No source data'
