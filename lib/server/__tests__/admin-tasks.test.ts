@@ -89,6 +89,85 @@ describe('admin task service', () => {
       after_state: expect.objectContaining({ status: 'in_progress' }),
     }))
   })
+
+  it('completes execution-linked tasks through the atomic database command', async () => {
+    const before = { ...baseTask, status: 'in_progress', priority: 'normal' } satisfies AdminTaskRow
+    const after = {
+      ...before,
+      status: 'complete',
+      completed_at: '2026-06-08T00:02:00.000Z',
+    } satisfies AdminTaskRow
+    const admin = makeExecutionMutationClient(before, after)
+
+    const task = await mutateAdminTask(admin.client, {
+      taskId: before.id,
+      adminUserId: '66666666-6666-4666-8666-666666666666',
+      adminUserEmail: 'admin@example.com',
+      action: 'complete',
+      note: 'Provider reference is in the internal task.',
+      hostMessage: 'The venue confirmed the requested hold.',
+      outcomePayload: {
+        outcome: 'hold_confirmed',
+        hold_reference: 'hold-ref-1',
+      },
+    })
+
+    expect(task.status).toBe('complete')
+    expect(admin.rpcMock).toHaveBeenCalledWith('complete_admin_task_execution', {
+      p_task_id: before.id,
+      p_admin_user_id: '66666666-6666-4666-8666-666666666666',
+      p_outcome_payload: {
+        outcome: 'hold_confirmed',
+        hold_reference: 'hold-ref-1',
+      },
+      p_host_message: 'The venue confirmed the requested hold.',
+      p_internal_note: 'Provider reference is in the internal task.',
+    })
+  })
+
+  it('passes a repeated completion to the idempotent database command', async () => {
+    const complete = {
+      ...baseTask,
+      status: 'complete',
+      priority: 'normal',
+      completed_at: '2026-06-08T00:02:00.000Z',
+    } satisfies AdminTaskRow
+    const admin = makeExecutionMutationClient(complete, complete)
+
+    await expect(mutateAdminTask(admin.client, {
+      taskId: complete.id,
+      adminUserId: '66666666-6666-4666-8666-666666666666',
+      adminUserEmail: 'admin@example.com',
+      action: 'complete',
+      outcomePayload: { outcome: 'hold_confirmed' },
+    })).resolves.toMatchObject({ status: 'complete' })
+
+    expect(admin.rpcMock).toHaveBeenCalledWith(
+      'complete_admin_task_execution',
+      expect.objectContaining({ p_task_id: complete.id })
+    )
+  })
+
+  it('cancels queued post-authorization work through the atomic database command', async () => {
+    const before = { ...baseTask, status: 'open', priority: 'normal' } satisfies AdminTaskRow
+    const after = { ...before, status: 'cancelled' } satisfies AdminTaskRow
+    const admin = makeExecutionMutationClient(before, after)
+
+    await expect(mutateAdminTask(admin.client, {
+      taskId: before.id,
+      adminUserId: '66666666-6666-4666-8666-666666666666',
+      adminUserEmail: 'admin@example.com',
+      action: 'cancel',
+      note: 'Host withdrew authorization.',
+    })).resolves.toMatchObject({ status: 'cancelled' })
+
+    expect(admin.rpcMock).toHaveBeenCalledWith('cancel_admin_task_execution', {
+      p_task_id: before.id,
+      p_actor_id: '66666666-6666-4666-8666-666666666666',
+      p_reason: 'Host withdrew authorization.',
+      p_host_message: null,
+    })
+  })
 })
 
 function makeListClient(tasks: AdminTaskRow[], plans: PlanRow[], users: UserRow[]): AdminTasksDb {
@@ -148,5 +227,22 @@ function makeMutationClient(before: AdminTaskRow, after: AdminTaskRow) {
     client: { from } as unknown as AdminTasksDb,
     updateMock,
     auditInsertMock,
+  }
+}
+
+function makeExecutionMutationClient(before: AdminTaskRow, after: AdminTaskRow) {
+  const adminTasksTable = {
+    select: jest.fn(() => ({
+      eq: jest.fn(() => ({
+        single: jest.fn().mockResolvedValue({ data: before, error: null }),
+      })),
+    })),
+  }
+  const from = jest.fn(() => adminTasksTable)
+  const rpcMock = jest.fn().mockResolvedValue({ data: after, error: null })
+
+  return {
+    client: { from, rpc: rpcMock } as unknown as AdminTasksDb,
+    rpcMock,
   }
 }

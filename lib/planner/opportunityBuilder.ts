@@ -427,6 +427,9 @@ export async function createVenueOpportunityBundle(
   const actionPayload = {
     opportunity_brief_id: opportunity.id,
     invite_ids: invites.map((invite) => invite.id),
+    concierge_invite_ids: invites
+      .filter((invite) => invite.route_to_concierge)
+      .map((invite) => invite.id),
     venue_ids: matches
       .filter((match) => match.target_type === 'venue' && match.target_id)
       .map((match) => match.target_id),
@@ -513,7 +516,6 @@ export async function createVenueOpportunityBundle(
 
   const approval = approvalData as Approval
   await input.writeDb.from('agent_actions').update({ approval_id: approval.id }).eq('id', agentAction.id)
-  await createConciergeFallbackTask(input.writeDb, input.plan, opportunity, invites)
 
   const { data: messageData, error: messageError } = await input.writeDb
     .from('plan_messages')
@@ -783,34 +785,4 @@ function buildVendorSearchText(vendor: OpportunityVendorRow) {
 
 function clampScore(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)))
-}
-
-async function createConciergeFallbackTask(
-  db: PlannerDb,
-  plan: Plan,
-  opportunity: VenueOpportunityBrief,
-  invites: VenueOpportunityInvite[]
-) {
-  const conciergeInvites = invites.filter((invite) => invite.route_to_concierge)
-  if (conciergeInvites.length === 0) return
-
-  const metadata = {
-    type: 'concierge_booking',
-    opportunity_id: opportunity.id,
-    invite_ids: conciergeInvites.map((invite) => invite.id),
-    route_to_concierge_count: conciergeInvites.length,
-    reason: 'Unclaimed venue/vendor listing or no direct owner response UI yet.',
-  }
-
-  const { error } = await db.from('admin_tasks').insert({
-    plan_id: plan.id,
-    task_type: 'concierge_booking',
-    description: `Route ${conciergeInvites.length} opportunity target${conciergeInvites.length === 1 ? '' : 's'} through 3rdPlace admin fallback.`,
-    status: 'open',
-    priority: 'high',
-    metadata,
-    notes: JSON.stringify(metadata),
-  })
-
-  if (error) console.error('Planner opportunity concierge task insert error:', error)
 }

@@ -738,7 +738,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
     })
 
     const response = await recommendPlan(
-      makeRequest({ venueLimit: 3, vendorLimit: 3 }, '/api/planner/plans/plan-ticketing-unknown/recommend'),
+      makeRequest({ venueLimit: 3, vendorLimit: 3, phase: 'vendors' }, '/api/planner/plans/plan-ticketing-unknown/recommend'),
       { params: { planId: 'plan-ticketing-unknown' } }
     )
     const json = await readJson(response)
@@ -1112,6 +1112,16 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
   })
 
   it('supersedes stale recommendations and refreshes the thread when match-affecting fields change', async () => {
+    db.rows.agent_actions.push({
+      id: 'confirmed-hold-action',
+      plan_id: 'plan-1',
+      action_type: 'hold_request',
+      status: 'complete',
+      result_metadata: {
+        admin_task_outcome: { outcome: 'hold_confirmed' },
+      },
+    })
+
     const initialResponse = await recommendPlan(makeRequest({ venueLimit: 3 }), {
       params: { planId: 'plan-1' },
     })

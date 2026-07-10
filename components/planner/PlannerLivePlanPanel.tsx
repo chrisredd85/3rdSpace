@@ -2714,7 +2714,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         >
           <Check className="h-5 w-5" />
           {primaryAuthorization && actionFeedback[primaryAuthorization.id] === 'sent'
-            ? 'Request sent ✓'
+            ? 'Approval ready ✓'
             : primaryAuthorization
               ? 'Request venue hold'
               : 'Complete plan for holds'}
@@ -2761,8 +2761,7 @@ function buildLivePlanAgentActionPayload(card: AuthorizationCardModel): PlannerA
       price_cents: card.amountCents,
       fees_cents: 0,
       package_details: card.subtitle,
-      payment_required: card.amountCents > 0,
-      requires_stripe_recipient: card.amountCents > 0,
+      execution_mode: 'concierge_admin_queue',
     },
     requestedAmountCents: card.amountCents,
   }

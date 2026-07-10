@@ -70,6 +70,8 @@ export function AdminTaskQueueConsole({ initialData, currentAdmin }: AdminTaskQu
   const [message, setMessage] = useState<string | null>(null)
   const [assigneeByTask, setAssigneeByTask] = useState<Record<string, string>>({})
   const [noteByTask, setNoteByTask] = useState<Record<string, string>>({})
+  const [hostMessageByTask, setHostMessageByTask] = useState<Record<string, string>>({})
+  const [outcomeByTask, setOutcomeByTask] = useState<Record<string, string>>({})
 
   const filteredRows = useMemo(() => {
     const planNeedle = planFilter.trim().toLowerCase()
@@ -251,8 +253,12 @@ export function AdminTaskQueueConsole({ initialData, currentAdmin }: AdminTaskQu
                       busy={busyTaskId === task.id}
                       assigneeValue={assigneeByTask[task.id] ?? ''}
                       noteValue={noteByTask[task.id] ?? ''}
+                      hostMessageValue={hostMessageByTask[task.id] ?? ''}
+                      outcomeValue={outcomeByTask[task.id] ?? ''}
                       onAssigneeChange={(value) => setAssigneeByTask((current) => ({ ...current, [task.id]: value }))}
                       onNoteChange={(value) => setNoteByTask((current) => ({ ...current, [task.id]: value }))}
+                      onHostMessageChange={(value) => setHostMessageByTask((current) => ({ ...current, [task.id]: value }))}
+                      onOutcomeChange={(value) => setOutcomeByTask((current) => ({ ...current, [task.id]: value }))}
                       onMutate={mutateTask}
                       getTaskNote={taskNote}
                     />
@@ -285,8 +291,12 @@ interface TaskRowProps {
   busy: boolean
   assigneeValue: string
   noteValue: string
+  hostMessageValue: string
+  outcomeValue: string
   onAssigneeChange: (value: string) => void
   onNoteChange: (value: string) => void
+  onHostMessageChange: (value: string) => void
+  onOutcomeChange: (value: string) => void
   onMutate: (task: AdminTaskQueueRow, body: Record<string, unknown>, successMessage: string) => Promise<void>
   getTaskNote: (task: AdminTaskQueueRow) => string
 }
@@ -297,8 +307,12 @@ function TaskRow({
   busy,
   assigneeValue,
   noteValue,
+  hostMessageValue,
+  outcomeValue,
   onAssigneeChange,
   onNoteChange,
+  onHostMessageChange,
+  onOutcomeChange,
   onMutate,
   getTaskNote,
 }: TaskRowProps) {
@@ -307,6 +321,9 @@ function TaskRow({
   const canComplete = canMutateAdminTaskStatus(task.status, 'complete').ok
   const canCancel = canMutateAdminTaskStatus(task.status, 'cancel').ok
   const note = getTaskNote(task)
+  const isVenueHold = task.metadata.execution_action_type === 'hold_request'
+  const completionOutcome = isVenueHold ? outcomeValue : 'completed'
+  const canSubmitCompletion = canComplete && (!isVenueHold || completionOutcome.length > 0)
 
   return (
     <tr>
@@ -405,13 +422,45 @@ function TaskRow({
         </div>
       </td>
       <td className="min-w-[320px] px-4 py-4 align-top">
-        <Textarea
-          value={noteValue}
-          onChange={(event) => onNoteChange(event.target.value)}
-          placeholder="Internal note"
-          className="min-h-20"
-          disabled={busy}
-        />
+        <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Operator outcome
+          <select
+            value={completionOutcome}
+            onChange={(event) => onOutcomeChange(event.target.value)}
+            className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm normal-case tracking-normal text-foreground"
+            disabled={busy || !canComplete}
+          >
+            {isVenueHold ? (
+              <>
+                <option value="" disabled>Select an outcome</option>
+                <option value="hold_confirmed">Hold confirmed</option>
+                <option value="venue_unavailable">Venue unavailable</option>
+              </>
+            ) : (
+              <option value="completed">Completed</option>
+            )}
+          </select>
+        </label>
+        <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Host-visible update
+          <Textarea
+            value={hostMessageValue}
+            onChange={(event) => onHostMessageChange(event.target.value)}
+            placeholder="Optional. 3rdPlace will use a safe default if blank."
+            className="mt-1 min-h-20 normal-case tracking-normal text-foreground"
+            disabled={busy || (!canComplete && !canCancel)}
+          />
+        </label>
+        <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Internal note
+          <Textarea
+            value={noteValue}
+            onChange={(event) => onNoteChange(event.target.value)}
+            placeholder="Internal note"
+            className="mt-1 min-h-20 normal-case tracking-normal text-foreground"
+            disabled={busy}
+          />
+        </label>
         <div className="mt-3 flex flex-wrap gap-2">
           <Button
             type="button"
@@ -427,8 +476,16 @@ function TaskRow({
             type="button"
             size="sm"
             variant="outline"
-            disabled={!canComplete || busy}
-            onClick={() => onMutate(task, { action: 'complete', note: note || null }, 'Task completed.')}
+            disabled={!canSubmitCompletion || busy}
+            onClick={() => onMutate(task, {
+              action: 'complete',
+              note: note || null,
+              hostMessage: hostMessageValue.trim() || null,
+              outcomePayload: {
+                outcome: completionOutcome,
+                summary: hostMessageValue.trim() || null,
+              },
+            }, 'Task completed and the host-visible state was updated.')}
           >
             <CheckCircle2 className="mr-1 h-4 w-4" />
             Complete
@@ -438,7 +495,11 @@ function TaskRow({
             size="sm"
             variant="outline"
             disabled={!canCancel || busy}
-            onClick={() => onMutate(task, { action: 'cancel', note: note || null }, 'Task cancelled.')}
+            onClick={() => onMutate(task, {
+              action: 'cancel',
+              note: note || null,
+              hostMessage: hostMessageValue.trim() || null,
+            }, 'Task cancelled and the host-visible state was updated.')}
           >
             <Ban className="mr-1 h-4 w-4" />
             Cancel

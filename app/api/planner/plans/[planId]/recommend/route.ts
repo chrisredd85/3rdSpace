@@ -1525,13 +1525,7 @@ async function resolveVenueMatches(input: {
     }
   }
 
-  const adminTaskCreated = await insertCatalogGapAdminTask({
-    writeDb: input.writeDb,
-    plan: input.plan,
-    archetypeKey: input.archetype.key,
-    sampleSearchCount: broaderCandidateVenues.length,
-  })
-  const notice = buildCatalogGapNotice(input.plan, adminTaskCreated)
+  const notice = buildCatalogGapNotice(input.plan, false)
   return {
     venueResult: replaceVenueMatchingOutput(input.baseVenueResult, [], notice.message, true),
     candidateVenues: broaderCandidateVenues.length > 0 ? broaderCandidateVenues : input.baseCandidateVenues,
@@ -1591,15 +1585,9 @@ async function resolveCatalogVenueMatches(input: {
     }
   }
 
-  const adminTaskCreated = await insertCatalogGapAdminTask({
-    writeDb: input.writeDb,
-    plan: input.plan,
-    archetypeKey: input.archetype.key,
-    sampleSearchCount: broaderRanking.recommendations.filter((recommendation) => recommendation.kind === 'venue').length,
-  })
   return {
     recommendations: vendorRecommendations,
-    notice: buildCatalogGapNotice(input.plan, adminTaskCreated),
+    notice: buildCatalogGapNotice(input.plan, false),
   }
 }
 
@@ -1645,40 +1633,6 @@ function buildCatalogGapNotice(plan: Plan, adminTaskCreated: boolean): VenueMatc
       "Our Bay Area catalog doesn't have a strong match yet. I can flag this for the 3rdPlace team to source manually - want me to do that?",
     admin_task_created: adminTaskCreated,
   }
-}
-
-async function insertCatalogGapAdminTask(input: {
-  writeDb: PlannerDb
-  plan: Plan
-  archetypeKey: string | null | undefined
-  sampleSearchCount: number
-}): Promise<boolean> {
-  const requestedAt = new Date().toISOString()
-  const metadata = {
-    type: 'catalog_gap',
-    plan_id: input.plan.id,
-    neighborhood: input.plan.neighborhood,
-    guest_count: input.plan.guest_count,
-    archetype_key: input.archetypeKey ?? input.plan.event_type ?? null,
-    requested_at: requestedAt,
-    sample_search_count: input.sampleSearchCount,
-  }
-  const { error } = await input.writeDb.from('admin_tasks').insert({
-    plan_id: input.plan.id,
-    task_type: 'catalog_gap',
-    description: `Source venue options for ${input.plan.title || 'planner event'} because the catalog has no strong match.`,
-    status: 'pending',
-    priority: 'low',
-    metadata: toJson(metadata),
-    notes: JSON.stringify(metadata),
-  })
-
-  if (error) {
-    console.error('[planner.recommend] Catalog gap admin task insert error', error)
-    return false
-  }
-
-  return true
 }
 
 function sortRankedVenuesByEstimatedProfit(
