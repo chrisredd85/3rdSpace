@@ -114,3 +114,31 @@ substitute for their canonical identity work.
 - TypeScript and lint passed; lint reports the same 16 pre-existing React hook
   warnings.
 - Full Jest suite passed on the integrated branch.
+
+### Final cross-prompt review correction
+
+The final privilege/caller review found that discovery invalidation passed the
+vendor or admin actor ID as the plan-owner identity to
+`apply_plan_revision_atomic`. The hardened RPC correctly rejected that mismatch,
+so vendor/admin discovery changes could leave plan revisions stale while the
+error was only logged. The caller now always uses the actual plan owner for RPC
+authorization and preserves the real vendor/admin actor and source inside the
+revision trigger audit payload. A regression test covers actor != owner.
+
+The same review found the live atomic vendor-repair suite was opt-in locally but
+not enabled in CI. `RLS Checks / rls` now runs it with
+`RUN_VENDOR_RATE_DB_TESTS=1`, so update-plus-audit rollback and RPC ACL behavior
+cannot silently skip in pull requests, merge queues, or pushes to `main`.
+
+Atomic materialization also made the legacy event PATCH/DELETE surfaces unsafe:
+PATCH changed only `events`, while DELETE collided with the bridge FKs and had
+no aggregate cancellation policy. Bridged rows now fail closed with 409 until
+Prompt 7 owns a single plan/event revision and cancellation transition. This
+prevents plan drift and prevents a superficial event cancellation from leaving
+bookings, approvals, outreach, payments, or admin tasks executable.
+
+Option B is not complete at this wave. The legacy venue-booking route and direct
+vendor-booking hook still bypass canonical plan identity, approval, access
+consumption, and command idempotency. Prompt 10 must remove the venue path and
+Prompt 15 must include every remaining booking/import entry point before the
+billing policy can be called enforceable.

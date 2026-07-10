@@ -227,7 +227,8 @@ export function useUpdateEvent() {
 }
 
 /**
- * Mutation to delete an event
+ * Mutation to delete a legacy event. Canonical planner-linked events are
+ * rejected by the route until the aggregate cancellation flow lands.
  */
 export function useDeleteEvent() {
   const queryClient = useQueryClient()

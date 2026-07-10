@@ -39,6 +39,13 @@ The selected billing policy is Option B: consume access at successful event mate
 
 For this legacy route, the point of no return is the successful commit of `materialize_builder_event_with_access`. Before that commit, failures consume nothing and leave no event. A same-key retry is not a second materialization. Cancellation after the materialization commit does not silently restore a credit; any future refund must be an explicit, audited compensating action with its own idempotency key.
 
+The legacy PATCH and DELETE surfaces reject bridged events until Prompt 7 owns
+one aggregate revision/cancellation path. Updating only `events` would split
+date, headcount, budget, and status from the linked plan and bypass re-approval;
+soft-cancelling only the event would leave bookings, approvals, outreach,
+payments, and admin tasks executable. Legacy, unbridged events retain their
+existing behavior during this compatibility window.
+
 This bridge does not complete Prompt 15 by itself. Prompt 15 must still move planner-native consumption out of approval/outreach/date-change triggers in `lib/planner/productAccess.ts` and into Prompt 7's canonical materialization/booking transition. It can identify bridge consumption through `plans.metadata.product_gate.event_access_reason = 'event_materialized'` and `point_of_no_return = 'event_materialization'` until the canonical columns land.
 
 ## Required release gate

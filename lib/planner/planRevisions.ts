@@ -13,6 +13,14 @@ export type PlanRevisionTrigger = {
   field: string
   value: unknown
   source_message_excerpt?: string
+  /**
+   * The real actor when a service-owned cascade applies a revision on behalf
+   * of the plan owner. `userId` remains the ownership identity required by the
+   * database RPC; this field preserves who caused the change in trigger audit
+   * data without weakening the owner check.
+   */
+  actor_id?: string | null
+  actor_source?: string | null
 }
 
 export type PlanRevisionBriefSection =

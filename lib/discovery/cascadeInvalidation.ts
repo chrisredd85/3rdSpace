@@ -71,10 +71,16 @@ export async function cascadeInvalidationForEntityChange(input: CascadeInput): P
       await applyPlanRevision({
         supabase: input.supabase,
         planId: plan.plan_id,
-        userId: input.actorId ?? plan.user_id,
+        // The revision RPC's p_user_id is the plan ownership identity, not the
+        // vendor/admin actor that caused this service-owned cascade. Passing a
+        // non-owner here makes the RPC reject the revision and silently leaves
+        // stale approval/outreach state behind.
+        userId: plan.user_id,
         trigger: {
           type: 'discovery_data_changed',
           field: input.changedField,
+          actor_id: input.actorId ?? null,
+          actor_source: input.source ?? 'discovery_change',
           value: {
             entity_type: input.entityType,
             entity_id: input.entityId,

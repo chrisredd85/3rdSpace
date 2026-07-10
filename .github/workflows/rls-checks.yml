@@ -19,6 +19,7 @@ on:
       - '__tests__/integration/stripe-webhook-*.test.ts'
       - '__tests__/integration/venue-rental-refund-routes.test.ts'
       - '__tests__/integration/write-pause-*.test.ts'
+      - '__tests__/integration/vendor-base-rate-repair-db.test.ts'
       - 'app/api/builder/events/**'
       - 'app/api/internal/write-pause/**'
       - 'app/api/internal/stripe-webhooks/replay-deferred/**'
@@ -49,6 +50,7 @@ on:
       - '__tests__/integration/stripe-webhook-*.test.ts'
       - '__tests__/integration/venue-rental-refund-routes.test.ts'
       - '__tests__/integration/write-pause-*.test.ts'
+      - '__tests__/integration/vendor-base-rate-repair-db.test.ts'
       - 'app/api/builder/events/**'
       - 'app/api/internal/write-pause/**'
       - 'app/api/internal/stripe-webhooks/replay-deferred/**'
@@ -122,6 +124,11 @@ jobs:
 
       - name: Run builder event materialization route tests
         run: npm test -- __tests__/integration/builder-events-materialization-route.test.ts --runInBand
+
+      - name: Run atomic vendor base-rate repair tests
+        run: npm test -- __tests__/integration/vendor-base-rate-repair-db.test.ts --runInBand
+        env:
+          RUN_VENDOR_RATE_DB_TESTS: '1'
 
       - name: Run realized database security regression tests
         run: npm test -- __tests__/security/rls.test.ts __tests__/security/database-privileges.test.ts --runInBand

@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Database } from '@/lib/types'
 import {
   getBuilderProfileId,
@@ -123,6 +123,7 @@ export async function PATCH(request: NextRequest, props: RouteContext) {
   const params = await props.params;
   try {
     const supabase = createClient()
+    const admin = createServiceRoleClient()
 
     // Verify user is authenticated
     const {
@@ -169,6 +170,31 @@ export async function PATCH(request: NextRequest, props: RouteContext) {
       return NextResponse.json(
         { error: 'Event not found' },
         { status: 404 }
+      )
+    }
+
+    const { data: materialization, error: materializationError } = await (admin as any)
+      .from('builder_event_materializations')
+      .select('plan_id')
+      .eq('event_id', id)
+      .maybeSingle()
+
+    if (materializationError) {
+      console.error('Error checking canonical event identity:', materializationError)
+      return NextResponse.json(
+        { error: 'Failed to verify canonical event identity' },
+        { status: 500 }
+      )
+    }
+
+    if (materialization) {
+      return NextResponse.json(
+        {
+          error: 'This event is linked to a planner record. Update it through the planner so date, seats, vendor, terms, and approvals stay in sync.',
+          code: 'canonical_event_revision_required',
+          planId: materialization.plan_id,
+        },
+        { status: 409 }
       )
     }
 
@@ -234,6 +260,7 @@ export async function DELETE(request: NextRequest, props: RouteContext) {
   const params = await props.params;
   try {
     const supabase = createClient()
+    const admin = createServiceRoleClient()
 
     // Verify user is authenticated
     const {
@@ -267,7 +294,35 @@ export async function DELETE(request: NextRequest, props: RouteContext) {
 
     const { id } = params
 
-    // Verify event belongs to user
+    const { data: materialization, error: materializationError } = await (admin as any)
+      .from('builder_event_materializations')
+      .select('plan_id')
+      .eq('event_id', id)
+      .maybeSingle()
+
+    if (materializationError) {
+      console.error('Error checking canonical event identity:', materializationError)
+      return NextResponse.json(
+        { error: 'Failed to verify canonical event identity' },
+        { status: 500 }
+      )
+    }
+
+    if (materialization) {
+      return NextResponse.json(
+        {
+          error: 'This event is linked to a planner and billing record. Cancel it through the canonical planner flow so bookings, approvals, outreach, payments, and access history remain consistent.',
+          code: 'canonical_event_cancellation_required',
+          planId: materialization.plan_id,
+          creditRestored: false,
+        },
+        { status: 409 }
+      )
+    }
+
+    // Preserve the legacy destructive behavior only for events that predate
+    // the plan/access bridge. Prompt 7 owns aggregate cancellation semantics
+    // for canonical materializations.
     const { data: existingEvent } = await supabase
       .from('events')
       .select('id')
@@ -282,11 +337,9 @@ export async function DELETE(request: NextRequest, props: RouteContext) {
       )
     }
 
-    // Delete event (cascade will handle related records)
     const { error } = await supabase.from('events').delete().eq('id', id)
-
     if (error) {
-      console.error('Error deleting event:', error)
+      console.error('Error deleting legacy event:', error)
       return NextResponse.json(
         { error: 'Failed to delete event' },
         { status: 500 }

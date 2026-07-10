@@ -65,6 +65,10 @@ jest.mock('@/lib/billing/builder-billing', () => {
 
 import { POST as createBuilderEvent } from '@/app/api/builder/events/route'
 import {
+  DELETE as cancelBuilderEvent,
+  PATCH as updateBuilderEvent,
+} from '@/app/api/builder/events/[id]/route'
+import {
   getBuilderBillingSummary,
   loadBuilderBillingProfileById,
 } from '@/lib/billing/builder-billing'
@@ -293,5 +297,125 @@ describe('POST /api/builder/events atomic materialization', () => {
     expect(body.error).toBe('Budget must be a non-negative number')
     expect(rpcMock).not.toHaveBeenCalled()
     expect(fromMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('materialized builder event lifecycle', () => {
+  const context = { params: Promise.resolve({ id: eventId }) }
+
+  it('rejects destructive deletion until Prompt 7 can cancel the full aggregate', async () => {
+    const bridgeLookup = {
+      select: jest.fn(),
+      eq: jest.fn(),
+      maybeSingle: jest.fn().mockResolvedValue({ data: { plan_id: planId }, error: null }),
+    }
+    bridgeLookup.select.mockReturnValue(bridgeLookup)
+    bridgeLookup.eq.mockReturnValue(bridgeLookup)
+    fromMock.mockReturnValue(bridgeLookup)
+
+    const response = await cancelBuilderEvent(
+      new Request(`http://localhost/api/builder/events/${eventId}`, { method: 'DELETE' }) as NextRequest,
+      context,
+    )
+    const body = await json(response)
+
+    expect(response.status).toBe(409)
+    expect(body).toMatchObject({
+      code: 'canonical_event_cancellation_required',
+      planId,
+      creditRestored: false,
+    })
+    expect(fromMock).toHaveBeenCalledWith('builder_event_materializations')
+    expect(rpcMock).not.toHaveBeenCalled()
+  })
+
+  it('preserves hard deletion only for an owned event that predates the bridge', async () => {
+    const bridgeLookup = {
+      select: jest.fn(),
+      eq: jest.fn(),
+      maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
+    }
+    bridgeLookup.select.mockReturnValue(bridgeLookup)
+    bridgeLookup.eq.mockReturnValue(bridgeLookup)
+    fromMock.mockReturnValue(bridgeLookup)
+
+    const ownerLookup = {
+      select: jest.fn(),
+      eq: jest.fn(),
+      single: jest.fn().mockResolvedValue({ data: { id: eventId }, error: null }),
+    }
+    ownerLookup.select.mockReturnValue(ownerLookup)
+    ownerLookup.eq.mockReturnValue(ownerLookup)
+    const deleteEq = jest.fn().mockResolvedValue({ error: null })
+    const deleteLookup = {
+      delete: jest.fn().mockReturnValue({ eq: deleteEq }),
+    }
+    const sessionFrom = jest.fn()
+      .mockReturnValueOnce(ownerLookup)
+      .mockReturnValueOnce(deleteLookup)
+    mockCreateClient.mockReturnValue({
+      auth: {
+        getUser: jest.fn().mockResolvedValue({
+          data: { user: { id: userId, user_metadata: { user_type: 'community_builder' } } },
+          error: null,
+        }),
+      },
+      from: sessionFrom,
+    })
+
+    const response = await cancelBuilderEvent(
+      new Request(`http://localhost/api/builder/events/${eventId}`, { method: 'DELETE' }) as NextRequest,
+      context,
+    )
+    const body = await json(response)
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual({ success: true, message: 'Event deleted successfully' })
+    expect(sessionFrom).toHaveBeenCalledTimes(2)
+    expect(deleteLookup.delete).toHaveBeenCalled()
+    expect(deleteEq).toHaveBeenCalledWith('id', eventId)
+  })
+
+  it('blocks edits to bridged rows until the canonical Prompt 7 revision path exists', async () => {
+    const eventLookup = {
+      select: jest.fn(),
+      eq: jest.fn(),
+      single: jest.fn().mockResolvedValue({ data: { id: eventId }, error: null }),
+    }
+    eventLookup.select.mockReturnValue(eventLookup)
+    eventLookup.eq.mockReturnValue(eventLookup)
+    mockCreateClient.mockReturnValue({
+      auth: {
+        getUser: jest.fn().mockResolvedValue({
+          data: { user: { id: userId, user_metadata: { user_type: 'community_builder' } } },
+          error: null,
+        }),
+      },
+      from: jest.fn().mockReturnValue(eventLookup),
+    })
+
+    const bridgeLookup = {
+      select: jest.fn(),
+      eq: jest.fn(),
+      maybeSingle: jest.fn().mockResolvedValue({ data: { plan_id: planId }, error: null }),
+    }
+    bridgeLookup.select.mockReturnValue(bridgeLookup)
+    bridgeLookup.eq.mockReturnValue(bridgeLookup)
+    fromMock.mockReturnValue(bridgeLookup)
+
+    const response = await updateBuilderEvent(
+      new Request(`http://localhost/api/builder/events/${eventId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ event_date: '2026-09-10' }),
+      }) as NextRequest,
+      context,
+    )
+    const body = await json(response)
+
+    expect(response.status).toBe(409)
+    expect(body).toMatchObject({ code: 'canonical_event_revision_required' })
+    expect(eventLookup.single).toHaveBeenCalled()
+    expect(bridgeLookup.maybeSingle).toHaveBeenCalled()
   })
 })
