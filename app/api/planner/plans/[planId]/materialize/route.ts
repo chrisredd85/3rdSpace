@@ -10,6 +10,7 @@ import {
   resolveCanonicalEventTaxonomy,
   type CanonicalEventTaxonomy,
 } from '@/lib/planner/eventIdentity'
+import { resumeCanonicalQuoteBookingsAfterMaterialization } from '@/lib/planner/execution/canonicalQuoteBooking'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { mapDbEventToApp } from '@/lib/supabase/server-helpers'
 import type { Plan } from '@/lib/types'
@@ -111,7 +112,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
     // persists the exact event schedule plus transition context atomically, so
     // this route must not pre-write split-brain schedule metadata. This
     // establishes lineage only; it creates no booking, payment, transaction,
-    // purchase authorization, or outbound message.
+    // purchase authorization, or outbound message. After it commits, the
+    // payload-tagged resume seam may create a booking only from an already
+    // executable approval.
     const { data, error } = await writeDb.rpc('materialize_plan_event', {
       p_plan_id: plan.id,
       p_actor_id: auth.userId,
@@ -129,6 +132,29 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Event materialization returned no event' }, { status: 500 })
     }
 
+    let bookingResume: {
+      results: Awaited<ReturnType<typeof resumeCanonicalQuoteBookingsAfterMaterialization>>
+      error: string | null
+    } = { results: [], error: null }
+    try {
+      bookingResume = {
+        results: await resumeCanonicalQuoteBookingsAfterMaterialization({
+          db: writeDb,
+          planId: plan.id,
+          actorId: auth.userId,
+        }),
+        error: null,
+      }
+    } catch (resumeError) {
+      // Materialization already committed. Surface a truthful retryable resume
+      // state rather than reporting that canonical event creation failed.
+      console.error('[planner.materialize] Canonical quote booking resume failed', resumeError)
+      bookingResume = {
+        results: [],
+        error: 'canonical_quote_booking_resume_failed',
+      }
+    }
+
     return NextResponse.json({
       success: true,
       plan_id: plan.id,
@@ -136,6 +162,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       event: mapDbEventToApp(materialized.event_record),
       plan_status: materialized.plan_status ?? null,
       existing: Boolean(materialized.existing),
+      booking_resume: bookingResume,
       schedule_confirmation: {
         confirmed: true,
         confirmed_by: auth.userId,

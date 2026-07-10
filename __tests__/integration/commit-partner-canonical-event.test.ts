@@ -7,11 +7,20 @@ import {
   DELETE as cancelVenue,
   POST as commitVenue,
 } from '@/app/api/planner/plans/[planId]/commit-venue/route'
+import {
+  cancelStagedCanonicalQuoteBooking,
+  stageCanonicalQuoteBooking,
+} from '@/lib/planner/execution/canonicalQuoteBooking'
 import { recomputePlanDerivedState } from '@/lib/planner/recomputeDerivedState'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 jest.mock('@/lib/planner/recomputeDerivedState', () => ({
   recomputePlanDerivedState: jest.fn().mockResolvedValue(null),
+}))
+
+jest.mock('@/lib/planner/execution/canonicalQuoteBooking', () => ({
+  stageCanonicalQuoteBooking: jest.fn(),
+  cancelStagedCanonicalQuoteBooking: jest.fn(),
 }))
 
 jest.mock('@/lib/supabase/server', () => ({
@@ -37,6 +46,7 @@ const PLAN_ID = '11111111-1111-4111-8111-111111111111'
 const USER_ID = '22222222-2222-4222-8222-222222222222'
 const EVENT_ID = '33333333-3333-4333-8333-333333333333'
 const PARTNER_ID = '44444444-4444-4444-8444-444444444444'
+const RESPONSE_ID = '55555555-5555-4555-8555-555555555555'
 const AUTHORIZATION_OR_EXECUTION_TABLES = [
   'agent_actions',
   'approvals',
@@ -54,31 +64,28 @@ const MUTATIONS = [
   {
     label: 'venue POST',
     invoke: () => commitVenue(request('/commit-venue', 'POST', {
-      discovery_venue_id: PARTNER_ID,
-      quoted_price_cents: 150000,
-      quoted_deal_model: 'flat_rental',
-      quoted_terms: { cancellation: '72 hours' },
+      response_id: RESPONSE_ID,
     }), context()),
+    operation: 'stage',
   },
   {
     label: 'venue DELETE',
-    invoke: () => cancelVenue(request('/commit-venue', 'DELETE'), context()),
+    invoke: () => cancelVenue(request('/commit-venue', 'DELETE', { response_id: RESPONSE_ID }), context()),
+    operation: 'cancel',
   },
   {
     label: 'vendor POST',
     invoke: () => commitVendor(request('/commit-vendor', 'POST', {
-      discovery_vendor_id: PARTNER_ID,
-      service_type: 'catering',
-      quoted_package_cents: 225000,
-      quoted_terms: { menu: 'family style' },
+      response_id: RESPONSE_ID,
     }), context()),
+    operation: 'stage',
   },
   {
     label: 'vendor DELETE',
     invoke: () => cancelVendor(request('/commit-vendor', 'DELETE', {
-      discovery_vendor_id: PARTNER_ID,
-      service_type: 'catering',
+      response_id: RESPONSE_ID,
     }), context()),
+    operation: 'cancel',
   },
 ]
 
@@ -103,6 +110,19 @@ const REJECTION_CASES = MUTATIONS.flatMap((mutation) =>
 describe('partner quote commitments require a pre-authorization plan', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    ;(stageCanonicalQuoteBooking as jest.Mock).mockResolvedValue({
+      existing: false,
+      plan: buildPlan(),
+      agent_action: { id: 'action-1', status: 'pending' },
+      approval: { id: 'approval-1', status: 'pending' },
+      approval_message: { id: 'message-1' },
+    })
+    ;(cancelStagedCanonicalQuoteBooking as jest.Mock).mockResolvedValue({
+      existing: false,
+      plan: buildPlan({ committed_vendors: [], metadata: {} }),
+      agent_action: { id: 'action-1', status: 'cancelled' },
+      approval: { id: 'approval-1', status: 'cancelled' },
+    })
   })
 
   it.each(REJECTION_CASES)('$label without attempting a write', async ({ invoke, plan }) => {
@@ -127,7 +147,7 @@ describe('partner quote commitments require a pre-authorization plan', () => {
     expect(recomputePlanDerivedState).not.toHaveBeenCalled()
   })
 
-  it.each(MUTATIONS)('allows $label while the plan is ready and not materialized', async ({ invoke }) => {
+  it.each(MUTATIONS)('atomically stages $label while the plan is ready and not materialized', async ({ invoke, operation }) => {
     const db = buildDb(buildPlan())
     mockClients(db)
 
@@ -136,11 +156,41 @@ describe('partner quote commitments require a pre-authorization plan', () => {
 
     expect(response.status).toBe(200)
     expect(payload).toEqual(expect.objectContaining({ canonical_event_id: null }))
-    expect(db.planUpdates).toHaveLength(1)
-    expect(db.writeTables).toContain('plans')
+    expect(payload).toEqual(expect.objectContaining({
+      booking_status: operation === 'stage' ? 'approval_required' : 'cancelled_before_authorization',
+      agentAction: expect.any(Object),
+      approval: expect.any(Object),
+    }))
+    expect(db.planUpdates).toHaveLength(0)
+    expect(db.writeTables).toHaveLength(0)
     expect(db.tables).not.toEqual(expect.arrayContaining(AUTHORIZATION_OR_EXECUTION_TABLES))
     expect(createServiceRoleClient).toHaveBeenCalledTimes(1)
     expect(recomputePlanDerivedState).toHaveBeenCalledTimes(1)
+    if (operation === 'stage') {
+      expect(stageCanonicalQuoteBooking).toHaveBeenCalledWith(expect.objectContaining({ responseId: RESPONSE_ID }))
+      expect(cancelStagedCanonicalQuoteBooking).not.toHaveBeenCalled()
+    } else {
+      expect(cancelStagedCanonicalQuoteBooking).toHaveBeenCalledWith(expect.objectContaining({ responseId: RESPONSE_ID }))
+      expect(stageCanonicalQuoteBooking).not.toHaveBeenCalled()
+    }
+  })
+
+  it('accepts a new trusted quote on an executing plan with reciprocal event identity', async () => {
+    const executingPlan = buildPlan({ status: 'executing', materialized_event_id: EVENT_ID })
+    const db = buildDb(executingPlan)
+    mockClients(db)
+
+    const response = await commitVenue(request('/commit-venue', 'POST', {
+      response_id: RESPONSE_ID,
+    }), context())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(expect.objectContaining({ canonical_event_id: EVENT_ID }))
+    expect(stageCanonicalQuoteBooking).toHaveBeenCalledWith(expect.objectContaining({
+      plan: executingPlan,
+      quoteKind: 'venue',
+      responseId: RESPONSE_ID,
+    }))
   })
 })
 

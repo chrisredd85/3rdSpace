@@ -497,14 +497,14 @@ describe('MobilePlanner operating loop parity', () => {
 
     expect(await screen.findByText('Best next step from replies')).toBeInTheDocument()
     expect(screen.getAllByText('Moongate Lounge').length).toBeGreaterThan(0)
-    fireEvent.click(screen.getByRole('button', { name: /Use this venue quote/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Create venue booking approval/i }))
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/planner/plans/plan-1/commit-venue',
         expect.objectContaining({
           method: 'POST',
-          body: expect.stringContaining('"discovery_venue_id":"11111111-1111-4111-8111-111111111111"'),
+          body: JSON.stringify({ response_id: '55555555-5555-4555-8555-555555555555' }),
         })
       )
     })
@@ -763,6 +763,7 @@ const planWithQuote = {
   metadata: {
     outreach_response_summary: {
       venues: [{
+        id: '55555555-5555-4555-8555-555555555555',
         discovery_venue_id: '11111111-1111-4111-8111-111111111111',
         venue_name: 'Moongate Lounge',
         status: 'favorable',

@@ -245,6 +245,7 @@ interface PlanRevisionSnapshot {
 
 interface OutreachReplyOption {
   kind: 'venue' | 'vendor'
+  responseId: string
   discoveryId: string
   name: string
   serviceType: string | null
@@ -604,12 +605,13 @@ function normalizeOutreachReplyOptions(value: unknown, kind: 'venue' | 'vendor')
   return value.flatMap((item) => {
     const record = asRecord(item)
     if (!record) return []
+    const responseId = readString(record.id) ?? readString(record.response_id)
     const discoveryId =
       readString(record.discovery_venue_id) ??
       readString(record.discoveryVendorId) ??
       readString(record.discovery_vendor_id) ??
       readString(record.discoveryId)
-    if (!discoveryId) return []
+    if (!responseId || !discoveryId) return []
     const name =
       readString(record.venue_name) ??
       readString(record.vendor_name) ??
@@ -618,17 +620,18 @@ function normalizeOutreachReplyOptions(value: unknown, kind: 'venue' | 'vendor')
 
     return [{
       kind,
+      responseId,
       discoveryId,
       name,
       serviceType: readString(record.service_type),
-      status: readString(record.status) ?? 'reply_received',
+      status: readString(record.status) ?? readString(record.classification) ?? 'reply_received',
       quoteCents:
         readNumber(record.quote_cents) ??
         readNumber(record.quoted_price_cents) ??
         readNumber(record.quoted_package_cents) ??
         readNumber(record.quoted_minimum_cents),
-      confidence: readNumber(record.confidence),
-      summary: readString(record.summary),
+      confidence: readNumber(record.confidence) ?? readNumber(record.classification_confidence),
+      summary: readString(record.summary) ?? readString(record.raw_response_excerpt),
       updatedAt: readString(record.updated_at) ?? readString(record.updatedAt),
     }]
   }).sort((first, second) => {
@@ -1306,7 +1309,7 @@ function isActionableOutreachReply(option: OutreachReplyOption): boolean {
 }
 
 function quoteFeedbackKey(option: OutreachReplyOption): string {
-  return `${option.kind}:${option.discoveryId}:${option.serviceType ?? 'default'}`
+  return `${option.kind}:${option.responseId}`
 }
 
 function readProjectionBaseline(value: unknown): PlannerProjectionBaseline | null {
@@ -1714,7 +1717,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   async function handleCommitOutreachReply(option: OutreachReplyOption) {
     if (!activePlanId || activePlanId.startsWith('mock-plan-')) return
 
-    const feedbackKey = `${option.kind}:${option.discoveryId}:${option.serviceType ?? 'default'}`
+    const feedbackKey = quoteFeedbackKey(option)
     setQuoteCommitFeedback((current) => ({ ...current, [feedbackKey]: 'saving' }))
 
     try {
@@ -1726,33 +1729,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify(
-            option.kind === 'venue'
-              ? {
-                  discovery_venue_id: option.discoveryId,
-                  quoted_price_cents: option.quoteCents,
-                  quoted_deal_model: option.status,
-                  quoted_terms: {
-                    source: 'outreach_reply',
-                    status: option.status,
-                    summary: option.summary,
-                    confidence: option.confidence,
-                    updated_at: option.updatedAt,
-                  },
-                }
-              : {
-                  discovery_vendor_id: option.discoveryId,
-                  service_type: option.serviceType ?? 'other',
-                  quoted_package_cents: option.quoteCents,
-                  quoted_terms: {
-                    source: 'outreach_reply',
-                    status: option.status,
-                    summary: option.summary,
-                    confidence: option.confidence,
-                    updated_at: option.updatedAt,
-                  },
-                }
-          ),
+          body: JSON.stringify({ response_id: option.responseId }),
         }
       )
       const payload = await response.json().catch(() => ({})) as { error?: string }
@@ -3323,7 +3300,7 @@ function OutreachQuoteCard({
           onClick={() => onCommit(option)}
           className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-md bg-clay px-3 py-2 text-sm font-bold text-cream transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
         >
-          {isCommitted ? 'In plan' : isSaving ? 'Saving' : feedback === 'error' ? 'Retry' : 'Use quote in plan'}
+          {isCommitted ? 'Approval ready' : isSaving ? 'Creating approval' : feedback === 'error' ? 'Retry' : 'Create booking approval'}
         </button>
       </div>
     </div>

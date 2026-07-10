@@ -282,6 +282,7 @@ interface MobilePartnerOption {
 
 interface MobileQuoteOption {
   kind: 'venue' | 'vendor'
+  responseId: string
   discoveryId: string
   name: string
   serviceType: string | null
@@ -735,24 +736,12 @@ export function MobilePlanner({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify(option.kind === 'venue'
-            ? {
-                discovery_venue_id: option.discoveryId,
-                quoted_price_cents: option.quoteCents,
-                quoted_deal_model: option.status,
-                quoted_terms: quoteTerms(option),
-              }
-            : {
-                discovery_vendor_id: option.discoveryId,
-                service_type: option.serviceType ?? 'other',
-                quoted_package_cents: option.quoteCents,
-                quoted_terms: quoteTerms(option),
-              }),
+          body: JSON.stringify({ response_id: option.responseId }),
         }
       )
       const payload = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(payload.error ?? 'Could not add quote to plan')
-      setQuoteFeedback((current) => ({ ...current, [key]: 'Added to plan.' }))
+      setQuoteFeedback((current) => ({ ...current, [key]: 'Booking approval ready.' }))
       await reload()
     } catch (error) {
       setQuoteFeedback((current) => ({
@@ -775,9 +764,7 @@ export function MobilePlanner({
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: option.kind === 'venue'
-            ? undefined
-            : JSON.stringify({ discovery_vendor_id: option.discoveryId, service_type: option.serviceType ?? 'other' }),
+          body: JSON.stringify({ response_id: option.responseId }),
         }
       )
       const payload = await response.json().catch(() => ({})) as { error?: string }
@@ -1828,7 +1815,7 @@ function BriefView({
           <div className={cn(spacing.labelToHeadline, 'space-y-3')}>
             {committedVenue ? (
               <div>
-                <p className="font-display text-[22px] leading-tight text-ink">Committed: venue quote accepted</p>
+                <p className="font-display text-[22px] leading-tight text-ink">Venue booking approval ready</p>
                 <p className="mt-1 text-sm leading-6 text-ink-soft">
                   {money(committedVenue.quotedPriceCents) ?? 'Quote saved'}{committedVenue.quotedDealModel ? ` · ${committedVenue.quotedDealModel}` : ''}. Booking and payment still require separate approval.
                 </p>
@@ -1836,7 +1823,7 @@ function BriefView({
             ) : null}
             {committedVendors.map((vendor) => (
               <div key={`${vendor.discoveryId ?? 'vendor'}-${vendor.serviceType}`}>
-                <p className="font-display text-[20px] leading-tight text-ink">Committed: {titleize(vendor.serviceType)} quote</p>
+                <p className="font-display text-[20px] leading-tight text-ink">{titleize(vendor.serviceType)} booking approval ready</p>
                 <p className="mt-1 text-sm leading-6 text-ink-soft">
                   {money(committedVendorAmount(vendor)) ?? 'Quote saved'}. Payment or booking still requires a separate approval.
                 </p>
@@ -3664,7 +3651,7 @@ function MobileQuoteCard({
           <p className="label-caps text-clay">{quote.kind === 'venue' ? 'Venue' : titleize(quote.serviceType ?? 'vendor')}</p>
           <h3 className="mt-1 truncate font-display text-[21px] leading-tight text-ink">{quote.name}</h3>
         </div>
-        <StatusPill tone={isCommitted ? 'forest' : 'clay'}>{isCommitted ? 'In plan' : titleize(quote.status)}</StatusPill>
+        <StatusPill tone={isCommitted ? 'forest' : 'clay'}>{isCommitted ? 'Approval ready' : titleize(quote.status)}</StatusPill>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3">
         <Metric label="Quote" value={money(quote.quoteCents) ?? 'Review'} />
@@ -3673,7 +3660,7 @@ function MobileQuoteCard({
       {quote.summary ? <p className="mt-3 text-sm leading-6 text-ink-soft">{quote.summary}</p> : null}
       <div className="mt-4 grid gap-2">
         <PrimaryButton disabled={isCommitted} onClick={() => onCommit(quote)}>
-          {isCommitted ? 'In plan' : `Use this ${quote.kind} quote`}
+          {isCommitted ? 'Approval ready' : `Create ${quote.kind} booking approval`}
         </PrimaryButton>
         {isCommitted ? (
           <SecondaryButton onClick={() => onCancel(quote)}>Cancel acceptance</SecondaryButton>
@@ -3737,6 +3724,7 @@ function readQuoteList(value: unknown, kind: 'venue' | 'vendor'): MobileQuoteOpt
   return value.flatMap((item) => {
     const record = asRecord(item)
     if (!record) return []
+    const responseId = readString(record.id ?? record.response_id)
     const discoveryId = readString(
       record.discovery_venue_id ??
       record.discoveryVenueId ??
@@ -3745,9 +3733,10 @@ function readQuoteList(value: unknown, kind: 'venue' | 'vendor'): MobileQuoteOpt
       record.discovery_id ??
       record.discoveryId
     )
-    if (!discoveryId) return []
+    if (!responseId || !discoveryId) return []
     return [{
       kind,
+      responseId,
       discoveryId,
       name:
         readString(record.venue_name) ??
@@ -3755,32 +3744,22 @@ function readQuoteList(value: unknown, kind: 'venue' | 'vendor'): MobileQuoteOpt
         readString(record.name) ??
         (kind === 'venue' ? 'Venue response' : 'Vendor response'),
       serviceType: readString(record.service_type ?? record.serviceType),
-      status: readString(record.status) ?? 'reply_received',
+      status: readString(record.status) ?? readString(record.classification) ?? 'reply_received',
       quoteCents:
         readNumber(record.quote_cents) ??
         readNumber(record.quoted_price_cents) ??
         readNumber(record.quoted_package_cents) ??
         readNumber(record.price_cents) ??
         readNumber(record.amount_cents),
-      summary: readString(record.summary ?? record.notes ?? record.reply_summary),
-      confidence: readNumber(record.confidence ?? record.extraction_confidence),
+      summary: readString(record.summary ?? record.notes ?? record.reply_summary ?? record.raw_response_excerpt),
+      confidence: readNumber(record.confidence ?? record.extraction_confidence ?? record.classification_confidence),
       updatedAt: readString(record.updated_at ?? record.created_at),
     }]
   })
 }
 
 function quoteKey(option: MobileQuoteOption) {
-  return `${option.kind}:${option.discoveryId}:${option.serviceType ?? 'default'}`
-}
-
-function quoteTerms(option: MobileQuoteOption) {
-  return {
-    source: 'outreach_reply',
-    status: option.status,
-    summary: option.summary,
-    confidence: option.confidence,
-    updated_at: option.updatedAt,
-  }
+  return `${option.kind}:${option.responseId}`
 }
 
 function isQuoteCommitted(plan: Plan | null, option: MobileQuoteOption) {

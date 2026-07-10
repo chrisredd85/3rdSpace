@@ -1,6 +1,11 @@
 import type { NextRequest } from 'next/server'
 import { POST } from '@/app/api/planner/plans/[planId]/materialize/route'
+import { resumeCanonicalQuoteBookingsAfterMaterialization } from '@/lib/planner/execution/canonicalQuoteBooking'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+
+jest.mock('@/lib/planner/execution/canonicalQuoteBooking', () => ({
+  resumeCanonicalQuoteBookingsAfterMaterialization: jest.fn().mockResolvedValue([]),
+}))
 
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
@@ -74,6 +79,7 @@ const eventRecord = {
 describe('POST /api/planner/plans/[planId]/materialize', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    ;(resumeCanonicalQuoteBookingsAfterMaterialization as jest.Mock).mockResolvedValue([])
   })
 
   it('proves ownership then calls the service-only RPC with lossless taxonomy and exact schedule', async () => {
@@ -106,6 +112,7 @@ describe('POST /api/planner/plans/[planId]/materialize', () => {
       event_id: EVENT_ID,
       existing: false,
       plan_status: 'executing',
+      booking_resume: { results: [], error: null },
       event: expect.objectContaining({
         plan_id: PLAN_ID,
         event_type: 'founder_operator_dinner',
@@ -122,6 +129,34 @@ describe('POST /api/planner/plans/[planId]/materialize', () => {
       },
     }))
     expect(serviceFrom).not.toHaveBeenCalled()
+    expect(resumeCanonicalQuoteBookingsAfterMaterialization).toHaveBeenCalledWith(expect.objectContaining({
+      planId: PLAN_ID,
+      actorId: USER_ID,
+    }))
+  })
+
+  it('returns the resumed canonical booking evidence with the materialized event', async () => {
+    const resumed = {
+      disposition: 'executing',
+      metadata: {
+        canonical_booking_status: 'pending_partner_confirmation',
+        booking_id: 'booking-1',
+        event_id: EVENT_ID,
+      },
+    }
+    ;(resumeCanonicalQuoteBookingsAfterMaterialization as jest.Mock).mockResolvedValue([resumed])
+    const rpc = jest.fn().mockResolvedValue({
+      data: [{ event_id: EVENT_ID, existing: false, event_record: eventRecord, plan_status: 'executing' }],
+      error: null,
+    })
+    mockClients({ rpc })
+
+    const response = await POST(request(validSchedule()), context())
+
+    expect(await response.json()).toEqual(expect.objectContaining({
+      event_id: EVENT_ID,
+      booking_resume: { results: [resumed], error: null },
+    }))
   })
 
   it.each(['executing', 'booked', 'completed'])('allows an exact idempotent retry after the plan has advanced to %s', async (status) => {
