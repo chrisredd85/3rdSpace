@@ -668,6 +668,96 @@ describe('MVP launch API contracts', () => {
     expect(db.rows.approvals).toHaveLength(0)
   })
 
+  it('POST planner agent-actions creates a strict controlled-payment proposal without moving money', async () => {
+    const venueOwnerId = '550e8400-e29b-41d4-a716-446655440007'
+    db.rows.venues.push({
+      id: VENUE_ID_1,
+      owner_id: venueOwnerId,
+      venue_name: 'Ready Venue',
+    })
+    db.rows.venue_stripe_accounts = [{
+      owner_id: venueOwnerId,
+      stripe_account_id: 'acct_ready',
+      account_status: 'active',
+      charges_enabled: true,
+      payouts_enabled: true,
+      disabled_reason: null,
+    }]
+
+    const response = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'payment',
+        targetType: 'venue',
+        targetId: VENUE_ID_1,
+        requestedAmountCents: 25_000,
+        payloadJson: {
+          kind: 'venue_deposit',
+          action_label: 'Authorize venue deposit',
+          provider: 'Ready Venue',
+          package_details: 'Deposit for the approved venue reservation.',
+          refund_terms: 'Refundable until 14 days before the event.',
+          cancellation_terms: 'Deposit is forfeited inside 14 days.',
+          fees_cents: 750,
+          event_date: '2026-08-01',
+        },
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+    const json = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(json.agentAction).toEqual(expect.objectContaining({
+      action_type: 'payment',
+      target_type: 'venue',
+      target_id: VENUE_ID_1,
+      amount_cents: 25_000,
+      status: 'pending',
+      approval_id: expect.any(String),
+      result_metadata: expect.objectContaining({ execution_mode: 'controlled_payment' }),
+    }))
+    expect(json.approval).toEqual(expect.objectContaining({
+      status: 'pending',
+      price_cents: 25_000,
+      fees_cents: 750,
+      refund_terms: 'Refundable until 14 days before the event.',
+      cancellation_terms: 'Deposit is forfeited inside 14 days.',
+      snapshot_schema_version: 2,
+    }))
+    expect(db.rows.agent_actions[0].payload_json).toEqual(expect.objectContaining({
+      kind: 'venue_deposit',
+      price_cents: 25_000,
+      requestedAmountCents: 25_000,
+      fees_cents: 750,
+      requires_stripe_recipient: true,
+    }))
+    expect(db.rows.payment_intents ?? []).toHaveLength(0)
+    expect(db.rows.venue_payment_transactions ?? []).toHaveLength(0)
+  })
+
+  it('POST planner agent-actions rejects incomplete controlled-payment proposals before writes', async () => {
+    const response = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'payment',
+        targetType: 'venue',
+        targetId: VENUE_ID_1,
+        requestedAmountCents: 0,
+        payloadJson: {
+          kind: 'venue_deposit',
+          action_label: 'Authorize venue deposit',
+          provider: 'Venue',
+          package_details: 'Missing required terms must fail closed.',
+        },
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(response.status).toBe(400)
+    expect(db.rows.agent_actions).toHaveLength(0)
+    expect(db.rows.approvals).toHaveLength(0)
+    expect(db.rows.payment_intents ?? []).toHaveLength(0)
+    expect(db.rows.venue_payment_transactions ?? []).toHaveLength(0)
+  })
+
   it('host confirmation completes one ready external checkout and is idempotent', async () => {
     const snapshotHash = 'a'.repeat(64)
     const action = {

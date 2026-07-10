@@ -59,6 +59,7 @@ type PlannerAuth =
   | { response: NextResponse<PlannerApiErrorResponse> }
 
 const safeCentsSchema = z.number().int().nonnegative().refine(Number.isSafeInteger)
+const paymentCentsSchema = z.number().int().min(50).refine(Number.isSafeInteger)
 const optionalTargetFields = {
   targetType: z.string().trim().min(1).max(80).nullable().optional(),
   targetId: z.string().uuid().nullable().optional(),
@@ -103,6 +104,20 @@ const externalCheckoutPayloadSchema = z.object({
   source: z.string().trim().max(120).optional(),
 }).strict()
 
+const paymentPayloadSchema = z.object({
+  kind: z.enum(['venue_rental', 'venue_deposit', 'vendor_deposit']),
+  action_label: z.string().trim().min(1).max(160),
+  provider: z.string().trim().min(1).max(160),
+  package_details: z.string().trim().min(1).max(2_000),
+  refund_terms: z.string().trim().min(1).max(1_000),
+  cancellation_terms: z.string().trim().min(1).max(1_000),
+  fees_cents: safeCentsSchema.optional(),
+  event_date: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  delivery_email: z.string().trim().email().nullable().optional(),
+  notes: z.string().trim().max(4_000).nullable().optional(),
+  source: z.string().trim().max(120).optional(),
+}).strict()
+
 const createAgentActionSchema = z.discriminatedUnion('actionType', [
   genericAgentActionSchema('hold_request'),
   genericAgentActionSchema('vendor_contact'),
@@ -116,6 +131,13 @@ const createAgentActionSchema = z.discriminatedUnion('actionType', [
     ...optionalTargetFields,
     payloadJson: externalCheckoutPayloadSchema,
     requestedAmountCents: safeCentsSchema.nullable().optional(),
+  }).strict(),
+  z.object({
+    actionType: z.literal('payment'),
+    targetType: z.enum(['venue', 'vendor']),
+    targetId: z.string().uuid(),
+    payloadJson: paymentPayloadSchema,
+    requestedAmountCents: paymentCentsSchema,
   }).strict(),
 ])
 
@@ -613,6 +635,7 @@ function readDefaultActionLabel(actionType: z.infer<typeof createAgentActionSche
   if (actionType === 'opportunity_send_venues') return 'Prepare venue outreach'
   if (actionType === 'opportunity_send_vendors') return 'Prepare vendor outreach'
   if (actionType === 'external_checkout') return 'External checkout'
+  if (actionType === 'payment') return 'Authorize payment'
   if (actionType === 'ai_query') return 'Agent research'
   return 'Export plan'
 }
@@ -631,6 +654,16 @@ function normalizeAgentActionPayload(
       price_cents: requestedAmountCents,
       requestedAmountCents,
       fees_cents: feesCents,
+    }
+  }
+
+  if (actionType === 'payment') {
+    return {
+      ...payload,
+      price_cents: requestedAmountCents,
+      requestedAmountCents,
+      fees_cents: feesCents,
+      requires_stripe_recipient: true,
     }
   }
 
