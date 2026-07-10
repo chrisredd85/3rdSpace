@@ -146,6 +146,116 @@ describe('PlannerApprovalCard', () => {
     )
   })
 
+  it('renders only server-unlocked external checkout evidence and confirms completion explicitly', async () => {
+    const user = userEvent.setup()
+    const onStatusChange = jest.fn()
+    const onToast = jest.fn()
+    const actionId = '33333333-3333-4333-8333-333333333333'
+    const snapshotHash = 'a'.repeat(64)
+    const readyEvidence = {
+      execution_mode: 'external_checkout',
+      message: 'Approved external checkout is ready for the host to open.',
+      external_checkout: {
+        status: 'ready',
+        external_url: 'https://tickets.example/checkout',
+        approval_id: oldApprovalId,
+        snapshot_hash: snapshotHash,
+        unlocked_at: '2026-07-09T20:00:00.000Z',
+        completion_confirmation_required: true,
+      },
+    }
+
+    global.fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/builder/billing/status') {
+        return jsonResponse({ billing: { canCreateEvent: true } })
+      }
+      if (url.endsWith(`/agent-actions/${actionId}/confirm`)) {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          approvalId: oldApprovalId,
+          expectedSnapshotHash: snapshotHash,
+          outcome: 'completed',
+        })
+        return jsonResponse({
+          actionStatus: 'complete',
+          uiStatus: 'succeeded',
+          actionResult: {
+            ...readyEvidence,
+            message: 'Host confirmed the external checkout was completed.',
+            external_checkout: {
+              ...readyEvidence.external_checkout,
+              status: 'completed',
+              completed_at: '2026-07-09T20:05:00.000Z',
+              confirmed_by: 'builder-1',
+              confirmation_source: 'host',
+            },
+          },
+        })
+      }
+      return jsonResponse({ error: `Unexpected request: ${url}` }, 500)
+    }) as jest.Mock
+
+    renderApprovalCard({
+      approvalId: oldApprovalId,
+      approval: {
+        id: oldApprovalId,
+        agent_action_id: actionId,
+        status: 'authorized',
+        ui_status: 'executing',
+        action_status: 'executing',
+        action_label: 'External checkout',
+        provider: 'Ticketing partner',
+        requested_amount_cents: 9_500,
+        authorized_amount_cents: 9_500,
+        snapshot_hash: snapshotHash,
+        action_result: readyEvidence,
+        available_actions: [],
+      },
+      onStatusChange,
+      onToast,
+    })
+
+    const link = screen.getByRole('link', { name: 'Open checkout' })
+    expect(link).toHaveAttribute('href', 'https://tickets.example/checkout')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+
+    await user.click(screen.getByRole('button', { name: 'Confirm completed' }))
+
+    expect(await screen.findByText('Succeeded')).toBeInTheDocument()
+    expect(screen.getByText('External checkout completion recorded')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View checkout' })).toBeInTheDocument()
+    expect(onStatusChange).toHaveBeenCalledWith(
+      oldApprovalId,
+      'succeeded',
+      expect.objectContaining({ action_status: 'complete', ui_status: 'succeeded' })
+    )
+    expect(onToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Checkout completion confirmed',
+    }))
+  })
+
+  it('does not expose a checkout URL from unapproved action payload metadata', () => {
+    global.fetch = jest.fn(async () => jsonResponse({ billing: { canCreateEvent: true } })) as jest.Mock
+
+    renderApprovalCard({
+      approvalId: oldApprovalId,
+      approval: {
+        id: oldApprovalId,
+        status: 'pending',
+        action_label: 'External checkout',
+        provider: 'Ticketing partner',
+        snapshot_hash: 'b'.repeat(64),
+        action_result: {
+          payload: { external_url: 'https://tickets.example/checkout' },
+        },
+        available_actions: ['edit', 'authorize', 'cancel'],
+      },
+    })
+
+    expect(screen.queryByRole('link', { name: /checkout/i })).not.toBeInTheDocument()
+  })
+
   it('renders failed truth and retries with a stable idempotency key and snapshot hash', async () => {
     const user = userEvent.setup()
     const retryRequests: RequestInit[] = []

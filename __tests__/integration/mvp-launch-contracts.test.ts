@@ -2,6 +2,7 @@ jest.mock('server-only', () => ({}))
 
 import type { NextRequest } from 'next/server'
 import { POST as createAgentAction } from '@/app/api/planner/plans/[planId]/agent-actions/route'
+import { POST as confirmExternalCheckout } from '@/app/api/planner/plans/[planId]/agent-actions/[actionId]/confirm/route'
 import { PATCH as updateApproval } from '@/app/api/planner/plans/[planId]/approvals/route'
 import { POST as createVenueOpportunity } from '@/app/api/planner/plans/[planId]/opportunities/venues/route'
 import { GET as listPublicVendors } from '@/app/api/vendors/route'
@@ -10,6 +11,7 @@ import {
   buildApprovalSnapshotHashV2,
   buildApprovalSnapshotV2,
 } from '@/lib/planner/execution/reapproval'
+import { prepareExternalCheckoutHandoff } from '@/lib/planner/execution/externalCheckout'
 import { buildTicketTierRollups, classifyTicketTier } from '@/lib/server/ticket-normalization'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { enqueueOpportunityInviteSendJobs } from '@/lib/server/opportunity-email-worker'
@@ -538,9 +540,10 @@ describe('MVP launch API contracts', () => {
         targetType: 'external',
         requestedAmountCents: 9_500,
         payloadJson: {
+          kind: 'external_checkout',
           action_label: 'External checkout',
           provider: 'Ticketing partner',
-          url: 'https://tickets.example/event/123',
+          external_url: 'https://tickets.example/event/123',
           package_details: 'External ticketing checkout requires approval before the link is used.',
         },
       }),
@@ -559,6 +562,12 @@ describe('MVP launch API contracts', () => {
       status: 'pending',
       price_cents: 9_500,
     }))
+    expect(db.rows.agent_actions[0].payload_json).toEqual(expect.objectContaining({
+      kind: 'external_checkout',
+      external_url: 'https://tickets.example/event/123',
+    }))
+    expect(db.rows.agent_actions[0].payload_json).not.toHaveProperty('url')
+    expect(db.rows.agent_actions[0].payload_json).not.toHaveProperty('checkout_url')
     expect(db.rows.agent_actions).toHaveLength(1)
     expect(db.rows.approvals).toHaveLength(1)
   })
@@ -621,6 +630,125 @@ describe('MVP launch API contracts', () => {
     }))
   })
 
+  it('POST planner agent-actions rejects legacy or unsafe external checkout URL writes', async () => {
+    const legacyResponse = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'external_checkout',
+        targetType: 'external',
+        requestedAmountCents: 9_500,
+        payloadJson: {
+          kind: 'external_checkout',
+          action_label: 'External checkout',
+          provider: 'Ticketing partner',
+          url: 'https://tickets.example/event/123',
+          package_details: 'Legacy URL key must not be accepted for new writes.',
+        },
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+    const unsafeResponse = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'external_checkout',
+        targetType: 'external',
+        requestedAmountCents: 9_500,
+        payloadJson: {
+          kind: 'external_checkout',
+          action_label: 'External checkout',
+          provider: 'Ticketing partner',
+          external_url: 'https://user:secret@tickets.example/event/123',
+          package_details: 'Credential-bearing links must fail closed.',
+        },
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(legacyResponse.status).toBe(400)
+    expect(unsafeResponse.status).toBe(400)
+    expect(db.rows.agent_actions).toHaveLength(0)
+    expect(db.rows.approvals).toHaveLength(0)
+  })
+
+  it('host confirmation completes one ready external checkout and is idempotent', async () => {
+    const snapshotHash = 'a'.repeat(64)
+    const action = {
+      id: ACTION_ID,
+      plan_id: PLAN_ID,
+      action_type: 'external_checkout',
+      description: 'External checkout',
+      provider: 'Ticketing partner',
+      target_type: 'external',
+      target_id: null,
+      payload_json: { external_url: 'https://tickets.example/event/123' },
+      amount_cents: 9_500,
+      currency: 'usd',
+      status: 'executing',
+      approval_id: APPROVAL_ID,
+      executed_at: null,
+      result_metadata: {},
+      created_at: '2026-07-09T20:00:00.000Z',
+      updated_at: '2026-07-09T20:00:00.000Z',
+    }
+    const approval = {
+      id: APPROVAL_ID,
+      plan_id: PLAN_ID,
+      agent_action_id: ACTION_ID,
+      status: 'authorized',
+      snapshot_hash: snapshotHash,
+      snapshot_schema_version: 2,
+      expires_at: '2026-07-10T20:00:00.000Z',
+    }
+    action.result_metadata = prepareExternalCheckoutHandoff({
+      action: action as any,
+      approval: approval as any,
+      now: new Date('2026-07-09T20:00:00.000Z'),
+    }).resultMetadata as Row
+    db.rows.agent_actions.push(action)
+    db.rows.approvals.push(approval)
+
+    const first = await confirmExternalCheckout(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions/${ACTION_ID}/confirm`, {
+        approvalId: APPROVAL_ID,
+        expectedSnapshotHash: snapshotHash,
+        outcome: 'completed',
+      }),
+      { params: Promise.resolve({ planId: PLAN_ID, actionId: ACTION_ID }) }
+    )
+    const second = await confirmExternalCheckout(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions/${ACTION_ID}/confirm`, {
+        approvalId: APPROVAL_ID,
+        expectedSnapshotHash: snapshotHash,
+        outcome: 'completed',
+      }),
+      { params: Promise.resolve({ planId: PLAN_ID, actionId: ACTION_ID }) }
+    )
+    const stale = await confirmExternalCheckout(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions/${ACTION_ID}/confirm`, {
+        approvalId: APPROVAL_ID,
+        expectedSnapshotHash: 'b'.repeat(64),
+        outcome: 'completed',
+      }),
+      { params: Promise.resolve({ planId: PLAN_ID, actionId: ACTION_ID }) }
+    )
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(stale.status).toBe(409)
+    expect(db.rows.agent_actions[0]).toEqual(expect.objectContaining({
+      status: 'complete',
+      executed_at: expect.any(String),
+      result_metadata: expect.objectContaining({
+        external_checkout: expect.objectContaining({
+          status: 'completed',
+          approval_id: APPROVAL_ID,
+          snapshot_hash: snapshotHash,
+          confirmed_by: USER_ID,
+        }),
+      }),
+    }))
+    expect(db.rows.agent_action_audit_log).toHaveLength(1)
+    expect(db.rows.plan_messages.filter((row) => row.metadata?.state === 'external_checkout_completed')).toHaveLength(1)
+  })
+
   it('edits $95.50 as a superseding pending version before separate authorization', async () => {
     const createResponse = await createAgentAction(
       makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
@@ -628,9 +756,10 @@ describe('MVP launch API contracts', () => {
         targetType: 'external',
         requestedAmountCents: 9_500,
         payloadJson: {
+          kind: 'external_checkout',
           action_label: 'External checkout',
           provider: 'Ticketing partner',
-          url: 'https://tickets.example/event/123',
+          external_url: 'https://tickets.example/event/123',
           package_details: 'External checkout handoff',
           event_date: '2026-08-01',
           notes: 'Initial terms',

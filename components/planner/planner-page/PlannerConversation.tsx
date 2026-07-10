@@ -17,6 +17,7 @@ import {
   type ApprovalUiAction,
   type ApprovalUiStatus,
 } from '@/lib/planner/approvalUiState'
+import { readExternalCheckoutHandoffEvidence } from '@/lib/planner/execution/externalCheckout'
 import type { Plan, PlanMessage } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { formatMockCents } from './draftMode'
@@ -1186,13 +1187,18 @@ export function PlannerRecommendationActionButton({
 
   const actionKind = getRecommendationActionKind(label, recommendation)
   const isComplete = Boolean(statusMessage)
-  const buttonLabel = isComplete ? 'Sent ✓' : getCompactRecommendationActionLabel(actionKind)
+  const buttonLabel = isComplete ? 'Approval created ✓' : getCompactRecommendationActionLabel(actionKind)
 
   async function handleActionClick() {
     setErrorMessage(null)
 
     const externalUrl = readRecommendationString(recommendation, 'external_url')
     const agentActionPayload = buildRecommendationAgentActionPayload(actionKind, recommendation)
+
+    if (actionKind === 'external' && !isRealExternalUrl(externalUrl)) {
+      setErrorMessage('This checkout link is not ready yet.')
+      return
+    }
 
     if (!isAuthenticated || planId.startsWith('mock-plan-')) {
       onAuthRequired({
@@ -1348,9 +1354,10 @@ export function buildRecommendationAgentActionPayload(
     targetId: isUuid(targetId) ? targetId : null,
     requestedAmountCents: priceCents,
     payloadJson: {
+      kind: 'external_checkout',
       action_label: 'External booking',
       provider,
-      url: readRecommendationString(recommendation, 'external_url'),
+      external_url: readRecommendationString(recommendation, 'external_url'),
       price_cents: priceCents,
       fees_cents: 0,
       package_details: readRecommendationString(recommendation, 'note') || 'External booking requires approval',
@@ -1453,10 +1460,10 @@ export function normalizeRecommendationTargetType(
  * Returns the success copy for a recommendation action.
  */
 export function getRecommendationSuccessMessage(actionKind: RecommendationActionKind) {
-  if (actionKind === 'hold') return '✓ Hold requested — approval card created'
-  if (actionKind === 'vendor') return "✓ Added to 3rdPlace team queue — we'll reach out"
+  if (actionKind === 'hold') return '✓ Hold approval created — review before the request is sent'
+  if (actionKind === 'vendor') return '✓ Vendor-contact approval created — review before outreach begins'
   if (actionKind === 'payment') return '✓ Deposit approval card created'
-  return '✓ External booking flagged for approval'
+  return '✓ Checkout approval created — review before the link unlocks'
 }
 
 /**
@@ -1934,6 +1941,14 @@ interface ApprovalCommandResponse {
   retryable?: boolean
 }
 
+interface ExternalCheckoutConfirmationResponse {
+  actionStatus?: string
+  actionResult?: unknown
+  uiStatus?: ApprovalUiStatus
+  error?: string
+  message?: string
+}
+
 class ApprovalCommandError extends Error {
   readonly responseStateApplied: boolean
 
@@ -1974,6 +1989,7 @@ export function PlannerApprovalCard({
   const [eventDate, setEventDate] = useState(readApprovalEventDate(approval))
   const [notes, setNotes] = useState(readApprovalNotes(approval))
   const [actionResultMessage, setActionResultMessage] = useState<string | null>(readApprovalActionResultMessage(approval))
+  const [isConfirmingExternalCheckout, setIsConfirmingExternalCheckout] = useState(false)
   const [billingAccess, setBillingAccess] = useState<'loading' | 'allowed' | 'required' | 'unknown'>(
     isAuthenticated ? 'loading' : 'unknown'
   )
@@ -2061,6 +2077,10 @@ export function PlannerApprovalCard({
     isOutreachApproval
   )
   const presentation = getApprovalPresentation(status)
+  const externalCheckoutEvidence = readExternalCheckoutHandoffEvidence(
+    displayApproval.action_result ?? displayApproval.actionResult
+  )
+  const agentActionId = readApprovalString(displayApproval, 'agent_action_id')
 
   function requestSignupForAuthorization(nextAuthorizedAmountCents: number) {
     onAuthRequired({
@@ -2301,6 +2321,58 @@ export function PlannerApprovalCard({
     }
   }
 
+  async function handleConfirmExternalCheckout() {
+    if (!externalCheckoutEvidence || externalCheckoutEvidence.status !== 'ready') return
+    if (!agentActionId || !snapshotHash) {
+      setInlineError('Checkout confirmation is missing its action or approval snapshot. Refresh and try again.')
+      return
+    }
+
+    setIsConfirmingExternalCheckout(true)
+    setInlineError(null)
+    try {
+      const response = await fetch(
+        `/api/planner/plans/${planId}/agent-actions/${agentActionId}/confirm`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            approvalId: currentApprovalId,
+            expectedSnapshotHash: snapshotHash,
+            outcome: 'completed',
+          }),
+        }
+      )
+      const payload = await response.json().catch(() => ({})) as ExternalCheckoutConfirmationResponse
+      if (!response.ok) {
+        throw new Error(payload.error ?? payload.message ?? 'Checkout completion could not be confirmed')
+      }
+
+      const nextStatus = payload.uiStatus ?? 'succeeded'
+      const nextApproval = {
+        ...displayApproval,
+        action_status: payload.actionStatus ?? 'complete',
+        action_result: payload.actionResult ?? displayApproval.action_result,
+        ui_status: nextStatus,
+      }
+      setDisplayApproval(nextApproval)
+      setStatus(nextStatus)
+      setAvailableActions([])
+      setActionResultMessage(readApprovalActionResultMessage(nextApproval))
+      onStatusChange(currentApprovalId, nextStatus, nextApproval)
+      onToast({
+        title: 'Checkout completion confirmed',
+        description: '3rdPlace recorded your confirmation without repeating the external checkout.',
+        variant: 'success',
+      })
+    } catch (error) {
+      setInlineError(error instanceof Error ? error.message : 'Checkout completion could not be confirmed')
+    } finally {
+      setIsConfirmingExternalCheckout(false)
+    }
+  }
+
   if (status === 'rejected' || status === 'cancelled' || status === 'superseded') {
     return (
       <div className="rounded-2xl border border-border bg-muted/40 p-4">
@@ -2514,6 +2586,42 @@ export function PlannerApprovalCard({
                 </p>
               ) : null}
               {actionResultMessage ? <p className="mt-1 text-muted-foreground">{actionResultMessage}</p> : null}
+              {externalCheckoutEvidence ? (
+                <div className="mt-3 rounded-xl border border-border bg-background/70 p-3">
+                  <p className="font-semibold text-foreground">
+                    {externalCheckoutEvidence.status === 'completed'
+                      ? 'External checkout completion recorded'
+                      : 'Your approved checkout link is ready'}
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    3rdPlace will not open or complete this checkout automatically. Review the provider page before paying.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button asChild size="sm">
+                      <a
+                        href={externalCheckoutEvidence.external_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        {externalCheckoutEvidence.status === 'completed' ? 'View checkout' : 'Open checkout'}
+                      </a>
+                    </Button>
+                    {externalCheckoutEvidence.status === 'ready' ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleConfirmExternalCheckout()}
+                        disabled={isConfirmingExternalCheckout}
+                      >
+                        {isConfirmingExternalCheckout ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                        Confirm completed
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               {status === 'succeeded' && conciergeFollowupCount > 0 ? (
                 <p className="mt-1 font-semibold text-warning">
                   {conciergeFollowupCount} venue{conciergeFollowupCount === 1 ? '' : 's'} still need operator follow-up.

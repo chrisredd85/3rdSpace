@@ -449,6 +449,51 @@ export async function loadPlannerPlanDetail(planId: string): Promise<PlannerStat
   return {
     status: 'loaded',
     plan: detailData.plan,
-    messages: detailData.messages,
+    messages: reconcileApprovalMessages(detailData.messages, detailData.approvals),
   }
+}
+
+/** Restores server-enriched action truth onto the message-backed approval cards. */
+export function reconcileApprovalMessages(
+  messages: PlanMessage[],
+  approvals: PlannerFullPlanResponse['approvals']
+): PlanMessage[] {
+  const approvalsById = new Map<string, Record<string, unknown>>()
+  for (const approval of approvals ?? []) {
+    const record = readRecord(approval)
+    const id = typeof record?.id === 'string' ? record.id : null
+    if (record && id) approvalsById.set(id, record)
+  }
+  if (approvalsById.size === 0) return messages
+
+  let changed = false
+  const reconciled = messages.map((message) => {
+    const metadata = readRecord(message.metadata)
+    const embeddedApproval = readRecord(metadata?.approval)
+    const approvalId = typeof embeddedApproval?.id === 'string' ? embeddedApproval.id : null
+    const current = approvalId ? approvalsById.get(approvalId) : null
+    if (!metadata || !embeddedApproval || !current) return message
+
+    changed = true
+    return {
+      ...message,
+      metadata: {
+        ...metadata,
+        status: current.status !== undefined ? current.status : metadata.status,
+        ui_status: current.ui_status !== undefined ? current.ui_status : metadata.ui_status,
+        action_status: current.action_status !== undefined ? current.action_status : metadata.action_status,
+        action_result: current.action_result !== undefined ? current.action_result : metadata.action_result,
+        available_actions:
+          current.available_actions !== undefined ? current.available_actions : metadata.available_actions,
+        confirmation_snapshot:
+          current.snapshot_json !== undefined ? current.snapshot_json : metadata.confirmation_snapshot,
+        approval: {
+          ...embeddedApproval,
+          ...current,
+        },
+      } as PlanMessage['metadata'],
+    }
+  })
+
+  return changed ? reconciled : messages
 }

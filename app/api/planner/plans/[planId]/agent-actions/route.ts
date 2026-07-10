@@ -16,6 +16,7 @@ import {
   buildApprovalSnapshotHashV2,
   buildApprovalSnapshotV2,
 } from '@/lib/planner/execution/reapproval'
+import { normalizeExternalCheckoutUrl } from '@/lib/planner/execution/externalCheckout'
 import {
   checkAuthorizationActionStripeGate,
   getStripeGateErrorMessage,
@@ -57,22 +58,66 @@ type PlannerAuth =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
 
-const createAgentActionSchema = z.object({
-  actionType: z.enum([
-    'hold_request',
-    'vendor_contact',
-    'payment',
-    'external_checkout',
-    'ai_query',
-    'export',
-    'opportunity_send_venues',
-    'opportunity_send_vendors',
-  ]),
+const safeCentsSchema = z.number().int().nonnegative().refine(Number.isSafeInteger)
+const optionalTargetFields = {
   targetType: z.string().trim().min(1).max(80).nullable().optional(),
   targetId: z.string().uuid().nullable().optional(),
+}
+const optionalGenericActionFields = {
+  ...optionalTargetFields,
   payloadJson: z.record(z.unknown()).nullable().optional(),
-  requestedAmountCents: z.number().int().nonnegative().refine(Number.isSafeInteger).nullable().optional(),
-})
+  requestedAmountCents: safeCentsSchema.nullable().optional(),
+}
+
+function genericAgentActionSchema<Kind extends string>(actionType: Kind) {
+  return z.object({
+    actionType: z.literal(actionType),
+    ...optionalGenericActionFields,
+  }).strict()
+}
+
+const externalCheckoutUrlSchema = z.string().trim().min(1).max(2_048)
+  .refine((value) => {
+    try {
+      normalizeExternalCheckoutUrl(value)
+      return true
+    } catch {
+      return false
+    }
+  }, 'external_url must be a valid HTTPS URL without embedded credentials')
+  .transform((value) => normalizeExternalCheckoutUrl(value))
+
+const externalCheckoutPayloadSchema = z.object({
+  kind: z.literal('external_checkout'),
+  external_url: externalCheckoutUrlSchema,
+  action_label: z.string().trim().min(1).max(160),
+  provider: z.string().trim().min(1).max(160),
+  package_details: z.string().trim().min(1).max(2_000),
+  price_cents: safeCentsSchema.optional(),
+  fees_cents: safeCentsSchema.optional(),
+  refund_terms: z.string().trim().max(1_000).nullable().optional(),
+  cancellation_terms: z.string().trim().max(1_000).nullable().optional(),
+  event_date: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  delivery_email: z.string().trim().email().nullable().optional(),
+  notes: z.string().trim().max(4_000).nullable().optional(),
+  source: z.string().trim().max(120).optional(),
+}).strict()
+
+const createAgentActionSchema = z.discriminatedUnion('actionType', [
+  genericAgentActionSchema('hold_request'),
+  genericAgentActionSchema('vendor_contact'),
+  genericAgentActionSchema('payment'),
+  genericAgentActionSchema('ai_query'),
+  genericAgentActionSchema('export'),
+  genericAgentActionSchema('opportunity_send_venues'),
+  genericAgentActionSchema('opportunity_send_vendors'),
+  z.object({
+    actionType: z.literal('external_checkout'),
+    ...optionalTargetFields,
+    payloadJson: externalCheckoutPayloadSchema,
+    requestedAmountCents: safeCentsSchema.nullable().optional(),
+  }).strict(),
+])
 
 const PLAN_SELECT_COLUMNS = `
   id,
@@ -230,14 +275,20 @@ export async function POST(
     const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const payload = (parsed.data.payloadJson ?? {}) as JsonObject
-    const cents = readActionCents(payload, parsed.data.requestedAmountCents)
+    const submittedPayload = (parsed.data.payloadJson ?? {}) as JsonObject
+    const cents = readActionCents(submittedPayload, parsed.data.requestedAmountCents)
     if ('error' in cents) {
       return NextResponse.json({ error: cents.error }, { status: 400 })
     }
 
     const requestedAmountCents = cents.requestedAmountCents
     const feesCents = cents.feesCents
+    const payload = normalizeAgentActionPayload(
+      parsed.data.actionType,
+      submittedPayload,
+      requestedAmountCents,
+      feesCents
+    )
     const actionLabel = readString(payload.action_label) ?? readDefaultActionLabel(parsed.data.actionType)
     const provider = readString(payload.provider)
     const targetType = parsed.data.targetType ?? readString(payload.target_type)
@@ -564,4 +615,24 @@ function readDefaultActionLabel(actionType: z.infer<typeof createAgentActionSche
   if (actionType === 'external_checkout') return 'External checkout'
   if (actionType === 'ai_query') return 'Agent research'
   return 'Export plan'
+}
+
+function normalizeAgentActionPayload(
+  actionType: z.infer<typeof createAgentActionSchema>['actionType'],
+  payload: JsonObject,
+  requestedAmountCents: number,
+  feesCents: number
+): JsonObject {
+  if (actionType === 'external_checkout') {
+    return {
+      ...payload,
+      kind: 'external_checkout',
+      external_url: normalizeExternalCheckoutUrl(payload.external_url),
+      price_cents: requestedAmountCents,
+      requestedAmountCents,
+      fees_cents: feesCents,
+    }
+  }
+
+  return payload
 }
