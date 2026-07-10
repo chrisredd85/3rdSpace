@@ -200,6 +200,7 @@ export async function POST(request: NextRequest) {
       recommendations: (recommendationsData ?? []) as Recommendation[],
       requestedName: parsed.data.name,
       attendanceSummary,
+      sourceEvent: sourceEventData as TemplateSourceEventRow,
     })
 
     const { data: template, error: insertError } = await db

@@ -98,6 +98,7 @@ export function buildTemplateInsert(input: {
   recommendations: Recommendation[]
   requestedName?: string
   attendanceSummary: AttendanceSummaryInput
+  sourceEvent: TemplateSourceEventRow
 }) {
   const metadata = readRecord(input.plan.metadata)
   const ticketPriceTargetCents = readNumber(metadata?.ticket_price_target_cents) ?? readNumber(metadata?.ticket_price_target)
@@ -165,7 +166,15 @@ export function buildTemplateInsert(input: {
         'Authorize deposits only after partner terms are confirmed.',
       ],
     } as Json,
-    historical_performance: buildHistoricalPerformance(input.attendanceSummary) as Json,
+    historical_performance: {
+      ...buildHistoricalPerformance(input.attendanceSummary),
+      source_event_id: input.sourceEvent.id,
+      outcome_recorded_at: input.sourceEvent.outcome_recorded_at,
+      outcome_summary: input.sourceEvent.outcome_summary,
+      source: input.attendanceSummary && input.attendanceSummary.sample_size > 0
+        ? 'canonical_event_outcome_and_builder_history'
+        : 'canonical_event_outcome',
+    } as Json,
   }
 }
 

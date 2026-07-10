@@ -19,6 +19,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useEvent, useEvents, type EventWithRelations } from '@/lib/hooks/useEvents'
+import { PlannerOutcomeCard } from '@/components/planner/PlannerOutcomeCard'
 import { useUser } from '@/lib/hooks/useUser'
 import { cn } from '@/lib/utils'
 
@@ -334,6 +335,11 @@ export default function PlannerAnalyticsPage() {
           {loadState.error}
         </div>
       )}
+
+      <PlannerOutcomeCard
+        planId={(selectedEventDetails ?? selectedEvent)?.plan_id}
+        onCompleted={refreshFinancials}
+      />
 
       {loadState.isLoading && !scorecard ? (
         <ScorecardSkeleton />

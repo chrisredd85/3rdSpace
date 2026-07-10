@@ -100,6 +100,11 @@ describe('POST /api/planner/templates canonical eligibility', () => {
     expect(mock.templateInsert).toHaveBeenCalledWith(expect.objectContaining({
       source_plan_id: PLAN_ID,
       source_event_id: EVENT_ID,
+      historical_performance: expect.objectContaining({
+        source_event_id: EVENT_ID,
+        outcome_recorded_at: eligibleEvent.outcome_recorded_at,
+        outcome_summary: eligibleEvent.outcome_summary,
+      }),
     }))
     expect(mock.from).not.toHaveBeenCalledWith('venue_bookings')
     expect(mock.from).not.toHaveBeenCalledWith('vendor_bookings')

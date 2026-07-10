@@ -78,6 +78,8 @@ export function mapDbEventToApp(row: Record<string, any>): Event {
     starts_at: row.starts_at ?? null,
     ends_at: row.ends_at ?? null,
     time_zone: row.time_zone ?? null,
+    outcome_recorded_at: row.outcome_recorded_at ?? null,
+    outcome_summary: row.outcome_summary ?? null,
     expected_attendees:
       row.expected_attendance ??
       row.expected_attendance_min ??

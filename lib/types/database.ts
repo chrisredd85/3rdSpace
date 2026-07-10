@@ -423,6 +423,10 @@ export interface Event {
   ends_at?: string | null
   /** IANA timezone used to interpret the canonical schedule. */
   time_zone?: string | null
+  /** Service-recorded canonical outcome timestamp. */
+  outcome_recorded_at?: string | null
+  /** Structured canonical attendance/economic/notes evidence. */
+  outcome_summary?: Json | null
   expected_attendees: number | null
   status: EventStatus
   venue_id: string | null

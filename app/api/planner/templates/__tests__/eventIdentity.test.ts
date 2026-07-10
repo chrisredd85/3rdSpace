@@ -31,11 +31,23 @@ describe('planner template canonical event identity', () => {
       } as Plan,
       recommendations: [],
       attendanceSummary: null,
+      sourceEvent: {
+        id: sourceEventId,
+        plan_id: '11111111-1111-4111-8111-111111111111',
+        status: 'completed',
+        ends_at: '2026-08-21T04:00:00.000Z',
+        outcome_recorded_at: '2026-08-21T12:00:00.000Z',
+        outcome_summary: { actual_attendance: 58 },
+      },
     })
 
     expect(insert).toEqual(expect.objectContaining({
       source_plan_id: '11111111-1111-4111-8111-111111111111',
       source_event_id: sourceEventId,
+      historical_performance: expect.objectContaining({
+        source_event_id: sourceEventId,
+        outcome_summary: { actual_attendance: 58 },
+      }),
     }))
 
     const normalized = normalizeTemplateRow({
