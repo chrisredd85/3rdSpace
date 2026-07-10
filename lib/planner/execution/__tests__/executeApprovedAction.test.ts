@@ -1,4 +1,5 @@
 import {
+  executeApprovedAction,
   paymentAuthorizationTransitionEvents,
   paymentCaptureTransitionEvents,
   planApprovedActionExecution,
@@ -63,5 +64,41 @@ describe('approved action execution planning', () => {
   it('blocks payment transition planning for rejected or cancelled actions', () => {
     expect(() => paymentAuthorizationTransitionEvents('cancelled')).toThrow(/cancelled/)
     expect(() => paymentCaptureTransitionEvents('failed')).toThrow(/failed/)
+  })
+
+  it('dispatches an executable action through exactly one registered executor', async () => {
+    const prepare = jest.fn(async () => ({ prepared: true }))
+    const result = await executeApprovedAction({
+      approval: { status: 'authorized' } as never,
+      action: {
+        action_type: 'opportunity_send_venues',
+        payload_json: {},
+        result_metadata: {},
+      } as never,
+      registry: { prepare_outreach_drafts: prepare },
+    })
+
+    expect(prepare).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({
+      started: true,
+      plan: { kind: 'prepare_outreach_drafts' },
+      result: { prepared: true },
+    })
+  })
+
+  it('does not invoke a registry handler for an approval that cannot execute', async () => {
+    const prepare = jest.fn()
+    const result = await executeApprovedAction({
+      approval: { status: 'cancelled' } as never,
+      action: {
+        action_type: 'opportunity_send_venues',
+        payload_json: {},
+        result_metadata: {},
+      } as never,
+      registry: { prepare_outreach_drafts: prepare },
+    })
+
+    expect(prepare).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ started: false, plan: { kind: 'no_execution' } })
   })
 })

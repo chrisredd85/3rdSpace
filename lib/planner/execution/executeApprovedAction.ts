@@ -21,6 +21,26 @@ export interface ApprovedActionExecutionPlan {
   reason: string
 }
 
+export interface ApprovedActionExecutionContext {
+  action: AgentAction
+  approval: Approval
+}
+
+export interface ApprovedActionExecutionResult<Result = unknown> {
+  plan: ApprovedActionExecutionPlan
+  started: boolean
+  result: Result | null
+}
+
+export type ApprovedActionExecutionHandler<Result = unknown> = (
+  context: ApprovedActionExecutionContext
+) => Promise<Result>
+
+export type ApprovedActionExecutorRegistry = Partial<Record<
+  Exclude<ApprovedActionExecutionKind, 'no_execution'>,
+  ApprovedActionExecutionHandler
+>>
+
 type PlannerExecutionDb = { from: (table: string) => any }
 
 export function planApprovedActionExecution(input: {
@@ -86,6 +106,39 @@ export function planApprovedActionExecution(input: {
     canStart: false,
     terminalActionStatus: 'approved',
     reason: 'Approval recorded; no automatic execution is defined for this action',
+  }
+}
+
+/**
+ * The sole action-kind dispatch point for approval-backed planner execution.
+ *
+ * Routes own authentication and pass narrowly scoped handlers for provider or
+ * service work. This registry owns kind selection so a new execution mode
+ * cannot quietly fork its own action-type switch inside a route.
+ */
+export async function executeApprovedAction<Result = unknown>(input: {
+  action: AgentAction
+  approval: Approval
+  registry: ApprovedActionExecutorRegistry
+}): Promise<ApprovedActionExecutionResult<Result>> {
+  const plan = planApprovedActionExecution({
+    action: input.action,
+    approval: input.approval,
+  })
+
+  if (!plan.canStart || plan.kind === 'no_execution') {
+    return { plan, started: false, result: null }
+  }
+
+  const handler = input.registry[plan.kind]
+  if (!handler) {
+    throw new Error(`No approved-action executor is registered for ${plan.kind}`)
+  }
+
+  return {
+    plan,
+    started: true,
+    result: await handler({ action: input.action, approval: input.approval }) as Result,
   }
 }
 

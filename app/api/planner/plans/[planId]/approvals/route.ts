@@ -27,7 +27,10 @@ import {
   transitionApprovalStatus,
   type AgentActionTransitionEvent,
 } from '@/lib/planner/execution/approvalState'
-import { planApprovedActionExecution } from '@/lib/planner/execution/executeApprovedAction'
+import {
+  executeApprovedAction as dispatchApprovedAction,
+  type ApprovedActionExecutionKind,
+} from '@/lib/planner/execution/executeApprovedAction'
 import { deriveApprovalUiState } from '@/lib/planner/approvalUiState'
 import {
   APPROVAL_SNAPSHOT_SCHEMA_VERSION,
@@ -993,75 +996,101 @@ async function executeApprovedAction(
     approval: Approval
   }
 ) {
-  let action = await loadAgentAction(readDb, payload.actionId)
+  const action = await loadAgentAction(readDb, payload.actionId)
   if (!action) return
 
-  const executionPlan = planApprovedActionExecution({ action, approval: payload.approval })
-  if (!executionPlan.canStart) return
-
-  action = await persistAgentActionTransition(writeDb, {
+  await dispatchApprovedAction({
     action,
-    planId: payload.planId,
-    actorId: payload.actorId,
+    approval: payload.approval,
+    registry: {
+      send_gmail_outreach: async () => runCompletingActionExecutor(readDb, writeDb, {
+        action,
+        planId: payload.planId,
+        actorId: payload.actorId,
+        executionKind: 'send_gmail_outreach',
+        completionReason: 'approval.gmail_outreach_sent',
+        execute: async (executingAction) => executeApprovedGmailOutreach(readDb, {
+          userId: payload.actorId,
+          plan: payload.plan,
+          action: executingAction,
+          approval: payload.approval,
+        }),
+      }),
+      prepare_outreach_drafts: async () => runCompletingActionExecutor(readDb, writeDb, {
+        action,
+        planId: payload.planId,
+        actorId: payload.actorId,
+        executionKind: 'prepare_outreach_drafts',
+        completionReason: 'approval.outreach_drafts_prepared',
+        execute: async () => {
+          const preparation = await syncOpportunityInviteStatuses(
+            readDb,
+            writeDb,
+            payload.plan,
+            payload.actorId,
+            payload.approval
+          )
+          if (!preparation.prepared) {
+            throw new Error(preparation.reason ?? 'Outreach drafts were not prepared')
+          }
+          return {
+            outbound_message_sent: false,
+            send_requires_explicit_flow: true,
+            ...preparation,
+          }
+        },
+      }),
+    },
+  })
+}
+
+async function runCompletingActionExecutor(
+  _readDb: PlannerDb,
+  writeDb: PlannerDb,
+  input: {
+    action: AgentAction
+    planId: string
+    actorId: string
+    executionKind: ApprovedActionExecutionKind
+    completionReason: string
+    execute: (executingAction: AgentAction) => Promise<Record<string, unknown>>
+  }
+) {
+  let action = await persistAgentActionTransition(writeDb, {
+    action: input.action,
+    planId: input.planId,
+    actorId: input.actorId,
     reason: 'approval.execution_started',
     event: 'execution_started',
     metadata: {
-      execution_kind: executionPlan.kind,
+      execution_kind: input.executionKind,
       outbound_message_sent: false,
     },
   })
 
   try {
-    if (executionPlan.kind === 'send_gmail_outreach') {
-      const gmailExecution = await executeApprovedGmailOutreach(readDb, {
-        userId: payload.actorId,
-        plan: payload.plan,
-        action,
-        approval: payload.approval,
-      })
-
-      await persistAgentActionTransition(writeDb, {
-        action,
-        planId: payload.planId,
-        actorId: payload.actorId,
-        reason: 'approval.gmail_outreach_sent',
-        event: 'execution_completed',
-        metadata: {
-          execution_kind: executionPlan.kind,
-          ...gmailExecution,
-        },
-      })
-      return
-    }
-
-    const preparation = await syncOpportunityInviteStatuses(readDb, writeDb, payload.plan, payload.actorId, payload.approval)
-
-    if (!preparation.prepared) {
-      throw new Error(preparation.reason ?? 'Outreach drafts were not prepared')
-    }
-
-    await persistAgentActionTransition(writeDb, {
+    const result = await input.execute(action)
+    action = await persistAgentActionTransition(writeDb, {
       action,
-      planId: payload.planId,
-      actorId: payload.actorId,
-      reason: 'approval.outreach_drafts_prepared',
+      planId: input.planId,
+      actorId: input.actorId,
+      reason: input.completionReason,
       event: 'execution_completed',
       metadata: {
-        execution_kind: executionPlan.kind,
-        outbound_message_sent: false,
-        send_requires_explicit_flow: true,
-        ...preparation,
+        execution_kind: input.executionKind,
+        ...result,
       },
     })
+    return result
   } catch (error) {
     await persistAgentActionTransition(writeDb, {
       action,
-      planId: payload.planId,
-      actorId: payload.actorId,
+      planId: input.planId,
+      actorId: input.actorId,
       reason: 'approval.execution_failed',
       event: 'execution_failed',
       metadata: {
-        execution_kind: executionPlan.kind,
+        execution_kind: input.executionKind,
         error: error instanceof Error ? error.message : 'Unknown execution error',
       },
     })
