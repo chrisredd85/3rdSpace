@@ -1,6 +1,38 @@
 name: RLS Checks
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/security/**'
+      - 'scripts/release/toggle-write-pause.sh'
+      - '__tests__/security/**'
+      - '__tests__/schema/write-pause-migration.test.ts'
+      - '__tests__/write-pause-*.test.ts'
+      - '__tests__/server/admin-auth.test.ts'
+      - '__tests__/stripe-webhook-replay-auth.test.ts'
+      - '__tests__/integration/builder-events-materialization-route.test.ts'
+      - '__tests__/integration/stripe-connect-webhook.test.ts'
+      - '__tests__/integration/stripe-kickback-invoice-webhook.test.ts'
+      - '__tests__/integration/stripe-webhook-*.test.ts'
+      - '__tests__/integration/venue-rental-refund-routes.test.ts'
+      - '__tests__/integration/write-pause-*.test.ts'
+      - 'app/api/builder/events/**'
+      - 'app/api/internal/write-pause/**'
+      - 'app/api/internal/stripe-webhooks/replay-deferred/**'
+      - 'app/api/webhooks/stripe/**'
+      - 'lib/hooks/useEvents.ts'
+      - 'lib/server/admin-auth.ts'
+      - 'lib/write-pause.ts'
+      - 'lib/stripe/webhookLedger.ts'
+      - 'lib/stripe/webhookReplayAuth.ts'
+      - 'middleware.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/rls-checks.yml'
+      - '.github/workflows/test.yml'
   pull_request:
     paths:
       - 'supabase/migrations/**'
@@ -11,30 +43,22 @@ on:
       - '__tests__/write-pause-*.test.ts'
       - '__tests__/server/admin-auth.test.ts'
       - '__tests__/stripe-webhook-replay-auth.test.ts'
+      - '__tests__/integration/builder-events-materialization-route.test.ts'
       - '__tests__/integration/stripe-connect-webhook.test.ts'
       - '__tests__/integration/stripe-kickback-invoice-webhook.test.ts'
       - '__tests__/integration/stripe-webhook-*.test.ts'
       - '__tests__/integration/venue-rental-refund-routes.test.ts'
       - '__tests__/integration/write-pause-*.test.ts'
-      - 'middleware.ts'
+      - 'app/api/builder/events/**'
+      - 'app/api/internal/write-pause/**'
+      - 'app/api/internal/stripe-webhooks/replay-deferred/**'
+      - 'app/api/webhooks/stripe/**'
+      - 'lib/hooks/useEvents.ts'
       - 'lib/server/admin-auth.ts'
       - 'lib/write-pause.ts'
       - 'lib/stripe/webhookLedger.ts'
       - 'lib/stripe/webhookReplayAuth.ts'
-      - 'app/api/internal/write-pause/**'
-      - 'app/api/internal/stripe-webhooks/replay-deferred/**'
-      - 'app/api/webhooks/stripe/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/rls-checks.yml'
-      - '.github/workflows/test.yml'
-  push:
-    branches:
-      - main
-    paths:
-      - 'supabase/migrations/**'
-      - 'scripts/security/**'
-      - '__tests__/security/**'
+      - 'middleware.ts'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/rls-checks.yml'
@@ -95,6 +119,9 @@ jobs:
             delta_args+=(--allowlist scripts/security/tied-house-pr205-allowlist.json)
           fi
           npm run security:tied-house:delta -- "${delta_args[@]}"
+
+      - name: Run builder event materialization route tests
+        run: npm test -- __tests__/integration/builder-events-materialization-route.test.ts --runInBand
 
       - name: Run realized database security regression tests
         run: npm test -- __tests__/security/rls.test.ts __tests__/security/database-privileges.test.ts --runInBand

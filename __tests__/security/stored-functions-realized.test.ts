@@ -486,6 +486,152 @@ describeIfDatabase('realized P0 stored functions', () => {
     })
   })
 
+  describe('materialize_builder_event_with_access', () => {
+    const payloadHash = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+
+    function call(idempotencyKey: string) {
+      return `
+        select
+          plan_id || '|' || event_id || '|' || consumption_id || '|' ||
+          access_source || '|' || amount_cents || '|' || existing || '|' ||
+          (event_record->>'event_name')
+        from public.materialize_builder_event_with_access(
+          '${ids.organizer}',
+          '${ids.builder}',
+          '${idempotencyKey}',
+          '${payloadHash}',
+          'Atomic materialized event',
+          'One transaction',
+          'networking',
+          '2026-09-01',
+          '18:00',
+          '21:00',
+          3,
+          40,
+          250000,
+          'draft'
+        );
+      `
+    }
+
+    it('atomically creates a minimal plan, legacy event, and plan-keyed consumption', () => {
+      const output = transaction(asRole('service_role', null, `
+        select current_user || '|' || auth.role();
+        ${call('materialize-success-001')}
+        reset role;
+        select
+          materialization.status || '|' ||
+          (consumption.event_id = materialization.plan_id)::text || '|' ||
+          (plan_row.metadata->>'event_id' = materialization.event_id::text)::text
+        from public.builder_event_materializations AS materialization
+        join public.builder_event_access_consumptions AS consumption
+          ON consumption.id = materialization.consumption_id
+        join public.plans AS plan_row
+          ON plan_row.id = materialization.plan_id
+        where materialization.idempotency_key = 'materialize-success-001';
+        select free_events_used from public.builder_profiles where id = '${ids.builder}';
+      `))
+
+      const lines = output.split('\n')
+      expect(lines[0]).toBe('service_role|service_role')
+      expect(lines[1]).toMatch(
+        /^[0-9a-f-]{36}\|[0-9a-f-]{36}\|[0-9a-f-]{36}\|free_trial\|0\|false\|Atomic materialized event$/,
+      )
+      expect(lines.slice(2)).toEqual(['materialized|true|true', '1'])
+    })
+
+    it('rolls back the request, plan, event, and counters when billing fails', () => {
+      const output = transaction(asRole('service_role', null, `
+        update public.builder_profiles
+        set free_events_used = free_events_granted, paid_event_credits = 0
+        where id = '${ids.builder}';
+
+        do $billing_failure$
+        declare
+          v_billing_failed boolean := false;
+        begin
+          begin
+            perform public.materialize_builder_event_with_access(
+              '${ids.organizer}',
+              '${ids.builder}',
+              'materialize-billing-failure',
+              '${payloadHash}',
+              'Billing failure event',
+              null,
+              'networking',
+              '2026-09-02',
+              '18:00',
+              '21:00',
+              3,
+              40,
+              250000,
+              'draft'
+            );
+          exception
+            when sqlstate 'P0001' then
+              if sqlerrm = 'builder_billing_required' then
+                v_billing_failed := true;
+              else
+                raise;
+              end if;
+          end;
+
+          if not v_billing_failed then
+            raise exception 'expected builder_billing_required'
+              using errcode = 'P0004';
+          end if;
+        end;
+        $billing_failure$;
+
+        reset role;
+        select count(*) from public.builder_event_materializations
+        where idempotency_key = 'materialize-billing-failure';
+        select count(*) from public.plans where title = 'Billing failure event';
+        select count(*) from public.events where event_name = 'Billing failure event';
+        select count(*) from public.builder_event_access_consumptions
+        where builder_id = '${ids.builder}';
+        select free_events_used from public.builder_profiles where id = '${ids.builder}';
+      `))
+
+      expect(output.split('\n')).toEqual(['0', '0', '0', '0', '2'])
+    })
+
+    it('returns the original identities and consumes once on a same-key retry', () => {
+      const output = transaction(asRole('service_role', null, `
+        update public.builder_profiles
+        set free_events_used = 1
+        where id = '${ids.builder}';
+        ${call('materialize-retry-001')}
+        ${call('materialize-retry-001')}
+        reset role;
+        select count(*) from public.builder_event_materializations
+        where idempotency_key = 'materialize-retry-001';
+        select count(*) from public.plans where title = 'Atomic materialized event';
+        select count(*) from public.events where event_name = 'Atomic materialized event';
+        select count(*) from public.builder_event_access_consumptions
+        where builder_id = '${ids.builder}';
+        select free_events_used from public.builder_profiles where id = '${ids.builder}';
+      `))
+
+      const lines = output.split('\n')
+      const first = lines[0].split('|')
+      const second = lines[1].split('|')
+      expect(first.slice(0, 3)).toEqual(second.slice(0, 3))
+      expect(first[5]).toBe('false')
+      expect(second[5]).toBe('true')
+      expect(lines.slice(2)).toEqual(['1', '1', '1', '1', '2'])
+    })
+
+    it('denies anonymous and authenticated callers at the function ACL', () => {
+      expect(() => transaction(asRole('anon', null, call('materialize-anon-001')))).toThrow()
+      expect(() => transaction(asRole(
+        'authenticated',
+        ids.organizer,
+        call('materialize-authenticated-001'),
+      ))).toThrow()
+    })
+  })
+
   describe('create_vendor_invite', () => {
     const call = `
       select vendor_id || '|' || relationship_id || '|' || rate_agreement_id || '|' || existing

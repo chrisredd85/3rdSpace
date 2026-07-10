@@ -157,12 +157,14 @@ export function useCreateEvent() {
 
   return useMutation({
     mutationFn: async (
-      event: Omit<Event, 'id' | 'created_at' | 'updated_at'>
+      input: Omit<Event, 'id' | 'created_at' | 'updated_at'> & { idempotencyKey: string }
     ) => {
+      const { idempotencyKey, ...event } = input
       const response = await fetch('/api/builder/events', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
         },
         credentials: 'include',
         body: JSON.stringify(event),
@@ -176,6 +178,7 @@ export function useCreateEvent() {
       const data = await response.json()
       return data.event as Event
     },
+    retry: false,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: eventKeys.lists() })
       queryClient.invalidateQueries({ queryKey: eventKeys.detail(data.id) })
