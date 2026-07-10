@@ -17,7 +17,7 @@ export type ApprovedActionExecutionKind =
 export interface ApprovedActionExecutionPlan {
   kind: ApprovedActionExecutionKind
   canStart: boolean
-  terminalActionStatus: 'approved' | 'complete'
+  terminalActionStatus: 'approved' | 'executing' | 'complete'
   reason: string
 }
 
@@ -86,9 +86,9 @@ export function planApprovedActionExecution(input: {
   if (input.action.action_type === 'external_checkout') {
     return {
       kind: 'await_external_checkout',
-      canStart: false,
-      terminalActionStatus: 'approved',
-      reason: 'External checkout approval only unlocks a handoff link',
+      canStart: true,
+      terminalActionStatus: 'executing',
+      reason: 'Approval unlocks a host-controlled external checkout handoff',
     }
   }
 

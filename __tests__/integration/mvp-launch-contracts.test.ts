@@ -937,7 +937,19 @@ describe('MVP launch API contracts', () => {
         notes: 'Exact host-edited terms',
       }),
     }))
-    expect(db.rows.agent_actions[0].status).toBe('approved')
+    expect(db.rows.agent_actions[0]).toEqual(expect.objectContaining({
+      status: 'executing',
+      result_metadata: expect.objectContaining({
+        execution_mode: 'external_checkout',
+        external_checkout: expect.objectContaining({
+          status: 'ready',
+          external_url: 'https://tickets.example/event/123',
+          approval_id: edited.approval.id,
+          snapshot_hash: edited.approval.snapshot_hash,
+          completion_confirmation_required: true,
+        }),
+      }),
+    }))
   })
 
   it('POST planner agent-actions keeps trusted mutations on the service writer', async () => {

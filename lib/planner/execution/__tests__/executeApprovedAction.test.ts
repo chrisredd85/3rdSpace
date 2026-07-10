@@ -61,6 +61,22 @@ describe('approved action execution planning', () => {
     expect(paymentCaptureTransitionEvents('executing')).toEqual(['execution_completed'])
   })
 
+  it('starts an external checkout handoff but leaves completion with the host', () => {
+    expect(planApprovedActionExecution({
+      approval: { status: 'authorized' },
+      action: {
+        action_type: 'external_checkout',
+        payload_json: { external_url: 'https://tickets.example.org/checkout' },
+        result_metadata: {},
+      },
+    })).toEqual({
+      kind: 'await_external_checkout',
+      canStart: true,
+      terminalActionStatus: 'executing',
+      reason: 'Approval unlocks a host-controlled external checkout handoff',
+    })
+  })
+
   it('blocks payment transition planning for rejected or cancelled actions', () => {
     expect(() => paymentAuthorizationTransitionEvents('cancelled')).toThrow(/cancelled/)
     expect(() => paymentCaptureTransitionEvents('failed')).toThrow(/failed/)

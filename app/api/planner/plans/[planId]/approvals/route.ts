@@ -31,6 +31,7 @@ import {
   executeApprovedAction as dispatchApprovedAction,
   type ApprovedActionExecutionKind,
 } from '@/lib/planner/execution/executeApprovedAction'
+import { executeExternalCheckoutHandoff } from '@/lib/planner/execution/externalCheckout'
 import { deriveApprovalUiState } from '@/lib/planner/approvalUiState'
 import {
   APPROVAL_SNAPSHOT_SCHEMA_VERSION,
@@ -1040,8 +1041,83 @@ async function executeApprovedAction(
           }
         },
       }),
+      await_external_checkout: async () => runHandoffActionExecutor(writeDb, {
+        action,
+        planId: payload.planId,
+        actorId: payload.actorId,
+        executionKind: 'await_external_checkout',
+        execute: async (executingAction) => executeExternalCheckoutHandoff({
+          db: writeDb,
+          action: executingAction,
+          approval: payload.approval,
+          plan: payload.plan,
+          actorId: payload.actorId,
+        }),
+      }),
     },
   })
+}
+
+async function runHandoffActionExecutor(
+  writeDb: PlannerDb,
+  input: {
+    action: AgentAction
+    planId: string
+    actorId: string
+    executionKind: ApprovedActionExecutionKind
+    execute: (executingAction: AgentAction) => Promise<{
+      disposition: 'executing' | 'complete' | 'waiting'
+      metadata: Json
+    }>
+  }
+) {
+  let action = input.action
+  if (action.status === 'approved') {
+    action = await persistAgentActionTransition(writeDb, {
+      action,
+      planId: input.planId,
+      actorId: input.actorId,
+      reason: 'approval.execution_started',
+      event: 'execution_started',
+      metadata: {
+        execution_kind: input.executionKind,
+        outbound_message_sent: false,
+      },
+    })
+  } else if (action.status !== 'executing') {
+    throw new Error(`Approved-action handoff cannot resume from ${action.status}`)
+  }
+
+  try {
+    const result = await input.execute(action)
+    if (result.disposition === 'complete') {
+      await persistAgentActionTransition(writeDb, {
+        action,
+        planId: input.planId,
+        actorId: input.actorId,
+        reason: 'approval.handoff_completed',
+        event: 'execution_completed',
+        metadata: {
+          execution_kind: input.executionKind,
+          ...(readRecord(result.metadata) ?? {}),
+        },
+      })
+    }
+    return result
+  } catch (error) {
+    await persistAgentActionTransition(writeDb, {
+      action,
+      planId: input.planId,
+      actorId: input.actorId,
+      reason: 'approval.execution_failed',
+      event: 'execution_failed',
+      metadata: {
+        execution_kind: input.executionKind,
+        error: error instanceof Error ? error.message : 'Unknown execution error',
+      },
+    })
+    throw error
+  }
 }
 
 async function runCompletingActionExecutor(
