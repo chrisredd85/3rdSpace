@@ -6,6 +6,7 @@ import { CheckCircle2, ChevronDown, ExternalLink, Loader2, Sparkles } from 'luci
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { PlannerDepositExecution } from '@/components/payments/PlannerDepositExecution'
 import type { Plan, PlanMessage } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { formatMockCents } from './draftMode'
@@ -1923,6 +1924,7 @@ export function PlannerApprovalCard({
   const responseDeadline = readApprovalResponseDeadline(approval)
   const comparisonGoal = readApprovalString(approval, 'comparison_goal')
   const approvalKind = readApprovalString(approval, 'kind')
+  const paymentMethodId = readApprovalString(approval, 'payment_method_id')
   const isGmailOutreachApproval = approvalKind === 'gmail_approved_outreach'
   const isOutreachApproval = approvalKind === 'venue_outreach' || approvalKind === 'vendor_outreach' || isGmailOutreachApproval || /outreach/i.test(label)
   const isSendToPartners = isOutreachApproval || /send to (venues|vendors|partners)/i.test(label)
@@ -1934,6 +1936,7 @@ export function PlannerApprovalCard({
   const isProductGateRequired = isAuthenticated && billingAccess === 'required'
   const freeEventsRemaining = billingSummary?.freeEventsRemaining ?? billingSummary?.free_events_remaining ?? 0
   const shouldShowFreeEventApprovalNotice = isOutreachApproval && !isProductGateRequired && freeEventsRemaining > 0
+  const isControlledPaymentApproval = amountCents > 0 && Boolean(paymentMethodId) && !isOutreachApproval
 
   function requestSignupForAuthorization(nextAuthorizedAmountCents: number) {
     onAuthRequired({
@@ -2254,6 +2257,19 @@ export function PlannerApprovalCard({
                   {authorizedAmountCents != null ? ` · ${formatMockCents(authorizedAmountCents)}` : ''} · pending execution
                 </p>
               )}
+              {isControlledPaymentApproval ? (
+                <PlannerDepositExecution
+                  planId={planId}
+                  approvalId={approvalId}
+                  provider={provider}
+                  amountLabel={formatMockCents(authorizedAmountCents ?? amountCents)}
+                  onCaptured={() => onToast({
+                    title: 'Deposit captured',
+                    description: 'Stripe confirmed the charge. 3rdPlace is finalizing the payment record.',
+                    variant: 'success',
+                  })}
+                />
+              ) : null}
             </div>
           ) : mode === 'confirm_cancel' ? (
             <div className="mt-4 rounded-xl border border-border bg-background/70 p-3">

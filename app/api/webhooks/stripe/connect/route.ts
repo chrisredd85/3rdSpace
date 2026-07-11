@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await processStripeConnectWebhookEvent(admin as any, event)
+    const result = await processStripeConnectWebhookEvent(admin as any, event, getStripeClient())
     await recordStripeWebhookProcessingResult(admin as any, {
       event,
       source: 'connect',

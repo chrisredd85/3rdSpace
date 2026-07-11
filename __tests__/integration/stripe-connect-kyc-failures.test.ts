@@ -2,7 +2,19 @@ jest.mock('server-only', () => ({}))
 
 import type Stripe from 'stripe'
 import * as Sentry from '@sentry/nextjs'
-import { processStripeConnectWebhookEvent } from '@/lib/stripe/connect-webhook'
+import { processStripeConnectWebhookEvent as processStripeConnectWebhookEventImpl } from '@/lib/stripe/connect-webhook'
+
+jest.mock('@/lib/stripe/accountRestrictionNeutralization', () => ({
+  neutralizeRestrictedStripeAccountObjects: jest.fn(async () => ({
+    payment_intents_cancelled: 0,
+    payment_intents_already_cancelled: 0,
+    payment_intents_routed_to_reconciliation: 0,
+    capturing_payment_intents_preserved: 0,
+    checkout_sessions_expired: 0,
+    checkout_sessions_already_expired: 0,
+    checkout_sessions_routed_to_reconciliation: 0,
+  })),
+}))
 
 jest.mock('@sentry/nextjs', () => ({
   captureException: jest.fn(),
@@ -10,6 +22,10 @@ jest.mock('@sentry/nextjs', () => ({
 }))
 
 const mockCaptureMessage = Sentry.captureMessage as jest.Mock
+
+function processStripeConnectWebhookEvent(admin: unknown, event: Stripe.Event) {
+  return processStripeConnectWebhookEventImpl(admin as never, event, {} as never)
+}
 
 type Row = Record<string, any>
 type RoleName = 'vendor' | 'venue' | 'builder'

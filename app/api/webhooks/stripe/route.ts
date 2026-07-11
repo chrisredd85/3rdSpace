@@ -952,7 +952,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (event.type === 'account.updated') {
-      responseBody = await processStripeConnectWebhookEvent(admin as any, event)
+      responseBody = await processStripeConnectWebhookEvent(admin as any, event, getStripeClient())
       if (responseBody.ignored) outcome = 'ignored'
     }
 
@@ -1036,7 +1036,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (event.type === 'account.application.deauthorized') {
-      responseBody = await processStripeConnectWebhookEvent(admin as any, event)
+      responseBody = await processStripeConnectWebhookEvent(admin as any, event, getStripeClient())
     }
 
     await recordStripeWebhookProcessingResult(admin as any, {

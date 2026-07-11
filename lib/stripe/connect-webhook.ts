@@ -13,6 +13,9 @@ import {
 } from '@/lib/stripe/connect'
 import { handleVenueStripeReadyForOwner } from '@/lib/venues/venueOpportunityRecovery'
 import { recordStripeReadyUnblockNotice } from '@/lib/server/notifyEntityStripeSetup'
+import {
+  neutralizeRestrictedStripeAccountObjects,
+} from '@/lib/stripe/accountRestrictionNeutralization'
 
 type StripeAdminClient = Parameters<typeof saveBuilderStripeAccount>[0] & {
   rpc?: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data?: unknown; error?: { message?: string } | null }>
@@ -47,7 +50,8 @@ async function loadStripeAccountRow(
 export async function applyStripeConnectAccountUpdated(
   admin: StripeAdminClient,
   account: Stripe.Account,
-  eventId = account.id
+  eventId: string,
+  stripe: Parameters<typeof neutralizeRestrictedStripeAccountObjects>[0]['stripe']
 ): Promise<StripeConnectWebhookResult> {
   const vendor = await loadStripeAccountRow(admin, 'vendor_stripe_accounts', 'vendor_id, account_status', account.id)
   const vendorId = readString(vendor?.vendor_id)
@@ -68,6 +72,14 @@ export async function applyStripeConnectAccountUpdated(
       !account.payouts_enabled
     ) {
       await blockInFlightStripeAccountPayments(admin, account.id, 'account.updated', eventId)
+      await neutralizeRestrictedStripeAccountObjects({
+        db: admin,
+        stripe,
+        accountId: account.id,
+        eventId,
+      })
+      await recordStripeConnectAccountEvent(admin, account.id, 'account.updated', eventId)
+      return { received: true }
     }
     if (account.charges_enabled) {
       await clearVendorStripeSkippedAt(admin, vendorId)
@@ -107,6 +119,14 @@ export async function applyStripeConnectAccountUpdated(
       !account.payouts_enabled
     ) {
       await blockInFlightStripeAccountPayments(admin, account.id, 'account.updated', eventId)
+      await neutralizeRestrictedStripeAccountObjects({
+        db: admin,
+        stripe,
+        accountId: account.id,
+        eventId,
+      })
+      await recordStripeConnectAccountEvent(admin, account.id, 'account.updated', eventId)
+      return { received: true }
     }
     if (!wasPayoutReady && account.payouts_enabled) {
       await handleVenueStripeReadyForOwner(admin, venueOwnerId)
@@ -134,6 +154,12 @@ export async function applyStripeConnectAccountUpdated(
     await saveBuilderStripeAccount(admin, builderUserId, readString(builder?.builder_id), account)
     if (isConnectedStripeAccountBlocked(nextStatus)) {
       const blockResult = await blockInFlightStripeAccountPayments(admin, account.id, 'account.updated', eventId)
+      await neutralizeRestrictedStripeAccountObjects({
+        db: admin,
+        stripe,
+        accountId: account.id,
+        eventId,
+      })
       await notifyOrganizerStripeAccountBlocked(admin, {
         accountId: account.id,
         organizerId: builderUserId,
@@ -290,8 +316,9 @@ async function clearVendorStripeSkippedAt(
 export async function restrictDeauthorizedStripeConnectAccount(
   admin: StripeAdminClient,
   accountId: string,
-  eventId = accountId
-): Promise<void> {
+  eventId: string,
+  stripe: Parameters<typeof neutralizeRestrictedStripeAccountObjects>[0]['stripe']
+) {
   const now = new Date().toISOString()
   const restriction = {
     account_status: 'disabled',
@@ -306,6 +333,12 @@ export async function restrictDeauthorizedStripeConnectAccount(
   await markStripeAccountRestricted(admin, 'venue_stripe_accounts', accountId, restriction)
   await markStripeAccountRestricted(admin, 'builder_stripe_accounts', accountId, restriction)
   await blockInFlightStripeAccountPayments(admin, accountId, 'account.application.deauthorized', eventId)
+  await neutralizeRestrictedStripeAccountObjects({
+    db: admin,
+    stripe,
+    accountId,
+    eventId,
+  })
 }
 
 async function markStripeAccountRestricted(
@@ -324,16 +357,23 @@ async function markStripeAccountRestricted(
 
 export async function processStripeConnectWebhookEvent(
   admin: StripeAdminClient,
-  event: Stripe.Event
+  event: Stripe.Event,
+  stripe: Parameters<typeof neutralizeRestrictedStripeAccountObjects>[0]['stripe']
 ): Promise<StripeConnectWebhookResult> {
   if (event.type === 'account.updated') {
-    return applyStripeConnectAccountUpdated(admin, event.data.object as Stripe.Account, event.id)
+    return applyStripeConnectAccountUpdated(admin, event.data.object as Stripe.Account, event.id, stripe)
   }
 
   if (event.type === 'account.application.deauthorized') {
     const accountId = event.account || (event.data.object as { id?: string }).id
     if (accountId) {
-      await restrictDeauthorizedStripeConnectAccount(admin, accountId, event.id)
+      await restrictDeauthorizedStripeConnectAccount(
+        admin,
+        accountId,
+        event.id,
+        stripe
+      )
+      return { received: true }
     }
     return { received: true }
   }

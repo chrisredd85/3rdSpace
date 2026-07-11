@@ -507,7 +507,21 @@ describe('planner deposit execution routes', () => {
       next_action: { type: 'use_stripe_sdk' },
     }))
     expect(db.rows.agent_actions[0].status).toBe('approved')
-    expect(db.rows.agent_action_audit_log).toHaveLength(0)
+    expect(db.rows.agent_actions[0].result_metadata).toEqual(expect.objectContaining({
+      payment_authentication: expect.objectContaining({
+        status: 'awaiting_authentication',
+        payment_intent_id: db.rows.payment_intents[0].id,
+        stripe_status: 'requires_action',
+      }),
+    }))
+    expect(db.rows.agent_action_audit_log).toEqual([
+      expect.objectContaining({
+        action_id: ACTION_ID,
+        from_status: 'approved',
+        to_status: 'approved',
+        reason: 'payment.authentication.awaiting_authentication',
+      }),
+    ])
 
     const reconciled = await authorizeDeposit(
       request(`/api/planner/plans/${PLAN_ID}/payments/authorize`, body),
@@ -525,7 +539,16 @@ describe('planner deposit execution routes', () => {
     expect(mockStripePaymentIntentsRetrieve).toHaveBeenCalledTimes(1)
     expect(mockStripePaymentIntentsRetrieve).toHaveBeenCalledWith('pi_sca_route')
     expect(db.rows.agent_actions[0].status).toBe('executing')
-    expect(db.rows.agent_action_audit_log).toHaveLength(1)
+    expect(db.rows.agent_action_audit_log).toHaveLength(2)
+    expect(db.rows.agent_action_audit_log[1]).toEqual(expect.objectContaining({
+      reason: 'payment.authorization_recorded',
+      metadata: expect.objectContaining({
+        payment_authentication: expect.objectContaining({
+          status: 'authenticated',
+          outcome: 'succeeded',
+        }),
+      }),
+    }))
   })
 
   it('rejects a missing payment method before reserving or transitioning the action', async () => {
