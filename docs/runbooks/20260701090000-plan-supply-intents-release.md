@@ -265,8 +265,9 @@ cron once and verify:
 
 This incident migration is additive and does not itself need the later
 server-owned-control-plane maintenance window. Before applying migrations
-`20260709110000` through `20260709178000`, the write-pause mechanism must already
-be deployed and verified. Follow `docs/runbooks/write-pause.md` and use
+`20260709110000` through `20260709178000`, PR #205's write-pause mechanism must
+already be deployed and verified after PR #203. Follow
+`docs/runbooks/write-pause.md` and use
 `scripts/release/toggle-write-pause.sh` from that release's pinned worktree.
 
 The coordinated release must run all three hosted verifiers after its schema
@@ -281,7 +282,10 @@ migration; the latter two validate migrations `20260709120000` and
 `20260709130000` and therefore run during the later coordinated release.
 
 Its production-clone rehearsal must test the frozen pre-bundle
-`REVIEWED_BASE_SHA` after PR #203 and the write-pause prerequisite are deployed.
+`REVIEWED_BASE_SHA` after PR #203 and PR #205 are deployed. PR #204 must then be
+rebased onto that resulting `main`, fully reverified, and captured live as the
+new release head; neither historical `add2241e…` nor pre-rebase `e008116…` is a
+valid `RELEASE_SHA`.
 Historical incident SHA `461e3da…` is the correct inventory for this isolated
 `20260701090000` repair, but it is not the old-code compatibility target for the
 later 23-file bundle.

@@ -34,8 +34,8 @@ hosted and the separately deployable prerequisite code releases are complete:
    `20260701090000-plan-supply-intents-release.md`;
 2. PR #203's `20260709090000_add_payment_intents_capturing_status.sql`, after
    its stale-capture crash recovery is complete and verified; and
-3. `20260709100000_add_write_pause_control.sql` plus the write-pause API, as a
-   separate schema-first prerequisite release.
+3. PR #205's `20260709100000_add_write_pause_control.sql` plus the write-pause
+   API, as a separate schema-first prerequisite release after PR #203.
 
 The write-pause table and API cannot first ship inside the same deployment that
 needs them to protect this bundle. They must already be live, durable across
@@ -48,6 +48,24 @@ The production-clone rehearsal is also mandatory. Record its backup/PITR
 provenance, per-migration timing, last-committed-version failure drill, all
 verifier results, and old-code/new-schema breakage list in the release ticket.
 There is no approved real window until that receipt has a go decision.
+
+### Three-PR dependency order
+
+The reviewed stack is ordered and must not be collapsed into the historical
+two-PR plan:
+
+1. apply PR #203's schema-first migration, merge the exact reviewed PR #203
+   head, and prove its deployment;
+2. apply PR #205's schema-first migration, merge the exact reviewed PR #205
+   head, and prove the write-pause control in production; then
+3. rebase PR #204 onto the resulting `main`, rerun every PR #204 gate, and only
+   then freeze PR #204 as the coordinated-window release candidate.
+
+PR #205 is the separately deployable source of the Phase 4 write-pause toggle.
+PR #204 depends on both prerequisite releases: its bundle verification extends
+PR #203's payment schema, and its coordinated window must use PR #205's already-
+deployed pause. Do not merge or rebase from this runbook before the preceding
+schema and deployment proof is recorded.
 
 ## Stop conditions
 
@@ -95,9 +113,10 @@ and timestamp for each phase.
 
 ## Freeze one exact release candidate
 
-PR #203 and the write-pause prerequisite change `main`; therefore do not reuse
-the historical `add2241e…` SHA. Capture the final PR head and base only after
-rebasing and rerunning every gate.
+PR #203 and PR #205 change `main`; therefore do not reuse the historical
+`add2241e…` or pre-rebase `e008116…` SHAs. Capture PR #204's final head and base
+live only after PR #204 is rebased onto the `main` containing both prerequisite
+merges and every gate has been rerun. `RELEASE_SHA` is never hardcoded.
 
 ```bash
 export REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -287,8 +306,8 @@ verifiers, and the old-production route, helper-blob, and compatibility
 evidence. The failure receipt must prove the migration `N` transaction rolled
 back to the `N-1` ledger boundary.
 The compatibility probes must target `REVIEWED_BASE_SHA`, which is the actual
-application live immediately before this bundle after PR #203 and the
-write-pause prerequisite. A harness or receipt still pinned to historical
+application live immediately before this bundle after PR #203 and PR #205. A
+harness or receipt still pinned to historical
 production SHA `461e3da…` is a stop condition. Never reuse either clone for
 production.
 
