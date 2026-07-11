@@ -564,6 +564,9 @@ describeIfDatabase('database privilege lockdown', () => {
 
   describe('SECURITY DEFINER tripwire', () => {
     it('matches every privileged function to the reviewed classification', () => {
+      expect(authenticatedFunctions).toHaveLength(11)
+      expect(serviceOnlyFunctions).toHaveLength(37)
+
       const realized = psql(`
         select p.oid::regprocedure::text
         from pg_proc p
@@ -578,6 +581,7 @@ describeIfDatabase('database privilege lockdown', () => {
         ...serviceOnlyFunctions.map(({ signature }) => signature),
       ].sort()
 
+      expect(classified).toHaveLength(48)
       expect(realized).toEqual(classified)
     })
 

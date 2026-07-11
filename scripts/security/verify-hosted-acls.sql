@@ -1,5 +1,6 @@
 -- Read-only production verification for migration
--- 20260709120000_lock_down_function_and_view_privileges.sql.
+-- 20260709120000_lock_down_function_and_view_privileges.sql plus the reviewed
+-- Prompt 7/8 SECURITY DEFINER additions through 20260709178000.
 --
 -- Run this in the hosted Supabase SQL editor after the migration lands. Any
 -- mismatch raises an exception and stops the script. This script does not
@@ -12,10 +13,20 @@ DECLARE
   v_function regprocedure;
   v_unclassified text;
   v_service_only constant regprocedure[] := ARRAY[
+    'public.advance_plan_after_confirmed_booking()'::regprocedure,
+    'public.assert_canonical_booking_partner_binding(text,uuid,uuid,uuid,uuid)'::regprocedure,
+    'public.bind_discovery_vendor_claim(uuid,uuid,uuid)'::regprocedure,
     'public.block_inflight_stripe_account_payments(text,text,text)'::regprocedure,
     'public.calculate_event_kickback(uuid)'::regprocedure,
+    'public.cancel_executing_canonical_quote_booking(uuid,uuid,uuid,uuid,text)'::regprocedure,
+    'public.canonical_booking_has_execution_provenance(text,uuid,uuid,uuid,uuid,uuid,uuid,integer,jsonb,text)'::regprocedure,
     'public.claim_app_jobs(integer,text)'::regprocedure,
+    'public.confirm_canonical_booking(text,uuid,uuid,jsonb)'::regprocedure,
     'public.consume_webhook_rate_limit(text,integer,integer)'::regprocedure,
+    'public.decline_canonical_bookings(text,uuid[],uuid,text,jsonb)'::regprocedure,
+    'public.enforce_canonical_booking_execution_provenance()'::regprocedure,
+    'public.ensure_canonical_booking_partner_binding(text,uuid,uuid,uuid,uuid)'::regprocedure,
+    'public.freeze_canonical_booking_partner_binding()'::regprocedure,
     'public.handle_new_user()'::regprocedure,
     'public.increment_stripe_webhook_duplicate_count(text,text)'::regprocedure,
     'public.increment_stripe_webhook_duplicate_count(text)'::regprocedure,
@@ -24,12 +35,14 @@ DECLARE
     'public.notify_review_events()'::regprocedure,
     'public.notify_vendor_booking_events()'::regprocedure,
     'public.notify_vendor_transaction_events()'::regprocedure,
+    'public.protect_vendor_profile_discovery_claim_link()'::regprocedure,
     'public.recalculate_vendor_review_stats(uuid)'::regprocedure,
     'public.record_stripe_webhook_event_result(text,text,jsonb,text,text,boolean,text,boolean,text)'::regprocedure,
     'public.refresh_projection_baselines()'::regprocedure,
     'public.refresh_vendor_analytics()'::regprocedure,
     'public.release_stale_stripe_webhook_reservations(interval)'::regprocedure,
     'public.reserve_stripe_webhook_event(text,text,jsonb,text,text,boolean)'::regprocedure,
+    'public.sync_vendor_profile_discovery_claim_link()'::regprocedure,
     'public.sync_vendor_review_stats()'::regprocedure,
     'public.transition_settlement_charge_status(uuid,text,text,text,uuid,text,text,jsonb,jsonb)'::regprocedure,
     'public.transition_settlement_run_status(uuid,text,text,text,uuid,text,text,jsonb,jsonb)'::regprocedure,
@@ -74,7 +87,7 @@ BEGIN
     WHERE n.nspname = 'public'
       AND p.prosecdef
   ) <> cardinality(v_service_only) + cardinality(v_authenticated) THEN
-    RAISE EXCEPTION 'Hosted SECURITY DEFINER count does not match the 36-function allowlist';
+    RAISE EXCEPTION 'Hosted SECURITY DEFINER count does not match the 48-function allowlist';
   END IF;
 
   FOREACH v_function IN ARRAY v_service_only LOOP
@@ -165,7 +178,7 @@ BEGIN
     RAISE EXCEPTION 'apply_plan_revision_atomic aggregate scoping markers are missing';
   END IF;
 
-  RAISE NOTICE 'Hosted ACL verification passed: 25 service-only, 11 authenticated-scoped, 0 anonymous privileged functions.';
+  RAISE NOTICE 'Hosted ACL verification passed: 37 service-only, 11 authenticated-scoped, 0 anonymous privileged functions.';
 END;
 $verify_hosted_acls$;
 
