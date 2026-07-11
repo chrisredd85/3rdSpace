@@ -975,6 +975,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (event.type === 'payment_intent.canceled') {
+      await applyPlannerStripePaymentIntentWebhook(
+        admin as any,
+        event.data.object as Stripe.PaymentIntent
+      )
+    }
+
+    if (event.type === 'payment_intent.amount_capturable_updated') {
+      await applyPlannerStripePaymentIntentWebhook(
+        admin as any,
+        event.data.object as Stripe.PaymentIntent
+      )
+    }
+
     if (event.type === 'charge.refunded') {
       const charge = event.data.object as Stripe.Charge
       const handledVenueRental = await applyVenueRentalRefundedCharge(admin as any, charge)
@@ -991,7 +1005,15 @@ export async function POST(request: NextRequest) {
           if (!handledKickbackRefund) {
             await applyPlannerStripeRefundWebhook(
               admin as any,
-              getPaymentIntentIdFromCharge(charge)
+              getPaymentIntentIdFromCharge(charge),
+              {
+                chargeAmountCapturedCents: Number(charge.amount_captured ?? 0),
+                refundedAmountCents: Number(charge.amount_refunded ?? 0),
+                currency: charge.currency,
+                eventId: event.id,
+                fullyRefunded: charge.refunded,
+              },
+              charge.metadata?.payment_kind === 'planner_deposit'
             )
           }
         }

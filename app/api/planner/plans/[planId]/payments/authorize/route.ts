@@ -4,7 +4,16 @@ export const runtime = 'nodejs'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { APPROVAL_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
-import { authorizePlannerDeposit } from '@/lib/planner/depositPayments'
+import {
+  authorizePlannerDeposit,
+  PlannerDepositAccountBlockedError,
+  PlannerDepositAuthorizationFailedError,
+  PlannerDepositAuthorizationPendingError,
+  PlannerDepositCustomerActionRequiredError,
+  PlannerDepositPaymentMethodRequiredError,
+  PlannerDepositReservationConflictError,
+  type PlannerPaymentIntentRow,
+} from '@/lib/planner/depositPayments'
 import {
   assertIntegerCents,
   type AgentActionTransitionEvent,
@@ -14,7 +23,12 @@ import {
   paymentAuthorizationTransitionEvents,
   persistAgentActionTransitionEvents,
 } from '@/lib/planner/execution/executeApprovedAction'
+import { isPaymentApprovalExpired } from '@/lib/planner/execution/paymentApproval'
 import { approvalRequiresReapproval } from '@/lib/planner/execution/reapproval'
+import {
+  assertPlannerPartnerStripeReady,
+  PlannerPartnerStripeReadinessUnavailableError,
+} from '@/lib/planner/partnerStripeReadiness'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { AgentAction, Approval, Json, Plan, PlannerApiErrorResponse } from '@/lib/types'
 
@@ -24,6 +38,14 @@ interface RouteContext {
   params: Promise<{
     planId: string
   }>
+}
+
+interface PlannerDepositActionRequiredResponse {
+  paymentIntent: PlannerPaymentIntentRow
+  requires_action: true
+  stripe_status: 'requires_action' | 'requires_confirmation'
+  client_secret: string
+  next_action: Json | null
 }
 
 const authorizeDepositSchema = z.object({
@@ -42,7 +64,11 @@ const authorizeDepositSchema = z.object({
 export async function POST(
   request: NextRequest,
   context: RouteContext
-): Promise<NextResponse<{ paymentIntent: Awaited<ReturnType<typeof authorizePlannerDeposit>> } | PlannerApiErrorResponse>> {
+): Promise<NextResponse<
+  { paymentIntent: Awaited<ReturnType<typeof authorizePlannerDeposit>> } |
+  PlannerDepositActionRequiredResponse |
+  PlannerApiErrorResponse
+>> {
   try {
     const supabase = createClient()
     const {
@@ -76,6 +102,12 @@ export async function POST(
     if (approval.status !== 'authorized' && approval.status !== 'approved') {
       return NextResponse.json({ error: 'Authorize the approval before authorizing a deposit' }, { status: 422 })
     }
+    if (isPaymentApprovalExpired(approval.expires_at)) {
+      return NextResponse.json(
+        { error: 'Approval expired. Review the latest terms and approve again.' },
+        { status: 409 }
+      )
+    }
 
     const action = await loadAgentAction(admin, approval.agent_action_id)
     if (!action) return NextResponse.json({ error: 'Linked approval action not found' }, { status: 422 })
@@ -97,7 +129,16 @@ export async function POST(
     }
 
     const amountCents = assertIntegerCents(parsed.data.amountCents, 'amountCents', 50)
-    const platformFeeCents = assertIntegerCents(parsed.data.platformFeeCents ?? 0, 'platformFeeCents')
+    const platformFeeCents = assertIntegerCents(approval.fees_cents ?? 0, 'approval.fees_cents')
+    if (
+      parsed.data.platformFeeCents != null &&
+      parsed.data.platformFeeCents !== platformFeeCents
+    ) {
+      return NextResponse.json(
+        { error: 'Platform fee changed after approval. Review and approve the updated fee before authorizing.' },
+        { status: 409 }
+      )
+    }
     const approvedAmountCents = approval.authorized_amount_cents ?? approval.requested_amount_cents ?? approval.price_cents ?? 0
     if (amountCents !== approvedAmountCents) {
       return NextResponse.json(
@@ -105,6 +146,53 @@ export async function POST(
         { status: 409 }
       )
     }
+
+    if (
+      action.target_type !== parsed.data.partnerKind ||
+      action.target_id !== parsed.data.partnerId
+    ) {
+      return NextResponse.json(
+        { error: 'Payment partner changed after approval. Review and approve the updated partner before authorizing.' },
+        { status: 409 }
+      )
+    }
+
+    if (
+      parsed.data.refundTerms !== undefined &&
+      parsed.data.refundTerms !== approval.refund_terms
+    ) {
+      return NextResponse.json(
+        { error: 'Refund terms changed after approval. Review and approve the updated terms before authorizing.' },
+        { status: 409 }
+      )
+    }
+
+    const requestedPaymentMethodId = parsed.data.paymentMethodId?.trim() || null
+    const approvedPaymentMethodId = approval.payment_method_id?.trim() || null
+    if (
+      requestedPaymentMethodId &&
+      approvedPaymentMethodId &&
+      requestedPaymentMethodId !== approvedPaymentMethodId
+    ) {
+      return NextResponse.json(
+        { error: 'Payment method changed after approval. Review and approve the updated payment method before authorizing.' },
+        { status: 409 }
+      )
+    }
+    const paymentMethodId = requestedPaymentMethodId || approvedPaymentMethodId
+    if (!paymentMethodId) {
+      return NextResponse.json(
+        { error: 'A payment method is required to authorize this deposit.' },
+        { status: 422 }
+      )
+    }
+
+    await assertPlannerPartnerStripeReady({
+      db: admin,
+      partnerKind: parsed.data.partnerKind,
+      partnerId: parsed.data.partnerId,
+      eventId: `planner_authorize_${approval.id}`,
+    })
 
     const paymentIntent = await authorizePlannerDeposit({
       db: admin,
@@ -114,8 +202,8 @@ export async function POST(
       partnerKind: parsed.data.partnerKind,
       partnerId: parsed.data.partnerId,
       amountCents,
-      paymentMethodId: parsed.data.paymentMethodId ?? null,
-      refundTerms: parsed.data.refundTerms ?? approval.refund_terms,
+      paymentMethodId,
+      refundTerms: approval.refund_terms,
       platformFeeCents,
     })
 
@@ -133,7 +221,41 @@ export async function POST(
 
     return NextResponse.json({ paymentIntent })
   } catch (error) {
+    if (error instanceof PlannerDepositCustomerActionRequiredError) {
+      return NextResponse.json({
+        paymentIntent: error.paymentIntent,
+        requires_action: true,
+        stripe_status: error.stripeStatus,
+        client_secret: error.clientSecret,
+        next_action: (error.nextAction ?? null) as Json | null,
+      })
+    }
     console.error('Planner deposit authorize error:', error)
+    if (
+      error instanceof PlannerDepositPaymentMethodRequiredError ||
+      error instanceof PlannerDepositAuthorizationFailedError
+    ) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 422 }
+      )
+    }
+    if (
+      error instanceof PlannerDepositAuthorizationPendingError ||
+      error instanceof PlannerDepositReservationConflictError ||
+      error instanceof PlannerDepositAccountBlockedError
+    ) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 409 }
+      )
+    }
+    if (error instanceof PlannerPartnerStripeReadinessUnavailableError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 503 }
+      )
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unable to authorize deposit' },
       { status: 500 }

@@ -7,18 +7,23 @@ import {
   capturePlannerDeposit,
   PaymentCaptureAlreadyInProgressError,
   PAYMENT_INTENT_SELECT_COLUMNS,
+  PlannerDepositAccountBlockedError,
+  PlannerDepositCaptureFailedError,
+  PlannerDepositNotFundedError,
   type PlannerPaymentIntentRow,
 } from '@/lib/planner/depositPayments'
+import { reconcilePlannerDepositTerminalEffects } from '@/lib/planner/depositCaptureEffects'
 import { PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
-import {
-  type AgentActionTransitionEvent,
-} from '@/lib/planner/execution/approvalState'
 import {
   AGENT_ACTION_EXECUTION_SELECT_COLUMNS,
   paymentCaptureTransitionEvents,
-  persistAgentActionTransitionEvents,
 } from '@/lib/planner/execution/executeApprovedAction'
+import { isPaymentApprovalExpired } from '@/lib/planner/execution/paymentApproval'
 import { approvalRequiresReapproval } from '@/lib/planner/execution/reapproval'
+import {
+  assertPlannerPartnerStripeReady,
+  PlannerPartnerStripeReadinessUnavailableError,
+} from '@/lib/planner/partnerStripeReadiness'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { AgentAction, Approval, Json, Plan, PlannerApiErrorResponse } from '@/lib/types'
 
@@ -83,7 +88,7 @@ export async function POST(
     }
 
     const admin = createServiceRoleClient() as unknown as PlannerDb
-    const paymentIntent = await loadOwnedPaymentIntent(admin, parsed.data.paymentIntentId, user.id)
+    let paymentIntent = await loadOwnedPaymentIntent(admin, parsed.data.paymentIntentId, user.id)
     if (!paymentIntent) return NextResponse.json({ error: 'Payment intent not found' }, { status: 404 })
 
     if (paymentIntent.approval_id !== parsed.data.approvalId) {
@@ -95,15 +100,20 @@ export async function POST(
     if (approval.status !== 'authorized' && approval.status !== 'approved') {
       return NextResponse.json({ error: 'Approval must be authorized before capture' }, { status: 422 })
     }
+    if (isPaymentApprovalExpired(approval.expires_at)) {
+      return NextResponse.json(
+        { error: 'Approval expired. Review the latest terms and approve again.' },
+        { status: 409 }
+      )
+    }
 
     const plan = await loadPlan(admin, paymentIntent.plan_id)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
     const action = await loadAgentAction(admin, approval.agent_action_id)
     if (!action) return NextResponse.json({ error: 'Linked approval action not found' }, { status: 422 })
-    let actionTransitionEvents: AgentActionTransitionEvent[] = []
     try {
-      actionTransitionEvents = paymentCaptureTransitionEvents(action.status)
+      paymentCaptureTransitionEvents(action.status)
     } catch (error) {
       return NextResponse.json(
         { error: error instanceof Error ? error.message : 'Payment action cannot be captured' },
@@ -126,6 +136,22 @@ export async function POST(
       )
     }
 
+    await assertPlannerPartnerStripeReady({
+      db: admin,
+      partnerKind: paymentIntent.partner_kind,
+      partnerId: paymentIntent.partner_id,
+      eventId: `planner_capture_${paymentIntent.id}`,
+    })
+    const refreshedPaymentIntent = await loadOwnedPaymentIntent(
+      admin,
+      paymentIntent.id,
+      user.id
+    )
+    if (!refreshedPaymentIntent) {
+      return NextResponse.json({ error: 'Payment intent not found' }, { status: 404 })
+    }
+    paymentIntent = refreshedPaymentIntent
+
     const captured = await capturePlannerDeposit({
       db: admin,
       paymentIntent,
@@ -133,24 +159,58 @@ export async function POST(
       explicitUserConfirmation: parsed.data.explicitUserConfirmation,
     })
 
-    await persistAgentActionTransitionEvents(admin, {
-      action,
+    const effects = await reconcilePlannerDepositTerminalEffects({
+      db: admin,
+      paymentIntent: captured,
       actorId: user.id,
-      events: actionTransitionEvents,
+      actorRole: 'user',
       reason: 'payment.capture_completed',
-      metadata: {
-        payment_intent_id: captured.id,
-        payment_status: captured.status,
-        explicit_user_confirmation: true,
-      },
+      metadata: { explicit_user_confirmation: true },
     })
+    if (effects.outcome !== 'completed') {
+      throw new PaymentCaptureAlreadyInProgressError(
+        'Payment was captured and its local effects are still being finalized.'
+      )
+    }
 
-    return NextResponse.json({ paymentIntent: captured })
+    return NextResponse.json({ paymentIntent: effects.paymentIntent })
   } catch (error) {
     if (error instanceof PaymentCaptureAlreadyInProgressError) {
       return NextResponse.json(
         { error: error.message, code: error.code },
         { status: 409 }
+      )
+    }
+
+    if (error instanceof PlannerDepositAccountBlockedError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 409 }
+      )
+    }
+    if (error instanceof PlannerPartnerStripeReadinessUnavailableError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 503 }
+      )
+    }
+
+    if (error instanceof PlannerDepositCaptureFailedError) {
+      try {
+        await reconcileFailedCaptureEffects(error.paymentIntent)
+      } catch (recoveryError) {
+        console.error('Planner deposit capture failure action recovery error:', recoveryError)
+      }
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 422 }
+      )
+    }
+
+    if (error instanceof PlannerDepositNotFundedError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: 422 }
       )
     }
 
@@ -160,6 +220,19 @@ export async function POST(
       { status: 500 }
     )
   }
+}
+
+async function reconcileFailedCaptureEffects(
+  paymentIntent: PlannerPaymentIntentRow
+) {
+  const admin = createServiceRoleClient() as unknown as PlannerDb
+  await reconcilePlannerDepositTerminalEffects({
+    db: admin,
+    paymentIntent,
+    actorId: null,
+    actorRole: 'system',
+    reason: 'payment.capture_failed',
+  })
 }
 
 async function loadOwnedPaymentIntent(

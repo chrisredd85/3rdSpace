@@ -62,6 +62,13 @@ export async function applyStripeConnectAccountUpdated(
       previousStatus,
       nextStatus,
     })
+    if (
+      isConnectedStripeAccountBlocked(nextStatus) ||
+      !account.charges_enabled ||
+      !account.payouts_enabled
+    ) {
+      await blockInFlightStripeAccountPayments(admin, account.id, 'account.updated', eventId)
+    }
     if (account.charges_enabled) {
       await clearVendorStripeSkippedAt(admin, vendorId)
     }
@@ -94,6 +101,13 @@ export async function applyStripeConnectAccountUpdated(
       previousStatus,
       nextStatus,
     })
+    if (
+      isConnectedStripeAccountBlocked(nextStatus) ||
+      !account.charges_enabled ||
+      !account.payouts_enabled
+    ) {
+      await blockInFlightStripeAccountPayments(admin, account.id, 'account.updated', eventId)
+    }
     if (!wasPayoutReady && account.payouts_enabled) {
       await handleVenueStripeReadyForOwner(admin, venueOwnerId)
     }
@@ -386,7 +400,24 @@ async function blockInFlightStripeAccountPayments(
   })
 
   if (error) throw new Error(`Failed to block in-flight Stripe account payments: ${error.message}`)
-  return readRpcCounts(data)
+  const counts = readRpcCounts(data)
+  const preservedCaptures = counts?.capturing_payment_intents_preserved ?? 0
+  if (preservedCaptures > 0) {
+    Sentry.captureMessage('restricted_stripe_account_capture_preserved', {
+      level: 'warning',
+      tags: {
+        action: 'restricted_stripe_account_capture_preserved',
+        stripe_account_id: accountId,
+        stripe_event_id: eventId,
+      },
+      extra: {
+        reason,
+        capturing_payment_intents_preserved: preservedCaptures,
+      },
+    })
+  }
+
+  return counts
 }
 
 async function unblockStripeAccountSettlements(

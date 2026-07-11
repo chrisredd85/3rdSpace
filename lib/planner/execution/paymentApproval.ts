@@ -95,7 +95,7 @@ export function validatePaymentApprovalForExecution(input: {
     }
   }
 
-  if (isExpired(input.approval.expires_at, input.now ?? new Date())) {
+  if (isPaymentApprovalExpired(input.approval.expires_at, input.now ?? new Date())) {
     return {
       ok: false,
       status: 409,
@@ -158,7 +158,10 @@ export function getApprovedAmountCents(approval: PaymentApprovalRow) {
   return null
 }
 
-function isExpired(expiresAt: string | null | undefined, now: Date) {
+export function isPaymentApprovalExpired(
+  expiresAt: string | null | undefined,
+  now = new Date()
+) {
   if (!expiresAt) return false
   const timestamp = Date.parse(expiresAt)
   return Number.isFinite(timestamp) && timestamp <= now.getTime()

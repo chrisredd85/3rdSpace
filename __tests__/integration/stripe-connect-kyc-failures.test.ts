@@ -1,7 +1,15 @@
 jest.mock('server-only', () => ({}))
 
 import type Stripe from 'stripe'
+import * as Sentry from '@sentry/nextjs'
 import { processStripeConnectWebhookEvent } from '@/lib/stripe/connect-webhook'
+
+jest.mock('@sentry/nextjs', () => ({
+  captureException: jest.fn(),
+  captureMessage: jest.fn(),
+}))
+
+const mockCaptureMessage = Sentry.captureMessage as jest.Mock
 
 type Row = Record<string, any>
 type RoleName = 'vendor' | 'venue' | 'builder'
@@ -47,6 +55,7 @@ class MemoryDb {
     builder_stripe_accounts: [],
   }
   rpcCalls: Array<{ fn: string; args: Record<string, unknown> }> = []
+  capturingPaymentIntentsPreserved = 0
 
   from(table: string) {
     if (!this.rows[table]) this.rows[table] = []
@@ -55,7 +64,12 @@ class MemoryDb {
 
   async rpc(fn: string, args: Record<string, unknown>) {
     this.rpcCalls.push({ fn, args })
-    return { data: null, error: null }
+    return {
+      data: fn === 'block_inflight_stripe_account_payments'
+        ? { capturing_payment_intents_preserved: this.capturingPaymentIntentsPreserved }
+        : null,
+      error: null,
+    }
   }
 }
 
@@ -299,6 +313,10 @@ function expectReadiness(row: Row, expected: {
 }
 
 describe.each(ROLE_CONFIGS)('Stripe Connect KYC failure handling for $role accounts', (config) => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
   it('marks disabled_reason account.updated payloads as disabled', async () => {
     const db = seedDb(config)
     const account = makeAccount(config, {
@@ -352,6 +370,14 @@ describe.each(ROLE_CONFIGS)('Stripe Connect KYC failure handling for $role accou
       chargesEnabled: false,
       payoutsEnabled: false,
       pastDue: ['owners.address.line1'],
+    })
+    expect(db.rpcCalls).toContainEqual({
+      fn: 'block_inflight_stripe_account_payments',
+      args: {
+        p_stripe_account_id: config.accountId,
+        p_reason: 'account.updated',
+        p_event_id: `evt_${config.role}_restricted`,
+      },
     })
   })
 
@@ -460,6 +486,7 @@ describe.each(ROLE_CONFIGS)('Stripe Connect KYC failure handling for $role accou
 
   it('marks deauthorized accounts disabled and asks the database to block in-flight money movement', async () => {
     const db = seedDb(config)
+    db.capturingPaymentIntentsPreserved = 1
 
     const result = await processStripeConnectWebhookEvent(db as never, deauthorizedEvent(config, `evt_${config.role}_deauthorized`))
 
@@ -481,5 +508,18 @@ describe.each(ROLE_CONFIGS)('Stripe Connect KYC failure handling for $role accou
         },
       },
     ])
+    expect(mockCaptureMessage).toHaveBeenCalledWith(
+      'restricted_stripe_account_capture_preserved',
+      expect.objectContaining({
+        level: 'warning',
+        tags: expect.objectContaining({
+          action: 'restricted_stripe_account_capture_preserved',
+          stripe_account_id: config.accountId,
+        }),
+        extra: expect.objectContaining({
+          capturing_payment_intents_preserved: 1,
+        }),
+      })
+    )
   })
 })

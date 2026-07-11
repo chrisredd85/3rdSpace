@@ -476,4 +476,195 @@ describe('Stripe signed webhook fixtures', () => {
     expect(sendRefundCompletedEmail).not.toHaveBeenCalled()
     expect(sendVenuePaymentFailedEmail).not.toHaveBeenCalled()
   })
+
+  it('leaves a failed planner refund update retriable and completes its redelivery', async () => {
+    const timestamp = 1_800_000_300
+    const body = JSON.stringify({
+      id: 'evt_planner_refund_db_retry',
+      object: 'event',
+      api_version: '2025-09-30.clover',
+      created: timestamp,
+      livemode: false,
+      type: 'charge.refunded',
+      data: {
+        object: {
+          id: 'ch_planner_refund_db_retry',
+          object: 'charge',
+          payment_intent: 'pi_planner_refund_db_retry',
+          amount_captured: 12_500,
+          amount_refunded: 2_500,
+          currency: 'usd',
+          refunded: false,
+          metadata: { payment_kind: 'planner_deposit' },
+          refunds: { data: [] },
+        },
+      },
+    })
+    const fixture = {
+      timestamp,
+      body,
+      signature: verifier.webhooks.generateTestHeaderString({
+        payload: body,
+        secret: TEST_WEBHOOK_SECRET,
+        timestamp,
+      }),
+    }
+    jest.useFakeTimers().setSystemTime(new Date((timestamp + 10) * 1000))
+    ;(applyPlannerStripeRefundWebhook as jest.Mock)
+      .mockRejectedValueOnce(new Error('planner refund update unavailable'))
+      .mockResolvedValueOnce(true)
+
+    const first = await stripePlatformWebhookPost(
+      makeWebhookRequest('/api/webhooks/stripe', fixture)
+    )
+
+    expect(first.status).toBe(500)
+    expect(await first.json()).toEqual({ received: true, processed: false })
+    expect(db.rows.stripe_webhook_events[0]).toMatchObject({
+      stripe_event_id: 'evt_planner_refund_db_retry',
+      processed: false,
+      in_flight: false,
+      processing_outcome: 'failed',
+      last_error: 'planner refund update unavailable',
+    })
+
+    const second = await stripePlatformWebhookPost(
+      makeWebhookRequest('/api/webhooks/stripe', fixture)
+    )
+
+    expect(second.status).toBe(200)
+    expect(applyPlannerStripeRefundWebhook).toHaveBeenCalledTimes(2)
+    expect(applyPlannerStripeRefundWebhook).toHaveBeenCalledWith(
+      expect.anything(),
+      'pi_planner_refund_db_retry',
+      {
+        chargeAmountCapturedCents: 12_500,
+        refundedAmountCents: 2_500,
+        currency: 'usd',
+        eventId: 'evt_planner_refund_db_retry',
+        fullyRefunded: false,
+      },
+      true
+    )
+    expect(db.rows.stripe_webhook_events).toHaveLength(1)
+    expect(db.rows.stripe_webhook_events[0]).toMatchObject({
+      processed: true,
+      in_flight: false,
+      processing_outcome: 'processed',
+      last_error: null,
+    })
+  })
+
+  it('keeps a planner-tagged missing-local PaymentIntent event retriable', async () => {
+    const timestamp = 1_800_000_400
+    const body = JSON.stringify({
+      id: 'evt_planner_missing_local_retry',
+      object: 'event',
+      api_version: '2025-09-30.clover',
+      created: timestamp,
+      livemode: false,
+      type: 'payment_intent.succeeded',
+      data: {
+        object: {
+          id: 'pi_planner_missing_local_retry',
+          object: 'payment_intent',
+          status: 'succeeded',
+          metadata: {
+            payment_kind: 'planner_deposit',
+            planner_payment_intent_id: 'payment-intent-missing-local',
+          },
+        },
+      },
+    })
+    const fixture = {
+      timestamp,
+      body,
+      signature: verifier.webhooks.generateTestHeaderString({
+        payload: body,
+        secret: TEST_WEBHOOK_SECRET,
+        timestamp,
+      }),
+    }
+    jest.useFakeTimers().setSystemTime(new Date((timestamp + 10) * 1000))
+    ;(applyPlannerStripePaymentIntentWebhook as jest.Mock)
+      .mockRejectedValueOnce(new Error('Planner deposit webhook has no matching local payment'))
+      .mockResolvedValueOnce(true)
+
+    const first = await stripePlatformWebhookPost(
+      makeWebhookRequest('/api/webhooks/stripe', fixture)
+    )
+    expect(first.status).toBe(500)
+    expect(db.rows.stripe_webhook_events[0]).toMatchObject({
+      processed: false,
+      processing_outcome: 'failed',
+      last_error: 'Planner deposit webhook has no matching local payment',
+    })
+
+    const second = await stripePlatformWebhookPost(
+      makeWebhookRequest('/api/webhooks/stripe', fixture)
+    )
+    expect(second.status).toBe(200)
+    expect(applyPlannerStripePaymentIntentWebhook).toHaveBeenCalledTimes(2)
+    expect(db.rows.stripe_webhook_events).toHaveLength(1)
+    expect(db.rows.stripe_webhook_events[0]).toMatchObject({
+      processed: true,
+      processing_outcome: 'processed',
+    })
+  })
+
+  it('routes a signed amount-capturable update to planner authorization reconciliation', async () => {
+    const timestamp = 1_800_000_500
+    const paymentIntent = {
+      id: 'pi_planner_amount_capturable',
+      object: 'payment_intent',
+      status: 'requires_capture',
+      amount: 12_500,
+      currency: 'usd',
+      capture_method: 'manual',
+      metadata: {
+        payment_kind: 'planner_deposit',
+        planner_payment_intent_id: 'payment-intent-amount-capturable',
+        plan_id: 'plan-amount-capturable',
+        approval_id: 'approval-amount-capturable',
+        partner_kind: 'venue',
+        partner_id: 'venue-amount-capturable',
+        platform_fee_cents: '500',
+      },
+    }
+    const body = JSON.stringify({
+      id: 'evt_planner_amount_capturable',
+      object: 'event',
+      api_version: '2025-09-30.clover',
+      created: timestamp,
+      livemode: false,
+      type: 'payment_intent.amount_capturable_updated',
+      data: { object: paymentIntent },
+    })
+    const fixture = {
+      timestamp,
+      body,
+      signature: verifier.webhooks.generateTestHeaderString({
+        payload: body,
+        secret: TEST_WEBHOOK_SECRET,
+        timestamp,
+      }),
+    }
+    jest.useFakeTimers().setSystemTime(new Date((timestamp + 10) * 1000))
+    ;(applyPlannerStripePaymentIntentWebhook as jest.Mock).mockResolvedValueOnce(true)
+
+    const response = await stripePlatformWebhookPost(
+      makeWebhookRequest('/api/webhooks/stripe', fixture)
+    )
+
+    expect(response.status).toBe(200)
+    expect(applyPlannerStripePaymentIntentWebhook).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining(paymentIntent)
+    )
+    expect(db.rows.stripe_webhook_events[0]).toMatchObject({
+      stripe_event_id: 'evt_planner_amount_capturable',
+      processed: true,
+      processing_outcome: 'processed',
+    })
+  })
 })
