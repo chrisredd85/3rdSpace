@@ -13,6 +13,7 @@ export type StripeWebhookProcessingOutcome =
   | 'ignored'
   | 'observed'
   | 'rate_limited'
+  | 'deferred_maintenance'
   | 'failed'
 
 export type StripeWebhookLedgerReservation =
@@ -22,7 +23,17 @@ export type StripeWebhookLedgerReservation =
 export type StripeWebhookEventReservation =
   | { completed: true; processedAt: string | null }
   | { inFlight: true }
-  | { reservedNow: true; existed: boolean }
+  | {
+      deferred: true
+      queuedAt: string
+      controlState: 'paused' | 'draining'
+    }
+  | {
+      reservedNow: true
+      existed: boolean
+      reservationToken: string
+      controlState: 'open' | 'draining'
+    }
   | { reservedNow: false; reason: string }
 
 export interface StripeWebhookLedgerEvent {
@@ -56,33 +67,41 @@ export async function reserveStripeWebhookEvent(
     event: StripeWebhookLedgerEvent
     source: StripeWebhookSource
     endpointPath: string
+    replayAuthorized?: boolean
   }
 ): Promise<StripeWebhookEventReservation> {
   await releaseStaleReservationsBestEffort(db)
 
-  if (typeof db.rpc === 'function') {
-    const { data, error } = await db.rpc('reserve_stripe_webhook_event', {
-      p_stripe_event_id: input.event.id,
-      p_event_type: input.event.type,
-      p_payload: input.event,
-      p_source: input.source,
-      p_endpoint_path: input.endpointPath,
-      p_livemode: Boolean(input.event.livemode),
-    })
+  if (typeof db.rpc !== 'function') {
+    throw new Error('Stripe webhook reservation RPC is unavailable')
+  }
 
-    if (!error) {
-      const row = Array.isArray(data) ? data[0] : data
-      return normalizeReservation(row)
-    }
+  const { data, error } = await db.rpc('reserve_stripe_webhook_event', {
+    p_stripe_event_id: input.event.id,
+    p_event_type: input.event.type,
+    p_payload: input.event,
+    p_source: input.source,
+    p_endpoint_path: input.endpointPath,
+    p_livemode: Boolean(input.event.livemode),
+    p_replay_authorized: Boolean(input.replayAuthorized),
+  })
+
+  if (error) {
     rootLogger.warn('Stripe webhook reservation RPC failed', {
       stripe_event_id: input.event.id,
       stripe_event_type: input.event.type,
       endpointPath: input.endpointPath,
       error: error.message,
     })
+    throw new Error(error.message ?? 'Stripe webhook reservation RPC failed')
   }
 
-  return reserveWebhookEventFallback(db, input)
+  const row = Array.isArray(data) ? data[0] : data
+  const reservation = normalizeReservation(row)
+  if ('reservedNow' in reservation && !reservation.reservedNow) {
+    throw new Error(reservation.reason)
+  }
+  return reservation
 }
 
 async function releaseStaleReservationsBestEffort(db: WebhookLedgerDb) {
@@ -107,6 +126,7 @@ export async function recordStripeWebhookProcessingResult(
     source: StripeWebhookSource
     endpointPath: string
     outcome: StripeWebhookProcessingOutcome
+    reservationToken: string
     processed?: boolean
     error?: unknown
   }
@@ -118,68 +138,30 @@ export async function recordStripeWebhookProcessingResult(
       ? null
       : String(input.error)
 
-  if (typeof db.rpc === 'function') {
-    const { error } = await db.rpc('record_stripe_webhook_event_result', {
-      p_stripe_event_id: input.event.id,
-      p_event_type: input.event.type,
-      p_payload: input.event,
-      p_source: input.source,
-      p_endpoint_path: input.endpointPath,
-      p_livemode: Boolean(input.event.livemode),
-      p_processing_outcome: input.outcome,
-      p_processed: processed,
-      p_error: errorMessage,
-    })
-
-    if (!error) return
-    rootLogger.warn('Stripe webhook result RPC failed', {
-      stripe_event_id: input.event.id,
-      stripe_event_type: input.event.type,
-      error: error.message,
-    })
+  if (typeof db.rpc !== 'function') {
+    throw new Error('Stripe webhook result RPC is unavailable')
   }
 
-  const now = new Date().toISOString()
-  const { error } = await db
-    .from('stripe_webhook_events')
-    .insert({
-      stripe_event_id: input.event.id,
-      event_type: input.event.type,
-      source: input.source,
-      endpoint_path: input.endpointPath,
-      livemode: Boolean(input.event.livemode),
-      payload: input.event,
-      processed,
-      processed_at: processed ? now : null,
-      completed_at: processed ? now : null,
-      in_flight: false,
-      processing_outcome: input.outcome,
-      received_at: now,
-      last_error: errorMessage ? errorMessage.slice(0, 1000) : null,
-      error: errorMessage ? errorMessage.slice(0, 1000) : null,
-    })
+  const { error } = await db.rpc('record_stripe_webhook_event_result', {
+    p_stripe_event_id: input.event.id,
+    p_event_type: input.event.type,
+    p_payload: input.event,
+    p_source: input.source,
+    p_endpoint_path: input.endpointPath,
+    p_livemode: Boolean(input.event.livemode),
+    p_processing_outcome: input.outcome,
+    p_processed: processed,
+    p_error: errorMessage,
+    p_reservation_token: input.reservationToken,
+  })
 
   if (!error) return
-
-  if (!isUniqueViolation(error)) {
-    throw new Error(error.message ?? 'Failed to record Stripe webhook result')
-  }
-
-  const { error: updateError } = await db
-    .from('stripe_webhook_events')
-    .update({
-      processed,
-      processed_at: processed ? now : null,
-      completed_at: processed ? now : null,
-      in_flight: false,
-      processing_outcome: input.outcome,
-      last_error: errorMessage ? errorMessage.slice(0, 1000) : null,
-      error: errorMessage ? errorMessage.slice(0, 1000) : null,
-    })
-    .eq('stripe_event_id', input.event.id)
-    .eq('endpoint_path', input.endpointPath)
-
-  if (updateError) throw new Error(updateError.message ?? 'Failed to update Stripe webhook result')
+  rootLogger.warn('Stripe webhook result RPC failed', {
+    stripe_event_id: input.event.id,
+    stripe_event_type: input.event.type,
+    error: error.message,
+  })
+  throw new Error(error.message ?? 'Stripe webhook result RPC failed')
 }
 
 export async function failStripeWebhookProcessing(
@@ -188,6 +170,7 @@ export async function failStripeWebhookProcessing(
     event: StripeWebhookLedgerEvent
     source: StripeWebhookSource
     endpointPath: string
+    reservationToken: string
     error: unknown
   }
 ) {
@@ -196,9 +179,40 @@ export async function failStripeWebhookProcessing(
     source: input.source,
     endpointPath: input.endpointPath,
     outcome: 'failed',
+    reservationToken: input.reservationToken,
     processed: false,
     error: input.error,
   })
+}
+
+export async function deferStripeWebhookForMaintenance(
+  db: WebhookLedgerDb,
+  input: {
+    event: StripeWebhookLedgerEvent
+    endpointPath: string
+    reservationToken: string
+  },
+) {
+  if (typeof db.rpc !== 'function') {
+    throw new Error('Stripe webhook maintenance deferral RPC is unavailable')
+  }
+
+  const { data, error } = await db.rpc('defer_stripe_webhook_for_maintenance', {
+    p_stripe_event_id: input.event.id,
+    p_endpoint_path: input.endpointPath,
+    p_reservation_token: input.reservationToken,
+  })
+
+  if (error) {
+    throw new Error(error.message ?? 'Failed to defer Stripe webhook during maintenance')
+  }
+
+  const result = (Array.isArray(data) ? data[0] : data) as { queued_at?: unknown } | null
+  if (!result || typeof result.queued_at !== 'string') {
+    throw new Error('Stripe webhook maintenance deferral result is invalid')
+  }
+
+  return { queuedAt: result.queued_at }
 }
 
 export async function releaseStaleStripeWebhookReservations(
@@ -216,9 +230,10 @@ export async function releaseStaleStripeWebhookReservations(
     rootLogger.warn('Stripe webhook stale reservation release RPC failed', {
       error: error.message,
     })
+    throw new Error(error.message ?? 'Failed to release stale Stripe webhook reservations')
   }
 
-  return { releasedCount: 0 }
+  throw new Error('Stripe webhook ledger does not support stale reservation release')
 }
 
 async function loadLedgerRow(db: WebhookLedgerDb, eventId: string): Promise<{
@@ -264,82 +279,42 @@ function normalizeReservation(row: unknown): StripeWebhookEventReservation {
     completed?: boolean
     reserved_now?: boolean
     processed_at?: string | null
+    reservation_token?: string | null
+    deferred?: boolean
+    control_state?: 'open' | 'paused' | 'draining'
+    queued_at?: string | null
   } | null
 
   if (!reservation) return { reservedNow: false, reason: 'reservation_failed' }
   if (reservation.completed) return { completed: true, processedAt: reservation.processed_at ?? null }
   if (reservation.in_flight && !reservation.reserved_now) return { inFlight: true }
-  if (reservation.reserved_now) return { reservedNow: true, existed: Boolean(reservation.existed) }
+  if (reservation.deferred) {
+    if (
+      (reservation.control_state !== 'paused' && reservation.control_state !== 'draining')
+      || typeof reservation.queued_at !== 'string'
+    ) {
+      return { reservedNow: false, reason: 'invalid_deferred_reservation' }
+    }
+    return {
+      deferred: true,
+      queuedAt: reservation.queued_at,
+      controlState: reservation.control_state,
+    }
+  }
+  if (reservation.reserved_now) {
+    if (
+      typeof reservation.reservation_token !== 'string'
+      || !reservation.reservation_token
+      || (reservation.control_state !== 'open' && reservation.control_state !== 'draining')
+    ) {
+      return { reservedNow: false, reason: 'invalid_reservation_token' }
+    }
+    return {
+      reservedNow: true,
+      existed: Boolean(reservation.existed),
+      reservationToken: reservation.reservation_token,
+      controlState: reservation.control_state,
+    }
+  }
   return { reservedNow: false, reason: 'reservation_failed' }
-}
-
-async function reserveWebhookEventFallback(
-  db: WebhookLedgerDb,
-  input: {
-    event: StripeWebhookLedgerEvent
-    source: StripeWebhookSource
-    endpointPath: string
-  }
-): Promise<StripeWebhookEventReservation> {
-  const { data: existing, error: existingError } = await db
-    .from('stripe_webhook_events')
-    .select('processed, processed_at, completed_at, in_flight')
-    .eq('stripe_event_id', input.event.id)
-    .eq('endpoint_path', input.endpointPath)
-    .maybeSingle()
-  if (existingError) throw new Error(existingError.message ?? 'Failed to reserve Stripe webhook event')
-
-  if (existing?.completed_at || existing?.processed) {
-    await incrementDuplicateCount(db, input.event.id, input.endpointPath)
-    return { completed: true, processedAt: existing.completed_at ?? existing.processed_at ?? null }
-  }
-  if (existing?.in_flight) return { inFlight: true }
-
-  const now = new Date().toISOString()
-  if (existing) {
-    const { error } = await db
-      .from('stripe_webhook_events')
-      .update({
-        event_type: input.event.type,
-        payload: input.event,
-        source: input.source,
-        endpoint_path: input.endpointPath,
-        livemode: Boolean(input.event.livemode),
-        processing_outcome: 'received',
-        in_flight: true,
-        reserved_at: now,
-        last_error: null,
-        error: null,
-      })
-      .eq('stripe_event_id', input.event.id)
-      .eq('endpoint_path', input.endpointPath)
-    if (error) throw new Error(error.message ?? 'Failed to reserve Stripe webhook event')
-    return { reservedNow: true, existed: true }
-  }
-
-  const { error } = await db
-    .from('stripe_webhook_events')
-    .insert({
-      stripe_event_id: input.event.id,
-      event_type: input.event.type,
-      payload: input.event,
-      source: input.source,
-      endpoint_path: input.endpointPath,
-      livemode: Boolean(input.event.livemode),
-      processed: false,
-      processing_outcome: 'received',
-      received_at: now,
-      in_flight: true,
-      reserved_at: now,
-    })
-  if (error) {
-    if (isUniqueViolation(error)) return { inFlight: true }
-    throw new Error(error.message ?? 'Failed to reserve Stripe webhook event')
-  }
-  return { reservedNow: true, existed: false }
-}
-
-function isUniqueViolation(error: unknown) {
-  const candidate = error as { code?: string; message?: string } | null
-  return candidate?.code === '23505' || /duplicate key|unique constraint/i.test(candidate?.message ?? '')
 }

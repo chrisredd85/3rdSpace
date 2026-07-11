@@ -33,16 +33,23 @@ import {
   VENUE_RENTAL_PAYMENT_NAMESPACE,
 } from '@/lib/payments/venue-rental'
 import {
+  deferStripeWebhookForMaintenance,
   failStripeWebhookProcessing,
   recordStripeWebhookProcessingResult,
   reserveStripeWebhookEvent,
   type StripeWebhookProcessingOutcome,
 } from '@/lib/stripe/webhookLedger'
 import {
+  isAuthorizedStripeWebhookReplay,
+  loadQueuedStripeWebhookReplay,
+  parsePersistedStripeEvent,
+} from '@/lib/stripe/webhookReplayAuth'
+import {
   CHI_SETTLEMENT_METADATA_KIND,
   handleSettlementCheckoutCompleted,
   handleSettlementPaymentIntentFailed,
 } from '@/lib/finance/settlement-checkout'
+import { readWritePauseStatus } from '@/lib/write-pause'
 
 export const runtime = 'nodejs'
 
@@ -155,31 +162,37 @@ async function applyKickbackCheckoutSessionCompleted(admin: any, session: Stripe
   const charge = paymentIntent ? getChargeFromPaymentIntent(paymentIntent) : { chargeId: null, transferId: null, receiptUrl: null }
   const now = new Date().toISOString()
 
-  await admin
-    .from('kickback_payments')
-    .update({
-      status: 'completed',
-      stripe_checkout_session_id: session.id,
-      stripe_payment_intent_id: paymentIntentId,
-      stripe_charge_id: charge.chargeId,
-      stripe_transfer_id: charge.transferId,
-      receipt_url: charge.receiptUrl,
-      completed_at: now,
-      failed_at: null,
-      failure_reason: null,
-    })
-    .eq('id', paymentId)
+  await updateWebhookRowOrThrow(
+    admin
+      .from('kickback_payments')
+      .update({
+        status: 'completed',
+        stripe_checkout_session_id: session.id,
+        stripe_payment_intent_id: paymentIntentId,
+        stripe_charge_id: charge.chargeId,
+        stripe_transfer_id: charge.transferId,
+        receipt_url: charge.receiptUrl,
+        completed_at: now,
+        failed_at: null,
+        failure_reason: null,
+      })
+      .eq('id', paymentId),
+    'Failed to complete legacy CHI checkout payment',
+  )
 
   if (session.metadata.agreement_id) {
-    await admin
-      .from('event_kickback_agreements')
-      .update({
-        status: 'payment_completed',
-        stripe_transfer_id: charge.transferId,
-        payment_completed_at: now,
-        updated_at: now,
-      })
-      .eq('id', session.metadata.agreement_id)
+    await updateWebhookRowOrThrow(
+      admin
+        .from('event_kickback_agreements')
+        .update({
+          status: 'payment_completed',
+          stripe_transfer_id: charge.transferId,
+          payment_completed_at: now,
+          updated_at: now,
+        })
+        .eq('id', session.metadata.agreement_id),
+      'Failed to complete legacy CHI agreement',
+    )
   }
 
   return true
@@ -199,43 +212,52 @@ async function applyKickbackPaymentIntent(admin: any, paymentIntent: Stripe.Paym
     const charge = getChargeFromPaymentIntent(paymentIntent)
     const now = new Date().toISOString()
 
-    await admin
-      .from('kickback_payments')
-      .update({
-        status: 'completed',
-        stripe_payment_intent_id: paymentIntent.id,
-        stripe_charge_id: charge.chargeId,
-        stripe_transfer_id: charge.transferId,
-        receipt_url: charge.receiptUrl,
-        completed_at: now,
-        failed_at: null,
-        failure_reason: null,
-      })
-      .eq('id', paymentId)
+    await updateWebhookRowOrThrow(
+      admin
+        .from('kickback_payments')
+        .update({
+          status: 'completed',
+          stripe_payment_intent_id: paymentIntent.id,
+          stripe_charge_id: charge.chargeId,
+          stripe_transfer_id: charge.transferId,
+          receipt_url: charge.receiptUrl,
+          completed_at: now,
+          failed_at: null,
+          failure_reason: null,
+        })
+        .eq('id', paymentId),
+      'Failed to complete legacy CHI payment intent',
+    )
 
     if (paymentIntent.metadata.agreement_id) {
-      await admin
-        .from('event_kickback_agreements')
-        .update({
-          status: 'payment_completed',
-          stripe_transfer_id: charge.transferId,
-          payment_completed_at: now,
-          updated_at: now,
-        })
-        .eq('id', paymentIntent.metadata.agreement_id)
+      await updateWebhookRowOrThrow(
+        admin
+          .from('event_kickback_agreements')
+          .update({
+            status: 'payment_completed',
+            stripe_transfer_id: charge.transferId,
+            payment_completed_at: now,
+            updated_at: now,
+          })
+          .eq('id', paymentIntent.metadata.agreement_id),
+        'Failed to complete legacy CHI payment-intent agreement',
+      )
     }
   }
 
   if (paymentIntent.status === 'requires_payment_method' || paymentIntent.status === 'canceled') {
-    await admin
-      .from('kickback_payments')
-      .update({
-        status: 'failed',
-        stripe_payment_intent_id: paymentIntent.id,
-        failed_at: new Date().toISOString(),
-        failure_reason: paymentIntent.last_payment_error?.message ?? 'Payment failed',
-      })
-      .eq('id', paymentId)
+    await updateWebhookRowOrThrow(
+      admin
+        .from('kickback_payments')
+        .update({
+          status: 'failed',
+          stripe_payment_intent_id: paymentIntent.id,
+          failed_at: new Date().toISOString(),
+          failure_reason: paymentIntent.last_payment_error?.message ?? 'Payment failed',
+        })
+        .eq('id', paymentId),
+      'Failed to persist legacy CHI payment-intent failure',
+    )
   }
 
   return true
@@ -255,11 +277,17 @@ async function applyKickbackTransferEvent(admin: any, transfer: Stripe.Transfer,
     })
 
   if (paymentId) {
-    await query.eq('id', paymentId)
+    await updateWebhookRowOrThrow(
+      query.eq('id', paymentId),
+      'Failed to update legacy CHI transfer by payment ID',
+    )
     return true
   }
 
-  await query.eq('stripe_transfer_id', transfer.id)
+  await updateWebhookRowOrThrow(
+    query.eq('stripe_transfer_id', transfer.id),
+    'Failed to update legacy CHI transfer by Stripe transfer ID',
+  )
   return true
 }
 
@@ -557,29 +585,35 @@ async function applyKickbackInvoicePaid(admin: any, invoice: Stripe.Invoice, str
   )
 
   const now = new Date().toISOString()
-  await admin
-    .from('kickback_payments')
-    .update({
-      status: 'paid',
-      paid_at: now,
-      completed_at: now,
-      stripe_transfer_id: transfer.id,
-      builder_payout_cents: principalCents,
-      failed_at: null,
-      failure_reason: null,
-    })
-    .eq('id', paymentId)
+  await updateWebhookRowOrThrow(
+    admin
+      .from('kickback_payments')
+      .update({
+        status: 'paid',
+        paid_at: now,
+        completed_at: now,
+        stripe_transfer_id: transfer.id,
+        builder_payout_cents: principalCents,
+        failed_at: null,
+        failure_reason: null,
+      })
+      .eq('id', paymentId),
+    'Failed to persist legacy CHI invoice payout',
+  )
 
   if (payment.agreement_id) {
-    await admin
-      .from('event_kickback_agreements')
-      .update({
-        status: 'payment_completed',
-        stripe_transfer_id: transfer.id,
-        payment_completed_at: now,
-        updated_at: now,
-      })
-      .eq('id', payment.agreement_id)
+    await updateWebhookRowOrThrow(
+      admin
+        .from('event_kickback_agreements')
+        .update({
+          status: 'payment_completed',
+          stripe_transfer_id: transfer.id,
+          payment_completed_at: now,
+          updated_at: now,
+        })
+        .eq('id', payment.agreement_id),
+      'Failed to persist legacy CHI invoice agreement completion',
+    )
   }
 
   await sendBuilderPaidEmail({ paymentId }).catch((error) => {
@@ -598,14 +632,17 @@ async function applyKickbackInvoicePaymentFailed(admin: any, invoice: Stripe.Inv
   // shows zero hits for 7+ days.
   captureLegacyCHIWebhook(stripeEventId, 'invoice.payment_failed', invoice.id)
 
-  await admin
-    .from('kickback_payments')
-    .update({
-      status: 'invoice_failed',
-      failed_at: new Date().toISOString(),
-      failure_reason: 'Stripe invoice payment failed',
-    })
-    .eq('id', paymentId)
+  await updateWebhookRowOrThrow(
+    admin
+      .from('kickback_payments')
+      .update({
+        status: 'invoice_failed',
+        failed_at: new Date().toISOString(),
+        failure_reason: 'Stripe invoice payment failed',
+      })
+      .eq('id', paymentId),
+    'Failed to persist legacy CHI invoice failure',
+  )
 
   await sendVenuePaymentFailedEmail({ paymentId }).catch((error) => {
     console.error('[stripe.webhook] Failed to send venue payment failed email', error)
@@ -632,13 +669,16 @@ async function applyKickbackRefundCompleted(admin: any, paymentId: string | null
   const isFullRefund = refundAmountCents > 0 && refundAmountCents >= payoutCents
   const nextStatus = isFullRefund ? 'refunded_full' : 'refunded_partial'
 
-  await admin
-    .from('kickback_payments')
-    .update({
-      status: nextStatus,
-      completed_at: new Date().toISOString(),
-    })
-    .eq('id', paymentId)
+  await updateWebhookRowOrThrow(
+    admin
+      .from('kickback_payments')
+      .update({
+        status: nextStatus,
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', paymentId),
+    'Failed to persist legacy CHI refund completion',
+  )
 
   await sendRefundCompletedEmail({ paymentId, isFullRefund }).catch((emailError) => {
     console.error('[stripe.webhook] Failed to send refund completed email', emailError)
@@ -877,34 +917,76 @@ export async function POST(request: NextRequest) {
   const admin = createServiceRoleClient()
   const rawBody = await request.text()
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+  const authorizedReplay = isAuthorizedStripeWebhookReplay(request)
 
-  if (!webhookSecret) {
+  if (!webhookSecret && !authorizedReplay) {
     logger.error('Stripe webhook missing platform secret')
     return NextResponse.json({ error: 'Stripe webhook secret is not configured' }, { status: 500 })
   }
 
   const signature = request.headers.get('stripe-signature')
 
-  if (!signature) {
+  if (!signature && !authorizedReplay) {
     return NextResponse.json({ error: 'Missing Stripe signature' }, { status: 400 })
   }
 
   let event: Stripe.Event
 
   try {
-    event = getStripeClient().webhooks.constructEvent(rawBody, signature, webhookSecret)
+    event = authorizedReplay
+      ? parsePersistedStripeEvent(rawBody)
+      : getStripeClient().webhooks.constructEvent(rawBody, signature!, webhookSecret!)
   } catch (error) {
-    logger.error('Stripe webhook invalid signature', error)
-    return NextResponse.json({ error: 'Invalid Stripe signature' }, { status: 400 })
+    logger.error(authorizedReplay ? 'Stripe webhook replay payload invalid' : 'Stripe webhook invalid signature', error)
+    return NextResponse.json(
+      { error: authorizedReplay ? 'Invalid persisted Stripe event' : 'Invalid Stripe signature' },
+      { status: 400 },
+    )
+  }
+
+  if (authorizedReplay) {
+    try {
+      const queuedEvent = await loadQueuedStripeWebhookReplay(admin as any, {
+        eventId: event.id,
+        endpointPath: '/api/webhooks/stripe',
+      })
+      if (!queuedEvent) {
+        logger.error('Stripe webhook replay rejected because no deferred ledger event exists', undefined, {
+          stripe_event_id: event.id,
+        })
+        return NextResponse.json({ error: 'Deferred Stripe event not found' }, { status: 403 })
+      }
+      event = queuedEvent
+    } catch (error) {
+      logger.error('Stripe webhook replay ledger lookup failed', error, { stripe_event_id: event.id })
+      return NextResponse.json({ error: 'Deferred Stripe event lookup failed' }, { status: 500 })
+    }
   }
 
   const eventLogger = logger.child({ stripe_event_id: event.id, stripe_event_type: event.type })
 
-  const reservation = await reserveStripeWebhookEvent(admin as any, {
-    event,
-    source: 'platform',
-    endpointPath: '/api/webhooks/stripe',
-  })
+  let reservation: Awaited<ReturnType<typeof reserveStripeWebhookEvent>>
+  try {
+    reservation = await reserveStripeWebhookEvent(admin as any, {
+      event,
+      source: 'platform',
+      endpointPath: '/api/webhooks/stripe',
+      replayAuthorized: authorizedReplay,
+    })
+  } catch (error) {
+    eventLogger.error('Stripe webhook reservation failed closed', error)
+    return NextResponse.json({ error: 'reservation_failed' }, { status: 500 })
+  }
+  if ('deferred' in reservation && reservation.deferred) {
+    eventLogger.info('Stripe webhook queued by durable write-pause reservation', {
+      queuedAt: reservation.queuedAt,
+      controlState: reservation.controlState,
+    })
+    return NextResponse.json(
+      { received: true, queued: true, reason: 'maintenance_in_progress' },
+      { status: 202 },
+    )
+  }
   if ('completed' in reservation && reservation.completed) {
     eventLogger.info('Stripe webhook duplicate delivery skipped', {
       processedAt: reservation.processedAt,
@@ -921,16 +1003,66 @@ export async function POST(request: NextRequest) {
     })
     return NextResponse.json({ error: 'reservation_failed' }, { status: 500 })
   }
+  const reservationToken = reservation.reservationToken
 
-  if (!(await allowWebhookRequest(admin, getWebhookRateLimitKey('stripe', request.headers)))) {
+  const pause = await readWritePauseStatus()
+  if (!authorizedReplay && pause.available && pause.state !== 'open') {
+    try {
+      const deferred = await deferStripeWebhookForMaintenance(admin as any, {
+        event,
+        endpointPath: '/api/webhooks/stripe',
+        reservationToken,
+      })
+      eventLogger.info('Stripe webhook queued during write pause', {
+        queuedAt: deferred.queuedAt,
+        pauseRevision: pause.revision,
+      })
+      return NextResponse.json(
+        {
+          received: true,
+          queued: true,
+          reason: 'maintenance_in_progress',
+        },
+        { status: 202 },
+      )
+    } catch (error) {
+      eventLogger.error('Stripe webhook maintenance queue failed', error)
+      await failStripeWebhookProcessing(admin as any, {
+        event,
+        source: 'platform',
+        endpointPath: '/api/webhooks/stripe',
+        reservationToken,
+        error,
+      }).catch((ledgerError) => {
+        eventLogger.error('Stripe webhook failed to save queue failure', ledgerError)
+      })
+      return NextResponse.json({ received: true, queued: false }, { status: 500 })
+    }
+  }
+
+  if (!pause.available) {
+    eventLogger.error('Write-pause store unavailable; processing Stripe webhook fail-open', undefined, {
+      error: pause.error,
+    })
+  }
+
+  // Replays are CRON-authenticated and reload the authoritative payload from
+  // the deferred ledger. Applying the public delivery rate limit here would
+  // acknowledge the replay as processed without running its side effects.
+  if (!authorizedReplay && !(await allowWebhookRequest(admin, getWebhookRateLimitKey('stripe', request.headers)))) {
     eventLogger.warn('Stripe webhook rate limit exceeded')
     await recordStripeWebhookProcessingResult(admin as any, {
       event,
       source: 'platform',
       endpointPath: '/api/webhooks/stripe',
       outcome: 'rate_limited',
+      reservationToken,
+      processed: false,
     })
-    return NextResponse.json({ received: true, ignored: true, reason: 'rate_limited' }, { status: 200 })
+    return NextResponse.json(
+      { received: false, retry: true, reason: 'rate_limited' },
+      { status: 429, headers: { 'retry-after': '60', 'cache-control': 'no-store' } },
+    )
   }
 
   try {
@@ -1102,6 +1234,7 @@ export async function POST(request: NextRequest) {
       source: 'platform',
       endpointPath: '/api/webhooks/stripe',
       outcome,
+      reservationToken,
     })
     eventLogger.info('Stripe webhook processed event', { outcome })
     return NextResponse.json(responseBody)
@@ -1111,6 +1244,7 @@ export async function POST(request: NextRequest) {
       event,
       source: 'platform',
       endpointPath: '/api/webhooks/stripe',
+      reservationToken,
       error,
     }).catch((ledgerError) => {
       eventLogger.error('Stripe webhook failed to save failure state', ledgerError)

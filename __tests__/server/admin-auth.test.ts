@@ -4,7 +4,7 @@ jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
 }))
 
-import { getWorkerOrAdminContext } from '@/lib/server/admin-auth'
+import { getCronOrAdminContext, getWorkerOrAdminContext } from '@/lib/server/admin-auth'
 import { createClient } from '@/lib/supabase/server'
 
 const mockCreateClient = createClient as jest.Mock
@@ -77,6 +77,23 @@ describe('getWorkerOrAdminContext', () => {
       authorized: false,
       status: 401,
       error: 'Unauthorized',
+    })
+  })
+
+  it('keeps release controls restricted to CRON_SECRET or an admin session', async () => {
+    process.env.WORKER_SECRET = 'worker-secret'
+    process.env.CRON_SECRET = 'cron-secret'
+
+    const workerContext = await getCronOrAdminContext(makeRequest('worker-secret'))
+    const cronContext = await getCronOrAdminContext(makeRequest('cron-secret'))
+
+    expect(workerContext).toMatchObject({
+      authorized: false,
+      status: 401,
+    })
+    expect(cronContext).toMatchObject({
+      authorized: true,
+      user: { id: 'cron-operator' },
     })
   })
 })

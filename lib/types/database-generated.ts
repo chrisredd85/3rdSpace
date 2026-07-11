@@ -6747,6 +6747,39 @@ export type Database = {
           },
         ]
       }
+      release_runtime_controls: {
+        Row: {
+          changed_by: string
+          control_key: string
+          enabled: boolean
+          enabled_at: string | null
+          reason: string | null
+          revision: number
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          changed_by?: string
+          control_key: string
+          enabled?: boolean
+          enabled_at?: string | null
+          reason?: string | null
+          revision?: number
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          changed_by?: string
+          control_key?: string
+          enabled?: boolean
+          enabled_at?: string | null
+          reason?: string | null
+          revision?: number
+          state?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       reviews: {
         Row: {
           booking_id: string | null
@@ -7589,12 +7622,14 @@ export type Database = {
           in_flight: boolean
           last_error: string | null
           livemode: boolean
+          maintenance_deferred_at: string | null
           metadata: Json
           payload: Json
           processed: boolean | null
           processed_at: string | null
           processing_outcome: string | null
           received_at: string
+          reservation_token: string | null
           reserved_at: string | null
           source: string
           stripe_event_id: string
@@ -7610,12 +7645,14 @@ export type Database = {
           in_flight?: boolean
           last_error?: string | null
           livemode: boolean
+          maintenance_deferred_at?: string | null
           metadata?: Json
           payload: Json
           processed?: boolean | null
           processed_at?: string | null
           processing_outcome?: string | null
           received_at?: string
+          reservation_token?: string | null
           reserved_at?: string | null
           source: string
           stripe_event_id: string
@@ -7631,12 +7668,14 @@ export type Database = {
           in_flight?: boolean
           last_error?: string | null
           livemode?: boolean
+          maintenance_deferred_at?: string | null
           metadata?: Json
           payload?: Json
           processed?: boolean | null
           processed_at?: string | null
           processing_outcome?: string | null
           received_at?: string
+          reservation_token?: string | null
           reserved_at?: string | null
           source?: string
           stripe_event_id?: string
@@ -11350,6 +11389,14 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      complete_write_pause_drain: {
+        Args: {
+          p_changed_by: string
+          p_expected_revision: number
+          p_reason: string
+        }
+        Returns: Json
+      }
       consume_builder_event_access: {
         Args: {
           p_builder_id: string
@@ -11414,6 +11461,14 @@ export type Database = {
           term_agreement_id: string
           venue_id: string
         }[]
+      }
+      defer_stripe_webhook_for_maintenance: {
+        Args: {
+          p_endpoint_path: string
+          p_reservation_token: string
+          p_stripe_event_id: string
+        }
+        Returns: Json
       }
       discovery_venues_search_document: {
         Args: {
@@ -11509,20 +11564,36 @@ export type Database = {
         Args: { p_vendor_id: string }
         Returns: undefined
       }
-      record_stripe_webhook_event_result: {
-        Args: {
-          p_endpoint_path: string
-          p_error?: string
-          p_event_type: string
-          p_livemode: boolean
-          p_payload: Json
-          p_processed: boolean
-          p_processing_outcome: string
-          p_source: string
-          p_stripe_event_id: string
-        }
-        Returns: Json
-      }
+      record_stripe_webhook_event_result:
+        | {
+            Args: {
+              p_endpoint_path: string
+              p_error?: string
+              p_event_type: string
+              p_livemode: boolean
+              p_payload: Json
+              p_processed: boolean
+              p_processing_outcome: string
+              p_source: string
+              p_stripe_event_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_endpoint_path: string
+              p_error: string
+              p_event_type: string
+              p_livemode: boolean
+              p_payload: Json
+              p_processed: boolean
+              p_processing_outcome: string
+              p_reservation_token: string
+              p_source: string
+              p_stripe_event_id: string
+            }
+            Returns: Json
+          }
       refresh_projection_baselines: {
         Args: never
         Returns: {
@@ -11585,23 +11656,46 @@ export type Database = {
           isSetofReturn: true
         }
       }
-      reserve_stripe_webhook_event: {
-        Args: {
-          p_endpoint_path: string
-          p_event_type: string
-          p_livemode?: boolean
-          p_payload: Json
-          p_source: string
-          p_stripe_event_id: string
-        }
-        Returns: {
-          completed: boolean
-          existed: boolean
-          in_flight: boolean
-          processed_at: string
-          reserved_now: boolean
-        }[]
-      }
+      reserve_stripe_webhook_event:
+        | {
+            Args: {
+              p_endpoint_path: string
+              p_event_type: string
+              p_livemode?: boolean
+              p_payload: Json
+              p_source: string
+              p_stripe_event_id: string
+            }
+            Returns: {
+              completed: boolean
+              existed: boolean
+              in_flight: boolean
+              processed_at: string
+              reserved_now: boolean
+            }[]
+          }
+        | {
+            Args: {
+              p_endpoint_path: string
+              p_event_type: string
+              p_livemode: boolean
+              p_payload: Json
+              p_replay_authorized: boolean
+              p_source: string
+              p_stripe_event_id: string
+            }
+            Returns: {
+              completed: boolean
+              control_state: string
+              deferred: boolean
+              existed: boolean
+              in_flight: boolean
+              processed_at: string
+              queued_at: string
+              reservation_token: string
+              reserved_now: boolean
+            }[]
+          }
       save_vendor_manual_availability: {
         Args: {
           p_dates: string[]
@@ -11637,6 +11731,15 @@ export type Database = {
           p_target_payout_amount_cents: number
         }
         Returns: boolean
+      }
+      transition_release_runtime_control: {
+        Args: {
+          p_changed_by: string
+          p_expected_revision: number
+          p_reason: string
+          p_target_state: string
+        }
+        Returns: Json
       }
       transition_settlement_charge_status: {
         Args: {

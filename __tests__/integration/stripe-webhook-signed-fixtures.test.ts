@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { TextDecoder, TextEncoder } from 'node:util'
 import Stripe from 'stripe'
+import { POST as replayDeferredWebhooksPost } from '@/app/api/internal/stripe-webhooks/replay-deferred/route'
 import { POST as stripePlatformWebhookPost } from '@/app/api/webhooks/stripe/route'
 import { POST as stripeConnectWebhookPost } from '@/app/api/webhooks/stripe/connect/route'
 import { applyCheckoutSessionCompleted, applyInvoicePayment, applyInvoicePaymentFailed } from '@/lib/billing/builder-billing'
@@ -35,6 +36,7 @@ import {
   saveVendorStripeAccount,
   saveVenueStripeAccount,
 } from '@/lib/stripe/connect'
+import { readWritePauseStatus } from '@/lib/write-pause'
 
 Object.assign(global, { TextDecoder, TextEncoder })
 
@@ -62,6 +64,13 @@ jest.mock('@/lib/server/webhook-rate-limit', () => ({
   getWebhookRateLimitKey: jest.fn(),
 }))
 
+jest.mock('@/lib/server/admin-auth', () => ({
+  getCronOrAdminContext: jest.fn().mockResolvedValue({
+    authorized: true,
+    user: { id: 'cron-operator', email: 'cron-operator@internal' },
+  }),
+}))
+
 jest.mock('@/lib/supabase/server', () => ({
   createServiceRoleClient: jest.fn(),
 }))
@@ -81,7 +90,21 @@ jest.mock('@/lib/stripe/connect', () => ({
   saveVenueStripeAccount: jest.fn().mockResolvedValue({}),
 }))
 
+jest.mock('@/lib/write-pause', () => {
+  const actual = jest.requireActual('@/lib/write-pause')
+  return {
+    ...actual,
+    readWritePauseStatus: jest.fn(),
+  }
+})
+
 type Row = Record<string, unknown>
+
+type MemoryQueryResult = {
+  data: unknown
+  error: { message: string } | null
+  count?: number
+}
 
 type Fixture = {
   timestamp: number
@@ -92,6 +115,9 @@ type Fixture = {
 const TEST_WEBHOOK_SECRET = 'whsec_codex_fixture_secret'
 
 class MemoryDb {
+  controlState: 'open' | 'paused' | 'draining' = 'open'
+  updateErrors = new Map<string, string>()
+  private reservationSequence = 0
   rows: Record<string, Row[]> = {
     builder_stripe_accounts: [
       {
@@ -149,12 +175,19 @@ class MemoryDb {
 
   async rpc(fn: string, args: Record<string, unknown>) {
     if (fn === 'reserve_stripe_webhook_event') {
+      if (args.p_replay_authorized === true && this.controlState !== 'draining') {
+        return { data: null, error: { message: 'authorized webhook replay requires draining state' } }
+      }
+      const shouldDefer = this.controlState !== 'open'
+        && !(this.controlState === 'draining' && args.p_replay_authorized === true)
       const existing = this.rows.stripe_webhook_events.find((event) => (
         event.stripe_event_id === args.p_stripe_event_id &&
         event.endpoint_path === args.p_endpoint_path
       ))
 
       if (!existing) {
+        const now = new Date().toISOString()
+        const reservationToken = shouldDefer ? null : `fixture-reservation-${++this.reservationSequence}`
         this.rows.stripe_webhook_events.push({
           id: `stripe_webhook_events-${this.rows.stripe_webhook_events.length + 1}`,
           stripe_event_id: args.p_stripe_event_id,
@@ -166,19 +199,25 @@ class MemoryDb {
           processed: false,
           processed_at: null,
           completed_at: null,
-          in_flight: true,
-          reserved_at: new Date().toISOString(),
-          processing_outcome: 'received',
+          in_flight: !shouldDefer,
+          reserved_at: shouldDefer ? null : now,
+          reservation_token: reservationToken,
+          maintenance_deferred_at: shouldDefer ? now : null,
+          processing_outcome: shouldDefer ? 'deferred_maintenance' : 'received',
           duplicate_count: 0,
-          received_at: new Date().toISOString(),
+          received_at: now,
         })
         return {
           data: [{
             existed: false,
-            in_flight: true,
+            in_flight: !shouldDefer,
             completed: false,
-            reserved_now: true,
+            reserved_now: !shouldDefer,
             processed_at: null,
+            reservation_token: reservationToken,
+            deferred: shouldDefer,
+            control_state: this.controlState,
+            queued_at: shouldDefer ? now : null,
           }],
           error: null,
         }
@@ -193,6 +232,10 @@ class MemoryDb {
             completed: true,
             reserved_now: false,
             processed_at: existing.completed_at ?? existing.processed_at ?? null,
+            reservation_token: null,
+            deferred: false,
+            control_state: this.controlState,
+            queued_at: null,
           }],
           error: null,
         }
@@ -206,11 +249,48 @@ class MemoryDb {
             completed: false,
             reserved_now: false,
             processed_at: null,
+            reservation_token: null,
+            deferred: false,
+            control_state: this.controlState,
+            queued_at: null,
           }],
           error: null,
         }
       }
 
+      if (shouldDefer) {
+        const now = new Date().toISOString()
+        Object.assign(existing, {
+          event_type: args.p_event_type,
+          payload: args.p_payload,
+          source: args.p_source,
+          endpoint_path: args.p_endpoint_path,
+          livemode: args.p_livemode,
+          processed: false,
+          processed_at: null,
+          completed_at: null,
+          in_flight: false,
+          reservation_token: null,
+          processing_outcome: 'deferred_maintenance',
+          maintenance_deferred_at: now,
+        })
+        return {
+          data: [{
+            existed: true,
+            in_flight: false,
+            completed: false,
+            reserved_now: false,
+            processed_at: null,
+            reservation_token: null,
+            deferred: true,
+            control_state: this.controlState,
+            queued_at: now,
+          }],
+          error: null,
+        }
+      }
+
+      const reservationToken = `fixture-reservation-${++this.reservationSequence}`
       Object.assign(existing, {
         event_type: args.p_event_type,
         payload: args.p_payload,
@@ -220,6 +300,7 @@ class MemoryDb {
         processing_outcome: 'received',
         in_flight: true,
         reserved_at: new Date().toISOString(),
+        reservation_token: reservationToken,
         last_error: null,
         error: null,
       })
@@ -230,6 +311,10 @@ class MemoryDb {
           completed: false,
           reserved_now: true,
           processed_at: null,
+          reservation_token: reservationToken,
+          deferred: false,
+          control_state: this.controlState,
+          queued_at: null,
         }],
         error: null,
       }
@@ -244,13 +329,37 @@ class MemoryDb {
       return { data: null, error: null }
     }
 
+    if (fn === 'release_stale_stripe_webhook_reservations') {
+      const cutoff = Date.now() - 5 * 60 * 1000
+      let releasedCount = 0
+      for (const row of this.rows.stripe_webhook_events) {
+        const reservedAt = typeof row.reserved_at === 'string'
+          ? Date.parse(row.reserved_at)
+          : Number.NaN
+        if (row.in_flight === true && Number.isFinite(reservedAt) && reservedAt < cutoff) {
+          row.in_flight = false
+          row.reservation_token = null
+          row.last_error = row.last_error ?? 'stale reservation released'
+          releasedCount += 1
+        }
+      }
+      return { data: [{ released_count: releasedCount }], error: null }
+    }
+
     if (fn === 'record_stripe_webhook_event_result') {
       const existing = this.rows.stripe_webhook_events.find((event) => (
         event.stripe_event_id === args.p_stripe_event_id &&
         event.endpoint_path === args.p_endpoint_path
       ))
+      if (
+        !existing
+        || existing.in_flight !== true
+        || existing.reservation_token !== args.p_reservation_token
+      ) {
+        return { data: null, error: { message: 'Stripe webhook reservation ownership was lost' } }
+      }
       const row = {
-        id: existing?.id ?? `stripe_webhook_events-${this.rows.stripe_webhook_events.length + 1}`,
+        id: existing.id,
         stripe_event_id: args.p_stripe_event_id,
         event_type: args.p_event_type,
         payload: args.p_payload,
@@ -261,33 +370,63 @@ class MemoryDb {
         processed_at: args.p_processed ? new Date().toISOString() : null,
         completed_at: args.p_processed ? new Date().toISOString() : null,
         in_flight: false,
+        reservation_token: null,
         processing_outcome: args.p_processing_outcome,
         duplicate_count: existing?.duplicate_count ?? 0,
         last_error: args.p_error ?? null,
         error: args.p_error ?? null,
-        received_at: existing?.received_at ?? new Date().toISOString(),
+        maintenance_deferred_at: args.p_processed ? null : existing.maintenance_deferred_at,
+        received_at: existing.received_at ?? new Date().toISOString(),
       }
 
-      if (existing) Object.assign(existing, row)
-      else this.rows.stripe_webhook_events.push(row)
+      Object.assign(existing, row)
 
       return { data: row, error: null }
+    }
+
+    if (fn === 'defer_stripe_webhook_for_maintenance') {
+      const existing = this.rows.stripe_webhook_events.find((event) => (
+        event.stripe_event_id === args.p_stripe_event_id
+        && event.endpoint_path === args.p_endpoint_path
+        && event.in_flight === true
+        && event.reservation_token === args.p_reservation_token
+      ))
+      if (!existing || this.controlState === 'open') {
+        return { data: null, error: { message: 'Stripe webhook reservation ownership was lost' } }
+      }
+      const queuedAt = new Date().toISOString()
+      Object.assign(existing, {
+        processed: false,
+        processed_at: null,
+        completed_at: null,
+        in_flight: false,
+        reservation_token: null,
+        processing_outcome: 'deferred_maintenance',
+        maintenance_deferred_at: queuedAt,
+      })
+      return { data: { queued_at: queuedAt, control_state: this.controlState }, error: null }
     }
 
     return { data: null, error: null }
   }
 }
 
-class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
+class MemoryQuery implements PromiseLike<MemoryQueryResult> {
   private filters: Array<(row: Row) => boolean> = []
   private operation: 'select' | 'insert' | 'update' = 'select'
   private payload: Row | null = null
   private selectedColumns: string | null = null
+  private exactCount = false
+  private head = false
+  private orderBy: { field: string; ascending: boolean } | null = null
+  private rowLimit: number | null = null
 
   constructor(private db: MemoryDb, private table: string) {}
 
-  select(columns = '*') {
+  select(columns = '*', options?: { count?: 'exact'; head?: boolean }) {
     this.selectedColumns = columns
+    this.exactCount = options?.count === 'exact'
+    this.head = options?.head === true
     return this
   }
 
@@ -308,6 +447,24 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
     return this
   }
 
+  not(field: string, operator: string, value: unknown) {
+    if (operator !== 'is' || value !== null) {
+      throw new Error(`Unsupported MemoryQuery.not operation: ${field} ${operator} ${String(value)}`)
+    }
+    this.filters.push((row) => row[field] !== null && row[field] !== undefined)
+    return this
+  }
+
+  order(field: string, options?: { ascending?: boolean }) {
+    this.orderBy = { field, ascending: options?.ascending !== false }
+    return this
+  }
+
+  limit(value: number) {
+    this.rowLimit = value
+    return this
+  }
+
   maybeSingle() {
     return Promise.resolve(this.execute()).then(({ data, error }) => ({
       data: Array.isArray(data) ? data[0] ?? null : data,
@@ -315,8 +472,8 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
     }))
   }
 
-  then<TResult1 = { data: unknown; error: null }, TResult2 = never>(
-    onfulfilled?: ((value: { data: unknown; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
+  then<TResult1 = MemoryQueryResult, TResult2 = never>(
+    onfulfilled?: ((value: MemoryQueryResult) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
   ): PromiseLike<TResult1 | TResult2> {
     return Promise.resolve(this.execute()).then(onfulfilled, onrejected)
@@ -330,12 +487,32 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
     }
 
     if (this.operation === 'update') {
+      const updateError = this.db.updateErrors.get(this.table)
+      if (updateError) {
+        return { data: null, error: { message: updateError } }
+      }
       const rows = this.applyFilters()
       rows.forEach((row) => Object.assign(row, this.payload))
       return { data: this.projectRows(rows), error: null }
     }
 
-    return { data: this.projectRows(this.applyFilters()), error: null }
+    let rows = [...this.applyFilters()]
+    if (this.orderBy) {
+      const { field, ascending } = this.orderBy
+      rows.sort((left, right) => {
+        const a = String(left[field] ?? '')
+        const b = String(right[field] ?? '')
+        return (a < b ? -1 : a > b ? 1 : 0) * (ascending ? 1 : -1)
+      })
+    }
+    const count = rows.length
+    if (this.rowLimit !== null) rows = rows.slice(0, this.rowLimit)
+
+    return {
+      data: this.head ? null : this.projectRows(rows),
+      error: null,
+      ...(this.exactCount ? { count } : {}),
+    }
   }
 
   private applyFilters() {
@@ -367,9 +544,21 @@ function makeWebhookRequest(pathname: string, fixture: Fixture) {
   }) as never
 }
 
+function makeReplayDrainRequest() {
+  return new Request('http://localhost/api/internal/stripe-webhooks/replay-deferred', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer cron-test-secret',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ limit: 10 }),
+  }) as never
+}
+
 describe('Stripe signed webhook fixtures', () => {
   const originalPlatformSecret = process.env.STRIPE_WEBHOOK_SECRET
   const originalConnectSecret = process.env.STRIPE_CONNECT_WEBHOOK_SECRET
+  const originalCronSecret = process.env.CRON_SECRET
   const verifier = new Stripe('sk_test_codex_fixture', {
     apiVersion: '2025-09-30.clover' as Stripe.LatestApiVersion,
   })
@@ -384,6 +573,7 @@ describe('Stripe signed webhook fixtures', () => {
     jest.clearAllMocks()
     process.env.STRIPE_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET
+    process.env.CRON_SECRET = 'cron-test-secret'
     db = new MemoryDb()
     stripe = {
       webhooks: {
@@ -402,6 +592,15 @@ describe('Stripe signed webhook fixtures', () => {
     ;(getStripeClient as jest.Mock).mockReturnValue(stripe)
     ;(allowWebhookRequest as jest.Mock).mockResolvedValue(true)
     ;(getWebhookRateLimitKey as jest.Mock).mockImplementation((platform: string) => `${platform}:test`)
+    ;(readWritePauseStatus as jest.Mock).mockResolvedValue({
+      available: true,
+      state: 'open',
+      enabled: false,
+      reason: null,
+      enabledAt: null,
+      updatedAt: '2026-07-10T20:00:00.000Z',
+      revision: 0,
+    })
   })
 
   afterEach(() => {
@@ -409,8 +608,12 @@ describe('Stripe signed webhook fixtures', () => {
   })
 
   afterAll(() => {
-    process.env.STRIPE_WEBHOOK_SECRET = originalPlatformSecret
-    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = originalConnectSecret
+    if (originalPlatformSecret === undefined) delete process.env.STRIPE_WEBHOOK_SECRET
+    else process.env.STRIPE_WEBHOOK_SECRET = originalPlatformSecret
+    if (originalConnectSecret === undefined) delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET
+    else process.env.STRIPE_CONNECT_WEBHOOK_SECRET = originalConnectSecret
+    if (originalCronSecret === undefined) delete process.env.CRON_SECRET
+    else process.env.CRON_SECRET = originalCronSecret
   })
 
   it('processes a signed kickback invoice once and skips duplicate delivery', async () => {
@@ -444,6 +647,207 @@ describe('Stripe signed webhook fixtures', () => {
     expect(applyInvoicePayment).not.toHaveBeenCalled()
     expect(applyInvoicePaymentFailed).not.toHaveBeenCalled()
     expect(applyCheckoutSessionCompleted).not.toHaveBeenCalled()
+  })
+
+  it('accepts and durably queues a signed Stripe webhook while writes are paused', async () => {
+    const fixture = loadFixture('invoice_paid_kickback')
+    jest.useFakeTimers().setSystemTime(new Date((fixture.timestamp + 10) * 1000))
+    ;(readWritePauseStatus as jest.Mock).mockResolvedValue({
+      available: true,
+      state: 'paused',
+      enabled: true,
+      reason: 'Release window',
+      enabledAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      revision: 4,
+    })
+    db.controlState = 'paused'
+
+    const response = await stripePlatformWebhookPost(makeWebhookRequest('/api/webhooks/stripe', fixture))
+
+    expect(response.status).toBe(202)
+    await expect(response.json()).resolves.toMatchObject({
+      received: true,
+      queued: true,
+      reason: 'maintenance_in_progress',
+    })
+    expect(db.rows.stripe_webhook_events).toHaveLength(1)
+    expect(db.rows.stripe_webhook_events[0]).toMatchObject({
+      stripe_event_id: 'evt_fixture_invoice_paid_kickback',
+      processed: false,
+      in_flight: false,
+      processing_outcome: 'deferred_maintenance',
+    })
+    expect(db.rows.stripe_webhook_events[0].maintenance_deferred_at).toEqual(expect.any(String))
+    expect(stripe.transfers.create).not.toHaveBeenCalled()
+    expect(sendBuilderPaidEmail).not.toHaveBeenCalled()
+  })
+
+  it('replays real platform and Connect handlers exactly once past rate limits and a stale restart reservation', async () => {
+    const platformFixture = loadFixture('invoice_paid_kickback')
+    const connectFixture = loadFixture('account_updated_charges_enabled')
+    ;(readWritePauseStatus as jest.Mock).mockResolvedValue({
+      available: true,
+      state: 'paused',
+      enabled: true,
+      reason: 'Release window',
+      enabledAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      revision: 5,
+    })
+    db.controlState = 'paused'
+
+    jest.useFakeTimers().setSystemTime(new Date((platformFixture.timestamp + 10) * 1000))
+    const queuedPlatform = await stripePlatformWebhookPost(
+      makeWebhookRequest('/api/webhooks/stripe', platformFixture),
+    )
+    jest.setSystemTime(new Date((connectFixture.timestamp + 10) * 1000))
+    const queuedConnect = await stripeConnectWebhookPost(
+      makeWebhookRequest('/api/webhooks/stripe/connect', connectFixture),
+    )
+
+    expect(queuedPlatform.status).toBe(202)
+    expect(queuedConnect.status).toBe(202)
+    expect(db.rows.stripe_webhook_events).toHaveLength(2)
+
+    const interruptedConnect = db.rows.stripe_webhook_events.find(
+      (row) => row.endpoint_path === '/api/webhooks/stripe/connect',
+    )
+    expect(interruptedConnect).toBeDefined()
+    Object.assign(interruptedConnect!, {
+      in_flight: true,
+      reserved_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    })
+
+    ;(readWritePauseStatus as jest.Mock).mockResolvedValue({
+      available: true,
+      state: 'draining',
+      enabled: true,
+      reason: 'Draining deferred webhooks',
+      enabledAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      revision: 6,
+    })
+    db.controlState = 'draining'
+    ;(allowWebhookRequest as jest.Mock).mockResolvedValue(false)
+
+    const replayFetch = jest.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const url = input instanceof URL
+        ? input
+        : new URL(typeof input === 'string' ? input : input.url)
+      const replayRequest = new Request(url, init)
+      if (url.pathname === '/api/webhooks/stripe') {
+        return stripePlatformWebhookPost(replayRequest as never)
+      }
+      if (url.pathname === '/api/webhooks/stripe/connect') {
+        return stripeConnectWebhookPost(replayRequest as never)
+      }
+      throw new Error(`Unexpected replay URL: ${url}`)
+    })
+
+    const firstDrain = await replayDeferredWebhooksPost(makeReplayDrainRequest())
+    expect(firstDrain.status).toBe(200)
+    await expect(firstDrain.json()).resolves.toMatchObject({
+      ok: true,
+      attempted: 2,
+      replayed: 2,
+      released_stale_reservations: 1,
+      remaining: 0,
+    })
+    expect(stripe.transfers.create).toHaveBeenCalledTimes(1)
+    expect(sendBuilderPaidEmail).toHaveBeenCalledTimes(1)
+    expect(saveBuilderStripeAccount).toHaveBeenCalledTimes(1)
+    expect(allowWebhookRequest).not.toHaveBeenCalled()
+    expect(db.rows.stripe_webhook_events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        endpoint_path: '/api/webhooks/stripe',
+        processed: true,
+        processing_outcome: 'processed',
+      }),
+      expect.objectContaining({
+        endpoint_path: '/api/webhooks/stripe/connect',
+        processed: true,
+        processing_outcome: 'processed',
+      }),
+    ]))
+
+    // A fresh drain invocation simulates a restarted operator process. The
+    // durable ledger is already complete, so neither side effect runs twice.
+    const restartedDrain = await replayDeferredWebhooksPost(makeReplayDrainRequest())
+    expect(restartedDrain.status).toBe(200)
+    await expect(restartedDrain.json()).resolves.toMatchObject({
+      ok: true,
+      attempted: 0,
+      replayed: 0,
+      remaining: 0,
+    })
+    expect(stripe.transfers.create).toHaveBeenCalledTimes(1)
+    expect(saveBuilderStripeAccount).toHaveBeenCalledTimes(1)
+    expect(replayFetch).toHaveBeenCalledTimes(2)
+    expect(stripe.webhooks.constructEvent).toHaveBeenCalledTimes(2)
+
+    replayFetch.mockRestore()
+  })
+
+  it('returns a retriable non-2xx on rate limit and processes the later Stripe retry exactly once', async () => {
+    const fixture = loadFixture('invoice_paid_kickback')
+    jest.useFakeTimers().setSystemTime(new Date((fixture.timestamp + 10) * 1000))
+    ;(allowWebhookRequest as jest.Mock)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true)
+
+    const limited = await stripePlatformWebhookPost(makeWebhookRequest('/api/webhooks/stripe', fixture))
+
+    expect(limited.status).toBe(429)
+    expect(limited.headers.get('retry-after')).toBe('60')
+    await expect(limited.json()).resolves.toMatchObject({
+      received: false,
+      retry: true,
+      reason: 'rate_limited',
+    })
+    expect(stripe.transfers.create).not.toHaveBeenCalled()
+    expect(db.rows.stripe_webhook_events[0]).toMatchObject({
+      processed: false,
+      in_flight: false,
+      reservation_token: null,
+      processing_outcome: 'rate_limited',
+    })
+
+    const retried = await stripePlatformWebhookPost(makeWebhookRequest('/api/webhooks/stripe', fixture))
+
+    expect(retried.status).toBe(200)
+    expect(stripe.transfers.create).toHaveBeenCalledTimes(1)
+    expect(sendBuilderPaidEmail).toHaveBeenCalledTimes(1)
+    expect(db.rows.stripe_webhook_events[0]).toMatchObject({
+      processed: true,
+      in_flight: false,
+      reservation_token: null,
+      processing_outcome: 'processed',
+    })
+
+    const duplicate = await stripePlatformWebhookPost(makeWebhookRequest('/api/webhooks/stripe', fixture))
+    expect(duplicate.status).toBe(200)
+    await expect(duplicate.json()).resolves.toMatchObject({ received: true, duplicate: true })
+    expect(stripe.transfers.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not complete the webhook ledger when a checked kickback write fails', async () => {
+    const fixture = loadFixture('invoice_paid_kickback')
+    jest.useFakeTimers().setSystemTime(new Date((fixture.timestamp + 10) * 1000))
+    db.updateErrors.set('kickback_payments', 'simulated kickback write failure')
+
+    const response = await stripePlatformWebhookPost(makeWebhookRequest('/api/webhooks/stripe', fixture))
+
+    expect(response.status).toBe(500)
+    expect(stripe.transfers.create).toHaveBeenCalledTimes(1)
+    expect(sendBuilderPaidEmail).not.toHaveBeenCalled()
+    expect(db.rows.stripe_webhook_events[0]).toMatchObject({
+      processed: false,
+      in_flight: false,
+      reservation_token: null,
+      processing_outcome: 'failed',
+      last_error: 'simulated kickback write failure',
+    })
   })
 
   it('processes a signed Connect account fixture once and skips duplicate delivery', async () => {

@@ -79,6 +79,8 @@ jest.mock('@/lib/venues/venueOpportunityRecovery', () => ({
 type Row = Record<string, unknown>
 
 class MemoryDb {
+  private reservationSequence = 0
+
   rows: Record<string, Row[]> = {
     vendor_stripe_accounts: [],
     vendor_profiles: [],
@@ -121,6 +123,7 @@ class MemoryDb {
       ))
 
       if (!existing) {
+        const reservationToken = `connect-reservation-${++this.reservationSequence}`
         this.rows.stripe_webhook_events.push({
           id: `stripe_webhook_events-${this.rows.stripe_webhook_events.length + 1}`,
           stripe_event_id: eventId,
@@ -133,12 +136,23 @@ class MemoryDb {
           processed_at: null,
           completed_at: null,
           in_flight: true,
+          reservation_token: reservationToken,
           reserved_at: new Date().toISOString(),
           processing_outcome: 'received',
           duplicate_count: 0,
         })
         return Promise.resolve({
-          data: [{ existed: false, in_flight: true, completed: false, reserved_now: true, processed_at: null }],
+          data: [{
+            existed: false,
+            in_flight: true,
+            completed: false,
+            reserved_now: true,
+            processed_at: null,
+            reservation_token: reservationToken,
+            deferred: false,
+            control_state: 'open',
+            queued_at: null,
+          }],
           error: null,
         })
       }
@@ -164,6 +178,7 @@ class MemoryDb {
         })
       }
 
+      const reservationToken = `connect-reservation-${++this.reservationSequence}`
       Object.assign(existing, {
         event_type: args.p_event_type,
         payload: args.p_payload,
@@ -171,13 +186,24 @@ class MemoryDb {
         endpoint_path: endpointPath,
         livemode: args.p_livemode,
         in_flight: true,
+        reservation_token: reservationToken,
         reserved_at: new Date().toISOString(),
         processing_outcome: 'received',
         last_error: null,
         error: null,
       })
       return Promise.resolve({
-        data: [{ existed: true, in_flight: true, completed: false, reserved_now: true, processed_at: null }],
+        data: [{
+          existed: true,
+          in_flight: true,
+          completed: false,
+          reserved_now: true,
+          processed_at: null,
+          reservation_token: reservationToken,
+          deferred: false,
+          control_state: 'open',
+          queued_at: null,
+        }],
         error: null,
       })
     }
@@ -187,15 +213,17 @@ class MemoryDb {
       const endpointPath = String(args.p_endpoint_path)
       const existing = this.rows.stripe_webhook_events.find((row) => (
         row.stripe_event_id === eventId &&
-        row.endpoint_path === endpointPath
+        row.endpoint_path === endpointPath &&
+        row.reservation_token === args.p_reservation_token
       ))
-      const now = new Date().toISOString()
-      const row = existing ?? {
-        id: `stripe_webhook_events-${this.rows.stripe_webhook_events.length + 1}`,
-        stripe_event_id: eventId,
-        endpoint_path: endpointPath,
-        duplicate_count: 0,
+      if (!existing) {
+        return Promise.resolve({
+          data: null,
+          error: { message: 'Stripe webhook reservation ownership was lost' },
+        })
       }
+      const now = new Date().toISOString()
+      const row = existing
 
       Object.assign(row, {
         event_type: args.p_event_type,
@@ -207,12 +235,11 @@ class MemoryDb {
         processed_at: args.p_processed ? now : null,
         completed_at: args.p_processed ? now : null,
         in_flight: false,
+        reservation_token: null,
         processing_outcome: args.p_processing_outcome,
         last_error: args.p_error ?? null,
         error: args.p_error ?? null,
       })
-      if (!existing) this.rows.stripe_webhook_events.push(row)
-
       return Promise.resolve({ data: row, error: null })
     }
 

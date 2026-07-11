@@ -1,0 +1,32 @@
+[
+  {
+    "path": "supabase/migrations/20260709100000_add_write_pause_control.sql",
+    "text": "'kickback_payments',",
+    "count": 1
+  },
+  {
+    "path": "supabase/migrations/20260709110000_repair_p0_stored_functions.sql",
+    "text": "-- kickback_payments has no updated_at column; preserve its blocking state",
+    "count": 1
+  },
+  {
+    "path": "supabase/migrations/20260709110000_repair_p0_stored_functions.sql",
+    "text": "v_kickback_payments integer := 0;",
+    "count": 1
+  },
+  {
+    "path": "supabase/migrations/20260709110000_repair_p0_stored_functions.sql",
+    "text": "UPDATE public.kickback_payments",
+    "count": 1
+  },
+  {
+    "path": "supabase/migrations/20260709110000_repair_p0_stored_functions.sql",
+    "text": "GET DIAGNOSTICS v_kickback_payments = ROW_COUNT;",
+    "count": 1
+  },
+  {
+    "path": "supabase/migrations/20260709110000_repair_p0_stored_functions.sql",
+    "text": "'kickback_payments', v_kickback_payments,",
+    "count": 1
+  }
+]
