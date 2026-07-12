@@ -1,8 +1,9 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { loadStripe } from '@stripe/stripe-js'
 import { AlertTriangle, CheckCircle2, CreditCard, Loader2, ShieldCheck } from 'lucide-react'
+import { PlannerPaymentMethodSelector } from '@/components/payments/PlannerPaymentMethodSelector'
 import { Button } from '@/components/ui/button'
 
 type AuthorizationResponse = {
@@ -24,7 +25,15 @@ type CaptureResponse = {
   error?: string
 }
 
+type AuthenticationSnapshotResponse = {
+  state?: ExecutionState | 'failed'
+  paymentIntentId?: string | null
+  paymentMethodId?: string | null
+  error?: string
+}
+
 type ExecutionState =
+  | 'hydrating'
   | 'idle'
   | 'authorizing'
   | 'awaiting_authentication'
@@ -60,19 +69,62 @@ export function PlannerDepositExecution({
   amountLabel: string
   onCaptured?: () => void
 }) {
-  const [state, setState] = useState<ExecutionState>('idle')
+  const [state, setState] = useState<ExecutionState>('hydrating')
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null)
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string | null>(null)
+  const [isAuthenticationActive, setIsAuthenticationActive] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inFlightRef = useRef(false)
 
+  useEffect(() => {
+    let cancelled = false
+
+    async function hydrateAuthenticationState() {
+      try {
+        const response = await fetch(
+          `/api/planner/plans/${planId}/payments/authentication?approvalId=${encodeURIComponent(approvalId)}`,
+          { credentials: 'include', cache: 'no-store' }
+        )
+        const payload = (await response.json().catch(() => ({}))) as AuthenticationSnapshotResponse
+        if (!response.ok) throw new Error(payload.error || 'Unable to restore payment verification state.')
+        if (cancelled) return
+
+        const hydratedState = payload.state === 'failed' ? 'retry_allowed' : payload.state ?? 'idle'
+        setPaymentIntentId(payload.paymentIntentId ?? null)
+        setSelectedPaymentMethodId(payload.paymentMethodId ?? null)
+        setState(hydratedState)
+        if (payload.state === 'failed') {
+          setError('The prior authorization failed. Select a payment method and retry safely.')
+        }
+      } catch (hydrateError) {
+        if (cancelled) return
+        setState('idle')
+        setError(
+          hydrateError instanceof Error
+            ? hydrateError.message
+            : 'Unable to restore payment verification state.'
+        )
+      }
+    }
+
+    void hydrateAuthenticationState()
+    return () => {
+      cancelled = true
+    }
+  }, [approvalId, planId])
+
   async function authorizeDeposit() {
-    if (inFlightRef.current) return
+    if (inFlightRef.current || !selectedPaymentMethodId) return
     inFlightRef.current = true
     setState('authorizing')
     setError(null)
 
     try {
-      const authorization = await requestAuthorization(planId, approvalId)
+      const authorization = await requestAuthorization(
+        planId,
+        approvalId,
+        selectedPaymentMethodId
+      )
       await handleAuthorizationResponse(authorization)
     } catch (authorizationError) {
       setState('retry_allowed')
@@ -113,9 +165,13 @@ export function PlannerDepositExecution({
     const stripe = await currentStripePromise
     if (!stripe) throw new Error('Secure card verification could not be loaded.')
 
-    const verification = await stripe.handleNextAction({
-      clientSecret: authorization.client_secret,
-    })
+    setIsAuthenticationActive(true)
+    let verification: Awaited<ReturnType<typeof stripe.handleNextAction>>
+    try {
+      verification = await stripe.handleNextAction({ clientSecret: authorization.client_secret })
+    } finally {
+      setIsAuthenticationActive(false)
+    }
     if (verification.error) {
       const outcome = verification.error.code === 'payment_intent_authentication_failure'
         ? 'failed'
@@ -129,7 +185,10 @@ export function PlannerDepositExecution({
       return
     }
 
-    const resumed = await requestAuthorization(planId, approvalId)
+    if (!selectedPaymentMethodId) {
+      throw new Error('Select the organizer payment method used for this authorization.')
+    }
+    const resumed = await requestAuthorization(planId, approvalId, selectedPaymentMethodId)
     if (resumed.requires_action) {
       throw new Error('Stripe still requires verification. Retry to continue the same authorization.')
     }
@@ -186,11 +245,32 @@ export function PlannerDepositExecution({
             Authorize {amountLabel} for {provider}. Verification does not move money; capture still requires your separate confirmation.
           </p>
 
+          {state !== 'hydrating' && state !== 'captured' ? (
+            <div className="mt-4">
+              <PlannerPaymentMethodSelector
+                selectedPaymentMethodId={selectedPaymentMethodId}
+                onSelect={setSelectedPaymentMethodId}
+                disabled={
+                  state === 'authorizing' ||
+                  state === 'authorized' ||
+                  state === 'capturing' ||
+                  isAuthenticationActive
+                }
+              />
+            </div>
+          ) : null}
+
           <div className="mt-3" aria-live="polite">
+            {state === 'hydrating' ? (
+              <div className="flex items-center gap-2 text-sm text-ink-soft">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Restoring secure payment state...
+              </div>
+            ) : null}
             {state === 'awaiting_authentication' ? (
               <div className="flex items-center gap-2 text-sm font-semibold text-clay">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Additional verification required. Complete the Stripe challenge to continue.
+                {isAuthenticationActive ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                Additional verification required. Continue the same Stripe challenge to proceed.
               </div>
             ) : null}
             {state === 'authorized' ? (
@@ -205,6 +285,12 @@ export function PlannerDepositExecution({
                 Deposit captured. 3rdPlace is finalizing the payment record.
               </div>
             ) : null}
+            {state === 'capturing' ? (
+              <div className="flex items-center gap-2 text-sm font-semibold text-clay">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Capture is being reconciled. Refreshing will not create a duplicate charge.
+              </div>
+            ) : null}
             {error ? (
               <div className="flex items-start gap-2 text-sm text-brick" role="alert">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -214,15 +300,20 @@ export function PlannerDepositExecution({
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            {state === 'idle' || state === 'retry_allowed' ? (
+            {state === 'idle' || state === 'retry_allowed' || (state === 'awaiting_authentication' && !isAuthenticationActive) ? (
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => void authorizeDeposit()}
+                disabled={!selectedPaymentMethodId}
               >
                 <CreditCard className="h-4 w-4" />
-                {state === 'retry_allowed' ? 'Retry verification' : 'Authorize deposit'}
+                {state === 'awaiting_authentication'
+                  ? 'Continue verification'
+                  : state === 'retry_allowed'
+                    ? 'Retry verification'
+                    : 'Authorize deposit'}
               </Button>
             ) : null}
             {state === 'authorizing' ? (
@@ -250,12 +341,16 @@ export function PlannerDepositExecution({
   )
 }
 
-async function requestAuthorization(planId: string, approvalId: string) {
+async function requestAuthorization(
+  planId: string,
+  approvalId: string,
+  paymentMethodId: string
+) {
   const response = await fetch(`/api/planner/plans/${planId}/payments/authorize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ approvalId }),
+    body: JSON.stringify({ approvalId, paymentMethodId }),
   })
   const payload = (await response.json().catch(() => ({}))) as AuthorizationResponse
   if (!response.ok) throw new Error(payload.error || 'Deposit authorization failed.')

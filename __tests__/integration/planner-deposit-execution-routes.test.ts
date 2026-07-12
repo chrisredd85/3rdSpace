@@ -4,10 +4,14 @@ const mockStripePaymentIntentsCreate = jest.fn()
 const mockStripePaymentIntentsCapture = jest.fn()
 const mockStripePaymentIntentsRetrieve = jest.fn()
 const mockStripeAccountsRetrieve = jest.fn()
+const mockStripeCustomersRetrievePaymentMethod = jest.fn()
+const mockStripeSetupIntentsRetrieve = jest.fn()
 
 import type { NextRequest } from 'next/server'
 import { POST as authorizeDeposit } from '@/app/api/planner/plans/[planId]/payments/authorize/route'
+import { POST as recordAuthenticationOutcome } from '@/app/api/planner/plans/[planId]/payments/authentication/route'
 import { POST as captureDeposit } from '@/app/api/payments/capture/route'
+import { confirmBuilderPaymentMethodSetup } from '@/lib/planner/builderPaymentMethods'
 import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
@@ -35,6 +39,12 @@ jest.mock('@/lib/stripe/connect', () => ({
       create: mockStripePaymentIntentsCreate,
       retrieve: mockStripePaymentIntentsRetrieve,
     },
+    customers: {
+      retrievePaymentMethod: mockStripeCustomersRetrievePaymentMethod,
+    },
+    setupIntents: {
+      retrieve: mockStripeSetupIntentsRetrieve,
+    },
   })),
 }))
 
@@ -61,6 +71,8 @@ const ACTION_ID = '550e8400-e29b-41d4-a716-446655440002'
 const APPROVAL_ID = '550e8400-e29b-41d4-a716-446655440003'
 const PARTNER_ID = '550e8400-e29b-41d4-a716-446655440004'
 const PAYMENT_INTENT_ID = '550e8400-e29b-41d4-a716-446655440005'
+const BUILDER_ID = '550e8400-e29b-41d4-a716-446655440006'
+const CUSTOMER_ID = 'cus_planner_organizer'
 
 function routeStripeTruth(input: {
   id?: string
@@ -68,6 +80,8 @@ function routeStripeTruth(input: {
   plannerPaymentIntentId?: string
   client_secret?: string
   next_action?: Record<string, unknown> | null
+  last_payment_error?: { message?: string | null } | null
+  cancellation_reason?: string | null
 } = {}) {
   const {
     plannerPaymentIntentId = 'payment_intents-1',
@@ -104,6 +118,8 @@ class MemoryDb {
     payouts: [],
     venues: [],
     venue_stripe_accounts: [],
+    builder_profiles: [],
+    builder_payment_methods: [],
   }
 
   from(table: string) {
@@ -199,7 +215,8 @@ class MemoryDb {
 class MemoryQuery {
   private filters: Array<[string, unknown]> = []
   private inFilters: Array<[string, unknown[]]> = []
-  private operation: 'select' | 'insert' | 'update' = 'select'
+  private containsFilters: Array<[string, Record<string, unknown>]> = []
+  private operation: 'select' | 'insert' | 'update' | 'upsert' = 'select'
   private payload: unknown
   private limitCount: number | null = null
 
@@ -221,6 +238,12 @@ class MemoryQuery {
     return this
   }
 
+  upsert(payload: unknown) {
+    this.operation = 'upsert'
+    this.payload = payload
+    return this
+  }
+
   eq(field: string, value: unknown) {
     this.filters.push([field, value])
     return this
@@ -233,6 +256,11 @@ class MemoryQuery {
 
   in(field: string, values: unknown[]) {
     this.inFilters.push([field, values])
+    return this
+  }
+
+  contains(field: string, value: Record<string, unknown>) {
+    this.containsFilters.push([field, value])
     return this
   }
 
@@ -288,6 +316,27 @@ class MemoryQuery {
       return { data: updated, error: null }
     }
 
+    if (this.operation === 'upsert') {
+      const payload = this.payload as Row
+      const paymentMethodId = payload.stripe_payment_method_id
+      const existing = this.db.rows[this.table].find((row) => (
+        row.stripe_payment_method_id === paymentMethodId
+      ))
+      if (existing) {
+        Object.assign(existing, payload, { updated_at: new Date().toISOString() })
+        return { data: existing, error: null }
+      }
+      const inserted = {
+        id: this.db.nextId(this.table),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        is_default: false,
+        ...payload,
+      }
+      this.db.rows[this.table].push(inserted)
+      return { data: inserted, error: null }
+    }
+
     let selected = this.db.rows[this.table].filter((row) => this.matches(row))
     if (this.limitCount != null) selected = selected.slice(0, this.limitCount)
     return { data: selected, error: null }
@@ -296,9 +345,20 @@ class MemoryQuery {
   private matches(row: Row) {
     return (
       this.filters.every(([field, value]) => row[field] === value) &&
-      this.inFilters.every(([field, values]) => values.includes(row[field]))
+      this.inFilters.every(([field, values]) => values.includes(row[field])) &&
+      this.containsFilters.every(([field, expected]) => containsRecord(row[field], expected))
     )
   }
+}
+
+function containsRecord(actual: unknown, expected: Record<string, unknown>): boolean {
+  if (!actual || typeof actual !== 'object' || Array.isArray(actual)) return false
+  return Object.entries(expected).every(([key, value]) => {
+    const actualValue = (actual as Record<string, unknown>)[key]
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? containsRecord(actualValue, value as Record<string, unknown>)
+      : actualValue === value
+  })
 }
 
 function request(path: string, body: Row, method = 'POST') {
@@ -377,6 +437,11 @@ function seedDb() {
   }
 
   db.rows.plans.push(plan)
+  db.rows.builder_profiles.push({
+    id: BUILDER_ID,
+    user_id: USER_ID,
+    stripe_customer_id: CUSTOMER_ID,
+  })
   db.rows.venues.push({ id: PARTNER_ID, owner_id: 'venue-owner-1' })
   db.rows.venue_stripe_accounts.push({
     owner_id: 'venue-owner-1',
@@ -412,6 +477,47 @@ function approvalLike() {
   }
 }
 
+function seedAuthenticationAttempt(
+  db: MemoryDb,
+  input: {
+    localStatus?: string
+    metadataStatus?: string
+    metadataPaymentIntentId?: string
+    includePaymentIntent?: boolean
+  } = {}
+) {
+  const {
+    localStatus = 'pending',
+    metadataStatus = 'awaiting_authentication',
+    metadataPaymentIntentId = PAYMENT_INTENT_ID,
+    includePaymentIntent = true,
+  } = input
+
+  db.rows.agent_actions[0].result_metadata = {
+    payment_authentication: {
+      status: metadataStatus,
+      payment_intent_id: metadataPaymentIntentId,
+      stripe_status: 'requires_action',
+      outcome: null,
+      updated_at: new Date().toISOString(),
+    },
+  }
+  if (includePaymentIntent) {
+    db.rows.payment_intents.push({
+      id: PAYMENT_INTENT_ID,
+      plan_id: PLAN_ID,
+      approval_id: APPROVAL_ID,
+      partner_kind: 'venue',
+      partner_id: PARTNER_ID,
+      amount_cents: 25_000,
+      currency: 'usd',
+      status: localStatus,
+      stripe_payment_intent_id: 'pi_sca_attempt',
+      stripe_payment_method_id: 'pm_sca_attempt',
+    })
+  }
+}
+
 describe('planner deposit execution routes', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -437,11 +543,70 @@ describe('planner deposit execution routes', () => {
       details_submitted: true,
       requirements: {},
     })
+    mockStripeCustomersRetrievePaymentMethod.mockImplementation(async (
+      _customerId: string,
+      paymentMethodId: string
+    ) => ({
+      id: paymentMethodId,
+      type: 'card',
+      customer: CUSTOMER_ID,
+      card: {
+        brand: 'visa',
+        last4: '4242',
+        exp_month: 12,
+        exp_year: 2032,
+      },
+    }))
   })
 
-  it('authorizes with the approval payment method and moves the action to executing', async () => {
+  it('binds an organizer-owned SetupIntent card, then authorizes with that exact method', async () => {
     const db = seedDb()
-    db.rows.approvals[0].payment_method_id = 'pm_approval_saved'
+    const boundPaymentMethodId = 'pm_bound_from_setup'
+    mockStripeSetupIntentsRetrieve.mockResolvedValueOnce({
+      id: 'seti_planner_bound',
+      status: 'succeeded',
+      customer: CUSTOMER_ID,
+      payment_method: boundPaymentMethodId,
+      metadata: {
+        builder_id: BUILDER_ID,
+        user_id: USER_ID,
+      },
+    })
+    mockStripeCustomersRetrievePaymentMethod.mockImplementation(async (
+      customerId: string,
+      paymentMethodId: string
+    ) => {
+      if (customerId !== CUSTOMER_ID || paymentMethodId !== boundPaymentMethodId) {
+        throw { code: 'resource_missing' }
+      }
+      return {
+        id: paymentMethodId,
+        type: 'card',
+        customer: customerId,
+        card: {
+          brand: 'visa',
+          last4: '4242',
+          exp_month: 12,
+          exp_year: 2032,
+        },
+      }
+    })
+
+    const boundMethod = await confirmBuilderPaymentMethodSetup({
+      db,
+      builderId: BUILDER_ID,
+      userId: USER_ID,
+      customerId: CUSTOMER_ID,
+      setupIntentId: 'seti_planner_bound',
+    })
+
+    expect(boundMethod.id).toBe(boundPaymentMethodId)
+    expect(db.rows.builder_payment_methods).toEqual([
+      expect.objectContaining({
+        builder_id: BUILDER_ID,
+        stripe_payment_method_id: boundPaymentMethodId,
+      }),
+    ])
 
     const response = await authorizeDeposit(
       request(`/api/planner/plans/${PLAN_ID}/payments/authorize`, {
@@ -449,6 +614,7 @@ describe('planner deposit execution routes', () => {
         partnerKind: 'venue',
         partnerId: PARTNER_ID,
         amountCents: 25_000,
+        paymentMethodId: boundMethod.id,
       }),
       { params: { planId: PLAN_ID } }
     )
@@ -462,17 +628,36 @@ describe('planner deposit execution routes', () => {
       stripe_payment_intent_id: 'pi_planner_authorized',
     }))
     expect(mockStripePaymentIntentsCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ payment_method: 'pm_approval_saved' }),
+      expect.objectContaining({
+        customer: CUSTOMER_ID,
+        payment_method: boundPaymentMethodId,
+        payment_method_types: ['card'],
+        capture_method: 'manual',
+        confirm: true,
+        use_stripe_sdk: true,
+      }),
       expect.objectContaining({
         idempotencyKey: expect.stringContaining(`planner_deposit_${APPROVAL_ID}_`),
       })
+    )
+    expect(mockStripePaymentIntentsCreate.mock.calls[0][0]).not.toHaveProperty(
+      'automatic_payment_methods'
+    )
+    expect(mockStripeCustomersRetrievePaymentMethod).toHaveBeenNthCalledWith(
+      1,
+      CUSTOMER_ID,
+      boundPaymentMethodId
+    )
+    expect(mockStripeCustomersRetrievePaymentMethod).toHaveBeenNthCalledWith(
+      2,
+      CUSTOMER_ID,
+      boundPaymentMethodId
     )
     expect(db.rows.agent_actions[0].status).toBe('executing')
   })
 
   it('returns safe SCA details, persists the Stripe identity, and reconciles the same intent', async () => {
     const db = seedDb()
-    db.rows.approvals[0].payment_method_id = 'pm_sca_route'
     mockStripePaymentIntentsCreate.mockResolvedValueOnce(routeStripeTruth({
       id: 'pi_sca_route',
       status: 'requires_action',
@@ -488,6 +673,7 @@ describe('planner deposit execution routes', () => {
       partnerKind: 'venue',
       partnerId: PARTNER_ID,
       amountCents: 25_000,
+      paymentMethodId: 'pm_sca_route',
     }
 
     const actionRequired = await authorizeDeposit(
@@ -551,6 +737,298 @@ describe('planner deposit execution routes', () => {
     }))
   })
 
+  it('records a retryable outcome only for the current awaiting Stripe authentication attempt', async () => {
+    const db = seedDb()
+    seedAuthenticationAttempt(db)
+    mockStripePaymentIntentsRetrieve.mockResolvedValueOnce(routeStripeTruth({
+      id: 'pi_sca_attempt',
+      status: 'requires_action',
+      plannerPaymentIntentId: PAYMENT_INTENT_ID,
+    }))
+
+    const response = await recordAuthenticationOutcome(
+      request(`/api/planner/plans/${PLAN_ID}/payments/authentication`, {
+        approvalId: APPROVAL_ID,
+        outcome: 'abandoned',
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(response.status).toBe(200)
+    expect(await readJson(response)).toEqual({
+      status: 'retry_allowed',
+      outcome: 'abandoned',
+    })
+    expect(mockStripePaymentIntentsRetrieve).toHaveBeenCalledWith('pi_sca_attempt')
+    expect(db.rows.agent_actions[0].result_metadata).toEqual(expect.objectContaining({
+      payment_authentication: expect.objectContaining({
+        status: 'retry_allowed',
+        payment_intent_id: PAYMENT_INTENT_ID,
+        stripe_status: 'requires_action',
+        outcome: 'abandoned',
+      }),
+    }))
+    expect(db.rows.agent_action_audit_log).toEqual([
+      expect.objectContaining({
+        action_id: ACTION_ID,
+        plan_id: PLAN_ID,
+        from_status: 'approved',
+        to_status: 'approved',
+        actor_id: USER_ID,
+        actor_role: 'user',
+        reason: 'payment.authentication.retry_allowed',
+        metadata: expect.objectContaining({
+          status: 'retry_allowed',
+          payment_intent_id: PAYMENT_INTENT_ID,
+          outcome: 'abandoned',
+        }),
+      }),
+    ])
+  })
+
+  it('durably releases a failed SCA attempt when Stripe requires a new payment method', async () => {
+    const db = seedDb()
+    seedAuthenticationAttempt(db)
+    mockStripePaymentIntentsRetrieve.mockResolvedValueOnce(routeStripeTruth({
+      id: 'pi_sca_attempt',
+      status: 'requires_payment_method',
+      plannerPaymentIntentId: PAYMENT_INTENT_ID,
+      last_payment_error: { message: 'Your card could not be authenticated.' },
+    }))
+
+    const response = await recordAuthenticationOutcome(
+      request(`/api/planner/plans/${PLAN_ID}/payments/authentication`, {
+        approvalId: APPROVAL_ID,
+        outcome: 'failed',
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(response.status).toBe(200)
+    expect(await readJson(response)).toEqual({
+      status: 'retry_allowed',
+      outcome: 'failed',
+    })
+    expect(db.rows.payment_intents[0]).toEqual(expect.objectContaining({
+      status: 'failed',
+      failure_reason: 'Your card could not be authenticated.',
+    }))
+    expect(db.rows.agent_actions[0].result_metadata).toEqual(expect.objectContaining({
+      payment_authentication: expect.objectContaining({
+        status: 'retry_allowed',
+        payment_intent_id: PAYMENT_INTENT_ID,
+        stripe_status: 'requires_payment_method',
+        outcome: 'failed',
+      }),
+    }))
+    expect(db.rows.agent_action_audit_log).toEqual([
+      expect.objectContaining({
+        reason: 'payment.authentication.retry_allowed',
+        metadata: expect.objectContaining({
+          stripe_status: 'requires_payment_method',
+          outcome: 'failed',
+        }),
+      }),
+    ])
+
+    mockStripePaymentIntentsCreate.mockResolvedValueOnce(routeStripeTruth({
+      id: 'pi_sca_retry',
+      status: 'requires_capture',
+      plannerPaymentIntentId: 'payment_intents-2',
+    }))
+
+    const retry = await authorizeDeposit(
+      request(`/api/planner/plans/${PLAN_ID}/payments/authorize`, {
+        approvalId: APPROVAL_ID,
+        partnerKind: 'venue',
+        partnerId: PARTNER_ID,
+        amountCents: 25_000,
+        paymentMethodId: 'pm_sca_attempt',
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(retry.status).toBe(200)
+    expect(await readJson(retry)).toEqual(expect.objectContaining({
+      paymentIntent: expect.objectContaining({ status: 'authorized' }),
+    }))
+    expect(db.rows.payment_intents).toHaveLength(2)
+    expect(db.rows.payment_intents[0].status).toBe('failed')
+    expect(db.rows.payment_intents[1].status).toBe('authorized')
+    expect(mockStripePaymentIntentsCreate).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases a canceled pre-capture SCA attempt for a new explicit authorization', async () => {
+    const db = seedDb()
+    seedAuthenticationAttempt(db)
+    mockStripePaymentIntentsRetrieve.mockResolvedValueOnce(routeStripeTruth({
+      id: 'pi_sca_attempt',
+      status: 'canceled',
+      plannerPaymentIntentId: PAYMENT_INTENT_ID,
+      cancellation_reason: 'requested_by_customer',
+    }))
+
+    const response = await recordAuthenticationOutcome(
+      request(`/api/planner/plans/${PLAN_ID}/payments/authentication`, {
+        approvalId: APPROVAL_ID,
+        outcome: 'abandoned',
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(response.status).toBe(200)
+    expect(await readJson(response)).toEqual({
+      status: 'retry_allowed',
+      outcome: 'abandoned',
+    })
+    expect(db.rows.payment_intents[0]).toEqual(expect.objectContaining({
+      status: 'failed',
+      failure_reason: 'Stripe PaymentIntent was canceled (requested_by_customer) before capture.',
+    }))
+    expect(db.rows.agent_actions[0].result_metadata).toEqual(expect.objectContaining({
+      payment_authentication: expect.objectContaining({
+        status: 'retry_allowed',
+        stripe_status: 'canceled',
+        outcome: 'abandoned',
+      }),
+    }))
+  })
+
+  it.each(['requires_capture', 'succeeded', 'processing']) (
+    'rejects a client retry outcome when live Stripe truth is %s',
+    async (stripeStatus) => {
+      const db = seedDb()
+      seedAuthenticationAttempt(db)
+      mockStripePaymentIntentsRetrieve.mockResolvedValueOnce(routeStripeTruth({
+        id: 'pi_sca_attempt',
+        status: stripeStatus,
+        plannerPaymentIntentId: PAYMENT_INTENT_ID,
+      }))
+
+      const response = await recordAuthenticationOutcome(
+        request(`/api/planner/plans/${PLAN_ID}/payments/authentication`, {
+          approvalId: APPROVAL_ID,
+          outcome: 'failed',
+        }),
+        { params: { planId: PLAN_ID } }
+      )
+
+      expect(response.status).toBe(409)
+      expect(await readJson(response)).toEqual({
+        error: 'Stripe authentication state changed. Refresh before retrying.',
+      })
+      expect(db.rows.payment_intents[0].status).toBe('pending')
+      expect(db.rows.agent_actions[0].result_metadata).toEqual(expect.objectContaining({
+        payment_authentication: expect.objectContaining({
+          status: 'awaiting_authentication',
+        }),
+      }))
+      expect(db.rows.agent_action_audit_log).toHaveLength(0)
+    }
+  )
+
+  it('rejects an authentication outcome without a matching local PaymentIntent before Stripe', async () => {
+    const db = seedDb()
+    seedAuthenticationAttempt(db, { includePaymentIntent: false })
+
+    const response = await recordAuthenticationOutcome(
+      request(`/api/planner/plans/${PLAN_ID}/payments/authentication`, {
+        approvalId: APPROVAL_ID,
+        outcome: 'failed',
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(response.status).toBe(409)
+    expect(await readJson(response)).toEqual({
+      error: 'No active authentication attempt matches this approval.',
+    })
+    expect(mockStripePaymentIntentsRetrieve).not.toHaveBeenCalled()
+    expect(db.rows.agent_action_audit_log).toHaveLength(0)
+    expect(db.rows.agent_actions[0].result_metadata).toEqual(expect.objectContaining({
+      payment_authentication: expect.objectContaining({
+        status: 'awaiting_authentication',
+      }),
+    }))
+  })
+
+  it.each(['authorized', 'captured'])(
+    'rejects an authentication outcome for a local PaymentIntent in %s state before Stripe',
+    async (localStatus) => {
+      const db = seedDb()
+      seedAuthenticationAttempt(db, { localStatus })
+
+      const response = await recordAuthenticationOutcome(
+        request(`/api/planner/plans/${PLAN_ID}/payments/authentication`, {
+          approvalId: APPROVAL_ID,
+          outcome: 'abandoned',
+        }),
+        { params: { planId: PLAN_ID } }
+      )
+
+      expect(response.status).toBe(409)
+      expect(await readJson(response)).toEqual({
+        error: 'No active authentication attempt matches this approval.',
+      })
+      expect(mockStripePaymentIntentsRetrieve).not.toHaveBeenCalled()
+      expect(db.rows.agent_action_audit_log).toHaveLength(0)
+    }
+  )
+
+  it.each([
+    ['another PaymentIntent', 'awaiting_authentication', 'payment_intents-other'],
+    ['an already-authenticated action', 'authenticated', PAYMENT_INTENT_ID],
+  ])(
+    'rejects authentication outcomes when action metadata points to %s',
+    async (_label, metadataStatus, metadataPaymentIntentId) => {
+      const db = seedDb()
+      seedAuthenticationAttempt(db, { metadataStatus, metadataPaymentIntentId })
+
+      const response = await recordAuthenticationOutcome(
+        request(`/api/planner/plans/${PLAN_ID}/payments/authentication`, {
+          approvalId: APPROVAL_ID,
+          outcome: 'failed',
+        }),
+        { params: { planId: PLAN_ID } }
+      )
+
+      expect(response.status).toBe(409)
+      expect(await readJson(response)).toEqual({
+        error: 'Payment authentication state changed. Refresh before retrying.',
+      })
+      expect(mockStripePaymentIntentsRetrieve).not.toHaveBeenCalled()
+      expect(db.rows.agent_action_audit_log).toHaveLength(0)
+    }
+  )
+
+  it.each([
+    ['expired', { expires_at: '2020-01-01T00:00:00.000Z' }],
+    ['superseded', { superseded_at: '2026-07-11T00:00:00.000Z' }],
+    ['rejected', { status: 'rejected' }],
+  ])(
+    'rejects authentication outcomes when the approval is %s before Stripe',
+    async (_label, approvalPatch) => {
+      const db = seedDb()
+      seedAuthenticationAttempt(db)
+      Object.assign(db.rows.approvals[0], approvalPatch)
+
+      const response = await recordAuthenticationOutcome(
+        request(`/api/planner/plans/${PLAN_ID}/payments/authentication`, {
+          approvalId: APPROVAL_ID,
+          outcome: 'abandoned',
+        }),
+        { params: { planId: PLAN_ID } }
+      )
+
+      expect(response.status).toBe(409)
+      expect(await readJson(response)).toEqual({
+        error: 'This payment approval is no longer eligible for authentication updates.',
+      })
+      expect(mockStripePaymentIntentsRetrieve).not.toHaveBeenCalled()
+      expect(db.rows.agent_action_audit_log).toHaveLength(0)
+    }
+  )
+
   it('rejects a missing payment method before reserving or transitioning the action', async () => {
     const db = seedDb()
 
@@ -574,9 +1052,50 @@ describe('planner deposit execution routes', () => {
     expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['another organizer', 'cus_other_organizer'],
+    ['no Stripe Customer', null],
+  ])('rejects a payment method bound to %s before creating an authorization', async (_label, customer) => {
+    const db = seedDb()
+    mockStripeCustomersRetrievePaymentMethod.mockResolvedValueOnce({
+      id: 'pm_not_owned',
+      type: 'card',
+      customer,
+      card: {
+        brand: 'visa',
+        last4: '0002',
+        exp_month: 12,
+        exp_year: 2032,
+      },
+    })
+
+    const response = await authorizeDeposit(
+      request(`/api/planner/plans/${PLAN_ID}/payments/authorize`, {
+        approvalId: APPROVAL_ID,
+        partnerKind: 'venue',
+        partnerId: PARTNER_ID,
+        amountCents: 25_000,
+        paymentMethodId: 'pm_not_owned',
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({
+      error: 'This payment method is not attached to the authenticated organizer.',
+      code: 'builder_payment_method_forbidden',
+    })
+    expect(mockStripeCustomersRetrievePaymentMethod).toHaveBeenCalledWith(
+      CUSTOMER_ID,
+      'pm_not_owned'
+    )
+    expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled()
+    expect(db.rows.payment_intents).toHaveLength(0)
+    expect(db.rows.agent_actions[0].status).toBe('approved')
+  })
+
   it('fresh-checks partner Stripe readiness before creating an authorization', async () => {
     const db = seedDb()
-    db.rows.approvals[0].payment_method_id = 'pm_approval_saved'
     mockStripeAccountsRetrieve.mockResolvedValueOnce({
       id: 'acct_venue_ready',
       charges_enabled: false,
@@ -591,6 +1110,7 @@ describe('planner deposit execution routes', () => {
         partnerKind: 'venue',
         partnerId: PARTNER_ID,
         amountCents: 25_000,
+        paymentMethodId: 'pm_bound_from_setup',
       }),
       { params: { planId: PLAN_ID } }
     )

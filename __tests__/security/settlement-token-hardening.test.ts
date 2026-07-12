@@ -33,6 +33,7 @@ import {
   disputeSettlementFromVenueToken,
   getVenueSettlementTokenState,
   handleSettlementCheckoutCompleted,
+  handleSettlementPaymentIntentFailed,
   hashSettlementToken,
   verifyVenueSettlementToken,
 } from '@/lib/finance/settlement-checkout'
@@ -137,6 +138,7 @@ describe('settlement token hardening', () => {
     const result = await handleSettlementCheckoutCompleted(db as never, {
       id: 'cs_test',
       metadata: { kind: 'chi_settlement', settlement_charge_id: 'charge-1' },
+      payment_status: 'paid',
       payment_intent: 'pi_test',
     } as never)
 
@@ -149,6 +151,213 @@ describe('settlement token hardening', () => {
     expect(db.rows.venue_settlement_tokens[0].revoked_at).toEqual(expect.any(String))
     await expect(verifyVenueSettlementToken(db as never, 'settlement-token')).resolves.toBeNull()
     await expect(getVenueSettlementTokenState(db as never, 'settlement-token')).resolves.toBe('revoked')
+  })
+
+  it('reconciles a completed Checkout Session after restriction blocking and is replay-safe', async () => {
+    const db = dbWithSettlementToken()
+    Object.assign(db.rows.settlement_runs[0], {
+      status: 'blocked',
+      blocked_at: '2026-07-11T00:00:00.000Z',
+      blocked_previous_status: 'awaiting_venue_payment',
+      blocked_stripe_account_id: 'acct_builder',
+      account_state_blocked_at: '2026-07-11T00:00:00.000Z',
+      account_state_block_reason: 'account_restricted',
+      account_state_blocked_event_id: 'evt_restricted',
+    })
+    db.rows.settlement_charges.push({
+      id: 'charge-blocked',
+      settlement_run_id: SETTLEMENT_RUN_ID,
+      approval_id: APPROVAL_ID,
+      organizer_id: ORGANIZER_ID,
+      venue_id: VENUE_ID,
+      amount_cents: 12000,
+      platform_fee_cents: 0,
+      organizer_payout_cents: 12000,
+      currency: 'usd',
+      status: 'blocked',
+      blocked_at: '2026-07-11T00:00:00.000Z',
+      blocked_previous_status: 'checkout_created',
+      blocked_stripe_account_id: 'acct_builder',
+      account_state_blocked_at: '2026-07-11T00:00:00.000Z',
+      account_state_block_reason: 'account_restricted',
+      account_state_blocked_event_id: 'evt_restricted',
+      stripe_checkout_session_id: 'cs_completed_during_restriction',
+      stripe_payment_intent_id: null,
+      stripe_transfer_id: null,
+      stripe_connected_account_id: 'acct_builder',
+      checkout_url: 'https://checkout.stripe.test/restricted-race',
+      paid_at: null,
+      failed_at: null,
+      trueup_processed_at: null,
+      failure_reason: null,
+      created_at: '2026-07-11T00:00:00.000Z',
+    })
+    const session = {
+      id: 'cs_completed_during_restriction',
+      status: 'complete',
+      payment_status: 'paid',
+      metadata: {},
+      payment_intent: 'pi_completed_during_restriction',
+    } as never
+
+    const first = await handleSettlementCheckoutCompleted(db as never, session, {
+      settlementChargeId: 'charge-blocked',
+      actor: { id: null, type: 'system' },
+      action: 'account_restriction.checkout_completed',
+      reason: 'Stripe Checkout completed while account restriction was being applied.',
+      metadata: { stripe_event_id: 'evt_restricted' },
+    })
+
+    expect(first).toMatchObject({ handled: true, charge_id: 'charge-blocked', idempotent: false })
+    expect(db.rows.settlement_charges[0]).toMatchObject({
+      status: 'paid',
+      stripe_payment_intent_id: 'pi_completed_during_restriction',
+      blocked_at: null,
+      blocked_previous_status: null,
+      blocked_stripe_account_id: null,
+    })
+    expect(db.rows.settlement_runs[0]).toMatchObject({
+      status: 'settled',
+      blocked_at: null,
+      blocked_previous_status: null,
+      blocked_stripe_account_id: null,
+    })
+    expect(db.rows.settlement_audit_log).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entity_type: 'settlement_charge',
+        action: 'account_restriction.checkout_completed',
+        actor_type: 'system',
+      }),
+      expect.objectContaining({
+        entity_type: 'settlement_run',
+        action: 'venue_paid',
+        actor_type: 'system',
+      }),
+      expect.objectContaining({ action: 'account_restriction_cleared_after_payment' }),
+    ]))
+    const auditCount = db.rows.settlement_audit_log.length
+
+    const replay = await handleSettlementCheckoutCompleted(db as never, session, {
+      settlementChargeId: 'charge-blocked',
+      actor: { id: null, type: 'system' },
+      action: 'account_restriction.checkout_completed',
+      reason: 'Stripe Checkout completed while account restriction was being applied.',
+      metadata: { stripe_event_id: 'evt_restricted' },
+    })
+
+    expect(replay).toMatchObject({ handled: true, charge_id: 'charge-blocked', idempotent: true })
+    expect(db.rows.settlement_audit_log).toHaveLength(auditCount)
+  })
+
+  it('reconciles a failed asynchronous payment after restriction blocking and is replay-safe', async () => {
+    const db = dbWithSettlementToken()
+    Object.assign(db.rows.settlement_runs[0], {
+      status: 'blocked',
+      blocked_at: '2026-07-11T00:00:00.000Z',
+      blocked_previous_status: 'awaiting_venue_payment',
+      blocked_stripe_account_id: 'acct_builder',
+      account_state_blocked_at: '2026-07-11T00:00:00.000Z',
+      account_state_block_reason: 'account_restricted',
+      account_state_blocked_event_id: 'evt_restricted',
+    })
+    db.rows.settlement_charges.push({
+      id: 'charge-blocked-failed',
+      settlement_run_id: SETTLEMENT_RUN_ID,
+      approval_id: APPROVAL_ID,
+      organizer_id: ORGANIZER_ID,
+      venue_id: VENUE_ID,
+      amount_cents: 12000,
+      platform_fee_cents: 0,
+      organizer_payout_cents: 12000,
+      currency: 'usd',
+      status: 'blocked',
+      blocked_at: '2026-07-11T00:00:00.000Z',
+      blocked_previous_status: 'checkout_created',
+      blocked_stripe_account_id: 'acct_builder',
+      account_state_blocked_at: '2026-07-11T00:00:00.000Z',
+      account_state_block_reason: 'account_restricted',
+      account_state_blocked_event_id: 'evt_restricted',
+      stripe_checkout_session_id: 'cs_async_failed',
+      stripe_payment_intent_id: null,
+      stripe_transfer_id: null,
+      stripe_connected_account_id: 'acct_builder',
+      checkout_url: 'https://checkout.stripe.test/async-failed',
+      paid_at: null,
+      failed_at: null,
+      trueup_processed_at: null,
+      failure_reason: null,
+      created_at: '2026-07-11T00:00:00.000Z',
+    })
+    const paymentIntent = {
+      id: 'pi_async_failed',
+      status: 'requires_payment_method',
+      metadata: {
+        kind: 'chi_settlement',
+        settlement_charge_id: 'charge-blocked-failed',
+        settlement_run_id: SETTLEMENT_RUN_ID,
+      },
+      last_payment_error: { message: 'ACH debit failed' },
+    } as never
+
+    const first = await handleSettlementPaymentIntentFailed(db as never, paymentIntent)
+
+    expect(first).toMatchObject({
+      handled: true,
+      charge_id: 'charge-blocked-failed',
+      idempotent: false,
+    })
+    expect(db.rows.settlement_charges[0]).toMatchObject({
+      status: 'failed',
+      stripe_payment_intent_id: 'pi_async_failed',
+      failure_reason: 'ACH debit failed',
+      failed_at: expect.any(String),
+      checkout_url: null,
+      blocked_at: null,
+      blocked_previous_status: null,
+      blocked_stripe_account_id: null,
+      account_state_blocked_at: null,
+      account_state_block_reason: null,
+      account_state_blocked_event_id: null,
+    })
+    expect(db.rows.settlement_runs[0]).toMatchObject({
+      status: 'awaiting_venue_payment',
+      blocked_at: null,
+      blocked_previous_status: null,
+      blocked_stripe_account_id: null,
+      account_state_blocked_at: null,
+      account_state_block_reason: null,
+      account_state_blocked_event_id: null,
+    })
+    expect(db.rows.settlement_audit_log).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entity_type: 'settlement_charge',
+        action: 'payment_intent.payment_failed',
+        actor_type: 'stripe_webhook',
+      }),
+      expect.objectContaining({
+        entity_type: 'settlement_run',
+        action: 'payment_intent.payment_failed',
+        actor_type: 'stripe_webhook',
+      }),
+      expect.objectContaining({
+        entity_type: 'settlement_charge',
+        action: 'account_restriction_cleared_after_payment_failure',
+      }),
+      expect.objectContaining({
+        entity_type: 'settlement_run',
+        action: 'account_restriction_cleared_after_payment_failure',
+      }),
+    ]))
+    const auditCount = db.rows.settlement_audit_log.length
+
+    const replay = await handleSettlementPaymentIntentFailed(db as never, paymentIntent)
+
+    expect(replay).toMatchObject({
+      handled: true,
+      charge_id: 'charge-blocked-failed',
+      idempotent: true,
+    })
+    expect(db.rows.settlement_audit_log).toHaveLength(auditCount)
   })
 
   it('revokes settlement tokens after a venue dispute', async () => {

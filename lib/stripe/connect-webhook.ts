@@ -15,6 +15,7 @@ import { handleVenueStripeReadyForOwner } from '@/lib/venues/venueOpportunityRec
 import { recordStripeReadyUnblockNotice } from '@/lib/server/notifyEntityStripeSetup'
 import {
   neutralizeRestrictedStripeAccountObjects,
+  type StripeRestrictionNeutralizationResult,
 } from '@/lib/stripe/accountRestrictionNeutralization'
 
 type StripeAdminClient = Parameters<typeof saveBuilderStripeAccount>[0] & {
@@ -30,6 +31,23 @@ export type StripeConnectWebhookResult = {
 }
 
 type StripeAccountLookup = Record<string, unknown> | null
+
+export class StripeNeutralizationPartialFailureError extends Error {
+  constructor(public readonly result: StripeRestrictionNeutralizationResult) {
+    super(`Stripe account restriction left ${result.objects_failed} object(s) for retry`)
+    this.name = 'StripeNeutralizationPartialFailureError'
+  }
+}
+
+async function neutralizeRestrictedObjectsOrThrow(
+  input: Parameters<typeof neutralizeRestrictedStripeAccountObjects>[0]
+) {
+  const result = await neutralizeRestrictedStripeAccountObjects(input)
+  if (result.objects_failed > 0) {
+    throw new StripeNeutralizationPartialFailureError(result)
+  }
+  return result
+}
 
 async function loadStripeAccountRow(
   admin: StripeAdminClient,
@@ -72,7 +90,7 @@ export async function applyStripeConnectAccountUpdated(
       !account.payouts_enabled
     ) {
       await blockInFlightStripeAccountPayments(admin, account.id, 'account.updated', eventId)
-      await neutralizeRestrictedStripeAccountObjects({
+      await neutralizeRestrictedObjectsOrThrow({
         db: admin,
         stripe,
         accountId: account.id,
@@ -119,7 +137,7 @@ export async function applyStripeConnectAccountUpdated(
       !account.payouts_enabled
     ) {
       await blockInFlightStripeAccountPayments(admin, account.id, 'account.updated', eventId)
-      await neutralizeRestrictedStripeAccountObjects({
+      await neutralizeRestrictedObjectsOrThrow({
         db: admin,
         stripe,
         accountId: account.id,
@@ -146,15 +164,26 @@ export async function applyStripeConnectAccountUpdated(
     return { received: true }
   }
 
-  const builder = await loadStripeAccountRow(admin, 'builder_stripe_accounts', 'user_id, builder_id, account_status', account.id)
+  const builder = await loadStripeAccountRow(
+    admin,
+    'builder_stripe_accounts',
+    'user_id, builder_id, account_status, charges_enabled, payouts_enabled',
+    account.id
+  )
   const builderUserId = readString(builder?.user_id)
   if (builderUserId) {
     const previousStatus = readString(builder?.account_status)
+    const previouslyCapabilityRestricted =
+      builder?.charges_enabled === false || builder?.payouts_enabled === false
     const nextStatus = getStripeAccountStatus(account)
     await saveBuilderStripeAccount(admin, builderUserId, readString(builder?.builder_id), account)
-    if (isConnectedStripeAccountBlocked(nextStatus)) {
+    if (
+      isConnectedStripeAccountBlocked(nextStatus) ||
+      !account.charges_enabled ||
+      !account.payouts_enabled
+    ) {
       const blockResult = await blockInFlightStripeAccountPayments(admin, account.id, 'account.updated', eventId)
-      await neutralizeRestrictedStripeAccountObjects({
+      await neutralizeRestrictedObjectsOrThrow({
         db: admin,
         stripe,
         accountId: account.id,
@@ -166,7 +195,7 @@ export async function applyStripeConnectAccountUpdated(
         blockResult,
       })
     } else {
-      if (isConnectedStripeAccountBlocked(previousStatus)) {
+      if (isConnectedStripeAccountBlocked(previousStatus) || previouslyCapabilityRestricted) {
         const unblockResult = await unblockStripeAccountSettlements(admin, account.id, eventId)
         if (unblockResult) {
           console.info('stripe_account_settlements_unblocked', {
@@ -333,7 +362,7 @@ export async function restrictDeauthorizedStripeConnectAccount(
   await markStripeAccountRestricted(admin, 'venue_stripe_accounts', accountId, restriction)
   await markStripeAccountRestricted(admin, 'builder_stripe_accounts', accountId, restriction)
   await blockInFlightStripeAccountPayments(admin, accountId, 'account.application.deauthorized', eventId)
-  await neutralizeRestrictedStripeAccountObjects({
+  await neutralizeRestrictedObjectsOrThrow({
     db: admin,
     stripe,
     accountId,

@@ -1,5 +1,10 @@
 jest.mock('server-only', () => ({}))
 
+const mockCaptureException = jest.fn()
+jest.mock('@sentry/nextjs', () => ({
+  captureException: (...args: unknown[]) => mockCaptureException(...args),
+}))
+
 const mockApplyPlannerStripePaymentIntentWebhook = jest.fn(async (db: MemoryDb, stripeIntent: { id: string }) => {
   const row = db.rows.payment_intents.find((candidate) => candidate.stripe_payment_intent_id === stripeIntent.id)
   if (row) row.status = 'captured'
@@ -27,6 +32,7 @@ class MemoryDb {
     venues: [],
     payment_intents: [],
     vendor_transactions: [],
+    vendor_bookings: [],
     venue_payment_transactions: [],
     settlement_charges: [],
     admin_audit_log: [],
@@ -95,6 +101,12 @@ class MemoryQuery {
   async maybeSingle() {
     const result = await this.execute()
     return { data: Array.isArray(result.data) ? result.data[0] ?? null : result.data, error: result.error }
+  }
+
+  async single() {
+    const result = await this.execute()
+    const row = Array.isArray(result.data) ? result.data[0] ?? null : result.data
+    return { data: row, error: row ? null : { message: 'No row' } }
   }
 
   then<TResult1 = { data: Row[] | Row | null; error: null }, TResult2 = never>(
@@ -183,16 +195,19 @@ function fakeStripe(initialPaymentStatus: Stripe.PaymentIntent.Status = 'require
     status: 'expired',
     payment_status: 'unpaid',
   } as Stripe.Checkout.Session))
+  const createTransfer = jest.fn(async () => ({ id: 'tr_vendor_restricted' } as Stripe.Transfer))
 
   return {
     client: {
       paymentIntents: { retrieve: retrievePaymentIntent, cancel: cancelPaymentIntent },
       checkout: { sessions: { retrieve: retrieveCheckout, expire: expireCheckout } },
+      transfers: { create: createTransfer },
     },
     retrievePaymentIntent,
     cancelPaymentIntent,
     retrieveCheckout,
     expireCheckout,
+    createTransfer,
   }
 }
 
@@ -316,6 +331,254 @@ describe('connected-account Stripe object neutralization', () => {
       action: 'stripe_object.expired',
       entity_type: 'venue_checkout_session',
     }))
+  })
+
+  it('invokes the canonical venue reconciliation path for a completed Checkout Session', async () => {
+    const db = new MemoryDb()
+    db.rows.venue_stripe_accounts.push({
+      owner_id: '550e8400-e29b-41d4-a716-446655440201',
+      stripe_account_id: 'acct_restricted',
+    })
+    db.rows.venues.push({
+      id: '550e8400-e29b-41d4-a716-446655440202',
+      owner_id: '550e8400-e29b-41d4-a716-446655440201',
+    })
+    db.rows.venue_payment_transactions.push({
+      id: '550e8400-e29b-41d4-a716-446655440203',
+      venue_owner_id: '550e8400-e29b-41d4-a716-446655440201',
+      status: 'blocked_by_account_state',
+      amount_cents: 50_000,
+      paid_at: null,
+      stripe_checkout_session_id: 'cs_restricted',
+      stripe_payment_intent_id: null,
+      stripe_charge_id: null,
+      stripe_transfer_id: null,
+    })
+    const stripe = fakeStripe()
+    stripe.retrieveCheckout.mockResolvedValueOnce({
+      id: 'cs_restricted',
+      status: 'complete',
+      payment_status: 'paid',
+      payment_intent: 'pi_venue_completed',
+      metadata: {
+        payment_kind_namespace: 'venue_rental',
+        venue_payment_transaction_id: '550e8400-e29b-41d4-a716-446655440203',
+      },
+    } as Stripe.Checkout.Session)
+    stripe.retrievePaymentIntent.mockResolvedValueOnce({
+      id: 'pi_venue_completed',
+      status: 'succeeded',
+      latest_charge: {
+        id: 'ch_venue_completed',
+        transfer: 'tr_venue_completed',
+      },
+    } as unknown as Stripe.PaymentIntent)
+
+    const result = await neutralizeRestrictedStripeAccountObjects({
+      db,
+      stripe: stripe.client,
+      accountId: 'acct_restricted',
+      eventId: 'evt_restricted_completed_checkout',
+    })
+
+    expect(stripe.retrievePaymentIntent).toHaveBeenCalledWith(
+      'pi_venue_completed',
+      { expand: ['latest_charge'] }
+    )
+    expect(db.rows.venue_payment_transactions[0]).toEqual(expect.objectContaining({
+      status: 'paid',
+      stripe_payment_intent_id: 'pi_venue_completed',
+      stripe_charge_id: 'ch_venue_completed',
+      stripe_transfer_id: 'tr_venue_completed',
+    }))
+    expect(result.checkout_sessions_routed_to_reconciliation).toBe(1)
+    expect(result.object_results).toEqual([
+      expect.objectContaining({
+        stripe_object_id: 'cs_restricted',
+        outcome: 'reconciled',
+        action: 'stripe_object.reconciled',
+      }),
+    ])
+  })
+
+  it('preserves a complete but unpaid Checkout Session for the signed async webhook', async () => {
+    const db = new MemoryDb()
+    db.rows.venue_stripe_accounts.push({
+      owner_id: '550e8400-e29b-41d4-a716-446655440201',
+      stripe_account_id: 'acct_restricted',
+    })
+    db.rows.venues.push({
+      id: '550e8400-e29b-41d4-a716-446655440202',
+      owner_id: '550e8400-e29b-41d4-a716-446655440201',
+    })
+    db.rows.venue_payment_transactions.push({
+      id: '550e8400-e29b-41d4-a716-446655440203',
+      venue_owner_id: '550e8400-e29b-41d4-a716-446655440201',
+      status: 'blocked_by_account_state',
+      stripe_checkout_session_id: 'cs_restricted',
+    })
+    const stripe = fakeStripe()
+    stripe.retrieveCheckout.mockResolvedValueOnce({
+      id: 'cs_restricted',
+      status: 'complete',
+      payment_status: 'unpaid',
+      payment_intent: 'pi_venue_pending',
+      metadata: {
+        payment_kind_namespace: 'venue_rental',
+        venue_payment_transaction_id: '550e8400-e29b-41d4-a716-446655440203',
+      },
+    } as Stripe.Checkout.Session)
+
+    const result = await neutralizeRestrictedStripeAccountObjects({
+      db,
+      stripe: stripe.client,
+      accountId: 'acct_restricted',
+      eventId: 'evt_restricted_pending_checkout',
+    })
+
+    expect(stripe.retrievePaymentIntent).not.toHaveBeenCalled()
+    expect(stripe.expireCheckout).not.toHaveBeenCalled()
+    expect(db.rows.venue_payment_transactions[0].status).toBe('blocked_by_account_state')
+    expect(result.object_results).toEqual([
+      expect.objectContaining({
+        stripe_object_id: 'cs_restricted',
+        outcome: 'skipped',
+        action: 'stripe_object.payment_pending',
+      }),
+    ])
+  })
+
+  it('fully finalizes a succeeded legacy vendor PaymentIntent', async () => {
+    const db = new MemoryDb()
+    seedVendor(db)
+    db.rows.vendor_transactions.push({
+      id: '550e8400-e29b-41d4-a716-446655440301',
+      booking_id: '550e8400-e29b-41d4-a716-446655440302',
+      vendor_id: '550e8400-e29b-41d4-a716-446655440104',
+      builder_id: '550e8400-e29b-41d4-a716-446655440303',
+      stripe_payment_intent_id: 'pi_vendor_succeeded',
+      stripe_charge_id: null,
+      stripe_transfer_id: null,
+      amount: 100,
+      amount_cents: 10_000,
+      platform_fee: 10,
+      platform_fee_cents: 1_000,
+      stripe_fee: 0,
+      stripe_fee_cents: 0,
+      vendor_payout: 90,
+      vendor_payout_cents: 9_000,
+      payment_type: 'deposit',
+      status: 'blocked_by_account_state',
+      paid_at: null,
+      created_at: '2026-07-11T00:00:00.000Z',
+    })
+    db.rows.vendor_bookings.push({
+      id: '550e8400-e29b-41d4-a716-446655440302',
+      vendor_id: '550e8400-e29b-41d4-a716-446655440104',
+      event_id: '550e8400-e29b-41d4-a716-446655440304',
+      payment_status: 'pending',
+      deposit_paid: false,
+    })
+    const stripe = fakeStripe()
+    stripe.retrievePaymentIntent.mockImplementation(async () => ({
+      id: 'pi_vendor_succeeded',
+      status: 'succeeded',
+      latest_charge: {
+        id: 'ch_vendor_succeeded',
+        transfer: null,
+        balance_transaction: { fee: 329 },
+      },
+    } as unknown as Stripe.PaymentIntent))
+
+    const result = await neutralizeRestrictedStripeAccountObjects({
+      db,
+      stripe: stripe.client,
+      accountId: 'acct_restricted',
+      eventId: 'evt_vendor_succeeded',
+    })
+
+    expect(stripe.createTransfer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 9_000,
+        destination: 'acct_restricted',
+        source_transaction: 'ch_vendor_succeeded',
+      }),
+      { idempotencyKey: 'vendor_transfer_550e8400-e29b-41d4-a716-446655440301' }
+    )
+    expect(db.rows.vendor_transactions[0]).toEqual(expect.objectContaining({
+      status: 'succeeded',
+      stripe_charge_id: 'ch_vendor_succeeded',
+      stripe_transfer_id: 'tr_vendor_restricted',
+      stripe_fee_cents: 329,
+      platform_fee_cents: 1_000,
+    }))
+    expect(db.rows.vendor_bookings[0]).toEqual(expect.objectContaining({
+      payment_status: 'succeeded',
+      deposit_paid: true,
+    }))
+    expect(result.payment_intents_routed_to_reconciliation).toBe(1)
+  })
+
+  it('continues neutralizing later objects and reports a middle-object failure', async () => {
+    const db = new MemoryDb()
+    seedVendor(db)
+    db.rows.payment_intents.push(
+      plannerPayment({ id: 'payment-1', stripe_payment_intent_id: 'pi_first' }),
+      plannerPayment({ id: 'payment-2', stripe_payment_intent_id: 'pi_middle' }),
+      plannerPayment({ id: 'payment-3', stripe_payment_intent_id: 'pi_third' }),
+    )
+    const retrieve = jest.fn(async (id: string) => {
+      if (id === 'pi_middle') throw new Error('Stripe retrieval failed')
+      return { id, status: 'requires_action' } as Stripe.PaymentIntent
+    })
+    const cancel = jest.fn(async (id: string) => ({ id, status: 'canceled' } as Stripe.PaymentIntent))
+    const stripe = {
+      paymentIntents: { retrieve, cancel },
+      checkout: { sessions: { retrieve: jest.fn(), expire: jest.fn() } },
+      transfers: { create: jest.fn() },
+    }
+
+    const result = await neutralizeRestrictedStripeAccountObjects({
+      db,
+      stripe,
+      accountId: 'acct_restricted',
+      eventId: 'evt_resilient_neutralization',
+    })
+
+    expect(cancel).toHaveBeenCalledTimes(2)
+    expect(cancel).toHaveBeenNthCalledWith(
+      1,
+      'pi_first',
+      { cancellation_reason: 'abandoned' },
+      { idempotencyKey: 'account_restricted_cancel_evt_resilient_neutralization_pi_first' }
+    )
+    expect(cancel).toHaveBeenNthCalledWith(
+      2,
+      'pi_third',
+      { cancellation_reason: 'abandoned' },
+      { idempotencyKey: 'account_restricted_cancel_evt_resilient_neutralization_pi_third' }
+    )
+    expect(db.rows.payment_intents.map((row) => row.status)).toEqual([
+      'failed',
+      'blocked_by_account_state',
+      'failed',
+    ])
+    expect(result.objects_failed).toBe(1)
+    expect(result.object_results.map((entry) => entry.outcome)).toEqual([
+      'neutralized',
+      'failed',
+      'neutralized',
+    ])
+    expect(db.rows.admin_audit_log).toContainEqual(expect.objectContaining({
+      action: 'stripe_object.neutralization_failed',
+      entity_id: 'payment-2',
+    }))
+    expect(mockCaptureException).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        tags: expect.objectContaining({ action: 'stripe_object.neutralization_failed' }),
+      })
+    )
   })
 
   it('is safe to re-run without a second Stripe cancellation', async () => {

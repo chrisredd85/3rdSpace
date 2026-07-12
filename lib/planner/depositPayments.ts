@@ -4,8 +4,9 @@ import { randomUUID } from 'crypto'
 import * as Sentry from '@sentry/nextjs'
 import type Stripe from 'stripe'
 import { assertIntegerCents } from '@/lib/planner/execution/approvalState'
+import { recordPlannerPaymentAuthenticationState } from '@/lib/planner/paymentAuthenticationState'
 import { getStripeClient } from '@/lib/stripe/connect'
-import type { Approval, Json, Plan } from '@/lib/types'
+import type { AgentAction, Approval, Json, Plan } from '@/lib/types'
 
 type PlannerDb = {
   from: (table: string) => any
@@ -218,6 +219,7 @@ export async function authorizePlannerDeposit(input: {
   plan: Plan
   approval: Approval
   userId: string
+  customerId: string
   partnerKind: 'venue' | 'vendor'
   partnerId: string
   amountCents: number
@@ -231,6 +233,12 @@ export async function authorizePlannerDeposit(input: {
   const amountCents = assertIntegerCents(input.amountCents, 'amountCents', 50)
   const paymentMethodId = input.paymentMethodId.trim()
   if (!paymentMethodId) throw new PlannerDepositPaymentMethodRequiredError()
+  const customerId = input.customerId.trim()
+  if (!customerId) {
+    throw new PlannerDepositPaymentMethodRequiredError(
+      'The organizer Stripe Customer is required for this payment method.'
+    )
+  }
   const platformFeeCents = assertIntegerCents(input.platformFeeCents ?? 0, 'platformFeeCents')
   const refundTerms = input.refundTerms ?? DEFAULT_REFUND_TERMS
   const reservationIdentity = {
@@ -317,6 +325,7 @@ export async function authorizePlannerDeposit(input: {
         approval: input.approval,
         plannerPaymentIntentId: reserved.id,
         userId: input.userId,
+        customerId,
         partnerKind: reserved.partner_kind,
         partnerId: reserved.partner_id,
         amountCents: reserved.amount_cents,
@@ -906,7 +915,12 @@ export async function applyPlannerStripePaymentIntentWebhook(db: PlannerDb, stri
   if (status === 'authorized' && !['pending', 'requested', 'authorized'].includes(current.status)) {
     return true
   }
-  if (current.status === status) return true
+  if (current.status === status) {
+    if (status === 'authorized') {
+      await recordWebhookAuthenticationComplete(db, current, stripeTruth.status)
+    }
+    return true
+  }
 
   const updates: Record<string, unknown> = { status }
   if (status === 'captured') {
@@ -955,7 +969,73 @@ export async function applyPlannerStripePaymentIntentWebhook(db: PlannerDb, stri
     throw new Error('Planner deposit changed during Stripe webhook processing; retry the event')
   }
 
+  if (status === 'authorized') {
+    await recordWebhookAuthenticationComplete(
+      db,
+      data as PlannerPaymentIntentRow,
+      stripeTruth.status
+    )
+  }
+
   return true
+}
+
+async function recordWebhookAuthenticationComplete(
+  db: PlannerDb,
+  paymentIntent: PlannerPaymentIntentRow,
+  stripeStatus: string
+) {
+  const { data: approval, error: approvalError } = await db
+    .from('approvals')
+    .select('id, agent_action_id')
+    .eq('id', paymentIntent.approval_id)
+    .eq('plan_id', paymentIntent.plan_id)
+    .maybeSingle()
+  if (approvalError) throw new Error(approvalError.message ?? 'Failed to load planner payment approval')
+  if (!approval?.agent_action_id) {
+    Sentry.captureMessage('planner_payment_authentication_action_missing', {
+      level: 'error',
+      tags: { action: 'planner_payment_authentication_action_missing' },
+      extra: {
+        payment_intent_id: paymentIntent.id,
+        plan_id: paymentIntent.plan_id,
+        approval_id: paymentIntent.approval_id,
+      },
+    })
+    return
+  }
+
+  const { data: action, error: actionError } = await db
+    .from('agent_actions')
+    .select('id, plan_id, status, result_metadata')
+    .eq('id', approval.agent_action_id)
+    .eq('plan_id', paymentIntent.plan_id)
+    .maybeSingle()
+  if (actionError) throw new Error(actionError.message ?? 'Failed to load planner payment action')
+  if (!action) {
+    Sentry.captureMessage('planner_payment_authentication_action_missing', {
+      level: 'error',
+      tags: { action: 'planner_payment_authentication_action_missing' },
+      extra: {
+        payment_intent_id: paymentIntent.id,
+        plan_id: paymentIntent.plan_id,
+        approval_id: paymentIntent.approval_id,
+        agent_action_id: approval.agent_action_id,
+      },
+    })
+    return
+  }
+
+  await recordPlannerPaymentAuthenticationState({
+    db,
+    action: action as AgentAction,
+    actorId: null,
+    actorRole: 'stripe_webhook',
+    state: 'authenticated',
+    paymentIntentId: paymentIntent.id,
+    stripeStatus,
+    outcome: 'succeeded',
+  })
 }
 
 function isTerminalStripePaymentFailure(status: string) {
@@ -1521,6 +1601,7 @@ async function maybeCreateStripeManualPaymentIntent(input: {
   approval: Approval
   plannerPaymentIntentId: string
   userId: string
+  customerId: string
   partnerKind: 'venue' | 'vendor'
   partnerId: string
   amountCents: number
@@ -1534,8 +1615,10 @@ async function maybeCreateStripeManualPaymentIntent(input: {
       currency: 'usd',
       capture_method: 'manual',
       confirm: true,
+      customer: input.customerId,
       payment_method: input.paymentMethodId,
-      automatic_payment_methods: { enabled: true },
+      payment_method_types: ['card'],
+      use_stripe_sdk: true,
       metadata: {
         payment_kind: 'planner_deposit',
         planner_payment_intent_id: input.plannerPaymentIntentId,

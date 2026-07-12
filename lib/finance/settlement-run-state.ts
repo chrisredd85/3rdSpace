@@ -29,7 +29,7 @@ export type SettlementRunTransition =
   | 'admin_resolved'
   | 'admin_cancelled'
 
-export type SettlementChargeStatus = 'checkout_created' | 'paid' | 'failed' | 'cancelled'
+export type SettlementChargeStatus = 'checkout_created' | 'blocked' | 'paid' | 'failed' | 'cancelled'
 
 export type AuditActorType = 'admin' | 'organizer' | 'venue' | 'system' | 'stripe_webhook'
 
@@ -79,7 +79,7 @@ const VALID_TRANSITIONS: Record<
     stripe_account_blocked: 'blocked',
     admin_cancelled: 'cancelled',
   },
-  blocked: { admin_cancelled: 'cancelled' },
+  blocked: { venue_paid: 'settled', admin_cancelled: 'cancelled' },
   settled: {},
   disputed: { admin_resolved: 'awaiting_organizer_review', admin_cancelled: 'cancelled' },
   cancelled: {},

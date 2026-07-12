@@ -1,7 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PlannerWorkspace } from '@/components/planner/planner-page/PlannerWorkspace'
-import { readApprovalPartnerTargets } from '@/components/planner/planner-page/PlannerConversation'
+import {
+  getRecommendationActionKind,
+  isControlledPaymentApprovalMetadata,
+  readApprovalPartnerTargets,
+} from '@/components/planner/planner-page/PlannerConversation'
 import { shouldStartNewPlanFromReply } from '@/components/planner/planner-page/plannerState'
 import { ToastProvider } from '@/components/ui/toast'
 import type { Plan } from '@/lib/types'
@@ -54,6 +58,39 @@ function renderPlannerWorkspace() {
     </ToastProvider>
   )
 }
+
+describe('controlled payment approval metadata', () => {
+  it('renders a payment action before a card is bound', () => {
+    expect(isControlledPaymentApprovalMetadata({
+      action_type: 'payment',
+      payment_method_id: null,
+    }, 25_000)).toBe(true)
+  })
+
+  it('does not treat an unrelated priced approval as a controlled payment', () => {
+    expect(isControlledPaymentApprovalMetadata({
+      action_type: 'hold_request',
+      payment_method_id: null,
+    }, 25_000)).toBe(false)
+  })
+
+  it('turns a priced Stripe-ready production recommendation into a payment action', () => {
+    expect(getRecommendationActionKind('Review venue', {
+      type: 'Venue',
+      price_cents: 25_000,
+      execution_mode: 'controlled_payment',
+      has_controlled_payment_account: true,
+      payment_required: true,
+    })).toBe('payment')
+  })
+
+  it('keeps a priced venue without Stripe readiness on the hold path', () => {
+    expect(getRecommendationActionKind('Review venue', {
+      type: 'Venue',
+      price_cents: 25_000,
+    })).toBe('hold')
+  })
+})
 
 describe('PlannerWorkspace desktop draft handoff', () => {
   const originalFetch = global.fetch

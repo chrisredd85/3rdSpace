@@ -2,18 +2,17 @@ jest.mock('server-only', () => ({}))
 
 import type Stripe from 'stripe'
 import * as Sentry from '@sentry/nextjs'
-import { processStripeConnectWebhookEvent as processStripeConnectWebhookEventImpl } from '@/lib/stripe/connect-webhook'
+import {
+  processStripeConnectWebhookEvent as processStripeConnectWebhookEventImpl,
+  StripeNeutralizationPartialFailureError,
+} from '@/lib/stripe/connect-webhook'
+
+const mockNeutralizeRestrictedStripeAccountObjects = jest.fn()
 
 jest.mock('@/lib/stripe/accountRestrictionNeutralization', () => ({
-  neutralizeRestrictedStripeAccountObjects: jest.fn(async () => ({
-    payment_intents_cancelled: 0,
-    payment_intents_already_cancelled: 0,
-    payment_intents_routed_to_reconciliation: 0,
-    capturing_payment_intents_preserved: 0,
-    checkout_sessions_expired: 0,
-    checkout_sessions_already_expired: 0,
-    checkout_sessions_routed_to_reconciliation: 0,
-  })),
+  neutralizeRestrictedStripeAccountObjects: (...args: unknown[]) => (
+    mockNeutralizeRestrictedStripeAccountObjects(...args)
+  ),
 }))
 
 jest.mock('@sentry/nextjs', () => ({
@@ -22,6 +21,30 @@ jest.mock('@sentry/nextjs', () => ({
 }))
 
 const mockCaptureMessage = Sentry.captureMessage as jest.Mock
+
+function neutralizationResult(objectsFailed = 0) {
+  return {
+    payment_intents_cancelled: 0,
+    payment_intents_already_cancelled: 0,
+    payment_intents_routed_to_reconciliation: 0,
+    capturing_payment_intents_preserved: 0,
+    checkout_sessions_expired: 0,
+    checkout_sessions_already_expired: 0,
+    checkout_sessions_routed_to_reconciliation: 0,
+    objects_failed: objectsFailed,
+    object_results: objectsFailed > 0
+      ? [{
+          entity_id: 'payment-failed',
+          source: 'planner_payment_intent',
+          stripe_object_id: 'pi_failed',
+          stripe_object_type: 'payment_intent',
+          outcome: 'failed',
+          action: 'stripe_object.neutralization_failed',
+          error: 'temporary Stripe failure',
+        }]
+      : [],
+  }
+}
 
 function processStripeConnectWebhookEvent(admin: unknown, event: Stripe.Event) {
   return processStripeConnectWebhookEventImpl(admin as never, event, {} as never)
@@ -331,6 +354,7 @@ function expectReadiness(row: Row, expected: {
 describe.each(ROLE_CONFIGS)('Stripe Connect KYC failure handling for $role accounts', (config) => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockNeutralizeRestrictedStripeAccountObjects.mockResolvedValue(neutralizationResult())
   })
 
   it('marks disabled_reason account.updated payloads as disabled', async () => {
@@ -420,6 +444,14 @@ describe.each(ROLE_CONFIGS)('Stripe Connect KYC failure handling for $role accou
       payoutsEnabled: false,
       currentlyDue: ['company.tax_id'],
       pendingVerification: ['individual.verification.document'],
+    })
+    expect(db.rpcCalls).toContainEqual({
+      fn: 'block_inflight_stripe_account_payments',
+      args: {
+        p_stripe_account_id: config.accountId,
+        p_reason: 'account.updated',
+        p_event_id: `evt_${config.role}_capabilities_pending`,
+      },
     })
   })
 
@@ -537,5 +569,88 @@ describe.each(ROLE_CONFIGS)('Stripe Connect KYC failure handling for $role accou
         }),
       })
     )
+  })
+
+  if (config.role === 'builder') {
+    it('unblocks settlements when a capability-pending builder becomes fully active', async () => {
+      const db = seedDb(config)
+      const pending = makeAccount(config, {
+        charges_enabled: false,
+        payouts_enabled: false,
+        details_submitted: true,
+        requirements: {
+          currently_due: ['company.tax_id'],
+          eventually_due: [],
+          past_due: [],
+          pending_verification: [],
+          disabled_reason: null,
+        },
+      })
+      const active = makeAccount(config, {
+        charges_enabled: true,
+        payouts_enabled: true,
+        details_submitted: true,
+        requirements: {
+          currently_due: [],
+          eventually_due: [],
+          past_due: [],
+          pending_verification: [],
+          disabled_reason: null,
+        },
+      })
+
+      await processStripeConnectWebhookEvent(
+        db as never,
+        accountUpdatedEvent(config, pending, 'evt_builder_capability_lost')
+      )
+      await processStripeConnectWebhookEvent(
+        db as never,
+        accountUpdatedEvent(config, active, 'evt_builder_capability_restored')
+      )
+
+      expect(db.rpcCalls).toContainEqual({
+        fn: 'unblock_stripe_account_settlements',
+        args: {
+          p_stripe_account_id: config.accountId,
+          p_event_id: 'evt_builder_capability_restored',
+        },
+      })
+    })
+  }
+})
+
+describe('Stripe Connect partial neutralization retry propagation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('throws only after object processing completes so the webhook ledger can retry', async () => {
+    const config = ROLE_CONFIGS[0]
+    const db = seedDb(config)
+    const account = makeAccount(config, {
+      charges_enabled: false,
+      payouts_enabled: false,
+      requirements: {
+        currently_due: [],
+        eventually_due: [],
+        past_due: ['external_account'],
+        pending_verification: [],
+        disabled_reason: null,
+      },
+    })
+    mockNeutralizeRestrictedStripeAccountObjects
+      .mockResolvedValueOnce(neutralizationResult(1))
+      .mockResolvedValueOnce(neutralizationResult())
+
+    await expect(processStripeConnectWebhookEvent(
+      db as never,
+      accountUpdatedEvent(config, account, 'evt_partial_neutralization')
+    )).rejects.toBeInstanceOf(StripeNeutralizationPartialFailureError)
+
+    await expect(processStripeConnectWebhookEvent(
+      db as never,
+      accountUpdatedEvent(config, account, 'evt_partial_neutralization')
+    )).resolves.toEqual({ received: true })
+    expect(mockNeutralizeRestrictedStripeAccountObjects).toHaveBeenCalledTimes(2)
   })
 })

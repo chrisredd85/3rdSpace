@@ -286,12 +286,16 @@ function buildDisplayRecommendations(data: Record<string, unknown>): Array<Recor
     )
 
     return {
+      id: readString(venue.venue_id),
       name: readString(venue.venue_name) ?? `Venue option ${index + 1}`,
       type: 'Venue',
       fit: `${readNumber(venue.fit_score) ?? 0}% fit`,
       action: 'Review venue',
       note: [intro, ...pros, ...cons].filter((value): value is string => Boolean(value)).join(' '),
       price_cents: priceCents,
+      execution_mode: readString(venue.execution_mode),
+      has_controlled_payment_account: readBoolean(venue.has_controlled_payment_account),
+      payment_required: readBoolean(venue.payment_required),
       matched_archetype: archetypeLabel,
       commercial_model_match: commercialModelMatch,
       capacity_calibration: capacityCalibration,
@@ -305,12 +309,16 @@ function buildDisplayRecommendations(data: Record<string, unknown>): Array<Recor
     const necessity = readString(vendor.necessity)
 
     return {
+      id: readString(vendor.vendor_id),
       name: readString(vendor.name) ?? `Vendor option ${index + 1}`,
       type: serviceType ? `Vendor · ${serviceType.replace(/_/g, ' ')}` : 'Vendor',
       fit: `${readNumber(vendor.fit_score) ?? 0}% fit`,
       action: 'Review vendor',
       note: readStringArray(vendor.pros).join(' '),
       price_cents: readNumber(vendor.base_rate_cents),
+      execution_mode: readString(vendor.execution_mode),
+      has_controlled_payment_account: readBoolean(vendor.has_controlled_payment_account),
+      payment_required: readBoolean(vendor.payment_required),
       matched_archetype: archetypeLabel,
       necessity,
       tags: [serviceType, necessity].filter((value): value is string => Boolean(value)),

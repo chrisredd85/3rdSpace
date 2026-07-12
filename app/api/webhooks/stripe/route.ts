@@ -22,6 +22,7 @@ import {
 } from '@/lib/planner/depositPayments'
 import {
   getVenueRentalTransactionId,
+  handleVenueRentalCheckoutCompleted,
   isVenueRentalEvent,
   loadVenueRentalTransaction,
   markVenueRentalFailed,
@@ -38,6 +39,7 @@ import {
   type StripeWebhookProcessingOutcome,
 } from '@/lib/stripe/webhookLedger'
 import {
+  CHI_SETTLEMENT_METADATA_KIND,
   handleSettlementCheckoutCompleted,
   handleSettlementPaymentIntentFailed,
 } from '@/lib/finance/settlement-checkout'
@@ -674,36 +676,6 @@ function getCommunityHostIncentiveRefundMetadataFromCharge(charge: Stripe.Charge
   }
 }
 
-async function applyVenueRentalCheckoutSessionCompleted(admin: any, session: Stripe.Checkout.Session) {
-  const paymentIntentId = getPaymentIntentId(session.payment_intent)
-  const transaction = await loadVenueRentalTransaction(admin, {
-    venuePaymentTransactionId: getVenueRentalTransactionId(session.metadata),
-    checkoutSessionId: session.id,
-    paymentIntentId,
-  })
-
-  if (!isVenueRentalEvent(session.metadata) && !transaction) return false
-  if (!transaction) {
-    logMissingVenueRentalTransaction('checkout.session.completed', session.metadata, session.id)
-    return true
-  }
-
-  const stripe = getStripeClient()
-  const paymentIntent = paymentIntentId
-    ? await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] })
-    : null
-  const charge = paymentIntent ? getChargeFromPaymentIntent(paymentIntent) : { chargeId: null, transferId: null, receiptUrl: null }
-
-  await markVenueRentalPaid(admin, transaction, {
-    stripe_payment_intent_id: paymentIntentId,
-    stripe_charge_id: charge.chargeId,
-    stripe_transfer_id: charge.transferId,
-    paid_at: new Date().toISOString(),
-  })
-
-  return true
-}
-
 async function applyVenueRentalPaymentIntent(
   admin: any,
   paymentIntent: Stripe.PaymentIntent,
@@ -828,6 +800,75 @@ function getLatestTransferReversalId(transfer: Stripe.Transfer) {
   return reversals[0]?.id ?? transfer.id
 }
 
+async function routePaidCheckoutSession(
+  admin: any,
+  session: Stripe.Checkout.Session,
+  stripeEventId: string,
+) {
+  const handledSettlement = await handleSettlementCheckoutCompleted(admin, session)
+  if (handledSettlement.handled) return
+
+  const venueRentalResult = await handleVenueRentalCheckoutCompleted(
+    admin,
+    getStripeClient(),
+    session,
+  )
+  if (venueRentalResult.handled) {
+    if (!venueRentalResult.reconciled && venueRentalResult.reason === 'transaction_not_found') {
+      logMissingVenueRentalTransaction('checkout.session.completed', session.metadata, session.id)
+    }
+    return
+  }
+
+  const handledKickback = await applyKickbackCheckoutSessionCompleted(
+    admin,
+    session,
+    stripeEventId,
+  )
+  if (!handledKickback) await applyCheckoutSessionCompleted(admin, session)
+}
+
+async function routeFailedAsyncCheckoutSession(
+  admin: any,
+  session: Stripe.Checkout.Session,
+  stripeEventId: string,
+) {
+  const paymentIntentId = getPaymentIntentId(session.payment_intent)
+  if (!paymentIntentId) return false
+
+  const paymentIntent = await getStripeClient().paymentIntents.retrieve(paymentIntentId, {
+    expand: ['latest_charge'],
+  })
+  if (!isTerminalAsyncPaymentFailure(paymentIntent.status)) {
+    console.info('[stripe.webhook] Ignoring stale async payment failure after fresh Stripe truth', {
+      checkout_session_id: session.id,
+      payment_intent_id: paymentIntent.id,
+      stripe_status: paymentIntent.status,
+    })
+    return false
+  }
+  const handledSettlement = await handleSettlementPaymentIntentFailed(admin, paymentIntent)
+  if (handledSettlement.handled) return true
+
+  const handledVenueRental = await applyVenueRentalPaymentIntent(
+    admin,
+    paymentIntent,
+    'payment_intent.payment_failed',
+  )
+  if (handledVenueRental) return true
+
+  return applyKickbackPaymentIntent(
+    admin,
+    paymentIntent,
+    stripeEventId,
+    'checkout.session.async_payment_failed',
+  )
+}
+
+function isTerminalAsyncPaymentFailure(status: Stripe.PaymentIntent.Status) {
+  return status === 'requires_payment_method' || status === 'canceled'
+}
+
 /**
  * Receives Stripe platform webhooks for builder billing, venue rentals, and platform payments.
  */
@@ -896,17 +937,34 @@ export async function POST(request: NextRequest) {
     let outcome: StripeWebhookProcessingOutcome = 'processed'
     let responseBody: Record<string, unknown> = { received: true }
 
-    if (event.type === 'checkout.session.completed') {
+    if (
+      event.type === 'checkout.session.completed' ||
+      event.type === 'checkout.session.async_payment_succeeded'
+    ) {
       const session = event.data.object as Stripe.Checkout.Session
-      const handledSettlement = await handleSettlementCheckoutCompleted(admin as any, session)
-      if (!handledSettlement.handled) {
-        const handledVenueRental = await applyVenueRentalCheckoutSessionCompleted(admin as any, session)
-        if (!handledVenueRental) {
-        const handledKickback = await applyKickbackCheckoutSessionCompleted(admin as any, session, event.id)
-        if (!handledKickback) {
-          await applyCheckoutSessionCompleted(admin as any, session)
+      const isVenueOrSettlementMoney =
+        session.metadata?.kind === CHI_SETTLEMENT_METADATA_KIND ||
+        isVenueRentalEvent(session.metadata)
+      if (isVenueOrSettlementMoney && session.payment_status !== 'paid') {
+        if (event.type === 'checkout.session.async_payment_succeeded') {
+          throw new Error(`Stripe async success ${session.id} is not marked paid`)
         }
-        }
+        outcome = 'observed'
+        responseBody = { received: true, observed: 'checkout_payment_pending' }
+      } else {
+        await routePaidCheckoutSession(admin as any, session, event.id)
+      }
+    }
+
+    if (event.type === 'checkout.session.async_payment_failed') {
+      const handled = await routeFailedAsyncCheckoutSession(
+        admin as any,
+        event.data.object as Stripe.Checkout.Session,
+        event.id,
+      )
+      if (!handled) {
+        outcome = 'observed'
+        responseBody = { received: true, observed: 'checkout_async_payment_failed' }
       }
     }
 

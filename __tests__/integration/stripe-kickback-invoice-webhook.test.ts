@@ -15,6 +15,7 @@ jest.mock('next/server', () => ({
 }))
 
 jest.mock('@sentry/nextjs', () => ({
+  captureException: jest.fn(),
   captureMessage: jest.fn(),
 }))
 
@@ -68,6 +69,8 @@ const AGREEMENT_ID = 'agreement-1'
 const CHI_AGREEMENT_ID = 'chi-agreement-1'
 const CHI_SETTLEMENT_ID = 'chi-settlement-1'
 const VENUE_PAYMENT_ID = 'venue-payment-1'
+const SETTLEMENT_RUN_ID = 'settlement-run-1'
+const SETTLEMENT_CHARGE_ID = 'settlement-charge-1'
 const mockCaptureMessage = Sentry.captureMessage as jest.Mock
 
 class MemoryDb {
@@ -107,6 +110,9 @@ class MemoryDb {
       },
     ],
     venue_payment_transactions: [],
+    settlement_runs: [],
+    settlement_charges: [],
+    settlement_audit_log: [],
     stripe_webhook_events: [],
   }
 
@@ -224,6 +230,55 @@ class MemoryDb {
       return { data: null, error: null }
     }
 
+    if (
+      fn === 'transition_settlement_charge_status' ||
+      fn === 'transition_settlement_run_status'
+    ) {
+      const isCharge = fn === 'transition_settlement_charge_status'
+      const table = isCharge ? 'settlement_charges' : 'settlement_runs'
+      const idArg = isCharge ? 'p_charge_id' : 'p_run_id'
+      const entityKey = isCharge ? 'charge' : 'run'
+      const row = this.rows[table].find((candidate) => candidate.id === args[idArg])
+      if (!row) {
+        return {
+          data: [{ success: false, failure_reason: 'not_found', [entityKey]: null }],
+          error: null,
+        }
+      }
+      if (row.status !== args.p_from_status) {
+        return {
+          data: [{
+            success: false,
+            failure_reason: 'concurrent_update',
+            [entityKey]: { ...row },
+          }],
+          error: null,
+        }
+      }
+
+      const before = { ...row }
+      Object.assign(row, args.p_patch ?? {}, {
+        status: args.p_to_status,
+        updated_at: new Date().toISOString(),
+      })
+      this.rows.settlement_audit_log.push({
+        id: `settlement_audit_log-${this.rows.settlement_audit_log.length + 1}`,
+        entity_type: isCharge ? 'settlement_charge' : 'settlement_run',
+        entity_id: row.id,
+        action: args.p_action,
+        before_state: before,
+        after_state: { ...row },
+        actor_id: args.p_actor_id,
+        actor_type: args.p_actor_type,
+        reason: args.p_reason,
+        metadata: args.p_metadata,
+      })
+      return {
+        data: [{ success: true, failure_reason: null, [entityKey]: { ...row } }],
+        error: null,
+      }
+    }
+
     return { data: null, error: null }
   }
 }
@@ -233,6 +288,9 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
   private operation: 'select' | 'insert' | 'update' = 'select'
   private payload: Row | null = null
   private selectedColumns: string | null = null
+  private rowLimit: number | null = null
+  private sortColumn: string | null = null
+  private sortAscending = true
 
   constructor(private db: MemoryDb, private table: string) {}
 
@@ -255,6 +313,22 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
 
   eq(field: string, value: unknown) {
     this.filters.push((row) => row[field] === value)
+    return this
+  }
+
+  in(field: string, values: readonly unknown[]) {
+    this.filters.push((row) => values.includes(row[field]))
+    return this
+  }
+
+  order(field: string, options?: { ascending?: boolean }) {
+    this.sortColumn = field
+    this.sortAscending = options?.ascending ?? true
+    return this
+  }
+
+  limit(count: number) {
+    this.rowLimit = count
     return this
   }
 
@@ -289,7 +363,18 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
   }
 
   private applyFilters() {
-    return (this.db.rows[this.table] ?? []).filter((row) => this.filters.every((filter) => filter(row)))
+    let rows = (this.db.rows[this.table] ?? []).filter((row) => this.filters.every((filter) => filter(row)))
+    if (this.sortColumn) {
+      rows = [...rows].sort((left, right) => {
+        const leftValue = String(left[this.sortColumn!] ?? '')
+        const rightValue = String(right[this.sortColumn!] ?? '')
+        return this.sortAscending
+          ? leftValue.localeCompare(rightValue)
+          : rightValue.localeCompare(leftValue)
+      })
+    }
+    if (this.rowLimit != null) rows = rows.slice(0, this.rowLimit)
+    return rows
   }
 
   private projectRows(rows: Row[]) {
@@ -353,6 +438,7 @@ describe('Stripe kickback invoice webhook routing', () => {
     jest.clearAllMocks()
     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test'
     db = new MemoryDb()
+    db.rpc = db.rpc.bind(db)
     stripe = {
       webhooks: {
         constructEvent: jest.fn(() => ({ id: 'evt_test', livemode: false, ...event })),
@@ -760,6 +846,8 @@ describe('Stripe kickback invoice webhook routing', () => {
         data: {
           object: {
             id: 'cs_venue',
+            status: 'complete',
+            payment_status: 'paid',
             payment_intent: 'pi_venue',
             metadata: {
               payment_kind_namespace: 'venue_rental',
@@ -781,6 +869,377 @@ describe('Stripe kickback invoice webhook routing', () => {
         stripe_transfer_id: 'tr_venue',
       })
       expect(db.rows.venue_payment_transactions[0].paid_at).toEqual(expect.any(String))
+    })
+
+    it('does not mark a complete but unpaid venue Checkout Session paid', async () => {
+      db.rows.venue_payment_transactions.push(makeVenuePaymentRow({
+        status: 'blocked_by_account_state',
+      }))
+      event = {
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            id: 'cs_venue',
+            status: 'complete',
+            payment_status: 'unpaid',
+            payment_intent: 'pi_venue',
+            metadata: {
+              payment_kind_namespace: 'venue_rental',
+              venue_payment_transaction_id: VENUE_PAYMENT_ID,
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({
+        received: true,
+        observed: 'checkout_payment_pending',
+      })
+      expect(stripe.paymentIntents.retrieve).not.toHaveBeenCalled()
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        status: 'blocked_by_account_state',
+        paid_at: null,
+      })
+    })
+
+    it('finalizes a paid venue rental from checkout.session.async_payment_succeeded', async () => {
+      db.rows.venue_payment_transactions.push(makeVenuePaymentRow({
+        status: 'blocked_by_account_state',
+      }))
+      event = {
+        type: 'checkout.session.async_payment_succeeded',
+        data: {
+          object: {
+            id: 'cs_venue',
+            status: 'complete',
+            payment_status: 'paid',
+            payment_intent: 'pi_venue',
+            metadata: {
+              payment_kind_namespace: 'venue_rental',
+              venue_payment_transaction_id: VENUE_PAYMENT_ID,
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        status: 'paid',
+        stripe_payment_intent_id: 'pi_venue',
+        stripe_charge_id: 'ch_venue',
+        stripe_transfer_id: 'tr_venue',
+      })
+    })
+
+    it('records checkout.session.async_payment_failed without marking the venue paid', async () => {
+      db.rows.venue_payment_transactions.push(makeVenuePaymentRow({
+        status: 'blocked_by_account_state',
+        stripe_payment_intent_id: 'pi_venue',
+      }))
+      stripe.paymentIntents.retrieve.mockResolvedValueOnce({
+        id: 'pi_venue',
+        status: 'requires_payment_method',
+        latest_charge: null,
+        metadata: {
+          payment_kind_namespace: 'venue_rental',
+          venue_payment_transaction_id: VENUE_PAYMENT_ID,
+        },
+        last_payment_error: { message: 'ACH payment failed' },
+      })
+      event = {
+        type: 'checkout.session.async_payment_failed',
+        data: {
+          object: {
+            id: 'cs_venue',
+            status: 'complete',
+            payment_status: 'unpaid',
+            payment_intent: 'pi_venue',
+            metadata: {
+              payment_kind_namespace: 'venue_rental',
+              venue_payment_transaction_id: VENUE_PAYMENT_ID,
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(stripe.paymentIntents.retrieve).toHaveBeenCalledWith('pi_venue', {
+        expand: ['latest_charge'],
+      })
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        status: 'failed',
+        failure_reason: 'ACH payment failed',
+        paid_at: null,
+      })
+    })
+
+    it('ignores a delayed venue async-failure event when fresh Stripe truth is processing', async () => {
+      db.rows.venue_payment_transactions.push(makeVenuePaymentRow({
+        status: 'blocked_by_account_state',
+        stripe_payment_intent_id: 'pi_venue',
+      }))
+      stripe.paymentIntents.retrieve.mockResolvedValueOnce({
+        id: 'pi_venue',
+        status: 'processing',
+        latest_charge: null,
+        metadata: {
+          payment_kind_namespace: 'venue_rental',
+          venue_payment_transaction_id: VENUE_PAYMENT_ID,
+        },
+      })
+      event = {
+        id: 'evt_venue_async_failure_stale_processing',
+        type: 'checkout.session.async_payment_failed',
+        data: {
+          object: {
+            id: 'cs_venue',
+            status: 'complete',
+            payment_status: 'unpaid',
+            payment_intent: 'pi_venue',
+            metadata: {
+              payment_kind_namespace: 'venue_rental',
+              venue_payment_transaction_id: VENUE_PAYMENT_ID,
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({
+        received: true,
+        observed: 'checkout_async_payment_failed',
+      })
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        status: 'blocked_by_account_state',
+        failure_reason: null,
+        paid_at: null,
+      })
+    })
+
+    it('reconciles checkout.session.async_payment_failed for a restriction-blocked settlement', async () => {
+      db.rows.settlement_runs.push({
+        id: SETTLEMENT_RUN_ID,
+        event_id: 'event-1',
+        organizer_id: 'organizer-1',
+        venue_id: 'venue-1',
+        archetype: 'happy_hour',
+        venue_type: 'bar',
+        neighborhood: 'mission',
+        total_cents: 12000,
+        status: 'blocked',
+        blocked_at: '2026-07-11T00:00:00.000Z',
+        blocked_previous_status: 'awaiting_venue_payment',
+        blocked_stripe_account_id: 'acct_builder',
+        account_state_blocked_at: '2026-07-11T00:00:00.000Z',
+        account_state_block_reason: 'account_restricted',
+        account_state_blocked_event_id: 'evt_account_restricted',
+      })
+      db.rows.settlement_charges.push({
+        id: SETTLEMENT_CHARGE_ID,
+        settlement_run_id: SETTLEMENT_RUN_ID,
+        approval_id: 'approval-1',
+        organizer_id: 'organizer-1',
+        venue_id: 'venue-1',
+        amount_cents: 12000,
+        platform_fee_cents: 0,
+        organizer_payout_cents: 12000,
+        currency: 'usd',
+        status: 'blocked',
+        blocked_at: '2026-07-11T00:00:00.000Z',
+        blocked_previous_status: 'checkout_created',
+        blocked_stripe_account_id: 'acct_builder',
+        account_state_blocked_at: '2026-07-11T00:00:00.000Z',
+        account_state_block_reason: 'account_restricted',
+        account_state_blocked_event_id: 'evt_account_restricted',
+        stripe_checkout_session_id: 'cs_settlement_async_failed',
+        stripe_payment_intent_id: 'pi_settlement_async_failed',
+        stripe_transfer_id: null,
+        stripe_connected_account_id: 'acct_builder',
+        checkout_url: 'https://checkout.stripe.test/settlement-async-failed',
+        paid_at: null,
+        failed_at: null,
+        trueup_processed_at: null,
+        failure_reason: null,
+        created_at: '2026-07-11T00:00:00.000Z',
+      })
+      stripe.paymentIntents.retrieve.mockResolvedValueOnce({
+        id: 'pi_settlement_async_failed',
+        status: 'requires_payment_method',
+        latest_charge: null,
+        metadata: {
+          kind: 'chi_settlement',
+          settlement_charge_id: SETTLEMENT_CHARGE_ID,
+          settlement_run_id: SETTLEMENT_RUN_ID,
+        },
+        last_payment_error: { message: 'ACH debit failed' },
+      })
+      event = {
+        id: 'evt_settlement_async_failed',
+        type: 'checkout.session.async_payment_failed',
+        data: {
+          object: {
+            id: 'cs_settlement_async_failed',
+            status: 'complete',
+            payment_status: 'unpaid',
+            payment_intent: 'pi_settlement_async_failed',
+            metadata: {
+              kind: 'chi_settlement',
+              settlement_charge_id: SETTLEMENT_CHARGE_ID,
+              settlement_run_id: SETTLEMENT_RUN_ID,
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(stripe.webhooks.constructEvent).toHaveBeenCalledWith('{}', 'sig_test', 'whsec_test')
+      expect(stripe.paymentIntents.retrieve).toHaveBeenCalledWith(
+        'pi_settlement_async_failed',
+        { expand: ['latest_charge'] },
+      )
+      expect(db.rows.settlement_charges[0]).toMatchObject({
+        status: 'failed',
+        stripe_payment_intent_id: 'pi_settlement_async_failed',
+        failure_reason: 'ACH debit failed',
+        checkout_url: null,
+        blocked_at: null,
+        blocked_previous_status: null,
+        blocked_stripe_account_id: null,
+        account_state_blocked_at: null,
+        account_state_block_reason: null,
+        account_state_blocked_event_id: null,
+      })
+      expect(db.rows.settlement_runs[0]).toMatchObject({
+        status: 'awaiting_venue_payment',
+        blocked_at: null,
+        blocked_previous_status: null,
+        blocked_stripe_account_id: null,
+        account_state_blocked_at: null,
+        account_state_block_reason: null,
+        account_state_blocked_event_id: null,
+      })
+      expect(db.rows.settlement_audit_log).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          entity_type: 'settlement_charge',
+          action: 'payment_intent.payment_failed',
+        }),
+        expect.objectContaining({
+          entity_type: 'settlement_run',
+          action: 'payment_intent.payment_failed',
+        }),
+        expect.objectContaining({
+          entity_type: 'settlement_charge',
+          action: 'account_restriction_cleared_after_payment_failure',
+        }),
+        expect.objectContaining({
+          entity_type: 'settlement_run',
+          action: 'account_restriction_cleared_after_payment_failure',
+        }),
+      ]))
+      expect(db.rows.stripe_webhook_events[0]).toMatchObject({
+        stripe_event_id: 'evt_settlement_async_failed',
+        processed: true,
+        processing_outcome: 'processed',
+      })
+    })
+
+    it('ignores a delayed settlement async-failure event when fresh Stripe truth succeeded', async () => {
+      db.rows.settlement_charges.push({
+        id: SETTLEMENT_CHARGE_ID,
+        settlement_run_id: SETTLEMENT_RUN_ID,
+        status: 'blocked',
+        blocked_previous_status: 'checkout_created',
+        stripe_checkout_session_id: 'cs_settlement_stale_failure',
+        stripe_payment_intent_id: 'pi_settlement_stale_failure',
+        failure_reason: null,
+      })
+      stripe.paymentIntents.retrieve.mockResolvedValueOnce({
+        id: 'pi_settlement_stale_failure',
+        status: 'succeeded',
+        latest_charge: 'ch_settlement_paid',
+        metadata: {
+          kind: 'chi_settlement',
+          settlement_charge_id: SETTLEMENT_CHARGE_ID,
+          settlement_run_id: SETTLEMENT_RUN_ID,
+        },
+      })
+      event = {
+        id: 'evt_settlement_async_failure_stale_succeeded',
+        type: 'checkout.session.async_payment_failed',
+        data: {
+          object: {
+            id: 'cs_settlement_stale_failure',
+            status: 'complete',
+            payment_status: 'unpaid',
+            payment_intent: 'pi_settlement_stale_failure',
+            metadata: {
+              kind: 'chi_settlement',
+              settlement_charge_id: SETTLEMENT_CHARGE_ID,
+              settlement_run_id: SETTLEMENT_RUN_ID,
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({
+        received: true,
+        observed: 'checkout_async_payment_failed',
+      })
+      expect(db.rows.settlement_charges[0]).toMatchObject({
+        status: 'blocked',
+        blocked_previous_status: 'checkout_created',
+        failure_reason: null,
+      })
+      expect(db.rows.settlement_audit_log).toHaveLength(0)
+    })
+
+    it('reconciles a completed venue Checkout Session from account-blocked local state', async () => {
+      db.rows.venue_payment_transactions.push(makeVenuePaymentRow({
+        status: 'blocked_by_account_state',
+        account_state_blocked_at: '2026-07-11T00:00:00.000Z',
+        account_state_block_reason: 'account_restricted',
+      }))
+      event = {
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            id: 'cs_venue',
+            status: 'complete',
+            payment_status: 'paid',
+            payment_intent: 'pi_venue',
+            metadata: {
+              payment_kind_namespace: 'venue_rental',
+              venue_payment_transaction_id: VENUE_PAYMENT_ID,
+            },
+          },
+        },
+      }
+
+      const response = await POST(makeWebhookRequest())
+
+      expect(response.status).toBe(200)
+      expect(db.rows.venue_payment_transactions[0]).toMatchObject({
+        status: 'paid',
+        stripe_payment_intent_id: 'pi_venue',
+        stripe_charge_id: 'ch_venue',
+        stripe_transfer_id: 'tr_venue',
+        failed_at: null,
+        failure_reason: null,
+      })
     })
 
     it('treats payment_intent.succeeded after checkout completion as idempotent', async () => {
@@ -1010,6 +1469,8 @@ describe('Stripe kickback invoice webhook routing', () => {
         data: {
           object: {
             id: 'cs_missing_row',
+            status: 'complete',
+            payment_status: 'paid',
             payment_intent: null,
             metadata: {
               payment_kind_namespace: 'venue_rental',

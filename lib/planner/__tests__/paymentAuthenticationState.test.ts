@@ -1,6 +1,9 @@
 jest.mock('server-only', () => ({}))
 
-import { recordPlannerPaymentAuthenticationState } from '@/lib/planner/paymentAuthenticationState'
+import {
+  derivePlannerPaymentAuthenticationSnapshot,
+  recordPlannerPaymentAuthenticationState,
+} from '@/lib/planner/paymentAuthenticationState'
 import type { AgentAction } from '@/lib/types'
 
 type Row = Record<string, any>
@@ -117,5 +120,68 @@ describe('recordPlannerPaymentAuthenticationState', () => {
         actor_role: 'user',
       }),
     ])
+  })
+
+  it('treats local capturable Stripe truth as authorized after a refresh', () => {
+    const action = paymentAction()
+
+    expect(derivePlannerPaymentAuthenticationSnapshot({
+      action,
+      paymentIntent: {
+        id: '550e8400-e29b-41d4-a716-446655440406',
+        status: 'authorized',
+        stripe_payment_method_id: 'pm_bound',
+      },
+    })).toEqual({
+      state: 'authorized',
+      paymentIntentId: '550e8400-e29b-41d4-a716-446655440406',
+      paymentMethodId: 'pm_bound',
+    })
+  })
+
+  it('hydrates an awaiting SCA attempt without promoting it to capture', () => {
+    const action = paymentAction()
+
+    expect(derivePlannerPaymentAuthenticationSnapshot({
+      action,
+      paymentIntent: {
+        id: '550e8400-e29b-41d4-a716-446655440406',
+        status: 'requested',
+        stripe_payment_method_id: 'pm_bound',
+      },
+    })).toEqual({
+      state: 'awaiting_authentication',
+      paymentIntentId: '550e8400-e29b-41d4-a716-446655440406',
+      paymentMethodId: 'pm_bound',
+    })
+  })
+
+  it('deduplicates a webhook replay of the same authentication state', async () => {
+    const db = new MemoryDb()
+    const action = paymentAction()
+    action.result_metadata = {
+      payment_authentication: {
+        status: 'authenticated',
+        payment_intent_id: '550e8400-e29b-41d4-a716-446655440406',
+        stripe_status: 'requires_capture',
+        outcome: 'succeeded',
+        updated_at: '2026-07-11T00:00:00.000Z',
+      },
+    }
+    db.actions.push({ ...action })
+
+    const result = await recordPlannerPaymentAuthenticationState({
+      db,
+      action,
+      actorId: null,
+      actorRole: 'stripe_webhook',
+      state: 'authenticated',
+      paymentIntentId: '550e8400-e29b-41d4-a716-446655440406',
+      stripeStatus: 'requires_capture',
+      outcome: 'succeeded',
+    })
+
+    expect(result).toEqual({ changed: false })
+    expect(db.audits).toHaveLength(0)
   })
 })

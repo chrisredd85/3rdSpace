@@ -1285,7 +1285,7 @@ async function syncApprovalMessageMetadata(db: PlannerDb, planId: string, approv
 async function loadAgentActionPayload(db: PlannerDb, actionId: string): Promise<Record<string, unknown> | null> {
   const { data, error } = await db
     .from('agent_actions')
-    .select('payload_json')
+    .select('action_type, payload_json, result_metadata')
     .eq('id', actionId)
     .maybeSingle()
 
@@ -1294,7 +1294,14 @@ async function loadAgentActionPayload(db: PlannerDb, actionId: string): Promise<
     return null
   }
 
-  return readRecord(data?.payload_json)
+  const payload = readRecord(data?.payload_json) ?? {}
+  const resultMetadata = readRecord(data?.result_metadata)
+  return {
+    ...payload,
+    action_type: readString(data?.action_type),
+    execution_mode:
+      readString(resultMetadata?.execution_mode) ?? readString(payload.execution_mode),
+  }
 }
 
 function buildApprovalExecutionMetadata(payload: Record<string, unknown>): Record<string, unknown> {
@@ -1303,6 +1310,8 @@ function buildApprovalExecutionMetadata(payload: Record<string, unknown>): Recor
   const totalQueued = (queuedVenueCount ?? 0) + (queuedVendorCount ?? 0)
 
   return {
+    action_type: readString(payload.action_type),
+    execution_mode: readString(payload.execution_mode),
     opportunity_brief_id: readString(payload.opportunity_brief_id),
     vendor_opportunity_brief_id: readString(payload.vendor_opportunity_brief_id),
     invite_ids: readStringArray(payload.invite_ids),

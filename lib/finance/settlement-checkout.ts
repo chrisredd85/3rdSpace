@@ -38,6 +38,12 @@ export type SettlementChargeRow = {
   organizer_payout_cents: number
   currency: string
   status: 'checkout_created' | 'blocked' | 'paid' | 'failed' | 'cancelled'
+  blocked_at?: string | null
+  blocked_previous_status?: string | null
+  blocked_stripe_account_id?: string | null
+  account_state_blocked_at?: string | null
+  account_state_block_reason?: string | null
+  account_state_blocked_event_id?: string | null
   stripe_checkout_session_id: string | null
   stripe_payment_intent_id: string | null
   stripe_transfer_id: string | null
@@ -59,6 +65,20 @@ type SettlementRunRow = {
   neighborhood: string
   total_cents: number | null
   status: SettlementRunStatus
+  blocked_at?: string | null
+  blocked_previous_status?: SettlementRunStatus | null
+  blocked_stripe_account_id?: string | null
+  account_state_blocked_at?: string | null
+  account_state_block_reason?: string | null
+  account_state_blocked_event_id?: string | null
+}
+
+export type SettlementCheckoutCompletionOptions = {
+  actor?: SettlementTransitionActor
+  settlementChargeId?: string | null
+  action?: string
+  reason?: string
+  metadata?: Record<string, unknown>
 }
 
 type VenueSettlementTokenRow = {
@@ -694,62 +714,130 @@ export async function resolveDisputedSettlement(
 export async function handleSettlementCheckoutCompleted(
   admin: SupabaseAdminClient,
   session: Stripe.Checkout.Session,
+  options: SettlementCheckoutCompletionOptions = {},
 ) {
-  if (session.metadata?.kind !== CHI_SETTLEMENT_METADATA_KIND) return { handled: false }
+  if (
+    session.metadata?.kind !== CHI_SETTLEMENT_METADATA_KIND &&
+    !options.settlementChargeId
+  ) {
+    return { handled: false }
+  }
 
-  const charge = await loadChargeForCheckoutSession(admin, session)
+  const charge = await loadChargeForCheckoutSession(admin, session, options.settlementChargeId)
   if (!charge) return { handled: false, reason: 'charge_not_found' }
-  if (charge.status === 'paid') {
-    await revokeVenueSettlementTokensForRun(admin, charge.settlement_run_id)
-    return { handled: true, idempotent: true }
+  if (session.payment_status !== 'paid') {
+    return { handled: true, reconciled: false, reason: 'payment_pending' }
   }
 
   const now = new Date().toISOString()
+  const actor = options.actor ?? { id: null, type: 'stripe_webhook' as const }
+  const action = options.action ?? 'checkout.session.completed'
+  const reason = options.reason ?? 'Stripe Checkout completed for CHI settlement charge.'
   const paymentIntentId = typeof session.payment_intent === 'string'
     ? session.payment_intent
     : session.payment_intent?.id ?? null
+  let paidCharge = charge
+  let chargeChanged = false
 
-  const paidTransition = await transitionSettlementCharge({
-    db: admin,
-    chargeId: charge.id,
-    fromStatus: 'checkout_created',
-    toStatus: 'paid',
-    action: 'checkout.session.completed',
-    actor: { id: null, type: 'stripe_webhook' },
-    reason: 'Stripe Checkout completed for CHI settlement charge.',
-    metadata: { checkout_session_id: session.id },
-    patch: {
-      stripe_payment_intent_id: paymentIntentId,
-      paid_at: now,
-      failure_reason: null,
-    },
+  if (charge.status !== 'paid') {
+    const canReconcileBlocked =
+      charge.status === 'blocked' && charge.blocked_previous_status === 'checkout_created'
+    if (charge.status !== 'checkout_created' && !canReconcileBlocked) {
+      throw new Error(
+        `Cannot reconcile completed settlement Checkout Session ${session.id} from local status ${charge.status}`,
+      )
+    }
+
+    const paidTransition = await transitionSettlementCharge({
+      db: admin,
+      chargeId: charge.id,
+      fromStatus: charge.status,
+      toStatus: 'paid',
+      action,
+      actor,
+      reason,
+      metadata: {
+        checkout_session_id: session.id,
+        recovered_from_account_restriction: charge.status === 'blocked',
+        ...(options.metadata ?? {}),
+      },
+      patch: {
+        stripe_payment_intent_id: paymentIntentId,
+        paid_at: now,
+        failure_reason: null,
+      },
+    })
+
+    if (paidTransition.success) {
+      paidCharge = normalizeCharge(paidTransition.charge)
+      chargeChanged = true
+    } else if (paidTransition.charge && paidTransition.charge.status === 'paid') {
+      paidCharge = normalizeCharge(paidTransition.charge)
+    } else {
+      throw new Error(
+        `Settlement charge ${charge.id} changed before completed Checkout reconciliation`,
+      )
+    }
+  }
+
+  paidCharge = await clearCompletedSettlementChargeBlock(admin, paidCharge, actor, {
+    checkout_session_id: session.id,
+    ...(options.metadata ?? {}),
   })
 
-  if (!paidTransition.success) return { handled: true, idempotent: true }
-
-  const paidCharge = normalizeCharge(paidTransition.charge)
   const run = await loadRun(admin, paidCharge.settlement_run_id)
-  if (run && run.status === 'awaiting_venue_payment') {
+  let runChanged = false
+  if (run && run.status !== 'settled') {
+    const canReconcileBlockedRun =
+      run.status === 'blocked' && run.blocked_previous_status === 'awaiting_venue_payment'
+    if (run.status !== 'awaiting_venue_payment' && !canReconcileBlockedRun) {
+      throw new Error(
+        `Cannot settle completed Checkout Session ${session.id} from settlement run status ${run.status}`,
+      )
+    }
+
     const transition = transitionSettlementRunStatus(run.status, 'venue_paid')
-    if (transition.ok) {
-      await transitionSettlementRun({
-        db: admin,
-        runId: run.id,
-        fromStatus: run.status,
-        toStatus: transition.to,
-        action: 'venue_paid',
-        actor: { id: null, type: 'stripe_webhook' },
-        reason: 'Stripe Checkout marked CHI settlement charge paid.',
-        metadata: { settlement_charge_id: paidCharge.id, checkout_session_id: session.id },
-      })
+    if (!transition.ok) throw new Error(transition.reason)
+    const transitionedRun = await transitionSettlementRun({
+      db: admin,
+      runId: run.id,
+      fromStatus: run.status,
+      toStatus: transition.to,
+      action: 'venue_paid',
+      actor,
+      reason: 'Stripe Checkout marked CHI settlement charge paid.',
+      metadata: {
+        settlement_charge_id: paidCharge.id,
+        checkout_session_id: session.id,
+        recovered_from_account_restriction: run.status === 'blocked',
+        ...(options.metadata ?? {}),
+      },
+    })
+    if (transitionedRun.success) {
+      runChanged = true
+      await clearCompletedSettlementRunBlock(
+        admin,
+        transitionedRun.run,
+        actor,
+        { checkout_session_id: session.id, ...(options.metadata ?? {}) },
+      )
+    } else if (transitionedRun.run?.status !== 'settled') {
+      throw new Error(
+        `Settlement run ${run.id} changed before completed Checkout reconciliation`,
+      )
     }
   }
 
   await runSettlementTrueUpOnce(admin, paidCharge)
-  await notifyOrganizerPaid(admin, paidCharge)
+  if (chargeChanged || runChanged) await notifyOrganizerPaid(admin, paidCharge)
   await revokeVenueSettlementTokensForRun(admin, paidCharge.settlement_run_id, now)
 
-  return { handled: true, charge_id: paidCharge.id }
+  return {
+    handled: true,
+    reconciled: true,
+    charge_id: paidCharge.id,
+    idempotent: !chargeChanged && !runChanged,
+  }
 }
 
 export async function handleSettlementPaymentIntentFailed(
@@ -773,26 +861,342 @@ export async function handleSettlementPaymentIntentFailed(
   if (!data) return { handled: false, reason: 'charge_not_found' }
 
   const message = paymentIntent.last_payment_error?.message ?? 'Stripe payment failed'
-  const failedTransition = await transitionSettlementCharge({
-    db: admin,
-    chargeId: data.id,
-    fromStatus: 'checkout_created',
-    toStatus: 'failed',
-    action: 'payment_intent.payment_failed',
-    actor: { id: null, type: 'stripe_webhook' },
-    reason: message,
-    metadata: { payment_intent_id: paymentIntent.id },
-    patch: {
-      stripe_payment_intent_id: paymentIntent.id,
-      failed_at: new Date().toISOString(),
-      failure_reason: message,
-    },
+  const actor = { id: null, type: 'stripe_webhook' as const }
+  const loadedCharge = normalizeCharge(data)
+  const canFailBlockedCharge =
+    loadedCharge.status === 'blocked' &&
+    loadedCharge.blocked_previous_status === 'checkout_created'
+  const canFailCharge = loadedCharge.status === 'checkout_created' || canFailBlockedCharge
+  let charge = loadedCharge
+  let chargeChanged = false
+
+  if (canFailCharge) {
+    const failedTransition = await transitionSettlementCharge({
+      db: admin,
+      chargeId: loadedCharge.id,
+      fromStatus: loadedCharge.status,
+      toStatus: 'failed',
+      action: 'payment_intent.payment_failed',
+      actor,
+      reason: message,
+      metadata: {
+        payment_intent_id: paymentIntent.id,
+        recovered_from_account_restriction: canFailBlockedCharge,
+      },
+      patch: {
+        stripe_payment_intent_id: paymentIntent.id,
+        failed_at: new Date().toISOString(),
+        failure_reason: message,
+      },
+    })
+
+    if (failedTransition.success) {
+      charge = normalizeCharge(failedTransition.charge)
+      chargeChanged = true
+    } else if (failedTransition.charge?.status === 'failed') {
+      charge = normalizeCharge(failedTransition.charge)
+    } else {
+      return { handled: true, idempotent: true }
+    }
+  } else if (loadedCharge.status !== 'failed') {
+    return { handled: true, idempotent: true }
+  }
+
+  const hasBlockedFailureLineage =
+    charge.blocked_previous_status === 'checkout_created' &&
+    hasSettlementBlockMetadata(charge)
+  if (hasBlockedFailureLineage) {
+    await reconcileSettlementRunAfterBlockedPaymentFailure(admin, charge, paymentIntent.id, message)
+    charge = await clearFailedSettlementChargeBlock(admin, charge, actor, {
+      payment_intent_id: paymentIntent.id,
+    })
+  }
+
+  if (chargeChanged) await notifyVenuePaymentFailed(admin, charge, message)
+  return {
+    handled: true,
+    charge_id: charge.id,
+    idempotent: !chargeChanged,
+  }
+}
+
+async function reconcileSettlementRunAfterBlockedPaymentFailure(
+  admin: SupabaseAdminClient,
+  charge: SettlementChargeRow,
+  paymentIntentId: string,
+  reason: string,
+) {
+  const run = await loadRun(admin, charge.settlement_run_id)
+  if (!run) throw new Error(`Settlement run ${charge.settlement_run_id} not found for failed charge`)
+
+  const priorStatus = run.blocked_previous_status
+  if (
+    run.status === 'blocked' &&
+    priorStatus !== 'awaiting_venue_ack' &&
+    priorStatus !== 'awaiting_venue_payment'
+  ) {
+    throw new Error(
+      `Cannot reconcile failed settlement charge ${charge.id} from blocked run status ${priorStatus ?? 'unknown'}`,
+    )
+  }
+
+  if (
+    charge.blocked_stripe_account_id &&
+    run.blocked_stripe_account_id &&
+    charge.blocked_stripe_account_id !== run.blocked_stripe_account_id
+  ) {
+    throw new Error(`Settlement charge ${charge.id} and run ${run.id} have different blocked Stripe accounts`)
+  }
+  if (
+    charge.account_state_blocked_event_id &&
+    run.account_state_blocked_event_id &&
+    charge.account_state_blocked_event_id !== run.account_state_blocked_event_id
+  ) {
+    throw new Error(`Settlement charge ${charge.id} and run ${run.id} have different block events`)
+  }
+
+  let retryableRun: Record<string, unknown> | null = null
+  if (run.status === 'blocked') {
+    const transition = await transitionSettlementRun({
+      db: admin,
+      runId: run.id,
+      fromStatus: 'blocked',
+      toStatus: priorStatus!,
+      action: 'payment_intent.payment_failed',
+      actor: { id: null, type: 'stripe_webhook' },
+      reason,
+      metadata: {
+        settlement_charge_id: charge.id,
+        payment_intent_id: paymentIntentId,
+        recovered_from_account_restriction: true,
+      },
+    })
+    if (transition.success) {
+      retryableRun = transition.run
+    } else if (transition.run?.status === priorStatus) {
+      retryableRun = transition.run ?? null
+    } else {
+      throw new Error(`Settlement run ${run.id} changed before failed payment reconciliation`)
+    }
+  } else if (
+    (run.status === 'awaiting_venue_ack' || run.status === 'awaiting_venue_payment') &&
+    hasSettlementBlockMetadata(run)
+  ) {
+    retryableRun = run
+  }
+
+  if (retryableRun && hasSettlementBlockMetadata(retryableRun)) {
+    await clearFailedSettlementRunBlock(
+      admin,
+      retryableRun,
+      { id: null, type: 'stripe_webhook' },
+      { settlement_charge_id: charge.id, payment_intent_id: paymentIntentId },
+    )
+  }
+}
+
+async function clearFailedSettlementChargeBlock(
+  admin: SupabaseAdminClient,
+  charge: SettlementChargeRow,
+  actor: SettlementTransitionActor,
+  metadata: Record<string, unknown>,
+) {
+  if (!hasSettlementBlockMetadata(charge)) return charge
+
+  const beforeState = { ...charge }
+  let query = (admin as any)
+    .from('settlement_charges')
+    .update({
+      blocked_at: null,
+      blocked_previous_status: null,
+      blocked_stripe_account_id: null,
+      account_state_blocked_at: null,
+      account_state_block_reason: null,
+      account_state_blocked_event_id: null,
+      checkout_url: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', charge.id)
+    .eq('status', 'failed')
+  if (charge.account_state_blocked_event_id) {
+    query = query.eq('account_state_blocked_event_id', charge.account_state_blocked_event_id)
+  }
+  const { data, error } = await query.select('*').maybeSingle()
+  if (error) throw new Error(error.message ?? 'Failed to clear failed settlement charge block')
+  if (!data) throw new Error(`Failed settlement charge changed while clearing block: ${charge.id}`)
+
+  await writeSettlementBlockClearAudit(admin, {
+    entityType: 'settlement_charge',
+    entityId: charge.id,
+    actor,
+    beforeState,
+    afterState: data,
+    metadata,
+    action: 'account_restriction_cleared_after_payment_failure',
+    reason: 'Stripe confirmed the blocked settlement payment failed; the charge can no longer settle.',
   })
+  return normalizeCharge(data)
+}
 
-  if (!failedTransition.success) return { handled: true, idempotent: true }
+async function clearFailedSettlementRunBlock(
+  admin: SupabaseAdminClient,
+  run: Record<string, unknown>,
+  actor: SettlementTransitionActor,
+  metadata: Record<string, unknown>,
+) {
+  if (!hasSettlementBlockMetadata(run)) return run
 
-  await notifyVenuePaymentFailed(admin, normalizeCharge(failedTransition.charge), message)
-  return { handled: true, charge_id: data.id }
+  const beforeState = { ...run }
+  const runId = String(run.id)
+  let query = (admin as any)
+    .from('settlement_runs')
+    .update({
+      blocked_at: null,
+      blocked_previous_status: null,
+      blocked_stripe_account_id: null,
+      stripe_account_recovery_notified_at: null,
+      account_state_blocked_at: null,
+      account_state_block_reason: null,
+      account_state_blocked_event_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', runId)
+    .in('status', ['awaiting_venue_ack', 'awaiting_venue_payment'])
+  const blockEventId = typeof run.account_state_blocked_event_id === 'string'
+    ? run.account_state_blocked_event_id
+    : null
+  if (blockEventId) query = query.eq('account_state_blocked_event_id', blockEventId)
+  const { data, error } = await query.select('*').maybeSingle()
+  if (error) throw new Error(error.message ?? 'Failed to clear failed settlement run block')
+  if (!data) throw new Error(`Settlement run changed while clearing failed payment block: ${runId}`)
+
+  await writeSettlementBlockClearAudit(admin, {
+    entityType: 'settlement_run',
+    entityId: runId,
+    actor,
+    beforeState,
+    afterState: data,
+    metadata,
+    action: 'account_restriction_cleared_after_payment_failure',
+    reason: 'Stripe confirmed the blocked settlement payment failed; the venue may retry checkout.',
+  })
+  return data as Record<string, unknown>
+}
+
+async function clearCompletedSettlementChargeBlock(
+  admin: SupabaseAdminClient,
+  charge: SettlementChargeRow,
+  actor: SettlementTransitionActor,
+  metadata: Record<string, unknown>,
+) {
+  if (!hasSettlementBlockMetadata(charge)) return charge
+
+  const beforeState = { ...charge }
+  const { data, error } = await (admin as any)
+    .from('settlement_charges')
+    .update({
+      blocked_at: null,
+      blocked_previous_status: null,
+      blocked_stripe_account_id: null,
+      account_state_blocked_at: null,
+      account_state_block_reason: null,
+      account_state_blocked_event_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', charge.id)
+    .eq('status', 'paid')
+    .select('*')
+    .maybeSingle()
+  if (error) throw new Error(error.message ?? 'Failed to clear paid settlement charge block')
+  if (!data) throw new Error(`Paid settlement charge not found while clearing block: ${charge.id}`)
+
+  await writeSettlementBlockClearAudit(admin, {
+    entityType: 'settlement_charge',
+    entityId: charge.id,
+    actor,
+    beforeState,
+    afterState: data,
+    metadata,
+  })
+  return normalizeCharge(data)
+}
+
+async function clearCompletedSettlementRunBlock(
+  admin: SupabaseAdminClient,
+  run: Record<string, unknown>,
+  actor: SettlementTransitionActor,
+  metadata: Record<string, unknown>,
+) {
+  if (!hasSettlementBlockMetadata(run)) return run
+
+  const beforeState = { ...run }
+  const runId = String(run.id)
+  const { data, error } = await (admin as any)
+    .from('settlement_runs')
+    .update({
+      blocked_at: null,
+      blocked_previous_status: null,
+      blocked_stripe_account_id: null,
+      stripe_account_recovery_notified_at: null,
+      account_state_blocked_at: null,
+      account_state_block_reason: null,
+      account_state_blocked_event_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', runId)
+    .eq('status', 'settled')
+    .select('*')
+    .maybeSingle()
+  if (error) throw new Error(error.message ?? 'Failed to clear settled run block')
+  if (!data) throw new Error(`Settled run not found while clearing block: ${runId}`)
+
+  await writeSettlementBlockClearAudit(admin, {
+    entityType: 'settlement_run',
+    entityId: runId,
+    actor,
+    beforeState,
+    afterState: data,
+    metadata,
+  })
+  return data as Record<string, unknown>
+}
+
+function hasSettlementBlockMetadata(row: Record<string, unknown>) {
+  return Boolean(
+    row.blocked_at ||
+    row.blocked_previous_status ||
+    row.blocked_stripe_account_id ||
+    row.account_state_blocked_at ||
+    row.account_state_block_reason ||
+    row.account_state_blocked_event_id,
+  )
+}
+
+async function writeSettlementBlockClearAudit(
+  admin: SupabaseAdminClient,
+  input: {
+    entityType: 'settlement_charge' | 'settlement_run'
+    entityId: string
+    actor: SettlementTransitionActor
+    beforeState: Record<string, unknown>
+    afterState: Record<string, unknown>
+    metadata: Record<string, unknown>
+    action?: string
+    reason?: string
+  },
+) {
+  const { error } = await (admin as any).from('settlement_audit_log').insert({
+    entity_type: input.entityType,
+    entity_id: input.entityId,
+    action: input.action ?? 'account_restriction_cleared_after_payment',
+    before_state: input.beforeState,
+    after_state: input.afterState,
+    actor_id: input.actor.id,
+    actor_type: input.actor.type,
+    reason: input.reason ?? 'Stripe confirmed payment before account restriction neutralization completed.',
+    metadata: input.metadata,
+  })
+  if (error) throw new Error(error.message ?? 'Failed to audit settlement block cleanup')
 }
 
 async function createStripeCheckoutSession(input: {
@@ -958,11 +1362,17 @@ function validateSettlementApprovalAmount(input: {
   })
 }
 
-async function loadChargeForCheckoutSession(admin: SupabaseAdminClient, session: Stripe.Checkout.Session) {
+async function loadChargeForCheckoutSession(
+  admin: SupabaseAdminClient,
+  session: Stripe.Checkout.Session,
+  settlementChargeId?: string | null,
+) {
   const chargeId = session.metadata?.settlement_charge_id
   const settlementRunId = session.metadata?.settlement_run_id
   let query = (admin as any).from('settlement_charges').select('*')
-  if (chargeId) {
+  if (settlementChargeId) {
+    query = query.eq('id', settlementChargeId)
+  } else if (chargeId) {
     query = query.eq('id', chargeId)
   } else if (session.id) {
     query = query.eq('stripe_checkout_session_id', session.id)
@@ -1058,6 +1468,12 @@ function normalizeRun(row: any): SettlementRunRow {
     neighborhood: String(row.neighborhood),
     total_cents: row.total_cents == null ? null : Number(row.total_cents),
     status: row.status as SettlementRunStatus,
+    blocked_at: row.blocked_at ?? null,
+    blocked_previous_status: (row.blocked_previous_status as SettlementRunStatus | null) ?? null,
+    blocked_stripe_account_id: row.blocked_stripe_account_id ?? null,
+    account_state_blocked_at: row.account_state_blocked_at ?? null,
+    account_state_block_reason: row.account_state_block_reason ?? null,
+    account_state_blocked_event_id: row.account_state_blocked_event_id ?? null,
   }
 }
 
@@ -1082,6 +1498,12 @@ function normalizeCharge(row: any): SettlementChargeRow {
     organizer_payout_cents: Number(row.organizer_payout_cents ?? Number(row.amount_cents) - Number(row.platform_fee_cents ?? 0)),
     currency: String(row.currency ?? 'usd'),
     status: row.status,
+    blocked_at: row.blocked_at ?? null,
+    blocked_previous_status: row.blocked_previous_status ?? null,
+    blocked_stripe_account_id: row.blocked_stripe_account_id ?? null,
+    account_state_blocked_at: row.account_state_blocked_at ?? null,
+    account_state_block_reason: row.account_state_block_reason ?? null,
+    account_state_blocked_event_id: row.account_state_blocked_event_id ?? null,
     stripe_checkout_session_id: row.stripe_checkout_session_id ?? null,
     stripe_payment_intent_id: row.stripe_payment_intent_id ?? null,
     stripe_transfer_id: row.stripe_transfer_id ?? null,

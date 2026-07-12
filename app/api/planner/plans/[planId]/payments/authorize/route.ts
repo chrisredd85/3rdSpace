@@ -24,6 +24,10 @@ import {
   persistAgentActionTransitionEvents,
 } from '@/lib/planner/execution/executeApprovedAction'
 import { isPaymentApprovalExpired } from '@/lib/planner/execution/paymentApproval'
+import {
+  assertBuilderPaymentMethodOwnership,
+  BuilderPaymentMethodFlowError,
+} from '@/lib/planner/builderPaymentMethods'
 import { recordPlannerPaymentAuthenticationState } from '@/lib/planner/paymentAuthenticationState'
 import { approvalRequiresReapproval } from '@/lib/planner/execution/reapproval'
 import {
@@ -204,6 +208,31 @@ export async function POST(
       )
     }
 
+    const { data: builder, error: builderError } = await admin
+      .from('builder_profiles')
+      .select('id, stripe_customer_id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (builderError) throw new Error(builderError.message)
+
+    const customerId = typeof builder?.stripe_customer_id === 'string'
+      ? builder.stripe_customer_id.trim()
+      : ''
+    if (!builder?.id || !customerId) {
+      return NextResponse.json(
+        {
+          error: 'This payment method is not attached to the authenticated organizer.',
+          code: 'builder_payment_method_forbidden',
+        },
+        { status: 403 }
+      )
+    }
+
+    await assertBuilderPaymentMethodOwnership({
+      customerId,
+      paymentMethodId,
+    })
+
     await assertPlannerPartnerStripeReady({
       db: admin,
       partnerKind,
@@ -218,6 +247,7 @@ export async function POST(
         plan,
         approval,
         userId: user.id,
+        customerId,
         partnerKind,
         partnerId,
         amountCents,
@@ -291,6 +321,12 @@ export async function POST(
       return NextResponse.json(
         { error: error.message, code: error.code },
         { status: 503 }
+      )
+    }
+    if (error instanceof BuilderPaymentMethodFlowError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
       )
     }
     return NextResponse.json(

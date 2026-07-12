@@ -4,6 +4,7 @@ const mockStripePaymentIntentsCapture = jest.fn()
 const mockStripePaymentIntentsCreate = jest.fn()
 const mockStripePaymentIntentsRetrieve = jest.fn()
 const mockStripeAccountsRetrieve = jest.fn()
+const mockStripeCustomersRetrievePaymentMethod = jest.fn()
 
 jest.mock('@/lib/stripe/connect', () => ({
   getStripeAccountStatus: jest.fn((account: { charges_enabled?: boolean; payouts_enabled?: boolean; requirements?: { disabled_reason?: string | null; past_due?: unknown[] }; details_submitted?: boolean }) => {
@@ -18,6 +19,9 @@ jest.mock('@/lib/stripe/connect', () => ({
   getStripeClient: jest.fn(() => ({
     accounts: {
       retrieve: mockStripeAccountsRetrieve,
+    },
+    customers: {
+      retrievePaymentMethod: mockStripeCustomersRetrievePaymentMethod,
     },
     paymentIntents: {
       capture: mockStripePaymentIntentsCapture,
@@ -71,6 +75,7 @@ const mockGetWorkerOrAdminContext = getWorkerOrAdminContext as jest.Mock
 
 const USER_ID = '550e8400-e29b-41d4-a716-446655440000'
 const BUILDER_ID = '550e8400-e29b-41d4-a716-446655440010'
+const CUSTOMER_ID = 'cus_vendor_payment_builder'
 const PLAN_ID = '550e8400-e29b-41d4-a716-446655440001'
 const ACTION_ID = '550e8400-e29b-41d4-a716-446655440002'
 const APPROVAL_ID = '550e8400-e29b-41d4-a716-446655440003'
@@ -605,6 +610,7 @@ function seedDb(input: {
     name: 'Vendor Payout Builder',
     billing_tier: 'free_trial',
     subscription_status: 'trial',
+    stripe_customer_id: CUSTOMER_ID,
     free_events_granted: 2,
     free_events_used: 0,
     paid_event_credits: 0,
@@ -734,6 +740,20 @@ describe('vendor payment approval to payout chain', () => {
       details_submitted: true,
       requirements: {},
     })
+    mockStripeCustomersRetrievePaymentMethod.mockImplementation(async (
+      customerId: string,
+      paymentMethodId: string
+    ) => ({
+      id: paymentMethodId,
+      type: 'card',
+      customer: customerId,
+      card: {
+        brand: 'visa',
+        last4: '4242',
+        exp_month: 12,
+        exp_year: 2032,
+      },
+    }))
     mockGetWorkerOrAdminContext.mockResolvedValue({
       authorized: true,
       user: { id: 'admin-1', email: 'admin@example.com' },
@@ -763,12 +783,19 @@ describe('vendor payment approval to payout chain', () => {
       stripe_payment_intent_id: STRIPE_PAYMENT_INTENT_ID,
     }))
     expect(db.rows.agent_actions[0].status).toBe('executing')
+    expect(mockStripeCustomersRetrievePaymentMethod).toHaveBeenCalledWith(
+      CUSTOMER_ID,
+      'pm_card_visa'
+    )
     expect(mockStripePaymentIntentsCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         amount: AMOUNT_CENTS,
         capture_method: 'manual',
         confirm: true,
+        customer: CUSTOMER_ID,
         payment_method: 'pm_card_visa',
+        payment_method_types: ['card'],
+        use_stripe_sdk: true,
         metadata: expect.objectContaining({
           payment_kind: 'planner_deposit',
           planner_payment_intent_id: authorizeBody.paymentIntent.id,

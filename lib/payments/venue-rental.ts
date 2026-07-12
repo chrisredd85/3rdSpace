@@ -22,6 +22,15 @@ type VenueRentalQuery = {
   select: (columns?: string) => VenueRentalQuery
 }
 
+export type VenueRentalCompletionStripeClient = {
+  paymentIntents: {
+    retrieve: (
+      id: string,
+      params: Stripe.PaymentIntentRetrieveParams,
+    ) => Promise<Stripe.PaymentIntent>
+  }
+}
+
 export type VenueRentalTransactionLookup = {
   venuePaymentTransactionId?: string | null
   checkoutSessionId?: string | null
@@ -191,6 +200,87 @@ export async function markVenueRentalTransferReversed(
   return updateVenueRentalTransaction(admin, row.id, {
     stripe_transfer_reversal_id: input.stripe_transfer_reversal_id,
   })
+}
+
+/**
+ * Applies the canonical local effects for a completed venue-rental Checkout
+ * Session. Both the Stripe webhook and account-restriction recovery path call
+ * this helper so a late completion cannot be reduced to a status label.
+ */
+export async function handleVenueRentalCheckoutCompleted(
+  admin: VenueRentalDb,
+  stripe: VenueRentalCompletionStripeClient,
+  session: Stripe.Checkout.Session,
+) {
+  const paymentIntentId = getStripeObjectId(session.payment_intent)
+  const transaction = await loadVenueRentalTransaction(admin, {
+    venuePaymentTransactionId: getVenueRentalTransactionId(session.metadata),
+    checkoutSessionId: session.id,
+    paymentIntentId,
+  })
+
+  if (!isVenueRentalEvent(session.metadata) && !transaction) {
+    return { handled: false as const }
+  }
+  if (!transaction) {
+    return {
+      handled: true as const,
+      reconciled: false as const,
+      reason: 'transaction_not_found' as const,
+    }
+  }
+  if (session.payment_status !== 'paid') {
+    return {
+      handled: true as const,
+      reconciled: false as const,
+      reason: 'payment_pending' as const,
+    }
+  }
+
+  const paymentIntent = paymentIntentId
+    ? await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge'] })
+    : null
+  const charge = paymentIntent ? getChargeFromPaymentIntent(paymentIntent) : {
+    chargeId: null,
+    transferId: null,
+  }
+  const wasPaid = transaction.status === 'paid' || TERMINAL_REFUND_STATUSES.has(transaction.status)
+  const updated = await markVenueRentalPaid(admin, transaction, {
+    stripe_payment_intent_id: paymentIntentId,
+    stripe_charge_id: charge.chargeId,
+    stripe_transfer_id: charge.transferId,
+    paid_at: new Date().toISOString(),
+  })
+
+  return {
+    handled: true as const,
+    reconciled: true as const,
+    idempotent: wasPaid,
+    transaction: updated,
+  }
+}
+
+function getStripeObjectId<T extends { id: string }>(value: T | string | null) {
+  if (!value) return null
+  return typeof value === 'string' ? value : value.id
+}
+
+function getChargeFromPaymentIntent(paymentIntent: Stripe.PaymentIntent) {
+  const charge = paymentIntent.latest_charge
+  if (!charge || typeof charge === 'string') {
+    return {
+      chargeId: typeof charge === 'string' ? charge : null,
+      transferId: null,
+    }
+  }
+
+  const transfer = (charge as Stripe.Charge & {
+    transfer?: string | { id: string } | null
+  }).transfer
+  return {
+    chargeId: charge.id,
+    transferId: typeof transfer === 'string' ? transfer : transfer?.id ?? null,
+  }
 }
 
 async function updateVenueRentalTransaction(

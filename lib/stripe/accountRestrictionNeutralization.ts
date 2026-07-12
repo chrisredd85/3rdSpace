@@ -1,6 +1,10 @@
 import 'server-only'
 
+import * as Sentry from '@sentry/nextjs'
 import type Stripe from 'stripe'
+import { handleSettlementCheckoutCompleted } from '@/lib/finance/settlement-checkout'
+import { finalizeSucceededVendorPayment } from '@/lib/payments/vendor-payments'
+import { handleVenueRentalCheckoutCompleted } from '@/lib/payments/venue-rental'
 import {
   applyPlannerStripePaymentIntentWebhook,
   PAYMENT_INTENT_SELECT_COLUMNS,
@@ -13,7 +17,10 @@ type StripeAdminClient = {
 
 type StripeNeutralizationClient = {
   paymentIntents: {
-    retrieve: (id: string) => Promise<Stripe.PaymentIntent>
+    retrieve: (
+      id: string,
+      params?: Stripe.PaymentIntentRetrieveParams
+    ) => Promise<Stripe.PaymentIntent>
     cancel: (
       id: string,
       params?: Stripe.PaymentIntentCancelParams,
@@ -29,6 +36,12 @@ type StripeNeutralizationClient = {
         options?: Stripe.RequestOptions
       ) => Promise<Stripe.Checkout.Session>
     }
+  }
+  transfers: {
+    create: (
+      params: Stripe.TransferCreateParams,
+      options: Stripe.RequestOptions
+    ) => Promise<Stripe.Transfer>
   }
 }
 
@@ -82,6 +95,18 @@ export type StripeRestrictionNeutralizationResult = {
   checkout_sessions_expired: number
   checkout_sessions_already_expired: number
   checkout_sessions_routed_to_reconciliation: number
+  objects_failed: number
+  object_results: StripeRestrictionNeutralizationObjectResult[]
+}
+
+export type StripeRestrictionNeutralizationObjectResult = {
+  entity_id: string
+  source: StripeObjectSource
+  stripe_object_id: string
+  stripe_object_type: 'payment_intent' | 'checkout_session'
+  outcome: 'neutralized' | 'reconciled' | 'preserved' | 'skipped' | 'failed'
+  action: string
+  error?: string
 }
 
 const CANCELABLE_PAYMENT_INTENT_STATUSES = new Set<Stripe.PaymentIntent.Status>([
@@ -123,26 +148,52 @@ export async function neutralizeRestrictedStripeAccountObjects(input: {
     checkout_sessions_expired: 0,
     checkout_sessions_already_expired: 0,
     checkout_sessions_routed_to_reconciliation: 0,
+    objects_failed: 0,
+    object_results: [],
   }
 
   const paymentCandidates = await loadPaymentCandidates(input.db, scope)
   for (const candidate of paymentCandidates) {
-    await neutralizePaymentIntent({
-      ...input,
-      reason,
-      candidate,
-      result,
-    })
+    try {
+      result.object_results.push(await neutralizePaymentIntent({
+        ...input,
+        reason,
+        candidate,
+        result,
+      }))
+    } catch (error) {
+      result.objects_failed += 1
+      result.object_results.push(await recordObjectNeutralizationFailure({
+        db: input.db,
+        accountId: input.accountId,
+        eventId: input.eventId,
+        reason,
+        candidate,
+        error,
+      }))
+    }
   }
 
   const checkoutCandidates = await loadCheckoutCandidates(input.db, scope, input.accountId)
   for (const candidate of checkoutCandidates) {
-    await neutralizeCheckoutSession({
-      ...input,
-      reason,
-      candidate,
-      result,
-    })
+    try {
+      result.object_results.push(await neutralizeCheckoutSession({
+        ...input,
+        reason,
+        candidate,
+        result,
+      }))
+    } catch (error) {
+      result.objects_failed += 1
+      result.object_results.push(await recordObjectNeutralizationFailure({
+        db: input.db,
+        accountId: input.accountId,
+        eventId: input.eventId,
+        reason,
+        candidate,
+        error,
+      }))
+    }
   }
 
   return result
@@ -163,14 +214,14 @@ async function neutralizePaymentIntent(input: {
 
   if (input.candidate.localStatus === 'capturing') {
     if (stripeIntent.status === 'succeeded') {
+      await routeSucceededPaymentToReconciliation(input, stripeIntent)
       await writeNeutralizationAudit(input.db, {
         ...paymentAuditBase(input, stripeIntent),
-        action: 'stripe_object.reconciliation_required',
+        action: 'stripe_object.reconciled',
         afterState: { local_status: 'captured' },
       })
-      await routeSucceededPaymentToReconciliation(input.db, input.candidate, stripeIntent)
       input.result.payment_intents_routed_to_reconciliation += 1
-      return
+      return paymentObjectResult(input.candidate, stripeIntent, 'reconciled', 'stripe_object.reconciled')
     }
 
     if (stripeIntent.status === 'canceled') {
@@ -181,7 +232,7 @@ async function neutralizePaymentIntent(input: {
       })
       await markPaymentCandidateFailed(input.db, input.candidate)
       input.result.payment_intents_already_cancelled += 1
-      return
+      return paymentObjectResult(input.candidate, stripeIntent, 'neutralized', 'stripe_object.already_cancelled')
     }
 
     input.result.capturing_payment_intents_preserved += 1
@@ -190,18 +241,18 @@ async function neutralizePaymentIntent(input: {
       action: 'stripe_object.capture_preserved',
       afterState: { local_status: 'capturing', reconciler_required: true },
     })
-    return
+    return paymentObjectResult(input.candidate, stripeIntent, 'preserved', 'stripe_object.capture_preserved')
   }
 
   if (stripeIntent.status === 'succeeded') {
+    await routeSucceededPaymentToReconciliation(input, stripeIntent)
     await writeNeutralizationAudit(input.db, {
       ...paymentAuditBase(input, stripeIntent),
-      action: 'stripe_object.reconciliation_required',
+      action: 'stripe_object.reconciled',
       afterState: { local_status: input.candidate.source === 'planner_payment_intent' ? 'captured' : 'succeeded' },
     })
-    await routeSucceededPaymentToReconciliation(input.db, input.candidate, stripeIntent)
     input.result.payment_intents_routed_to_reconciliation += 1
-    return
+    return paymentObjectResult(input.candidate, stripeIntent, 'reconciled', 'stripe_object.reconciled')
   }
 
   if (stripeIntent.status === 'canceled') {
@@ -212,7 +263,7 @@ async function neutralizePaymentIntent(input: {
     })
     await markPaymentCandidateFailed(input.db, input.candidate)
     input.result.payment_intents_already_cancelled += 1
-    return
+    return paymentObjectResult(input.candidate, stripeIntent, 'neutralized', 'stripe_object.already_cancelled')
   }
 
   if (!CANCELABLE_PAYMENT_INTENT_STATUSES.has(stripeIntent.status)) {
@@ -234,14 +285,14 @@ async function neutralizePaymentIntent(input: {
   }
 
   if (stripeIntent.status === 'succeeded') {
+    await routeSucceededPaymentToReconciliation(input, stripeIntent)
     await writeNeutralizationAudit(input.db, {
       ...paymentAuditBase(input, stripeIntent),
-      action: 'stripe_object.reconciliation_required',
+      action: 'stripe_object.reconciled',
       afterState: { local_status: input.candidate.source === 'planner_payment_intent' ? 'captured' : 'succeeded' },
     })
-    await routeSucceededPaymentToReconciliation(input.db, input.candidate, stripeIntent)
     input.result.payment_intents_routed_to_reconciliation += 1
-    return
+    return paymentObjectResult(input.candidate, stripeIntent, 'reconciled', 'stripe_object.reconciled')
   }
 
   await writeNeutralizationAudit(input.db, {
@@ -251,6 +302,7 @@ async function neutralizePaymentIntent(input: {
   })
   await markPaymentCandidateFailed(input.db, input.candidate)
   input.result.payment_intents_cancelled += 1
+  return paymentObjectResult(input.candidate, stripeIntent, 'neutralized', 'stripe_object.cancelled')
 }
 
 async function neutralizeCheckoutSession(input: {
@@ -266,14 +318,33 @@ async function neutralizeCheckoutSession(input: {
     input.candidate.stripeCheckoutSessionId
   )
 
-  if (session.status === 'complete' || session.payment_status === 'paid') {
+  if (session.status === 'complete' && session.payment_status !== 'paid') {
+    await writeNeutralizationAudit(input.db, {
+      ...checkoutAuditBase(input, session),
+      action: 'stripe_object.payment_pending',
+      afterState: {
+        local_status: input.candidate.localStatus,
+        payment_status: session.payment_status,
+        awaiting_async_payment_webhook: true,
+      },
+    })
+    return checkoutObjectResult(
+      input.candidate,
+      session,
+      'skipped',
+      'stripe_object.payment_pending'
+    )
+  }
+
+  if (session.payment_status === 'paid') {
+    await reconcileCompletedCheckoutSession(input, session)
     input.result.checkout_sessions_routed_to_reconciliation += 1
     await writeNeutralizationAudit(input.db, {
       ...checkoutAuditBase(input, session),
-      action: 'stripe_object.reconciliation_required',
-      afterState: { local_status: input.candidate.localStatus, payment_status: session.payment_status },
+      action: 'stripe_object.reconciled',
+      afterState: { local_status: 'paid', payment_status: session.payment_status },
     })
-    return
+    return checkoutObjectResult(input.candidate, session, 'reconciled', 'stripe_object.reconciled')
   }
 
   if (session.status === 'expired') {
@@ -284,7 +355,7 @@ async function neutralizeCheckoutSession(input: {
     })
     await markCheckoutCandidateExpired(input.db, input.candidate)
     input.result.checkout_sessions_already_expired += 1
-    return
+    return checkoutObjectResult(input.candidate, session, 'neutralized', 'stripe_object.already_expired')
   }
 
   if (session.status !== 'open' && session.status !== null) {
@@ -304,13 +375,14 @@ async function neutralizeCheckoutSession(input: {
     const refreshed = await input.stripe.checkout.sessions.retrieve(session.id)
     if (refreshed.status !== 'expired' && refreshed.status !== 'complete') throw error
     if (refreshed.status === 'complete') {
+      await reconcileCompletedCheckoutSession(input, refreshed)
       input.result.checkout_sessions_routed_to_reconciliation += 1
       await writeNeutralizationAudit(input.db, {
         ...checkoutAuditBase(input, refreshed),
-        action: 'stripe_object.reconciliation_required',
-        afterState: { local_status: input.candidate.localStatus, payment_status: refreshed.payment_status },
+        action: 'stripe_object.reconciled',
+        afterState: { local_status: 'paid', payment_status: refreshed.payment_status },
       })
-      return
+      return checkoutObjectResult(input.candidate, refreshed, 'reconciled', 'stripe_object.reconciled')
     }
     expired = refreshed
   }
@@ -322,6 +394,158 @@ async function neutralizeCheckoutSession(input: {
   })
   await markCheckoutCandidateExpired(input.db, input.candidate)
   input.result.checkout_sessions_expired += 1
+  return checkoutObjectResult(input.candidate, expired, 'neutralized', 'stripe_object.expired')
+}
+
+async function reconcileCompletedCheckoutSession(
+  input: {
+    db: StripeAdminClient
+    stripe: StripeNeutralizationClient
+    accountId: string
+    eventId: string
+    reason: string
+    candidate: CheckoutCandidate
+  },
+  session: Stripe.Checkout.Session
+) {
+  if (input.candidate.source === 'settlement_checkout_session') {
+    const result = await handleSettlementCheckoutCompleted(input.db as any, session, {
+      settlementChargeId: input.candidate.entityId,
+      actor: { id: null, type: 'system' },
+      action: 'account_restriction.checkout_completed',
+      reason: input.reason,
+      metadata: {
+        stripe_event_id: input.eventId,
+        stripe_account_id: input.accountId,
+      },
+    })
+    if (!result.handled || result.reconciled !== true) {
+      throw new Error(`Completed settlement Checkout Session ${session.id} was not reconciled`)
+    }
+    return
+  }
+
+  const result = await handleVenueRentalCheckoutCompleted(
+    input.db as any,
+    input.stripe,
+    session
+  )
+  if (!result.handled || !result.reconciled) {
+    throw new Error(`Completed venue Checkout Session ${session.id} was not reconciled`)
+  }
+}
+
+function paymentObjectResult(
+  candidate: PaymentCandidate,
+  stripeIntent: Stripe.PaymentIntent,
+  outcome: StripeRestrictionNeutralizationObjectResult['outcome'],
+  action: string
+): StripeRestrictionNeutralizationObjectResult {
+  return {
+    entity_id: candidate.entityId,
+    source: candidate.source,
+    stripe_object_id: stripeIntent.id,
+    stripe_object_type: 'payment_intent',
+    outcome,
+    action,
+  }
+}
+
+function checkoutObjectResult(
+  candidate: CheckoutCandidate,
+  session: Stripe.Checkout.Session,
+  outcome: StripeRestrictionNeutralizationObjectResult['outcome'],
+  action: string
+): StripeRestrictionNeutralizationObjectResult {
+  return {
+    entity_id: candidate.entityId,
+    source: candidate.source,
+    stripe_object_id: session.id,
+    stripe_object_type: 'checkout_session',
+    outcome,
+    action,
+  }
+}
+
+async function recordObjectNeutralizationFailure(input: {
+  db: StripeAdminClient
+  accountId: string
+  eventId: string
+  reason: string
+  candidate: PaymentCandidate | CheckoutCandidate
+  error: unknown
+}): Promise<StripeRestrictionNeutralizationObjectResult> {
+  const isPayment = 'stripePaymentIntentId' in input.candidate
+  const stripeObjectId = 'stripePaymentIntentId' in input.candidate
+    ? input.candidate.stripePaymentIntentId
+    : input.candidate.stripeCheckoutSessionId
+  const stripeObjectType = isPayment ? 'payment_intent' as const : 'checkout_session' as const
+  const errorMessage = input.error instanceof Error
+    ? input.error.message
+    : 'Unknown Stripe object neutralization failure'
+
+  console.error('[stripe.account-restriction] Failed to neutralize Stripe object', {
+    accountId: input.accountId,
+    eventId: input.eventId,
+    source: input.candidate.source,
+    entityId: input.candidate.entityId,
+    stripeObjectId,
+    error: errorMessage,
+  })
+  Sentry.captureException(input.error, {
+    tags: {
+      action: 'stripe_object.neutralization_failed',
+      source: input.candidate.source,
+      stripe_object_type: stripeObjectType,
+    },
+    extra: {
+      stripe_account_id: input.accountId,
+      stripe_event_id: input.eventId,
+      entity_id: input.candidate.entityId,
+      stripe_object_id: stripeObjectId,
+      error: errorMessage,
+    },
+  })
+
+  try {
+    await writeNeutralizationAudit(input.db, {
+      entityId: input.candidate.entityId,
+      source: input.candidate.source,
+      action: 'stripe_object.neutralization_failed',
+      stripeObjectId,
+      stripeObjectType,
+      stripeStatus: null,
+      accountId: input.accountId,
+      eventId: input.eventId,
+      reason: input.reason,
+      beforeState: { local_status: input.candidate.localStatus },
+      afterState: { error: errorMessage },
+    })
+  } catch (auditError) {
+    Sentry.captureException(auditError, {
+      tags: {
+        action: 'stripe_object.neutralization_failure_audit_failed',
+        source: input.candidate.source,
+      },
+      extra: {
+        stripe_account_id: input.accountId,
+        stripe_event_id: input.eventId,
+        entity_id: input.candidate.entityId,
+        stripe_object_id: stripeObjectId,
+        original_error: errorMessage,
+      },
+    })
+  }
+
+  return {
+    entity_id: input.candidate.entityId,
+    source: input.candidate.source,
+    stripe_object_id: stripeObjectId,
+    stripe_object_type: stripeObjectType,
+    outcome: 'failed',
+    action: 'stripe_object.neutralization_failed',
+    error: errorMessage,
+  }
 }
 
 async function loadRestrictionScope(
@@ -463,21 +687,28 @@ function checkoutCandidate(
 }
 
 async function routeSucceededPaymentToReconciliation(
-  db: StripeAdminClient,
-  candidate: PaymentCandidate,
+  input: {
+    db: StripeAdminClient
+    stripe: StripeNeutralizationClient
+    accountId: string
+    reason: string
+    candidate: PaymentCandidate
+  },
   stripeIntent: Stripe.PaymentIntent
 ) {
-  if (candidate.source === 'planner_payment_intent') {
-    await applyPlannerStripePaymentIntentWebhook(db, stripeIntent)
+  if (input.candidate.source === 'planner_payment_intent') {
+    await applyPlannerStripePaymentIntentWebhook(input.db, stripeIntent)
     return
   }
 
-  const { error } = await db
-    .from('vendor_transactions')
-    .update({ status: 'succeeded', paid_at: new Date().toISOString() })
-    .eq('id', candidate.entityId)
-    .eq('stripe_payment_intent_id', stripeIntent.id)
-  if (error) throw new Error(`Failed to route vendor payment to reconciliation: ${error.message}`)
+  await finalizeSucceededVendorPayment({
+    admin: input.db,
+    stripe: input.stripe,
+    paymentIntentId: stripeIntent.id,
+    connectedAccountId: input.accountId,
+    actor: { id: null, type: 'system' },
+    reason: input.reason,
+  })
 }
 
 async function markPaymentCandidateFailed(
