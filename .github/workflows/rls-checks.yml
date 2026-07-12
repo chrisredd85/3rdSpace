@@ -176,6 +176,10 @@ jobs:
           if ! git cat-file -e "$base_sha:supabase/migrations/20260709110000_repair_p0_stored_functions.sql"; then
             delta_args+=(--allowlist scripts/security/tied-house-pr205-allowlist.json)
           fi
+          if git cat-file -e "HEAD:supabase/migrations/20260709178000_make_canonical_venue_confirmation_effects_replayable.sql" &&
+             ! git cat-file -e "$base_sha:supabase/migrations/20260709178000_make_canonical_venue_confirmation_effects_replayable.sql"; then
+            delta_args+=(--allowlist scripts/security/tied-house-pr204-allowlist.json)
+          fi
           npm run security:tied-house:delta -- "${delta_args[@]}"
 
       - name: Run canonical plan-event identity regression tests

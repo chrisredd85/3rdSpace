@@ -14,6 +14,7 @@ DECLARE
   v_unclassified text;
   v_service_only constant regprocedure[] := ARRAY[
     'public.advance_plan_after_confirmed_booking()'::regprocedure,
+    'public.apply_planner_deposit_refund(text,integer,integer,text,text,boolean)'::regprocedure,
     'public.assert_canonical_booking_partner_binding(text,uuid,uuid,uuid,uuid)'::regprocedure,
     'public.bind_discovery_vendor_claim(uuid,uuid,uuid)'::regprocedure,
     'public.block_inflight_stripe_account_payments(text,text,text)'::regprocedure,
@@ -26,6 +27,7 @@ DECLARE
     'public.decline_canonical_bookings(text,uuid[],uuid,text,jsonb)'::regprocedure,
     'public.enforce_canonical_booking_execution_provenance()'::regprocedure,
     'public.ensure_canonical_booking_partner_binding(text,uuid,uuid,uuid,uuid)'::regprocedure,
+    'public.ensure_planner_deposit_payout(uuid)'::regprocedure,
     'public.freeze_canonical_booking_partner_binding()'::regprocedure,
     'public.handle_new_user()'::regprocedure,
     'public.increment_stripe_webhook_duplicate_count(text,text)'::regprocedure,
@@ -41,7 +43,9 @@ DECLARE
     'public.refresh_projection_baselines()'::regprocedure,
     'public.refresh_vendor_analytics()'::regprocedure,
     'public.release_stale_stripe_webhook_reservations(interval)'::regprocedure,
+    'public.reserve_planner_deposit_capture(uuid,uuid,uuid,text,integer,text,uuid,uuid)'::regprocedure,
     'public.reserve_stripe_webhook_event(text,text,jsonb,text,text,boolean)'::regprocedure,
+    'public.sync_planner_refund_reversal_task(uuid,uuid,uuid,text,integer,integer,text)'::regprocedure,
     'public.sync_vendor_profile_discovery_claim_link()'::regprocedure,
     'public.sync_vendor_review_stats()'::regprocedure,
     'public.transition_settlement_charge_status(uuid,text,text,text,uuid,text,text,jsonb,jsonb)'::regprocedure,
@@ -87,7 +91,7 @@ BEGIN
     WHERE n.nspname = 'public'
       AND p.prosecdef
   ) <> cardinality(v_service_only) + cardinality(v_authenticated) THEN
-    RAISE EXCEPTION 'Hosted SECURITY DEFINER count does not match the 48-function allowlist';
+    RAISE EXCEPTION 'Hosted SECURITY DEFINER count does not match the 52-function allowlist';
   END IF;
 
   FOREACH v_function IN ARRAY v_service_only LOOP
@@ -178,7 +182,7 @@ BEGIN
     RAISE EXCEPTION 'apply_plan_revision_atomic aggregate scoping markers are missing';
   END IF;
 
-  RAISE NOTICE 'Hosted ACL verification passed: 37 service-only, 11 authenticated-scoped, 0 anonymous privileged functions.';
+  RAISE NOTICE 'Hosted ACL verification passed: 41 service-only, 11 authenticated-scoped, 0 anonymous privileged functions.';
 END;
 $verify_hosted_acls$;
 

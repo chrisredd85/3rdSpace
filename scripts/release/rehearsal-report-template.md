@@ -131,8 +131,8 @@ All three verifiers are read-only and required:
 | `scripts/security/verify-hosted-acls.sql` | `PENDING` | `logs/verify-hosted-acls.log` |
 | `scripts/security/verify-hosted-control-plane.sql` | `PENDING` | `logs/verify-hosted-control-plane.log` |
 
-The ACL verifier fails closed unless all 48 realized `SECURITY DEFINER`
-functions are classified exactly: 37 service-only and 11 authenticated-scoped,
+The ACL verifier fails closed unless all 52 realized `SECURITY DEFINER`
+functions are classified exactly: 41 service-only and 11 authenticated-scoped,
 with zero anonymous privileged functions.
 
 ## Old-production-code compatibility against the new schema

@@ -55,6 +55,10 @@ const serviceOnlyFunctions: ServiceOnlyFunction[] = [
     triggerOnly: true,
   },
   {
+    signature: 'apply_planner_deposit_refund(text,integer,integer,text,text,boolean)',
+    call: "select public.apply_planner_deposit_refund('pi_acl', 0, 0, 'usd', 'evt_acl', false);",
+  },
+  {
     signature: 'assert_canonical_booking_partner_binding(text,uuid,uuid,uuid,uuid)',
     call: "select public.assert_canonical_booking_partner_binding('venue', null, null, null, null);",
   },
@@ -102,6 +106,10 @@ const serviceOnlyFunctions: ServiceOnlyFunction[] = [
   {
     signature: 'ensure_canonical_booking_partner_binding(text,uuid,uuid,uuid,uuid)',
     call: "select public.ensure_canonical_booking_partner_binding('venue', null, null, null, null);",
+  },
+  {
+    signature: 'ensure_planner_deposit_payout(uuid)',
+    call: 'select public.ensure_planner_deposit_payout(null::uuid);',
   },
   {
     signature: 'freeze_canonical_booking_partner_binding()',
@@ -173,8 +181,16 @@ const serviceOnlyFunctions: ServiceOnlyFunction[] = [
     call: "select * from public.release_stale_stripe_webhook_reservations('5 minutes'::interval);",
   },
   {
+    signature: 'reserve_planner_deposit_capture(uuid,uuid,uuid,text,integer,text,uuid,uuid)',
+    call: 'select * from public.reserve_planner_deposit_capture(null, null, null, null, null, null, null, null);',
+  },
+  {
     signature: 'reserve_stripe_webhook_event(text,text,jsonb,text,text,boolean)',
     call: "select * from public.reserve_stripe_webhook_event('evt_acl', 'test', '{}'::jsonb, 'test', '/acl', false);",
+  },
+  {
+    signature: 'sync_planner_refund_reversal_task(uuid,uuid,uuid,text,integer,integer,text)',
+    call: 'select public.sync_planner_refund_reversal_task(null, null, null, null, 0, 0, null);',
   },
   {
     signature: 'sync_vendor_review_stats()',
@@ -321,6 +337,15 @@ async function expectRpcPermissionDenied(
 
 function rpcArgsFor(signature: string): Record<string, unknown> {
   switch (signature) {
+    case 'apply_planner_deposit_refund(text,integer,integer,text,text,boolean)':
+      return {
+        p_stripe_payment_intent_id: 'pi_acl',
+        p_charge_amount_captured_cents: 0,
+        p_refunded_amount_cents: 0,
+        p_currency: 'usd',
+        p_event_id: 'evt_acl',
+        p_charge_refunded: false,
+      }
     case 'assert_canonical_booking_partner_binding(text,uuid,uuid,uuid,uuid)':
       return {
         p_booking_kind: 'venue',
@@ -383,6 +408,8 @@ function rpcArgsFor(signature: string): Record<string, unknown> {
         p_approval_id: null,
         p_physical_partner_id: null,
       }
+    case 'ensure_planner_deposit_payout(uuid)':
+      return { p_payment_intent_id: ids.planA }
     case 'increment_stripe_webhook_duplicate_count(text,text)':
       return { p_stripe_event_id: 'evt_acl', p_endpoint_path: '/acl' }
     case 'increment_stripe_webhook_duplicate_count(text)':
@@ -419,6 +446,17 @@ function rpcArgsFor(signature: string): Record<string, unknown> {
       return {}
     case 'release_stale_stripe_webhook_reservations(interval)':
       return { p_older_than: '00:05:00' }
+    case 'reserve_planner_deposit_capture(uuid,uuid,uuid,text,integer,text,uuid,uuid)':
+      return {
+        p_payment_intent_id: ids.planA,
+        p_plan_id: ids.planA,
+        p_approval_id: ids.approvalB,
+        p_expected_snapshot_hash: 'acl',
+        p_expected_amount_cents: 0,
+        p_expected_partner_kind: 'vendor',
+        p_expected_partner_id: ids.userA,
+        p_capture_attempt_id: ids.userB,
+      }
     case 'reserve_stripe_webhook_event(text,text,jsonb,text,text,boolean)':
       return {
         p_stripe_event_id: 'evt_acl',
@@ -427,6 +465,16 @@ function rpcArgsFor(signature: string): Record<string, unknown> {
         p_source: 'test',
         p_endpoint_path: '/acl',
         p_livemode: false,
+      }
+    case 'sync_planner_refund_reversal_task(uuid,uuid,uuid,text,integer,integer,text)':
+      return {
+        p_plan_id: ids.planA,
+        p_payment_intent_id: ids.planA,
+        p_payout_id: ids.planA,
+        p_stripe_payout_id: 'po_acl',
+        p_target_payout_amount_cents: 0,
+        p_refunded_amount_cents: 0,
+        p_event_id: 'evt_acl',
       }
     case 'transition_settlement_charge_status(uuid,text,text,text,uuid,text,text,jsonb,jsonb)':
       return {
@@ -565,7 +613,7 @@ describeIfDatabase('database privilege lockdown', () => {
   describe('SECURITY DEFINER tripwire', () => {
     it('matches every privileged function to the reviewed classification', () => {
       expect(authenticatedFunctions).toHaveLength(11)
-      expect(serviceOnlyFunctions).toHaveLength(37)
+      expect(serviceOnlyFunctions).toHaveLength(41)
 
       const realized = psql(`
         select p.oid::regprocedure::text
@@ -581,7 +629,7 @@ describeIfDatabase('database privilege lockdown', () => {
         ...serviceOnlyFunctions.map(({ signature }) => signature),
       ].sort()
 
-      expect(classified).toHaveLength(48)
+      expect(classified).toHaveLength(52)
       expect(realized).toEqual(classified)
     })
 

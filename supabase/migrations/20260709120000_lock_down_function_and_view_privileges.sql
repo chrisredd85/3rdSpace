@@ -876,6 +876,7 @@ COMMENT ON FUNCTION public.apply_plan_revision_atomic(UUID, UUID, JSONB, UUID, J
 -- Start from no API execution for every privileged routine. PUBLIC must be
 -- revoked because role-specific revokes do not override a PUBLIC grant.
 REVOKE ALL ON FUNCTION public.apply_plan_revision_atomic(UUID, UUID, JSONB, UUID, JSONB, JSONB, TEXT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.apply_planner_deposit_refund(TEXT, INTEGER, INTEGER, TEXT, TEXT, BOOLEAN) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.block_inflight_stripe_account_payments(TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.calculate_event_kickback(UUID) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.can_manage_event_cost_commitment_org(UUID) FROM PUBLIC, anon, authenticated;
@@ -888,6 +889,7 @@ REVOKE ALL ON FUNCTION public.consume_webhook_rate_limit(TEXT, INTEGER, INTEGER)
 REVOKE ALL ON FUNCTION public.create_vendor_invite(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, UUID) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.create_venue_invite(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, INTEGER, INTEGER, TEXT, INTEGER, UUID) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.get_event_kickback_summary(UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.ensure_planner_deposit_payout(UUID) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.increment_stripe_webhook_duplicate_count(TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.increment_stripe_webhook_duplicate_count(TEXT) FROM PUBLIC, anon, authenticated;
@@ -903,7 +905,9 @@ REVOKE ALL ON FUNCTION public.record_stripe_webhook_event_result(TEXT, TEXT, JSO
 REVOKE ALL ON FUNCTION public.refresh_projection_baselines() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.refresh_vendor_analytics() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.release_stale_stripe_webhook_reservations(INTERVAL) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.reserve_planner_deposit_capture(UUID, UUID, UUID, TEXT, INTEGER, TEXT, UUID, UUID) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.reserve_stripe_webhook_event(TEXT, TEXT, JSONB, TEXT, TEXT, BOOLEAN) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.sync_planner_refund_reversal_task(UUID, UUID, UUID, TEXT, INTEGER, INTEGER, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.sync_vendor_review_stats() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.transition_settlement_charge_status(UUID, TEXT, TEXT, TEXT, UUID, TEXT, TEXT, JSONB, JSONB) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.transition_settlement_run_status(UUID, TEXT, TEXT, TEXT, UUID, TEXT, TEXT, JSONB, JSONB) FROM PUBLIC, anon, authenticated;
@@ -914,6 +918,7 @@ REVOKE ALL ON FUNCTION public.validate_live_recommendation_scope() FROM PUBLIC, 
 
 -- All privileged routines remain available to trusted server paths.
 GRANT EXECUTE ON FUNCTION public.apply_plan_revision_atomic(UUID, UUID, JSONB, UUID, JSONB, JSONB, TEXT) TO service_role;
+GRANT EXECUTE ON FUNCTION public.apply_planner_deposit_refund(TEXT, INTEGER, INTEGER, TEXT, TEXT, BOOLEAN) TO service_role;
 GRANT EXECUTE ON FUNCTION public.block_inflight_stripe_account_payments(TEXT, TEXT, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION public.calculate_event_kickback(UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.can_manage_event_cost_commitment_org(UUID) TO service_role;
@@ -926,6 +931,7 @@ GRANT EXECUTE ON FUNCTION public.consume_webhook_rate_limit(TEXT, INTEGER, INTEG
 GRANT EXECUTE ON FUNCTION public.create_vendor_invite(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.create_venue_invite(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, INTEGER, INTEGER, TEXT, INTEGER, UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.get_event_kickback_summary(UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION public.ensure_planner_deposit_payout(UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.handle_new_user() TO service_role;
 GRANT EXECUTE ON FUNCTION public.increment_stripe_webhook_duplicate_count(TEXT, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION public.increment_stripe_webhook_duplicate_count(TEXT) TO service_role;
@@ -941,7 +947,9 @@ GRANT EXECUTE ON FUNCTION public.record_stripe_webhook_event_result(TEXT, TEXT, 
 GRANT EXECUTE ON FUNCTION public.refresh_projection_baselines() TO service_role;
 GRANT EXECUTE ON FUNCTION public.refresh_vendor_analytics() TO service_role;
 GRANT EXECUTE ON FUNCTION public.release_stale_stripe_webhook_reservations(INTERVAL) TO service_role;
+GRANT EXECUTE ON FUNCTION public.reserve_planner_deposit_capture(UUID, UUID, UUID, TEXT, INTEGER, TEXT, UUID, UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.reserve_stripe_webhook_event(TEXT, TEXT, JSONB, TEXT, TEXT, BOOLEAN) TO service_role;
+GRANT EXECUTE ON FUNCTION public.sync_planner_refund_reversal_task(UUID, UUID, UUID, TEXT, INTEGER, INTEGER, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION public.sync_vendor_review_stats() TO service_role;
 GRANT EXECUTE ON FUNCTION public.transition_settlement_charge_status(UUID, TEXT, TEXT, TEXT, UUID, TEXT, TEXT, JSONB, JSONB) TO service_role;
 GRANT EXECUTE ON FUNCTION public.transition_settlement_run_status(UUID, TEXT, TEXT, TEXT, UUID, TEXT, TEXT, JSONB, JSONB) TO service_role;

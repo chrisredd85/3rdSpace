@@ -9,6 +9,8 @@ const rehearsalScript = path.join(repoRoot, 'scripts/release/rehearse-bundle.sh'
 const reportTemplate = path.join(repoRoot, 'scripts/release/rehearsal-report-template.md')
 const releaseRunbook = path.join(repoRoot, 'docs/runbooks/20260710-prompts-1-8-release.md')
 const hostedAclVerifier = path.join(repoRoot, 'scripts/security/verify-hosted-acls.sql')
+const rlsWorkflow = path.join(repoRoot, '.github/workflows/rls-checks.yml')
+const pr204TiedHouseAllowlist = path.join(repoRoot, 'scripts/security/tied-house-pr204-allowlist.json')
 const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim()
 
 const safeEnvironment = {
@@ -68,6 +70,10 @@ describe('Prompt 1-8 clone rehearsal scripts', () => {
     const template = fs.readFileSync(reportTemplate, 'utf8')
     const runbook = fs.readFileSync(releaseRunbook, 'utf8')
     const aclVerifier = fs.readFileSync(hostedAclVerifier, 'utf8')
+    const workflow = fs.readFileSync(rlsWorkflow, 'utf8')
+    const tiedHouseAllowlist = JSON.parse(
+      fs.readFileSync(pr204TiedHouseAllowlist, 'utf8'),
+    ) as Array<{ count: number }>
     const manifestBlock = setup.match(/BUNDLE_MIGRATIONS=\(([\s\S]*?)\n\)/)?.[1] ?? ''
     const migrations = Array.from(manifestBlock.matchAll(/"([0-9]{14}_[a-z0-9_]+\.sql)"/g), (match) => match[1])
 
@@ -95,10 +101,17 @@ describe('Prompt 1-8 clone rehearsal scripts', () => {
 
     const serviceOnlyBlock = aclVerifier.match(/v_service_only constant regprocedure\[\] := ARRAY\[([\s\S]*?)\n  \];/)?.[1] ?? ''
     const authenticatedBlock = aclVerifier.match(/v_authenticated constant regprocedure\[\] := ARRAY\[([\s\S]*?)\n  \];/)?.[1] ?? ''
-    expect(serviceOnlyBlock.match(/::regprocedure/g)).toHaveLength(37)
+    expect(serviceOnlyBlock.match(/::regprocedure/g)).toHaveLength(41)
     expect(authenticatedBlock.match(/::regprocedure/g)).toHaveLength(11)
-    expect(aclVerifier).toContain('48-function allowlist')
-    expect(aclVerifier).toContain('37 service-only, 11 authenticated-scoped')
+    expect(aclVerifier).toContain('52-function allowlist')
+    expect(aclVerifier).toContain('41 service-only, 11 authenticated-scoped')
+    expect(tiedHouseAllowlist.reduce((total, entry) => total + entry.count, 0)).toBe(18)
+    expect(workflow).toContain(
+      'HEAD:supabase/migrations/20260709178000_make_canonical_venue_confirmation_effects_replayable.sql',
+    )
+    expect(workflow).toContain(
+      '--allowlist scripts/security/tied-house-pr204-allowlist.json',
+    )
   })
 
   it('plans setup and the complete ordered bundle without connecting or leaking the URL', () => {

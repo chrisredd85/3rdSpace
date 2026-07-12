@@ -683,20 +683,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "approvals_settlement_run_id_fkey"
-            columns: ["settlement_run_id"]
-            isOneToOne: false
-            referencedRelation: "settlement_runs"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "approvals_superseded_by_revision_id_fkey"
-            columns: ["superseded_by_revision_id"]
-            isOneToOne: false
-            referencedRelation: "plan_revisions"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "approvals_root_plan_fkey"
             columns: ["root_approval_id", "plan_id"]
             isOneToOne: false
@@ -12195,20 +12181,20 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      complete_write_pause_drain: {
+        Args: {
+          p_changed_by: string
+          p_expected_revision: number
+          p_reason: string
+        }
+        Returns: Json
+      }
       confirm_canonical_booking: {
         Args: {
           p_actor_id: string
           p_booking_id: string
           p_booking_kind: string
           p_confirmation_context?: Json
-        }
-        Returns: Json
-      }
-      complete_write_pause_drain: {
-        Args: {
-          p_changed_by: string
-          p_expected_revision: number
-          p_reason: string
         }
         Returns: Json
       }
@@ -12313,14 +12299,6 @@ export type Database = {
           venue_id: string
         }[]
       }
-      defer_stripe_webhook_for_maintenance: {
-        Args: {
-          p_endpoint_path: string
-          p_reservation_token: string
-          p_stripe_event_id: string
-        }
-        Returns: Json
-      }
       decline_canonical_bookings: {
         Args: {
           p_actor_id: string
@@ -12338,6 +12316,14 @@ export type Database = {
           p_booking_kind: string
           p_decline_context?: Json
           p_reason: string
+        }
+        Returns: Json
+      }
+      defer_stripe_webhook_for_maintenance: {
+        Args: {
+          p_endpoint_path: string
+          p_reservation_token: string
+          p_stripe_event_id: string
         }
         Returns: Json
       }
@@ -12424,6 +12410,10 @@ export type Database = {
         }
         Returns: Json
       }
+      ensure_planner_deposit_payout: {
+        Args: { p_payment_intent_id: string }
+        Returns: Json
+      }
       finalize_approved_action_handoff_retry: {
         Args: {
           p_action_id: string
@@ -12439,10 +12429,6 @@ export type Database = {
           outcome: string
           result_metadata: Json
         }[]
-      }
-      ensure_planner_deposit_payout: {
-        Args: { p_payment_intent_id: string }
-        Returns: Json
       }
       finalize_failed_action_retry: {
         Args: {
@@ -12594,36 +12580,6 @@ export type Database = {
         Args: { p_vendor_id: string }
         Returns: undefined
       }
-      record_stripe_webhook_event_result:
-        | {
-            Args: {
-              p_endpoint_path: string
-              p_error?: string
-              p_event_type: string
-              p_livemode: boolean
-              p_payload: Json
-              p_processed: boolean
-              p_processing_outcome: string
-              p_source: string
-              p_stripe_event_id: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_endpoint_path: string
-              p_error: string
-              p_event_type: string
-              p_livemode: boolean
-              p_payload: Json
-              p_processed: boolean
-              p_processing_outcome: string
-              p_reservation_token: string
-              p_source: string
-              p_stripe_event_id: string
-            }
-            Returns: Json
-          }
       record_plan_event_outcome: {
         Args: {
           p_actor_id: string
@@ -12687,6 +12643,36 @@ export type Database = {
         }
         Returns: Json
       }
+      record_stripe_webhook_event_result:
+        | {
+            Args: {
+              p_endpoint_path: string
+              p_error?: string
+              p_event_type: string
+              p_livemode: boolean
+              p_payload: Json
+              p_processed: boolean
+              p_processing_outcome: string
+              p_source: string
+              p_stripe_event_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_endpoint_path: string
+              p_error: string
+              p_event_type: string
+              p_livemode: boolean
+              p_payload: Json
+              p_processed: boolean
+              p_processing_outcome: string
+              p_reservation_token: string
+              p_source: string
+              p_stripe_event_id: string
+            }
+            Returns: Json
+          }
       refresh_projection_baselines: {
         Args: never
         Returns: {
@@ -12700,6 +12686,28 @@ export type Database = {
         Returns: {
           released_count: number
         }[]
+      }
+      repair_vendor_base_rate_atomic: {
+        Args: {
+          p_admin_user_id?: string
+          p_audit_action: string
+          p_expected_base_rate: number
+          p_metadata?: Json
+          p_new_base_rate_cents: number
+          p_vendor_id: string
+        }
+        Returns: Json
+      }
+      require_canonical_quote_booking_reapproval: {
+        Args: {
+          p_actor_id: string
+          p_agent_action_id: string
+          p_approval_id: string
+          p_expected_snapshot_hash: string
+          p_plan_id: string
+          p_reason: string
+        }
+        Returns: Json
       }
       reserve_planner_deposit_capture: {
         Args: {
@@ -12789,28 +12797,6 @@ export type Database = {
               reserved_now: boolean
             }[]
           }
-      repair_vendor_base_rate_atomic: {
-        Args: {
-          p_admin_user_id?: string
-          p_audit_action: string
-          p_expected_base_rate: number
-          p_metadata?: Json
-          p_new_base_rate_cents: number
-          p_vendor_id: string
-        }
-        Returns: Json
-      }
-      require_canonical_quote_booking_reapproval: {
-        Args: {
-          p_actor_id: string
-          p_agent_action_id: string
-          p_approval_id: string
-          p_expected_snapshot_hash: string
-          p_plan_id: string
-          p_reason: string
-        }
-        Returns: Json
-      }
       save_vendor_manual_availability: {
         Args: {
           p_dates: string[]
@@ -12912,6 +12898,18 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      sync_planner_refund_reversal_task: {
+        Args: {
+          p_event_id: string
+          p_payment_intent_id: string
+          p_payout_id: string
+          p_plan_id: string
+          p_refunded_amount_cents: number
+          p_stripe_payout_id: string
+          p_target_payout_amount_cents: number
+        }
+        Returns: boolean
+      }
       transition_plan_status: {
         Args: {
           p_actor_id: string
@@ -12968,18 +12966,6 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
-      }
-      sync_planner_refund_reversal_task: {
-        Args: {
-          p_event_id: string
-          p_payment_intent_id: string
-          p_payout_id: string
-          p_plan_id: string
-          p_refunded_amount_cents: number
-          p_stripe_payout_id: string
-          p_target_payout_amount_cents: number
-        }
-        Returns: boolean
       }
       transition_release_runtime_control: {
         Args: {

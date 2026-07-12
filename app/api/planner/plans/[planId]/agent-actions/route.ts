@@ -153,10 +153,30 @@ const paymentPayloadSchema = z.object({
   source: z.string().trim().max(120).optional(),
 }).strict()
 
+// Recommendation cards shipped before the first-class proposal contract. Keep
+// that exact, approval-only shape during the compatibility window, but require
+// its controlled-payment markers and complete terms so it cannot become a
+// generic escape hatch around the strict proposal schema.
+const paymentRecommendationPayloadSchema = z.object({
+  action_label: z.string().trim().min(1).max(160),
+  provider: z.string().trim().min(1).max(160),
+  price_cents: safeCentsSchema.optional(),
+  fees_cents: safeCentsSchema.optional(),
+  package_details: z.string().trim().min(1).max(2_000),
+  refund_terms: z.string().trim().min(1).max(1_000),
+  cancellation_terms: z.string().trim().min(1).max(1_000),
+  execution_mode: z.literal('controlled_payment'),
+  has_controlled_payment_account: z.literal(true),
+  payment_required: z.literal(true),
+  event_date: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  delivery_email: z.string().trim().email().nullable().optional(),
+  notes: z.string().trim().max(4_000).nullable().optional(),
+  source: z.string().trim().max(120).optional(),
+}).strict()
+
 const createAgentActionSchema = z.discriminatedUnion('actionType', [
   genericAgentActionSchema('hold_request'),
   genericAgentActionSchema('vendor_contact'),
-  genericAgentActionSchema('payment'),
   genericAgentActionSchema('ai_query'),
   genericAgentActionSchema('export'),
   genericAgentActionSchema('opportunity_send_venues'),
@@ -171,7 +191,7 @@ const createAgentActionSchema = z.discriminatedUnion('actionType', [
     actionType: z.literal('payment'),
     targetType: z.enum(['venue', 'vendor']),
     targetId: z.string().uuid(),
-    payloadJson: paymentPayloadSchema,
+    payloadJson: z.union([paymentPayloadSchema, paymentRecommendationPayloadSchema]),
     requestedAmountCents: paymentCentsSchema,
   }).strict(),
 ])
@@ -343,16 +363,17 @@ export async function POST(
 
     const requestedAmountCents = cents.requestedAmountCents
     const feesCents = cents.feesCents
+    const targetType = parsed.data.targetType ?? readString(submittedPayload.target_type)
+    const targetId = parsed.data.targetId ?? readUuid(submittedPayload.target_id)
     const payload = normalizeAgentActionPayload(
       parsed.data.actionType,
       submittedPayload,
       requestedAmountCents,
-      feesCents
+      feesCents,
+      targetType,
     )
     const actionLabel = readString(payload.action_label) ?? readDefaultActionLabel(parsed.data.actionType)
     const provider = readString(payload.provider)
-    const targetType = parsed.data.targetType ?? readString(payload.target_type)
-    const targetId = parsed.data.targetId ?? readUuid(payload.target_id)
     const executionMode = classifyExecutionMode({
       actionType: parsed.data.actionType,
       provider,
@@ -686,7 +707,8 @@ function normalizeAgentActionPayload(
   actionType: z.infer<typeof createAgentActionSchema>['actionType'],
   payload: JsonObject,
   requestedAmountCents: number,
-  feesCents: number
+  feesCents: number,
+  targetType: string | null,
 ): JsonObject {
   if (actionType === 'external_checkout') {
     return {
@@ -702,6 +724,7 @@ function normalizeAgentActionPayload(
   if (actionType === 'payment') {
     return {
       ...payload,
+      kind: payload.kind ?? (targetType === 'vendor' ? 'vendor_deposit' : 'venue_deposit'),
       price_cents: requestedAmountCents,
       requestedAmountCents,
       fees_cents: feesCents,
