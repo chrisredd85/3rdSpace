@@ -15,8 +15,37 @@ const scriptPath = path.join(
   'scripts/security/check-tied-house-delta.mjs',
 )
 
+const localGitEnvironmentVariables = [
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_COMMON_DIR',
+  'GIT_CONFIG',
+  'GIT_CONFIG_COUNT',
+  'GIT_CONFIG_PARAMETERS',
+  'GIT_DIR',
+  'GIT_GRAFT_FILE',
+  'GIT_IMPLICIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'GIT_INTERNAL_SUPER_PREFIX',
+  'GIT_NO_REPLACE_OBJECTS',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_PREFIX',
+  'GIT_REPLACE_REF_BASE',
+  'GIT_SHALLOW_FILE',
+  'GIT_WORK_TREE',
+] as const
+
+function isolatedGitEnvironment() {
+  const env = { ...process.env }
+  for (const variable of localGitEnvironmentVariables) delete env[variable]
+  return env
+}
+
 function runGit(cwd: string, args: string[]) {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' })
+  const result = spawnSync('git', args, {
+    cwd,
+    env: isolatedGitEnvironment(),
+    encoding: 'utf8',
+  })
   if (result.status !== 0) {
     throw new Error(result.stderr || result.stdout)
   }
@@ -38,6 +67,7 @@ function commitBaseline(root: string) {
 function runGate(root: string, args: string[]) {
   return spawnSync(process.execPath, [scriptPath, ...args], {
     cwd: root,
+    env: isolatedGitEnvironment(),
     encoding: 'utf8',
   })
 }

@@ -47,8 +47,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Install PostgreSQL client and ripgrep
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client ripgrep
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v2.1.1

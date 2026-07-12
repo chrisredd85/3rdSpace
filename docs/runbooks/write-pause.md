@@ -24,14 +24,18 @@ can finish before database changes begin.
 
 The pause foundation is migration
 `20260709100000_add_write_pause_control.sql`. It is intentionally ordered after
-the separate payment-capture migration `20260709090000` and before the
-Prompt 1-8 bundle beginning at `20260709110000`.
+the PR #203 payment-capture migration `20260709090000`. The prerequisite PR #205
+release carries both the pause foundation and
+`20260709110000_repair_p0_stored_functions.sql`. The coordinated PR #204 bundle
+is a separate set of exactly 22 migrations beginning at `20260709114000` and
+ending at `20260709178000`.
 
-Apply `20260709100000` schema-first, then deploy only the reviewed write-pause
-middleware/control code as a small compatible release. Confirm that deployment
-before relying on the pause for the `20260709110000-20260709178000` window.
-Introducing the mechanism for the first time in the same deployment as that
-bundle is circular and unsafe.
+After PR #203, apply PR #205's `20260709100000` and `20260709110000`
+prerequisite schemas, then deploy the exact reviewed PR #205
+write-pause/middleware release. Confirm that deployment before relying on the
+pause for PR #204's `20260709114000-20260709178000` window. Introducing the
+mechanism for the first time in the same deployment as that bundle is circular
+and unsafe.
 
 ## Request policy
 
