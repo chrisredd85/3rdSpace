@@ -334,9 +334,8 @@ BEGIN
       AND regexp_replace(lower(btrim(COALESCE(v_deal_model, ''))), '[^a-z0-9]+', '_', 'g') IN (
         'free_space', 'complimentary', 'comped', 'chi',
         'community_host_incentive', 'bar_consumption_chi', 'ticket_chi',
-        'per_head_chi', 'revenue_share', 'consumption_share',
-        'bar_revenue_share', 'bar_consumption_share',
-        'ticket_revenue_share', 'ticket_consumption_share'
+        'per_head_chi', 'consumption_share',
+        'bar_consumption_share', 'ticket_consumption_share'
       )
     )
   THEN

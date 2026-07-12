@@ -40,6 +40,21 @@ describe('canonical quote booking migration', () => {
     expect(stage).toContain('stage_plan_quote_booking_price_required')
     expect(stage).toContain("regexp_replace(lower(btrim(COALESCE(v_deal_model, '')))")
     expect(stage).toContain("'community_host_incentive', 'bar_consumption_chi', 'ticket_chi'")
+    expect(stage).toContain("'per_head_chi', 'consumption_share'")
+    expect(stage).toContain("'bar_consumption_share', 'ticket_consumption_share'")
+    for (const unsupportedLegacyAlias of [
+      "'revenue_share'",
+      "'bar_revenue_share'",
+      "'ticket_revenue_share'",
+    ]) {
+      expect(stage).not.toContain(unsupportedLegacyAlias)
+    }
+    const priceRequiredError = stage.indexOf(
+      "RAISE EXCEPTION 'stage_plan_quote_booking_price_required'",
+    )
+    expect(priceRequiredError).toBeGreaterThan(-1)
+    expect(priceRequiredError).toBeLessThan(stage.indexOf('INSERT INTO public.agent_actions'))
+    expect(priceRequiredError).toBeLessThan(stage.indexOf('INSERT INTO public.approvals'))
     expect(stage).toContain("action_row.payload_json ->> 'quote_response_id' = p_response_id::TEXT")
     expect(stage).toContain("action_row.status IN ('pending', 'proposed', 'approved', 'executing')")
     expect(stage).toContain("OR action_row.status IN ('failed', 'complete')")

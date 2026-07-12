@@ -10,6 +10,10 @@ const reportTemplate = path.join(repoRoot, 'scripts/release/rehearsal-report-tem
 const releaseRunbook = path.join(repoRoot, 'docs/runbooks/20260710-prompts-1-8-release.md')
 const hostedAclVerifier = path.join(repoRoot, 'scripts/security/verify-hosted-acls.sql')
 const rlsWorkflow = path.join(repoRoot, '.github/workflows/rls-checks.yml')
+const tiedHouseReleaseSelector = path.join(
+  repoRoot,
+  'scripts/security/run-tied-house-release-delta.mjs',
+)
 const pr204TiedHouseAllowlist = path.join(repoRoot, 'scripts/security/tied-house-pr204-allowlist.json')
 const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim()
 
@@ -105,13 +109,11 @@ describe('Prompt 1-8 clone rehearsal scripts', () => {
     expect(authenticatedBlock.match(/::regprocedure/g)).toHaveLength(11)
     expect(aclVerifier).toContain('52-function allowlist')
     expect(aclVerifier).toContain('41 service-only, 11 authenticated-scoped')
-    expect(tiedHouseAllowlist.reduce((total, entry) => total + entry.count, 0)).toBe(18)
+    expect(tiedHouseAllowlist.reduce((total, entry) => total + entry.count, 0)).toBe(12)
     expect(workflow).toContain(
-      'HEAD:supabase/migrations/20260709178000_make_canonical_venue_confirmation_effects_replayable.sql',
+      'run: node scripts/security/run-tied-house-release-delta.mjs',
     )
-    expect(workflow).toContain(
-      '--allowlist scripts/security/tied-house-pr204-allowlist.json',
-    )
+    expect(fs.existsSync(tiedHouseReleaseSelector)).toBe(true)
   })
 
   it('plans setup and the complete ordered bundle without connecting or leaking the URL', () => {

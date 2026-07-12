@@ -1,20 +1,5 @@
 [
   {
-    "path": "lib/planner/execution/canonicalQuoteBooking.ts",
-    "text": "dealModel === 'revenue_share' ||",
-    "count": 1
-  },
-  {
-    "path": "lib/planner/execution/canonicalQuoteBooking.ts",
-    "text": "dealModel === 'bar_revenue_share' ||",
-    "count": 1
-  },
-  {
-    "path": "lib/planner/execution/canonicalQuoteBooking.ts",
-    "text": "dealModel === 'ticket_revenue_share' ||",
-    "count": 1
-  },
-  {
     "path": "lib/planner/templateIdentity.ts",
     "text": "kickback_model: Json",
     "count": 1
@@ -72,21 +57,6 @@
   {
     "path": "supabase/migrations/20260709130000_server_owned_execution_control_plane.sql",
     "text": "'kickback_payments'",
-    "count": 1
-  },
-  {
-    "path": "supabase/migrations/20260709162000_add_canonical_quote_booking_execution.sql",
-    "text": "'per_head_chi', 'revenue_share', 'consumption_share',",
-    "count": 1
-  },
-  {
-    "path": "supabase/migrations/20260709162000_add_canonical_quote_booking_execution.sql",
-    "text": "'bar_revenue_share', 'bar_consumption_share',",
-    "count": 1
-  },
-  {
-    "path": "supabase/migrations/20260709162000_add_canonical_quote_booking_execution.sql",
-    "text": "'ticket_revenue_share', 'ticket_consumption_share'",
     "count": 1
   }
 ]

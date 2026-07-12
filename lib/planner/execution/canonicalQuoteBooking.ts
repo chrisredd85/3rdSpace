@@ -976,11 +976,8 @@ function isExplicitZeroUpfrontQuote(quote: TrustedQuote): boolean {
     dealModel === 'bar_consumption_chi' ||
     dealModel === 'ticket_chi' ||
     dealModel === 'per_head_chi' ||
-    dealModel === 'revenue_share' ||
     dealModel === 'consumption_share' ||
-    dealModel === 'bar_revenue_share' ||
     dealModel === 'bar_consumption_share' ||
-    dealModel === 'ticket_revenue_share' ||
     dealModel === 'ticket_consumption_share'
 }
 

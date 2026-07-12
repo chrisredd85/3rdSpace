@@ -72,7 +72,7 @@ const templateRow = {
   budget_model: {},
   ticket_price_model: {},
   profit_assumptions: {},
-  kickback_model: {},
+  kickback_model: { kind: 'legacy-template-compatibility' },
   run_of_show: {},
   shopping_list: {},
   email_copy: null,
@@ -93,9 +93,16 @@ describe('POST /api/planner/templates canonical eligibility', () => {
     const response = await POST(request())
 
     expect(response.status).toBe(201)
-    expect(await response.json()).toEqual(expect.objectContaining({
+    const responseBody = await response.json()
+    expect(responseBody).toEqual(expect.objectContaining({
       template: expect.objectContaining({ source_event_id: EVENT_ID }),
     }))
+    expect(responseBody.template.snapshot.chi_model).toEqual(templateRow.kickback_model)
+    expect(responseBody.template.snapshot.kickback_model).toEqual(templateRow.kickback_model)
+    expect(responseBody.template.snapshot.chi_model).toEqual(
+      responseBody.template.snapshot.kickback_model,
+    )
+    expect(response.headers.get('X-Deprecated-Keys')?.split(',')).toContain('kickback_model')
     expect(mock.from).toHaveBeenCalledWith('events')
     expect(mock.templateInsert).toHaveBeenCalledWith(expect.objectContaining({
       source_plan_id: PLAN_ID,
@@ -194,9 +201,16 @@ describe('GET /api/planner/templates legacy read compatibility', () => {
     const response = await GET()
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual(expect.objectContaining({
+    const responseBody = await response.json()
+    expect(responseBody).toEqual(expect.objectContaining({
       templates: [expect.objectContaining({ id: legacyTemplate.id, source_event_id: null })],
     }))
+    expect(responseBody.templates[0].snapshot.chi_model).toEqual(templateRow.kickback_model)
+    expect(responseBody.templates[0].snapshot.kickback_model).toEqual(templateRow.kickback_model)
+    expect(responseBody.templates[0].snapshot.chi_model).toEqual(
+      responseBody.templates[0].snapshot.kickback_model,
+    )
+    expect(response.headers.get('X-Deprecated-Keys')?.split(',')).toContain('kickback_model')
   })
 })
 

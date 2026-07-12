@@ -5,7 +5,11 @@ on:
     branches:
       - main
     paths:
+      - 'app/**'
+      - 'lib/**'
+      - 'components/**'
       - 'supabase/migrations/**'
+      - 'supabase/seeds/**'
       - 'scripts/security/**'
       - 'scripts/release/toggle-write-pause.sh'
       - '__tests__/security/**'
@@ -64,7 +68,11 @@ on:
       - '.github/workflows/test.yml'
   pull_request:
     paths:
+      - 'app/**'
+      - 'lib/**'
+      - 'components/**'
       - 'supabase/migrations/**'
+      - 'supabase/seeds/**'
       - 'scripts/security/**'
       - 'scripts/release/toggle-write-pause.sh'
       - '__tests__/security/**'
@@ -122,6 +130,7 @@ on:
       - '.github/workflows/rls-checks.yml'
       - '.github/workflows/test.yml'
   merge_group:
+    types: [checks_requested]
 
 jobs:
   rls:
@@ -168,19 +177,7 @@ jobs:
         run: npm run security:tied-house
 
       - name: Reject new unreviewed tied-house nomenclature
-        if: github.event_name == 'pull_request'
-        shell: bash
-        run: |
-          base_sha='${{ github.event.pull_request.base.sha }}'
-          delta_args=(--base "$base_sha")
-          if ! git cat-file -e "$base_sha:supabase/migrations/20260709110000_repair_p0_stored_functions.sql"; then
-            delta_args+=(--allowlist scripts/security/tied-house-pr205-allowlist.json)
-          fi
-          if git cat-file -e "HEAD:supabase/migrations/20260709178000_make_canonical_venue_confirmation_effects_replayable.sql" &&
-             ! git cat-file -e "$base_sha:supabase/migrations/20260709178000_make_canonical_venue_confirmation_effects_replayable.sql"; then
-            delta_args+=(--allowlist scripts/security/tied-house-pr204-allowlist.json)
-          fi
-          npm run security:tied-house:delta -- "${delta_args[@]}"
+        run: node scripts/security/run-tied-house-release-delta.mjs
 
       - name: Run canonical plan-event identity regression tests
         run: npm test -- __tests__/schema/canonical-plan-event-identity-migration.test.ts __tests__/schema/canonical-booking-provenance-hardening-migration.test.ts __tests__/integration/canonical-plan-event-identity-realized.test.ts --runInBand

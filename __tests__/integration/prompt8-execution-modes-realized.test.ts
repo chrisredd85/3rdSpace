@@ -751,6 +751,31 @@ describeIfDatabase('Prompt 8 realized execution-mode lifecycles', () => {
       select count(*) from public.agent_actions
       where id = '${ids.explicitFreeQuoteAction}';
     `)).toBe('0')
+    expect(psql(`
+      select count(*) from public.approvals
+      where id = '${ids.explicitFreeQuoteApproval}';
+    `)).toBe('0')
+
+    for (const unsupportedLegacyAlias of [
+      'revenue_share',
+      'bar_revenue_share',
+      'ticket_revenue_share',
+    ]) {
+      expect(psql(`
+        update public.venue_outreach_responses
+        set quoted_deal_model = '${unsupportedLegacyAlias}'
+        where id = '${ids.quoteResponse}'
+        returning quoted_deal_model;
+      `)).toBe(unsupportedLegacyAlias)
+      expect(() => psql(stageZeroSql)).toThrow(/stage_plan_quote_booking_price_required/)
+      expect(psql(`
+        select
+          (select count(*) from public.agent_actions
+            where id = '${ids.explicitFreeQuoteAction}')::text || '|' ||
+          (select count(*) from public.approvals
+            where id = '${ids.explicitFreeQuoteApproval}')::text;
+      `)).toBe('0|0')
+    }
 
     expect(psql(`
       update public.venue_outreach_responses
