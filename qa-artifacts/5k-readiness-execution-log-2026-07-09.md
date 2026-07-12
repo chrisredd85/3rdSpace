@@ -1,5 +1,13 @@
 # 3rdPlace 5k-readiness execution log
 
+> **Historical receipt — release topology superseded 2026-07-11.** The
+> implementation evidence below remains valid for its recorded checkpoint, but
+> any future-release statement describing PR #204 as a `20260709110000+`
+> migration bundle is obsolete. The current contract is recorded in
+> `qa-artifacts/pre-phase2-stack-stabilization-prompt-set-2026-07-11.md`: PR
+> #205 owns `20260709100000` and `20260709110000`; PR #204 owns exactly 22
+> migrations beginning at `20260709114000`.
+
 Baseline: `origin/main` at `461e3da4e569a41d27c6e972fc467ef3ba042d17`.
 
 Source specification:

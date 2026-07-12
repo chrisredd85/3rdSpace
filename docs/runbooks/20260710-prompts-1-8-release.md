@@ -63,7 +63,7 @@ two-PR plan:
 
 1. apply PR #203's schema-first migration, merge the exact reviewed PR #203
    head, and prove its deployment;
-2. apply PR #205's schema-first migration, merge the exact reviewed PR #205
+2. apply PR #205's schema-first migrations, merge the exact reviewed PR #205
    head, and prove the write-pause control in production; then
 3. rebase PR #204 onto the resulting `main`, rerun every PR #204 gate, and only
    then freeze PR #204 as the coordinated-window release candidate.

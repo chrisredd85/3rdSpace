@@ -1,5 +1,13 @@
 # Prompts 7–8 verification and correction report
 
+> **Historical receipt — release topology superseded 2026-07-11.** The
+> implementation evidence below remains valid for its recorded checkpoint, but
+> any future-release statement describing PR #204 as a `20260709110000+`
+> migration bundle or inventory is obsolete. The current contract is recorded
+> in `qa-artifacts/pre-phase2-stack-stabilization-prompt-set-2026-07-11.md`: PR
+> #205 owns `20260709100000` and `20260709110000`; PR #204 owns exactly 22
+> migrations beginning at `20260709114000`.
+
 Date: 2026-07-10
 Worktree: `/private/tmp/3rdplace-5k-readiness-integration`
 Branch: `codex/5k-readiness-integration`
