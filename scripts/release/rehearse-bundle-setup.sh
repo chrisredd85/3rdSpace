@@ -10,17 +10,17 @@ REHEARSAL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REHEARSAL_REPO_ROOT="$(cd "${REHEARSAL_SCRIPT_DIR}/../.." && pwd)"
 REHEARSAL_MIGRATION_DIR="${REHEARSAL_REPO_ROOT}/supabase/migrations"
 REHEARSAL_REPORT_TEMPLATE="${REHEARSAL_SCRIPT_DIR}/rehearsal-report-template.md"
-REHEARSAL_REQUIRED_BASELINE_VERSION="20260709100000"
+REHEARSAL_REQUIRED_BASELINE_VERSION="20260709110000"
 REHEARSAL_REQUIRED_PREREQUISITE_VERSIONS=(
   "20260701090000"
   "20260709090000"
   "20260709100000"
+  "20260709110000"
 )
 REHEARSAL_CONFIRMATION_PHRASE="I_ACKNOWLEDGE_THIS_IS_A_DISPOSABLE_NON_PRODUCTION_CLONE"
 REHEARSAL_REVIEWED_BASE_SHA=""
 
 BUNDLE_MIGRATIONS=(
-  "20260709110000_repair_p0_stored_functions.sql"
   "20260709114000_atomic_vendor_base_rate_repair.sql"
   "20260709115000_add_atomic_builder_event_materialization.sql"
   "20260709120000_lock_down_function_and_view_privileges.sql"
@@ -55,7 +55,7 @@ rehearsal_usage() {
 Usage:
   REHEARSAL_DATABASE_URL='postgresql://...' \
   REHEARSAL_CLONE_ID='operator-clone-id' \
-  REHEARSAL_EXPECTED_BASELINE_VERSION='20260709100000' \
+  REHEARSAL_EXPECTED_BASELINE_VERSION='20260709110000' \
   REHEARSAL_OLD_PRODUCTION_SHA='<full-reviewed-base-sha>' \
   REHEARSAL_TARGET_CLASS='clone' \
   PRODUCTION_PROJECT_REF='known-production-ref' \
@@ -79,7 +79,8 @@ Options:
   --help                         Show this help.
 
 Provision two disposable databases from the same recent production backup or
-PITR restore, after all three prerequisite releases are present. Record the
+PITR restore, after all four prerequisite migration versions across the three
+prerequisite releases are present. Record the
 provider snapshot identifier/timestamp and use a clone-only connection. For a
 local realized clone, create a new database and restore the operator-provided
 dump into that new target (for example, `createdb` followed by `pg_restore
@@ -101,7 +102,8 @@ created on the clone as part of provisioning (never by this script):
     ('source_snapshot', '<provider-snapshot-id-or-timestamp>');
 
 The clone ledger must contain exactly these separately released prerequisites
-before the bundle starts: 20260701090000, 20260709090000, and 20260709100000.
+before the bundle starts: 20260701090000, 20260709090000, 20260709100000, and
+20260709110000.
 The connection URL is never written to the receipt.
 USAGE
 }
@@ -183,8 +185,8 @@ rehearsal_connection_fingerprint() {
 }
 
 rehearsal_assert_manifest() {
-  local expected_count=23
-  local first_expected="20260709110000_repair_p0_stored_functions.sql"
+  local expected_count=22
+  local first_expected="20260709114000_atomic_vendor_base_rate_repair.sql"
   local last_expected="20260709178000_make_canonical_venue_confirmation_effects_replayable.sql"
   local previous_version=""
   local filename version path
@@ -198,8 +200,8 @@ rehearsal_assert_manifest() {
     rehearsal_die "bundle manifest starts at the wrong migration: ${BUNDLE_MIGRATIONS[0]}"
     return 1
   fi
-  if [[ "${BUNDLE_MIGRATIONS[22]}" != "${last_expected}" ]]; then
-    rehearsal_die "bundle manifest ends at the wrong migration: ${BUNDLE_MIGRATIONS[22]}"
+  if [[ "${BUNDLE_MIGRATIONS[21]}" != "${last_expected}" ]]; then
+    rehearsal_die "bundle manifest ends at the wrong migration: ${BUNDLE_MIGRATIONS[21]}"
     return 1
   fi
 
@@ -224,13 +226,13 @@ rehearsal_assert_manifest() {
   while IFS= read -r path; do
     filename="$(basename "${path}")"
     version="$(rehearsal_migration_version "${filename}")"
-    if [[ "${version}" > "20260709109999" && "${version}" < "20260709178001" ]]; then
+    if [[ "${version}" > "20260709113999" && "${version}" < "20260709178001" ]]; then
       discovered+=("${filename}")
     fi
   done < <(find "${REHEARSAL_MIGRATION_DIR}" -maxdepth 1 -type f -name '*.sql' | sort)
 
   if [[ "${discovered[*]}" != "${BUNDLE_MIGRATIONS[*]}" ]]; then
-    rehearsal_die "files in the reviewed 20260709110000-20260709178000 range do not exactly match the 23-file manifest"
+    rehearsal_die "files in the reviewed 20260709114000-20260709178000 range do not exactly match the 22-file manifest"
     return 1
   fi
 
@@ -242,7 +244,7 @@ rehearsal_assert_manifest() {
     [[ -z "${path}" ]] && continue
     filename="$(basename "${path}")"
     version="$(rehearsal_migration_version "${filename}")"
-    if [[ "${version}" > "20260709109999" && "${version}" < "20260709178001" ]]; then
+    if [[ "${version}" > "20260709113999" && "${version}" < "20260709178001" ]]; then
       rehearsal_die "untracked migration file is present inside the reviewed bundle range: ${path}"
       return 1
     fi
@@ -540,7 +542,7 @@ rehearsal_setup_main() {
     printf 'source_snapshot=%s\n' "${REHEARSAL_OBSERVED_SOURCE_SNAPSHOT:-not-queried}"
     printf 'bundle_count=%s\n' "${#BUNDLE_MIGRATIONS[@]}"
     printf 'bundle_first=%s\n' "$(rehearsal_migration_version "${BUNDLE_MIGRATIONS[0]}")"
-    printf 'bundle_last=%s\n' "$(rehearsal_migration_version "${BUNDLE_MIGRATIONS[22]}")"
+    printf 'bundle_last=%s\n' "$(rehearsal_migration_version "${BUNDLE_MIGRATIONS[21]}")"
   } >"${artifacts_dir}/setup-receipt.txt"
 
   if [[ "${dry_run}" == "true" ]]; then
@@ -548,7 +550,7 @@ rehearsal_setup_main() {
   else
     echo "Clone guard and baseline passed. No migration was applied."
   fi
-  echo "Reviewed bundle: 23 migrations, 20260709110000 through 20260709178000."
+  echo "Reviewed bundle: 22 migrations, 20260709114000 through 20260709178000."
   echo "Non-secret setup receipt: ${artifacts_dir}"
 }
 

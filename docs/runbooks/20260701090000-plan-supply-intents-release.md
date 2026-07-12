@@ -261,12 +261,16 @@ cron once and verify:
 4. the test alert is emitted through a safe test path, never by deliberately
    violating a production constraint.
 
-## Relationship to the 23-migration release
+## Relationship to the 22-migration PR #204 release
 
 This incident migration is additive and does not itself need the later
-server-owned-control-plane maintenance window. Before applying migrations
-`20260709110000` through `20260709178000`, PR #205's write-pause mechanism must
-already be deployed and verified after PR #203. Follow
+server-owned-control-plane maintenance window. PR #205 is the prerequisite
+release after PR #203 and carries both
+`20260709100000_add_write_pause_control.sql` and
+`20260709110000_repair_p0_stored_functions.sql`. Those migrations and the exact
+reviewed PR #205 code must already be deployed and verified before applying PR
+#204's coordinated 22-migration bundle, `20260709114000` through
+`20260709178000`. Follow
 `docs/runbooks/write-pause.md` and use
 `scripts/release/toggle-write-pause.sh` from that release's pinned worktree.
 
@@ -288,7 +292,7 @@ new release head; neither historical `add2241e…` nor pre-rebase `e008116…` i
 valid `RELEASE_SHA`.
 Historical incident SHA `461e3da…` is the correct inventory for this isolated
 `20260701090000` repair, but it is not the old-code compatibility target for the
-later 23-file bundle.
+later 22-file bundle.
 
 ## Failure posture
 
@@ -297,7 +301,7 @@ never edit or rename the recorded migration and never use migration-history
 repair as a schema rollback. Leave the additive schema in place and correct
 forward through a new reviewed migration if needed.
 
-For the later 23-migration bundle, there is no one-command rollback. Once
+For the later 22-migration bundle, there is no one-command rollback. Once
 `20260709120000` and `20260709130000` remove browser write privileges, rolling
 Vercel back to old code alone is unsafe. A production-clone rehearsal, durable
 write pause, database recovery point, and reviewed forward fix are the required

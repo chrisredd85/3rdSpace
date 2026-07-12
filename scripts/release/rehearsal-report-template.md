@@ -35,38 +35,38 @@ Any unchecked item is a stop condition.
 
 ## Baseline and reviewed inventory
 
-The runner must observe all three separately approved prerequisites in the
-clone ledger: `20260701090000`, PR #203's `20260709090000`, and PR #205's
-write-pause prerequisite `20260709100000`. PR #204's candidate SHA must be
-captured live only after it is rebased onto the `main` containing both PR #203
-and PR #205. The exact last committed baseline must be
-`20260709100000`. None of the 23 bundle versions may already be present.
+The runner must observe all four separately approved prerequisites in the
+clone ledger: `20260701090000`, PR #203's `20260709090000`, PR #205's
+write-pause prerequisite `20260709100000`, and the pulled-forward
+`20260709110000`. PR #204's candidate SHA must be captured live only after it
+is rebased onto the `main` containing the prerequisite releases. The exact last
+committed baseline must be `20260709110000`. None of the 22 bundle versions may
+already be present.
 
-The bundle is exactly 23 migrations, applied serially in the committed order:
+The bundle is exactly 22 migrations, applied serially in the committed order:
 
-1. `20260709110000_repair_p0_stored_functions.sql`
-2. `20260709114000_atomic_vendor_base_rate_repair.sql`
-3. `20260709115000_add_atomic_builder_event_materialization.sql`
-4. `20260709120000_lock_down_function_and_view_privileges.sql`
-5. `20260709130000_server_owned_execution_control_plane.sql`
-6. `20260709140000_add_approval_version_retry_contract.sql`
-7. `20260709150000_add_canonical_plan_event_identity.sql`
-8. `20260709160000_complete_concierge_execution.sql`
-9. `20260709162000_add_canonical_quote_booking_execution.sql`
-10. `20260709163000_complete_canonical_event_outcome_command.sql`
-11. `20260709164000_extend_approved_action_handoff_retry.sql`
-12. `20260709165000_cancel_external_checkout_handoff.sql`
-13. `20260709166000_harden_canonical_booking_provenance.sql`
-14. `20260709167000_confirm_external_checkout_handoff.sql`
-15. `20260709168000_confirm_canonical_venue_bookings_batch.sql`
-16. `20260709169000_allow_waiting_quote_reapproval.sql`
-17. `20260709170000_require_canonical_quote_booking_reapproval.sql`
-18. `20260709171000_decline_canonical_bookings.sql`
-19. `20260709174000_claim_canonical_quote_booking_resume.sql`
-20. `20260709175000_harden_prompt8_confirmation_side_effects.sql`
-21. `20260709176000_harden_canonical_vendor_claim_binding.sql`
-22. `20260709177000_harden_terminal_plan_execution_boundary.sql`
-23. `20260709178000_make_canonical_venue_confirmation_effects_replayable.sql`
+1. `20260709114000_atomic_vendor_base_rate_repair.sql`
+2. `20260709115000_add_atomic_builder_event_materialization.sql`
+3. `20260709120000_lock_down_function_and_view_privileges.sql`
+4. `20260709130000_server_owned_execution_control_plane.sql`
+5. `20260709140000_add_approval_version_retry_contract.sql`
+6. `20260709150000_add_canonical_plan_event_identity.sql`
+7. `20260709160000_complete_concierge_execution.sql`
+8. `20260709162000_add_canonical_quote_booking_execution.sql`
+9. `20260709163000_complete_canonical_event_outcome_command.sql`
+10. `20260709164000_extend_approved_action_handoff_retry.sql`
+11. `20260709165000_cancel_external_checkout_handoff.sql`
+12. `20260709166000_harden_canonical_booking_provenance.sql`
+13. `20260709167000_confirm_external_checkout_handoff.sql`
+14. `20260709168000_confirm_canonical_venue_bookings_batch.sql`
+15. `20260709169000_allow_waiting_quote_reapproval.sql`
+16. `20260709170000_require_canonical_quote_booking_reapproval.sql`
+17. `20260709171000_decline_canonical_bookings.sql`
+18. `20260709174000_claim_canonical_quote_booking_resume.sql`
+19. `20260709175000_harden_prompt8_confirmation_side_effects.sql`
+20. `20260709176000_harden_canonical_vendor_claim_binding.sql`
+21. `20260709177000_harden_terminal_plan_execution_boundary.sql`
+22. `20260709178000_make_canonical_venue_confirmation_effects_replayable.sql`
 
 `migration-manifest.tsv` is the machine-generated source of filename and SHA-256
 truth for a specific run. An extra, missing, reordered, dirty, or untracked
@@ -77,7 +77,7 @@ migration is a stop condition.
 | Gate | Result | Evidence |
 | --- | --- | --- |
 | Server-owned execution preflight before migration 1 | `PENDING` | `logs/preflight-before.log` |
-| Server-owned execution preflight after migration 23 | `PENDING` | `logs/preflight-after.log` |
+| Server-owned execution preflight after migration 22 | `PENDING` | `logs/preflight-after.log` |
 
 Both executions use
 `scripts/security/preflight-server-owned-execution.sql`. The second run proves
@@ -94,7 +94,7 @@ migration and again on any failure.
 | ---: | --- | --- | ---: | --- | --- |
 | `PENDING` |  |  |  |  |  |
 
-Total migration apply duration (sum of the 23 measured transaction durations):
+Total migration apply duration (sum of the 22 measured transaction durations):
 `PENDING_MS`. This is the window estimate; preflight and verifier time is
 recorded separately by the run start/finish timestamps.
 

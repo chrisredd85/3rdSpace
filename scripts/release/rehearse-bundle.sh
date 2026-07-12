@@ -10,7 +10,7 @@ rehearsal_bundle_usage() {
 Usage:
   REHEARSAL_DATABASE_URL='postgresql://...' \
   REHEARSAL_CLONE_ID='operator-clone-id' \
-  REHEARSAL_EXPECTED_BASELINE_VERSION='20260709100000' \
+  REHEARSAL_EXPECTED_BASELINE_VERSION='20260709110000' \
   REHEARSAL_OLD_PRODUCTION_SHA='<full-reviewed-base-sha>' \
   REHEARSAL_TARGET_CLASS='clone' \
   PRODUCTION_PROJECT_REF='known-production-ref' \
@@ -470,8 +470,8 @@ rehearsal_bundle_main() {
   rehearsal_require_commands psql node awk sed sort
 
   if [[ -n "${fail_at}" ]]; then
-    if [[ ! "${fail_at}" =~ ^[0-9]+$ ]] || [[ "${fail_at}" -lt 1 ]] || [[ "${fail_at}" -gt 23 ]]; then
-      rehearsal_die "--fail-at must be an integer from 1 through 23"
+    if [[ ! "${fail_at}" =~ ^[0-9]+$ ]] || [[ "${fail_at}" -lt 1 ]] || [[ "${fail_at}" -gt 22 ]]; then
+      rehearsal_die "--fail-at must be an integer from 1 through 22"
       return 1
     fi
   fi
@@ -510,7 +510,7 @@ rehearsal_bundle_main() {
 
   if [[ "${dry_run}" == "true" ]]; then
     echo "DRY RUN: no database connection or mutation will be attempted."
-    echo "Plan: preflight before, exactly 23 serial migrations, preflight after, three verifiers, old-production compatibility probes."
+    echo "Plan: preflight before, exactly 22 serial migrations, preflight after, three verifiers, old-production compatibility probes."
     ordinal=0
     for filename in "${BUNDLE_MIGRATIONS[@]}"; do
       ordinal=$((ordinal + 1))
@@ -685,7 +685,7 @@ rehearsal_bundle_main() {
   if [[ "${observed_versions}" != "${expected_versions}" || "${last_committed}" != "20260709178000" ]]; then
     finished_at="$(rehearsal_now_utc)"
     rehearsal_render_report "${report_file}" "final_bundle_ledger_mismatch" "${run_id}" "${candidate_sha}" "${clone_id}" "${fingerprint}" "${expected_baseline}" "${started_at}" "${finished_at}" "${last_committed}" "${timings_file}" "${breakage_file}" "${deliberate_failure_file}"
-    rehearsal_die "final clone ledger does not contain exactly the reviewed 23-version bundle"
+    rehearsal_die "final clone ledger does not contain exactly the reviewed 22-version bundle"
     return 1
   fi
 

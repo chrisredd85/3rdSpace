@@ -27,15 +27,22 @@ outreach.
 
 ## Mandatory prerequisite releases
 
-Do not create the release worktree until all three prerequisite migrations are
-hosted and the separately deployable prerequisite code releases are complete:
+Do not create the release worktree until all four prerequisite migrations are
+hosted across the three separately deployable prerequisite releases and their
+code releases are complete:
 
 1. `20260701090000_add_plan_supply_intents.sql`, using
    `20260701090000-plan-supply-intents-release.md`;
 2. PR #203's `20260709090000_add_payment_intents_capturing_status.sql`, after
    its stale-capture crash recovery is complete and verified; and
-3. PR #205's `20260709100000_add_write_pause_control.sql` plus the write-pause
-   API, as a separate schema-first prerequisite release after PR #203.
+3. PR #205's `20260709100000_add_write_pause_control.sql`,
+   `20260709110000_repair_p0_stored_functions.sql`, and the write-pause API, as
+   a separate schema-first prerequisite release after PR #203.
+
+The `20260709110000` prerequisite must match SHA-256
+`8ba0e1d6832bb6ada35fdceb7677b878b3d56cea8ed4fd4c14151e2ca0299417`.
+PR #205 must prove a clean reset through that version, zero database-lint
+errors, and the realized six-function regression lane before it is released.
 
 The write-pause table and API cannot first ship inside the same deployment that
 needs them to protect this bundle. They must already be live, durable across
@@ -72,7 +79,7 @@ schema and deployment proof is recorded.
 Stop before mutation if any of these is true:
 
 - any prerequisite version is absent from the hosted ledger;
-- the release dry run lists a migration outside the 23-file reviewed inventory;
+- the release dry run lists a migration outside the 22-file reviewed inventory;
 - production-clone rehearsal is missing or failed;
 - the control-plane preflight reports any contradictory approval, action,
   payment, or settlement row;
@@ -161,14 +168,13 @@ for required_secret in SUPABASE_ACCESS_TOKEN SUPABASE_PROJECT_REF SUPABASE_DB_PA
 done
 ```
 
-## Freeze the exact 23-file migration manifest
+## Freeze the exact 22-file migration manifest
 
 The bundle is not one transaction. An error in a later file can leave earlier
 files committed. Freeze every file checksum before rehearsal and production:
 
 ```bash
 BUNDLE_FILES=(
-  supabase/migrations/20260709110000_repair_p0_stored_functions.sql
   supabase/migrations/20260709114000_atomic_vendor_base_rate_repair.sql
   supabase/migrations/20260709115000_add_atomic_builder_event_materialization.sql
   supabase/migrations/20260709120000_lock_down_function_and_view_privileges.sql
@@ -193,7 +199,7 @@ BUNDLE_FILES=(
   supabase/migrations/20260709178000_make_canonical_venue_confirmation_effects_replayable.sql
 )
 
-test "${#BUNDLE_FILES[@]}" -eq 23
+test "${#BUNDLE_FILES[@]}" -eq 22
 for migration in "${BUNDLE_FILES[@]}"; do
   test -f "$RELEASE_WT/$migration"
 done
@@ -215,7 +221,7 @@ new release SHA, clone rehearsal, tests, review, and dry run.
 ## Rehearse against two disposable production-derived clones
 
 Provision two fresh clones from the same recent production backup after all
-three prerequisite migrations are present. The clone provider/operator must
+four prerequisite migrations are present. The clone provider/operator must
 install the non-production guard documented by
 `scripts/release/rehearse-bundle-setup.sh`; the scripts refuse production and
 never create their own authorization marker.
@@ -237,14 +243,14 @@ export FAILURE_REHEARSAL_DIR="$RELEASE_ROOT/rehearsal-failure"
 export REHEARSAL_RUN_ID="prompts-1-8-$(date -u '+%Y%m%dT%H%M%SZ')"
 ```
 
-Run the complete 23-file rehearsal against the first clone. Its exact baseline
-must be the write-pause prerequisite, `20260709100000`:
+Run the complete 22-file rehearsal against the first clone. Its exact baseline
+must be the final PR #205 prerequisite, `20260709110000`:
 
 ```bash
 cd "$RELEASE_WT"
 REHEARSAL_DATABASE_URL="$REHEARSAL_DATABASE_URL_FULL" \
 REHEARSAL_CLONE_ID="$REHEARSAL_CLONE_ID_FULL" \
-REHEARSAL_EXPECTED_BASELINE_VERSION='20260709100000' \
+REHEARSAL_EXPECTED_BASELINE_VERSION='20260709110000' \
 REHEARSAL_CANDIDATE_SHA="$RELEASE_SHA" \
 REHEARSAL_OLD_PRODUCTION_SHA="$REVIEWED_BASE_SHA" \
 REHEARSAL_TARGET_CLASS='clone' \
@@ -267,24 +273,24 @@ Last committed version: 20260709178000.
 ```
 
 Run the deliberate partial-failure drill against the second fresh clone. This
-example executes migration 13 inside its per-file transaction, injects a
+example executes migration 12 inside its per-file transaction, injects a
 failure before its ledger insert, and must prove that the transaction rolled
-back so migration 12, `20260709165000`, remains the last committed bundle
+back so migration 11, `20260709165000`, remains the last committed bundle
 version:
 
 ```bash
 export FAILURE_REHEARSAL_RC='0'
 REHEARSAL_DATABASE_URL="$REHEARSAL_DATABASE_URL_FAILURE" \
 REHEARSAL_CLONE_ID="$REHEARSAL_CLONE_ID_FAILURE" \
-REHEARSAL_EXPECTED_BASELINE_VERSION='20260709100000' \
+REHEARSAL_EXPECTED_BASELINE_VERSION='20260709110000' \
 REHEARSAL_CANDIDATE_SHA="$RELEASE_SHA" \
 REHEARSAL_OLD_PRODUCTION_SHA="$REVIEWED_BASE_SHA" \
 REHEARSAL_TARGET_CLASS='clone' \
 PRODUCTION_PROJECT_REF="$SUPABASE_PROJECT_REF" \
 scripts/release/rehearse-bundle.sh \
   --confirm-non-production \
-  --run-id "$REHEARSAL_RUN_ID-failure-13" \
-  --fail-at 13 \
+  --run-id "$REHEARSAL_RUN_ID-failure-12" \
+  --fail-at 12 \
   --artifacts-dir "$FAILURE_REHEARSAL_DIR" || FAILURE_REHEARSAL_RC="$?"
 
 test "$FAILURE_REHEARSAL_RC" -eq 42
@@ -293,15 +299,15 @@ test "$FAILURE_REHEARSAL_RC" -eq 42
 Required stderr includes:
 
 ```text
-Deliberate failure verified at migration 13: transaction rolled back; ledger remains at 20260709165000.
+Deliberate failure verified at migration 12: transaction rolled back; ledger remains at 20260709165000.
 ```
 
 Exit code 42 is valid only when the receipt also records the exact injected
-`rehearsal_injected_failure_at_20260709166000` sentinel. If migration 13 fails
+`rehearsal_injected_failure_at_20260709166000` sentinel. If migration 12 fails
 before that sentinel executes, the harness exits 1 and the rehearsal is a stop.
 
 Attach both artifact directories. The complete receipt must show both
-preflights, all 23 timings plus their total window estimate, all three
+preflights, all 22 timings plus their total window estimate, all three
 verifiers, and the old-production route, helper-blob, and compatibility
 evidence. The failure receipt must prove the migration `N` transaction rolled
 back to the `N-1` ledger boundary.
@@ -360,7 +366,7 @@ supabase link \
   --project-ref "$SUPABASE_PROJECT_REF" \
   --password "$SUPABASE_DB_PASSWORD"
 
-export EXPECTED_MISSING='20260709110000,20260709114000,20260709115000,20260709120000,20260709130000,20260709140000,20260709150000,20260709160000,20260709162000,20260709163000,20260709164000,20260709165000,20260709166000,20260709167000,20260709168000,20260709169000,20260709170000,20260709171000,20260709174000,20260709175000,20260709176000,20260709177000,20260709178000'
+export EXPECTED_MISSING='20260709114000,20260709115000,20260709120000,20260709130000,20260709140000,20260709150000,20260709160000,20260709162000,20260709163000,20260709164000,20260709165000,20260709166000,20260709167000,20260709168000,20260709169000,20260709170000,20260709171000,20260709174000,20260709175000,20260709176000,20260709177000,20260709178000'
 
 supabase migration list \
   --linked \
@@ -382,11 +388,11 @@ psql "$SUPABASE_DB_URL" \
 
 Required outcomes:
 
-- the hosted ledger already contains `20260701090000`, `20260709090000`, and
-  `20260709100000`;
-- parity reports exactly the 23 versions in `EXPECTED_MISSING` and no
+- the hosted ledger already contains `20260701090000`, `20260709090000`,
+  `20260709100000`, and `20260709110000`;
+- parity reports exactly the 22 versions in `EXPECTED_MISSING` and no
   remote-only version;
-- the dry run lists the 23 manifest files in the same order and nothing else;
+- the dry run lists the 22 manifest files in the same order and nothing else;
   and
 - the control-plane preflight prints
   `Server-owned execution preflight passed with zero contradictions.`
