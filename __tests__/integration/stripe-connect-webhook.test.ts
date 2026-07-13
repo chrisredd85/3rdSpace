@@ -339,6 +339,29 @@ class MemoryQuery implements PromiseLike<{ data: unknown; error: null }> {
     return this
   }
 
+  in(field: string, values: unknown[]) {
+    this.filters.push((row) => values.includes(row[field]))
+    return this
+  }
+
+  not(field: string, operator: string, value: unknown) {
+    if (operator === 'is' && value === null) {
+      this.filters.push((row) => row[field] !== null && row[field] !== undefined)
+    }
+    return this
+  }
+
+  contains(field: string, expected: Record<string, unknown>) {
+    this.filters.push((row) => {
+      const actual = row[field]
+      if (!actual || typeof actual !== 'object' || Array.isArray(actual)) return false
+      return Object.entries(expected).every(([key, value]) => (
+        (actual as Record<string, unknown>)[key] === value
+      ))
+    })
+    return this
+  }
+
   gt(field: string, value: unknown) {
     this.filters.push((row) => String(row[field] ?? '') > String(value))
     return this

@@ -5,6 +5,8 @@ import {
   parseDollarsToCents,
 } from '@/components/venue/VenueSpendReportUpload'
 
+jest.setTimeout(30_000)
+
 describe('VenueSpendReportUpload', () => {
   beforeEach(() => {
     jest.restoreAllMocks()

@@ -4,14 +4,11 @@ import { z } from 'zod'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getStripeClient } from '@/lib/stripe/connect'
 import {
-  createVendorTransfer,
   ensureVendorCanReceivePayments,
+  finalizeSucceededVendorPayment,
   getAuthenticatedBuilderForBooking,
-  getChargeIdFromPaymentIntent,
   getFriendlyStripeError,
-  getStripeFeeCentsFromPaymentIntent,
   getVendorBookingForPayment,
-  readCents,
   VendorRequiresReconnectError,
   type VendorTransaction,
 } from '@/lib/payments/vendor-payments'
@@ -72,61 +69,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: paymentIntent.status, transaction: { ...tx, status } })
     }
 
-    const chargeId = getChargeIdFromPaymentIntent(paymentIntent)
-    if (!chargeId) {
-      return NextResponse.json({ error: 'Stripe did not return a charge for this payment yet.' }, { status: 409 })
-    }
-
     const connectedAccountId = await ensureVendorCanReceivePayments(admin as any, tx.vendor_id)
-    let transferId = tx.stripe_transfer_id
-    const vendorPayoutCents = readCents(tx.vendor_payout_cents, tx.vendor_payout) ?? 0
-
-    if (!transferId && vendorPayoutCents > 0) {
-      transferId = await createVendorTransfer({
-        transaction: tx,
-        connectedAccountId,
-        chargeId,
-      })
-    }
-
-    const paidAt = new Date().toISOString()
-    const stripeFeeCents = getStripeFeeCentsFromPaymentIntent(paymentIntent)
-    const { data: updatedTransaction, error: updateError } = await (admin as any)
-      .from('vendor_transactions')
-      .update({
-        stripe_charge_id: chargeId,
-        stripe_transfer_id: transferId,
-        stripe_fee_cents: stripeFeeCents,
-        status: 'succeeded',
-        paid_at: paidAt,
-      })
-      .eq('id', tx.id)
-      .select('*')
-      .single()
-
-    if (updateError) throw new Error(updateError.message)
-
-    const bookingUpdates: Record<string, unknown> = {
-      stripe_payment_intent_id: paymentIntent.id,
-      payment_status: tx.payment_type === 'final_payment' ? 'fully_paid' : 'succeeded',
-      paid_at: tx.payment_type === 'final_payment' ? paidAt : booking.payment_status === 'fully_paid' ? paidAt : undefined,
-      updated_at: paidAt,
-    }
-
-    if (tx.payment_type === 'deposit') {
-      bookingUpdates.deposit_paid = true
-    }
-
-    Object.keys(bookingUpdates).forEach((key) => bookingUpdates[key] === undefined && delete bookingUpdates[key])
-
-    await (admin as any)
-      .from('vendor_bookings')
-      .update(bookingUpdates)
-      .eq('id', tx.booking_id)
+    const finalized = await finalizeSucceededVendorPayment({
+      admin: admin as any,
+      stripe,
+      paymentIntentId: paymentIntent.id,
+      connectedAccountId,
+      actor: { id: auth.user?.id ?? null, type: 'organizer' },
+      reason: 'Organizer confirmed a succeeded vendor booking payment.',
+    })
 
     return NextResponse.json({
       status: 'succeeded',
-      transaction: updatedTransaction,
+      transaction: finalized.transaction,
     })
   } catch (error) {
     if (error instanceof VendorRequiresReconnectError) {

@@ -152,7 +152,8 @@ export async function persistAgentActionTransitionEvents(
   db: PlannerExecutionDb,
   input: {
     action: AgentAction
-    actorId: string
+    actorId: string | null
+    actorRole?: 'user' | 'system'
     events: AgentActionTransitionEvent[]
     reason: string
     metadata: Record<string, unknown>
@@ -179,21 +180,31 @@ export async function persistAgentActionTransitionEvents(
       .from('agent_actions')
       .update(updates)
       .eq('id', action.id)
+      .eq('status', action.status)
       .select(AGENT_ACTION_EXECUTION_SELECT_COLUMNS)
-      .single()
+      .maybeSingle()
 
-    if (error || !data) throw new Error(error?.message ?? 'Failed to update agent action state')
+    if (error) throw new Error(error.message ?? 'Failed to update agent action state')
+    if (!data) {
+      const current = await loadAgentActionForTransition(db, action.id)
+      if (!current || !hasReachedAgentActionStatus(current.status, transition.to)) {
+        throw new Error('Agent action state changed during transition; retry from current state')
+      }
+      action = current
+      continue
+    }
 
-    await db.from('agent_action_audit_log').insert({
+    const { error: auditError } = await db.from('agent_action_audit_log').insert({
       action_id: action.id,
       plan_id: action.plan_id,
       from_status: transition.from,
       to_status: transition.to,
       actor_id: input.actorId,
-      actor_role: 'user',
+      actor_role: input.actorRole ?? 'user',
       reason: input.reason,
       metadata: nextMetadata,
     })
+    if (auditError) throw new Error(auditError.message ?? 'Failed to append agent action audit log')
 
     action = data as AgentAction
   }
@@ -228,4 +239,29 @@ function readRecord(value: unknown): Record<string, unknown> | null {
 
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+async function loadAgentActionForTransition(
+  db: PlannerExecutionDb,
+  actionId: string
+): Promise<AgentAction | null> {
+  const { data, error } = await db
+    .from('agent_actions')
+    .select(AGENT_ACTION_EXECUTION_SELECT_COLUMNS)
+    .eq('id', actionId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message ?? 'Failed to reload agent action state')
+  return (data as AgentAction | null) ?? null
+}
+
+function hasReachedAgentActionStatus(
+  currentStatus: AgentAction['status'],
+  targetStatus: AgentAction['status']
+) {
+  if (currentStatus === targetStatus) return true
+  const forwardOrder: AgentAction['status'][] = ['pending', 'proposed', 'approved', 'executing', 'complete']
+  const currentIndex = forwardOrder.indexOf(currentStatus)
+  const targetIndex = forwardOrder.indexOf(targetStatus)
+  return currentIndex >= 0 && targetIndex >= 0 && currentIndex > targetIndex
 }

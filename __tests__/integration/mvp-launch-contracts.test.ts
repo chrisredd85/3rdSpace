@@ -67,7 +67,9 @@ class MemoryDb {
     vendor_opportunity_briefs: [],
     vendor_opportunity_invites: [],
     venues: [],
+    venue_stripe_accounts: [],
     vendor_profiles: [],
+    vendor_stripe_accounts: [],
     builder_profiles: [],
     builder_event_usage: [],
     builder_event_access_consumptions: [],
@@ -482,6 +484,64 @@ describe('MVP launch API contracts', () => {
     }))
     expect(db.rows.agent_actions).toHaveLength(1)
     expect(db.rows.approvals).toHaveLength(1)
+  })
+
+  it('POST planner agent-actions creates a first-class controlled payment with no seeded card', async () => {
+    db.rows.venues.push({
+      id: VENUE_ID_1,
+      owner_id: '550e8400-e29b-41d4-a716-446655440099',
+      venue_name: 'Foundry Rooftop',
+    })
+    db.rows.venue_stripe_accounts.push({
+      owner_id: '550e8400-e29b-41d4-a716-446655440099',
+      stripe_account_id: 'acct_venue_ready',
+      account_status: 'active',
+      charges_enabled: true,
+      payouts_enabled: true,
+      disabled_reason: null,
+    })
+
+    const response = await createAgentAction(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+        actionType: 'payment',
+        targetType: 'venue',
+        targetId: VENUE_ID_1,
+        requestedAmountCents: 50_000,
+        payloadJson: {
+          action_label: 'Authorize Foundry Rooftop deposit',
+          provider: 'Foundry Rooftop',
+          fees_cents: 0,
+          package_details: 'Confirmed venue deposit',
+          refund_terms: 'Refundable until 14 days before the event',
+          cancellation_terms: 'New approval required if terms change',
+          execution_mode: 'controlled_payment',
+          has_controlled_payment_account: true,
+          payment_required: true,
+        },
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+    const json = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(json.agentAction).toEqual(expect.objectContaining({
+      action_type: 'payment',
+      target_type: 'venue',
+      target_id: VENUE_ID_1,
+      amount_cents: 50_000,
+    }))
+    expect(json.approval).toEqual(expect.objectContaining({
+      status: 'pending',
+      price_cents: 50_000,
+      payment_method_id: null,
+    }))
+    expect(json.approvalMessage).toEqual(expect.objectContaining({
+      metadata: expect.objectContaining({
+        action_type: 'payment',
+        execution_mode: 'controlled_payment',
+        approval: expect.objectContaining({ payment_method_id: null }),
+      }),
+    }))
   })
 
   it('PATCH planner approvals prepares outreach drafts without sending outbound jobs', async () => {

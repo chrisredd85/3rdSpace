@@ -6,6 +6,7 @@ import { CheckCircle2, ChevronDown, ExternalLink, Loader2, Sparkles } from 'luci
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { PlannerDepositExecution } from '@/components/payments/PlannerDepositExecution'
 import type { Plan, PlanMessage } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { formatMockCents } from './draftMode'
@@ -445,6 +446,8 @@ export function buildApprovalDisplayMetadata(
 
   return {
     ...approval,
+    action_type: metadata.action_type,
+    execution_mode: metadata.execution_mode,
     kind: metadata.kind,
     venue_ids: metadata.venue_ids,
     vendor_ids: metadata.vendor_ids,
@@ -1142,7 +1145,7 @@ interface PlannerRecommendationActionButtonProps {
   variant: 'hero' | 'glass'
 }
 
-type RecommendationActionKind = 'hold' | 'vendor' | 'external'
+type RecommendationActionKind = 'hold' | 'vendor' | 'payment' | 'external'
 
 /**
  * Converts recommendation CTAs into approval-backed agent actions instead of placeholder links.
@@ -1173,7 +1176,7 @@ export function PlannerRecommendationActionButton({
 
     if (!isAuthenticated || planId.startsWith('mock-plan-')) {
       onAuthRequired({
-        type: 'hold',
+        type: actionKind === 'payment' ? 'authorize' : 'hold',
         payload: {
           agentAction: agentActionPayload,
           externalUrl: actionKind === 'external' && isRealExternalUrl(externalUrl) ? externalUrl : undefined,
@@ -1243,6 +1246,7 @@ export function PlannerRecommendationActionButton({
 export function getCompactRecommendationActionLabel(actionKind: RecommendationActionKind) {
   if (actionKind === 'hold') return 'Request hold'
   if (actionKind === 'vendor') return 'Contact vendor'
+  if (actionKind === 'payment') return 'Review deposit'
   return 'Approve link'
 }
 
@@ -1257,6 +1261,30 @@ export function buildRecommendationAgentActionPayload(
   const priceCents = readRecommendationPriceCents(recommendation)
   const targetId = readRecommendationString(recommendation, 'id')
   const targetType = normalizeRecommendationTargetType(actionKind, recommendation)
+
+  if (actionKind === 'payment') {
+    return {
+      actionType: 'payment',
+      targetType,
+      targetId: isUuid(targetId) ? targetId : null,
+      requestedAmountCents: priceCents,
+      payloadJson: {
+        action_label: `Authorize ${provider} deposit`,
+        provider,
+        price_cents: priceCents,
+        fees_cents: readRecommendationNumber(recommendation, 'fees_cents') ?? 0,
+        package_details:
+          readRecommendationString(recommendation, 'package_summary') ||
+          readRecommendationString(recommendation, 'note') ||
+          'Partner deposit',
+        refund_terms: readRecommendationString(recommendation, 'refund_terms') || null,
+        cancellation_terms: readRecommendationString(recommendation, 'cancellation_terms') || null,
+        execution_mode: 'controlled_payment',
+        has_controlled_payment_account: true,
+        payment_required: true,
+      },
+    }
+  }
 
   if (actionKind === 'hold') {
     const duration = readRecommendationNumber(recommendation, 'hold_duration_hours') || 24
@@ -1324,11 +1352,22 @@ export function buildApprovalAgentActionPayload(
     readApprovalString(approval, 'terms') ||
     'Approval requested from planner conversation'
   const targetType = /vendor/i.test(label) || /vendor/i.test(provider) ? 'vendor' : 'venue'
+  const requestedActionType = readApprovalString(approval, 'action_type')
+  const executionMode = readApprovalString(approval, 'execution_mode')
+  const isControlledPayment =
+    requestedActionType === 'payment' || executionMode === 'controlled_payment'
+  const targetId =
+    readApprovalString(approval, 'target_id') ||
+    readApprovalString(approval, `${targetType}_id`)
 
   return {
-    actionType: targetType === 'vendor' ? 'vendor_contact' : 'hold_request',
+    actionType: isControlledPayment
+      ? 'payment'
+      : targetType === 'vendor'
+        ? 'vendor_contact'
+        : 'hold_request',
     targetType,
-    targetId: null,
+    targetId: isUuid(targetId) ? targetId : null,
     requestedAmountCents: amountCents,
     payloadJson: {
       action_label: label,
@@ -1336,6 +1375,9 @@ export function buildApprovalAgentActionPayload(
       price_cents: amountCents,
       fees_cents: 0,
       package_details: packageDetails,
+      execution_mode: isControlledPayment ? 'controlled_payment' : undefined,
+      has_controlled_payment_account: isControlledPayment || undefined,
+      payment_required: isControlledPayment || undefined,
       source: 'planner_signup_gate',
     },
   }
@@ -1350,6 +1392,16 @@ export function getRecommendationActionKind(
 ): RecommendationActionKind {
   const normalizedLabel = label.toLowerCase()
   const normalizedType = readRecommendationString(recommendation, 'type').toLowerCase()
+  const explicitControlledPayment =
+    readRecommendationString(recommendation, 'execution_mode') === 'controlled_payment' ||
+    readRecommendationBoolean(recommendation, 'has_controlled_payment_account') === true ||
+    readRecommendationBoolean(recommendation, 'payment_required') === true
+
+  if (
+    explicitControlledPayment &&
+    readRecommendationPriceCents(recommendation) > 0 &&
+    (normalizedType.includes('venue') || normalizedType.includes('vendor'))
+  ) return 'payment'
 
   if (normalizedLabel.includes('hold') || normalizedType === 'venue') return 'hold'
   if (normalizedLabel.includes('vendor') || normalizedType === 'vendor') return 'vendor'
@@ -1369,6 +1421,11 @@ export function normalizeRecommendationTargetType(
   if (rawType.includes('ticket')) return 'ticket'
   if (actionKind === 'hold') return 'venue'
   if (actionKind === 'vendor') return 'vendor'
+  if (actionKind === 'payment') {
+    return readRecommendationString(recommendation, 'type').toLowerCase().includes('vendor')
+      ? 'vendor'
+      : 'venue'
+  }
   return 'external'
 }
 
@@ -1378,6 +1435,7 @@ export function normalizeRecommendationTargetType(
 export function getRecommendationSuccessMessage(actionKind: RecommendationActionKind) {
   if (actionKind === 'hold') return '✓ Hold requested — approval card created'
   if (actionKind === 'vendor') return "✓ Added to 3rdPlace team queue — we'll reach out"
+  if (actionKind === 'payment') return '✓ Deposit approval card created'
   return '✓ External booking flagged for approval'
 }
 
@@ -1387,6 +1445,7 @@ export function getRecommendationSuccessMessage(actionKind: RecommendationAction
 export function getRecommendationErrorMessage(actionKind: RecommendationActionKind) {
   if (actionKind === 'hold') return 'Failed to create hold request — try again'
   if (actionKind === 'vendor') return 'Failed to add vendor request — try again'
+  if (actionKind === 'payment') return 'Failed to create deposit approval — try again'
   return 'Failed to flag external booking — try again'
 }
 
@@ -1934,6 +1993,11 @@ export function PlannerApprovalCard({
   const isProductGateRequired = isAuthenticated && billingAccess === 'required'
   const freeEventsRemaining = billingSummary?.freeEventsRemaining ?? billingSummary?.free_events_remaining ?? 0
   const shouldShowFreeEventApprovalNotice = isOutreachApproval && !isProductGateRequired && freeEventsRemaining > 0
+  const isControlledPaymentApproval = isControlledPaymentApprovalMetadata(
+    approval,
+    amountCents,
+    isOutreachApproval
+  )
 
   function requestSignupForAuthorization(nextAuthorizedAmountCents: number) {
     onAuthRequired({
@@ -2254,6 +2318,19 @@ export function PlannerApprovalCard({
                   {authorizedAmountCents != null ? ` · ${formatMockCents(authorizedAmountCents)}` : ''} · pending execution
                 </p>
               )}
+              {isControlledPaymentApproval ? (
+                <PlannerDepositExecution
+                  planId={planId}
+                  approvalId={approvalId}
+                  provider={provider}
+                  amountLabel={formatMockCents(authorizedAmountCents ?? amountCents)}
+                  onCaptured={() => onToast({
+                    title: 'Deposit captured',
+                    description: 'Stripe confirmed the charge. 3rdPlace is finalizing the payment record.',
+                    variant: 'success',
+                  })}
+                />
+              ) : null}
             </div>
           ) : mode === 'confirm_cancel' ? (
             <div className="mt-4 rounded-xl border border-border bg-background/70 p-3">
@@ -2338,6 +2415,25 @@ export function formatPlannerBillingGateMessage(billing: PlannerBillingSummary |
 export function readApprovalString(approval: Record<string, unknown>, key: string) {
   const value = approval[key]
   return typeof value === 'string' ? value : ''
+}
+
+/**
+ * Identifies controlled payments from their action contract. The saved payment
+ * method remains a legacy fallback, but it is no longer required for the card
+ * to render because organizers can bind a card from the payment UI itself.
+ */
+export function isControlledPaymentApprovalMetadata(
+  approval: Record<string, unknown>,
+  amountCents: number,
+  isOutreachApproval = false
+) {
+  if (amountCents <= 0 || isOutreachApproval) return false
+
+  return (
+    readApprovalString(approval, 'action_type') === 'payment' ||
+    readApprovalString(approval, 'execution_mode') === 'controlled_payment' ||
+    Boolean(readApprovalString(approval, 'payment_method_id'))
+  )
 }
 
 /**

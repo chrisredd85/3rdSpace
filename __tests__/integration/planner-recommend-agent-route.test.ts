@@ -7,6 +7,7 @@ import { runAgent } from '@/lib/ai/agents'
 import { runEconomicsAgent } from '@/lib/ai/agents/economicsAgent'
 import { runVenueMatchingAgent } from '@/lib/ai/agents/venueMatchingAgent'
 import { ARCHETYPES } from '@/lib/planner/archetypes'
+import { attachControlledPaymentRecommendationReadiness } from '@/lib/planner/recommendationPaymentReadiness'
 import { searchPlacesForPlan } from '@/lib/server/places-outreach'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
@@ -67,6 +68,9 @@ class MemoryDb {
     planner_plan_updates: [],
     audit_logs: [],
     agent_runs: [],
+    venue_stripe_accounts: [],
+    vendor_stripe_accounts: [],
+    discovery_venues: [],
   }
 
   private sequence = 0
@@ -286,6 +290,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
     )
     db.rows.venues.push({
       id: VENUE_ID,
+      owner_id: 'venue-owner-1',
       venue_name: 'Mission Hall',
       venue_type: 'restaurant',
       description: [
@@ -449,6 +454,14 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
   })
 
   it('runs venue matching and economics agents for a ready plan and persists recommendations', async () => {
+    db.rows.venue_stripe_accounts.push({
+      owner_id: 'venue-owner-1',
+      stripe_account_id: 'acct_ready_venue',
+      account_status: 'active',
+      charges_enabled: true,
+      payouts_enabled: true,
+      disabled_reason: null,
+    })
     const response = await recommendPlan(makeRequest({ venueLimit: 3, phase: 'vendors' }), {
       params: { planId: 'plan-1' },
     })
@@ -459,6 +472,9 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       venue_id: VENUE_ID,
       fit_score: 91,
       venue_name: 'Mission Hall',
+      execution_mode: 'controlled_payment',
+      has_controlled_payment_account: true,
+      payment_required: true,
     })])
     expect(json.economics).toEqual(expect.objectContaining({
       break_even_attendance: 67,
@@ -583,6 +599,33 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       expect.objectContaining({ agent_name: 'workspace', status: 'succeeded' }),
     ]))
     expect(db.rows.agent_runs).toHaveLength(4)
+  })
+
+  it('marks priced Stripe-ready vendor recommendations as controlled payments', async () => {
+    db.rows.vendor_stripe_accounts.push({
+      vendor_id: 'vendor-ready-1',
+      stripe_account_id: 'acct_ready_vendor',
+      account_status: 'active',
+      charges_enabled: true,
+      payouts_enabled: true,
+      disabled_reason: null,
+    })
+
+    const recommendations = await attachControlledPaymentRecommendationReadiness({
+      db,
+      entityType: 'vendor',
+      recommendations: [{ vendor_id: 'vendor-ready-1', base_rate_cents: 50_000 }],
+      getEntityId: (vendor) => vendor.vendor_id,
+      getPriceCents: (vendor) => vendor.base_rate_cents,
+    })
+
+    expect(recommendations).toEqual([{
+      vendor_id: 'vendor-ready-1',
+      base_rate_cents: 50_000,
+      execution_mode: 'controlled_payment',
+      has_controlled_payment_account: true,
+      payment_required: true,
+    }])
   })
 
   it('completes recommendation generation for every supported archetype with unknown ticket price', async () => {

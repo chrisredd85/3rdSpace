@@ -2,12 +2,31 @@ jest.mock('server-only', () => ({}))
 
 const mockStripePaymentIntentsCapture = jest.fn()
 const mockStripePaymentIntentsCreate = jest.fn()
+const mockStripePaymentIntentsRetrieve = jest.fn()
+const mockStripeAccountsRetrieve = jest.fn()
+const mockStripeCustomersRetrievePaymentMethod = jest.fn()
 
 jest.mock('@/lib/stripe/connect', () => ({
+  getStripeAccountStatus: jest.fn((account: { charges_enabled?: boolean; payouts_enabled?: boolean; requirements?: { disabled_reason?: string | null; past_due?: unknown[] }; details_submitted?: boolean }) => {
+    if (account.charges_enabled && account.payouts_enabled) return 'active'
+    if (account.requirements?.disabled_reason) return 'disabled'
+    if ((account.requirements?.past_due?.length ?? 0) > 0) return 'restricted'
+    return account.details_submitted ? 'onboarding_started' : 'pending_onboarding'
+  }),
+  isConnectedStripeAccountBlocked: jest.fn((status: string) => (
+    status === 'restricted' || status === 'disabled'
+  )),
   getStripeClient: jest.fn(() => ({
+    accounts: {
+      retrieve: mockStripeAccountsRetrieve,
+    },
+    customers: {
+      retrievePaymentMethod: mockStripeCustomersRetrievePaymentMethod,
+    },
     paymentIntents: {
       capture: mockStripePaymentIntentsCapture,
       create: mockStripePaymentIntentsCreate,
+      retrieve: mockStripePaymentIntentsRetrieve,
     },
   })),
 }))
@@ -33,6 +52,7 @@ jest.mock('@/lib/server/admin-auth', () => ({
 jest.mock('@sentry/nextjs', () => ({
   captureException: jest.fn(),
   captureMessage: jest.fn(),
+  metrics: { count: jest.fn() },
 }))
 
 jest.mock('next/server', () => ({
@@ -55,6 +75,7 @@ const mockGetWorkerOrAdminContext = getWorkerOrAdminContext as jest.Mock
 
 const USER_ID = '550e8400-e29b-41d4-a716-446655440000'
 const BUILDER_ID = '550e8400-e29b-41d4-a716-446655440010'
+const CUSTOMER_ID = 'cus_vendor_payment_builder'
 const PLAN_ID = '550e8400-e29b-41d4-a716-446655440001'
 const ACTION_ID = '550e8400-e29b-41d4-a716-446655440002'
 const APPROVAL_ID = '550e8400-e29b-41d4-a716-446655440003'
@@ -65,6 +86,37 @@ const AMOUNT_CENTS = 20_000
 const PLATFORM_FEE_CENTS = 1_250
 
 type Row = Record<string, any>
+
+function plannerStripeTruth(
+  status: string,
+  plannerPaymentIntentId = PAYMENT_INTENT_ID,
+  overrides: Row = {}
+) {
+  return {
+    id: STRIPE_PAYMENT_INTENT_ID,
+    status,
+    amount: AMOUNT_CENTS,
+    currency: 'usd',
+    capture_method: 'manual',
+    ...overrides,
+    metadata: {
+      payment_kind: 'planner_deposit',
+      planner_payment_intent_id: plannerPaymentIntentId,
+      plan_id: PLAN_ID,
+      approval_id: APPROVAL_ID,
+      user_id: USER_ID,
+      partner_kind: 'vendor',
+      partner_id: VENDOR_ID,
+      platform_fee_cents: String(PLATFORM_FEE_CENTS),
+      ...(overrides.metadata ?? {}),
+    },
+  }
+}
+
+function latestCreatedPlannerPaymentIntentId() {
+  const latestCreate = mockStripePaymentIntentsCreate.mock.calls.at(-1)?.[0]
+  return latestCreate?.metadata?.planner_payment_intent_id ?? PAYMENT_INTENT_ID
+}
 
 class MemoryDb {
   rows: Record<string, Row[]> = {
@@ -92,13 +144,84 @@ class MemoryDb {
   }
 
   rpc(name: string, params: Record<string, unknown>) {
-    if (name !== 'consume_builder_event_access') {
-      return {
-        maybeSingle: async () => ({
-          data: null,
-          error: { message: `Unknown RPC ${name}` },
-        }),
+    if (name === 'reserve_planner_deposit_capture') {
+      const payment = this.rows.payment_intents.find((row) => (
+        row.id === params.p_payment_intent_id &&
+        row.plan_id === params.p_plan_id &&
+        row.approval_id === params.p_approval_id &&
+        (row.status === 'requested' || row.status === 'authorized')
+      ))
+      const approval = this.rows.approvals.find((row) => row.id === params.p_approval_id)
+      const action = this.rows.agent_actions.find((row) => row.id === approval?.agent_action_id)
+      if (
+        !payment || !approval || !action ||
+        !['approved', 'authorized'].includes(String(approval.status)) ||
+        (approval.expires_at != null && Date.parse(String(approval.expires_at)) <= Date.now()) ||
+        approval.snapshot_hash !== params.p_expected_snapshot_hash ||
+        !['approved', 'executing'].includes(String(action.status)) ||
+        action.target_type !== params.p_expected_partner_kind ||
+        action.target_id !== params.p_expected_partner_id
+      ) {
+        return Promise.resolve({ data: [], error: null })
       }
+      Object.assign(payment, {
+        status: 'capturing',
+        failure_reason: null,
+        capture_attempt_id: params.p_capture_attempt_id,
+        capture_started_at: new Date().toISOString(),
+        capture_effects_started_at: null,
+        capture_effects_completed_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      return Promise.resolve({ data: [{ ...payment }], error: null })
+    }
+    if (name === 'ensure_planner_deposit_payout') {
+      const payment = this.rows.payment_intents.find((row) => row.id === params.p_payment_intent_id)
+      const existing = this.rows.payouts.find((row) => row.payment_intent_id === payment?.id)
+      const amount = Math.max(
+        0,
+        Number(payment?.amount_cents ?? 0) -
+          Number(payment?.platform_fee_cents ?? 0) -
+          Number(payment?.refunded_amount_cents ?? 0)
+      )
+      if (!existing && payment && amount > 0) {
+        this.rows.payouts.push({
+          id: this.nextId(),
+          payment_intent_id: payment.id,
+          partner_kind: payment.partner_kind,
+          partner_id: payment.partner_id,
+          amount_cents: amount,
+          currency: payment.currency,
+          status: 'pending',
+        })
+      }
+      return Promise.resolve({ data: { created: !existing && amount > 0 }, error: null })
+    }
+    if (name === 'unblock_stripe_account_settlements') {
+      for (const payment of this.rows.payment_intents) {
+        if (
+          payment.status === 'blocked_by_account_state' &&
+          payment.account_state_blocked_stripe_account_id === params.p_stripe_account_id
+        ) {
+          payment.status = payment.account_state_blocked_previous_status
+          payment.account_state_blocked_previous_status = null
+          payment.account_state_blocked_stripe_account_id = null
+        }
+      }
+      return Promise.resolve({ data: { payment_intents: 0 }, error: null })
+    }
+    if (name === 'block_inflight_stripe_account_payments') {
+      for (const payment of this.rows.payment_intents) {
+        if (['pending', 'requested', 'authorized'].includes(String(payment.status))) {
+          payment.account_state_blocked_previous_status = payment.status
+          payment.account_state_blocked_stripe_account_id = params.p_stripe_account_id
+          payment.status = 'blocked_by_account_state'
+        }
+      }
+      return Promise.resolve({ data: { payment_intents: 1 }, error: null })
+    }
+    if (name !== 'consume_builder_event_access') {
+      return Promise.resolve({ data: null, error: { message: `Unknown RPC ${name}` } })
     }
 
     return {
@@ -205,6 +328,8 @@ class MemoryQuery {
   private filters: Array<[string, unknown]> = []
   private inFilters: Array<[string, unknown[]]> = []
   private nullFilters: string[] = []
+  private notNullFilters: string[] = []
+  private lessThanFilters: Array<[string, string]> = []
   private operation: 'select' | 'insert' | 'update' | 'upsert' = 'select'
   private payload: unknown
   private limitCount: number | null = null
@@ -248,6 +373,16 @@ class MemoryQuery {
 
   is(field: string, value: unknown) {
     if (value === null) this.nullFilters.push(field)
+    return this
+  }
+
+  not(field: string, operator: string, value: unknown) {
+    if (operator === 'is' && value === null) this.notNullFilters.push(field)
+    return this
+  }
+
+  lt(field: string, value: string) {
+    this.lessThanFilters.push([field, value])
     return this
   }
 
@@ -347,6 +482,8 @@ class MemoryQuery {
     return (
       this.filters.every(([field, value]) => this.resolveField(row, field) === value) &&
       this.inFilters.every(([field, values]) => values.includes(this.resolveField(row, field))) &&
+      this.lessThanFilters.every(([field, value]) => String(this.resolveField(row, field)) < value) &&
+      this.notNullFilters.every((field) => this.resolveField(row, field) != null) &&
       this.nullFilters.every((field) => {
         if (this.table === 'payment_intents' && field === 'payouts.id') {
           return !this.db.rows.payouts.some((payout) => payout.payment_intent_id === row.id)
@@ -364,7 +501,15 @@ class MemoryQuery {
   }
 
   private hasActivePaymentIntent(approvalId: unknown) {
-    const activeStatuses = new Set(['pending', 'requested', 'authorized', 'captured'])
+    const activeStatuses = new Set([
+      'pending',
+      'requested',
+      'authorized',
+      'capturing',
+      'captured',
+      'refunded',
+      'blocked_by_account_state',
+    ])
     return this.db.rows.payment_intents.some((row) => (
       row.approval_id === approvalId &&
       activeStatuses.has(String(row.status))
@@ -465,6 +610,7 @@ function seedDb(input: {
     name: 'Vendor Payout Builder',
     billing_tier: 'free_trial',
     subscription_status: 'trial',
+    stripe_customer_id: CUSTOMER_ID,
     free_events_granted: 2,
     free_events_used: 0,
     paid_event_credits: 0,
@@ -513,7 +659,7 @@ function seedDb(input: {
     provider: 'Moon Gate Catering',
     event_date: '2026-08-01',
     price_cents: amountCents,
-    fees_cents: 0,
+    fees_cents: PLATFORM_FEE_CENTS,
     refund_terms: 'Refundable until 7 days before event',
     cancellation_terms: 'Cancel before final invoice',
     package_details: 'Food vendor deposit',
@@ -574,14 +720,40 @@ describe('vendor payment approval to payout chain', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     delete process.env.STRIPE_SECRET_KEY
-    mockStripePaymentIntentsCreate.mockResolvedValue({
-      id: STRIPE_PAYMENT_INTENT_ID,
-      status: 'requires_capture',
+    mockStripePaymentIntentsCreate.mockImplementation(async (params: Row) => (
+      plannerStripeTruth(
+        'requires_capture',
+        params.metadata.planner_payment_intent_id,
+        { amount: params.amount, currency: params.currency, metadata: params.metadata }
+      )
+    ))
+    mockStripePaymentIntentsCapture.mockImplementation(async () => (
+      plannerStripeTruth('succeeded', latestCreatedPlannerPaymentIntentId())
+    ))
+    mockStripePaymentIntentsRetrieve.mockImplementation(async () => (
+      plannerStripeTruth('requires_capture', latestCreatedPlannerPaymentIntentId())
+    ))
+    mockStripeAccountsRetrieve.mockResolvedValue({
+      id: 'acct_vendor_ready',
+      charges_enabled: true,
+      payouts_enabled: true,
+      details_submitted: true,
+      requirements: {},
     })
-    mockStripePaymentIntentsCapture.mockResolvedValue({
-      id: STRIPE_PAYMENT_INTENT_ID,
-      status: 'succeeded',
-    })
+    mockStripeCustomersRetrievePaymentMethod.mockImplementation(async (
+      customerId: string,
+      paymentMethodId: string
+    ) => ({
+      id: paymentMethodId,
+      type: 'card',
+      customer: customerId,
+      card: {
+        brand: 'visa',
+        last4: '4242',
+        exp_month: 12,
+        exp_year: 2032,
+      },
+    }))
     mockGetWorkerOrAdminContext.mockResolvedValue({
       authorized: true,
       user: { id: 'admin-1', email: 'admin@example.com' },
@@ -611,12 +783,19 @@ describe('vendor payment approval to payout chain', () => {
       stripe_payment_intent_id: STRIPE_PAYMENT_INTENT_ID,
     }))
     expect(db.rows.agent_actions[0].status).toBe('executing')
+    expect(mockStripeCustomersRetrievePaymentMethod).toHaveBeenCalledWith(
+      CUSTOMER_ID,
+      'pm_card_visa'
+    )
     expect(mockStripePaymentIntentsCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         amount: AMOUNT_CENTS,
         capture_method: 'manual',
         confirm: true,
+        customer: CUSTOMER_ID,
         payment_method: 'pm_card_visa',
+        payment_method_types: ['card'],
+        use_stripe_sdk: true,
         metadata: expect.objectContaining({
           payment_kind: 'planner_deposit',
           planner_payment_intent_id: authorizeBody.paymentIntent.id,
@@ -628,7 +807,9 @@ describe('vendor payment approval to payout chain', () => {
           platform_fee_cents: String(PLATFORM_FEE_CENTS),
         }),
       }),
-      { idempotencyKey: `planner_deposit_${APPROVAL_ID}_${AMOUNT_CENTS}` }
+      {
+        idempotencyKey: `planner_deposit_${APPROVAL_ID}_${authorizeBody.paymentIntent.id}_${AMOUNT_CENTS}`,
+      }
     )
 
     const paymentIntentId = authorizeBody.paymentIntent.id
@@ -639,7 +820,15 @@ describe('vendor payment approval to payout chain', () => {
     }))
 
     expect(captureResponse.status).toBe(200)
-    expect(mockStripePaymentIntentsCapture).toHaveBeenCalledWith(STRIPE_PAYMENT_INTENT_ID)
+    expect(mockStripePaymentIntentsCapture).toHaveBeenCalledWith(
+      STRIPE_PAYMENT_INTENT_ID,
+      {},
+      {
+        idempotencyKey: expect.stringMatching(
+          /^planner_deposit_capture_pi_vendor_deposit_test_[0-9a-f-]{36}$/
+        ),
+      }
+    )
     expect(db.rows.payment_intents[0]).toEqual(expect.objectContaining({
       id: paymentIntentId,
       status: 'captured',
@@ -655,6 +844,108 @@ describe('vendor payment approval to payout chain', () => {
         status: 'pending',
       }),
     ])
+  })
+
+  it('returns one 200 and one 409 for concurrent capture requests with one Stripe capture', async () => {
+    const db = seedDb({ approvalStatus: 'authorized', actionStatus: 'executing' })
+    db.rows.payment_intents.push({
+      id: PAYMENT_INTENT_ID,
+      plan_id: PLAN_ID,
+      approval_id: APPROVAL_ID,
+      partner_kind: 'vendor',
+      partner_id: VENDOR_ID,
+      amount_cents: AMOUNT_CENTS,
+      currency: 'usd',
+      status: 'authorized',
+      stripe_payment_intent_id: STRIPE_PAYMENT_INTENT_ID,
+      authorized_at: new Date().toISOString(),
+      captured_at: null,
+      refund_terms: 'Refundable',
+      platform_fee_cents: PLATFORM_FEE_CENTS,
+      failure_reason: null,
+      capture_attempt_id: null,
+      capture_started_at: null,
+      capture_effects_completed_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+
+    const payload = {
+      paymentIntentId: PAYMENT_INTENT_ID,
+      approvalId: APPROVAL_ID,
+      explicitUserConfirmation: true,
+    }
+    const [first, second] = await Promise.all([
+      captureDeposit(request('/api/payments/capture', payload)),
+      captureDeposit(request('/api/payments/capture', payload)),
+    ])
+    const responses = [first, second]
+    const conflict = responses.find((response) => response.status === 409)
+
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409])
+    expect(conflict).toBeDefined()
+    expect(await readJson(conflict!)).toEqual({
+      error: 'Payment capture is already in progress. Refresh and try again.',
+      code: 'payment_capture_in_progress',
+    })
+    expect(mockStripePaymentIntentsCapture).toHaveBeenCalledTimes(1)
+    expect(db.rows.payment_intents[0].status).toBe('captured')
+    expect(db.rows.payouts).toHaveLength(1)
+    expect(db.rows.agent_actions[0].status).toBe('complete')
+  })
+
+  it('retrieves Stripe truth before failing a capture and advances the linked action out of executing', async () => {
+    const db = seedDb({ approvalStatus: 'authorized', actionStatus: 'executing' })
+    db.rows.payment_intents.push({
+      id: PAYMENT_INTENT_ID,
+      plan_id: PLAN_ID,
+      approval_id: APPROVAL_ID,
+      partner_kind: 'vendor',
+      partner_id: VENDOR_ID,
+      amount_cents: AMOUNT_CENTS,
+      currency: 'usd',
+      status: 'authorized',
+      stripe_payment_intent_id: STRIPE_PAYMENT_INTENT_ID,
+      authorized_at: new Date().toISOString(),
+      captured_at: null,
+      refund_terms: 'Refundable',
+      platform_fee_cents: PLATFORM_FEE_CENTS,
+      failure_reason: null,
+      capture_attempt_id: null,
+      capture_started_at: null,
+      capture_effects_completed_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    mockStripePaymentIntentsCapture.mockRejectedValueOnce(new Error('Connection reset'))
+    mockStripePaymentIntentsRetrieve
+      .mockResolvedValueOnce(plannerStripeTruth('requires_capture'))
+      .mockResolvedValueOnce(plannerStripeTruth('canceled', PAYMENT_INTENT_ID, {
+        last_payment_error: { message: 'Authorization expired' },
+      }))
+
+    const response = await captureDeposit(request('/api/payments/capture', {
+      paymentIntentId: PAYMENT_INTENT_ID,
+      approvalId: APPROVAL_ID,
+      explicitUserConfirmation: true,
+    }))
+
+    expect(response.status).toBe(422)
+    expect(await readJson(response)).toEqual({
+      error: 'Authorization expired',
+      code: 'payment_capture_failed',
+    })
+    expect(mockStripePaymentIntentsCapture).toHaveBeenCalledTimes(1)
+    expect(mockStripePaymentIntentsRetrieve).toHaveBeenCalledTimes(2)
+    expect(mockStripePaymentIntentsRetrieve.mock.invocationCallOrder[0]).toBeLessThan(
+      mockStripePaymentIntentsCapture.mock.invocationCallOrder[0]
+    )
+    expect(mockStripePaymentIntentsCapture.mock.invocationCallOrder[0]).toBeLessThan(
+      mockStripePaymentIntentsRetrieve.mock.invocationCallOrder[1]
+    )
+    expect(db.rows.payment_intents[0].status).toBe('failed')
+    expect(db.rows.agent_actions[0].status).toBe('failed')
+    expect(db.rows.payouts).toHaveLength(0)
   })
 
   it('allows only one concurrent approval PATCH to consume access and unlock payment authorization', async () => {
@@ -710,10 +1001,13 @@ describe('vendor payment approval to payout chain', () => {
       amount_cents: AMOUNT_CENTS,
       status: 'authorized',
     }))
-    expect(mockStripePaymentIntentsCreate).toHaveBeenCalledTimes(1)
-    expect(mockStripePaymentIntentsCreate.mock.calls.map((call) => call[1])).toEqual([
-      { idempotencyKey: `planner_deposit_${APPROVAL_ID}_${AMOUNT_CENTS}` },
-    ])
+    expect(mockStripePaymentIntentsCreate.mock.calls.length).toBeGreaterThanOrEqual(1)
+    expect(mockStripePaymentIntentsCreate.mock.calls.length).toBeLessThanOrEqual(2)
+    expect(new Set(mockStripePaymentIntentsCreate.mock.calls.map((call) => call[1].idempotencyKey))).toEqual(
+      new Set([
+        `planner_deposit_${APPROVAL_ID}_${firstBody.paymentIntent.id}_${AMOUNT_CENTS}`,
+      ])
+    )
   })
 
   it('blocks capture when the approval has not been authorized', async () => {
@@ -811,7 +1105,7 @@ describe('vendor payment approval to payout chain', () => {
     ])
   })
 
-  it('marks the reserved payment intent failed and does not transition the action when Stripe authorization fails', async () => {
+  it('keeps an ambiguous Stripe authorization failure retriable without transitioning the action', async () => {
     const db = seedDb({ approvalStatus: 'authorized', actionStatus: 'approved' })
     mockStripePaymentIntentsCreate.mockRejectedValueOnce(new Error('Stripe authorization failed'))
 
@@ -824,9 +1118,9 @@ describe('vendor payment approval to payout chain', () => {
       expect.objectContaining({
         approval_id: APPROVAL_ID,
         amount_cents: AMOUNT_CENTS,
-        status: 'failed',
+        status: 'pending',
         stripe_payment_intent_id: null,
-        failure_reason: 'Stripe authorization failed',
+        failure_reason: null,
       }),
     ])
     expect(db.rows.agent_actions[0].status).toBe('approved')

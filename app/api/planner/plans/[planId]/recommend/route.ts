@@ -51,6 +51,7 @@ import { loadVendorEconomicsCostSummary, type VendorEconomicsCostSummary } from 
 import { hasActiveVenueHold } from '@/lib/planner/venueHold'
 import { byoVendorServiceTypes, readByoVendors, sumByoVendorCostsCents } from '@/lib/planner/byoVendors'
 import { readPlanVendorNeedStatus } from '@/lib/planner/vendorNeedStatus'
+import { attachControlledPaymentRecommendationReadiness } from '@/lib/planner/recommendationPaymentReadiness'
 import { logAgentRun, type AgentRunDb } from '@/lib/server/agent-runs'
 import {
   getBuilderProfileIdForUser,
@@ -172,7 +173,11 @@ type SuggestedVendorRecommendation = {
   location_context?: string | null
   rate_confidence_label?: 'quoted' | 'estimated' | 'rate_tbd'
   rate_inference_confidence?: number | null
+  execution_mode?: 'controlled_payment' | null
+  has_controlled_payment_account?: boolean
+  payment_required?: boolean
 }
+
 
 type OutreachDisplayTarget = {
   kind: 'venue' | 'vendor'
@@ -685,12 +690,29 @@ export async function POST(
       recommendationPlan.id,
       rankedVenueResponses
     )
+    const paymentReadinessDb = createServiceRoleClient() as unknown as PlannerDb
+    const [paymentReadyVenues, paymentReadyVendors] = await Promise.all([
+      attachControlledPaymentRecommendationReadiness({
+        db: paymentReadinessDb,
+        entityType: 'venue',
+        recommendations: rankedVenueResponsesWithContact,
+        getEntityId: (venue) => readString(venue.venue_id),
+        getPriceCents: (venue) => readNumber(venue.price_cents),
+      }),
+      attachControlledPaymentRecommendationReadiness({
+        db: paymentReadinessDb,
+        entityType: 'vendor',
+        recommendations: suggestedVendors,
+        getEntityId: (vendor) => vendor.vendor_id,
+        getPriceCents: (vendor) => vendor.base_rate_cents,
+      }),
+    ])
     return jsonWithDeprecatedKeys({
       resolved_archetype: toResolvedArchetypeSummary(archetype),
-      ranked_venues: rankedVenueResponsesWithContact,
-      recommendations: rankedVenueResponsesWithContact,
+      ranked_venues: paymentReadyVenues,
+      recommendations: paymentReadyVenues,
       venue_match_notice: venueMatch.notice,
-      vendor_recommendations: suggestedVendors,
+      vendor_recommendations: paymentReadyVendors,
       vendor_recommendation_groups: vendorRecommendationGroups,
       vendor_match_notice: vendorMatchNotice,
       capacity_calibration: capacityCalibration,
@@ -966,12 +988,29 @@ async function runCatalogFallback(input: {
     input.plan.id,
     rankedVenueResponses
   )
+  const paymentReadinessDb = createServiceRoleClient() as unknown as PlannerDb
+  const [paymentReadyVenues, paymentReadyVendors] = await Promise.all([
+    attachControlledPaymentRecommendationReadiness({
+      db: paymentReadinessDb,
+      entityType: 'venue',
+      recommendations: rankedVenueResponsesWithContact,
+      getEntityId: (venue) => readString(venue.venue_id),
+      getPriceCents: (venue) => readNumber(venue.price_cents),
+    }),
+    attachControlledPaymentRecommendationReadiness({
+      db: paymentReadinessDb,
+      entityType: 'vendor',
+      recommendations: vendorRecommendations,
+      getEntityId: (vendor) => vendor.vendor_id,
+      getPriceCents: (vendor) => vendor.base_rate_cents,
+    }),
+  ])
   return jsonWithDeprecatedKeys({
     resolved_archetype: toResolvedArchetypeSummary(input.archetype),
-    ranked_venues: rankedVenueResponsesWithContact,
-    recommendations: rankedVenueResponsesWithContact,
+    ranked_venues: paymentReadyVenues,
+    recommendations: paymentReadyVenues,
     venue_match_notice: catalogVenueMatch.notice,
-    vendor_recommendations: vendorRecommendations,
+    vendor_recommendations: paymentReadyVendors,
     vendor_recommendation_groups: vendorRecommendationGroups,
     vendor_match_notice: vendorMatchNotice,
     capacity_calibration: input.capacityCalibration,

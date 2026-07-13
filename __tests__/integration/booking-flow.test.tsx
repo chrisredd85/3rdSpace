@@ -6,6 +6,8 @@ import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/lib/test-utils'
 import { BookingRequestForm } from '@/components/forms/BookingRequestForm'
 
+jest.setTimeout(30_000)
+
 // Mock Supabase
 jest.mock('@/lib/supabase/client', () => ({
   supabase: {

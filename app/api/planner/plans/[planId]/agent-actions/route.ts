@@ -57,6 +57,7 @@ const createAgentActionSchema = z.object({
   actionType: z.enum([
     'hold_request',
     'vendor_contact',
+    'payment',
     'external_checkout',
     'ai_query',
     'export',
@@ -366,6 +367,8 @@ export async function POST(
           state: 'recommendation_action_approval_requested',
           status: 'pending',
           source: 'planner_recommendation_action',
+          action_type: agentAction.action_type,
+          execution_mode: executionMode,
           approval,
           agent_action_id: agentAction.id,
         } as unknown as Json,

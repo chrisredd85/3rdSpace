@@ -38,6 +38,10 @@ describe('settlement run state machine', () => {
       ok: true,
       to: 'settled',
     })
+    expect(transitionSettlementRunStatus('blocked', 'venue_paid')).toEqual({
+      ok: true,
+      to: 'settled',
+    })
     expect(transitionSettlementRunStatus('awaiting_venue_payment', 'venue_disputed')).toEqual({
       ok: true,
       to: 'disputed',
