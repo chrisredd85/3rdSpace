@@ -13,6 +13,7 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { protectRoute, getAuthUser } from '@/lib/supabase/middleware'
 import { ensureRequestIdHeaders } from '@/lib/server/request-id'
 import type { UserType } from '@/lib/types'
+import { readWritePauseStatus, shouldEnforceWritePause } from '@/lib/write-pause'
 
 type EdgeRateLimitEntry = {
   count: number
@@ -52,6 +53,35 @@ function isAdminUser(user: { email?: string | null; app_metadata?: Record<string
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const requestId = ensureRequestIdHeaders(request.headers)
+
+  if (shouldEnforceWritePause(request.method, pathname, {
+    isServerAction: request.headers.has('next-action'),
+    searchParams: request.nextUrl.searchParams,
+  })) {
+    const pause = await readWritePauseStatus()
+    if (pause.available && pause.state !== 'open') {
+      return NextResponse.json(
+        {
+          error: 'Maintenance in progress. Please retry shortly.',
+          code: 'maintenance_in_progress',
+          maintenance: {
+            reason: pause.reason,
+            state: pause.state,
+            enabled_at: pause.enabledAt,
+            revision: pause.revision,
+          },
+        },
+        {
+          status: 503,
+          headers: {
+            'cache-control': 'no-store',
+            'retry-after': '60',
+            'x-request-id': requestId.requestId,
+          },
+        },
+      )
+    }
+  }
 
   const legacyEventPlanId = extractLegacyPlannerEventPlanId(pathname)
   if (legacyEventPlanId) {

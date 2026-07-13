@@ -1,7 +1,9 @@
 name: RLS Checks
 
 on:
-  pull_request:
+  push:
+    branches:
+      - main
     paths:
       - 'supabase/migrations/**'
       - 'scripts/security/**'
@@ -9,6 +11,34 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/rls-checks.yml'
+      - '.github/workflows/test.yml'
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/security/**'
+      - 'scripts/release/toggle-write-pause.sh'
+      - '__tests__/security/**'
+      - '__tests__/schema/write-pause-migration.test.ts'
+      - '__tests__/write-pause-*.test.ts'
+      - '__tests__/server/admin-auth.test.ts'
+      - '__tests__/stripe-webhook-replay-auth.test.ts'
+      - '__tests__/integration/stripe-connect-webhook.test.ts'
+      - '__tests__/integration/stripe-kickback-invoice-webhook.test.ts'
+      - '__tests__/integration/stripe-webhook-*.test.ts'
+      - '__tests__/integration/venue-rental-refund-routes.test.ts'
+      - '__tests__/integration/write-pause-*.test.ts'
+      - 'middleware.ts'
+      - 'lib/server/admin-auth.ts'
+      - 'lib/write-pause.ts'
+      - 'lib/stripe/webhookLedger.ts'
+      - 'lib/stripe/webhookReplayAuth.ts'
+      - 'app/api/internal/write-pause/**'
+      - 'app/api/internal/stripe-webhooks/replay-deferred/**'
+      - 'app/api/webhooks/stripe/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/rls-checks.yml'
+      - '.github/workflows/test.yml'
 
 jobs:
   rls:
@@ -17,6 +47,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -27,8 +59,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Install PostgreSQL client and ripgrep
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client ripgrep
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v2.1.1
@@ -41,10 +73,37 @@ jobs:
       - name: Reset local database
         run: supabase db reset
 
+      - name: Lint realized database functions
+        run: supabase db lint --fail-on error
+
+      - name: Run realized stored-function regression tests
+        run: npm test -- __tests__/security/stored-functions-realized.test.ts --runInBand
+        env:
+          RUN_DB_FUNCTION_TESTS: '1'
+
+      - name: Run scoped tied-house compliance check
+        run: npm run security:tied-house
+
+      - name: Reject new unreviewed tied-house nomenclature
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          base_sha='${{ github.event.pull_request.base.sha }}'
+          delta_args=(--base "$base_sha")
+          if ! git cat-file -e "$base_sha:supabase/migrations/20260709110000_repair_p0_stored_functions.sql"; then
+            delta_args+=(--allowlist scripts/security/tied-house-pr205-allowlist.json)
+          fi
+          npm run security:tied-house:delta -- "${delta_args[@]}"
+
       - name: Run RLS regression tests
         run: npm test -- __tests__/security/rls.test.ts --runInBand
         env:
           RUN_RLS_DB_TESTS: '1'
+
+      - name: Run durable write-pause concurrency and ACL tests
+        run: npm test -- __tests__/security/write-pause-realized.test.ts --runInBand
+        env:
+          RUN_WRITE_PAUSE_DB_TESTS: '1'
 
       - name: Run RLS enabled check
         run: npm run security:rls

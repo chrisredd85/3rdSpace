@@ -74,6 +74,8 @@ const SETTLEMENT_CHARGE_ID = 'settlement-charge-1'
 const mockCaptureMessage = Sentry.captureMessage as jest.Mock
 
 class MemoryDb {
+  private reservationSequence = 0
+
   rows: Record<string, Row[]> = {
     kickback_payments: [
       {
@@ -122,6 +124,10 @@ class MemoryDb {
   }
 
   async rpc(fn: string, args: Record<string, unknown>) {
+    if (fn === 'release_stale_stripe_webhook_reservations') {
+      return { data: [{ released_count: 0 }], error: null }
+    }
+
     if (fn === 'reserve_stripe_webhook_event') {
       const existing = this.rows.stripe_webhook_events.find((event) => (
         event.stripe_event_id === args.p_stripe_event_id &&
@@ -129,6 +135,7 @@ class MemoryDb {
       ))
 
       if (!existing) {
+        const reservationToken = `kickback-reservation-${++this.reservationSequence}`
         this.rows.stripe_webhook_events.push({
           id: `stripe_webhook_events-${this.rows.stripe_webhook_events.length + 1}`,
           stripe_event_id: args.p_stripe_event_id,
@@ -141,13 +148,24 @@ class MemoryDb {
           processed_at: null,
           completed_at: null,
           in_flight: true,
+          reservation_token: reservationToken,
           reserved_at: new Date().toISOString(),
           processing_outcome: 'received',
           duplicate_count: 0,
           received_at: new Date().toISOString(),
         })
         return {
-          data: [{ existed: false, in_flight: true, completed: false, reserved_now: true, processed_at: null }],
+          data: [{
+            existed: false,
+            in_flight: true,
+            completed: false,
+            reserved_now: true,
+            processed_at: null,
+            reservation_token: reservationToken,
+            deferred: false,
+            control_state: 'open',
+            queued_at: null,
+          }],
           error: null,
         }
       }
@@ -173,6 +191,7 @@ class MemoryDb {
         }
       }
 
+      const reservationToken = `kickback-reservation-${++this.reservationSequence}`
       Object.assign(existing, {
         event_type: args.p_event_type,
         payload: args.p_payload,
@@ -181,12 +200,23 @@ class MemoryDb {
         livemode: args.p_livemode,
         processing_outcome: 'received',
         in_flight: true,
+        reservation_token: reservationToken,
         reserved_at: new Date().toISOString(),
         last_error: null,
         error: null,
       })
       return {
-        data: [{ existed: true, in_flight: true, completed: false, reserved_now: true, processed_at: null }],
+        data: [{
+          existed: true,
+          in_flight: true,
+          completed: false,
+          reserved_now: true,
+          processed_at: null,
+          reservation_token: reservationToken,
+          deferred: false,
+          control_state: 'open',
+          queued_at: null,
+        }],
         error: null,
       }
     }
@@ -194,10 +224,14 @@ class MemoryDb {
     if (fn === 'record_stripe_webhook_event_result') {
       const existing = this.rows.stripe_webhook_events.find((event) => (
         event.stripe_event_id === args.p_stripe_event_id &&
-        event.endpoint_path === args.p_endpoint_path
+        event.endpoint_path === args.p_endpoint_path &&
+        event.reservation_token === args.p_reservation_token
       ))
+      if (!existing) {
+        return { data: null, error: { message: 'Stripe webhook reservation ownership was lost' } }
+      }
       const row = {
-        id: existing?.id ?? `stripe_webhook_events-${this.rows.stripe_webhook_events.length + 1}`,
+        id: existing.id,
         stripe_event_id: args.p_stripe_event_id,
         event_type: args.p_event_type,
         payload: args.p_payload,
@@ -208,15 +242,15 @@ class MemoryDb {
         processed_at: args.p_processed ? new Date().toISOString() : null,
         completed_at: args.p_processed ? new Date().toISOString() : null,
         in_flight: false,
+        reservation_token: null,
         processing_outcome: args.p_processing_outcome,
-        duplicate_count: existing?.duplicate_count ?? 0,
+        duplicate_count: existing.duplicate_count ?? 0,
         last_error: args.p_error ?? null,
         error: args.p_error ?? null,
-        received_at: existing?.received_at ?? new Date().toISOString(),
+        received_at: existing.received_at ?? new Date().toISOString(),
       }
 
-      if (existing) Object.assign(existing, row)
-      else this.rows.stripe_webhook_events.push(row)
+      Object.assign(existing, row)
 
       return { data: row, error: null }
     }

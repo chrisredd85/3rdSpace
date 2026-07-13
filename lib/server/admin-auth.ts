@@ -93,3 +93,25 @@ export async function getWorkerOrAdminContext(request: Request): Promise<AdminCo
 
   return getAdminContext()
 }
+
+/**
+ * Release controls are intentionally narrower than ordinary worker routes:
+ * only the production CRON_SECRET or a signed-in admin may change them.
+ */
+export async function getCronOrAdminContext(request: Request): Promise<AdminContext> {
+  const cronSecret = process.env.CRON_SECRET
+  const authHeader = request.headers.get('authorization')
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null
+
+  if (cronSecret && token === cronSecret) {
+    return {
+      authorized: true,
+      user: {
+        id: 'cron-operator',
+        email: 'cron-operator@internal',
+      },
+    }
+  }
+
+  return getAdminContext()
+}

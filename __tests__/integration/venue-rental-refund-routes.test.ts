@@ -81,14 +81,103 @@ const VENUE_ID = '77777777-7777-4777-8777-777777777777'
 const BOOKING_ID = '88888888-8888-4888-8888-888888888888'
 
 class MemoryDb {
+  private reservationSequence = 0
+
   rows: Record<string, Row[]> = {
     plans: [{ id: PLAN_ID, user_id: BUILDER_ID, title: 'NSBE mixer', date_window_start: null }],
     venue_payment_transactions: [makeVenuePaymentTransaction()],
+    stripe_webhook_events: [],
   }
 
   from(table: string) {
     if (!this.rows[table]) this.rows[table] = []
     return new MemoryQuery(this, table)
+  }
+
+  async rpc(fn: string, args: Record<string, unknown>) {
+    if (fn === 'release_stale_stripe_webhook_reservations') {
+      return { data: [{ released_count: 0 }], error: null }
+    }
+
+    if (fn === 'reserve_stripe_webhook_event') {
+      const existing = this.rows.stripe_webhook_events.find((row) =>
+        row.stripe_event_id === args.p_stripe_event_id
+        && row.endpoint_path === args.p_endpoint_path
+      )
+      if (existing?.processed === true) {
+        return {
+          data: [{
+            existed: true,
+            in_flight: false,
+            completed: true,
+            reserved_now: false,
+            processed_at: existing.processed_at,
+            reservation_token: null,
+            deferred: false,
+            control_state: 'open',
+            queued_at: null,
+          }],
+          error: null,
+        }
+      }
+
+      const reservationToken = `venue-refund-reservation-${++this.reservationSequence}`
+      const row = existing ?? {
+        id: `stripe_webhook_events_${this.rows.stripe_webhook_events.length + 1}`,
+        stripe_event_id: args.p_stripe_event_id,
+        endpoint_path: args.p_endpoint_path,
+      }
+      Object.assign(row, {
+        event_type: args.p_event_type,
+        payload: args.p_payload,
+        source: args.p_source,
+        livemode: args.p_livemode,
+        processed: false,
+        in_flight: true,
+        reservation_token: reservationToken,
+        processing_outcome: 'received',
+      })
+      if (!existing) this.rows.stripe_webhook_events.push(row)
+
+      return {
+        data: [{
+          existed: Boolean(existing),
+          in_flight: true,
+          completed: false,
+          reserved_now: true,
+          processed_at: null,
+          reservation_token: reservationToken,
+          deferred: false,
+          control_state: 'open',
+          queued_at: null,
+        }],
+        error: null,
+      }
+    }
+
+    if (fn === 'record_stripe_webhook_event_result') {
+      const row = this.rows.stripe_webhook_events.find((candidate) =>
+        candidate.stripe_event_id === args.p_stripe_event_id
+        && candidate.endpoint_path === args.p_endpoint_path
+        && candidate.reservation_token === args.p_reservation_token
+      )
+      if (!row) {
+        return { data: null, error: { message: 'Stripe webhook reservation ownership was lost' } }
+      }
+
+      Object.assign(row, {
+        processed: args.p_processed,
+        processed_at: args.p_processed ? new Date().toISOString() : null,
+        completed_at: args.p_processed ? new Date().toISOString() : null,
+        in_flight: false,
+        reservation_token: null,
+        processing_outcome: args.p_processing_outcome,
+        last_error: args.p_error,
+      })
+      return { data: row, error: null }
+    }
+
+    return { data: null, error: { message: `Unexpected RPC: ${fn}` } }
   }
 }
 
