@@ -1111,7 +1111,7 @@ describeIfDatabase('realized canonical plan and event identity', () => {
         date_window_start, date_window_end, metadata
       ) values (
         '${ids.deletionPlan}', '${ids.user}', 'Privacy deletion pair',
-        'Holiday reception', 'approved', current_date - 1, current_date - 1,
+        'Holiday reception', 'approved', current_date - 2, current_date - 2,
         '{"event_archetype_lock":{"key":"holiday_reception"}}'::jsonb
       );
     `)
@@ -1119,7 +1119,7 @@ describeIfDatabase('realized canonical plan and event identity', () => {
     const eventId = psql(asService(`
       select event_id from public.materialize_plan_event(
         '${ids.deletionPlan}', '${ids.user}', 'holiday_reception',
-        current_date - 1, '18:00'::time, 180, 'America/Los_Angeles'
+        current_date - 2, '18:00'::time, 180, 'America/Los_Angeles'
       );
     `))
 
