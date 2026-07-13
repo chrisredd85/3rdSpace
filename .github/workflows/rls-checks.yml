@@ -1,6 +1,17 @@
 name: RLS Checks
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/security/**'
+      - '__tests__/security/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/rls-checks.yml'
+      - '.github/workflows/test.yml'
   pull_request:
     paths:
       - 'supabase/migrations/**'
@@ -27,6 +38,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/rls-checks.yml'
+      - '.github/workflows/test.yml'
 
 jobs:
   rls:
@@ -73,6 +85,7 @@ jobs:
         run: npm run security:tied-house
 
       - name: Reject new unreviewed tied-house nomenclature
+        if: github.event_name == 'pull_request'
         shell: bash
         run: |
           base_sha='${{ github.event.pull_request.base.sha }}'

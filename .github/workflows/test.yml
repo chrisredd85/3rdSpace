@@ -1,8 +1,7 @@
 name: Tests
 
 on:
-  pull_request:
-    branches: [main, develop]
+  pull_request: {}
   push:
     branches: [main, develop]
 
@@ -13,6 +12,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          # Rehearsal tests inspect the frozen old-production tree by exact SHA.
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
