@@ -5,8 +5,8 @@
 - 11 branches evaluable now, audited below.
 - 5 branches deferred because they require phase-5 outreach core (PR 3c/3d) on `main` before a fair comparison.
 - Recommended PRs now: `codex/signup-step-validation`, `codex/expand-vendor-catalog-seed`, `chore/qa-stabilization` after PR #21, then one route extraction at a time.
-- Recommended deletes: `codex/money-flow-phase0`, `codex/fix-planner-empty-billing-modal`, `fix/signup-pricing-wiring`, `chore/monitoring-sentry`.
-- Recommended splits/holds: `codex/rev-share-settlement-schema`, `codex/stripe-connect-webhook`.
+- Recommended deletes: `codex/fix-planner-empty-billing-modal`, `fix/signup-pricing-wiring`.
+- Recommended splits/holds: `codex/money-flow-phase0`, `codex/rev-share-settlement-schema`, `codex/stripe-connect-webhook`, `chore/monitoring-sentry`.
 
 Notes on method: several branches are old and raw `git diff origin/main..<branch>` output is noisy because the branch tips predate phase alpha / phase-5 merges. Classifications below rely on the requested log/stat/diff sampling plus direct commit payload inspection, `git cherry -v`, tree comparison where useful, and direct `origin/main:<path>` checks.
 
@@ -15,17 +15,18 @@ Notes on method: several branches are old and raw `git diff origin/main..<branch
 | Class | Count | Branches |
 | --- | ---: | --- |
 | unique | 5 | `codex/expand-vendor-catalog-seed`, `codex/signup-step-validation`, `chore/qa-stabilization`, `refactor/planner-route-extraction`, `refactor/recommend-route-extraction` |
-| superseded | 4 | `codex/money-flow-phase0`, `codex/fix-planner-empty-billing-modal`, `fix/signup-pricing-wiring`, `chore/monitoring-sentry` |
-| partial | 2 | `codex/rev-share-settlement-schema`, `codex/stripe-connect-webhook` |
+| superseded | 2 | `codex/fix-planner-empty-billing-modal`, `fix/signup-pricing-wiring` |
+| partial | 4 | `codex/money-flow-phase0`, `codex/rev-share-settlement-schema`, `codex/stripe-connect-webhook`, `chore/monitoring-sentry` |
 | duplicate | 0 | None found |
 
 ## Recommended Order
 
-1. Delete clearly superseded branches after pending PRs #21/#23 are handled: `codex/money-flow-phase0`, `codex/fix-planner-empty-billing-modal`, `fix/signup-pricing-wiring`, `chore/monitoring-sentry`.
-2. Open a focused PR for `codex/signup-step-validation`. It is small, user-facing, and `origin/main` does not currently have equivalent step validation or the test file.
-3. Open `chore/qa-stabilization` after PR #21 if E2E remains noisy. This is Playwright-only; it does not fix the recurring Jest `venue-payouts-rental-ui` timeout.
-4. Consider `codex/expand-vendor-catalog-seed` as a product/data PR. It is unique and the added vendors are `is_published: true` and `is_admin_seeded: true`, but it should be reviewed against issue #17 publish-readiness semantics.
-5. Hold the large route extractions until smaller cleanup PRs are merged. They are useful, but both touch high-risk planner surfaces and their handoffs say verification was not run.
+1. Delete only the patch-equivalent superseded branches: `codex/fix-planner-empty-billing-modal`, `fix/signup-pricing-wiring`.
+2. Hold `codex/money-flow-phase0` and `chore/monitoring-sentry`. Follow-up cherry/blob diagnostics found content divergence from current `main`; both need file-by-file evaluation before delete or PR. They are local-only and low priority.
+3. Open a focused PR for `codex/signup-step-validation`. It is small, user-facing, and `origin/main` does not currently have equivalent step validation or the test file.
+4. Open `chore/qa-stabilization` after PR #21 if E2E remains noisy. This is Playwright-only; it does not fix the recurring Jest `venue-payouts-rental-ui` timeout.
+5. Consider `codex/expand-vendor-catalog-seed` as a product/data PR. It is unique and the added vendors are `is_published: true`, `is_admin_seeded: true`, and `is_claimed: false`, but it should be reviewed against issue #17 publish-readiness semantics.
+6. Hold the large route extractions until smaller cleanup PRs are merged. They are useful, but both touch high-risk planner surfaces and their handoffs say verification was not run.
 
 ## Security / Correctness Flags
 
@@ -36,12 +37,12 @@ Notes on method: several branches are old and raw `git diff origin/main..<branch
 
 ### `codex/money-flow-phase0`
 
-- Class: superseded
+- Class: partial / content-divergent
 - Commits ahead of `origin/main`: 23
 - Files touched: broad Phase 0 / Phase 1 money flow set; the branch tree matches PR #5 merge commit `dde7808`.
-- Comparison: `git diff dde7808..codex/money-flow-phase0` is empty. The branch contains the unsquashed/source commits for PR #5 (`Phase 0 + Phase 1 - cents normalization, free tier gate, rev share settlement`), while `main` has the merged PR content.
-- Recommendation: delete local branch/worktree if no longer needed for archaeology.
-- Notes: `git cherry` marks the individual commits as different SHAs because PR #5 merged/squashed differently, but tree equality against `dde7808` is decisive.
+- Comparison: `git diff dde7808..codex/money-flow-phase0` is empty, but follow-up diagnostics against current `origin/main` found real content divergence: 118 added/modified paths from the branch merge base, with 22 files whose branch blobs differ from current `main`.
+- Recommendation: hold. Do not delete or PR wholesale; this branch needs file-by-file evaluation to determine whether the differing files are older versions of PR #5 work or still-useful unmerged pieces. It is local-only and low priority.
+- Notes: `git cherry` marks the individual commits as different SHAs because PR #5 merged/squashed differently. That is not enough to prove safety now because current-main blob comparison still found divergent files including `app/api/webhooks/stripe/route.ts`, `lib/ai/agents/economicsAgent.ts`, `lib/email.ts`, and `package.json`.
 
 ### `codex/rev-share-settlement-schema`
 
@@ -126,12 +127,12 @@ Notes on method: several branches are old and raw `git diff origin/main..<branch
 
 ### `chore/monitoring-sentry`
 
-- Class: superseded
+- Class: partial / content-divergent
 - Commits ahead of `origin/main`: 1
 - Files touched: `.env.example`, `app/api/health/route.ts`, `app/global-error.tsx`, `instrumentation.ts`, `next.config.js`, `package.json`, `package-lock.json`, Sentry config files, `__tests__/integration/health-route.test.ts`, `__tests__/integration/mvp-launch-contracts.test.ts`, `qa-artifacts/monitoring-sentry-handoff.md`.
-- Comparison: PR #20 already merged the Sentry runtime/init files, global error boundary, `next.config.js` Sentry wrapping, dependency changes, and narrowed `/api/health`. The branch's health route/test still expect timestamp/version/dependency checks, which contradicts the PR #20 decision to avoid version/commit/env recon surface.
-- Recommendation: delete. If health tests are desired, write a fresh tiny test against `{"status":"ok"}` rather than copying this branch.
-- Notes: direct `origin/main` check shows the intended small health endpoint is already present.
+- Comparison: PR #20 already merged the Sentry runtime/init files, global error boundary, `next.config.js` Sentry wrapping, dependency changes, and narrowed `/api/health`. Follow-up diagnostics still found content divergence: 13 added/modified paths from the branch merge base, with 8 files whose branch blobs differ from current `main`.
+- Recommendation: hold. Do not delete without a file-by-file review. Some divergent content is intentionally rejected PR #20 design, especially the richer `/api/health` payload and tests; other differences such as `.env.example` variants may still be worth checking separately. It is local-only and low priority.
+- Notes: direct `origin/main` check shows the intended small health endpoint is already present. If health tests are desired, write a fresh tiny test against `{"status":"ok"}` rather than copying this branch's richer health contract.
 
 ## Deferred Branches
 
@@ -147,4 +148,5 @@ These were intentionally not audited in this pass because phase-5 outreach core 
 
 - `codex/stripe-connect-webhook`: not fully superseded. Main does handle connected account updates, but the branch has separate endpoint/secret handling plus capability/payout persistence.
 - `codex/rev-share-settlement-schema`: schema is dead, but the extraction fixtures are unique.
-- `chore/monitoring-sentry`: mostly superseded, but its leftover health tests now encode behavior we explicitly rejected in PR #20.
+- `codex/money-flow-phase0`: not cleanly superseded by current `main`; diagnostics found divergent money-flow, Stripe webhook, economics, email, and package files despite PR #5 tree equality.
+- `chore/monitoring-sentry`: mostly superseded, but follow-up diagnostics found divergent files. Its leftover health tests encode behavior explicitly rejected in PR #20.
