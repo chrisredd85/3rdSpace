@@ -5,58 +5,284 @@ on:
     - cron: '0 3 * * *'
   workflow_dispatch:
 
+permissions: {}
+
+concurrency:
+  group: intake-phrase-llm-eval-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   eval-intake:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+
+    outputs:
+      configuration_outcome: ${{ steps.configuration.outcome }}
+      checkout_outcome: ${{ steps.checkout.outcome }}
+      setup_outcome: ${{ steps.setup.outcome }}
+      install_outcome: ${{ steps.install.outcome }}
+      history_outcome: ${{ steps.history.outcome }}
+      eval_outcome: ${{ steps.eval.outcome }}
+      eval_result: ${{ steps.eval.outputs.result }}
+      match_rate: ${{ steps.eval.outputs.match_rate }}
+      threshold: ${{ steps.eval.outputs.threshold }}
+      matched: ${{ steps.eval.outputs.matched }}
+      total: ${{ steps.eval.outputs.total }}
+      history_artifact_outcome: ${{ steps.history-artifact.outcome }}
+      history_artifact_url: ${{ steps.history-artifact.outputs.artifact-url }}
+      diagnostics_artifact_outcome: ${{ steps.diagnostics-artifact.outcome }}
+      diagnostics_artifact_url: ${{ steps.diagnostics-artifact.outputs.artifact-url }}
 
     steps:
+      - name: Validate eval configuration
+        id: configuration
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_EVAL }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+            echo "::error title=Missing OPENAI_API_KEY_EVAL::Configure the dedicated GitHub Actions secret before running the paid intake eval."
+            exit 1
+          fi
+
       - name: Checkout code
+        id: checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
+        id: setup
         uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
+        id: install
         run: npm ci
+
+      - name: Restore prior intake eval history
+        id: history
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact_name='intake-phrase-eval-history'
+          artifact_response="$(mktemp)"
+          artifact_archive="$(mktemp)"
+          trap 'rm -f "$artifact_response" "$artifact_archive"' EXIT
+
+          mkdir -p evals/intake/history
+          gh api \
+            --method GET \
+            --paginate \
+            --slurp \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${artifact_name}&per_page=100" \
+            > "$artifact_response"
+
+          previous_artifact_id="$(
+            jq -r \
+              --arg branch "$GITHUB_REF_NAME" \
+              --arg name "$artifact_name" \
+              '[map(.artifacts) | add | .[] | select(.expired == false and .name == $name and .workflow_run.head_branch == $branch)] | sort_by(.created_at) | reverse | .[0].id // empty' \
+              "$artifact_response"
+          )"
+
+          if [[ -z "$previous_artifact_id" ]]; then
+            echo "No prior intake eval history artifact exists for ${GITHUB_REF_NAME}; starting a new history window."
+            exit 0
+          fi
+
+          gh api \
+            --method GET \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${previous_artifact_id}/zip" \
+            > "$artifact_archive"
+          unzip -qq "$artifact_archive" -d evals/intake/history
 
       - name: Run intake phrase eval
         id: eval
-        continue-on-error: true
-        run: npm run eval:intake:ci
+        shell: bash
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_EVAL }}
+        run: |
+          set -Euo pipefail
+
+          history_dir='evals/intake/history'
+          diagnostics_dir="${RUNNER_TEMP}/intake-phrase-eval"
+          before_reports="${RUNNER_TEMP}/intake-history-before.txt"
+          after_reports="${RUNNER_TEMP}/intake-history-after.txt"
+
+          mkdir -p "$history_dir" "$diagnostics_dir"
+          find "$history_dir" -maxdepth 1 -type f -name '*.json' -printf '%f\n' \
+            | sort > "$before_reports"
+
+          set +e
+          npm run eval:intake:ci 2>&1 | tee "$diagnostics_dir/eval.log"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+
+          eval_exit="${pipeline_status[0]}"
+          tee_exit="${pipeline_status[1]}"
+          if (( tee_exit != 0 && eval_exit == 0 )); then
+            eval_exit="$tee_exit"
+          fi
+
+          find "$history_dir" -maxdepth 1 -type f -name '*.json' -printf '%f\n' \
+            | sort > "$after_reports"
+          report_name="$(comm -13 "$before_reports" "$after_reports" | tail -n 1)"
+
+          result='execution_error'
+          match_rate=''
+          threshold=''
+          matched=''
+          total=''
+
+          if [[ -n "$report_name" ]]; then
+            cp "$history_dir/$report_name" "$diagnostics_dir/report.json"
+            match_rate="$(jq -er '.summary.match_rate' "$diagnostics_dir/report.json")"
+            threshold="$(jq -er '.summary.threshold' "$diagnostics_dir/report.json")"
+            matched="$(jq -er '.summary.matched' "$diagnostics_dir/report.json")"
+            total="$(jq -er '.summary.total' "$diagnostics_dir/report.json")"
+
+            if (( eval_exit == 0 )); then
+              result='passed'
+            else
+              result='threshold_failure'
+            fi
+          elif (( eval_exit == 0 )); then
+            result='report_missing'
+            eval_exit=1
+          fi
+
+          jq -n \
+            --arg result "$result" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg sha "$GITHUB_SHA" \
+            --argjson exit_code "$eval_exit" \
+            '{
+              result: $result,
+              run_id: $run_id,
+              run_attempt: $run_attempt,
+              sha: $sha,
+              exit_code: $exit_code
+            }' > "$diagnostics_dir/run-metadata.json"
+
+          {
+            echo "result=$result"
+            echo "match_rate=$match_rate"
+            echo "threshold=$threshold"
+            echo "matched=$matched"
+            echo "total=$total"
+          } >> "$GITHUB_OUTPUT"
+
+          exit "$eval_exit"
 
       - name: Upload intake eval history
-        if: always()
+        id: history-artifact
+        if: >-
+          ${{ !cancelled()
+              && (steps.eval.outputs.result == 'passed'
+                  || steps.eval.outputs.result == 'threshold_failure') }}
         uses: actions/upload-artifact@v7
         with:
           name: intake-phrase-eval-history
           path: evals/intake/history/*.json
-          if-no-files-found: warn
+          if-no-files-found: error
+          overwrite: true
           retention-days: 30
 
-      - name: Open drift issue
-        if: steps.eval.outcome == 'failure'
-        uses: actions/github-script@v8
+      - name: Upload intake eval diagnostics
+        id: diagnostics-artifact
+        if: ${{ !cancelled() && steps.eval.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: intake-phrase-eval-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/intake-phrase-eval/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Fail when history restoration is broken
+        if: ${{ always() && steps.history.outcome == 'failure' }}
+        run: |
+          echo "The current eval ran, but its rolling history could not be restored."
+          exit 1
+
+  reconcile-intake-issue:
+    name: Reconcile intake eval issue
+    needs: eval-intake
+    if: ${{ always() && !cancelled() && github.ref_name == github.event.repository.default_branch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout issue reconciler
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Create, update, or close monitor issue
+        uses: actions/github-script@v9
+        env:
+          EVAL_JOB_RESULT: ${{ needs.eval-intake.result }}
+          CONFIGURATION_OUTCOME: ${{ needs.eval-intake.outputs.configuration_outcome }}
+          CHECKOUT_OUTCOME: ${{ needs.eval-intake.outputs.checkout_outcome }}
+          SETUP_OUTCOME: ${{ needs.eval-intake.outputs.setup_outcome }}
+          INSTALL_OUTCOME: ${{ needs.eval-intake.outputs.install_outcome }}
+          HISTORY_OUTCOME: ${{ needs.eval-intake.outputs.history_outcome }}
+          EVAL_OUTCOME: ${{ needs.eval-intake.outputs.eval_outcome }}
+          EVAL_RESULT: ${{ needs.eval-intake.outputs.eval_result }}
+          MATCH_RATE: ${{ needs.eval-intake.outputs.match_rate }}
+          THRESHOLD: ${{ needs.eval-intake.outputs.threshold }}
+          MATCHED: ${{ needs.eval-intake.outputs.matched }}
+          TOTAL: ${{ needs.eval-intake.outputs.total }}
+          HISTORY_ARTIFACT_OUTCOME: ${{ needs.eval-intake.outputs.history_artifact_outcome }}
+          HISTORY_ARTIFACT_URL: ${{ needs.eval-intake.outputs.history_artifact_url }}
+          DIAGNOSTICS_ARTIFACT_OUTCOME: ${{ needs.eval-intake.outputs.diagnostics_artifact_outcome }}
+          DIAGNOSTICS_ARTIFACT_URL: ${{ needs.eval-intake.outputs.diagnostics_artifact_url }}
         with:
           script: |
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: 'Intake phrase eval drift detected',
-              body: [
-                'The nightly intake phrase eval failed or dropped below threshold.',
-                '',
-                `Run: ${runUrl}`,
-                '',
-                'Review the uploaded intake eval artifact for phrase-level failures before changing planner prompts or archetype aliases.',
-              ].join('\n'),
+            const { reconcileIntakeEvalIssue } = require(
+              `${process.env.GITHUB_WORKSPACE}/.github/scripts/reconcile-intake-eval-issue.cjs`
+            );
+            await reconcileIntakeEvalIssue({
+              github,
+              context,
+              core,
+              jobResult: process.env.EVAL_JOB_RESULT,
+              evalResult: process.env.EVAL_RESULT,
+              metrics: {
+                matchRate: process.env.MATCH_RATE,
+                threshold: process.env.THRESHOLD,
+                matched: process.env.MATCHED,
+                total: process.env.TOTAL,
+              },
+              artifactUrls: {
+                history: process.env.HISTORY_ARTIFACT_URL,
+                diagnostics: process.env.DIAGNOSTICS_ARTIFACT_URL,
+              },
+              outcomes: {
+                configuration: process.env.CONFIGURATION_OUTCOME,
+                checkout: process.env.CHECKOUT_OUTCOME,
+                setup: process.env.SETUP_OUTCOME,
+                install: process.env.INSTALL_OUTCOME,
+                history: process.env.HISTORY_OUTCOME,
+                eval: process.env.EVAL_OUTCOME,
+                historyArtifact: process.env.HISTORY_ARTIFACT_OUTCOME,
+                diagnosticsArtifact: process.env.DIAGNOSTICS_ARTIFACT_OUTCOME,
+              },
             });
-
-      - name: Fail workflow on eval failure
-        if: steps.eval.outcome == 'failure'
-        run: exit 1
