@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { PILOT_PHRASES } from '@/test/fixtures/pilot-phrases'
 import { runIntakeAgent } from '@/lib/ai/agents/intakeAgent'
@@ -14,6 +14,7 @@ const GPT_4O_INPUT_CENTS_PER_MILLION = 500
 const GPT_4O_OUTPUT_CENTS_PER_MILLION = 1500
 const DEFAULT_MATCH_RATE_THRESHOLD = 0.9
 const DEFAULT_HISTORY_DIR = 'evals/intake/history'
+const HISTORY_RETENTION_DAYS = 30
 
 export type IntakePhraseEvalResult = {
   phrase: string
@@ -123,6 +124,7 @@ export async function runIntakePhraseEval(options: Partial<CliOptions> = {}): Pr
 
   if (options.writeHistory ?? true) {
     await writeHistoryReport(report, historyDir)
+    await pruneHistoryReports(historyDir, Date.parse(report.generated_at))
   }
 
   return report
@@ -171,14 +173,19 @@ function percentile(sortedValues: number[], ratio: number) {
   return sortedValues[index]
 }
 
-async function readPreviousSevenDayMatchRate(historyDir: string) {
+export async function readPreviousSevenDayMatchRate(historyDir: string, now = Date.now()) {
+  let files: string[]
   try {
-    const files = await readdir(historyDir)
-    const now = Date.now()
-    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
-    const rates: number[] = []
+    files = await readdir(historyDir)
+  } catch {
+    return null
+  }
 
-    for (const file of files.filter((name) => name.endsWith('.json'))) {
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
+  const rates: number[] = []
+
+  for (const file of files.filter((name) => name.endsWith('.json'))) {
+    try {
       const content = await readFile(path.join(historyDir, file), 'utf8')
       const parsed = JSON.parse(content) as Partial<IntakePhraseEvalReport>
       const generatedAt = parsed.generated_at ? Date.parse(parsed.generated_at) : NaN
@@ -186,13 +193,14 @@ async function readPreviousSevenDayMatchRate(historyDir: string) {
       if (!Number.isFinite(generatedAt) || typeof rate !== 'number') continue
       if (now - generatedAt <= 0 || now - generatedAt > sevenDaysMs) continue
       rates.push(rate)
+    } catch {
+      // A partial or unrelated file must not erase otherwise valid history.
+      continue
     }
-
-    if (rates.length === 0) return null
-    return Number((rates.reduce((sum, rate) => sum + rate, 0) / rates.length).toFixed(4))
-  } catch {
-    return null
   }
+
+  if (rates.length === 0) return null
+  return Number((rates.reduce((sum, rate) => sum + rate, 0) / rates.length).toFixed(4))
 }
 
 async function writeHistoryReport(report: IntakePhraseEvalReport, historyDir: string) {
@@ -203,6 +211,31 @@ async function writeHistoryReport(report: IntakePhraseEvalReport, historyDir: st
     `${JSON.stringify(report, null, 2)}\n`,
     'utf8'
   )
+}
+
+export async function pruneHistoryReports(historyDir: string, now = Date.now()) {
+  let files: string[]
+  try {
+    files = await readdir(historyDir)
+  } catch {
+    return
+  }
+
+  const retentionMs = HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000
+  for (const file of files.filter((name) => name.endsWith('.json'))) {
+    const reportPath = path.join(historyDir, file)
+    try {
+      const content = await readFile(reportPath, 'utf8')
+      const parsed = JSON.parse(content) as Partial<IntakePhraseEvalReport>
+      const generatedAt = parsed.generated_at ? Date.parse(parsed.generated_at) : NaN
+      if (!Number.isFinite(generatedAt)) continue
+      if (now - generatedAt <= retentionMs) continue
+      await unlink(reportPath)
+    } catch {
+      // Preserve malformed files for diagnosis instead of deleting unknown data.
+      continue
+    }
+  }
 }
 
 function parseCliOptions(argv: string[]): CliOptions {
