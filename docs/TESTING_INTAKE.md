@@ -66,7 +66,15 @@ Run locally:
 OPENAI_API_KEY=... npm run eval:intake
 ```
 
-CI uses the separate `OPENAI_API_KEY_EVAL` GitHub secret. Do not use or commit a production key.
+CI uses the separate `OPENAI_API_KEY_EVAL` GitHub Actions secret. The workflow deliberately does not fall back to the application's production key.
+
+Required CI configuration:
+
+1. Create a dedicated OpenAI project for CI evals and a project-scoped service account or restricted API key. Keep access limited to the model endpoint used by this eval, and set project usage limits/budget alerts. See OpenAI's [project and service-account guidance](https://help.openai.com/en/articles/9186755-managing-projects-in-the-api-platform) and [API-key permission guidance](https://help.openai.com/en/articles/8867743-assign-api-key-permissions).
+2. Add that key as the repository Actions secret `OPENAI_API_KEY_EVAL` under **Settings → Secrets and variables → Actions**.
+3. Never commit the value, echo it in a workflow, or reuse the production application key for this monitor.
+
+The workflow validates this configuration before checkout or dependency installation. A missing key is reported as a configuration failure, and no phrase score is claimed.
 
 The eval writes JSON history files under `evals/intake/history/` when run normally. Each file contains:
 
@@ -80,9 +88,16 @@ The eval writes JSON history files under `evals/intake/history/` when run normal
 Nightly behavior:
 
 - Runs at 3:00 UTC and on manual workflow dispatch
+- Restores prior default-branch JSON artifacts so the seven-day comparison uses real history
 - Fails if match rate drops below 90%
-- Uploads the JSON report as a GitHub Actions artifact
-- Opens a GitHub issue when the eval fails
+- Uploads the cumulative, 30-day-pruned JSON history as a GitHub Actions artifact
+- Uploads a separate per-run diagnostics artifact containing the eval log, run metadata, and the current report when one was produced
+- Maintains one default-branch monitor issue across configuration, workflow, eval, and artifact failures
+- Reopens that issue on recurrence and closes it only after configuration, history restoration, evaluation, and artifact upload all succeed
+
+The workflow snapshots the history directory before each eval and records an explicit current-run result (`passed`, `threshold_failure`, `execution_error`, or `report_missing`). Restored reports can therefore never make an API/runtime crash look like a fresh below-threshold result.
+
+The paid eval job has only `actions: read` and `contents: read`. A separate reconciliation job receives `issues: write`, so dependency installation and model execution never run with issue-write permission. Every REST call pins GitHub API version `2026-03-10`.
 
 Expected cost is low, but nonzero. The exact cost depends on model output length; the script records an estimate per run.
 
@@ -142,9 +157,14 @@ Resolver failure:
 
 LLM eval failure:
 
-- Means the real intake agent returned the wrong archetype or failed to preserve the resolver context.
-- Check the phrase-level JSON artifact first.
-- If several unrelated phrases fail at once, inspect the intake prompt or model changes.
+- **Configuration** means `OPENAI_API_KEY_EVAL` is missing. No model call or match rate exists.
+- **Workflow setup** means checkout, Node setup, or dependency installation failed. It is not model drift.
+- **History** means the current eval ran without a trustworthy rolling comparison because the prior artifact could not be restored.
+- **Threshold** means the real intake agent completed and fell below 90%. Check the phrase-level JSON artifact first.
+- **Evaluation runtime** means the model/API/schema path failed before producing a usable report. Check logs before changing prompts.
+- **Artifact** means the eval completed but the report could not be persisted for operators and the next rolling comparison.
+
+If several unrelated phrases fail in a completed report, inspect the intake prompt or model changes. Do not interpret missing credentials, setup failures, or missing reports as prompt drift.
 
 E2E failure:
 
