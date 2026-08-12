@@ -149,7 +149,7 @@ POST|/api/planner/plans/[planId]/revisions|app/api/planner/plans/[planId]/revisi
 POST|/api/planner/plans/[planId]/payments/authorize|app/api/planner/plans/[planId]/payments/authorize/route.ts|lib/planner/depositPayments.ts|service_role|table|public.payment_intents|INSERT|Old payment authorization already writes with the service role.
 POST|/api/planner/plans/[planId]/payments/authorize|app/api/planner/plans/[planId]/payments/authorize/route.ts|lib/planner/execution/executeApprovedAction.ts|service_role|table|public.agent_actions|UPDATE|Old payment authorization action transition remains server owned.
 POST|/api/payments/capture|app/api/payments/capture/route.ts|lib/planner/depositPayments.ts|service_role|table|public.payment_intents|UPDATE|Old capture writes the payment ledger with the service role.
-POST|/api/payments/capture|app/api/payments/capture/route.ts|lib/planner/depositPayments.ts|service_role|table|public.payouts|INSERT|Old capture writes the payout ledger with the service role.
+POST|/api/payments/capture|app/api/payments/capture/route.ts|lib/planner/depositPayments.ts|service_role|function|public.ensure_planner_deposit_payout(uuid)|EXECUTE|Old capture ensures the payout ledger through the service-only RPC.
 POST|/api/payments/capture|app/api/payments/capture/route.ts|lib/planner/execution/executeApprovedAction.ts|service_role|table|public.agent_actions|UPDATE|Old capture action transition remains server owned.
 ROWS
 }

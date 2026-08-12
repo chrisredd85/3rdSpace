@@ -22,7 +22,7 @@ const safeEnvironment = {
   REHEARSAL_DATABASE_URL: 'postgresql://clone_user:secret-value@clone-db.example.invalid:5432/postgres',
   REHEARSAL_CLONE_ID: 'clone-test-001',
   REHEARSAL_EXPECTED_BASELINE_VERSION: '20260709110000',
-  REHEARSAL_OLD_PRODUCTION_SHA: '461e3da4e569a41d27c6e972fc467ef3ba042d17',
+  REHEARSAL_OLD_PRODUCTION_SHA: '7ae25892db0fc7233d1b35c0bcb0f0596bbde7de',
   REHEARSAL_TARGET_CLASS: 'clone',
   PRODUCTION_PROJECT_REF: 'production-project-ref-123',
 }
@@ -102,6 +102,7 @@ describe('Prompt 1-8 clone rehearsal scripts', () => {
     expect(runner).toContain('old-production-source-inventory.tsv')
     expect(runner).toContain('/api/planner/plans/[planId]/recommend')
     expect(runbook.match(/REHEARSAL_TARGET_CLASS='clone'/g)).toHaveLength(2)
+    expect(runbook).toContain('export TOOLS_SHA="$RELEASE_SHA"')
 
     const serviceOnlyBlock = aclVerifier.match(/v_service_only constant regprocedure\[\] := ARRAY\[([\s\S]*?)\n  \];/)?.[1] ?? ''
     const authenticatedBlock = aclVerifier.match(/v_authenticated constant regprocedure\[\] := ARRAY\[([\s\S]*?)\n  \];/)?.[1] ?? ''
@@ -146,8 +147,21 @@ describe('Prompt 1-8 clone rehearsal scripts', () => {
     expect(bundleResult.stdout).toContain('prove rollback to 20260709165000')
     expect(bundleResult.stdout).toContain('verify-hosted-control-plane.sql')
     expect(bundleResult.stdout).not.toContain('secret-value')
+    const probeManifestRows = fs
+      .readFileSync(
+        path.join(bundleArtifacts, 'old-production-route-probe-manifest.tsv'),
+        'utf8',
+      )
+      .trim()
+      .split('\n')
+    expect(probeManifestRows).toContain(
+      'POST\t/api/payments/capture\tapp/api/payments/capture/route.ts\tlib/planner/depositPayments.ts\tservice_role\tfunction\tpublic.ensure_planner_deposit_payout(uuid)\tEXECUTE\tOld capture ensures the payout ledger through the service-only RPC.',
+    )
+    expect(probeManifestRows).not.toContain(
+      'POST\t/api/payments/capture\tapp/api/payments/capture/route.ts\tlib/planner/depositPayments.ts\tservice_role\ttable\tpublic.payouts\tINSERT\tOld capture writes the payout ledger with the service role.',
+    )
     expect(fs.readFileSync(path.join(bundleArtifacts, 'old-production-source-inventory.tsv'), 'utf8'))
-      .toContain('461e3da4e569a41d27c6e972fc467ef3ba042d17')
+      .toContain('7ae25892db0fc7233d1b35c0bcb0f0596bbde7de')
   })
 
   it('refuses declared production identities before any database call', () => {

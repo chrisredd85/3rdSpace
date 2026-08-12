@@ -123,7 +123,9 @@ and timestamp for each phase.
 PR #203 and PR #205 change `main`; therefore do not reuse the historical
 `add2241e…` or pre-rebase `e008116…` SHAs. Capture PR #204's final head and base
 live only after PR #204 is rebased onto the `main` containing both prerequisite
-merges and every gate has been rerun. `RELEASE_SHA` is never hardcoded.
+merges and every gate has been rerun. `RELEASE_SHA` is never hardcoded. The
+bundle has no separate tools tree: freeze `TOOLS_SHA` to the same exact commit as
+`RELEASE_SHA`.
 
 ```bash
 export REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -133,6 +135,7 @@ export RELEASE_SHA="$(
   gh pr view "$RELEASE_PR" --repo "$GITHUB_REPOSITORY" \
     --json headRefOid --jq .headRefOid
 )"
+export TOOLS_SHA="$RELEASE_SHA"
 export REVIEWED_BASE_SHA="$(
   gh pr view "$RELEASE_PR" --repo "$GITHUB_REPOSITORY" \
     --json baseRefOid --jq .baseRefOid
@@ -148,6 +151,7 @@ export RELEASE_WT="$RELEASE_ROOT/release"
 git -C "$REPO_ROOT" worktree add --detach "$RELEASE_WT" "$RELEASE_SHA"
 
 test "$(git -C "$RELEASE_WT" rev-parse HEAD)" = "$RELEASE_SHA"
+test "$TOOLS_SHA" = "$RELEASE_SHA"
 test -z "$(git -C "$RELEASE_WT" status --porcelain --untracked-files=all)"
 test -f "$RELEASE_WT/docs/runbooks/write-pause.md"
 test -x "$RELEASE_WT/scripts/release/toggle-write-pause.sh"
