@@ -2,6 +2,7 @@ jest.mock('server-only', () => ({}))
 
 import type { NextRequest } from 'next/server'
 import { PATCH as updateApproval } from '@/app/api/planner/plans/[planId]/approvals/route'
+import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import * as Sentry from '@sentry/nextjs'
 
@@ -435,6 +436,11 @@ function seedDb() {
     approved_at: null,
     expires_at: null,
     snapshot_hash: null,
+  })
+  db.rows.approvals[0].snapshot_hash = buildApprovalSnapshotHash({
+    plan: db.rows.plans[0] as any,
+    approval: db.rows.approvals[0] as any,
+    action: db.rows.agent_actions[0] as any,
   })
   mockCreateClient.mockReturnValue({
     auth: {

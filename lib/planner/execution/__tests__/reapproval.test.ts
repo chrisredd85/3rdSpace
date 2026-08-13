@@ -56,6 +56,18 @@ describe('approval re-approval snapshots', () => {
     })).toBe(false)
   })
 
+  it.each([null, undefined, '', '   '])(
+    'requires re-approval when the stored snapshot evidence is %p',
+    (storedSnapshotHash) => {
+      expect(approvalRequiresReapproval({
+        plan: basePlan,
+        approval: baseApproval,
+        action: baseAction,
+        storedSnapshotHash,
+      })).toBe(true)
+    }
+  )
+
   it('requires re-approval when seats, price, venue, or terms change', () => {
     const hash = buildApprovalSnapshotHash({
       plan: basePlan,

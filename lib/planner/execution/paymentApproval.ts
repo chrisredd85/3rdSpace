@@ -3,6 +3,7 @@ import type { ApprovalStatus } from '@/lib/types'
 export type PaymentApprovalErrorCode =
   | 'APPROVAL_MISSING'
   | 'APPROVAL_NOT_EXECUTABLE'
+  | 'APPROVAL_EVIDENCE_MISSING'
   | 'APPROVAL_EXPIRED'
   | 'APPROVAL_AMOUNT_MISMATCH'
   | 'APPROVAL_PLAN_MISMATCH'
@@ -23,6 +24,8 @@ export type PaymentApprovalRow = {
   plan_id: string | null
   agent_action_id?: string | null
   status: ApprovalStatus | string
+  authorized_by?: string | null
+  authorized_at?: string | null
   requested_amount_cents?: number | null
   authorized_amount_cents?: number | null
   price_cents?: number | null
@@ -37,11 +40,22 @@ export type PaymentApprovalValidationResult =
   | { ok: true; approvedAmountCents: number }
   | { ok: false; status: 404 | 409 | 422; code: PaymentApprovalErrorCode; error: string }
 
+export type ExecutableApprovalEvidenceValidationResult =
+  | { ok: true }
+  | {
+      ok: false
+      status: 409
+      code: 'APPROVAL_EVIDENCE_MISSING' | 'APPROVAL_EXPIRED'
+      error: string
+    }
+
 export const PAYMENT_APPROVAL_SELECT_COLUMNS = `
   id,
   plan_id,
   agent_action_id,
   status,
+  authorized_by,
+  authorized_at,
   requested_amount_cents,
   authorized_amount_cents,
   price_cents,
@@ -95,14 +109,8 @@ export function validatePaymentApprovalForExecution(input: {
     }
   }
 
-  if (isPaymentApprovalExpired(input.approval.expires_at, input.now ?? new Date())) {
-    return {
-      ok: false,
-      status: 409,
-      code: 'APPROVAL_EXPIRED',
-      error: 'Approval expired. Review the latest terms and approve again.',
-    }
-  }
+  const evidence = validateExecutableApprovalEvidence(input.approval, input.now)
+  if (!evidence.ok) return evidence
 
   if (!Number.isSafeInteger(input.expectedAmountCents) || input.expectedAmountCents < 0) {
     return {
@@ -145,6 +153,44 @@ export function validatePaymentApprovalForExecution(input: {
   }
 
   return { ok: true, approvedAmountCents }
+}
+
+/**
+ * Executable approvals need durable evidence of who authorized them, when that
+ * happened, and which immutable snapshot was approved. Payment paths share
+ * this check so a legacy or partially-written approval cannot reach a provider.
+ */
+export function validateExecutableApprovalEvidence(
+  approval: PaymentApprovalRow,
+  now = new Date()
+): ExecutableApprovalEvidenceValidationResult {
+  const authorizedAt = approval.authorized_at?.trim()
+  const hasAuthorizationEvidence = Boolean(
+    approval.authorized_by?.trim() &&
+    authorizedAt &&
+    Number.isFinite(Date.parse(authorizedAt)) &&
+    approval.snapshot_hash?.trim()
+  )
+
+  if (!hasAuthorizationEvidence) {
+    return {
+      ok: false,
+      status: 409,
+      code: 'APPROVAL_EVIDENCE_MISSING',
+      error: 'Approval is missing authorization evidence. Review the latest terms and approve again.',
+    }
+  }
+
+  if (isPaymentApprovalExpired(approval.expires_at, now)) {
+    return {
+      ok: false,
+      status: 409,
+      code: 'APPROVAL_EXPIRED',
+      error: 'Approval expired. Review the latest terms and approve again.',
+    }
+  }
+
+  return { ok: true }
 }
 
 export function getApprovedAmountCents(approval: PaymentApprovalRow) {

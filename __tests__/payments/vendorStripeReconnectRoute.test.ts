@@ -136,6 +136,9 @@ function makeAdminClient() {
           status: 'approved',
           requested_amount_cents: 45000,
           authorized_amount_cents: null,
+          authorized_by: userId,
+          authorized_at: '2026-08-12T00:00:00.000Z',
+          snapshot_hash: 'vendor-payment-approval-snapshot',
           price_cents: null,
           expires_at: null,
         })

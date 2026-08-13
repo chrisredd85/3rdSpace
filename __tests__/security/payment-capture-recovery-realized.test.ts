@@ -655,6 +655,16 @@ describeIfDatabase('realized payment capture recovery schema', () => {
     const output = psql(`
       begin;
 
+      insert into auth.users (id, aud, role, email, created_at, updated_at)
+      values (
+        '93000000-0000-4000-8000-000000000001',
+        'authenticated',
+        'authenticated',
+        'capture-rpc-owner@example.com',
+        now(),
+        now()
+      );
+
       insert into public.users (id, email, role, user_type)
       values ('93000000-0000-4000-8000-000000000001', 'capture-rpc-owner@example.com', 'builder', 'community_builder');
 
@@ -682,7 +692,7 @@ describeIfDatabase('realized payment capture recovery schema', () => {
       insert into public.approvals (
         id, plan_id, agent_action_id, action_label, status,
         requested_amount_cents, authorized_amount_cents, fees_cents,
-        snapshot_hash, expires_at
+        authorized_by, authorized_at, snapshot_hash, expires_at
       ) values (
         '93000000-0000-4000-8000-000000000040',
         '93000000-0000-4000-8000-000000000010',
@@ -692,6 +702,8 @@ describeIfDatabase('realized payment capture recovery schema', () => {
         15000,
         15000,
         500,
+        '93000000-0000-4000-8000-000000000001',
+        now(),
         'snapshot-v1',
         now() + interval '1 day'
       );
@@ -752,7 +764,7 @@ describeIfDatabase('realized payment capture recovery schema', () => {
       set status = 'authorized', superseded_at = null, snapshot_hash = null
       where id = '93000000-0000-4000-8000-000000000040';
 
-      select status || '|' || capture_attempt_id::text
+      select count(*)
       from public.reserve_planner_deposit_capture(
         '93000000-0000-4000-8000-000000000050',
         '93000000-0000-4000-8000-000000000010',
@@ -764,8 +776,104 @@ describeIfDatabase('realized payment capture recovery schema', () => {
         '93000000-0000-4000-8000-000000000062'
       );
 
+      select status || '|' || coalesce(capture_attempt_id::text, 'null')
+      from public.payment_intents
+      where id = '93000000-0000-4000-8000-000000000050';
+
+      update public.approvals
+      set snapshot_hash = 'snapshot-v1', authorized_by = null
+      where id = '93000000-0000-4000-8000-000000000040';
+
+      select count(*)
+      from public.reserve_planner_deposit_capture(
+        '93000000-0000-4000-8000-000000000050',
+        '93000000-0000-4000-8000-000000000010',
+        '93000000-0000-4000-8000-000000000040',
+        'snapshot-v1',
+        15000,
+        'vendor',
+        '93000000-0000-4000-8000-000000000030',
+        '93000000-0000-4000-8000-000000000063'
+      );
+
+      update public.approvals
+      set authorized_by = '93000000-0000-4000-8000-000000000001', authorized_at = null
+      where id = '93000000-0000-4000-8000-000000000040';
+
+      select count(*)
+      from public.reserve_planner_deposit_capture(
+        '93000000-0000-4000-8000-000000000050',
+        '93000000-0000-4000-8000-000000000010',
+        '93000000-0000-4000-8000-000000000040',
+        'snapshot-v1',
+        15000,
+        'vendor',
+        '93000000-0000-4000-8000-000000000030',
+        '93000000-0000-4000-8000-000000000064'
+      );
+
+      update public.approvals
+      set authorized_at = now(), snapshot_hash = '   '
+      where id = '93000000-0000-4000-8000-000000000040';
+
+      select count(*)
+      from public.reserve_planner_deposit_capture(
+        '93000000-0000-4000-8000-000000000050',
+        '93000000-0000-4000-8000-000000000010',
+        '93000000-0000-4000-8000-000000000040',
+        'snapshot-v1',
+        15000,
+        'vendor',
+        '93000000-0000-4000-8000-000000000030',
+        '93000000-0000-4000-8000-000000000065'
+      );
+
+      update public.approvals
+      set snapshot_hash = 'snapshot-v1', expires_at = now() - interval '1 minute'
+      where id = '93000000-0000-4000-8000-000000000040';
+
+      select count(*)
+      from public.reserve_planner_deposit_capture(
+        '93000000-0000-4000-8000-000000000050',
+        '93000000-0000-4000-8000-000000000010',
+        '93000000-0000-4000-8000-000000000040',
+        'snapshot-v1',
+        15000,
+        'vendor',
+        '93000000-0000-4000-8000-000000000030',
+        '93000000-0000-4000-8000-000000000066'
+      );
+
+      update public.approvals
+      set expires_at = now() + interval '1 day'
+      where id = '93000000-0000-4000-8000-000000000040';
+
+      select status || '|' || capture_attempt_id::text
+      from public.reserve_planner_deposit_capture(
+        '93000000-0000-4000-8000-000000000050',
+        '93000000-0000-4000-8000-000000000010',
+        '93000000-0000-4000-8000-000000000040',
+        'snapshot-v1',
+        15000,
+        'vendor',
+        '93000000-0000-4000-8000-000000000030',
+        '93000000-0000-4000-8000-000000000067'
+      );
+
       select has_function_privilege(
         'authenticated',
+        'public.reserve_planner_deposit_capture(uuid,uuid,uuid,text,integer,text,uuid,uuid)',
+        'EXECUTE'
+      );
+
+      select has_function_privilege(
+        'anon',
+        'public.reserve_planner_deposit_capture(uuid,uuid,uuid,text,integer,text,uuid,uuid)',
+        'EXECUTE'
+      );
+
+      select has_function_privilege(
+        'service_role',
         'public.reserve_planner_deposit_capture(uuid,uuid,uuid,text,integer,text,uuid,uuid)',
         'EXECUTE'
       );
@@ -777,8 +885,16 @@ describeIfDatabase('realized payment capture recovery schema', () => {
       '0',
       'authorized',
       '0',
-      'capturing|93000000-0000-4000-8000-000000000062',
+      '0',
+      'authorized|null',
+      '0',
+      '0',
+      '0',
+      '0',
+      'capturing|93000000-0000-4000-8000-000000000067',
       'f',
+      'f',
+      't',
     ])
   })
 
@@ -791,6 +907,15 @@ describeIfDatabase('realized payment capture recovery schema', () => {
     const secondAttemptId = '94000000-0000-4000-8000-000000000061'
 
     psql(`
+      insert into auth.users (id, aud, role, email, created_at, updated_at)
+      values (
+        '94000000-0000-4000-8000-000000000001',
+        'authenticated',
+        'authenticated',
+        'capture-race-owner@example.com',
+        now(),
+        now()
+      );
       insert into public.users (id, email, role, user_type)
       values ('94000000-0000-4000-8000-000000000001', 'capture-race-owner@example.com', 'builder', 'community_builder');
       insert into public.plans (id, user_id, title)
@@ -804,10 +929,12 @@ describeIfDatabase('realized payment capture recovery schema', () => {
       );
       insert into public.approvals (
         id, plan_id, agent_action_id, action_label, status,
-        requested_amount_cents, authorized_amount_cents, fees_cents, snapshot_hash
+        requested_amount_cents, authorized_amount_cents, fees_cents,
+        authorized_by, authorized_at, snapshot_hash
       ) values (
         '${approvalId}', '${planId}', '94000000-0000-4000-8000-000000000020',
-        'Capture race approval', 'authorized', 17500, 17500, 750, 'race-snapshot'
+        'Capture race approval', 'authorized', 17500, 17500, 750,
+        '94000000-0000-4000-8000-000000000001', now(), 'race-snapshot'
       );
       update public.agent_actions set approval_id = '${approvalId}'
       where id = '94000000-0000-4000-8000-000000000020';
@@ -880,6 +1007,7 @@ describeIfDatabase('realized payment capture recovery schema', () => {
       psql(`
         delete from public.plans where id = '${planId}';
         delete from public.users where id = '94000000-0000-4000-8000-000000000001';
+        delete from auth.users where id = '94000000-0000-4000-8000-000000000001';
       `)
     }
   }, 15000)

@@ -1,14 +1,60 @@
-import { validatePaymentApprovalForExecution, type PaymentApprovalRow } from '../paymentApproval'
+import {
+  validateExecutableApprovalEvidence,
+  validatePaymentApprovalForExecution,
+  type PaymentApprovalRow,
+} from '../paymentApproval'
 
 const baseApproval: PaymentApprovalRow = {
   id: 'approval-1',
   plan_id: 'plan-1',
   status: 'authorized',
+  authorized_by: 'user-1',
+  authorized_at: '2026-01-01T00:00:00.000Z',
   requested_amount_cents: 120000,
   authorized_amount_cents: null,
   price_cents: null,
   expires_at: null,
+  snapshot_hash: 'snapshot-hash-1',
 }
+
+describe('validateExecutableApprovalEvidence', () => {
+  it.each([
+    ['missing actor', { authorized_by: null }],
+    ['blank actor', { authorized_by: '   ' }],
+    ['missing authorization time', { authorized_at: null }],
+    ['blank authorization time', { authorized_at: '   ' }],
+    ['invalid authorization time', { authorized_at: 'not-a-timestamp' }],
+    ['missing snapshot', { snapshot_hash: null }],
+    ['empty snapshot', { snapshot_hash: '' }],
+    ['blank snapshot', { snapshot_hash: '   ' }],
+  ])('rejects %s', (_label, patch) => {
+    expect(validateExecutableApprovalEvidence({ ...baseApproval, ...patch })).toEqual({
+      ok: false,
+      status: 409,
+      code: 'APPROVAL_EVIDENCE_MISSING',
+      error: 'Approval is missing authorization evidence. Review the latest terms and approve again.',
+    })
+  })
+
+  it('rejects expired evidence', () => {
+    expect(validateExecutableApprovalEvidence(
+      { ...baseApproval, expires_at: '2026-01-01T00:00:00.000Z' },
+      new Date('2026-01-02T00:00:00.000Z')
+    )).toEqual({
+      ok: false,
+      status: 409,
+      code: 'APPROVAL_EXPIRED',
+      error: 'Approval expired. Review the latest terms and approve again.',
+    })
+  })
+
+  it('accepts complete, unexpired evidence', () => {
+    expect(validateExecutableApprovalEvidence(
+      { ...baseApproval, expires_at: '2026-01-03T00:00:00.000Z' },
+      new Date('2026-01-02T00:00:00.000Z')
+    )).toEqual({ ok: true })
+  })
+})
 
 describe('validatePaymentApprovalForExecution', () => {
   it('accepts a current authorized approval for the exact cents amount', () => {
@@ -61,6 +107,22 @@ describe('validatePaymentApprovalForExecution', () => {
       approval: baseApproval,
       expectedAmountCents: 12.5,
     })).toMatchObject({ ok: false, status: 422, code: 'UNSAFE_CENTS_VALUE' })
+  })
+
+  it.each([
+    ['missing actor', { authorized_by: null }],
+    ['missing authorization time', { authorized_at: null }],
+    ['null snapshot', { snapshot_hash: null }],
+    ['blank snapshot', { snapshot_hash: '   ' }],
+  ])('rejects executable approval with %s before amount validation', (_label, patch) => {
+    expect(validatePaymentApprovalForExecution({
+      approval: { ...baseApproval, ...patch },
+      expectedAmountCents: 120000,
+    })).toMatchObject({
+      ok: false,
+      status: 409,
+      code: 'APPROVAL_EVIDENCE_MISSING',
+    })
   })
 
   it('requires approval counterparty to match the linked action target or payload', () => {

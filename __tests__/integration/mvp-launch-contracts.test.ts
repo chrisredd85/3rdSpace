@@ -572,6 +572,11 @@ describe('MVP launch API contracts', () => {
       action_label: 'Send to venues',
       status: 'pending',
       price_cents: 0,
+      snapshot_hash: buildApprovalSnapshotHash({
+        plan: db.rows.plans[0] as any,
+        approval: { price_cents: 0 },
+        action: db.rows.agent_actions[0] as any,
+      }),
     })
 
     const response = await updateApproval(
@@ -655,6 +660,11 @@ describe('MVP launch API contracts', () => {
       action_label: 'Approve outreach to 2 venues, 1 vendor',
       status: 'pending',
       price_cents: 0,
+      snapshot_hash: buildApprovalSnapshotHash({
+        plan: db.rows.plans[0] as any,
+        approval: { price_cents: 0 },
+        action: db.rows.agent_actions[0] as any,
+      }),
     })
 
     const response = await updateApproval(
@@ -742,6 +752,47 @@ describe('MVP launch API contracts', () => {
     expect(db.rows.agent_actions[0].status).toBe('pending')
   })
 
+  it('PATCH planner approvals cannot make a snapshot-less approval executable', async () => {
+    db.rows.agent_actions.push({
+      id: ACTION_ID,
+      plan_id: PLAN_ID,
+      action_type: 'hold_request',
+      payload_json: {
+        venue_ids: [VENUE_ID_1],
+        seats: 80,
+      },
+      result_metadata: {},
+      status: 'pending',
+    })
+    db.rows.approvals.push({
+      id: APPROVAL_ID,
+      plan_id: PLAN_ID,
+      agent_action_id: ACTION_ID,
+      action_label: 'Request hold',
+      status: 'pending',
+      price_cents: 50_000,
+      fees_cents: 0,
+      requested_amount_cents: 50_000,
+      provider: 'Foundry Rooftop',
+      event_date: '2026-08-01',
+      snapshot_hash: null,
+    })
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID,
+        action: 'authorize',
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(response.status).toBe(409)
+    expect(db.rows.approvals[0].status).toBe('re_approval_required')
+    expect(db.rows.approvals[0].authorized_by).toBeUndefined()
+    expect(db.rows.approvals[0].authorized_at).toBeUndefined()
+    expect(db.rows.agent_actions[0].status).toBe('pending')
+  })
+
   it('PATCH planner approvals cancels rejected actions without preparing outreach', async () => {
     db.rows.agent_actions.push({
       id: ACTION_ID,
@@ -763,6 +814,11 @@ describe('MVP launch API contracts', () => {
       action_label: 'Prepare venue outreach',
       status: 'pending',
       price_cents: 0,
+      snapshot_hash: buildApprovalSnapshotHash({
+        plan: db.rows.plans[0] as any,
+        approval: { price_cents: 0 },
+        action: db.rows.agent_actions[0] as any,
+      }),
     })
 
     const response = await updateApproval(
@@ -844,6 +900,11 @@ describe('MVP launch API contracts', () => {
       action_label: 'Send to venues',
       status: 'pending',
       price_cents: 0,
+      snapshot_hash: buildApprovalSnapshotHash({
+        plan: db.rows.plans[0] as any,
+        approval: { price_cents: 0 },
+        action: db.rows.agent_actions[0] as any,
+      }),
     })
 
     const response = await updateApproval(

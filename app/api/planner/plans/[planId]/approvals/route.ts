@@ -411,7 +411,6 @@ function buildSupersededApprovalMessage(approval: Approval): string {
 }
 
 async function approvalRequiresFreshReview(db: PlannerDb, plan: Plan, approval: Approval): Promise<boolean> {
-  if (!approval.snapshot_hash) return false
   const action = await loadAgentAction(db, approval.agent_action_id)
   return approvalRequiresReapproval({
     plan,

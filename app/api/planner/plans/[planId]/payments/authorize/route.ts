@@ -23,7 +23,7 @@ import {
   paymentAuthorizationTransitionEvents,
   persistAgentActionTransitionEvents,
 } from '@/lib/planner/execution/executeApprovedAction'
-import { isPaymentApprovalExpired } from '@/lib/planner/execution/paymentApproval'
+import { validateExecutableApprovalEvidence } from '@/lib/planner/execution/paymentApproval'
 import {
   assertBuilderPaymentMethodOwnership,
   BuilderPaymentMethodFlowError,
@@ -107,10 +107,11 @@ export async function POST(
     if (approval.status !== 'authorized' && approval.status !== 'approved') {
       return NextResponse.json({ error: 'Authorize the approval before authorizing a deposit' }, { status: 422 })
     }
-    if (isPaymentApprovalExpired(approval.expires_at)) {
+    const approvalEvidence = validateExecutableApprovalEvidence(approval)
+    if (!approvalEvidence.ok) {
       return NextResponse.json(
-        { error: 'Approval expired. Review the latest terms and approve again.' },
-        { status: 409 }
+        { error: approvalEvidence.error },
+        { status: approvalEvidence.status }
       )
     }
 
