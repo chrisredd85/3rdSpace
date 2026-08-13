@@ -22,7 +22,6 @@ import { Switch } from '@/components/ui/switch'
 import { useVenue, useUpdateVenue } from '@/lib/hooks/useVenues'
 import {
   useVenuePhotos,
-  useCreateVenuePhoto,
   useUpdateVenuePhoto,
   useDeleteVenuePhoto,
   uploadVenuePhoto,
@@ -68,9 +67,8 @@ export default function VenueListingPage() {
 
   const userId = user?.id || null
   const { data: venue, isLoading: venueLoading } = useVenue(venueId)
-  const { data: photos = [] } = useVenuePhotos(venueId)
+  const { data: photos = [], refetch: refetchPhotos } = useVenuePhotos(venueId)
   const updateVenue = useUpdateVenue()
-  const createPhoto = useCreateVenuePhoto()
   const updatePhoto = useUpdateVenuePhoto()
   const deletePhoto = useDeleteVenuePhoto()
 
@@ -204,12 +202,8 @@ export default function VenueListingPage() {
 
     setUploading(true)
     try {
-      const photoUrl = await uploadVenuePhoto(venueId, file)
-      await createPhoto.mutateAsync({
-        venueId,
-        photoUrl,
-        displayOrder: photos.length,
-      })
+      await uploadVenuePhoto(venueId, file)
+      await refetchPhotos()
       addToast({
         title: 'Photo uploaded',
         description: 'Photo has been added to your venue listing.',
@@ -217,7 +211,7 @@ export default function VenueListingPage() {
     } catch (error) {
       addToast({
         title: 'Error',
-        description: 'Failed to upload photo',
+        description: error instanceof Error ? error.message : 'Failed to upload photo',
         variant: 'destructive',
       })
     } finally {
@@ -516,7 +510,7 @@ export default function VenueListingPage() {
               <label className="block">
                 <input
                   type="file"
-                  accept="image/*"
+                  accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
                   onChange={handlePhotoUpload}
                   disabled={uploading}
                   className="hidden"
@@ -533,6 +527,9 @@ export default function VenueListingPage() {
                   </span>
                 </Button>
               </label>
+              <p className="mt-2 text-xs text-ink-soft">
+                PNG, JPEG, or WebP. Maximum 4 MB, 4096 × 4096 pixels, and 16 megapixels.
+              </p>
             </div>
 
             {photos.length > 0 && (
@@ -546,6 +543,7 @@ export default function VenueListingPage() {
                       src={photo.photo_url}
                       alt={photo.caption || `Photo ${index + 1}`}
                       fill
+                      unoptimized
                       sizes="(min-width: 768px) 25vw, 50vw"
                       className="w-full h-full object-cover"
                     />

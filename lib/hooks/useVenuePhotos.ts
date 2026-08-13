@@ -1,5 +1,4 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { supabase } from '@/lib/supabase/client'
 import type { VenuePhoto } from '@/lib/types'
 
 // Query keys
@@ -17,92 +16,47 @@ export function useVenuePhotos(venueId: string | null) {
     queryFn: async () => {
       if (!venueId) return []
 
-      const { data, error } = await supabase
-        .from('venue_photos')
-        .select('*')
-        .eq('venue_id', venueId)
-        .order('display_order', { ascending: true })
+      const response = await fetch(
+        `/api/venue/photos?venueId=${encodeURIComponent(venueId)}`,
+        { credentials: 'include' }
+      )
+      const body = await response.json().catch(() => null) as {
+        photos?: VenuePhoto[]
+        error?: string
+      } | null
 
-      if (error) throw error
-      return (data || []) as VenuePhoto[]
+      if (!response.ok || !body?.photos) {
+        throw new Error(body?.error || 'Failed to load venue photos')
+      }
+      return body.photos
     },
     enabled: !!venueId,
   })
 }
 
 /**
- * Upload photo to Supabase Storage
+ * Uploads a photo through the authenticated server validation boundary.
  */
 export async function uploadVenuePhoto(
   venueId: string,
   file: File
-): Promise<string> {
-  const fileExt = file.name.split('.').pop()
-  const filePath = `${venueId}/${Date.now()}.${fileExt}`
+): Promise<VenuePhoto> {
+  const formData = new FormData()
+  formData.set('venueId', venueId)
+  formData.set('photo', file)
 
-  const { error: uploadError } = await supabase.storage
-    .from('venue-photos')
-    .upload(filePath, file)
-
-  if (uploadError) throw uploadError
-
-  // Get public URL
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from('venue-photos').getPublicUrl(filePath)
-
-  return publicUrl
-}
-
-/**
- * Mutation to create a venue photo record
- */
-export function useCreateVenuePhoto() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: async ({
-      venueId,
-      photoUrl,
-      caption,
-      isPrimary,
-      displayOrder,
-    }: {
-      venueId: string
-      photoUrl: string
-      caption?: string
-      isPrimary?: boolean
-      displayOrder?: number
-    }) => {
-      // If setting as primary, unset other primary photos first
-      if (isPrimary) {
-        await supabase
-          .from('venue_photos')
-          .update({ is_primary: false })
-          .eq('venue_id', venueId)
-      }
-
-      const { data, error } = await supabase
-        .from('venue_photos')
-        .insert({
-          venue_id: venueId,
-          photo_url: photoUrl,
-          caption: caption || null,
-          is_primary: isPrimary || false,
-          display_order: displayOrder || 0,
-        })
-        .select()
-        .single()
-
-      if (error) throw error
-      return data as VenuePhoto
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({
-        queryKey: photoKeys.venue(data.venue_id),
-      })
-    },
+  const response = await fetch('/api/venue/photos', {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
   })
+  const body = await response.json().catch(() => null) as { photo?: VenuePhoto; error?: string } | null
+
+  if (!response.ok || !body?.photo) {
+    throw new Error(body?.error || 'Failed to upload photo')
+  }
+
+  return body.photo
 }
 
 /**
@@ -119,32 +73,25 @@ export function useUpdateVenuePhoto() {
       id: string
       updates: Partial<Omit<VenuePhoto, 'id' | 'created_at'>>
     }) => {
-      // If setting as primary, unset other primary photos
-      if (updates.is_primary) {
-        const { data: photo } = await supabase
-          .from('venue_photos')
-          .select('venue_id')
-          .eq('id', id)
-          .single()
-
-        if (photo) {
-          await supabase
-            .from('venue_photos')
-            .update({ is_primary: false })
-            .eq('venue_id', photo.venue_id)
-            .neq('id', id)
-        }
+      if (updates.is_primary !== true) {
+        throw new Error('Only setting a primary venue photo is supported')
       }
 
-      const { data, error } = await supabase
-        .from('venue_photos')
-        .update(updates)
-        .eq('id', id)
-        .select()
-        .single()
+      const response = await fetch('/api/venue/photos', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoId: id, isPrimary: true }),
+      })
+      const body = await response.json().catch(() => null) as {
+        photo?: VenuePhoto
+        error?: string
+      } | null
 
-      if (error) throw error
-      return data as VenuePhoto
+      if (!response.ok || !body?.photo) {
+        throw new Error(body?.error || 'Failed to update venue photo')
+      }
+      return body.photo
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({
@@ -162,27 +109,22 @@ export function useDeleteVenuePhoto() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { data: photo, error: fetchError } = await supabase
-        .from('venue_photos')
-        .select('venue_id, photo_url')
-        .eq('id', id)
-        .single()
+      const response = await fetch('/api/venue/photos', {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoId: id }),
+      })
+      const body = await response.json().catch(() => null) as {
+        id?: string
+        venueId?: string
+        error?: string
+      } | null
 
-      if (fetchError) throw fetchError
-
-      // Delete from storage
-      const filePath = photo.photo_url.split('/venue-photos/')[1]
-      if (filePath) {
-        await supabase.storage
-          .from('venue-photos')
-          .remove([filePath])
+      if (!response.ok || !body?.id || !body.venueId) {
+        throw new Error(body?.error || 'Failed to delete venue photo')
       }
-
-      // Delete from database
-      const { error } = await supabase.from('venue_photos').delete().eq('id', id)
-
-      if (error) throw error
-      return { id, venueId: photo.venue_id }
+      return { id: body.id, venueId: body.venueId }
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({
