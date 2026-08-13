@@ -10,12 +10,14 @@ REHEARSAL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REHEARSAL_REPO_ROOT="$(cd "${REHEARSAL_SCRIPT_DIR}/../.." && pwd)"
 REHEARSAL_MIGRATION_DIR="${REHEARSAL_REPO_ROOT}/supabase/migrations"
 REHEARSAL_REPORT_TEMPLATE="${REHEARSAL_SCRIPT_DIR}/rehearsal-report-template.md"
-REHEARSAL_REQUIRED_BASELINE_VERSION="20260709110000"
+REHEARSAL_REQUIRED_BASELINE_VERSION="20260709113000"
 REHEARSAL_REQUIRED_PREREQUISITE_VERSIONS=(
   "20260701090000"
   "20260709090000"
   "20260709100000"
   "20260709110000"
+  "20260709111000"
+  "20260709113000"
 )
 REHEARSAL_CONFIRMATION_PHRASE="I_ACKNOWLEDGE_THIS_IS_A_DISPOSABLE_NON_PRODUCTION_CLONE"
 REHEARSAL_REVIEWED_BASE_SHA=""
@@ -55,7 +57,7 @@ rehearsal_usage() {
 Usage:
   REHEARSAL_DATABASE_URL='postgresql://...' \
   REHEARSAL_CLONE_ID='operator-clone-id' \
-  REHEARSAL_EXPECTED_BASELINE_VERSION='20260709110000' \
+  REHEARSAL_EXPECTED_BASELINE_VERSION='20260709113000' \
   REHEARSAL_OLD_PRODUCTION_SHA='<full-reviewed-base-sha>' \
   REHEARSAL_TARGET_CLASS='clone' \
   PRODUCTION_PROJECT_REF='known-production-ref' \
@@ -79,7 +81,7 @@ Options:
   --help                         Show this help.
 
 Provision two disposable databases from the same recent production backup or
-PITR restore, after all four prerequisite migration versions across the three
+PITR restore, after all six prerequisite migration versions across the five
 prerequisite releases are present. Record the
 provider snapshot identifier/timestamp and use a clone-only connection. For a
 local realized clone, create a new database and restore the operator-provided
@@ -102,8 +104,8 @@ created on the clone as part of provisioning (never by this script):
     ('source_snapshot', '<provider-snapshot-id-or-timestamp>');
 
 The clone ledger must contain exactly these separately released prerequisites
-before the bundle starts: 20260701090000, 20260709090000, 20260709100000, and
-20260709110000.
+before the bundle starts: 20260701090000, 20260709090000, 20260709100000,
+20260709110000, 20260709111000, and 20260709113000.
 The connection URL is never written to the receipt.
 USAGE
 }

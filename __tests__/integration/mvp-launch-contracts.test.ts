@@ -2387,13 +2387,16 @@ describe('MVP launch API contracts', () => {
     const response = await updateApproval(
       makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
         approvalId: APPROVAL_ID,
-        action: 'authorize',
+        command: 'authorize',
+        expectedSnapshotHash: 'a'.repeat(64),
       }, 'PATCH'),
       { params: { planId: PLAN_ID } }
     )
+    const json = await readJson(response)
 
     expect(response.status).toBe(409)
-    expect(db.rows.approvals[0].status).toBe('re_approval_required')
+    expect(json).toEqual(expect.objectContaining({ code: 'approval_snapshot_mismatch' }))
+    expect(db.rows.approvals[0].status).toBe('pending')
     expect(db.rows.approvals[0].authorized_by).toBeUndefined()
     expect(db.rows.approvals[0].authorized_at).toBeUndefined()
     expect(db.rows.agent_actions[0].status).toBe('pending')
@@ -2420,12 +2423,10 @@ describe('MVP launch API contracts', () => {
       action_label: 'Prepare venue outreach',
       status: 'pending',
       price_cents: 0,
-      snapshot_hash: buildApprovalSnapshotHash({
-        plan: db.rows.plans[0] as any,
-        approval: { price_cents: 0 },
-        action: db.rows.agent_actions[0] as any,
-      }),
+      fees_cents: 0,
+      requested_amount_cents: 0,
     })
+    setV2ApprovalSnapshot(db, APPROVAL_ID)
 
     const response = await updateApproval(
       makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {

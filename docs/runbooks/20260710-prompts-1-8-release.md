@@ -27,17 +27,21 @@ outreach.
 
 ## Mandatory prerequisite releases
 
-Do not create the release worktree until all four prerequisite migrations are
-hosted across the three separately deployable prerequisite releases and their
+Do not create the release worktree until all six prerequisite migrations are
+hosted across the five separately deployable prerequisite releases and their
 code releases are complete:
 
 1. `20260701090000_add_plan_supply_intents.sql`, using
    `20260701090000-plan-supply-intents-release.md`;
 2. PR #203's `20260709090000_add_payment_intents_capturing_status.sql`, after
-   its stale-capture crash recovery is complete and verified; and
+   its stale-capture crash recovery is complete and verified;
 3. PR #205's `20260709100000_add_write_pause_control.sql`,
    `20260709110000_repair_p0_stored_functions.sql`, and the write-pause API, as
-   a separate schema-first prerequisite release after PR #203.
+   a separate schema-first prerequisite release after PR #203;
+4. PR #208, the dependency-security release, and its
+   `20260709111000_restrict_venue_photo_uploads_to_server.sql`; and
+5. PR #209, the payment-hardening release, and its
+   `20260709113000_harden_payment_approval_execution_evidence.sql`.
 
 The `20260709110000` prerequisite must match SHA-256
 `8ba0e1d6832bb6ada35fdceb7677b878b3d56cea8ed4fd4c14151e2ca0299417`.
@@ -56,23 +60,26 @@ provenance, per-migration timing, last-committed-version failure drill, all
 verifier results, and old-code/new-schema breakage list in the release ticket.
 There is no approved real window until that receipt has a go decision.
 
-### Three-PR dependency order
+### Prerequisite dependency order
 
-The reviewed stack is ordered and must not be collapsed into the historical
-two-PR plan:
+The reviewed release train is ordered and must not be collapsed into the
+historical two-PR plan:
 
 1. apply PR #203's schema-first migration, merge the exact reviewed PR #203
    head, and prove its deployment;
 2. apply PR #205's schema-first migrations, merge the exact reviewed PR #205
-   head, and prove the write-pause control in production; then
-3. rebase PR #204 onto the resulting `main`, rerun every PR #204 gate, and only
+   head, and prove the write-pause control in production;
+3. land and apply the dependency-security release through `20260709111000`;
+4. land and apply the payment-hardening release through `20260709113000`; then
+5. rebase PR #204 onto the resulting `main`, rerun every PR #204 gate, and only
    then freeze PR #204 as the coordinated-window release candidate.
 
 PR #205 is the separately deployable source of the Phase 4 write-pause toggle.
-PR #204 depends on both prerequisite releases: its bundle verification extends
-PR #203's payment schema, and its coordinated window must use PR #205's already-
-deployed pause. Do not merge or rebase from this runbook before the preceding
-schema and deployment proof is recorded.
+PR #204 depends on all prerequisite releases: its bundle verification extends
+PR #203's payment schema, its coordinated window must use PR #205's already-
+deployed pause, and its rehearsal baseline includes the dependency-security and
+payment-hardening migrations. Do not merge or rebase from this runbook before
+the preceding schema and deployment proof is recorded.
 
 ## Stop conditions
 
@@ -120,9 +127,9 @@ and timestamp for each phase.
 
 ## Freeze one exact release candidate
 
-PR #203 and PR #205 change `main`; therefore do not reuse the historical
+PR #203, PR #205, PR #208, and PR #209 change `main`; therefore do not reuse the historical
 `add2241e…` or pre-rebase `e008116…` SHAs. Capture PR #204's final head and base
-live only after PR #204 is rebased onto the `main` containing both prerequisite
+live only after PR #204 is rebased onto the `main` containing all prerequisite
 merges and every gate has been rerun. `RELEASE_SHA` is never hardcoded. The
 bundle has no separate tools tree: freeze `TOOLS_SHA` to the same exact commit as
 `RELEASE_SHA`.
@@ -225,7 +232,7 @@ new release SHA, clone rehearsal, tests, review, and dry run.
 ## Rehearse against two disposable production-derived clones
 
 Provision two fresh clones from the same recent production backup after all
-four prerequisite migrations are present. The clone provider/operator must
+six prerequisite migrations are present. The clone provider/operator must
 install the non-production guard documented by
 `scripts/release/rehearse-bundle-setup.sh`; the scripts refuse production and
 never create their own authorization marker.
@@ -248,13 +255,13 @@ export REHEARSAL_RUN_ID="prompts-1-8-$(date -u '+%Y%m%dT%H%M%SZ')"
 ```
 
 Run the complete 22-file rehearsal against the first clone. Its exact baseline
-must be the final PR #205 prerequisite, `20260709110000`:
+must be the payment-hardening prerequisite, `20260709113000`:
 
 ```bash
 cd "$RELEASE_WT"
 REHEARSAL_DATABASE_URL="$REHEARSAL_DATABASE_URL_FULL" \
 REHEARSAL_CLONE_ID="$REHEARSAL_CLONE_ID_FULL" \
-REHEARSAL_EXPECTED_BASELINE_VERSION='20260709110000' \
+REHEARSAL_EXPECTED_BASELINE_VERSION='20260709113000' \
 REHEARSAL_CANDIDATE_SHA="$RELEASE_SHA" \
 REHEARSAL_OLD_PRODUCTION_SHA="$REVIEWED_BASE_SHA" \
 REHEARSAL_TARGET_CLASS='clone' \
@@ -286,7 +293,7 @@ version:
 export FAILURE_REHEARSAL_RC='0'
 REHEARSAL_DATABASE_URL="$REHEARSAL_DATABASE_URL_FAILURE" \
 REHEARSAL_CLONE_ID="$REHEARSAL_CLONE_ID_FAILURE" \
-REHEARSAL_EXPECTED_BASELINE_VERSION='20260709110000' \
+REHEARSAL_EXPECTED_BASELINE_VERSION='20260709113000' \
 REHEARSAL_CANDIDATE_SHA="$RELEASE_SHA" \
 REHEARSAL_OLD_PRODUCTION_SHA="$REVIEWED_BASE_SHA" \
 REHEARSAL_TARGET_CLASS='clone' \
@@ -393,7 +400,8 @@ psql "$SUPABASE_DB_URL" \
 Required outcomes:
 
 - the hosted ledger already contains `20260701090000`, `20260709090000`,
-  `20260709100000`, and `20260709110000`;
+  `20260709100000`, `20260709110000`, `20260709111000`, and
+  `20260709113000`;
 - parity reports exactly the 22 versions in `EXPECTED_MISSING` and no
   remote-only version;
 - the dry run lists the 22 manifest files in the same order and nothing else;
@@ -695,7 +703,7 @@ git -C "$REPO_ROOT" worktree remove "$RELEASE_WT"
 Record all of the following in the release ticket:
 
 - prerequisite migration and deployment receipts (`010900`, `090000`,
-  `091000`);
+  `091000`, `110000`, `111000`, `113000`);
 - production-clone backup date, rehearsal result, timing, and partial-failure
   drill;
 - `REVIEWED_BASE_SHA`, `RELEASE_SHA`, bundle manifest, and successful check

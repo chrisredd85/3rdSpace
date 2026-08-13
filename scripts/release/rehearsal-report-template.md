@@ -35,13 +35,14 @@ Any unchecked item is a stop condition.
 
 ## Baseline and reviewed inventory
 
-The runner must observe all four separately approved prerequisites in the
-clone ledger: `20260701090000`, PR #203's `20260709090000`, PR #205's
-write-pause prerequisite `20260709100000`, and the pulled-forward
-`20260709110000`. PR #204's candidate SHA must be captured live only after it
-is rebased onto the `main` containing the prerequisite releases. The exact last
-committed baseline must be `20260709110000`. None of the 22 bundle versions may
-already be present.
+The runner must observe all six separately approved prerequisites in the clone
+ledger: `20260701090000`, PR #203's `20260709090000`, PR #205's write-pause
+prerequisite `20260709100000` and pulled-forward `20260709110000`, the
+dependency-security release's `20260709111000`, and the payment-hardening
+release's `20260709113000`. PR #204's candidate SHA must be captured live only
+after it is rebased onto the `main` containing all prerequisite releases. The
+exact last committed baseline must be `20260709113000`. None of the 22 bundle
+versions may already be present.
 
 The bundle is exactly 22 migrations, applied serially in the committed order:
 

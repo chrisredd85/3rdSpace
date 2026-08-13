@@ -10,7 +10,7 @@ rehearsal_bundle_usage() {
 Usage:
   REHEARSAL_DATABASE_URL='postgresql://...' \
   REHEARSAL_CLONE_ID='operator-clone-id' \
-  REHEARSAL_EXPECTED_BASELINE_VERSION='20260709110000' \
+  REHEARSAL_EXPECTED_BASELINE_VERSION='20260709113000' \
   REHEARSAL_OLD_PRODUCTION_SHA='<full-reviewed-base-sha>' \
   REHEARSAL_TARGET_CLASS='clone' \
   PRODUCTION_PROJECT_REF='known-production-ref' \

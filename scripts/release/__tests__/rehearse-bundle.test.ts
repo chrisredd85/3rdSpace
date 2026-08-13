@@ -21,8 +21,8 @@ const safeEnvironment = {
   ...process.env,
   REHEARSAL_DATABASE_URL: 'postgresql://clone_user:secret-value@clone-db.example.invalid:5432/postgres',
   REHEARSAL_CLONE_ID: 'clone-test-001',
-  REHEARSAL_EXPECTED_BASELINE_VERSION: '20260709110000',
-  REHEARSAL_OLD_PRODUCTION_SHA: '7ae25892db0fc7233d1b35c0bcb0f0596bbde7de',
+  REHEARSAL_EXPECTED_BASELINE_VERSION: '20260709113000',
+  REHEARSAL_OLD_PRODUCTION_SHA: 'b88870ed09f2f2c5b57d8228c56b8fa87906f9d1',
   REHEARSAL_TARGET_CLASS: 'clone',
   PRODUCTION_PROJECT_REF: 'production-project-ref-123',
 }
@@ -80,20 +80,32 @@ describe('Prompt 1-8 clone rehearsal scripts', () => {
     ) as Array<{ count: number }>
     const manifestBlock = setup.match(/BUNDLE_MIGRATIONS=\(([\s\S]*?)\n\)/)?.[1] ?? ''
     const migrations = Array.from(manifestBlock.matchAll(/"([0-9]{14}_[a-z0-9_]+\.sql)"/g), (match) => match[1])
+    const prerequisiteBlock = setup.match(/REHEARSAL_REQUIRED_PREREQUISITE_VERSIONS=\(([\s\S]*?)\n\)/)?.[1] ?? ''
+    const prerequisites = Array.from(prerequisiteBlock.matchAll(/"([0-9]{14})"/g), (match) => match[1])
+    const expectedMissing = runbook.match(/export EXPECTED_MISSING='([^']+)'/)?.[1].split(',') ?? []
 
     expect(migrations).toHaveLength(22)
     expect(migrations[0]).toBe('20260709114000_atomic_vendor_base_rate_repair.sql')
     expect(migrations[11]).toBe('20260709166000_harden_canonical_booking_provenance.sql')
     expect(migrations[21]).toBe('20260709178000_make_canonical_venue_confirmation_effects_replayable.sql')
+    expect(prerequisites).toEqual([
+      '20260701090000',
+      '20260709090000',
+      '20260709100000',
+      '20260709110000',
+      '20260709111000',
+      '20260709113000',
+    ])
+    expect(setup).toContain('REHEARSAL_REQUIRED_BASELINE_VERSION="20260709113000"')
+    expect(expectedMissing).toEqual(migrations.map((migration) => migration.slice(0, 14)))
+    expect(expectedMissing).not.toContain('20260709111000')
+    expect(expectedMissing).not.toContain('20260709113000')
     expect(runner).toContain('preflight-server-owned-execution.sql')
     expect(runner).toContain('verify-plan-supply-intents.sql')
     expect(runner).toContain('verify-hosted-acls.sql')
     expect(runner).toContain('verify-hosted-control-plane.sql')
     expect(setup).toContain('REHEARSAL_OLD_PRODUCTION_SHA')
     expect(setup).toContain('merge-base --is-ancestor')
-    expect(setup).toContain('20260701090000')
-    expect(setup).toContain('20260709090000')
-    expect(setup).toContain('20260709100000')
     expect(template).toContain('Old-production-code compatibility against the new schema')
     expect(template).toContain('REHEARSAL_OLD_PRODUCTION_SHA')
     expect(template).toContain('deliberate-failure-proof.txt')
@@ -102,6 +114,7 @@ describe('Prompt 1-8 clone rehearsal scripts', () => {
     expect(runner).toContain('old-production-source-inventory.tsv')
     expect(runner).toContain('/api/planner/plans/[planId]/recommend')
     expect(runbook.match(/REHEARSAL_TARGET_CLASS='clone'/g)).toHaveLength(2)
+    expect(runbook.match(/REHEARSAL_EXPECTED_BASELINE_VERSION='20260709113000'/g)).toHaveLength(2)
     expect(runbook).toContain('export TOOLS_SHA="$RELEASE_SHA"')
 
     const serviceOnlyBlock = aclVerifier.match(/v_service_only constant regprocedure\[\] := ARRAY\[([\s\S]*?)\n  \];/)?.[1] ?? ''
@@ -161,7 +174,7 @@ describe('Prompt 1-8 clone rehearsal scripts', () => {
       'POST\t/api/payments/capture\tapp/api/payments/capture/route.ts\tlib/planner/depositPayments.ts\tservice_role\ttable\tpublic.payouts\tINSERT\tOld capture writes the payout ledger with the service role.',
     )
     expect(fs.readFileSync(path.join(bundleArtifacts, 'old-production-source-inventory.tsv'), 'utf8'))
-      .toContain('7ae25892db0fc7233d1b35c0bcb0f0596bbde7de')
+      .toContain('b88870ed09f2f2c5b57d8228c56b8fa87906f9d1')
   })
 
   it('refuses declared production identities before any database call', () => {
@@ -250,7 +263,7 @@ fi
     expect(fs.existsSync(path.join(artifacts, 'setup-receipt.txt'))).toBe(false)
   })
 
-  it('refuses a 20260709110000 baseline when the PR 203 prerequisite ledger row is missing', () => {
+  it('refuses a 20260709113000 baseline when the 111000 prerequisite ledger row is missing', () => {
     const fakeBin = temporaryDirectory('rehearsal-missing-prerequisite-bin-')
     const artifacts = temporaryDirectory('rehearsal-missing-prerequisite-')
     const fakePsql = path.join(fakeBin, 'psql')
@@ -258,11 +271,11 @@ fi
 set -euo pipefail
 args="$*"
 if [[ "$args" == *"environment_guard"* ]]; then
-  echo "clone|true|clone-test-001|snapshot-missing-pr-203"
+  echo "clone|true|clone-test-001|snapshot-missing-111000"
 elif [[ "$args" == *"max(version)"* ]]; then
-  echo "20260709110000"
-elif [[ "$args" == *"20260701090000"* && "$args" == *"20260709090000"* && "$args" == *"20260709100000"* && "$args" == *"20260709110000"* ]]; then
-  echo "20260701090000,20260709100000,20260709110000"
+  echo "20260709113000"
+elif [[ "$args" == *"20260701090000"* && "$args" == *"20260709090000"* && "$args" == *"20260709100000"* && "$args" == *"20260709110000"* && "$args" == *"20260709111000"* && "$args" == *"20260709113000"* ]]; then
+  echo "20260701090000,20260709090000,20260709100000,20260709110000,20260709113000"
 else
   exit 99
 fi
@@ -279,7 +292,7 @@ fi
 
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('clone prerequisite ledger mismatch')
-    expect(result.stderr).toContain('20260709090000')
+    expect(result.stderr).toContain('20260709111000')
     expect(fs.existsSync(path.join(artifacts, 'setup-receipt.txt'))).toBe(false)
   })
 
@@ -289,7 +302,7 @@ fi
     const ledgerState = path.join(fakeBin, 'ledger-state')
     const invocationLog = path.join(fakeBin, 'invocations')
     const fakePsql = path.join(fakeBin, 'psql')
-    fs.writeFileSync(ledgerState, '20260701090000\n20260709090000\n20260709100000\n20260709110000\n')
+    fs.writeFileSync(ledgerState, '20260701090000\n20260709090000\n20260709100000\n20260709110000\n20260709111000\n20260709113000\n')
     fs.writeFileSync(invocationLog, '')
     fs.writeFileSync(fakePsql, `#!/usr/bin/env bash
 set -euo pipefail
@@ -299,10 +312,10 @@ if [[ "$args" == *"environment_guard"* ]]; then
   echo "clone|true|clone-test-001|snapshot-test-001"
 elif [[ "$args" == *"current_database()"* ]]; then
   echo "clone_db@127.0.0.1:5432"
-elif [[ "$args" == *"string_agg(version"* && "$args" == *"20260701090000"* && "$args" == *"20260709090000"* && "$args" == *"20260709100000"* && "$args" == *"20260709110000"* ]]; then
-  echo "20260701090000,20260709090000,20260709100000,20260709110000"
+elif [[ "$args" == *"string_agg(version"* && "$args" == *"20260701090000"* && "$args" == *"20260709090000"* && "$args" == *"20260709100000"* && "$args" == *"20260709110000"* && "$args" == *"20260709111000"* && "$args" == *"20260709113000"* ]]; then
+  echo "20260701090000,20260709090000,20260709100000,20260709110000,20260709111000,20260709113000"
 elif [[ "$args" == *"string_agg(version"* && "$args" == *"20260709114000"* ]]; then
-  grep '^202607091[1-9]' "$FAKE_LEDGER_STATE" | grep -v '^20260709110000$' | paste -sd, - || true
+  grep '^202607091[1-9]' "$FAKE_LEDGER_STATE" | grep -Ev '^202607091(10000|11000|13000)$' | paste -sd, - || true
 elif [[ "$args" == *"max(version)"* ]]; then
   tail -n 1 "$FAKE_LEDGER_STATE"
 elif [[ "$args" == *"rehearsal_injected_failure_at_"* ]]; then
@@ -348,7 +361,7 @@ fi
     const artifacts = temporaryDirectory('rehearsal-pre-sentinel-failure-')
     const ledgerState = path.join(fakeBin, 'ledger-state')
     const fakePsql = path.join(fakeBin, 'psql')
-    fs.writeFileSync(ledgerState, '20260701090000\n20260709090000\n20260709100000\n20260709110000\n')
+    fs.writeFileSync(ledgerState, '20260701090000\n20260709090000\n20260709100000\n20260709110000\n20260709111000\n20260709113000\n')
     fs.writeFileSync(fakePsql, `#!/usr/bin/env bash
 set -euo pipefail
 args="$*"
@@ -356,10 +369,10 @@ if [[ "$args" == *"environment_guard"* ]]; then
   echo "clone|true|clone-test-001|snapshot-pre-sentinel-failure"
 elif [[ "$args" == *"current_database()"* ]]; then
   echo "clone_db@127.0.0.1:5432"
-elif [[ "$args" == *"string_agg(version"* && "$args" == *"20260701090000"* && "$args" == *"20260709090000"* && "$args" == *"20260709100000"* && "$args" == *"20260709110000"* ]]; then
-  echo "20260701090000,20260709090000,20260709100000,20260709110000"
+elif [[ "$args" == *"string_agg(version"* && "$args" == *"20260701090000"* && "$args" == *"20260709090000"* && "$args" == *"20260709100000"* && "$args" == *"20260709110000"* && "$args" == *"20260709111000"* && "$args" == *"20260709113000"* ]]; then
+  echo "20260701090000,20260709090000,20260709100000,20260709110000,20260709111000,20260709113000"
 elif [[ "$args" == *"string_agg(version"* && "$args" == *"20260709114000"* ]]; then
-  grep '^202607091[1-9]' "$FAKE_LEDGER_STATE" | grep -v '^20260709110000$' | paste -sd, - || true
+  grep '^202607091[1-9]' "$FAKE_LEDGER_STATE" | grep -Ev '^202607091(10000|11000|13000)$' | paste -sd, - || true
 elif [[ "$args" == *"max(version)"* ]]; then
   tail -n 1 "$FAKE_LEDGER_STATE"
 elif [[ "$args" == *"rehearsal_injected_failure_at_"* ]]; then
@@ -389,7 +402,7 @@ fi
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('failed before the deliberate failure sentinel executed')
     expect(result.stderr).not.toContain('Deliberate failure verified')
-    expect(fs.readFileSync(ledgerState, 'utf8').trim().split('\n').pop()).toBe('20260709110000')
+    expect(fs.readFileSync(ledgerState, 'utf8').trim().split('\n').pop()).toBe('20260709113000')
     const failureProof = fs.readFileSync(path.join(artifacts, 'deliberate-failure-proof.txt'), 'utf8')
     expect(failureProof).toContain('injected_failure_observed=false')
     expect(failureProof).toContain('proof=FAILED')
@@ -403,7 +416,7 @@ fi
     const ledgerState = path.join(fakeBin, 'ledger-state')
     const invocationLog = path.join(fakeBin, 'invocations')
     const fakePsql = path.join(fakeBin, 'psql')
-    fs.writeFileSync(ledgerState, '20260701090000\n20260709090000\n20260709100000\n20260709110000\n')
+    fs.writeFileSync(ledgerState, '20260701090000\n20260709090000\n20260709100000\n20260709110000\n20260709111000\n20260709113000\n')
     fs.writeFileSync(invocationLog, '')
     fs.writeFileSync(fakePsql, `#!/usr/bin/env bash
 set -euo pipefail
@@ -413,10 +426,10 @@ if [[ "$args" == *"environment_guard"* ]]; then
   echo "clone|true|clone-test-001|snapshot-test-full"
 elif [[ "$args" == *"current_database()"* ]]; then
   echo "clone_db@127.0.0.1:5432"
-elif [[ "$args" == *"string_agg(version"* && "$args" == *"20260701090000"* && "$args" == *"20260709090000"* && "$args" == *"20260709100000"* && "$args" == *"20260709110000"* ]]; then
-  echo "20260701090000,20260709090000,20260709100000,20260709110000"
+elif [[ "$args" == *"string_agg(version"* && "$args" == *"20260701090000"* && "$args" == *"20260709090000"* && "$args" == *"20260709100000"* && "$args" == *"20260709110000"* && "$args" == *"20260709111000"* && "$args" == *"20260709113000"* ]]; then
+  echo "20260701090000,20260709090000,20260709100000,20260709110000,20260709111000,20260709113000"
 elif [[ "$args" == *"string_agg(version"* && "$args" == *"20260709114000"* ]]; then
-  grep '^202607091[1-9]' "$FAKE_LEDGER_STATE" | grep -v '^20260709110000$' | paste -sd, - || true
+  grep '^202607091[1-9]' "$FAKE_LEDGER_STATE" | grep -Ev '^202607091(10000|11000|13000)$' | paste -sd, - || true
 elif [[ "$args" == *"max(version)"* ]]; then
   tail -n 1 "$FAKE_LEDGER_STATE"
 elif [[ "$args" == *"INSERT INTO supabase_migrations.schema_migrations"* ]]; then
@@ -446,7 +459,7 @@ fi
 
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('Last committed version: 20260709178000')
-    expect(fs.readFileSync(ledgerState, 'utf8').trim().split('\n')).toHaveLength(26)
+    expect(fs.readFileSync(ledgerState, 'utf8').trim().split('\n')).toHaveLength(28)
     expect(fs.readFileSync(path.join(artifacts, 'migration-timings.tsv'), 'utf8').trim().split('\n')).toHaveLength(23)
     expect(fs.readFileSync(path.join(artifacts, 'last-committed-version.txt'), 'utf8').trim()).toBe('20260709178000')
     const report = fs.readFileSync(path.join(artifacts, 'rehearsal-report.md'), 'utf8')
