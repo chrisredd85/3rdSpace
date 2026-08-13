@@ -46,7 +46,7 @@ export function buildLegacyPlanApprovalSnapshotHash(input: Pick<ApprovalSnapshot
 }
 
 export function approvalRequiresReapproval(input: ReapprovalCheckInput): boolean {
-  if (!input.storedSnapshotHash) return false
+  if (!input.storedSnapshotHash?.trim()) return true
 
   const nextSnapshotHash = buildApprovalSnapshotHash(input)
   if (input.storedSnapshotHash === nextSnapshotHash) return false

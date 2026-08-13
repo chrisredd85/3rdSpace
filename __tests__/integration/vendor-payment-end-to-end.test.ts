@@ -38,6 +38,7 @@ import { POST as captureDeposit } from '@/app/api/payments/capture/route'
 import { GET as reconcileCapturedDeposits } from '@/app/api/admin/reconcile/captured-deposits/route'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getWorkerOrAdminContext } from '@/lib/server/admin-auth'
+import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
 import type { Approval, Plan } from '@/lib/types'
 
 jest.mock('@/lib/supabase/server', () => ({
@@ -629,7 +630,7 @@ function seedDb(input: {
     payouts_enabled: true,
     details_submitted: true,
   })
-  db.rows.agent_actions.push({
+  const action = {
     id: ACTION_ID,
     plan_id: PLAN_ID,
     action_type: 'payment',
@@ -650,8 +651,10 @@ function seedDb(input: {
     result_metadata: {},
     created_at: now,
     updated_at: now,
-  })
-  db.rows.approvals.push({
+  }
+  db.rows.agent_actions.push(action)
+
+  const approval = {
     id: APPROVAL_ID,
     plan_id: PLAN_ID,
     agent_action_id: ACTION_ID,
@@ -675,10 +678,16 @@ function seedDb(input: {
     approved_by: input.approvalStatus === 'authorized' || input.approvalStatus === 'approved' ? USER_ID : null,
     approved_at: input.approvalStatus === 'authorized' || input.approvalStatus === 'approved' ? now : null,
     expires_at: null,
-    snapshot_hash: null,
+    snapshot_hash: '',
     created_at: now,
     updated_at: now,
+  }
+  approval.snapshot_hash = buildApprovalSnapshotHash({
+    plan,
+    approval,
+    action,
   })
+  db.rows.approvals.push(approval)
 
   setupSupabaseMocks(db)
   return db

@@ -18,7 +18,7 @@ import {
   AGENT_ACTION_EXECUTION_SELECT_COLUMNS,
   paymentCaptureTransitionEvents,
 } from '@/lib/planner/execution/executeApprovedAction'
-import { isPaymentApprovalExpired } from '@/lib/planner/execution/paymentApproval'
+import { validateExecutableApprovalEvidence } from '@/lib/planner/execution/paymentApproval'
 import { approvalRequiresReapproval } from '@/lib/planner/execution/reapproval'
 import {
   assertPlannerPartnerStripeReady,
@@ -100,10 +100,11 @@ export async function POST(
     if (approval.status !== 'authorized' && approval.status !== 'approved') {
       return NextResponse.json({ error: 'Approval must be authorized before capture' }, { status: 422 })
     }
-    if (isPaymentApprovalExpired(approval.expires_at)) {
+    const approvalEvidence = validateExecutableApprovalEvidence(approval)
+    if (!approvalEvidence.ok) {
       return NextResponse.json(
-        { error: 'Approval expired. Review the latest terms and approve again.' },
-        { status: 409 }
+        { error: approvalEvidence.error },
+        { status: approvalEvidence.status }
       )
     }
 

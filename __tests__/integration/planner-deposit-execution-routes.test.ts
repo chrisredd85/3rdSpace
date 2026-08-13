@@ -140,6 +140,10 @@ class MemoryDb {
       if (
         !payment || !approval || !action ||
         !['approved', 'authorized'].includes(String(approval.status)) ||
+        typeof approval.authorized_by !== 'string' || !approval.authorized_by.trim() ||
+        typeof approval.authorized_at !== 'string' || !approval.authorized_at.trim() ||
+        typeof approval.snapshot_hash !== 'string' || !approval.snapshot_hash.trim() ||
+        typeof params.p_expected_snapshot_hash !== 'string' || !params.p_expected_snapshot_hash.trim() ||
         (approval.expires_at != null && Date.parse(String(approval.expires_at)) <= Date.now()) ||
         approval.snapshot_hash !== params.p_expected_snapshot_hash ||
         !['approved', 'executing'].includes(String(action.status)) ||
@@ -516,6 +520,26 @@ function seedAuthenticationAttempt(
       stripe_payment_method_id: 'pm_sca_attempt',
     })
   }
+}
+
+function seedAuthorizedPaymentIntent(db: MemoryDb, stripePaymentIntentId = 'pi_evidence_check') {
+  db.rows.agent_actions[0].status = 'executing'
+  db.rows.payment_intents.push({
+    id: PAYMENT_INTENT_ID,
+    plan_id: PLAN_ID,
+    'plans.user_id': USER_ID,
+    approval_id: APPROVAL_ID,
+    partner_kind: 'venue',
+    partner_id: PARTNER_ID,
+    amount_cents: 25_000,
+    currency: 'usd',
+    status: 'authorized',
+    stripe_payment_intent_id: stripePaymentIntentId,
+    authorized_at: new Date().toISOString(),
+    captured_at: null,
+    refund_terms: 'Refundable',
+    platform_fee_cents: 0,
+  })
 }
 
 describe('planner deposit execution routes', () => {
@@ -1213,6 +1237,84 @@ describe('planner deposit execution routes', () => {
 
     expect(response.status).toBe(422)
     expect(db.rows.payment_intents).toHaveLength(0)
+  })
+
+  it.each([
+    ['missing authorization actor', { authorized_by: null }],
+    ['missing authorization time', { authorized_at: null }],
+    ['missing snapshot', { snapshot_hash: null }],
+    ['blank snapshot', { snapshot_hash: '   ' }],
+  ])('rejects deposit authorization with %s before Stripe', async (_label, approvalPatch) => {
+    const db = seedDb()
+    Object.assign(db.rows.approvals[0], approvalPatch)
+
+    const response = await authorizeDeposit(
+      request(`/api/planner/plans/${PLAN_ID}/payments/authorize`, {
+        approvalId: APPROVAL_ID,
+        partnerKind: 'venue',
+        partnerId: PARTNER_ID,
+        amountCents: 25_000,
+        paymentMethodId: 'pm_missing_evidence',
+      }),
+      { params: { planId: PLAN_ID } }
+    )
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: 'Approval is missing authorization evidence. Review the latest terms and approve again.',
+    })
+    expect(db.rows.payment_intents).toHaveLength(0)
+    expect(db.rows.agent_actions[0].status).toBe('approved')
+    expect(db.rows.agent_action_audit_log).toHaveLength(0)
+    expect(mockStripePaymentIntentsCreate).not.toHaveBeenCalled()
+    expect(mockStripePaymentIntentsRetrieve).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['missing authorization actor', { authorized_by: null }],
+    ['missing authorization time', { authorized_at: null }],
+    ['missing snapshot', { snapshot_hash: null }],
+    ['blank snapshot', { snapshot_hash: '   ' }],
+  ])('rejects deposit capture with %s before Stripe', async (_label, approvalPatch) => {
+    const db = seedDb()
+    Object.assign(db.rows.approvals[0], approvalPatch)
+    seedAuthorizedPaymentIntent(db)
+
+    const response = await captureDeposit(request('/api/payments/capture', {
+      paymentIntentId: PAYMENT_INTENT_ID,
+      approvalId: APPROVAL_ID,
+      explicitUserConfirmation: true,
+    }))
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: 'Approval is missing authorization evidence. Review the latest terms and approve again.',
+    })
+    expect(mockStripePaymentIntentsRetrieve).not.toHaveBeenCalled()
+    expect(mockStripePaymentIntentsCapture).not.toHaveBeenCalled()
+    expect(db.rows.payment_intents[0].status).toBe('authorized')
+    expect(db.rows.payouts).toHaveLength(0)
+  })
+
+  it('fails closed in the capture reservation model when stored and expected snapshots are both null', async () => {
+    const db = seedDb()
+    db.rows.approvals[0].snapshot_hash = null
+    seedAuthorizedPaymentIntent(db, 'pi_null_snapshot_reservation')
+
+    const result = await db.rpc('reserve_planner_deposit_capture', {
+      p_payment_intent_id: PAYMENT_INTENT_ID,
+      p_plan_id: PLAN_ID,
+      p_approval_id: APPROVAL_ID,
+      p_expected_snapshot_hash: null,
+      p_expected_amount_cents: 25_000,
+      p_expected_partner_kind: 'venue',
+      p_expected_partner_id: PARTNER_ID,
+      p_capture_attempt_id: '550e8400-e29b-41d4-a716-446655440099',
+    })
+
+    expect(result).toEqual({ data: [], error: null })
+    expect(db.rows.payment_intents[0].status).toBe('authorized')
+    expect(db.rows.payment_intents[0].capture_attempt_id).toBeUndefined()
   })
 
   it('rejects an expired approval before creating a Stripe authorization', async () => {

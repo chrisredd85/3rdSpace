@@ -14,6 +14,9 @@ jest.mock('next/server', () => ({
   },
 }))
 
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+
 import { POST as postPlatformFee } from '@/app/api/payments/platform-fee/route'
 import { POST as postRefund } from '@/app/api/payments/refund/route'
 import { POST as postBulkRefund } from '@/app/api/payments/refund/process/route'
@@ -74,6 +77,15 @@ const VENDOR_TX_ID = '55555555-5555-4555-8555-555555555555'
 const PLATFORM_TX_ID = '66666666-6666-4666-8666-666666666666'
 const APPROVAL_ID = '77777777-7777-4777-8777-777777777777'
 const PLATFORM_APPROVAL_ID = '88888888-8888-4888-8888-888888888888'
+
+const PAYMENT_APPROVAL_CONSUMERS = [
+  'app/api/payments/create-intent/route.ts',
+  'app/api/payments/platform-fee/route.ts',
+  'app/api/payments/refund/route.ts',
+  'app/api/payments/refund/process/route.ts',
+  'app/api/payments/vendor/route.ts',
+  'app/api/planner/plans/[planId]/venue-payment/checkout/route.ts',
+] as const
 
 class MemoryDb {
   rows: Record<string, Row[]> = {
@@ -258,8 +270,10 @@ function makeApproval(overrides: Row = {}) {
     requested_amount_cents: 10000,
     authorized_amount_cents: null,
     price_cents: null,
+    authorized_by: USER_ID,
+    authorized_at: '2026-08-01T12:00:00.000Z',
     expires_at: null,
-    snapshot_hash: null,
+    snapshot_hash: 'sha256:approved-payment-snapshot',
     provider: 'stripe',
     ...overrides,
   }
@@ -321,6 +335,40 @@ describe('legacy money route approval gates', () => {
       total_refund: 110,
     })
     ;(sendEmailNotification as jest.Mock).mockResolvedValue({ sent: true })
+  })
+
+  it('keeps all six legacy money consumers wired through the shared evidence validator', () => {
+    expect(PAYMENT_APPROVAL_CONSUMERS).toHaveLength(6)
+
+    for (const relativePath of PAYMENT_APPROVAL_CONSUMERS) {
+      const source = readFileSync(path.join(process.cwd(), relativePath), 'utf8')
+
+      expect(source).toContain('PAYMENT_APPROVAL_SELECT_COLUMNS')
+      expect(source).toContain('validatePaymentApprovalForExecution')
+      expect(source).toMatch(/validatePaymentApprovalForExecution\s*\(\s*\{/)
+      expect(source).toMatch(/\.select\([\s\S]*?PAYMENT_APPROVAL_SELECT_COLUMNS/)
+    }
+  })
+
+  it.each([
+    ['missing actor', { authorized_by: null }, 'APPROVAL_EVIDENCE_MISSING'],
+    ['missing authorization time', { authorized_at: null }, 'APPROVAL_EVIDENCE_MISSING'],
+    ['missing snapshot', { snapshot_hash: null }, 'APPROVAL_EVIDENCE_MISSING'],
+    ['blank snapshot', { snapshot_hash: '   ' }, 'APPROVAL_EVIDENCE_MISSING'],
+    ['expired approval', { expires_at: '2020-01-01T00:00:00.000Z' }, 'APPROVAL_EXPIRED'],
+  ])('rejects platform fee before Stripe for %s', async (_label, approvalPatch, expectedCode) => {
+    Object.assign(db.rows.approvals[1], approvalPatch)
+
+    const response = await postPlatformFee(makeRequest('http://localhost/api/payments/platform-fee', {
+      bookingId: BOOKING_ID,
+      approval_id: PLATFORM_APPROVAL_ID,
+      paymentMethodId: 'pm_card',
+    }))
+    const json = await response.json()
+
+    expect(response.status).toBe(409)
+    expect(json.code).toBe(expectedCode)
+    expect(stripe.paymentIntents.create).not.toHaveBeenCalled()
   })
 
   it('rejects platform fee charge when approval_id is missing', async () => {
