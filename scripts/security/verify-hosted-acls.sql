@@ -77,6 +77,14 @@ BEGIN
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public'
       AND p.prosecdef
+      AND NOT EXISTS (
+        SELECT 1
+        FROM pg_depend d
+        WHERE d.classid = 'pg_proc'::regclass
+          AND d.objid = p.oid
+          AND d.refclassid = 'pg_extension'::regclass
+          AND d.deptype = 'e'
+      )
       AND NOT (p.oid::regprocedure = ANY(v_service_only || v_authenticated))
   ) privileged;
 
@@ -90,6 +98,14 @@ BEGIN
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public'
       AND p.prosecdef
+      AND NOT EXISTS (
+        SELECT 1
+        FROM pg_depend d
+        WHERE d.classid = 'pg_proc'::regclass
+          AND d.objid = p.oid
+          AND d.refclassid = 'pg_extension'::regclass
+          AND d.deptype = 'e'
+      )
   ) <> cardinality(v_service_only) + cardinality(v_authenticated) THEN
     RAISE EXCEPTION 'Hosted SECURITY DEFINER count does not match the 52-function allowlist';
   END IF;
@@ -195,6 +211,14 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public'
   AND p.prosecdef
+  AND NOT EXISTS (
+    SELECT 1
+    FROM pg_depend d
+    WHERE d.classid = 'pg_proc'::regclass
+      AND d.objid = p.oid
+      AND d.refclassid = 'pg_extension'::regclass
+      AND d.deptype = 'e'
+  )
 ORDER BY 1;
 
 SELECT
