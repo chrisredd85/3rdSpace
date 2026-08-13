@@ -265,6 +265,7 @@ export function EventVenueStep({
                     src={(venue as unknown as { photo_url: string }).photo_url}
                     alt={venue.name}
                     fill
+                    unoptimized
                     sizes="(min-width: 768px) 33vw, 100vw"
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                   />

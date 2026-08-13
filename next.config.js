@@ -7,10 +7,15 @@ const { withSentryConfig } = require('@sentry/nextjs')
 const nextConfig = {
   reactStrictMode: true,
   images: {
-    domains: [
-      // Add your Supabase storage domain
-      process.env.NEXT_PUBLIC_SUPABASE_URL?.replace('https://', '').split('.')[0] + '.supabase.co',
-    ].filter(Boolean),
+    // Server-side optimization is limited to this reviewed local asset. User-controlled
+    // storage images are rendered with `unoptimized` and never enter Sharp.
+    localPatterns: [
+      {
+        pathname: '/lovable/hero-venue.jpg',
+        search: '',
+      },
+    ],
+    remotePatterns: [],
     formats: ['image/avif', 'image/webp'],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],

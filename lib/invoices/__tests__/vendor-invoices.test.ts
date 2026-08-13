@@ -14,6 +14,7 @@ import {
   getInvoiceStatus,
   normalizeLineItems,
   renderInvoiceHtml,
+  renderInvoicePdfBuffer,
   sendInvoiceEmail,
   type VendorInvoice,
 } from '@/lib/invoices/vendor-invoices'
@@ -131,6 +132,45 @@ describe('vendor invoice helpers', () => {
     expect(html).toContain('&lt;Vendor&gt;')
     expect(html).toContain(formatCurrency(100))
     expect(html).not.toContain('<script>alert(1)</script>')
+  })
+
+  it('renders invoice bytes directly through the native PDF implementation', () => {
+    const invoice = {
+      id: 'invoice-1',
+      booking_id: 'booking-1',
+      vendor_id: 'vendor-1',
+      event_id: 'event-1',
+      builder_id: 'builder-1',
+      invoice_number: 'INV-001',
+      line_items: [{ description: 'Photography', quantity: 1, unit_price: 100, total: 100 }],
+      subtotal: 100,
+      tax_rate: 0,
+      tax_amount: 0,
+      total: 100,
+      deposit_amount: 25,
+      deposit_due_date: '2026-05-01',
+      deposit_paid: false,
+      deposit_paid_at: null,
+      final_amount: 75,
+      final_due_date: '2026-05-15',
+      final_paid: false,
+      final_paid_at: null,
+      status: 'sent',
+      pdf_url: null,
+      sent_at: '2026-04-29T00:00:00Z',
+      created_at: '2026-04-29T00:00:00Z',
+      updated_at: '2026-04-29T00:00:00Z',
+    } satisfies VendorInvoice
+
+    const pdf = renderInvoicePdfBuffer({
+      invoice,
+      vendor: { name: 'Venue Photography' },
+      event: { event_name: 'Founding Host Dinner' },
+      builder: { name: '3rdPlace Host' },
+    })
+
+    expect(Buffer.isBuffer(pdf)).toBe(true)
+    expect(pdf.subarray(0, 8).toString('ascii')).toBe('%PDF-1.4')
   })
 
   it('sends invoice email attachments through Resend', async () => {

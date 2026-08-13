@@ -33,7 +33,7 @@ Each role gets its own authenticated dashboard, its own set of API routes, and i
 | **Client state** | Zustand | Lightweight auth store only — not overused |
 | **Forms** | React Hook Form + Zod | Schema-driven validation with type-safe error messages |
 | **Charts** | Recharts | Analytics dashboards |
-| **PDF generation** | Puppeteer (server-side) | Invoice PDF rendering |
+| **PDF generation** | Native PDF renderer (server-side) | Invoice PDF rendering |
 | **Payments** | Stripe (placeholder) | SDK integrated, UI gated — see §9 |
 | **Email** | Configurable (env-driven) | See `lib/email.ts` |
 | **Testing** | Jest (unit/integration) + Playwright (E2E) | |
@@ -231,7 +231,7 @@ Row-level security (RLS) is enabled on all tables. Policies enforce that users c
 2. Creates service listings and packages
 3. Sets availability calendar with blocked dates
 4. Receives booking requests → reviews details → approves/rejects (with optional note)
-5. Sends invoices to clients (PDF generation via Puppeteer)
+5. Sends invoices to clients (PDF generation via the native renderer)
 6. Payouts: Stripe Connect (placeholder)
 
 ---

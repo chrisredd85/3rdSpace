@@ -80,6 +80,7 @@ export function OptimizedImage({
   fill = false,
 }: OptimizedImageProps) {
   const [imageError, setImageError] = useState(false)
+  const isRemote = src.startsWith('http://') || src.startsWith('https://')
 
   // Fallback for external images or errors
   if (imageError || (!src.startsWith('/') && !src.startsWith('http'))) {
@@ -99,6 +100,7 @@ export function OptimizedImage({
         src={src}
         alt={alt}
         fill
+        unoptimized={isRemote}
         className={cn(className, `object-${objectFit}`)}
         loading={loading}
         priority={priority}
@@ -116,6 +118,7 @@ export function OptimizedImage({
       alt={alt}
       width={width}
       height={height}
+      unoptimized={isRemote}
       className={cn(className, `object-${objectFit}`)}
       loading={loading}
       priority={priority}

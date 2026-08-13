@@ -59,8 +59,8 @@ export interface FileUploadProps {
  * @example
  * ```tsx
  * <FileUpload
- *   bucket="venue-photos"
- *   folderPath="venue-123"
+ *   bucket="vendor-photos"
+ *   folderPath="vendor-123"
  *   accept="image/*"
  *   onUploadComplete={(url) => setPhotoUrl(url)}
  * />

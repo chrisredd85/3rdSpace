@@ -658,41 +658,13 @@ export async function uploadInvoicePdf(admin: any, invoice: Pick<VendorInvoice, 
 }
 
 /**
- * Renders invoice PDF bytes using Puppeteer when installed, with a native fallback.
+ * Renders invoice PDF bytes with the native renderer used by download and email routes.
  *
- * @param context - Invoice context for HTML/PDF rendering.
+ * @param context - Invoice context for PDF rendering.
  * @returns PDF buffer.
  */
-export async function renderInvoicePdfBuffer(context: InvoiceContext) {
-  try {
-    const importPackage = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>
-    const puppeteer = await importPackage('puppeteer')
-    const browser = await puppeteer.default.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    })
-
-    try {
-      const page = await browser.newPage()
-      await page.setContent(renderInvoiceHtml(context), { waitUntil: 'networkidle0' })
-      const pdf = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: {
-          top: '20px',
-          right: '20px',
-          bottom: '20px',
-          left: '20px',
-        },
-      })
-      return Buffer.from(pdf)
-    } finally {
-      await browser.close()
-    }
-  } catch (error) {
-    console.warn('[invoices] Puppeteer PDF rendering unavailable, using native renderer', error)
-    return renderInvoicePdf(context)
-  }
+export function renderInvoicePdfBuffer(context: InvoiceContext) {
+  return renderInvoicePdf(context)
 }
 
 /**

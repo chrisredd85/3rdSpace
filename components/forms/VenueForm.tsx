@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { FormField } from './FormField'
-import { FileUpload } from './FileUpload'
 import { MultiSelect } from './MultiSelect'
 import type { VenueType } from '@/lib/types'
 
@@ -35,7 +34,7 @@ export type VenueFormData = z.infer<typeof venueSchema>
 
 export interface VenueFormProps {
   defaultValues?: Partial<VenueFormData>
-  onSubmit: (data: VenueFormData & { amenities: string[]; photos: string[] }) => Promise<void> | void
+  onSubmit: (data: VenueFormData & { amenities: string[] }) => Promise<void> | void
   onCancel?: () => void
   isLoading?: boolean
   submitLabel?: string
@@ -75,7 +74,6 @@ export function VenueForm({
   submitLabel = 'Save Venue',
 }: VenueFormProps) {
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([])
-  const [photoUrls, setPhotoUrls] = useState<string[]>([])
 
   const {
     register,
@@ -104,7 +102,6 @@ export function VenueForm({
     await onSubmit({
       ...data,
       amenities: selectedAmenities,
-      photos: photoUrls,
     })
   }
 
@@ -203,27 +200,6 @@ export function VenueForm({
             options={amenityOptions}
             value={selectedAmenities}
             onChange={setSelectedAmenities}
-          />
-        </CardContent>
-      </Card>
-
-      {/* Photos Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Photos</CardTitle>
-          <CardDescription>
-            Upload photos of your venue
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FileUpload
-            bucket="venue-photos"
-            folderPath="venue-photos"
-            accept="image/*"
-            multiple
-            existingFiles={photoUrls}
-            onUploadComplete={(url) => setPhotoUrls((prev) => [...prev, url])}
-            onRemove={(url) => setPhotoUrls((prev) => prev.filter((u) => u !== url))}
           />
         </CardContent>
       </Card>
