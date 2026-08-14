@@ -18,9 +18,9 @@ function scopedReport() {
         isDirect: true,
         via: ['sharp'],
         effects: [],
-        range: '9.3.4-canary.0 - 16.3.0-preview.10',
+        range: '9.5.6-canary.0 - 10.0.7 || 14.3.0-canary.0 - 16.3.0-preview.10',
         nodes: ['node_modules/next'],
-        fixAvailable: { name: 'next', version: '16.3.0', isSemVerMajor: true },
+        fixAvailable: { name: 'next', version: '16.3.1', isSemVerMajor: true },
       },
       sharp: {
         name: 'sharp',
@@ -40,7 +40,7 @@ function scopedReport() {
         effects: ['next'],
         range: '<0.35.0',
         nodes: ['node_modules/sharp'],
-        fixAvailable: { name: 'next', version: '16.3.0', isSemVerMajor: true },
+        fixAvailable: { name: 'next', version: '16.3.1', isSemVerMajor: true },
       },
       harmless: {
         name: 'harmless',
@@ -62,7 +62,7 @@ function scopedReport() {
 const beforeExpiry = new Date('2026-08-12T12:00:00.000Z')
 
 describe('dependency audit policy', () => {
-  it('accepts only the exact GHSA-f88m Sharp-to-Next chain before expiry', () => {
+  it('accepts only the exact security-relevant GHSA-f88m Sharp-to-Next chain before expiry', () => {
     expect(validateAuditReport(scopedReport(), beforeExpiry)).toEqual({
       allowedAdvisory: 'GHSA-f88m-g3jw-g9cj',
       allowedPackages: ['next', 'sharp'],
@@ -70,6 +70,32 @@ describe('dependency audit policy', () => {
       high: 2,
       critical: 0,
     })
+  })
+
+  it('accepts npm remediation-version drift while preserving security invariants', () => {
+    const report = scopedReport()
+    report.vulnerabilities.next.fixAvailable.version = '16.3.2'
+    report.vulnerabilities.sharp.fixAvailable.version = '16.3.2'
+
+    expect(validateAuditReport(report, beforeExpiry)).toEqual({
+      allowedAdvisory: 'GHSA-f88m-g3jw-g9cj',
+      allowedPackages: ['next', 'sharp'],
+      expiresAt: SHARP_EXCEPTION.expiresAt,
+      high: 2,
+      critical: 0,
+    })
+  })
+
+  it('fails closed when npm reports a narrow non-major remediation', () => {
+    const report = scopedReport()
+    report.vulnerabilities.next.fixAvailable.version = '15.5.24'
+    report.vulnerabilities.next.fixAvailable.isSemVerMajor = false
+    report.vulnerabilities.sharp.fixAvailable.version = '15.5.24'
+    report.vulnerabilities.sharp.fixAvailable.isSemVerMajor = false
+
+    expect(() => validateAuditReport(report, beforeExpiry)).toThrow(
+      'Sharp remediation is no longer a breaking Next upgrade'
+    )
   })
 
   it('fails closed when the exception expires', () => {
