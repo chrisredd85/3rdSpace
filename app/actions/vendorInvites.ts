@@ -3,6 +3,7 @@
 import { headers } from 'next/headers'
 import { z } from 'zod'
 import { sendEmailNotification } from '@/lib/email'
+import { getPlanCanonicalEventId } from '@/lib/planner/eventIdentity'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { ServiceType } from '@/lib/types'
 import { createVendorClaimToken } from '@/lib/vendors/vendorInviteTokens'
@@ -127,18 +128,14 @@ async function getPlanSourceEventId(admin: any, userId: string, planId?: string 
 
   const { data: plan, error } = await admin
     .from('plans')
-    .select('id, user_id, metadata')
+    .select('id, user_id, materialized_event_id')
     .eq('id', planId)
     .eq('user_id', userId)
     .maybeSingle()
 
   if (error || !plan) return null
 
-  const metadata = plan.metadata && typeof plan.metadata === 'object' && !Array.isArray(plan.metadata)
-    ? plan.metadata as Record<string, unknown>
-    : {}
-  const eventId = metadata.event_id
-  return typeof eventId === 'string' ? eventId : null
+  return getPlanCanonicalEventId(plan)
 }
 
 async function getOrigin() {

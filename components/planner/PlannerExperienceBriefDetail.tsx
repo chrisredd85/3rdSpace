@@ -173,6 +173,7 @@ export function PlannerExperienceBriefDetail({ planId }: PlannerExperienceBriefD
           planId={plan.id}
           messages={messages}
           onDateChangeRequest={handleDateChangeRequest}
+          onEventMaterialized={loadBrief}
           onNavigateToTab={handleNavigateToPlannerTab}
         />
       </div>

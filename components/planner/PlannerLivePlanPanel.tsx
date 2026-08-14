@@ -26,7 +26,9 @@ import {
   WalletCards,
 } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { EntityReadinessBadge } from '@/components/planner/EntityReadinessBadge'
+import { PlannerEventMaterializationCard } from '@/components/planner/PlannerEventMaterializationCard'
 import { InviteVendorModal } from '@/components/planner/InviteVendorModal'
 import { InviteVenueModal } from '@/components/planner/InviteVenueModal'
 import { ReportIncorrectInfoModal, type ReportIncorrectInfoEntity } from '@/components/planner/ReportIncorrectInfoModal'
@@ -68,6 +70,8 @@ interface CustomCostItem {
 
 interface PendingApproval {
   id: string
+  approvalId: string | null
+  messageId: string
   label: string
   amountCents: number | null
   status: string
@@ -180,6 +184,7 @@ interface PlannerLivePlanPanelProps {
   /** When true, renders as an inline block (no fixed height, no border-l, no shadow). */
   inline?: boolean
   onDateChangeRequest?: (input: PlannerDateChangeRequestInput) => Promise<void>
+  onEventMaterialized?: () => Promise<void> | void
   onNavigateToTab?: (tabId: 'approvals', messageId?: string) => void
 }
 
@@ -204,6 +209,7 @@ interface LivePlanSnapshot {
   eventCity: string | null
   dateWindowStart: string | null
   dateWindowEnd: string | null
+  materializedEventId: string | null
   ticketed: boolean | null
   ticketingModel: string | null
   ticketPriceTargetCents: number | null
@@ -239,6 +245,7 @@ interface PlanRevisionSnapshot {
 
 interface OutreachReplyOption {
   kind: 'venue' | 'vendor'
+  responseId: string
   discoveryId: string
   name: string
   serviceType: string | null
@@ -387,6 +394,7 @@ interface AuthorizationCardModel {
   amountLabel: string
   amountCents: number
   approvalId?: string
+  approvalMessageId?: string
   targetType?: string | null
   targetId?: string | null
   readinessIndicator?: EntityReadinessIndicator | null
@@ -507,6 +515,7 @@ function normalizeLivePlanSnapshot(value: unknown): LivePlanSnapshot | null {
     eventCity: readString(record.eventCity) ?? readString(record.event_city) ?? readString(metadata?.event_city),
     dateWindowStart: readString(record.dateWindowStart) ?? readString(record.date_window_start),
     dateWindowEnd: readString(record.dateWindowEnd) ?? readString(record.date_window_end),
+    materializedEventId: readString(record.materializedEventId) ?? readString(record.materialized_event_id),
     ticketed: readBoolean(record.ticketed) ?? isPaidTicketingModel(ticketingModel),
     ticketingModel,
     ticketPriceTargetCents:
@@ -596,12 +605,13 @@ function normalizeOutreachReplyOptions(value: unknown, kind: 'venue' | 'vendor')
   return value.flatMap((item) => {
     const record = asRecord(item)
     if (!record) return []
+    const responseId = readString(record.id) ?? readString(record.response_id)
     const discoveryId =
       readString(record.discovery_venue_id) ??
       readString(record.discoveryVendorId) ??
       readString(record.discovery_vendor_id) ??
       readString(record.discoveryId)
-    if (!discoveryId) return []
+    if (!responseId || !discoveryId) return []
     const name =
       readString(record.venue_name) ??
       readString(record.vendor_name) ??
@@ -610,17 +620,18 @@ function normalizeOutreachReplyOptions(value: unknown, kind: 'venue' | 'vendor')
 
     return [{
       kind,
+      responseId,
       discoveryId,
       name,
       serviceType: readString(record.service_type),
-      status: readString(record.status) ?? 'reply_received',
+      status: readString(record.status) ?? readString(record.classification) ?? 'reply_received',
       quoteCents:
         readNumber(record.quote_cents) ??
         readNumber(record.quoted_price_cents) ??
         readNumber(record.quoted_package_cents) ??
         readNumber(record.quoted_minimum_cents),
-      confidence: readNumber(record.confidence),
-      summary: readString(record.summary),
+      confidence: readNumber(record.confidence) ?? readNumber(record.classification_confidence),
+      summary: readString(record.summary) ?? readString(record.raw_response_excerpt),
       updatedAt: readString(record.updated_at) ?? readString(record.updatedAt),
     }]
   }).sort((first, second) => {
@@ -921,7 +932,8 @@ function deriveApprovals(messages: PlanMessage[]): PendingApproval[] {
     .map((message) => {
       const metadata = asRecord(message.metadata)
       const approval = asRecord(metadata?.approval) ?? metadata ?? {}
-      const id = readString(approval.id) ?? message.id
+      const approvalId = readString(approval.id)
+      const id = approvalId ?? message.id
       const amountCents =
         readNumber(approval.requested_amount_cents) ??
         readNumber(approval.authorized_amount_cents) ??
@@ -936,6 +948,8 @@ function deriveApprovals(messages: PlanMessage[]): PendingApproval[] {
 
       return {
         id,
+        approvalId,
+        messageId: message.id,
         label,
         amountCents: amountCents ?? null,
         status: readString(approval.status) ?? readString(metadata?.status) ?? 'pending',
@@ -1295,7 +1309,7 @@ function isActionableOutreachReply(option: OutreachReplyOption): boolean {
 }
 
 function quoteFeedbackKey(option: OutreachReplyOption): string {
-  return `${option.kind}:${option.discoveryId}:${option.serviceType ?? 'default'}`
+  return `${option.kind}:${option.responseId}`
 }
 
 function readProjectionBaseline(value: unknown): PlannerProjectionBaseline | null {
@@ -1406,8 +1420,10 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   sources = defaultSources,
   inline = false,
   onDateChangeRequest,
+  onEventMaterialized,
   onNavigateToTab,
 }: PlannerLivePlanPanelProps) {
+  const router = useRouter()
   const [livePayload, setLivePayload] = useState<LivePlanPanelPayload>(emptyPayload)
   const [actionFeedback, setActionFeedback] = useState<Record<string, 'loading' | 'sent' | 'error'>>({})
   const [expandedAuthorizationDetails, setExpandedAuthorizationDetails] = useState<Record<string, boolean>>({})
@@ -1701,7 +1717,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   async function handleCommitOutreachReply(option: OutreachReplyOption) {
     if (!activePlanId || activePlanId.startsWith('mock-plan-')) return
 
-    const feedbackKey = `${option.kind}:${option.discoveryId}:${option.serviceType ?? 'default'}`
+    const feedbackKey = quoteFeedbackKey(option)
     setQuoteCommitFeedback((current) => ({ ...current, [feedbackKey]: 'saving' }))
 
     try {
@@ -1713,33 +1729,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify(
-            option.kind === 'venue'
-              ? {
-                  discovery_venue_id: option.discoveryId,
-                  quoted_price_cents: option.quoteCents,
-                  quoted_deal_model: option.status,
-                  quoted_terms: {
-                    source: 'outreach_reply',
-                    status: option.status,
-                    summary: option.summary,
-                    confidence: option.confidence,
-                    updated_at: option.updatedAt,
-                  },
-                }
-              : {
-                  discovery_vendor_id: option.discoveryId,
-                  service_type: option.serviceType ?? 'other',
-                  quoted_package_cents: option.quoteCents,
-                  quoted_terms: {
-                    source: 'outreach_reply',
-                    status: option.status,
-                    summary: option.summary,
-                    confidence: option.confidence,
-                    updated_at: option.updatedAt,
-                  },
-                }
-          ),
+          body: JSON.stringify({ response_id: option.responseId }),
         }
       )
       const payload = await response.json().catch(() => ({})) as { error?: string }
@@ -1899,6 +1889,15 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   }
 
   async function handleAuthorizationAction(card: AuthorizationCardModel) {
+    if (card.approvalId && activePlanId && !activePlanId.startsWith('mock-plan-')) {
+      if (onNavigateToTab) {
+        onNavigateToTab('approvals', card.approvalMessageId)
+      } else {
+        router.push(`/planner?plan=${encodeURIComponent(activePlanId)}&tab=approvals`)
+      }
+      return
+    }
+
     if (!activePlanId || activePlanId.startsWith('mock-plan-')) {
       requestSignupGateForAuthorization(card)
       return
@@ -1907,45 +1906,38 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
     setActionFeedback((current) => ({ ...current, [card.id]: 'loading' }))
 
     try {
-      if (card.approvalId) {
-        const response = await fetch(`/api/planner/plans/${activePlanId}/approvals`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            approvalId: card.approvalId,
-            action: 'authorize',
-            authorizedAmountCents: card.amountCents,
-          }),
-        })
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
-          if (billingGate.handleBillingRequiredResponse(response, payload)) {
-            throw new Error('Choose a billing path to continue.')
-          }
-          throw new Error('Unable to authorize approval')
+      const response = await fetch(`/api/planner/plans/${activePlanId}/agent-actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actionType: 'hold_request',
+          targetType: 'venue',
+          payloadJson: {
+            source: 'live_plan_panel',
+            label: card.label,
+            amountLabel: card.amountLabel,
+          },
+          requestedAmountCents: card.amountCents,
+        }),
+      })
+      const payload = await response.json().catch(() => ({} as {
+        error?: string
+        message?: string
+        billingRequired?: boolean
+        approvalMessage?: { id?: string }
+      }))
+      if (!response.ok) {
+        if (billingGate.handleBillingRequiredResponse(response, payload)) {
+          throw new Error('Choose a billing path to continue.')
         }
+        throw new Error('Unable to create approval request')
+      }
+
+      const approvalMessageId = payload.approvalMessage?.id
+      if (onNavigateToTab) {
+        onNavigateToTab('approvals', approvalMessageId)
       } else {
-        const response = await fetch(`/api/planner/plans/${activePlanId}/agent-actions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            actionType: 'hold_request',
-            targetType: 'venue',
-            payloadJson: {
-              source: 'live_plan_panel',
-              label: card.label,
-              amountLabel: card.amountLabel,
-            },
-            requestedAmountCents: card.amountCents,
-          }),
-        })
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
-          if (billingGate.handleBillingRequiredResponse(response, payload)) {
-            throw new Error('Choose a billing path to continue.')
-          }
-          throw new Error('Unable to create hold request')
-        }
+        router.push(`/planner?plan=${encodeURIComponent(activePlanId)}&tab=approvals`)
       }
 
       setActionFeedback((current) => ({ ...current, [card.id]: 'sent' }))
@@ -1958,21 +1950,12 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
    * Asks the planner page to sign up the anonymous user, then resume this authorization.
    */
   function requestSignupGateForAuthorization(card: AuthorizationCardModel) {
-    const detail: PendingConversionAction = card.approvalId
-      ? {
-          type: 'authorize',
-          payload: {
-            approvalId: card.approvalId,
-            authorizedAmountCents: card.amountCents,
-            agentAction: buildLivePlanAgentActionPayload(card),
-          },
-        }
-      : {
-          type: 'hold',
-          payload: {
-            agentAction: buildLivePlanAgentActionPayload(card),
-          },
-        }
+    const detail: PendingConversionAction = {
+      type: 'hold',
+      payload: {
+        agentAction: buildLivePlanAgentActionPayload(card),
+      },
+    }
 
     window.dispatchEvent(new CustomEvent('planner:signup-gate', { detail }))
   }
@@ -2077,6 +2060,21 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
               onGenerate={handleGenerateTimeline}
             />
           </div>
+
+          {activePlanId && livePlan && (livePlan.status === 'approved' || livePlan.materializedEventId) ? (
+            <div className="mt-6">
+              <PlannerEventMaterializationCard
+                key={`${activePlanId}:${livePlan.materializedEventId ?? 'pending'}`}
+                planId={activePlanId}
+                planStatus={livePlan.status}
+                materializedEventId={livePlan.materializedEventId}
+                dateWindowStart={livePlan.dateWindowStart}
+                dateWindowEnd={livePlan.dateWindowEnd}
+                onMaterialized={onEventMaterialized}
+                compact
+              />
+            </div>
+          ) : null}
 
           {eventSummary.special_supply ? (
             <SpecialSupplyBrief specialSupply={eventSummary.special_supply} />
@@ -2593,7 +2591,11 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                     <div className="mt-4 rounded-md border border-tan bg-cream p-3 text-sm text-ink-soft">
                       <p className="font-semibold text-ink">Action details</p>
                       <p className="mt-1">{approval.subtitle}</p>
-                      <p className="mt-2">Approval is recorded before the agent contacts the venue or places a hold.</p>
+                      <p className="mt-2">
+                        {approval.approvalId
+                          ? 'Open the canonical approval card to review the exact snapshot before authorization.'
+                          : 'Create an approval request first. This panel never authorizes a purchase or send directly.'}
+                      </p>
                     </div>
                   ) : null}
 
@@ -2623,7 +2625,15 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                         (isLoading || isSent || approval.isStripeGated) && 'cursor-not-allowed opacity-70'
                       )}
                     >
-                      {isLoading ? 'Sending...' : isSent ? 'Request sent ✓' : approval.isStripeGated ? 'Stripe setup needed' : approval.amountCents === 0 ? 'Authorize' : 'Approve'}
+                      {isLoading
+                        ? 'Creating approval...'
+                        : isSent
+                          ? 'Approval created ✓'
+                          : approval.isStripeGated
+                            ? 'Stripe setup needed'
+                            : approval.approvalId
+                              ? 'Review approval'
+                              : 'Create approval'}
                     </button>
                     <button
                       type="button"
@@ -2640,7 +2650,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                     </button>
                   </div>
                   {feedback === 'error' ? (
-                    <p className="mt-3 text-sm font-medium text-brick">Failed - try again</p>
+                    <p className="mt-3 text-sm font-medium text-brick">Approval request failed — try again</p>
                   ) : null}
                 </div>
               )
@@ -2681,7 +2691,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
         >
           <Check className="h-5 w-5" />
           {primaryAuthorization && actionFeedback[primaryAuthorization.id] === 'sent'
-            ? 'Request sent ✓'
+            ? 'Approval ready ✓'
             : primaryAuthorization
               ? 'Request venue hold'
               : 'Complete plan for holds'}
@@ -2728,8 +2738,7 @@ function buildLivePlanAgentActionPayload(card: AuthorizationCardModel): PlannerA
       price_cents: card.amountCents,
       fees_cents: 0,
       package_details: card.subtitle,
-      payment_required: card.amountCents > 0,
-      requires_stripe_recipient: card.amountCents > 0,
+      execution_mode: 'concierge_admin_queue',
     },
     requestedAmountCents: card.amountCents,
   }
@@ -3291,7 +3300,7 @@ function OutreachQuoteCard({
           onClick={() => onCommit(option)}
           className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-md bg-clay px-3 py-2 text-sm font-bold text-cream transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
         >
-          {isCommitted ? 'In plan' : isSaving ? 'Saving' : feedback === 'error' ? 'Retry' : 'Use quote in plan'}
+          {isCommitted ? 'Approval ready' : isSaving ? 'Creating approval' : feedback === 'error' ? 'Retry' : 'Create booking approval'}
         </button>
       </div>
     </div>
@@ -4549,6 +4558,8 @@ function buildAuthorizationCards(
   if (approvals.length > 0) {
     return approvals.map((approval) => ({
       id: approval.id,
+      approvalId: approval.approvalId ?? undefined,
+      approvalMessageId: approval.messageId,
       label: approval.label,
       subtitle: approval.subtitle ?? approval.status,
       amountLabel: formatCents(approval.amountCents),

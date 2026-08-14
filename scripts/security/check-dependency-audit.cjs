@@ -2,8 +2,10 @@
 
 const { spawnSync } = require('node:child_process')
 
-// Remove this exception no later than the expiry below by upgrading to Next.js
-// >=16.3.0, whose Sharp dependency is >=0.35.0 and contains the upstream fix.
+// Remove this exception no later than the expiry below by completing the
+// reviewed Next 16 migration to a release whose Sharp dependency is >=0.35.0.
+// npm currently recommends Next.js 16.3.1, but the exact fixAvailable.version
+// advances as patched releases publish and is intentionally not a policy invariant.
 const SHARP_EXCEPTION = Object.freeze({
   advisorySource: 1124066,
   advisoryUrl: 'https://github.com/advisories/GHSA-f88m-g3jw-g9cj',
@@ -13,7 +15,6 @@ const SHARP_EXCEPTION = Object.freeze({
   vulnerableRange: '<0.35.0',
   nodePath: 'node_modules/sharp',
   parentPackage: 'next',
-  requiredNextFix: '16.3.0',
   expiresAt: '2026-09-12T00:00:00.000Z',
 })
 
@@ -54,7 +55,6 @@ function validateSharpAdvisory(sharp) {
 
   invariant(sharp.fixAvailable && typeof sharp.fixAvailable === 'object', 'Sharp remediation metadata is missing')
   invariant(sharp.fixAvailable.name === 'next', 'Sharp remediation is no longer the expected Next upgrade')
-  invariant(sharp.fixAvailable.version === SHARP_EXCEPTION.requiredNextFix, 'Sharp remediation version changed')
   invariant(sharp.fixAvailable.isSemVerMajor === true, 'Sharp remediation is no longer a breaking Next upgrade')
 }
 
@@ -68,7 +68,6 @@ function validateNextAggregator(next) {
   invariant(sameStrings(next.nodes, ['node_modules/next']), 'Scoped Next dependency path changed')
   invariant(next.fixAvailable && typeof next.fixAvailable === 'object', 'Next remediation metadata is missing')
   invariant(next.fixAvailable.name === 'next', 'Next remediation package changed')
-  invariant(next.fixAvailable.version === SHARP_EXCEPTION.requiredNextFix, 'Next remediation version changed')
   invariant(next.fixAvailable.isSemVerMajor === true, 'Next remediation is no longer a major upgrade')
 }
 

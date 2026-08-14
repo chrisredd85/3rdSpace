@@ -14,6 +14,7 @@ import { VenueRulesDisplay } from '@/components/builder/VenueRulesDisplay'
 import { DepositDisplay } from '@/components/builder/DepositDisplay'
 import { VendorAvailabilityDatePicker } from '@/components/vendor/VendorAvailabilityDatePicker'
 import { StripeIntegrationNotice } from '@/components/shared/StripeIntegrationNotice'
+import { formatCentsToDollars, type VenueBookingCostCents } from '@/lib/money'
 
 const optionalPositiveInteger = z.preprocess(
   (value) => (typeof value === 'number' && Number.isNaN(value) ? undefined : value),
@@ -88,9 +89,9 @@ export interface BookingRequestFormProps {
    */
   vendorId?: string
   /**
-   * Estimated booking cost used to calculate percentage deposits
+   * Estimated booking cost in canonical integer cents.
    */
-  bookingCost?: number
+  bookingCostCents?: VenueBookingCostCents
 }
 
 /**
@@ -116,7 +117,7 @@ export function BookingRequestForm({
   requirements = [],
   venueId,
   vendorId,
-  bookingCost = 0,
+  bookingCostCents,
 }: BookingRequestFormProps) {
   const [acceptedVenueRules, setAcceptedVenueRules] = useState(!venueId || type !== 'venue')
   const [hasVendorDateConflict, setHasVendorDateConflict] = useState(false)
@@ -139,6 +140,7 @@ export function BookingRequestForm({
   const notes = watch('notes')
   const notesLength = notes?.length || 0
   const minDate = new Date().toISOString().split('T')[0]
+  const bookingCostDollars = formatCentsToDollars(bookingCostCents) ?? 0
 
   useEffect(() => {
     setAcceptedVenueRules(!venueId || type !== 'venue')
@@ -257,11 +259,11 @@ export function BookingRequestForm({
       ) : null}
 
       {type === 'venue' && venueId ? (
-        <DepositDisplay venueId={venueId} bookingCost={bookingCost} />
+        <DepositDisplay venueId={venueId} bookingCost={bookingCostDollars} />
       ) : null}
 
       {type === 'vendor' && vendorId ? (
-        <DepositDisplay vendorId={vendorId} targetType="vendor" bookingCost={bookingCost} />
+        <DepositDisplay vendorId={vendorId} targetType="vendor" bookingCost={bookingCostDollars} />
       ) : null}
 
       {!(type === 'venue' && venueId) && !(type === 'vendor' && vendorId) ? (

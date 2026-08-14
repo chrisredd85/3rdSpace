@@ -1,6 +1,9 @@
 import {
+  APPROVAL_SNAPSHOT_SCHEMA_VERSION,
   approvalRequiresReapproval,
   buildApprovalSnapshotHash,
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
   buildLegacyPlanApprovalSnapshotHash,
 } from '../reapproval'
 
@@ -18,6 +21,7 @@ const basePlan = {
 }
 
 const baseApproval = {
+  action_label: 'Authorize Mission Hall',
   event_date: '2026-08-01',
   price_cents: 125_000,
   fees_cents: 5_000,
@@ -26,6 +30,9 @@ const baseApproval = {
   refund_terms: 'Refundable until 14 days out',
   cancellation_terms: 'Cancel before contract signing',
   package_details: 'Private room for 100 guests',
+  delivery_email: 'events@mission-hall.example',
+  notes: 'Use the patio if available.',
+  expires_at: '2026-07-20T18:00:00.000Z',
 }
 
 const baseAction = {
@@ -113,5 +120,58 @@ describe('approval re-approval snapshots', () => {
       action: baseAction,
       storedSnapshotHash: legacyHash,
     })).toBe(false)
+  })
+
+  it('builds a full v2 confirmation snapshot with exact cents, date, notes, and counterparty', () => {
+    const snapshot = buildApprovalSnapshotV2({
+      plan: basePlan,
+      approval: { ...baseApproval, requested_amount_cents: 9_550 },
+      action: {
+        ...baseAction,
+        amount_cents: 9_550,
+        payload_json: {
+          ...baseAction.payload_json,
+          target_name: 'Mission Hall',
+          delivery_email: 'events@mission-hall.example',
+        },
+      },
+    })
+
+    expect(snapshot).toEqual(expect.objectContaining({
+      schema_version: APPROVAL_SNAPSHOT_SCHEMA_VERSION,
+      approval: expect.objectContaining({
+        requested_amount_cents: 9_550,
+        event_date: '2026-08-01',
+        notes: 'Use the patio if available.',
+      }),
+      counterparty: expect.objectContaining({
+        display_name: 'Mission Hall',
+        delivery_email: 'events@mission-hall.example',
+      }),
+      action: expect.objectContaining({ amount_cents: 9_550 }),
+    }))
+  })
+
+  it('hashes every v2 confirmation field while preserving v1 compatibility by default', () => {
+    const input = { plan: basePlan, approval: baseApproval, action: baseAction }
+    const hash = buildApprovalSnapshotHashV2(input)
+
+    expect(approvalRequiresReapproval({
+      ...input,
+      storedSnapshotHash: hash,
+      storedSnapshotVersion: 2,
+    })).toBe(false)
+    expect(approvalRequiresReapproval({
+      ...input,
+      approval: { ...baseApproval, notes: 'Use the indoor room.' },
+      storedSnapshotHash: hash,
+      storedSnapshotVersion: 2,
+    })).toBe(true)
+    expect(approvalRequiresReapproval({
+      ...input,
+      approval: { ...baseApproval, requested_amount_cents: 9_550 },
+      storedSnapshotHash: hash,
+      storedSnapshotVersion: 2,
+    })).toBe(true)
   })
 })

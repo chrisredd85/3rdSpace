@@ -1,17 +1,34 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { CheckCircle2, ChevronDown, ExternalLink, Loader2, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { PlannerDepositExecution } from '@/components/payments/PlannerDepositExecution'
+import {
+  getApprovalPresentation,
+  readApprovalUiState,
+  type ApprovalPresentationTone,
+} from '@/components/planner/approvalPresentation'
+import { formatCentsToDollars, parseDollarsToCents } from '@/lib/money'
+import {
+  type ApprovalUiAction,
+  type ApprovalUiStatus,
+} from '@/lib/planner/approvalUiState'
+import { readExternalCheckoutHandoffEvidence } from '@/lib/planner/execution/externalCheckout'
 import type { Plan, PlanMessage } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { formatMockCents } from './draftMode'
 import { readNarrationChipMetadata } from './plannerState'
-import type { ApprovalUiStatus, BillingRequiredHandler, PendingConversionAction, PlannerAgentActionRequest, PlannerTab } from './types'
+import type { BillingRequiredHandler, PendingConversionAction, PlannerAgentActionRequest, PlannerTab } from './types'
+
+type ApprovalStatusChangeHandler = (
+  approvalId: string,
+  status: ApprovalUiStatus,
+  updatedApproval?: Record<string, unknown>
+) => void
 
 interface PlannerMessageBubbleProps {
   message: PlanMessage
@@ -20,7 +37,7 @@ interface PlannerMessageBubbleProps {
   isAuthenticated: boolean
   onAuthRequired: (action: PendingConversionAction) => void
   onBillingRequired?: BillingRequiredHandler
-  onApprovalStatusChange: (approvalId: string, status: ApprovalUiStatus) => void
+  onApprovalStatusChange: ApprovalStatusChangeHandler
   onApprovalCreated?: (message: PlanMessage) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
   onQuestionAnswerSubmit?: (answer: string) => void
@@ -224,7 +241,7 @@ interface PlannerFocusedMessageCardProps {
   isAuthenticated: boolean
   onAuthRequired: (action: PendingConversionAction) => void
   onBillingRequired?: BillingRequiredHandler
-  onApprovalStatusChange: (approvalId: string, status: ApprovalUiStatus) => void
+  onApprovalStatusChange: ApprovalStatusChangeHandler
   onApprovalCreated?: (message: PlanMessage) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
   onQuestionAnswerSubmit?: (answer: string) => void
@@ -370,25 +387,28 @@ export function formatPlanDateWindow(plan: Plan) {
 }
 
 /**
- * Counts approval messages by pending, authorized, cancelled, and superseded status.
+ * Counts approval messages without collapsing failed, expired, or in-flight states.
  */
 export function getApprovalSummary(approvalMessages: PlanMessage[]) {
   return approvalMessages.reduce(
     (summary, message) => {
       const status = getApprovalMessageStatus(message)
-      if (status === 'approved') {
-        summary.authorized += 1
-      } else if (status === 'rejected') {
-        summary.cancelled += 1
-      } else if (status === 'superseded') {
-        summary.superseded += 1
-      } else {
-        summary.pending += 1
-      }
+      summary[status] += 1
 
       return summary
     },
-    { pending: 0, authorized: 0, cancelled: 0, superseded: 0 }
+    {
+      pending: 0,
+      authorized: 0,
+      executing: 0,
+      succeeded: 0,
+      failed: 0,
+      expired: 0,
+      reapproval_required: 0,
+      rejected: 0,
+      cancelled: 0,
+      superseded: 0,
+    } satisfies Record<ApprovalUiStatus, number>
   )
 }
 
@@ -397,18 +417,14 @@ export function getApprovalSummary(approvalMessages: PlanMessage[]) {
  */
 export function getApprovalMessageStatus(message: PlanMessage) {
   const metadata = getMessageMetadata(message)
-  const metadataStatus = metadata?.status
-  if (metadataStatus === 'superseded') return 'superseded'
-  if (metadataStatus === 'approved' || metadataStatus === 'authorized') return 'approved'
-  if (metadataStatus === 'rejected' || metadataStatus === 'cancelled') return 'rejected'
-
   const approval = getMessageApproval(message)
-  const approvalStatus = approval?.status
-  if (approvalStatus === 'superseded' || typeof approval?.superseded_at === 'string') return 'superseded'
-  if (approvalStatus === 'approved' || approvalStatus === 'authorized') return 'approved'
-  if (approvalStatus === 'rejected' || approvalStatus === 'cancelled') return 'rejected'
-
-  return 'pending'
+  return readApprovalStatus({
+    ...(approval ?? {}),
+    ui_status: approval?.ui_status ?? metadata?.ui_status,
+    status: approval?.status ?? metadata?.status,
+    action_status: approval?.action_status ?? metadata?.action_status,
+    expires_at: approval?.expires_at ?? metadata?.expires_at,
+  })
 }
 
 /**
@@ -448,6 +464,11 @@ export function buildApprovalDisplayMetadata(
     ...approval,
     action_type: metadata.action_type,
     execution_mode: metadata.execution_mode,
+    ui_status: approval.ui_status ?? metadata.ui_status,
+    action_status: approval.action_status ?? metadata.action_status,
+    action_result: approval.action_result ?? metadata.action_result,
+    available_actions: approval.available_actions ?? metadata.available_actions,
+    confirmation_snapshot: approval.confirmation_snapshot ?? metadata.confirmation_snapshot,
     kind: metadata.kind,
     venue_ids: metadata.venue_ids,
     vendor_ids: metadata.vendor_ids,
@@ -490,7 +511,7 @@ interface PlannerMessageMetadataProps {
   isAuthenticated: boolean
   onAuthRequired: (action: PendingConversionAction) => void
   onBillingRequired?: BillingRequiredHandler
-  onApprovalStatusChange: (approvalId: string, status: ApprovalUiStatus) => void
+  onApprovalStatusChange: ApprovalStatusChangeHandler
   onApprovalCreated?: (message: PlanMessage) => void
   onToast: (toast: { title?: string; description?: string; variant?: 'default' | 'success' | 'error' | 'warning' | 'info' | 'destructive' }) => void
   onQuestionAnswerSubmit?: (answer: string) => void
@@ -1166,13 +1187,18 @@ export function PlannerRecommendationActionButton({
 
   const actionKind = getRecommendationActionKind(label, recommendation)
   const isComplete = Boolean(statusMessage)
-  const buttonLabel = isComplete ? 'Sent ✓' : getCompactRecommendationActionLabel(actionKind)
+  const buttonLabel = isComplete ? 'Approval created ✓' : getCompactRecommendationActionLabel(actionKind)
 
   async function handleActionClick() {
     setErrorMessage(null)
 
     const externalUrl = readRecommendationString(recommendation, 'external_url')
     const agentActionPayload = buildRecommendationAgentActionPayload(actionKind, recommendation)
+
+    if (actionKind === 'external' && !isRealExternalUrl(externalUrl)) {
+      setErrorMessage('This checkout link is not ready yet.')
+      return
+    }
 
     if (!isAuthenticated || planId.startsWith('mock-plan-')) {
       onAuthRequired({
@@ -1328,9 +1354,10 @@ export function buildRecommendationAgentActionPayload(
     targetId: isUuid(targetId) ? targetId : null,
     requestedAmountCents: priceCents,
     payloadJson: {
+      kind: 'external_checkout',
       action_label: 'External booking',
       provider,
-      url: readRecommendationString(recommendation, 'external_url'),
+      external_url: readRecommendationString(recommendation, 'external_url'),
       price_cents: priceCents,
       fees_cents: 0,
       package_details: readRecommendationString(recommendation, 'note') || 'External booking requires approval',
@@ -1433,10 +1460,10 @@ export function normalizeRecommendationTargetType(
  * Returns the success copy for a recommendation action.
  */
 export function getRecommendationSuccessMessage(actionKind: RecommendationActionKind) {
-  if (actionKind === 'hold') return '✓ Hold requested — approval card created'
-  if (actionKind === 'vendor') return "✓ Added to 3rdPlace team queue — we'll reach out"
+  if (actionKind === 'hold') return '✓ Hold approval created — review before the request is sent'
+  if (actionKind === 'vendor') return '✓ Vendor-contact approval created — review before outreach begins'
   if (actionKind === 'payment') return '✓ Deposit approval card created'
-  return '✓ External booking flagged for approval'
+  return '✓ Checkout approval created — review before the link unlocks'
 }
 
 /**
@@ -1900,6 +1927,40 @@ interface PlannerBillingSummary {
   }
 }
 
+interface ApprovalCommandResponse {
+  approval?: Record<string, unknown>
+  currentApproval?: Record<string, unknown>
+  actionStatus?: string | null
+  actionResult?: unknown
+  confirmationSnapshot?: Record<string, unknown> | null
+  uiStatus?: ApprovalUiStatus
+  availableActions?: ApprovalUiAction[]
+  code?: string
+  error?: string
+  message?: string
+  retryable?: boolean
+}
+
+interface ExternalCheckoutConfirmationResponse {
+  actionStatus?: string
+  actionResult?: unknown
+  uiStatus?: ApprovalUiStatus
+  error?: string
+  message?: string
+}
+
+class ApprovalCommandError extends Error {
+  readonly responseStateApplied: boolean
+
+  constructor(message: string, responseStateApplied: boolean) {
+    super(message)
+    this.name = 'ApprovalCommandError'
+    this.responseStateApplied = responseStateApplied
+  }
+}
+
+type ApprovalCardMode = 'view' | 'edit' | 'confirm_authorize' | 'confirm_cancel' | 'confirm_execution_cancel'
+
 /**
  * Interactive approval card for booking, hold, and payment confirmation steps.
  */
@@ -1913,24 +1974,42 @@ export function PlannerApprovalCard({
   onStatusChange,
   onToast,
 }: PlannerApprovalCardProps) {
-  const [status, setStatus] = useState(readApprovalStatus(approval))
+  const initialStatus = readApprovalStatus(approval)
+  const [displayApproval, setDisplayApproval] = useState(approval)
+  const [currentApprovalId, setCurrentApprovalId] = useState(approvalId)
+  const [status, setStatus] = useState(initialStatus)
+  const [availableActions, setAvailableActions] = useState<readonly ApprovalUiAction[]>(
+    readApprovalAvailableActions(approval, initialStatus)
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [mode, setMode] = useState<'view' | 'edit' | 'confirm_cancel'>('view')
+  const [mode, setMode] = useState<ApprovalCardMode>('view')
   const [inlineError, setInlineError] = useState<string | null>(null)
-  const [editNotice, setEditNotice] = useState<string | null>(null)
   const [amount, setAmount] = useState(formatApprovalAmountInput(readApprovalAmount(approval)))
   const [authorizedAmountCents, setAuthorizedAmountCents] = useState(readAuthorizedApprovalAmount(approval))
-  const [eventDate, setEventDate] = useState(readApprovalString(approval, 'event_date'))
-  const [notes, setNotes] = useState('')
+  const [eventDate, setEventDate] = useState(readApprovalEventDate(approval))
+  const [notes, setNotes] = useState(readApprovalNotes(approval))
+  const [actionResultMessage, setActionResultMessage] = useState<string | null>(readApprovalActionResultMessage(approval))
+  const [isConfirmingExternalCheckout, setIsConfirmingExternalCheckout] = useState(false)
   const [billingAccess, setBillingAccess] = useState<'loading' | 'allowed' | 'required' | 'unknown'>(
     isAuthenticated ? 'loading' : 'unknown'
   )
   const [billingSummary, setBillingSummary] = useState<PlannerBillingSummary | null>(null)
+  const retryKeysRef = useRef(new Map<string, string>())
+  const executionCancelKeysRef = useRef(new Map<string, string>())
 
   useEffect(() => {
-    setStatus(readApprovalStatus(approval))
+    const nextStatus = readApprovalStatus(approval)
+    setDisplayApproval(approval)
+    setCurrentApprovalId(approvalId)
+    setStatus(nextStatus)
+    setAvailableActions(readApprovalAvailableActions(approval, nextStatus))
+    setAmount(formatApprovalAmountInput(readApprovalAmount(approval)))
     setAuthorizedAmountCents(readAuthorizedApprovalAmount(approval))
-  }, [approval])
+    setEventDate(readApprovalEventDate(approval))
+    setNotes(readApprovalNotes(approval))
+    setActionResultMessage(readApprovalActionResultMessage(approval))
+    setMode('view')
+  }, [approval, approvalId])
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -1968,25 +2047,25 @@ export function PlannerApprovalCard({
     }
   }, [isAuthenticated])
 
-  const label = readApprovalString(approval, 'label') || readApprovalString(approval, 'action_label') || 'Approval required'
-  const provider = readApprovalString(approval, 'provider') || '3rdPlace'
-  const deliveryEmailRaw = readApprovalString(approval, 'delivery_email')
+  const label = readApprovalString(displayApproval, 'label') || readApprovalString(displayApproval, 'action_label') || 'Approval required'
+  const provider = readApprovalCounterparty(displayApproval)
+  const deliveryEmailRaw = readApprovalString(displayApproval, 'delivery_email')
   const deliveryEmail = deliveryEmailRaw ? 'Contact info on file' : 'Needed'
-  const terms = readApprovalString(approval, 'terms') || readApprovalString(approval, 'refund_terms') || 'Approval required before payment.'
-  const amountCents = readApprovalAmount(approval)
-  const partnerTargets = readApprovalPartnerTargets(approval)
+  const terms = readApprovalString(displayApproval, 'terms') || readApprovalString(displayApproval, 'refund_terms') || 'Approval required before payment.'
+  const amountCents = readApprovalAmount(displayApproval)
+  const snapshotHash = readApprovalSnapshotHash(displayApproval)
+  const partnerTargets = readApprovalPartnerTargets(displayApproval)
   const venueNames = partnerTargets.filter((target) => target.kind === 'venue').map((target) => target.name)
   const vendorNames = partnerTargets.filter((target) => target.kind === 'vendor').map((target) => target.name)
-  const fallbackVenueNames = venueNames.length === 0 && vendorNames.length === 0 ? readApprovalVenueNames(approval) : []
-  const briefPreview = readApprovalBriefPreview(approval)
-  const responseDeadline = readApprovalResponseDeadline(approval)
-  const comparisonGoal = readApprovalString(approval, 'comparison_goal')
-  const approvalKind = readApprovalString(approval, 'kind')
+  const fallbackVenueNames = venueNames.length === 0 && vendorNames.length === 0 ? readApprovalVenueNames(displayApproval) : []
+  const briefPreview = readApprovalBriefPreview(displayApproval)
+  const responseDeadline = readApprovalResponseDeadline(displayApproval)
+  const comparisonGoal = readApprovalString(displayApproval, 'comparison_goal')
+  const approvalKind = readApprovalString(displayApproval, 'kind')
   const isGmailOutreachApproval = approvalKind === 'gmail_approved_outreach'
   const isOutreachApproval = approvalKind === 'venue_outreach' || approvalKind === 'vendor_outreach' || isGmailOutreachApproval || /outreach/i.test(label)
   const isSendToPartners = isOutreachApproval || /send to (venues|vendors|partners)/i.test(label)
-  const inviteStats = readApprovalInviteStats(approval)
-  const queuedInviteCount = readApprovalQueuedInviteCount(approval) ?? partnerTargets.length
+  const inviteStats = readApprovalInviteStats(displayApproval)
   const sentAt = inviteStats?.last_sent_at ? formatApprovalTimestamp(inviteStats.last_sent_at) : null
   const conciergeFollowupCount = inviteStats?.concierge_followup_count ?? 0
   const isProductGateLoading = isAuthenticated && billingAccess === 'loading'
@@ -1994,52 +2073,86 @@ export function PlannerApprovalCard({
   const freeEventsRemaining = billingSummary?.freeEventsRemaining ?? billingSummary?.free_events_remaining ?? 0
   const shouldShowFreeEventApprovalNotice = isOutreachApproval && !isProductGateRequired && freeEventsRemaining > 0
   const isControlledPaymentApproval = isControlledPaymentApprovalMetadata(
-    approval,
+    displayApproval,
     amountCents,
     isOutreachApproval
   )
+  const presentation = getApprovalPresentation(status)
+  const externalCheckoutHandoffEvidence = readExternalCheckoutHandoffEvidence(
+    displayApproval.action_result ?? displayApproval.actionResult
+  )
+  const externalCheckoutEvidence = externalCheckoutHandoffEvidence &&
+    externalCheckoutHandoffEvidence.status !== 'cancelled' &&
+    externalCheckoutHandoffEvidence.approval_id === currentApprovalId &&
+    externalCheckoutHandoffEvidence.snapshot_hash === snapshotHash &&
+    (status === 'executing' || status === 'succeeded')
+      ? externalCheckoutHandoffEvidence
+      : null
+  const agentActionId = readApprovalString(displayApproval, 'agent_action_id')
 
   function requestSignupForAuthorization(nextAuthorizedAmountCents: number) {
     onAuthRequired({
       type: 'authorize',
       payload: {
-        approvalId,
+        approvalId: currentApprovalId,
         authorizedAmountCents: nextAuthorizedAmountCents,
-        agentAction: buildApprovalAgentActionPayload(approval, nextAuthorizedAmountCents),
+        expectedSnapshotHash: snapshotHash || undefined,
+        agentAction: buildApprovalAgentActionPayload(displayApproval, nextAuthorizedAmountCents),
       },
     })
   }
 
-  async function patchApproval(action: 'authorize' | 'approve' | 'cancel', nextAuthorizedAmountCents?: number) {
-    if (planId.startsWith('mock-plan-') || approvalId.startsWith('mock-approval-')) {
-      return {
-        ...approval,
-        status: action === 'authorize' || action === 'approve' ? action : 'cancelled',
-        authorized_amount_cents: action === 'authorize' || action === 'approve' ? nextAuthorizedAmountCents ?? amountCents : null,
-      }
-    }
-
+  async function patchApproval(body: Record<string, unknown>): Promise<ApprovalCommandResponse> {
     const response = await fetch(`/api/planner/plans/${planId}/approvals`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        approvalId,
-        action,
-        authorizedAmountCents: action === 'authorize' || action === 'approve' ? nextAuthorizedAmountCents ?? amountCents : undefined,
-      }),
+      credentials: 'include',
+      body: JSON.stringify(body),
     })
 
     if (!response.ok) {
-      const payload = await response.json().catch(() => ({} as { error?: string; message?: string; billingRequired?: boolean }))
+      const payload = await response.json().catch(() => ({})) as ApprovalCommandResponse & {
+        billingRequired?: boolean
+      }
+      const responseStateApplied = hasApprovalResponseState(payload)
+      if (responseStateApplied) applyApprovalResponse(payload)
       if (response.status === 402) {
         onBillingRequired?.(payload.error ?? payload.message)
-        throw new Error('Choose a billing path to continue.')
+        throw new ApprovalCommandError('Choose a billing path to continue.', responseStateApplied)
       }
-      throw new Error(payload?.error ?? 'Approval update failed')
+      if (response.status === 409) {
+        throw new ApprovalCommandError(
+          payload.error ?? payload.message ?? 'This approval changed. Refresh and review the latest version.',
+          responseStateApplied
+        )
+      }
+      throw new ApprovalCommandError(
+        payload.error ?? payload.message ?? 'Approval update failed',
+        responseStateApplied
+      )
     }
 
-    const payload = (await response.json()) as { approval?: Record<string, unknown> }
-    return payload.approval ?? null
+    return (await response.json()) as ApprovalCommandResponse
+  }
+
+  function applyApprovalResponse(payload: ApprovalCommandResponse, previousApprovalId = currentApprovalId) {
+    const nextApproval = enrichApprovalResponse(displayApproval, payload)
+    const nextApprovalId = readApprovalString(nextApproval, 'id') || previousApprovalId
+    const nextStatus = payload.uiStatus ?? readApprovalStatus(nextApproval)
+    const nextAvailableActions = payload.availableActions ?? readApprovalAvailableActions(nextApproval, nextStatus)
+
+    setDisplayApproval(nextApproval)
+    setCurrentApprovalId(nextApprovalId)
+    setStatus(nextStatus)
+    setAvailableActions(nextAvailableActions)
+    setAmount(formatApprovalAmountInput(readApprovalAmount(nextApproval)))
+    setAuthorizedAmountCents(readAuthorizedApprovalAmount(nextApproval))
+    setEventDate(readApprovalEventDate(nextApproval))
+    setNotes(readApprovalNotes(nextApproval))
+    setActionResultMessage(readApprovalActionResultMessage(nextApproval))
+    onStatusChange(previousApprovalId, nextStatus, nextApproval)
+
+    return { nextApproval, nextApprovalId, nextStatus }
   }
 
   async function handleAuthorize() {
@@ -2052,16 +2165,31 @@ export function PlannerApprovalCard({
       return
     }
     if (isProductGateLoading) return
+    if (!snapshotHash) {
+      setInlineError('This approval is missing its confirmation snapshot. Refresh before authorizing.')
+      return
+    }
 
     setIsSubmitting(true)
     setInlineError(null)
 
     try {
-      const updatedApproval = await patchApproval(isOutreachApproval ? 'approve' : 'authorize', amountCents)
-      setAuthorizedAmountCents(readAuthorizedApprovalAmount(updatedApproval ?? approval) ?? amountCents)
-      setStatus('approved')
-      onStatusChange(approvalId, 'approved', updatedApproval ?? { status: 'authorized', authorized_amount_cents: amountCents })
+      const payload = await patchApproval({
+        approvalId: currentApprovalId,
+        command: 'authorize',
+        expectedSnapshotHash: snapshotHash,
+      })
+      const { nextStatus } = applyApprovalResponse(payload)
+      setMode('view')
+      onToast({
+        title: nextStatus === 'failed' ? 'Execution failed' : 'Authorization recorded',
+        description: nextStatus === 'failed'
+          ? 'The exact snapshot remains retryable from this approval.'
+          : '3rdPlace is using the exact amount, date, notes, and counterparty you confirmed.',
+        variant: nextStatus === 'failed' ? 'error' : 'success',
+      })
     } catch (error) {
+      if (error instanceof ApprovalCommandError && error.responseStateApplied) setMode('view')
       setInlineError(error instanceof Error ? error.message : 'Authorization failed — try again')
     } finally {
       setIsSubmitting(false)
@@ -2073,11 +2201,14 @@ export function PlannerApprovalCard({
     setInlineError(null)
 
     try {
-      const updatedApproval = await patchApproval('cancel')
-      setStatus('rejected')
-      onStatusChange(approvalId, 'rejected', updatedApproval ?? { status: 'cancelled' })
-    } catch {
-      setInlineError('Cancellation failed — try again')
+      const payload = await patchApproval({
+        approvalId: currentApprovalId,
+        command: 'cancel',
+      })
+      applyApprovalResponse(payload)
+      setMode('view')
+    } catch (error) {
+      setInlineError(error instanceof Error ? error.message : 'Cancellation failed — try again')
       setMode('view')
     } finally {
       setIsSubmitting(false)
@@ -2085,89 +2216,259 @@ export function PlannerApprovalCard({
   }
 
   async function handleSaveChanges() {
-    const amountValue = Number.parseFloat(amount)
-    if (!Number.isFinite(amountValue) || amountValue < 0) {
-      setInlineError('Enter a valid authorized amount')
+    const nextRequestedAmountCents = parseApprovalAmountInput(amount)
+    if (nextRequestedAmountCents === null || nextRequestedAmountCents < 0) {
+      setInlineError('Enter a valid amount with no more than two decimal places')
       return
     }
-
-    const nextAuthorizedAmountCents = Math.round(amountValue * 100)
 
     if (!isAuthenticated || planId.startsWith('mock-plan-')) {
-      requestSignupForAuthorization(nextAuthorizedAmountCents)
+      onAuthRequired({ type: 'save' })
       return
     }
-    if (isProductGateRequired) {
-      onBillingRequired?.('Choose how to keep planning before approving outreach.')
+    if (!snapshotHash) {
+      setInlineError('This approval is missing its snapshot. Refresh before saving edits.')
       return
     }
-    if (isProductGateLoading) return
 
     setIsSubmitting(true)
     setInlineError(null)
-    setEditNotice(null)
 
     try {
-      const updatedApproval = await patchApproval(isOutreachApproval ? 'approve' : 'authorize', nextAuthorizedAmountCents)
-      setAuthorizedAmountCents(nextAuthorizedAmountCents)
-      setStatus('approved')
+      const payload = await patchApproval({
+        approvalId: currentApprovalId,
+        command: 'edit',
+        expectedSnapshotHash: snapshotHash,
+        changes: {
+          requestedAmountCents: nextRequestedAmountCents,
+          eventDate: eventDate || null,
+          notes: notes.trim() || null,
+        },
+      })
+      applyApprovalResponse(payload)
       setMode('view')
-      onStatusChange(
-        approvalId,
-        'approved',
-        updatedApproval ?? {
-          status: 'authorized',
-          authorized_amount_cents: nextAuthorizedAmountCents,
-        }
-      )
       onToast({
-        title: 'Authorized',
-        description: 'Approval updated with the authorized amount.',
-        variant: 'success',
+        title: 'Changes saved for review',
+        description: 'A new pending approval version replaced the prior snapshot. Nothing was authorized.',
+        variant: 'info',
       })
     } catch (error) {
-      setInlineError(error instanceof Error ? error.message : 'Authorization failed — try again')
+      setInlineError(error instanceof Error ? error.message : 'Could not save approval changes')
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  if (status === 'rejected') {
-    return (
-      <div className="rounded-2xl border border-border bg-muted/40 p-4">
-        <span className="inline-flex items-center rounded-full border border-border bg-background px-3 py-1 text-xs font-bold text-muted-foreground">
-          ✗ Cancelled
-        </span>
-        <p className="mt-3 text-sm text-muted-foreground">This approval was cancelled. No booking or payment will be executed.</p>
-      </div>
-    )
+  async function handleRequestReapproval() {
+    setIsSubmitting(true)
+    setInlineError(null)
+
+    try {
+      const payload = await patchApproval({
+        approvalId: currentApprovalId,
+        command: 'request_reapproval',
+        expectedSnapshotHash: snapshotHash || null,
+      })
+      applyApprovalResponse(payload)
+      setMode('view')
+      onToast({
+        title: 'Fresh approval requested',
+        description: 'Review the new version before authorizing it.',
+        variant: 'info',
+      })
+    } catch (error) {
+      setInlineError(error instanceof Error ? error.message : 'Could not request re-approval')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
-  if (status === 'superseded') {
-    const supersededReason =
-      readApprovalString(approval, 'superseded_reason') ||
-      'The plan changed after this approval was created. Review the refreshed recommendation before authorizing anything.'
+  async function handleRetry() {
+    if (!snapshotHash) {
+      setInlineError('This failed action is missing its authorized snapshot. Refresh before retrying.')
+      return
+    }
+    setIsSubmitting(true)
+    setInlineError(null)
 
+    const idempotencyKey = getApprovalRetryKey(retryKeysRef.current, currentApprovalId, snapshotHash)
+    try {
+      const response = await fetch(
+        `/api/planner/plans/${planId}/approvals/${currentApprovalId}/retry`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey,
+          },
+          body: JSON.stringify({ expectedSnapshotHash: snapshotHash }),
+        }
+      )
+      const payload = await response.json().catch(() => ({} as ApprovalCommandResponse)) as ApprovalCommandResponse
+      if (!response.ok) {
+        if (hasApprovalResponseState(payload)) applyApprovalResponse(payload)
+        if (isKnownTerminalRetryFailure(payload.code)) {
+          clearApprovalRetryKey(retryKeysRef.current, currentApprovalId, snapshotHash)
+        }
+        throw new Error(payload.error ?? payload.message ?? 'Retry failed')
+      }
+
+      const { nextStatus } = applyApprovalResponse(payload)
+      onToast({
+        title: nextStatus === 'succeeded' ? 'Execution succeeded' : 'Retry recorded',
+        description: nextStatus === 'succeeded'
+          ? 'The prior authorized snapshot completed once.'
+          : 'The retry is using the same idempotency key and authorized snapshot.',
+        variant: nextStatus === 'succeeded' ? 'success' : 'info',
+      })
+    } catch (error) {
+      setInlineError(error instanceof Error ? error.message : 'Retry failed')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  async function handleConfirmExternalCheckout() {
+    if (!externalCheckoutEvidence || externalCheckoutEvidence.status !== 'ready') return
+    if (!agentActionId || !snapshotHash) {
+      setInlineError('Checkout confirmation is missing its action or approval snapshot. Refresh and try again.')
+      return
+    }
+
+    setIsConfirmingExternalCheckout(true)
+    setInlineError(null)
+    try {
+      const response = await fetch(
+        `/api/planner/plans/${planId}/agent-actions/${agentActionId}/confirm`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            approvalId: currentApprovalId,
+            expectedSnapshotHash: snapshotHash,
+            outcome: 'completed',
+          }),
+        }
+      )
+      const payload = await response.json().catch(() => ({})) as ExternalCheckoutConfirmationResponse
+      if (!response.ok) {
+        throw new Error(payload.error ?? payload.message ?? 'Checkout completion could not be confirmed')
+      }
+
+      const nextStatus = payload.uiStatus ?? 'succeeded'
+      const nextApproval = {
+        ...displayApproval,
+        action_status: payload.actionStatus ?? 'complete',
+        action_result: payload.actionResult ?? displayApproval.action_result,
+        ui_status: nextStatus,
+      }
+      setDisplayApproval(nextApproval)
+      setStatus(nextStatus)
+      setAvailableActions([])
+      setActionResultMessage(readApprovalActionResultMessage(nextApproval))
+      onStatusChange(currentApprovalId, nextStatus, nextApproval)
+      onToast({
+        title: 'Checkout completion confirmed',
+        description: '3rdPlace recorded your confirmation without repeating the external checkout.',
+        variant: 'success',
+      })
+    } catch (error) {
+      setInlineError(error instanceof Error ? error.message : 'Checkout completion could not be confirmed')
+    } finally {
+      setIsConfirmingExternalCheckout(false)
+    }
+  }
+
+  async function handleCancelExecution() {
+    if (!agentActionId || !snapshotHash) {
+      setInlineError('Execution cancellation is missing its action or approval snapshot. Refresh and try again.')
+      return
+    }
+
+    setIsSubmitting(true)
+    setInlineError(null)
+    const idempotencyKey = getExecutionCancelKey(
+      executionCancelKeysRef.current,
+      currentApprovalId,
+      snapshotHash
+    )
+    try {
+      const response = await fetch(
+        `/api/planner/plans/${planId}/agent-actions/${agentActionId}/cancel`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey,
+          },
+          body: JSON.stringify({
+            approvalId: currentApprovalId,
+            expectedSnapshotHash: snapshotHash,
+            reason: 'Host cancelled the approved operational handoff.',
+          }),
+        }
+      )
+      const payload = await response.json().catch(() => ({})) as ApprovalCommandResponse
+      if (!response.ok) {
+        if (hasApprovalResponseState(payload)) applyApprovalResponse(payload)
+        throw new Error(payload.error ?? payload.message ?? 'Execution could not be cancelled')
+      }
+
+      applyApprovalResponse(payload)
+      setMode('view')
+      onToast({
+        title: 'Execution cancelled',
+        description: 'Queued operational work was cancelled. The authorization remains in the audit history.',
+        variant: 'info',
+      })
+    } catch (error) {
+      setInlineError(error instanceof Error ? error.message : 'Execution could not be cancelled')
+      setMode('view')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  if (status === 'rejected' || status === 'cancelled' || status === 'superseded') {
     return (
-      <div className="rounded-2xl border border-warning/30 bg-warning/10 p-4">
-        <span className="inline-flex items-center rounded-full border border-warning/30 bg-background px-3 py-1 text-xs font-bold text-warning">
-          Superseded
+      <div className="rounded-2xl border border-border bg-muted/40 p-4">
+        <span className={cn(
+          'inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold',
+          approvalPresentationClasses(presentation.tone).badge
+        )}>
+          {presentation.label}
         </span>
-        <p className="mt-3 text-sm font-semibold text-foreground">This approval is no longer actionable.</p>
-        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{supersededReason}</p>
+        <p className="mt-3 text-sm font-semibold text-foreground">{label}</p>
+        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{presentation.description}</p>
       </div>
     )
   }
 
   return (
-    <div className="min-w-0 rounded-2xl border border-primary/40 bg-primary/10 p-4">
-      <p className="text-xs font-semibold uppercase tracking-widest text-primary">Is this correct?</p>
+    <div className={cn(
+      'min-w-0 rounded-2xl border p-4',
+      approvalPresentationClasses(presentation.tone).container
+    )}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-widest text-primary">
+          {status === 'pending' ? 'Review required' : 'Approval status'}
+        </p>
+        <span className={cn(
+          'inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold',
+          approvalPresentationClasses(presentation.tone).badge
+        )}>
+          {presentation.label}
+        </span>
+      </div>
       <h3 className="mt-2 break-words font-display text-lg font-bold leading-tight text-foreground">{label}</h3>
 
       {mode === 'edit' ? (
         <div className="mt-4 space-y-3">
           <label className="block text-sm font-semibold text-foreground">
-            Authorized amount ($)
+            Proposed amount ($)
             <Input
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
@@ -2196,11 +2497,6 @@ export function PlannerApprovalCard({
               disabled={isSubmitting}
             />
           </label>
-          {editNotice ? (
-            <div className="rounded-xl border border-secondary/30 bg-secondary/10 px-3 py-2 text-sm font-semibold text-secondary">
-              {editNotice}
-            </div>
-          ) : null}
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" onClick={handleSaveChanges} disabled={isSubmitting}>
               Save changes
@@ -2209,6 +2505,46 @@ export function PlannerApprovalCard({
               Cancel edit
             </Button>
           </div>
+        </div>
+      ) : mode === 'confirm_authorize' ? (
+        <div className="mt-4 rounded-xl border border-primary/30 bg-background/80 p-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-primary">Confirm exact snapshot</p>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            This is the immutable version 3rdPlace will execute. Editing it creates another pending version.
+          </p>
+          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-muted-foreground">Counterparty</dt>
+              <dd className="break-words font-semibold text-foreground">{provider}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Exact amount</dt>
+              <dd className="font-semibold tabular-nums text-foreground">{formatApprovalCents(amountCents)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Event date</dt>
+              <dd className="font-semibold text-foreground">{readApprovalEventDate(displayApproval) || 'Not specified'}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Notes</dt>
+              <dd className="break-words font-semibold text-foreground">{readApprovalNotes(displayApproval) || 'None'}</dd>
+            </div>
+          </dl>
+          {!snapshotHash ? (
+            <p className="mt-3 text-sm font-semibold text-destructive">
+              Snapshot hash missing. Refresh this approval before authorizing.
+            </p>
+          ) : null}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button type="button" size="sm" onClick={handleAuthorize} disabled={isSubmitting || !snapshotHash}>
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {isGmailOutreachApproval ? 'Authorize and send' : 'Authorize exact snapshot'}
+            </Button>
+            <Button type="button" variant="glass" size="sm" onClick={() => setMode('view')} disabled={isSubmitting}>
+              Back to review
+            </Button>
+          </div>
+          {inlineError ? <p className="mt-3 text-sm font-semibold text-destructive">{inlineError}</p> : null}
         </div>
       ) : (
         <>
@@ -2220,7 +2556,7 @@ export function PlannerApprovalCard({
             <div>
               <p className="text-xs text-muted-foreground">Estimated amount</p>
               <p className="break-words font-semibold leading-snug text-foreground">
-                {amountCents > 0 ? formatMockCents(amountCents) : 'No payment yet'}
+                {amountCents > 0 ? formatApprovalCents(amountCents) : 'No payment yet'}
               </p>
             </div>
             <div>
@@ -2292,36 +2628,68 @@ export function PlannerApprovalCard({
             </div>
           ) : null}
 
-          {status === 'approved' ? (
-            <div className="mt-4">
-              <span className="inline-flex items-center rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs font-bold text-success">
-                ✓ Authorized
-              </span>
-              {isSendToPartners ? (
-                <div className="mt-2 space-y-2">
-                  <p className="text-sm font-semibold text-success">
-                    {sentAt
-                      ? `Sent at ${sentAt} · (${inviteStats?.viewed_count ?? 0} viewed, ${inviteStats?.responded_count ?? 0} responded)`
-                      : isGmailOutreachApproval
-                        ? `Approved — ${queuedInviteCount} email${queuedInviteCount === 1 ? '' : 's'} sent or ready to send from Gmail`
-                        : `Queued — ${queuedInviteCount} outreach draft${queuedInviteCount === 1 ? '' : 's'} ready for partner comparison`}
-                  </p>
-                  {conciergeFollowupCount > 0 ? (
-                    <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-xs font-bold text-warning">
-                      {conciergeFollowupCount} venue{conciergeFollowupCount === 1 ? '' : 's'} need 3rdPlace team outreach
-                    </span>
-                  ) : null}
-                </div>
-              ) : (
-                <p className="mt-2 text-sm font-semibold text-success">
-                  Authorization recorded
-                  {authorizedAmountCents != null ? ` · ${formatMockCents(authorizedAmountCents)}` : ''} · pending execution
+          {status !== 'pending' ? (
+            <div className={cn(
+              'mt-4 rounded-xl border px-3 py-3 text-sm',
+              approvalPresentationClasses(presentation.tone).evidence
+            )}>
+              <p className="font-semibold text-foreground">{presentation.description}</p>
+              {authorizedAmountCents != null ? (
+                <p className="mt-1 text-muted-foreground">
+                  Authorized snapshot amount: <span className="font-semibold tabular-nums text-foreground">{formatApprovalCents(authorizedAmountCents)}</span>
                 </p>
-              )}
-              {isControlledPaymentApproval ? (
+              ) : null}
+              {status === 'succeeded' && sentAt ? (
+                <p className="mt-1 font-semibold text-success">
+                  Sent at {sentAt} · {inviteStats?.viewed_count ?? 0} viewed · {inviteStats?.responded_count ?? 0} responded
+                </p>
+              ) : null}
+              {actionResultMessage ? <p className="mt-1 text-muted-foreground">{actionResultMessage}</p> : null}
+              {externalCheckoutEvidence ? (
+                <div className="mt-3 rounded-xl border border-border bg-background/70 p-3">
+                  <p className="font-semibold text-foreground">
+                    {externalCheckoutEvidence.status === 'completed'
+                      ? 'External checkout completion recorded'
+                      : 'Your approved checkout link is ready'}
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    3rdPlace will not open or complete this checkout automatically. Review the provider page before paying.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button asChild size="sm">
+                      <a
+                        href={externalCheckoutEvidence.external_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        {externalCheckoutEvidence.status === 'completed' ? 'View checkout' : 'Open checkout'}
+                      </a>
+                    </Button>
+                    {externalCheckoutEvidence.status === 'ready' ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleConfirmExternalCheckout()}
+                        disabled={isConfirmingExternalCheckout}
+                      >
+                        {isConfirmingExternalCheckout ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                        Confirm completed
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+              {status === 'succeeded' && conciergeFollowupCount > 0 ? (
+                <p className="mt-1 font-semibold text-warning">
+                  {conciergeFollowupCount} venue{conciergeFollowupCount === 1 ? '' : 's'} still need operator follow-up.
+                </p>
+              ) : null}
+              {status === 'authorized' && isControlledPaymentApproval ? (
                 <PlannerDepositExecution
                   planId={planId}
-                  approvalId={approvalId}
+                  approvalId={currentApprovalId}
                   provider={provider}
                   amountLabel={formatMockCents(authorizedAmountCents ?? amountCents)}
                   onCaptured={() => onToast({
@@ -2331,6 +2699,24 @@ export function PlannerApprovalCard({
                   })}
                 />
               ) : null}
+            </div>
+          ) : null}
+
+          {mode === 'confirm_execution_cancel' ? (
+            <div className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+              <p className="text-sm font-semibold text-foreground">Cancel this approved operational handoff?</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Pending checkout or operator work will stop. The immutable approval stays in the audit history.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" variant="destructive" size="sm" onClick={() => void handleCancelExecution()} disabled={isSubmitting}>
+                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Cancel execution
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setMode('view')} disabled={isSubmitting}>
+                  Keep running
+                </Button>
+              </div>
             </div>
           ) : mode === 'confirm_cancel' ? (
             <div className="mt-4 rounded-xl border border-border bg-background/70 p-3">
@@ -2345,7 +2731,7 @@ export function PlannerApprovalCard({
                 </Button>
               </div>
             </div>
-          ) : !isAuthenticated ? (
+          ) : status === 'pending' && !isAuthenticated ? (
             <div className="mt-4 rounded-xl border border-border bg-background/60 px-4 py-3">
               <p className="text-sm font-semibold text-foreground">Create an account to approve this action</p>
               <p className="mt-1 text-xs leading-snug text-muted-foreground">
@@ -2357,20 +2743,19 @@ export function PlannerApprovalCard({
                 </Button>
               </div>
             </div>
-          ) : isProductGateRequired ? (
-            <div className="mt-4 rounded-xl border border-secondary/30 bg-secondary/10 px-4 py-3">
-              <p className="text-sm font-semibold text-foreground">Activate planner access to approve outreach</p>
-              <p className="mt-1 text-xs leading-snug text-muted-foreground">
-                {formatPlannerBillingGateMessage(billingSummary)}
-              </p>
-              <div className="mt-3">
-                <Button asChild size="sm" className="rounded-xl">
-                  <Link href="/planner/billing">Choose pay-per-event or Pro</Link>
-                </Button>
-              </div>
-            </div>
-          ) : (
+          ) : status === 'pending' ? (
             <div className="mt-4 space-y-3">
+              {isProductGateRequired ? (
+                <div className="rounded-xl border border-secondary/30 bg-secondary/10 px-4 py-3">
+                  <p className="text-sm font-semibold text-foreground">Activate planner access before authorization</p>
+                  <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                    {formatPlannerBillingGateMessage(billingSummary)} You can still edit or cancel this proposal.
+                  </p>
+                  <Button asChild size="sm" className="mt-3 rounded-xl">
+                    <Link href="/planner/billing">Choose pay-per-event or Pro</Link>
+                  </Button>
+                </div>
+              ) : null}
               {shouldShowFreeEventApprovalNotice ? (
                 <div className="rounded-xl border border-tan bg-cream px-3 py-2 text-xs leading-5 text-ink-soft">
                   <span className="font-semibold text-ink">
@@ -2380,19 +2765,56 @@ export function PlannerApprovalCard({
                 </div>
               ) : null}
               <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" onClick={handleAuthorize} disabled={isSubmitting || isProductGateLoading}>
-                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {isProductGateLoading ? 'Checking access…' : isGmailOutreachApproval ? 'Approve and send' : isOutreachApproval ? 'Approve outreach batch' : 'Authorize'}
-                </Button>
-                <Button type="button" variant="glass" size="sm" onClick={() => setMode('edit')} disabled={isSubmitting || isProductGateLoading}>
-                  {isOutreachApproval ? 'Edit batch' : 'Edit'}
-                </Button>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setMode('confirm_cancel')} disabled={isSubmitting || isProductGateLoading}>
-                  Cancel
-                </Button>
+                {availableActions.includes('authorize') ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setMode('confirm_authorize')}
+                    disabled={isSubmitting || isProductGateLoading || isProductGateRequired}
+                  >
+                    {isProductGateLoading ? 'Checking access…' : 'Review authorization'}
+                  </Button>
+                ) : null}
+                {availableActions.includes('edit') ? (
+                  <Button type="button" variant="glass" size="sm" onClick={() => setMode('edit')} disabled={isSubmitting}>
+                    {isOutreachApproval ? 'Edit batch' : 'Edit'}
+                  </Button>
+                ) : null}
+                {availableActions.includes('request_reapproval') ? (
+                  <Button type="button" size="sm" onClick={handleRequestReapproval} disabled={isSubmitting}>
+                    {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Request re-approval
+                  </Button>
+                ) : null}
+                {availableActions.includes('cancel') ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setMode('confirm_cancel')} disabled={isSubmitting}>
+                    Cancel
+                  </Button>
+                ) : null}
               </div>
             </div>
-          )}
+          ) : availableActions.includes('retry') ? (
+            <Button type="button" className="mt-4" size="sm" onClick={handleRetry} disabled={isSubmitting || !snapshotHash}>
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Retry
+            </Button>
+          ) : availableActions.includes('request_reapproval') ? (
+            <Button type="button" className="mt-4" size="sm" onClick={handleRequestReapproval} disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Request re-approval
+            </Button>
+          ) : availableActions.includes('cancel_execution') ? (
+            <Button
+              type="button"
+              className="mt-4"
+              variant="outline"
+              size="sm"
+              onClick={() => setMode('confirm_execution_cancel')}
+              disabled={isSubmitting}
+            >
+              Cancel queued work
+            </Button>
+          ) : null}
 
           {inlineError ? <p className="mt-3 text-sm font-semibold text-destructive">{inlineError}</p> : null}
         </>
@@ -2443,6 +2865,10 @@ export function readApprovalAmount(approval: Record<string, unknown>) {
   const requested = approval.requested_amount_cents
   if (typeof requested === 'number') return requested
 
+  const snapshot = readApprovalSnapshot(approval)
+  const snapshotRequested = snapshot?.requestedAmountCents ?? snapshot?.requested_amount_cents
+  if (typeof snapshotRequested === 'number') return snapshotRequested
+
   const amount = approval.amount_cents
   if (typeof amount === 'number') return amount
 
@@ -2456,6 +2882,81 @@ export function readApprovalAmount(approval: Record<string, unknown>) {
 export function readAuthorizedApprovalAmount(approval: Record<string, unknown>) {
   const authorized = approval.authorized_amount_cents
   return typeof authorized === 'number' ? authorized : null
+}
+
+export function readApprovalEventDate(approval: Record<string, unknown>) {
+  const direct = readTrimmedString(approval.event_date ?? approval.eventDate)
+  if (direct) return direct
+  const snapshot = readApprovalSnapshot(approval)
+  return readTrimmedString(snapshot?.event_date ?? snapshot?.eventDate) ?? ''
+}
+
+export function readApprovalNotes(approval: Record<string, unknown>) {
+  const direct = readTrimmedString(approval.notes)
+  if (direct) return direct
+  const snapshot = readApprovalSnapshot(approval)
+  return readTrimmedString(snapshot?.notes) ?? ''
+}
+
+export function readApprovalCounterparty(approval: Record<string, unknown>) {
+  const direct = readTrimmedString(approval.counterparty ?? approval.provider)
+  if (direct) return direct
+  const snapshot = readApprovalSnapshot(approval)
+  return readTrimmedString(snapshot?.counterparty ?? snapshot?.provider) ?? '3rdPlace partner'
+}
+
+export function readApprovalSnapshotHash(approval: Record<string, unknown>) {
+  const direct = readTrimmedString(approval.snapshot_hash ?? approval.snapshotHash)
+  if (direct) return direct
+  const snapshot = readApprovalSnapshot(approval)
+  return readTrimmedString(snapshot?.snapshot_hash ?? snapshot?.snapshotHash ?? snapshot?.hash) ?? ''
+}
+
+function hasAuthorizableV2Snapshot(approval: Record<string, unknown>) {
+  if (!readApprovalSnapshotHash(approval)) return false
+
+  if (Object.prototype.hasOwnProperty.call(approval, 'snapshot_schema_version')) {
+    return approval.snapshot_schema_version === 2 || approval.snapshot_schema_version === '2'
+  }
+  if (Object.prototype.hasOwnProperty.call(approval, 'snapshotSchemaVersion')) {
+    return approval.snapshotSchemaVersion === 2 || approval.snapshotSchemaVersion === '2'
+  }
+
+  const snapshot = readApprovalSnapshot(approval)
+  if (!snapshot) return false
+  return snapshot.schema_version === 2 || snapshot.schema_version === '2'
+}
+
+export function readApprovalAvailableActions(
+  approval: Record<string, unknown>,
+  status = readApprovalStatus(approval)
+): readonly ApprovalUiAction[] {
+  const state = readApprovalUiState({
+    ...approval,
+    ui_status: approval.ui_status ?? status,
+  })
+
+  if (!hasAuthorizableV2Snapshot(approval)) {
+    if (state.status === 'pending') return ['request_reapproval', 'cancel']
+    if (
+      state.status === 'authorized' ||
+      state.status === 'failed' ||
+      state.status === 'expired' ||
+      state.status === 'reapproval_required'
+    ) {
+      return ['request_reapproval']
+    }
+  }
+
+  return state.availableActions
+}
+
+export function readApprovalActionResultMessage(approval: Record<string, unknown>) {
+  const result = approval.action_result ?? approval.actionResult
+  if (typeof result === 'string' && result.trim()) return result.trim()
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return null
+  const record = result as Record<string, unknown>
+  return readTrimmedString(record.message ?? record.summary ?? record.detail ?? record.error)
 }
 
 /**
@@ -2636,17 +3137,141 @@ export function formatApprovalTimestamp(value: string) {
  * Reads approval status metadata, defaulting to pending.
  */
 export function readApprovalStatus(approval: Record<string, unknown>): 'pending' | ApprovalUiStatus {
-  const status = approval.status
-  if (status === 'superseded' || typeof approval.superseded_at === 'string') return 'superseded'
-  if (status === 'approved' || status === 'authorized') return 'approved'
-  if (status === 'rejected' || status === 'cancelled') return 'rejected'
-  return 'pending'
+  return readApprovalUiState(approval).status
 }
 
 /**
  * Converts approval cents to a human-editable dollar field.
  */
 export function formatApprovalAmountInput(amountCents: number) {
-  if (amountCents <= 0) return ''
-  return String(Math.round(amountCents / 100))
+  return (formatCentsToDollars(amountCents) ?? 0).toFixed(2)
+}
+
+export function formatApprovalCents(amountCents: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format((formatCentsToDollars(amountCents) ?? 0))
+}
+
+export function parseApprovalAmountInput(value: string) {
+  const normalized = value.trim()
+  if (!/^\d+(?:\.\d{0,2})?$/.test(normalized)) return null
+  return parseDollarsToCents(normalized)
+}
+
+function readApprovalSnapshot(approval: Record<string, unknown>) {
+  const snapshot = approval.confirmation_snapshot ?? approval.confirmationSnapshot ?? approval.snapshot_json
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null
+  return snapshot as Record<string, unknown>
+}
+
+function enrichApprovalResponse(
+  currentApproval: Record<string, unknown>,
+  payload: ApprovalCommandResponse
+): Record<string, unknown> {
+  return {
+    ...currentApproval,
+    ...(payload.currentApproval ?? payload.approval ?? {}),
+    ...(payload.actionStatus !== undefined ? { action_status: payload.actionStatus } : {}),
+    ...(payload.actionResult !== undefined ? { action_result: payload.actionResult } : {}),
+    ...(payload.confirmationSnapshot !== undefined ? { confirmation_snapshot: payload.confirmationSnapshot } : {}),
+    ...(payload.uiStatus !== undefined ? { ui_status: payload.uiStatus } : {}),
+    ...(payload.availableActions !== undefined ? { available_actions: payload.availableActions } : {}),
+  }
+}
+
+function hasApprovalResponseState(payload: ApprovalCommandResponse) {
+  return Boolean(
+    payload.approval ||
+    payload.currentApproval ||
+    payload.uiStatus ||
+    payload.actionStatus ||
+    payload.actionResult ||
+    payload.confirmationSnapshot ||
+    payload.availableActions
+  )
+}
+
+function getApprovalRetryKey(
+  keys: Map<string, string>,
+  approvalId: string,
+  snapshotHash: string
+) {
+  const key = `${approvalId}:${snapshotHash}`
+  const existing = keys.get(key)
+  if (existing) return existing
+
+  const nonce = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  const value = `approval-retry:${approvalId}:${nonce}`
+  keys.set(key, value)
+  return value
+}
+
+function getExecutionCancelKey(
+  keys: Map<string, string>,
+  approvalId: string,
+  snapshotHash: string
+) {
+  const key = `${approvalId}:${snapshotHash}`
+  const existing = keys.get(key)
+  if (existing) return existing
+  const nonce = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  const value = `execution-cancel:${approvalId}:${nonce}`
+  keys.set(key, value)
+  return value
+}
+
+function clearApprovalRetryKey(
+  keys: Map<string, string>,
+  approvalId: string,
+  snapshotHash: string
+) {
+  keys.delete(`${approvalId}:${snapshotHash}`)
+}
+
+function isKnownTerminalRetryFailure(code: string | undefined) {
+  return code === 'approval_retry_failed' || code === 'retry_prior_failure'
+}
+
+function approvalPresentationClasses(tone: ApprovalPresentationTone) {
+  if (tone === 'success') {
+    return {
+      container: 'border-success/30 bg-success/10',
+      badge: 'border-success/30 bg-background text-success',
+      evidence: 'border-success/30 bg-success/10',
+    }
+  }
+  if (tone === 'warning') {
+    return {
+      container: 'border-warning/30 bg-warning/10',
+      badge: 'border-warning/30 bg-background text-warning',
+      evidence: 'border-warning/30 bg-warning/10',
+    }
+  }
+  if (tone === 'danger') {
+    return {
+      container: 'border-destructive/30 bg-destructive/10',
+      badge: 'border-destructive/30 bg-background text-destructive',
+      evidence: 'border-destructive/30 bg-destructive/10',
+    }
+  }
+  if (tone === 'neutral') {
+    return {
+      container: 'border-border bg-muted/40',
+      badge: 'border-border bg-background text-muted-foreground',
+      evidence: 'border-border bg-muted/40',
+    }
+  }
+  return {
+    container: 'border-primary/40 bg-primary/10',
+    badge: 'border-primary/30 bg-background text-primary',
+    evidence: 'border-primary/30 bg-primary/10',
+  }
 }

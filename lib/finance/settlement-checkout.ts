@@ -22,6 +22,11 @@ import {
 import { checkStripeReadinessForAuthorization } from '@/lib/planner/stripeReadinessGate'
 import { getAppBaseUrl, getStripeClient } from '@/lib/stripe/connect'
 import { assertIntegerCents } from '@/lib/planner/execution/approvalState'
+import {
+  APPROVAL_SNAPSHOT_SCHEMA_VERSION,
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
 
 type SupabaseAdminClient = SupabaseClient<any, 'public', any>
 
@@ -113,7 +118,15 @@ type PlanRow = {
   id: string
   title: string
   event_type: string | null
+  guest_count: number | null
+  budget_cap_cents: number | null
+  neighborhood: string | null
   date_window_start: string | null
+  date_window_end: string | null
+  ticketed: boolean | null
+  ticketing_model: string | null
+  food_responsibility: string | null
+  profit_goal_cents: number | null
 }
 
 type UserRow = {
@@ -345,20 +358,36 @@ export async function ensureSettlementApproval(
 
   if (actionError) throw new Error(actionError.message ?? 'Failed to create CHI settlement action')
 
+  const approvalSnapshot = {
+    action_label: 'Community host incentive settlement',
+    event_date: context.event?.event_date ? context.event.event_date.slice(0, 10) : null,
+    price_cents: amountCents,
+    fees_cents: 0,
+    requested_amount_cents: amountCents,
+    provider: context.venue.venue_name,
+    delivery_email: context.venue.contact_email ?? context.venueOwner?.email ?? null,
+    refund_terms: 'No booking or payment changes occur without the venue completing the settlement checkout.',
+    cancellation_terms: 'Venue may dispute before payment.',
+    package_details: `CHI settlement for ${context.event?.event_name ?? context.plan.title}.`,
+    expires_at: null,
+    notes: null,
+  }
+  const approvalSnapshotInput = {
+    plan: {
+      ...context.plan,
+      ticketed: context.plan.ticketed ?? false,
+    },
+    approval: approvalSnapshot,
+    action,
+    payload,
+  }
+
   const { data: approval, error: approvalError } = await (admin as any)
     .from('approvals')
     .insert({
       plan_id: context.plan.id,
       agent_action_id: action.id,
-      action_label: 'Community host incentive settlement',
-      provider: context.venue.venue_name,
-      event_date: context.event?.event_date ? context.event.event_date.slice(0, 10) : null,
-      price_cents: amountCents,
-      fees_cents: 0,
-      refund_terms: 'No booking or payment changes occur without the venue completing the settlement checkout.',
-      cancellation_terms: 'Venue may dispute before payment.',
-      package_details: `CHI settlement for ${context.event?.event_name ?? context.plan.title}.`,
-      delivery_email: context.venue.contact_email ?? context.venueOwner?.email ?? null,
+      ...approvalSnapshot,
       status: 'authorized',
       approved_by: input.organizerId,
       approved_at: now,
@@ -368,6 +397,9 @@ export async function ensureSettlementApproval(
       authorized_at: now,
       approval_type: 'chi_settlement',
       settlement_run_id: input.run.id,
+      snapshot_hash: buildApprovalSnapshotHashV2(approvalSnapshotInput),
+      snapshot_json: buildApprovalSnapshotV2(approvalSnapshotInput),
+      snapshot_schema_version: APPROVAL_SNAPSHOT_SCHEMA_VERSION,
     })
     .select('*')
     .single()
@@ -1431,7 +1463,7 @@ async function loadLikelyPlan(
 ): Promise<PlanRow | null> {
   const { data, error } = await (admin as any)
     .from('plans')
-    .select('id, title, event_type, date_window_start')
+    .select('id, title, event_type, guest_count, budget_cap_cents, neighborhood, date_window_start, date_window_end, ticketed, ticketing_model, food_responsibility, profit_goal_cents')
     .eq('user_id', organizerId)
     .order('updated_at', { ascending: false })
     .limit(25)

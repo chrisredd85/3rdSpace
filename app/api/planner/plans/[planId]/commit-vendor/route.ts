@@ -3,9 +3,13 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import {
+  cancelStagedCanonicalQuoteBooking,
+  stageCanonicalQuoteBooking,
+} from '@/lib/planner/execution/canonicalQuoteBooking'
 import { recomputePlanDerivedState } from '@/lib/planner/recomputeDerivedState'
-import { createClient } from '@/lib/supabase/server'
-import type { Json, Plan } from '@/lib/types'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import type { Plan } from '@/lib/types'
 
 type PlannerDb = { from: (table: string) => any }
 
@@ -16,19 +20,10 @@ interface RouteContext {
 }
 
 const commitVendorSchema = z.object({
-  discovery_vendor_id: z.string().uuid(),
-  service_type: z.string().trim().min(1),
-  quoted_hourly_cents: z.number().int().nonnegative().nullable().optional(),
-  quoted_package_cents: z.number().int().nonnegative().nullable().optional(),
-  quoted_minimum_cents: z.number().int().nonnegative().nullable().optional(),
-  quoted_deposit_pct: z.number().min(0).max(1).nullable().optional(),
-  quoted_terms: z.record(z.unknown()).default({}),
-})
+  response_id: z.string().uuid(),
+}).strict()
 
-const cancelVendorSchema = z.object({
-  discovery_vendor_id: z.string().uuid(),
-  service_type: z.string().trim().min(1),
-})
+const cancelVendorSchema = commitVendorSchema
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const auth = await getCreatorAuth()
@@ -42,65 +37,41 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
   if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
-
-  const committedAt = new Date().toISOString()
-  const current = readCommittedVendors((plan as unknown as Record<string, unknown>).committed_vendors)
-  const committedVendor = {
-    vendor_id: parsed.data.discovery_vendor_id,
-    discovery_vendor_id: parsed.data.discovery_vendor_id,
-    service_type: parsed.data.service_type,
-    quoted_hourly_cents: parsed.data.quoted_hourly_cents ?? null,
-    quoted_package_cents: parsed.data.quoted_package_cents ?? null,
-    quoted_minimum_cents: parsed.data.quoted_minimum_cents ?? null,
-    quoted_deposit_pct: parsed.data.quoted_deposit_pct ?? null,
-    quoted_terms: parsed.data.quoted_terms,
-    committed_at: committedAt,
-  }
-  const nextCommitted = [
-    committedVendor,
-    ...current.filter((vendor) => !sameCommittedVendor(vendor, committedVendor)),
-  ]
-
-  const metadata = readRecord(plan.metadata) ?? {}
-  const acceptedQuoteState = readRecord(metadata.accepted_quote_state) ?? {}
-  const nextMetadata = {
-    ...metadata,
-    committed_vendors: nextCommitted,
-    accepted_quote_state: {
-      ...acceptedQuoteState,
-      vendors: nextCommitted,
-      updated_at: committedAt,
-    },
-  }
-
-  const { data, error } = await auth.db
-    .from('plans')
-    .update({
-      committed_vendors: nextCommitted as unknown as Json,
-      metadata: nextMetadata as Json,
-    })
-    .eq('id', (await context.params).planId)
-    .eq('user_id', auth.userId)
-    .select(PLAN_SELECT_COLUMNS)
-    .single()
-
-  if (error || !data) {
-    return NextResponse.json({ error: error?.message ?? 'Failed to commit vendor quote' }, { status: 500 })
-  }
-
-  await auth.db
-    .from('plan_discovery_vendor_candidates')
-    .update({ status: 'superseded' })
-    .eq('plan_id', (await context.params).planId)
-    .eq('service_type', parsed.data.service_type)
-    .neq('discovery_vendor_id', parsed.data.discovery_vendor_id)
-    .in('status', ['candidate', 'approval_created'])
-
+  const reapprovalResponse = requireMutableQuotePlan(plan)
+  if (reapprovalResponse) return reapprovalResponse
   const planId = (await context.params).planId
-  await insertStatusMessage(auth.db, planId, `Committed ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote for planning.`)
-  await recomputePlanDerivedState({ supabase: auth.db, planId, trigger: 'commit_changed' })
+  const writeDb = createServiceRoleClient() as unknown as PlannerDb
+  let staged
+  try {
+    staged = await stageCanonicalQuoteBooking({
+      db: writeDb,
+      plan,
+      actorId: auth.userId,
+      quoteKind: 'vendor',
+      responseId: parsed.data.response_id,
+    })
+  } catch (error) {
+    return mapQuoteBookingError(error)
+  }
+
+  await recomputePlanDerivedState({
+    supabase: auth.db,
+    writeSupabase: writeDb,
+    baselineSupabase: writeDb,
+    planId,
+    trigger: 'commit_changed',
+  })
   const refreshedPlan = await loadOwnedPlan(auth.db, planId, auth.userId)
-  return NextResponse.json({ plan: refreshedPlan ?? data })
+  const responsePlan = refreshedPlan ?? staged.plan
+  return NextResponse.json({
+    plan: responsePlan,
+    canonical_event_id: responsePlan.materialized_event_id ?? null,
+    agentAction: staged.agent_action,
+    approval: staged.approval,
+    approvalMessage: staged.approval_message,
+    existing: staged.existing,
+    booking_status: 'approval_required',
+  })
 }
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
@@ -113,46 +84,42 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: 'Invalid vendor cancellation payload', issues: parsed.error.flatten() }, { status: 400 })
   }
 
-  const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
-  if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
-
-  const nextCommitted = readCommittedVendors((plan as unknown as Record<string, unknown>).committed_vendors)
-    .filter((vendor) => !sameCommittedVendor(vendor, {
-      discovery_vendor_id: parsed.data.discovery_vendor_id,
-      service_type: parsed.data.service_type,
-    }))
-  const metadata = readRecord(plan.metadata) ?? {}
-  const acceptedQuoteState = readRecord(metadata.accepted_quote_state) ?? {}
-  const nextMetadata = {
-    ...metadata,
-    committed_vendors: nextCommitted,
-    accepted_quote_state: {
-      ...acceptedQuoteState,
-      vendors: nextCommitted,
-      updated_at: new Date().toISOString(),
-    },
-  }
-
-  const { data, error } = await auth.db
-    .from('plans')
-    .update({
-      committed_vendors: nextCommitted as unknown as Json,
-      metadata: nextMetadata as Json,
-    })
-    .eq('id', (await context.params).planId)
-    .eq('user_id', auth.userId)
-    .select(PLAN_SELECT_COLUMNS)
-    .single()
-
-  if (error || !data) {
-    return NextResponse.json({ error: error?.message ?? 'Failed to cancel vendor commitment' }, { status: 500 })
-  }
-
   const planId = (await context.params).planId
-  await insertStatusMessage(auth.db, planId, `Cancelled accepted ${parsed.data.service_type.replace(/_/g, ' ')} vendor quote.`)
-  await recomputePlanDerivedState({ supabase: auth.db, planId, trigger: 'cancel_commit' })
+  const plan = await loadOwnedPlan(auth.db, planId, auth.userId)
+  if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+  const reapprovalResponse = requireMutableQuotePlan(plan)
+  if (reapprovalResponse) return reapprovalResponse
+  const writeDb = createServiceRoleClient() as unknown as PlannerDb
+  let cancelled
+  try {
+    cancelled = await cancelStagedCanonicalQuoteBooking({
+      db: writeDb,
+      planId,
+      actorId: auth.userId,
+      quoteKind: 'vendor',
+      responseId: parsed.data.response_id,
+    })
+  } catch (error) {
+    return mapQuoteBookingError(error)
+  }
+
+  await recomputePlanDerivedState({
+    supabase: auth.db,
+    writeSupabase: writeDb,
+    baselineSupabase: writeDb,
+    planId,
+    trigger: 'cancel_commit',
+  })
   const refreshedPlan = await loadOwnedPlan(auth.db, planId, auth.userId)
-  return NextResponse.json({ plan: refreshedPlan ?? data })
+  const responsePlan = refreshedPlan ?? cancelled.plan
+  return NextResponse.json({
+    plan: responsePlan,
+    canonical_event_id: responsePlan.materialized_event_id ?? null,
+    agentAction: cancelled.agent_action,
+    approval: cancelled.approval,
+    existing: cancelled.existing,
+    booking_status: 'cancelled_before_authorization',
+  })
 }
 
 async function getCreatorAuth(): Promise<
@@ -180,34 +147,64 @@ async function loadOwnedPlan(db: PlannerDb, planId: string, userId: string): Pro
   return data as Plan | null
 }
 
-async function insertStatusMessage(db: PlannerDb, planId: string, content: string) {
-  await db.from('plan_messages').insert({
-    plan_id: planId,
-    role: 'system',
-    content,
-    message_type: 'status_update',
-    metadata: { kind: 'accepted_quote_state' } as Json,
-  })
+function requireMutableQuotePlan(plan: Plan) {
+  if (
+    (!plan.materialized_event_id && (plan.status === 'drafting' || plan.status === 'ready')) ||
+    (Boolean(plan.materialized_event_id) && (plan.status === 'executing' || plan.status === 'booked'))
+  ) {
+    return null
+  }
+
+  return NextResponse.json(
+    {
+      error: 'Existing approved quote terms are frozen. Revise the plan and complete re-approval before changing venue, vendor, price, or terms.',
+      code: 'PLAN_REAPPROVAL_REQUIRED',
+      plan_id: plan.id,
+      plan_status: plan.status,
+      materialized_event_id: plan.materialized_event_id ?? null,
+    },
+    { status: 409 }
+  )
 }
 
-function readCommittedVendors(value: unknown): Array<Record<string, unknown>> {
-  return Array.isArray(value)
-    ? value.flatMap((item) => {
-        const record = readRecord(item)
-        return record ? [record] : []
-      })
-    : []
-}
-
-function sameCommittedVendor(first: Record<string, unknown>, second: Record<string, unknown>) {
-  return readString(first.discovery_vendor_id ?? first.vendor_id) === readString(second.discovery_vendor_id ?? second.vendor_id) &&
-    readString(first.service_type) === readString(second.service_type)
-}
-
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null
+function mapQuoteBookingError(error: unknown) {
+  const message = error instanceof Error ? error.message : 'Failed to stage vendor quote booking'
+  if (/response_not_found/i.test(message)) {
+    return NextResponse.json({ error: 'Vendor quote response not found' }, { status: 404 })
+  }
+  if (/action_not_found|approval_not_found/i.test(message)) {
+    return NextResponse.json({ error: 'Pending vendor booking approval not found' }, { status: 404 })
+  }
+  if (/response_not_actionable/i.test(message)) {
+    return NextResponse.json({ error: 'This vendor response does not contain an actionable quote' }, { status: 409 })
+  }
+  if (/exact_date_required/i.test(message)) {
+    return NextResponse.json(
+      {
+        error: 'Choose one exact event date before creating the booking approval',
+        code: 'canonical_quote_booking_exact_date_required',
+      },
+      { status: 409 }
+    )
+  }
+  if (/active_slot_exists|23505/i.test(message)) {
+    return NextResponse.json(
+      { error: 'Cancel the current vendor booking approval before choosing another quote', code: 'canonical_quote_booking_active' },
+      { status: 409 }
+    )
+  }
+  if (/requires_mutable_plan|requires_reapproval/i.test(message)) {
+    return NextResponse.json(
+      { error: 'This quote changed after approval. Create a new approval version before booking.', code: 'PLAN_REAPPROVAL_REQUIRED' },
+      { status: 409 }
+    )
+  }
+  if (/requires_pending_approval/i.test(message)) {
+    return NextResponse.json(
+      { error: 'This booking approval is no longer pending. Use the approval workflow to cancel or revise it.', code: 'canonical_quote_booking_not_pending' },
+      { status: 409 }
+    )
+  }
+  console.error('[planner.commit-vendor] Failed to stage canonical quote booking', error)
+  return NextResponse.json({ error: 'Failed to create vendor booking approval' }, { status: 500 })
 }

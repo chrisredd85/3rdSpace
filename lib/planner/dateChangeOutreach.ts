@@ -6,6 +6,7 @@ import {
   type GmailOutreachTarget,
 } from '@/lib/outreach/gmailApprovalFlow'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlanMessage } from '@/lib/types'
 
 export type PlannerDb = { from: (table: string) => any }
@@ -46,6 +47,7 @@ export async function createDateChangeOutreachApproval(
 ) {
   const plan = await loadOwnedPlan(db, input.planId, input.userId)
   if (!plan) throw new DateChangePlanNotFoundError()
+  const writeDb = createServiceRoleClient() as unknown as PlannerDb
 
   await ensureGmailConnected(db, input.userId)
 
@@ -138,7 +140,7 @@ export async function createDateChangeOutreachApproval(
     throw new Error(finalUpdateError?.message ?? 'Failed to finalize date-change event brief')
   }
 
-  const statusMessage = await insertDateChangeStatusMessage(db, {
+  const statusMessage = await insertDateChangeStatusMessage(writeDb, {
     planId: plan.id,
     proposedDateLabel,
     targetCount: targets.length,

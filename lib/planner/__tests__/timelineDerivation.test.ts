@@ -56,6 +56,18 @@ function holdAction(status: string, id = `hold-${status}`, venueName = 'The Vale
   }
 }
 
+function confirmedHoldAction(id = 'hold-confirmed', venueName = 'The Valencia Room'): DerivationAgentAction {
+  return {
+    ...holdAction('complete', id, venueName),
+    result_metadata: {
+      admin_task_outcome: {
+        outcome: 'hold_confirmed',
+        hold_reference: 'hold-ref-1',
+      },
+    },
+  }
+}
+
 function milestone(overrides: Partial<PlanningMilestone> & Pick<PlanningMilestone, 'title' | 'category'>): PlanningMilestone {
   return {
     due_date: '2099-12-31', // far future = not overdue by default
@@ -89,9 +101,19 @@ describe('venue confirmation milestone', () => {
     expect(derived.blocker_reason).toBe('Awaiting The Valencia Room')
   })
 
-  it('is in_progress when approved hold_request action exists', () => {
+  it('is still awaiting_venue_response when the hold request is approved but not confirmed', () => {
     const [derived] = deriveMilestoneStatuses(plan, [], [venueConfirm], [holdAction('approved')])
+    expect(derived.status).toBe('awaiting_venue_response')
+  })
+
+  it('is in_progress only when operator completion records hold_confirmed', () => {
+    const [derived] = deriveMilestoneStatuses(plan, [], [venueConfirm], [confirmedHoldAction()])
     expect(derived.status).toBe('in_progress')
+  })
+
+  it('does not treat a generic complete action as proof of an active hold', () => {
+    const [derived] = deriveMilestoneStatuses(plan, [], [venueConfirm], [holdAction('complete')])
+    expect(derived.status).toBe('blocked')
   })
 
   it('is overdue when past due and no hold', () => {
@@ -113,7 +135,7 @@ describe('vendor confirmation milestone', () => {
   })
 
   it('is blocked (approve outreach) when hold exists but no outreach approval', () => {
-    const [derived] = deriveMilestoneStatuses(plan, [phase2RecMsg()], [vendorConfirm], [holdAction('authorized')])
+    const [derived] = deriveMilestoneStatuses(plan, [phase2RecMsg()], [vendorConfirm], [confirmedHoldAction()])
     expect(derived.status).toBe('blocked')
     expect(derived.blocker_tab).toBe('approvals')
   })
@@ -129,7 +151,7 @@ describe('vendor confirmation milestone', () => {
       plan,
       [phase2RecMsg(), outreachApprovalMsg('authorized')],
       [vendorConfirm],
-      [holdAction('complete')]
+      [confirmedHoldAction()]
     )
     expect(derived.status).toBe('in_progress')
   })
@@ -139,7 +161,7 @@ describe('vendor confirmation milestone', () => {
       plan,
       [phase2RecMsg(), outreachApprovalMsg('pending', 'outreach-msg-id')],
       [vendorConfirm],
-      [holdAction('executing')]
+      [confirmedHoldAction()]
     )
     expect(derived.status).toBe('blocked')
     expect(derived.blocker_msg_id).toBe('outreach-msg-id')
@@ -164,7 +186,7 @@ describe('payment milestone', () => {
   })
 
   it('is in_progress when hold exists', () => {
-    const [derived] = deriveMilestoneStatuses(plan, [], [depositMilestone], [holdAction('approved')])
+    const [derived] = deriveMilestoneStatuses(plan, [], [depositMilestone], [confirmedHoldAction()])
     expect(derived.status).toBe('in_progress')
   })
 

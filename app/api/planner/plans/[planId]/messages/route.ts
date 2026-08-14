@@ -64,6 +64,10 @@ import {
   type PlanRevisionTrigger,
 } from '@/lib/planner/planRevisions'
 import {
+  transitionPlanStatus,
+  type PlanStatusRpcClient,
+} from '@/lib/planner/planStatusTransitions'
+import {
   buildSpecialSupplyTransitionPhrase,
   mergeSpecialSupplyMetadata,
   pickSpecialSupplyIntakeQuestion,
@@ -82,7 +86,7 @@ import {
   type BuilderAttendanceSummary,
 } from '@/lib/server/builderAttendanceHistory'
 import { checkRateLimit, rateLimitHeaders } from '@/lib/server/rate-limit'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { TicketPlatform } from '@/lib/constants/account-setup'
 import type {
   Json,
@@ -128,6 +132,7 @@ const PLAN_SELECT_COLUMNS = `
   excluded_vendor_attributes,
   preferred_vendor_attributes,
   plan_revision_count,
+  materialized_event_id,
   metadata,
   created_at,
   updated_at
@@ -240,6 +245,7 @@ export async function POST(
 
     const existingPlan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!existingPlan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
 
     const pendingResolution = buildPendingPlanChangeResolution(existingPlan, body.data.message)
     const intent = pendingResolution ? { confidence: {} } : parseEventIntent(body.data.message)
@@ -248,14 +254,24 @@ export async function POST(
       body.data.message,
       buildPlanUpdates(intent, existingPlan, body.data.message)
     )
+    if (arePlanFactsLocked(existingPlan) && hasCanonicalEventSensitiveChanges(fieldUpdates)) {
+      return NextResponse.json(
+        {
+          error: 'This plan has already been approved or materialized. Create a revision and re-authorize it before changing event facts.',
+          details: { code: 'canonical_event_revision_required' },
+        },
+        { status: 409 }
+      )
+    }
     const planAfterFieldUpdates = await updatePlanIfNeeded(
       auth.db,
+      writeDb,
       (await context.params).planId,
       existingPlan,
       fieldUpdates
     )
 
-    const { data: userMessageData, error: userMessageError } = await auth.db
+    const { data: userMessageData, error: userMessageError } = await writeDb
       .from('plan_messages')
       .insert({
         plan_id: (await context.params).planId,
@@ -284,6 +300,7 @@ export async function POST(
         }
       : await buildPlannerAgentResponse({
           db: auth.db,
+          writeDb,
           planId: (await context.params).planId,
           userId: auth.userId,
           userMessage: body.data.message,
@@ -300,13 +317,14 @@ export async function POST(
       ? buildRequestedRecommendationDraft(agentResponse.agentDraft, agentResponse.plan)
       : agentResponse.agentDraft
     const finalPlan = await maybeMarkPlanReady(
-      auth.db,
+      writeDb as unknown as PlanStatusRpcClient,
       (await context.params).planId,
       agentResponse.plan,
-      agentDraft.message_type
+      agentDraft.message_type,
+      auth.userId
     )
 
-    const { data: agentMessageData, error: agentMessageError } = await auth.db
+    const { data: agentMessageData, error: agentMessageError } = await writeDb
       .from('plan_messages')
       .insert({
         plan_id: (await context.params).planId,
@@ -331,6 +349,7 @@ export async function POST(
     if (didRefreshRecommendations) {
       const refreshStatusMessages = await invalidateRecommendationsForPlanChange({
         db: auth.db,
+        writeDb,
         plan: finalPlan,
         changedFields: findMatchAffectingChangedFields(existingPlan, finalPlan),
       })
@@ -359,6 +378,7 @@ export async function POST(
     if (!shouldCreateAutoRecommendations && agentMessage.message_type === 'recommendation') {
       const opportunityBundle = await createVenueOpportunityBundle({
         db: auth.db,
+        writeDb,
         plan: finalPlan,
         messages: [...messages, agentMessage, ...followUpMessages],
         userId: auth.userId,
@@ -373,7 +393,7 @@ export async function POST(
       planId: (await context.params).planId,
       intent,
     })
-    await insertAuditLog(auth.db, {
+    await insertAuditLog(writeDb, {
       user_id: auth.userId,
       plan_id: (await context.params).planId,
       action: 'planner.message.exchange',
@@ -467,6 +487,7 @@ async function loadMessages(db: PlannerDb, planId: string): Promise<PlanMessage[
  */
 async function invalidateRecommendationsForPlanChange(input: {
   db: PlannerDb
+  writeDb: PlannerDb
   plan: Plan
   changedFields: string[]
 }): Promise<PlanMessage[]> {
@@ -475,9 +496,9 @@ async function invalidateRecommendationsForPlanChange(input: {
 
   const supersededAt = new Date().toISOString()
   await Promise.all(recommendations.map((recommendation) => supersedeRecommendation(input.db, recommendation, supersededAt, input.changedFields)))
-  await invalidatePendingOutreachApprovals(input.db, input.plan.id, supersededAt, input.changedFields)
+  await invalidatePendingOutreachApprovals(input.db, input.writeDb, input.plan.id, supersededAt, input.changedFields)
 
-  const statusMessage = await insertRecommendationRefreshStatusMessage(input.db, input.plan.id, input.changedFields)
+  const statusMessage = await insertRecommendationRefreshStatusMessage(input.writeDb, input.plan.id, input.changedFields)
   return [statusMessage].filter((message): message is PlanMessage => message !== null)
 }
 
@@ -520,12 +541,13 @@ async function supersedeRecommendation(
 }
 
 async function invalidatePendingOutreachApprovals(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   planId: string,
   supersededAt: string,
   changedFields: string[]
 ) {
-  const { data, error } = await db
+  const { data, error } = await readDb
     .from('agent_actions')
     .select('id, action_type, status, payload_json')
     .eq('plan_id', planId)
@@ -543,7 +565,7 @@ async function invalidatePendingOutreachApprovals(
     .filter((id): id is string => Boolean(id))
   if (actionIds.length === 0) return
 
-  const { error: approvalError } = await db
+  const { error: approvalError } = await writeDb
     .from('approvals')
     .update({ status: 're_approval_required' })
     .in('agent_action_id', actionIds)
@@ -551,16 +573,17 @@ async function invalidatePendingOutreachApprovals(
 
   if (approvalError) console.error('Planner outreach approval invalidation error:', approvalError)
 
-  await markOutreachApprovalMessagesReapprovalRequired(db, planId, supersededAt, changedFields)
+  await markOutreachApprovalMessagesReapprovalRequired(readDb, writeDb, planId, supersededAt, changedFields)
 }
 
 async function markOutreachApprovalMessagesReapprovalRequired(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   planId: string,
   supersededAt: string,
   changedFields: string[]
 ) {
-  const { data, error } = await db
+  const { data, error } = await readDb
     .from('plan_messages')
     .select(PLAN_MESSAGE_SELECT_COLUMNS)
     .eq('plan_id', planId)
@@ -588,7 +611,7 @@ async function markOutreachApprovalMessagesReapprovalRequired(
         : approval,
     } as Json
 
-    const { error: updateError } = await db
+    const { error: updateError } = await writeDb
       .from('plan_messages')
       .update({ metadata: nextMetadata })
       .eq('id', message.id)
@@ -652,6 +675,7 @@ function buildMatchAffectingSnapshot(plan: Plan): Record<string, unknown> {
 
 async function buildPlannerAgentResponse(input: {
   db: PlannerDb
+  writeDb: PlannerDb
   planId: string
   userId: string
   userMessage: string
@@ -758,6 +782,7 @@ async function buildPlannerAgentResponse(input: {
     )
     const planWithAgentUpdates = await updatePlanIfNeeded(
       input.db,
+      input.writeDb,
       input.planId,
       input.plan,
       agentPlanUpdates
@@ -786,8 +811,11 @@ async function applyPlannerPlanRevision(input: {
   sourceMessageId?: string
 }): Promise<{ revision_id: string; impact: PlanRevisionImpact; plan: Plan } | null> {
   try {
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
     const result = await applyPlanRevision({
       supabase: input.db,
+      writeSupabase: writeDb,
+      baselineSupabase: writeDb,
       planId: input.planId,
       userId: input.userId,
       trigger: input.trigger,
@@ -880,6 +908,7 @@ function toIntakeBuilderHistory(summary: BuilderAttendanceSummary) {
 
 async function updatePlanIfNeeded(
   db: PlannerDb,
+  writeDb: PlannerDb,
   planId: string,
   currentPlan: Plan,
   updates: Record<string, unknown>
@@ -888,6 +917,10 @@ async function updatePlanIfNeeded(
     Object.entries(updates).filter(([field, value]) => currentPlan[field as keyof Plan] !== value)
   )
   if (Object.keys(changedUpdates).length === 0) return currentPlan
+  if (arePlanFactsLocked(currentPlan) && hasCanonicalEventSensitiveChanges(changedUpdates)) {
+    console.warn('[planner.identity] Ignoring agent-proposed changes to locked approved or materialized plan facts')
+    return currentPlan
+  }
 
   const { data, error } = await db
     .from('plans')
@@ -901,10 +934,34 @@ async function updatePlanIfNeeded(
     return currentPlan
   }
 
-  await insertPlanUpdateRows(db, currentPlan, changedUpdates)
+  await insertPlanUpdateRows(writeDb, currentPlan, changedUpdates)
   await syncPlanSupplyIntentRows(db, (data as Plan).id, (data as Plan).metadata)
 
   return data as Plan
+}
+
+function hasCanonicalEventSensitiveChanges(updates: Record<string, unknown>): boolean {
+  const eventSensitiveFields = new Set([
+    'title',
+    'event_type',
+    'guest_count',
+    'neighborhood',
+    'date_window_start',
+    'date_window_end',
+    'budget_cap_cents',
+    'ticketed',
+    'ticketing_model',
+    'food_responsibility',
+    'venue_terms',
+    'agent_action',
+    'profit_goal_cents',
+    'notes',
+  ])
+  return Object.keys(updates).some((field) => eventSensitiveFields.has(field))
+}
+
+function arePlanFactsLocked(plan: Plan): boolean {
+  return Boolean(plan.materialized_event_id) || !['drafting', 'ready'].includes(plan.status)
 }
 
 function buildIntakeAgentDraft(
@@ -1262,26 +1319,27 @@ function normalizePlanningMoneyToCents(value: number): number {
 }
 
 async function maybeMarkPlanReady(
-  db: PlannerDb,
+  db: PlanStatusRpcClient,
   planId: string,
   currentPlan: Plan,
-  messageType: PlanMessage['message_type']
+  messageType: PlanMessage['message_type'],
+  actorId: string
 ): Promise<Plan> {
   if (messageType !== 'recommendation' || currentPlan.status !== 'drafting') return currentPlan
 
-  const { data, error } = await db
-    .from('plans')
-    .update({ status: 'ready' })
-    .eq('id', planId)
-    .select(PLAN_SELECT_COLUMNS)
-    .single()
-
-  if (error || !data) {
-    console.error('Planner ready status update error:', error)
+  try {
+    return await transitionPlanStatus(db, {
+      planId,
+      expectedStatus: 'drafting',
+      toStatus: 'ready',
+      trigger: 'intake_completed',
+      actorId,
+      context: { source: 'planner_message' },
+    })
+  } catch (error) {
+    console.error('Planner ready status transition error:', error)
     return currentPlan
   }
-
-  return data as Plan
 }
 
 async function hasExistingRecommendationPipelineArtifacts(

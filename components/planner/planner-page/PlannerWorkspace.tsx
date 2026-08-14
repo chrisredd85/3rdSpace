@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type Keyboard
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { CalendarDays, CheckCircle2, ChevronDown, FileText, LayoutTemplate, Loader2, Mail, MessageSquare, RefreshCw, SendHorizontal, Sparkles, X } from 'lucide-react'
 import { PlannerEmptyState } from '@/components/planner/PlannerEmptyState'
+import { PlannerEventMaterializationCard } from '@/components/planner/PlannerEventMaterializationCard'
 import { PlannerDataConnectionPanel } from '@/components/planner/PlannerDataConnectionPanel'
 import { PostEventReportCard } from '@/components/planner/PostEventReportCard'
 import { PlannerSignupGate } from '@/components/planner/PlannerSignupGate'
@@ -17,7 +18,7 @@ import { useToast } from '@/components/ui/toast'
 import { hasPendingAgentResponse } from '@/lib/planner/intakeReadiness'
 import { migratePlannerDraftToServer } from '@/lib/planner/migrateDraft'
 import type { DerivationAgentAction } from '@/lib/planner/timelineDerivation'
-import type { Plan, PlanMessage, PlannerCreatePlanResponse, PlannerPostMessageResponse } from '@/lib/types'
+import type { Plan, PlanMessage, PlannerCreatePlanResponse, PlannerFullPlanResponse, PlannerPostMessageResponse } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { DraftMatchSignupCard, PlannerApprovalFocusedCard, PlannerFocusedMessageCard, PlannerMessageBubble, getActivePlanDateChip, getApprovalSummary, isUuid, readUnknownRecord } from './PlannerConversation'
 import { DemoSessionBanner, PlannerTemplatesModal, ReplyAnalysisResult, isResponseAnalysisOutput, readAgentOutput } from './PlannerTemplatesModal'
@@ -143,6 +144,25 @@ export function PlannerWorkspace() {
       console.warn('[planner] Unable to load agent actions for timeline', error)
     }
   }, [])
+
+  const refreshActivePlanAfterMaterialization = useCallback(async () => {
+    const planId = activePlan?.id
+    if (!planId || planId.startsWith('mock-plan-')) return
+
+    const response = await fetch(`/api/planner/plans/${planId}`, {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'include',
+    })
+    const payload = await response.json().catch(() => ({} as Partial<PlannerFullPlanResponse> & { error?: string }))
+    if (!response.ok || !payload.plan || !Array.isArray(payload.messages)) {
+      throw new Error(payload.error ?? 'The event was created, but the plan could not be refreshed.')
+    }
+
+    setActivePlan(payload.plan)
+    setMessages(payload.messages)
+    publishLivePlan(payload.plan, payload.messages)
+  }, [activePlan?.id])
 
   useEffect(() => {
     setIsAuthenticated(persistenceMode === 'server')
@@ -812,7 +832,7 @@ export function PlannerWorkspace() {
    */
   async function archiveAbandonedPlanForNewConversation(plan: Plan | null) {
     if (!plan || persistenceMode !== 'server' || !isUuid(plan.id)) return
-    if (plan.status === 'complete' || plan.status === 'archived') return
+    if (plan.status === 'completed' || plan.status === 'complete' || plan.status === 'archived') return
 
     const response = await fetch(`/api/planner/plans/${plan.id}`, {
       method: 'PATCH',
@@ -1095,8 +1115,15 @@ export function PlannerWorkspace() {
           router.replace(`/planner?plan=${nextPlan.id}`, { scroll: false })
         }
       }
-      if (Array.isArray(payload?.messages) && payload.messages.length > 0) {
-        setMessages((currentMessages) => [...currentMessages, ...(payload.messages as PlanMessage[])])
+      const appliedMessages = Array.isArray(payload?.messages)
+        ? payload.messages as PlanMessage[]
+        : []
+      if (shouldCreateNewPlan || appliedMessages.length > 0) {
+        setMessages((currentMessages) => resolveTemplateApplyMessages({
+          currentMessages,
+          appliedMessages,
+          createsNewPlan: shouldCreateNewPlan,
+        }))
       }
       addToast({
         title: shouldCreateNewPlan ? 'Rebook plan created' : 'Template applied',
@@ -1117,6 +1144,14 @@ export function PlannerWorkspace() {
       addToast({
         title: 'Save the plan first',
         description: 'Templates can only be created from a saved planner plan.',
+        variant: 'warning',
+      })
+      return
+    }
+    if (!isTemplateEligiblePlan(activePlan)) {
+      addToast({
+        title: 'Complete the event first',
+        description: 'Templates are saved from a completed canonical event with recorded outcomes.',
         variant: 'warning',
       })
       return
@@ -1283,39 +1318,12 @@ export function PlannerWorkspace() {
     status: ApprovalUiStatus,
     updatedApproval?: Record<string, unknown>
   ) {
-    setMessages((currentMessages) =>
-      currentMessages.map((message) => {
-        if (!message.metadata || typeof message.metadata !== 'object' || Array.isArray(message.metadata)) {
-          return message
-        }
-
-        const approval = message.metadata.approval
-        if (!approval || typeof approval !== 'object' || Array.isArray(approval)) {
-          return message
-        }
-
-        const storedApprovalId = typeof approval.id === 'string' ? approval.id : message.id
-        if (storedApprovalId !== approvalId) {
-          return message
-        }
-
-        const nextStatus = typeof updatedApproval?.status === 'string' ? updatedApproval.status : status
-
-        return {
-          ...message,
-          metadata: {
-            ...message.metadata,
-            status: nextStatus,
-            approval: {
-              ...approval,
-              ...(updatedApproval ?? {}),
-              id: storedApprovalId,
-              status: nextStatus,
-            },
-          } as unknown as PlanMessage['metadata'],
-        }
-      })
-    )
+    setMessages((currentMessages) => updateApprovalMessageState(
+      currentMessages,
+      approvalId,
+      status,
+      updatedApproval
+    ))
   }
 
   /**
@@ -1406,14 +1414,17 @@ export function PlannerWorkspace() {
     const payload = action.payload ?? {}
 
     if (action.type === 'authorize' && payload.approvalId && isUuid(payload.approvalId)) {
+      if (!payload.expectedSnapshotHash) {
+        throw new Error('Open the approval and review its latest snapshot before authorizing.')
+      }
       const response = await fetch(`/api/planner/plans/${planId}/approvals`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           approvalId: payload.approvalId,
-          action: 'authorize',
-          authorizedAmountCents: payload.authorizedAmountCents,
+          command: 'authorize',
+          expectedSnapshotHash: payload.expectedSnapshotHash,
         }),
       })
 
@@ -1631,6 +1642,20 @@ export function PlannerWorkspace() {
           </div>
         </div>
 
+        {activePlan.status === 'approved' || activePlan.materialized_event_id ? (
+          <div className="mb-5">
+            <PlannerEventMaterializationCard
+              key={`${activePlan.id}:${activePlan.materialized_event_id ?? 'pending'}`}
+              planId={activePlan.id}
+              planStatus={activePlan.status}
+              materializedEventId={activePlan.materialized_event_id}
+              dateWindowStart={activePlan.date_window_start}
+              dateWindowEnd={activePlan.date_window_end}
+              onMaterialized={refreshActivePlanAfterMaterialization}
+            />
+          </div>
+        ) : null}
+
         <div className="mb-5 flex gap-2 overflow-x-auto rounded-2xl border border-border bg-card/40 p-1">
           {planTabs.map((tab) => {
             if (tab.id === 'timeline' && persistenceMode !== 'server') return null
@@ -1733,7 +1758,11 @@ export function PlannerWorkspace() {
             {activeTab === 'approvals' ? (
               <>
                 <div className="rounded-2xl border border-border bg-background/60 px-4 py-3 text-sm font-semibold text-muted-foreground">
-                  {approvalSummary.pending} pending · {approvalSummary.authorized} approved · {approvalSummary.cancelled} cancelled
+                  {approvalSummary.pending} pending · {approvalSummary.authorized} authorized · {approvalSummary.executing} executing · {approvalSummary.succeeded} succeeded
+                  {approvalSummary.failed > 0 ? ` · ${approvalSummary.failed} failed` : ''}
+                  {approvalSummary.expired > 0 ? ` · ${approvalSummary.expired} expired` : ''}
+                  {approvalSummary.reapproval_required > 0 ? ` · ${approvalSummary.reapproval_required} need re-approval` : ''}
+                  {approvalSummary.cancelled + approvalSummary.rejected > 0 ? ` · ${approvalSummary.cancelled + approvalSummary.rejected} closed` : ''}
                   {approvalSummary.superseded > 0 ? ` · ${approvalSummary.superseded} superseded` : ''}
                 </div>
                 {visibleMessages.length > 0 ? (
@@ -1930,7 +1959,11 @@ export function PlannerWorkspace() {
         error={templateError}
         applyingTemplateId={applyingTemplateId}
         isSavingTemplate={isSavingTemplate}
-        canSaveCurrentPlan={persistenceMode === 'server' && Boolean(activePlan) && !activePlan?.id.startsWith('mock-plan-')}
+        canSaveCurrentPlan={
+          persistenceMode === 'server' &&
+          !activePlan.id.startsWith('mock-plan-') &&
+          isTemplateEligiblePlan(activePlan)
+        }
         onClose={() => {
           setIsTemplatesModalOpen(false)
           setTemplatesModalMode('apply')
@@ -1942,6 +1975,72 @@ export function PlannerWorkspace() {
       {billingGate.modal}
     </div>
   )
+}
+
+export function isTemplateEligiblePlan(plan: Plan | null) {
+  return Boolean(
+    plan?.materialized_event_id &&
+    plan.status === 'completed'
+  )
+}
+
+export function resolveTemplateApplyMessages(input: {
+  currentMessages: PlanMessage[]
+  appliedMessages: PlanMessage[]
+  createsNewPlan: boolean
+}) {
+  return input.createsNewPlan
+    ? input.appliedMessages
+    : [...input.currentMessages, ...input.appliedMessages]
+}
+
+/**
+ * Keeps a message-backed approval pointed at its newest immutable row so the
+ * next command cannot accidentally target the superseded approval id.
+ */
+export function updateApprovalMessageState(
+  currentMessages: PlanMessage[],
+  approvalId: string,
+  status: ApprovalUiStatus,
+  updatedApproval?: Record<string, unknown>
+) {
+  let didUpdate = false
+  const nextMessages = currentMessages.map((message) => {
+    if (!message.metadata || typeof message.metadata !== 'object' || Array.isArray(message.metadata)) {
+      return message
+    }
+
+    const approval = message.metadata.approval
+    if (!approval || typeof approval !== 'object' || Array.isArray(approval)) {
+      return message
+    }
+
+    const storedApprovalId = typeof approval.id === 'string' ? approval.id : message.id
+    if (storedApprovalId !== approvalId) return message
+    didUpdate = true
+
+    const nextApprovalId = typeof updatedApproval?.id === 'string' ? updatedApproval.id : storedApprovalId
+    const nextStatus = typeof updatedApproval?.status === 'string' ? updatedApproval.status : status
+    const nextUiStatus = typeof updatedApproval?.ui_status === 'string' ? updatedApproval.ui_status : status
+
+    return {
+      ...message,
+      metadata: {
+        ...message.metadata,
+        status: nextStatus,
+        ui_status: nextUiStatus,
+        approval: {
+          ...approval,
+          ...(updatedApproval ?? {}),
+          id: nextApprovalId,
+          status: nextStatus,
+          ui_status: nextUiStatus,
+        },
+      } as unknown as PlanMessage['metadata'],
+    }
+  })
+
+  return didUpdate ? nextMessages : currentMessages
 }
 
 function PlannerInitialDraftLoading() {

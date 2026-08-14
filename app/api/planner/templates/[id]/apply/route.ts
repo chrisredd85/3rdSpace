@@ -4,7 +4,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS, RECOMMENDATION_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
-import { createClient } from '@/lib/supabase/server'
+import {
+  transitionPlanStatus,
+  type PlanStatusRpcClient,
+} from '@/lib/planner/planStatusTransitions'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlanMessage, Recommendation } from '@/lib/types'
 
 type DbError = { message: string }
@@ -48,6 +52,7 @@ type PlanApplyResult =
 const TEMPLATE_SELECT_COLUMNS = `
   id,
   name,
+  source_event_id,
   event_type,
   target_audience,
   guest_count_min,
@@ -67,6 +72,7 @@ const TEMPLATE_SELECT_COLUMNS = `
 type TemplateRow = {
   id: string
   name: string
+  source_event_id: string | null
   event_type: string | null
   target_audience: string | null
   guest_count_min: number | null
@@ -128,9 +134,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const applyInput = parsed.data
     const shouldCreateNewPlan = applyInput.create_new_plan === true || !applyInput.plan_id
+    const writeSupabase = createServiceRoleClient()
     const planResult = shouldCreateNewPlan
       ? await createPlanFromTemplate(supabase, user.id, templateRow, applyInput)
-      : await updatePlanFromTemplate(supabase, user.id, templateRow, applyInput)
+      : await updatePlanFromTemplate(
+        supabase,
+        writeSupabase as unknown as PlanStatusRpcClient,
+        user.id,
+        templateRow,
+        applyInput
+      )
 
     if ('response' in planResult) return planResult.response
 
@@ -154,7 +167,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const messages: PlanMessage[] = []
-    const statusMessage = await insertPlanStatusMessage(supabase, {
+    const statusMessage = await insertPlanStatusMessage(writeSupabase as unknown as ReturnType<typeof createClient>, {
       planId: updatedPlan.id,
       template: templateRow,
       wasCreated,
@@ -171,6 +184,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (applyInput.rerun_recommendations && updatedPlan.status === 'ready') {
       const recommendationMessages = await createAutoRecommendationMessage({
         db: supabase as never,
+        writeDb: writeSupabase as never,
         request,
         planId: updatedPlan.id,
       })
@@ -184,6 +198,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       template_run: {
         template_id: templateRow.id,
         plan_id: updatedPlan.id,
+        source_event_id: templateRow.source_event_id ?? null,
         new_date: updatedPlan.date_window_start,
         expected_guest_count: updatedPlan.guest_count,
         budget_override_cents: updatedPlan.budget_cap_cents,
@@ -231,6 +246,7 @@ async function insertPlanStatusMessage(
       metadata: {
         template_id: input.template.id,
         template_name: input.template.name,
+        source_event_id: input.template.source_event_id ?? null,
         template_applied: true,
         created_new_plan: input.wasCreated,
         changed_fields: input.changedFields,
@@ -281,6 +297,7 @@ async function createPlanFromTemplate(
 
 async function updatePlanFromTemplate(
   supabase: ReturnType<typeof createClient>,
+  writeDb: PlanStatusRpcClient,
   userId: string,
   template: TemplateRow,
   input: ApplyTemplateInput
@@ -306,8 +323,23 @@ async function updatePlanFromTemplate(
     return { response: NextResponse.json({ error: 'Plan not found' }, { status: 404 }) }
   }
 
+  if (planRow.materialized_event_id || !['drafting', 'ready'].includes(planRow.status)) {
+    return {
+      response: NextResponse.json(
+        {
+          error: 'This template cannot replace an approved or materialized event. Create a new rebook plan instead.',
+        },
+        { status: 409 }
+      ),
+    }
+  }
+
   const planUpdates = buildPlanUpdatesFromTemplate(planRow, template, input)
   const changedFields = Object.keys(planUpdates).filter((field) => field !== 'metadata')
+  const shouldMarkReady = planRow.status === 'drafting' && isReadyForRecommendations({
+    ...planRow,
+    ...planUpdates,
+  })
   const updatePlan = supabase.from('plans').update as unknown as (
     values: Record<string, unknown>
   ) => {
@@ -332,8 +364,26 @@ async function updatePlanFromTemplate(
     return { response: NextResponse.json({ error: 'Failed to apply template to plan' }, { status: 500 }) }
   }
 
+  let finalPlan = updatedPlan as Plan
+  if (shouldMarkReady) {
+    try {
+      finalPlan = await transitionPlanStatus(writeDb, {
+        planId: planRow.id,
+        expectedStatus: 'drafting',
+        toStatus: 'ready',
+        trigger: 'intake_completed',
+        actorId: userId,
+        context: { source: 'template_apply', template_id: template.id },
+      })
+      changedFields.push('status')
+    } catch (error) {
+      console.error('[agent.run] Planner template apply status transition failed', error)
+      return { response: NextResponse.json({ error: 'Failed to advance templated plan status' }, { status: 500 }) }
+    }
+  }
+
   return {
-    plan: updatedPlan as Plan,
+    plan: finalPlan,
     changedFields,
     wasCreated: false,
   }
@@ -426,11 +476,6 @@ function buildPlanUpdatesFromTemplate(plan: Plan, template: TemplateRow, input: 
   const venueTerms = readString(budgetModel?.venue_terms)
   if (!plan.venue_terms && venueTerms) updates.venue_terms = venueTerms
 
-  const nextPlan = { ...plan, ...updates } as Plan
-  if (nextPlan.status !== 'ready' && isReadyForRecommendations(nextPlan)) {
-    updates.status = 'ready'
-  }
-
   return updates
 }
 
@@ -441,9 +486,11 @@ function buildTemplateMetadata(currentMetadata: unknown, template: TemplateRow, 
       id: template.id,
       name: template.name,
       source: 'planner_template',
+      source_event_id: template.source_event_id ?? null,
       applied_at: new Date().toISOString(),
     },
     template_snapshot: {
+      source_event_id: template.source_event_id ?? null,
       budget_model: template.budget_model,
       ticket_price_model: template.ticket_price_model,
       profit_assumptions: template.profit_assumptions,
@@ -488,6 +535,7 @@ function buildTemplateMetadata(currentMetadata: unknown, template: TemplateRow, 
   if (preferredVenueIds.length > 0 || preferredVendorIds.length > 0 || useSameVenue || useSameVendors) {
     base.template_rebook_preferences = {
       template_id: template.id,
+      source_event_id: template.source_event_id ?? null,
       use_same_venue: useSameVenue,
       use_same_vendors: useSameVendors,
       preferred_venue_ids: preferredVenueIds,

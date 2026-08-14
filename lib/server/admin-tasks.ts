@@ -33,12 +33,16 @@ export interface AdminTaskQueueFilters {
 export interface AdminTaskQueueRow {
   id: string
   planId: string
+  agentActionId: string | null
+  approvalId: string | null
+  eventId: string | null
   assignedTo: string | null
   taskType: AdminTaskType
   description: string
   status: AdminTaskStatus
   priority: AdminTaskPriority
   metadata: JsonObject
+  outcomePayload: JsonObject
   dueAt: string | null
   completedAt: string | null
   notes: string | null
@@ -89,6 +93,8 @@ export type AdminTaskMutationInput =
       adminUserEmail: string | null
       action: 'complete' | 'cancel'
       note?: string | null
+      hostMessage?: string | null
+      outcomePayload?: JsonObject
     }
   | {
       taskId: string
@@ -109,7 +115,7 @@ export class AdminTaskServiceError extends Error {
 }
 
 const ADMIN_TASK_SELECT =
-  'id, plan_id, assigned_to, task_type, description, status, priority, metadata, due_at, completed_at, notes, created_at, updated_at'
+  'id, plan_id, agent_action_id, approval_id, event_id, assigned_to, task_type, description, status, priority, metadata, outcome_payload, due_at, completed_at, notes, created_at, updated_at'
 const PLAN_SELECT = 'id, title, user_id, guest_count, neighborhood, date_window_start, date_window_end, event_type, status'
 const USER_SELECT = 'id, email, company_name, role, user_type'
 
@@ -145,6 +151,13 @@ export async function getAdminTaskQueueData(
 
 export async function mutateAdminTask(admin: AdminTasksDb, input: AdminTaskMutationInput): Promise<AdminTaskQueueRow> {
   const before = await loadAdminTask(admin, input.taskId)
+
+  // Terminal execution commands are idempotent in PostgreSQL. Let the locked
+  // command decide whether this is a safe replay or a conflicting transition.
+  if (input.action === 'complete' || input.action === 'cancel') {
+    return mutateExecutionTask(admin, input)
+  }
+
   const status = normalizeStatus(before.status)
   const actionCheck = canMutateAdminTaskStatus(status, input.action)
 
@@ -169,6 +182,48 @@ export async function mutateAdminTask(admin: AdminTasksDb, input: AdminTaskMutat
   await logAdminTaskAudit(admin, input, before, after as AdminTaskRow, update)
 
   return normalizeAdminTaskRow(after as AdminTaskRow, null, null)
+}
+
+async function mutateExecutionTask(
+  admin: AdminTasksDb,
+  input: Extract<AdminTaskMutationInput, { action: 'complete' | 'cancel' }>
+): Promise<AdminTaskQueueRow> {
+  const rpcDb = admin as unknown as {
+    rpc(name: string, args: Record<string, unknown>): Promise<{
+      data: unknown
+      error: { message?: string; code?: string } | null
+    }>
+  }
+  const command = input.action === 'complete'
+    ? rpcDb.rpc('complete_admin_task_execution', {
+        p_task_id: input.taskId,
+        p_admin_user_id: input.adminUserId,
+        p_outcome_payload: input.outcomePayload ?? { outcome: 'completed' },
+        p_host_message: input.hostMessage ?? null,
+        p_internal_note: input.note ?? null,
+      })
+    : rpcDb.rpc('cancel_admin_task_execution', {
+        p_task_id: input.taskId,
+        p_actor_id: input.adminUserId,
+        p_reason: input.note ?? null,
+        p_host_message: input.hostMessage ?? null,
+      })
+  const { data, error } = await command
+
+  if (error) {
+    const conflict = ['23514', '40001', '40P01'].includes(error.code ?? '')
+    const invalid = error.code === '22023'
+    const missing = error.code === 'P0002'
+    throw new AdminTaskServiceError(
+      error.message ?? `Failed to ${input.action} admin task`,
+      missing ? 404 : conflict ? 409 : invalid ? 400 : 500
+    )
+  }
+
+  const row = (Array.isArray(data) ? data[0] : data) as AdminTaskRow | null
+  if (!row) throw new AdminTaskServiceError(`Failed to ${input.action} admin task`)
+
+  return normalizeAdminTaskRow(row, null, null)
 }
 
 function buildTaskUpdate(before: AdminTaskRow, input: AdminTaskMutationInput, now: string): AdminTaskUpdate {
@@ -270,12 +325,16 @@ function normalizeAdminTaskRow(row: AdminTaskRow, plan: PlanRow | null, assignee
   return {
     id: row.id,
     planId: row.plan_id,
+    agentActionId: row.agent_action_id ?? null,
+    approvalId: row.approval_id ?? null,
+    eventId: row.event_id ?? null,
     assignedTo: row.assigned_to,
     taskType: normalizeTaskType(row.task_type),
     description: row.description,
     status: normalizeStatus(row.status),
     priority: normalizePriority(row.priority),
     metadata: normalizeMetadata(row.metadata),
+    outcomePayload: normalizeMetadata(row.outcome_payload ?? {}),
     dueAt: row.due_at,
     completedAt: row.completed_at,
     notes: row.notes,

@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'next/navigation'
 import {
   Activity,
   AlertTriangle,
@@ -19,6 +20,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useEvent, useEvents, type EventWithRelations } from '@/lib/hooks/useEvents'
+import { PlannerOutcomeCard } from '@/components/planner/PlannerOutcomeCard'
 import { useUser } from '@/lib/hooks/useUser'
 import { cn } from '@/lib/utils'
 
@@ -84,10 +86,12 @@ type PostEventSummary = {
   gross_revenue_cents: number
   refund_amount_cents: number
   net_revenue_cents: number
+  total_cost_cents?: number
   average_ticket_price_cents: number
   peak_arrival_hour: string | null
   venue_foot_traffic_proxy: number
-  source_confidence: 'imported_checkins_and_sales' | 'partial' | 'no_data'
+  source_confidence: 'canonical_outcome_and_imports' | 'canonical_outcome' | 'imported_checkins_and_sales' | 'partial' | 'no_data'
+  canonical_outcome_recorded?: boolean
   attendance_coverage?: number | null
 }
 
@@ -147,9 +151,24 @@ const emptyTicketingSummary: TicketingSummary = {
 }
 
 export default function PlannerAnalyticsPage() {
+  return (
+    <Suspense fallback={<PageShell><EmptyState title="Loading analytics" body="Preparing your planner scorecard." /></PageShell>}>
+      <PlannerAnalyticsContent />
+    </Suspense>
+  )
+}
+
+function PlannerAnalyticsContent() {
+  const searchParams = useSearchParams()
   const { user, isLoading: isUserLoading, error: userError } = useUser()
   const userId = user?.id || null
   const { data: events = [], isLoading: isEventsLoading } = useEvents(userId)
+  const requestedEventId = normalizeEventId(searchParams.get('eventId'))
+  const requestedEventLookupId = userId ? requestedEventId : null
+  const {
+    data: requestedEventDetails,
+    isLoading: isRequestedEventLoading,
+  } = useEvent(requestedEventLookupId)
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const { data: selectedEventDetails } = useEvent(selectedEventId)
   const [loadState, setLoadState] = useState<LoadState>({
@@ -159,17 +178,29 @@ export default function PlannerAnalyticsPage() {
   })
 
   const sortedEvents = useMemo(() => {
-    return [...events].sort((first, second) => {
+    const ownedEvents = [...events]
+    if (
+      requestedEventId &&
+      requestedEventDetails?.id === requestedEventId &&
+      !ownedEvents.some((event) => event.id === requestedEventId)
+    ) {
+      ownedEvents.push(requestedEventDetails)
+    }
+    return ownedEvents.sort((first, second) => {
       const firstDate = Date.parse(first.event_date ?? '')
       const secondDate = Date.parse(second.event_date ?? '')
       return (Number.isNaN(secondDate) ? 0 : secondDate) - (Number.isNaN(firstDate) ? 0 : firstDate)
     })
-  }, [events])
+  }, [events, requestedEventDetails, requestedEventId])
 
   useEffect(() => {
-    if (selectedEventId && sortedEvents.some((event) => event.id === selectedEventId)) return
-    setSelectedEventId(sortedEvents[0]?.id ?? null)
-  }, [selectedEventId, sortedEvents])
+    if (requestedEventId && isRequestedEventLoading) return
+    setSelectedEventId((currentEventId) => selectOwnedAnalyticsEventId({
+      events: sortedEvents,
+      currentEventId,
+      requestedEventId,
+    }))
+  }, [isRequestedEventLoading, requestedEventId, sortedEvents])
 
   useEffect(() => {
     if (!selectedEventId) {
@@ -262,7 +293,7 @@ export default function PlannerAnalyticsPage() {
     return <PageShell><EmptyState title="Please log in" body="Planner analytics are available after signing in." tone="warning" /></PageShell>
   }
 
-  if (!isEventsLoading && sortedEvents.length === 0) {
+  if (!isEventsLoading && !isRequestedEventLoading && sortedEvents.length === 0) {
     return (
       <PageShell>
         <EmptyState
@@ -334,6 +365,11 @@ export default function PlannerAnalyticsPage() {
           {loadState.error}
         </div>
       )}
+
+      <PlannerOutcomeCard
+        planId={(selectedEventDetails ?? selectedEvent)?.plan_id}
+        onCompleted={refreshFinancials}
+      />
 
       {loadState.isLoading && !scorecard ? (
         <ScorecardSkeleton />
@@ -595,6 +631,34 @@ export default function PlannerAnalyticsPage() {
   )
 }
 
+function selectOwnedAnalyticsEventId(input: {
+  events: Array<Pick<EventWithRelations, 'id'>>
+  currentEventId: string | null
+  requestedEventId: string | null
+}): string | null {
+  if (
+    input.requestedEventId &&
+    input.events.some((event) => event.id === input.requestedEventId)
+  ) {
+    return input.requestedEventId
+  }
+
+  if (
+    input.currentEventId &&
+    input.events.some((event) => event.id === input.currentEventId)
+  ) {
+    return input.currentEventId
+  }
+
+  return input.events[0]?.id ?? null
+}
+
+function normalizeEventId(value: string | null): string | null {
+  return value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : null
+}
+
 async function loadAnalytics(eventId: string, recalculate: boolean, signal?: AbortSignal): Promise<AnalyticsState> {
   const searchParams = recalculate ? '?recalculate=true' : ''
   const [financial, postEvent, ticketing] = await Promise.all([
@@ -763,8 +827,10 @@ function buildScorecard(data: AnalyticsState | null) {
   const paidTickets = ticketSummary.tickets_sold || financial?.tickets_sold || postSummary?.tickets_sold || 0
   const checkedIn = postSummary?.checked_in ?? 0
   const importedAttendees = postSummary?.rsvps_or_imported_attendees ?? 0
-  const netRevenueDollars = readNumber(financial?.net_revenue) ?? centsToDollars(ticketSummary.net_revenue_cents)
-  const totalCostsDollars = readNumber(financial?.total_costs) ?? 0
+  const netRevenueDollars = readNumber(financial?.net_revenue) ?? centsToDollars(
+    ticketSummary.net_revenue_cents || postSummary?.net_revenue_cents || 0
+  )
+  const totalCostsDollars = readNumber(financial?.total_costs) ?? centsToDollars(postSummary?.total_cost_cents ?? 0)
   const expectedProfitDollars = readNumber(financial?.expected_profit) ?? netRevenueDollars - totalCostsDollars
   const breakEvenTickets = readNumber(financial?.break_even_tickets)
   const breakEvenDelta = breakEvenTickets === null ? null : paidTickets - breakEvenTickets
@@ -1220,6 +1286,8 @@ function isCommittedBookingStatus(value: string | null | undefined) {
 }
 
 function sourceConfidenceLabel(value?: PostEventSummary['source_confidence']) {
+  if (value === 'canonical_outcome_and_imports') return 'Recorded outcome plus imports'
+  if (value === 'canonical_outcome') return 'Recorded event outcome'
   if (value === 'imported_checkins_and_sales') return 'Ticketing and check-ins'
   if (value === 'partial') return 'Partial data'
   return 'No source data'

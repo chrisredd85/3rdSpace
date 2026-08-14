@@ -8,6 +8,10 @@ import { runEconomicsAgent } from '@/lib/ai/agents/economicsAgent'
 import { runVenueMatchingAgent } from '@/lib/ai/agents/venueMatchingAgent'
 import { ARCHETYPES } from '@/lib/planner/archetypes'
 import { attachControlledPaymentRecommendationReadiness } from '@/lib/planner/recommendationPaymentReadiness'
+import {
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
 import { searchPlacesForPlan } from '@/lib/server/places-outreach'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
@@ -382,7 +386,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
             total_revenue_cents: 392000,
             total_cost_cents: 400000,
             profit_cents: -8000,
-            profit_margin: -0.0204,
+            profit_margin: -2.0408,
           },
           expected: {
             attendance: 68,
@@ -391,7 +395,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
             total_revenue_cents: 476000,
             total_cost_cents: 400000,
             profit_cents: 76000,
-            profit_margin: 0.1596,
+            profit_margin: 15.9664,
           },
           optimistic: {
             attendance: 80,
@@ -400,7 +404,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
             total_revenue_cents: 560000,
             total_cost_cents: 400000,
             profit_cents: 160000,
-            profit_margin: 0.2857,
+            profit_margin: 28.5714,
           },
         },
         cost_summary_cents: {
@@ -532,6 +536,9 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
         archetype_intake: expect.objectContaining({
           answer_text: expect.stringContaining('two hour load-in'),
         }),
+        budget_summary: expect.objectContaining({
+          profit_margin: 28.5714,
+        }),
       }),
     }))
     expect(db.rows.recommendations).toEqual(expect.arrayContaining([
@@ -551,7 +558,11 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
         type: 'external',
         metadata: expect.objectContaining({
           recommendation_type: 'economics',
-          revenue_scenarios: expect.any(Object),
+          revenue_scenarios: expect.objectContaining({
+            expected: expect.objectContaining({
+              profit_margin: 15.9664,
+            }),
+          }),
         }),
       }),
     ]))
@@ -582,6 +593,17 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
         snapshot_hash: expect.any(String),
       }),
     ]))
+    const approval = db.rows.approvals.find((row) => row.plan_id === 'plan-1')!
+    const action = db.rows.agent_actions.find((row) => row.id === approval.agent_action_id)!
+    const snapshotInput = {
+      plan: db.rows.plans.find((row) => row.id === 'plan-1') as any,
+      approval: approval as any,
+      action: action as any,
+      payload: action.payload_json as Record<string, unknown>,
+    }
+    expect(approval.snapshot_schema_version).toBe(2)
+    expect(approval.snapshot_hash).toBe(buildApprovalSnapshotHashV2(snapshotInput))
+    expect(approval.snapshot_json).toEqual(buildApprovalSnapshotV2(snapshotInput))
     expect(db.rows.plan_messages).toEqual(expect.arrayContaining([
       expect.objectContaining({
         plan_id: 'plan-1',
@@ -716,7 +738,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
     })
 
     const response = await recommendPlan(
-      makeRequest({ venueLimit: 3, vendorLimit: 3 }, '/api/planner/plans/plan-ticketing-unknown/recommend'),
+      makeRequest({ venueLimit: 3, vendorLimit: 3, phase: 'vendors' }, '/api/planner/plans/plan-ticketing-unknown/recommend'),
       { params: { planId: 'plan-ticketing-unknown' } }
     )
     const json = await readJson(response)
@@ -1090,6 +1112,16 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
   })
 
   it('supersedes stale recommendations and refreshes the thread when match-affecting fields change', async () => {
+    db.rows.agent_actions.push({
+      id: 'confirmed-hold-action',
+      plan_id: 'plan-1',
+      action_type: 'hold_request',
+      status: 'complete',
+      result_metadata: {
+        admin_task_outcome: { outcome: 'hold_confirmed' },
+      },
+    })
+
     const initialResponse = await recommendPlan(makeRequest({ venueLimit: 3 }), {
       params: { planId: 'plan-1' },
     })

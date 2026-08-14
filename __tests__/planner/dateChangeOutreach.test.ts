@@ -10,13 +10,19 @@ jest.mock('@/lib/outreach/gmailApprovalFlow', () => ({
   createOrReuseGmailOutreachApproval: jest.fn(),
 }))
 
+jest.mock('@/lib/supabase/server', () => ({
+  createServiceRoleClient: jest.fn(),
+}))
+
 import {
   createDateChangeOutreachApproval,
   DateChangeNoTargetsError,
 } from '@/lib/planner/dateChangeOutreach'
 import { createOrReuseGmailOutreachApproval } from '@/lib/outreach/gmailApprovalFlow'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 
 const mockCreateApproval = createOrReuseGmailOutreachApproval as jest.Mock
+const mockCreateServiceRoleClient = createServiceRoleClient as jest.Mock
 
 type Row = Record<string, any>
 
@@ -168,6 +174,12 @@ class MemoryQuery {
   }
 }
 
+function memoryDb() {
+  const db = new MemoryDb()
+  mockCreateServiceRoleClient.mockReturnValue({ from: (table: string) => db.from(table) })
+  return db
+}
+
 describe('date-change outreach helper', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -179,7 +191,7 @@ describe('date-change outreach helper', () => {
   })
 
   it('updates the event brief as a proposed date change and creates a Gmail approval from existing outreach contacts', async () => {
-    const db = new MemoryDb()
+    const db = memoryDb()
 
     const result = await createDateChangeOutreachApproval(db, {
       userId: 'user-1',
@@ -220,7 +232,7 @@ describe('date-change outreach helper', () => {
   })
 
   it('runs product access consumption before creating a date-change approval', async () => {
-    const db = new MemoryDb()
+    const db = memoryDb()
     const ensureProductAccess = jest.fn(async (plan) => ({
       ...plan,
       metadata: {
@@ -253,7 +265,7 @@ describe('date-change outreach helper', () => {
   })
 
   it('uses an organizer-provided target before falling back to existing outreach threads', async () => {
-    const db = new MemoryDb()
+    const db = memoryDb()
 
     await createDateChangeOutreachApproval(db, {
       userId: 'user-1',
@@ -268,7 +280,7 @@ describe('date-change outreach helper', () => {
   })
 
   it('requires at least one known or manually provided partner contact', async () => {
-    const db = new MemoryDb()
+    const db = memoryDb()
     db.rows.outreach_threads = []
     const ensureProductAccess = jest.fn(async (plan) => plan)
 

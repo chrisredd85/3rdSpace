@@ -20,6 +20,14 @@ type AttendeeRow = {
   check_in_time: string | null
 }
 
+type PostEventRow = {
+  id: string
+  event_name?: string | null
+  event_date?: string | null
+  outcome_recorded_at?: string | null
+  outcome_summary?: unknown
+}
+
 /**
  * Returns deterministic post-event attendance and sales rollups.
  *
@@ -51,7 +59,7 @@ export async function GET(request: NextRequest) {
     const requestedEventId = request.nextUrl.searchParams.get('eventId')
     const { data: events, error: eventsError } = await supabase
       .from('events')
-      .select('id, event_name, event_date')
+      .select('id, event_name, event_date, outcome_recorded_at, outcome_summary')
       .eq('builder_id', builderProfileId)
       .order('event_date', { ascending: false })
       .limit(50)
@@ -61,7 +69,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to load events' }, { status: 500 })
     }
 
-    const ownedEvents = ((events ?? []) as Array<{ id: string; event_name?: string | null; event_date?: string | null }>).filter(Boolean)
+    const ownedEvents = ((events ?? []) as PostEventRow[]).filter(Boolean)
     const ownedEventIds = new Set(ownedEvents.map((event) => event.id))
     const eventIds = requestedEventId ? [requestedEventId].filter((id) => ownedEventIds.has(id)) : [...ownedEventIds]
 
@@ -110,7 +118,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function buildEmptyReport(events: Array<{ id: string; event_name?: string | null; event_date?: string | null }>) {
+function buildEmptyReport(events: PostEventRow[]) {
   return {
     summary: {
       events_count: events.length,
@@ -122,10 +130,12 @@ function buildEmptyReport(events: Array<{ id: string; event_name?: string | null
       gross_revenue_cents: 0,
       refund_amount_cents: 0,
       net_revenue_cents: 0,
+      total_cost_cents: 0,
       average_ticket_price_cents: 0,
       peak_arrival_hour: null,
       venue_foot_traffic_proxy: 0,
       source_confidence: 'no_data',
+      canonical_outcome_recorded: false,
     },
     arrival_buckets: [],
     tier_velocity: [],
@@ -135,12 +145,14 @@ function buildEmptyReport(events: Array<{ id: string; event_name?: string | null
 }
 
 function buildReport(input: {
-  events: Array<{ id: string; event_name?: string | null; event_date?: string | null }>
+  events: PostEventRow[]
   attendees: AttendeeRow[]
   salesRows: SalesRow[]
 }) {
-  const checkedIn = input.attendees.filter((attendee) => attendee.checked_in === true).length
-  const attendeeCount = input.attendees.length
+  const canonicalOutcome = summarizeCanonicalOutcomes(input.events)
+  const importedCheckedIn = input.attendees.filter((attendee) => attendee.checked_in === true).length
+  const checkedIn = importedCheckedIn || canonicalOutcome.actualAttendance
+  const attendeeCount = input.attendees.length || canonicalOutcome.actualAttendance
   const salesSummary = input.salesRows.reduce(
     (summary, row) => {
       const rawQuantity = row.ticket_quantity ?? 0
@@ -171,7 +183,8 @@ function buildReport(input: {
   )
   const denominator = Math.max(attendeeCount, salesSummary.tickets_sold)
   const hasAttendance = attendeeCount > 0 || salesSummary.tickets_sold > 0
-  const netRevenueCents = salesSummary.gross_revenue_cents - salesSummary.refund_amount_cents
+  const grossRevenueCents = salesSummary.gross_revenue_cents || canonicalOutcome.grossRevenueCents
+  const netRevenueCents = grossRevenueCents - salesSummary.refund_amount_cents
   // Proxy is intentionally conservative: prefer real check-ins, then imported attendee rows, then net sold tickets.
   const venueFootTrafficProxy = checkedIn || attendeeCount || Math.max(0, salesSummary.tickets_sold - salesSummary.tickets_refunded)
 
@@ -183,21 +196,23 @@ function buildReport(input: {
       no_show_rate: attendeeCount > 0 ? Number(((attendeeCount - checkedIn) / attendeeCount).toFixed(3)) : null,
       tickets_sold: salesSummary.tickets_sold,
       tickets_refunded: salesSummary.tickets_refunded,
-      gross_revenue_cents: salesSummary.gross_revenue_cents,
+      gross_revenue_cents: grossRevenueCents,
       refund_amount_cents: salesSummary.refund_amount_cents,
       net_revenue_cents: netRevenueCents,
+      total_cost_cents: canonicalOutcome.totalCostCents,
       average_ticket_price_cents:
         salesSummary.tickets_sold > 0
-          ? Math.round(salesSummary.gross_revenue_cents / salesSummary.tickets_sold)
+          ? Math.round(grossRevenueCents / salesSummary.tickets_sold)
           : 0,
       peak_arrival_hour: peakBucket?.label ?? null,
       venue_foot_traffic_proxy: venueFootTrafficProxy,
-      source_confidence:
-        checkedIn > 0 && salesSummary.tickets_sold > 0
-          ? 'imported_checkins_and_sales'
-          : hasAttendance
-            ? 'partial'
-            : 'no_data',
+      source_confidence: resolveSourceConfidence({
+        canonicalOutcomeRecorded: canonicalOutcome.recorded,
+        importedCheckedIn,
+        ticketsSold: salesSummary.tickets_sold,
+        hasAttendance,
+      }),
+      canonical_outcome_recorded: canonicalOutcome.recorded,
       attendance_coverage:
         denominator > 0 ? Number((checkedIn / denominator).toFixed(3)) : null,
     },
@@ -206,6 +221,47 @@ function buildReport(input: {
     events: input.events.slice(0, 5),
     post_event_questions: defaultPostEventQuestions(),
   }
+}
+
+function resolveSourceConfidence(input: {
+  canonicalOutcomeRecorded: boolean
+  importedCheckedIn: number
+  ticketsSold: number
+  hasAttendance: boolean
+}) {
+  if (input.canonicalOutcomeRecorded && (input.importedCheckedIn > 0 || input.ticketsSold > 0)) {
+    return 'canonical_outcome_and_imports'
+  }
+  if (input.canonicalOutcomeRecorded) return 'canonical_outcome'
+  if (input.importedCheckedIn > 0 && input.ticketsSold > 0) return 'imported_checkins_and_sales'
+  if (input.hasAttendance) return 'partial'
+  return 'no_data'
+}
+
+function summarizeCanonicalOutcomes(events: PostEventRow[]) {
+  return events.reduce(
+    (summary, event) => {
+      const outcome = readRecord(event.outcome_summary)
+      if (!event.outcome_recorded_at || !outcome) return summary
+      return {
+        recorded: true,
+        actualAttendance: summary.actualAttendance + readNonnegativeInteger(outcome.actual_attendance),
+        grossRevenueCents: summary.grossRevenueCents + readNonnegativeInteger(outcome.gross_revenue_cents),
+        totalCostCents: summary.totalCostCents + readNonnegativeInteger(outcome.total_cost_cents),
+      }
+    },
+    { recorded: false, actualAttendance: 0, grossRevenueCents: 0, totalCostCents: 0 }
+  )
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function readNonnegativeInteger(value: unknown) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
 }
 
 function buildArrivalBuckets(attendees: AttendeeRow[]) {

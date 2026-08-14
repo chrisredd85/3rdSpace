@@ -5,6 +5,7 @@ import type { WorkspaceAgentInput, WorkspaceAgentOutput } from '@/lib/ai/agents/
 import type { TimelineAgentInput, TimelineAgentOutput } from '@/lib/ai/agents/timelineAgent'
 import { getAgentRunErrorMetadata } from '@/lib/ai/types'
 import { buildEventPlanFromPlannerPlan, getPlannerPlanEventDate } from '@/lib/planner/agentPlanAdapter'
+import { getPlanCanonicalEventId } from '@/lib/planner/eventIdentity'
 import { logAgentRun, type AgentRunDb } from '@/lib/server/agent-runs'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan } from '@/lib/types'
@@ -45,13 +46,20 @@ export async function loadPlanAgentFields(input: {
   userId: string
 }): Promise<PlanAgentFields> {
   const metadata = readRecord(input.plan.metadata) ?? {}
-  const eventId = readString(metadata.event_id) ?? input.plan.id
-  const [tasks, venueBookings, vendorBookings, budgetSummary] = await Promise.all([
-    loadEventTasks(input.db, eventId),
-    loadVenueBookings(input.db, eventId),
-    loadVendorBookings(input.db, eventId),
-    loadBudgetSummary(input.db, eventId),
-  ])
+  const eventId = getPlanCanonicalEventId(input.plan)
+  let tasks: WorkspaceAgentInput['tasks'] = []
+  let venueBookings: WorkspaceAgentInput['venue_bookings'] & TimelineAgentInput['confirmed_venue_bookings'] = []
+  let vendorBookings: WorkspaceAgentInput['vendor_bookings'] & TimelineAgentInput['confirmed_vendor_bookings'] = []
+  let budgetSummary: WorkspaceAgentInput['budget_summary'] = null
+
+  if (eventId) {
+    [tasks, venueBookings, vendorBookings, budgetSummary] = await Promise.all([
+      loadEventTasks(input.db, eventId),
+      loadVenueBookings(input.db, eventId),
+      loadVendorBookings(input.db, eventId),
+      loadBudgetSummary(input.db, eventId),
+    ])
+  }
   const confirmedVenueBookings = venueBookings.filter((booking) => isConfirmedStatus(booking.status))
   const confirmedVendorBookings = vendorBookings.filter((booking) => isConfirmedStatus(booking.status))
   const venueRequirements = await loadVenueRequirements(

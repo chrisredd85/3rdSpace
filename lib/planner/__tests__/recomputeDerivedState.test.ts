@@ -52,6 +52,7 @@ describe('recomputePlanDerivedState', () => {
 
     const result = await recomputePlanDerivedState({
       supabase: db as any,
+      writeSupabase: db as any,
       planId: 'plan-1',
       trigger: 'commit_changed',
     })
@@ -86,6 +87,7 @@ describe('recomputePlanDerivedState', () => {
 
     const result = await recomputePlanDerivedState({
       supabase: db as any,
+      writeSupabase: db as any,
       planId: 'plan-1',
       trigger: 'cancel_commit',
     })
@@ -123,6 +125,7 @@ describe('recomputePlanDerivedState', () => {
 
     const result = await recomputePlanDerivedState({
       supabase: db as any,
+      writeSupabase: db as any,
       planId: 'plan-1',
       trigger: 'plan_revision',
       revisionId: 'revision-1',
@@ -133,6 +136,29 @@ describe('recomputePlanDerivedState', () => {
       baseline_source: 'archetype',
       baseline_n_events: 7,
     }))
+  })
+
+  it('reads protected organizer baselines through the separately authorized client', async () => {
+    const db = createDerivedStateDb({
+      plans: [planRow()],
+      recommendations: [],
+      approvals: [],
+      plan_derived_state: [],
+    })
+    const baselineDb = { from: jest.fn() }
+
+    await recomputePlanDerivedState({
+      supabase: db as any,
+      writeSupabase: db as any,
+      baselineSupabase: baselineDb as any,
+      planId: 'plan-1',
+      trigger: 'plan_revision',
+    })
+
+    expect(lookupBaselineMock).toHaveBeenCalledWith(
+      baselineDb,
+      expect.objectContaining({ organizerId: 'user-1' })
+    )
   })
 
   it('omits stale discovery recommendations from the shopping list', async () => {
@@ -148,6 +174,7 @@ describe('recomputePlanDerivedState', () => {
 
     await recomputePlanDerivedState({
       supabase: db as any,
+      writeSupabase: db as any,
       planId: 'plan-1',
       trigger: 'discovery_change',
       discoveryChangeId: 'discovery_venue:venue-1:business_status',
@@ -166,9 +193,9 @@ describe('recomputePlanDerivedState', () => {
       plan_derived_state: [],
     })
 
-    await recomputePlanDerivedState({ supabase: db as any, planId: 'plan-1', trigger: 'plan_revision' })
-    await recomputePlanDerivedState({ supabase: db as any, planId: 'plan-1', trigger: 'discovery_change' })
-    await recomputePlanDerivedState({ supabase: db as any, planId: 'plan-1', trigger: 'commit_changed' })
+    await recomputePlanDerivedState({ supabase: db as any, writeSupabase: db as any, planId: 'plan-1', trigger: 'plan_revision' })
+    await recomputePlanDerivedState({ supabase: db as any, writeSupabase: db as any, planId: 'plan-1', trigger: 'discovery_change' })
+    await recomputePlanDerivedState({ supabase: db as any, writeSupabase: db as any, planId: 'plan-1', trigger: 'commit_changed' })
 
     expect(db.rows.plans[0].brief_render_version).toBe(3)
     expect(db.rows.plan_derived_state[0].brief_render_version).toBe(3)

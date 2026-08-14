@@ -11,7 +11,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { readIntegerCents } from '@/lib/planner/execution/approvalState'
 import { classifyExecutionMode, requiresApprovalForAgentAction } from '@/lib/planner/executionModes'
-import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
+import {
+  APPROVAL_SNAPSHOT_SCHEMA_VERSION,
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
+import { normalizeExternalCheckoutUrl } from '@/lib/planner/execution/externalCheckout'
 import {
   checkAuthorizationActionStripeGate,
   getStripeGateErrorMessage,
@@ -53,22 +58,143 @@ type PlannerAuth =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
 
-const createAgentActionSchema = z.object({
-  actionType: z.enum([
-    'hold_request',
-    'vendor_contact',
-    'payment',
-    'external_checkout',
-    'ai_query',
-    'export',
-    'opportunity_send_venues',
-    'opportunity_send_vendors',
-  ]),
+const TERMINAL_PLAN_EXECUTION_STATUSES = new Set(['complete', 'completed', 'archived'])
+
+function isTerminalPlanForPositiveExecution(status: unknown): boolean {
+  return typeof status === 'string' && TERMINAL_PLAN_EXECUTION_STATUSES.has(status)
+}
+
+function terminalPlanPositiveExecutionResponse(): NextResponse<PlannerApiErrorResponse> {
+  return NextResponse.json(
+    {
+      error: 'Completed or archived plans cannot start new execution work.',
+      code: 'plan_terminal',
+    },
+    { status: 409 },
+  )
+}
+
+function isTerminalPlanPositiveExecutionError(error: DbError | null): boolean {
+  return error?.code === '23514' && /terminal_plan_positive_execution_forbidden/i.test(error.message)
+}
+
+function isRetryablePlanLockError(error: DbError | null): boolean {
+  return error?.code === '55P03' || /could not obtain lock|lock not available/i.test(error?.message ?? '')
+}
+
+function retryablePlanLockResponse(): NextResponse<PlannerApiErrorResponse> {
+  return NextResponse.json(
+    {
+      error: 'The plan changed at the same time. Refresh and retry from the current state.',
+      code: 'plan_execution_conflict',
+      retryable: true,
+    },
+    { status: 409 },
+  )
+}
+
+const safeCentsSchema = z.number().int().nonnegative().refine(Number.isSafeInteger)
+const paymentCentsSchema = z.number().int().min(50).refine(Number.isSafeInteger)
+const optionalTargetFields = {
   targetType: z.string().trim().min(1).max(80).nullable().optional(),
   targetId: z.string().uuid().nullable().optional(),
+}
+const optionalGenericActionFields = {
+  ...optionalTargetFields,
   payloadJson: z.record(z.unknown()).nullable().optional(),
-  requestedAmountCents: z.number().int().nonnegative().refine(Number.isSafeInteger).nullable().optional(),
-})
+  requestedAmountCents: safeCentsSchema.nullable().optional(),
+}
+
+function genericAgentActionSchema<Kind extends string>(actionType: Kind) {
+  return z.object({
+    actionType: z.literal(actionType),
+    ...optionalGenericActionFields,
+  }).strict()
+}
+
+const externalCheckoutUrlSchema = z.string().trim().min(1).max(2_048)
+  .refine((value) => {
+    try {
+      normalizeExternalCheckoutUrl(value)
+      return true
+    } catch {
+      return false
+    }
+  }, 'external_url must be a valid HTTPS URL without embedded credentials')
+  .transform((value) => normalizeExternalCheckoutUrl(value))
+
+const externalCheckoutPayloadSchema = z.object({
+  kind: z.literal('external_checkout'),
+  external_url: externalCheckoutUrlSchema,
+  action_label: z.string().trim().min(1).max(160),
+  provider: z.string().trim().min(1).max(160),
+  package_details: z.string().trim().min(1).max(2_000),
+  price_cents: safeCentsSchema.optional(),
+  fees_cents: safeCentsSchema.optional(),
+  refund_terms: z.string().trim().max(1_000).nullable().optional(),
+  cancellation_terms: z.string().trim().max(1_000).nullable().optional(),
+  event_date: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  delivery_email: z.string().trim().email().nullable().optional(),
+  notes: z.string().trim().max(4_000).nullable().optional(),
+  source: z.string().trim().max(120).optional(),
+}).strict()
+
+const paymentPayloadSchema = z.object({
+  kind: z.enum(['venue_rental', 'venue_deposit', 'vendor_deposit']),
+  action_label: z.string().trim().min(1).max(160),
+  provider: z.string().trim().min(1).max(160),
+  package_details: z.string().trim().min(1).max(2_000),
+  refund_terms: z.string().trim().min(1).max(1_000),
+  cancellation_terms: z.string().trim().min(1).max(1_000),
+  fees_cents: safeCentsSchema.optional(),
+  event_date: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  delivery_email: z.string().trim().email().nullable().optional(),
+  notes: z.string().trim().max(4_000).nullable().optional(),
+  source: z.string().trim().max(120).optional(),
+}).strict()
+
+// Recommendation cards shipped before the first-class proposal contract. Keep
+// that exact, approval-only shape during the compatibility window, but require
+// its controlled-payment markers and complete terms so it cannot become a
+// generic escape hatch around the strict proposal schema.
+const paymentRecommendationPayloadSchema = z.object({
+  action_label: z.string().trim().min(1).max(160),
+  provider: z.string().trim().min(1).max(160),
+  price_cents: safeCentsSchema.optional(),
+  fees_cents: safeCentsSchema.optional(),
+  package_details: z.string().trim().min(1).max(2_000),
+  refund_terms: z.string().trim().min(1).max(1_000),
+  cancellation_terms: z.string().trim().min(1).max(1_000),
+  execution_mode: z.literal('controlled_payment'),
+  has_controlled_payment_account: z.literal(true),
+  payment_required: z.literal(true),
+  event_date: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  delivery_email: z.string().trim().email().nullable().optional(),
+  notes: z.string().trim().max(4_000).nullable().optional(),
+  source: z.string().trim().max(120).optional(),
+}).strict()
+
+const createAgentActionSchema = z.discriminatedUnion('actionType', [
+  genericAgentActionSchema('hold_request'),
+  genericAgentActionSchema('vendor_contact'),
+  genericAgentActionSchema('ai_query'),
+  genericAgentActionSchema('export'),
+  genericAgentActionSchema('opportunity_send_venues'),
+  genericAgentActionSchema('opportunity_send_vendors'),
+  z.object({
+    actionType: z.literal('external_checkout'),
+    ...optionalTargetFields,
+    payloadJson: externalCheckoutPayloadSchema,
+    requestedAmountCents: safeCentsSchema.nullable().optional(),
+  }).strict(),
+  z.object({
+    actionType: z.literal('payment'),
+    targetType: z.enum(['venue', 'vendor']),
+    targetId: z.string().uuid(),
+    payloadJson: z.union([paymentPayloadSchema, paymentRecommendationPayloadSchema]),
+    requestedAmountCents: paymentCentsSchema,
+  }).strict(),
+])
 
 const PLAN_SELECT_COLUMNS = `
   id,
@@ -134,6 +260,15 @@ const APPROVAL_SELECT_COLUMNS = `
   approved_at,
   expires_at,
   snapshot_hash,
+  notes,
+  root_approval_id,
+  version_number,
+  supersedes_approval_id,
+  superseded_by_approval_id,
+  version_created_by,
+  version_reason,
+  snapshot_json,
+  snapshot_schema_version,
   created_at,
   updated_at
 `
@@ -216,19 +351,29 @@ export async function POST(
 
     const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+    if (isTerminalPlanForPositiveExecution(plan.status)) {
+      return terminalPlanPositiveExecutionResponse()
+    }
 
-    const payload = (parsed.data.payloadJson ?? {}) as JsonObject
-    const cents = readActionCents(payload, parsed.data.requestedAmountCents)
+    const submittedPayload = (parsed.data.payloadJson ?? {}) as JsonObject
+    const cents = readActionCents(submittedPayload, parsed.data.requestedAmountCents)
     if ('error' in cents) {
       return NextResponse.json({ error: cents.error }, { status: 400 })
     }
 
     const requestedAmountCents = cents.requestedAmountCents
     const feesCents = cents.feesCents
+    const targetType = parsed.data.targetType ?? readString(submittedPayload.target_type)
+    const targetId = parsed.data.targetId ?? readUuid(submittedPayload.target_id)
+    const payload = normalizeAgentActionPayload(
+      parsed.data.actionType,
+      submittedPayload,
+      requestedAmountCents,
+      feesCents,
+      targetType,
+    )
     const actionLabel = readString(payload.action_label) ?? readDefaultActionLabel(parsed.data.actionType)
     const provider = readString(payload.provider)
-    const targetType = parsed.data.targetType ?? readString(payload.target_type)
-    const targetId = parsed.data.targetId ?? readUuid(payload.target_id)
     const executionMode = classifyExecutionMode({
       actionType: parsed.data.actionType,
       provider,
@@ -256,6 +401,10 @@ export async function POST(
     })
     if (stripeGate) return stripeGate
 
+    // Ownership was proved with the session/RLS client above. Trusted state is
+    // service-owned, so use a narrowly scoped writer only after that check.
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
+
     const agentActionInsert: TableInsert<'agent_actions'> = {
       plan_id: (await context.params).planId,
       action_type: parsed.data.actionType,
@@ -274,7 +423,7 @@ export async function POST(
       },
     }
 
-    const { data: actionData, error: actionError } = await auth.db
+    const { data: actionData, error: actionError } = await writeDb
       .from('agent_actions')
       .insert(agentActionInsert)
       .select(AGENT_ACTION_SELECT_COLUMNS)
@@ -282,11 +431,15 @@ export async function POST(
 
     if (actionError || !actionData) {
       console.error('Planner agent action create error:', actionError)
+      if (isTerminalPlanPositiveExecutionError(actionError)) {
+        return terminalPlanPositiveExecutionResponse()
+      }
+      if (isRetryablePlanLockError(actionError)) return retryablePlanLockResponse()
       return NextResponse.json({ error: 'Failed to create agent action' }, { status: 500 })
     }
 
     const agentAction = actionData as AgentAction
-    await insertAgentActionAuditLog(auth.db, {
+    await insertAgentActionAuditLog(writeDb, {
       actionId: agentAction.id,
       planId: (await context.params).planId,
       fromStatus: null,
@@ -300,45 +453,39 @@ export async function POST(
       return NextResponse.json({ agentAction })
     }
 
-    const approvalInsert: TableInsert<'approvals'> = {
-      plan_id: (await context.params).planId,
-      agent_action_id: agentAction.id,
+    const approvalExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    const approvalSnapshotFields = {
       action_label: actionLabel,
-      provider,
       event_date: normalizeDate(readString(payload.event_date)),
       price_cents: requestedAmountCents,
       fees_cents: feesCents,
-      package_details: readString(payload.package_details),
+      requested_amount_cents: requestedAmountCents,
+      provider,
+      delivery_email: readString(payload.delivery_email),
       refund_terms: readString(payload.refund_terms),
       cancellation_terms: readString(payload.cancellation_terms),
-      delivery_email: readString(payload.delivery_email),
-      payment_method_id: readString(payload.payment_method_id),
-      requested_amount_cents: requestedAmountCents,
-      status: 'pending',
-      snapshot_hash: buildApprovalSnapshotHash({
-        plan,
-        approval: {
-          event_date: normalizeDate(readString(payload.event_date)),
-          price_cents: requestedAmountCents,
-          fees_cents: feesCents,
-          requested_amount_cents: requestedAmountCents,
-          provider,
-          refund_terms: readString(payload.refund_terms),
-          cancellation_terms: readString(payload.cancellation_terms),
-          package_details: readString(payload.package_details),
-        },
-        action: {
-          action_type: parsed.data.actionType,
-          target_type: targetType,
-          target_id: targetId,
-          amount_cents: requestedAmountCents,
-          payload_json: payload,
-        },
-        payload,
-      }),
+      package_details: readString(payload.package_details),
+      expires_at: approvalExpiresAt,
+      notes: readString(payload.notes),
     }
+    const approvalSnapshotInput = {
+      plan,
+      approval: approvalSnapshotFields,
+      action: agentAction,
+      payload,
+    }
+    const approvalInsert = {
+      plan_id: (await context.params).planId,
+      agent_action_id: agentAction.id,
+      ...approvalSnapshotFields,
+      payment_method_id: readString(payload.payment_method_id),
+      status: 'pending',
+      snapshot_hash: buildApprovalSnapshotHashV2(approvalSnapshotInput),
+      snapshot_json: buildApprovalSnapshotV2(approvalSnapshotInput) as unknown as Json,
+      snapshot_schema_version: APPROVAL_SNAPSHOT_SCHEMA_VERSION,
+    } as unknown as TableInsert<'approvals'>
 
-    const { data: approvalData, error: approvalError } = await auth.db
+    const { data: approvalData, error: approvalError } = await writeDb
       .from('approvals')
       .insert(approvalInsert)
       .select(APPROVAL_SELECT_COLUMNS)
@@ -351,12 +498,12 @@ export async function POST(
 
     const approval = approvalData as Approval
 
-    await auth.db
+    await writeDb
       .from('agent_actions')
       .update({ approval_id: approval.id })
       .eq('id', agentAction.id)
 
-    const { data: approvalMessageData, error: approvalMessageError } = await auth.db
+    const { data: approvalMessageData, error: approvalMessageError } = await writeDb
       .from('plan_messages')
       .insert({
         plan_id: (await context.params).planId,
@@ -551,6 +698,39 @@ function readDefaultActionLabel(actionType: z.infer<typeof createAgentActionSche
   if (actionType === 'opportunity_send_venues') return 'Prepare venue outreach'
   if (actionType === 'opportunity_send_vendors') return 'Prepare vendor outreach'
   if (actionType === 'external_checkout') return 'External checkout'
+  if (actionType === 'payment') return 'Authorize payment'
   if (actionType === 'ai_query') return 'Agent research'
   return 'Export plan'
+}
+
+function normalizeAgentActionPayload(
+  actionType: z.infer<typeof createAgentActionSchema>['actionType'],
+  payload: JsonObject,
+  requestedAmountCents: number,
+  feesCents: number,
+  targetType: string | null,
+): JsonObject {
+  if (actionType === 'external_checkout') {
+    return {
+      ...payload,
+      kind: 'external_checkout',
+      external_url: normalizeExternalCheckoutUrl(payload.external_url),
+      price_cents: requestedAmountCents,
+      requestedAmountCents,
+      fees_cents: feesCents,
+    }
+  }
+
+  if (actionType === 'payment') {
+    return {
+      ...payload,
+      kind: payload.kind ?? (targetType === 'vendor' ? 'vendor_deposit' : 'venue_deposit'),
+      price_cents: requestedAmountCents,
+      requestedAmountCents,
+      fees_cents: feesCents,
+      requires_stripe_recipient: true,
+    }
+  }
+
+  return payload
 }

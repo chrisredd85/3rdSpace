@@ -38,7 +38,10 @@ import { POST as captureDeposit } from '@/app/api/payments/capture/route'
 import { GET as reconcileCapturedDeposits } from '@/app/api/admin/reconcile/captured-deposits/route'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getWorkerOrAdminContext } from '@/lib/server/admin-auth'
-import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
+import {
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
 import type { Approval, Plan } from '@/lib/types'
 
 jest.mock('@/lib/supabase/server', () => ({
@@ -679,14 +682,20 @@ function seedDb(input: {
     approved_at: input.approvalStatus === 'authorized' || input.approvalStatus === 'approved' ? now : null,
     expires_at: null,
     snapshot_hash: '',
+    snapshot_json: null,
+    snapshot_schema_version: null,
     created_at: now,
     updated_at: now,
   }
-  approval.snapshot_hash = buildApprovalSnapshotHash({
+  const snapshotInput = {
     plan,
     approval,
     action,
-  })
+    payload: action.payload_json as Record<string, unknown>,
+  }
+  approval.snapshot_hash = buildApprovalSnapshotHashV2(snapshotInput)
+  approval.snapshot_json = buildApprovalSnapshotV2(snapshotInput)
+  approval.snapshot_schema_version = 2
   db.rows.approvals.push(approval)
 
   setupSupabaseMocks(db)
@@ -697,7 +706,8 @@ async function approveVendorPayment(db: MemoryDb) {
   const response = await updateApproval(
     request(`/api/planner/plans/${PLAN_ID}/approvals`, {
       approvalId: APPROVAL_ID,
-      action: 'authorize',
+      command: 'authorize',
+      expectedSnapshotHash: db.rows.approvals[0].snapshot_hash,
     }, 'PATCH'),
     { params: { planId: PLAN_ID } }
   )
@@ -964,14 +974,16 @@ describe('vendor payment approval to payout chain', () => {
       updateApproval(
         request(`/api/planner/plans/${PLAN_ID}/approvals`, {
           approvalId: APPROVAL_ID,
-          action: 'authorize',
+          command: 'authorize',
+          expectedSnapshotHash: db.rows.approvals[0].snapshot_hash,
         }, 'PATCH'),
         { params: { planId: PLAN_ID } }
       ),
       updateApproval(
         request(`/api/planner/plans/${PLAN_ID}/approvals`, {
           approvalId: APPROVAL_ID,
-          action: 'authorize',
+          command: 'authorize',
+          expectedSnapshotHash: db.rows.approvals[0].snapshot_hash,
         }, 'PATCH'),
         { params: { planId: PLAN_ID } }
       ),

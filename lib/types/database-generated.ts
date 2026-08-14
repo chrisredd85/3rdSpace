@@ -75,14 +75,18 @@ export type Database = {
       }
       admin_tasks: {
         Row: {
+          agent_action_id: string | null
+          approval_id: string | null
           assigned_to: string | null
           completed_at: string | null
           created_at: string
           description: string
           due_at: string | null
+          event_id: string | null
           id: string
           metadata: Json
           notes: string | null
+          outcome_payload: Json
           plan_id: string
           priority: string
           status: string
@@ -90,14 +94,18 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          agent_action_id?: string | null
+          approval_id?: string | null
           assigned_to?: string | null
           completed_at?: string | null
           created_at?: string
           description: string
           due_at?: string | null
+          event_id?: string | null
           id?: string
           metadata?: Json
           notes?: string | null
+          outcome_payload?: Json
           plan_id: string
           priority?: string
           status?: string
@@ -105,14 +113,18 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          agent_action_id?: string | null
+          approval_id?: string | null
           assigned_to?: string | null
           completed_at?: string | null
           created_at?: string
           description?: string
           due_at?: string | null
+          event_id?: string | null
           id?: string
           metadata?: Json
           notes?: string | null
+          outcome_payload?: Json
           plan_id?: string
           priority?: string
           status?: string
@@ -121,10 +133,31 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "admin_tasks_action_plan_consistency_fkey"
+            columns: ["agent_action_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id", "plan_id"]
+          },
+          {
+            foreignKeyName: "admin_tasks_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "admin_tasks_assigned_to_fkey"
             columns: ["assigned_to"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admin_tasks_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
           {
@@ -200,6 +233,11 @@ export type Database = {
           description: string
           executed_at: string | null
           id: string
+          last_retry_completed_at: string | null
+          last_retry_idempotency_key: string | null
+          last_retry_result: Json | null
+          last_retry_started_at: string | null
+          last_retry_status: string | null
           payload_json: Json
           plan_id: string
           provider: string | null
@@ -218,6 +256,11 @@ export type Database = {
           description: string
           executed_at?: string | null
           id?: string
+          last_retry_completed_at?: string | null
+          last_retry_idempotency_key?: string | null
+          last_retry_result?: Json | null
+          last_retry_started_at?: string | null
+          last_retry_status?: string | null
           payload_json?: Json
           plan_id: string
           provider?: string | null
@@ -236,6 +279,11 @@ export type Database = {
           description?: string
           executed_at?: string | null
           id?: string
+          last_retry_completed_at?: string | null
+          last_retry_idempotency_key?: string | null
+          last_retry_result?: Json | null
+          last_retry_started_at?: string | null
+          last_retry_status?: string | null
           payload_json?: Json
           plan_id?: string
           provider?: string | null
@@ -501,6 +549,7 @@ export type Database = {
           expires_at: string | null
           fees_cents: number | null
           id: string
+          notes: string | null
           package_details: string | null
           payment_method_id: string | null
           plan_id: string
@@ -508,13 +557,21 @@ export type Database = {
           provider: string | null
           refund_terms: string | null
           requested_amount_cents: number
+          root_approval_id: string
           settlement_run_id: string | null
           snapshot_hash: string | null
+          snapshot_json: Json | null
+          snapshot_schema_version: number | null
           status: string
           superseded_at: string | null
+          superseded_by_approval_id: string | null
           superseded_by_revision_id: string | null
           superseded_reason: string | null
+          supersedes_approval_id: string | null
           updated_at: string
+          version_created_by: string | null
+          version_number: number
+          version_reason: string | null
         }
         Insert: {
           action_label: string
@@ -532,6 +589,7 @@ export type Database = {
           expires_at?: string | null
           fees_cents?: number | null
           id?: string
+          notes?: string | null
           package_details?: string | null
           payment_method_id?: string | null
           plan_id: string
@@ -539,13 +597,21 @@ export type Database = {
           provider?: string | null
           refund_terms?: string | null
           requested_amount_cents?: number
+          root_approval_id: string
           settlement_run_id?: string | null
           snapshot_hash?: string | null
+          snapshot_json?: Json | null
+          snapshot_schema_version?: number | null
           status?: string
           superseded_at?: string | null
+          superseded_by_approval_id?: string | null
           superseded_by_revision_id?: string | null
           superseded_reason?: string | null
+          supersedes_approval_id?: string | null
           updated_at?: string
+          version_created_by?: string | null
+          version_number?: number
+          version_reason?: string | null
         }
         Update: {
           action_label?: string
@@ -563,6 +629,7 @@ export type Database = {
           expires_at?: string | null
           fees_cents?: number | null
           id?: string
+          notes?: string | null
           package_details?: string | null
           payment_method_id?: string | null
           plan_id?: string
@@ -570,15 +637,30 @@ export type Database = {
           provider?: string | null
           refund_terms?: string | null
           requested_amount_cents?: number
+          root_approval_id?: string
           settlement_run_id?: string | null
           snapshot_hash?: string | null
+          snapshot_json?: Json | null
+          snapshot_schema_version?: number | null
           status?: string
           superseded_at?: string | null
+          superseded_by_approval_id?: string | null
           superseded_by_revision_id?: string | null
           superseded_reason?: string | null
+          supersedes_approval_id?: string | null
           updated_at?: string
+          version_created_by?: string | null
+          version_number?: number
+          version_reason?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "approvals_action_plan_consistency_fkey"
+            columns: ["agent_action_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id", "plan_id"]
+          },
           {
             foreignKeyName: "approvals_agent_action_id_fkey"
             columns: ["agent_action_id"]
@@ -601,6 +683,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "approvals_root_plan_fkey"
+            columns: ["root_approval_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "plan_id"]
+          },
+          {
             foreignKeyName: "approvals_settlement_run_id_fkey"
             columns: ["settlement_run_id"]
             isOneToOne: false
@@ -608,11 +697,25 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "approvals_superseded_by_plan_fkey"
+            columns: ["superseded_by_approval_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "plan_id"]
+          },
+          {
             foreignKeyName: "approvals_superseded_by_revision_id_fkey"
             columns: ["superseded_by_revision_id"]
             isOneToOne: false
             referencedRelation: "plan_revisions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "approvals_supersedes_plan_fkey"
+            columns: ["supersedes_approval_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "plan_id"]
           },
         ]
       }
@@ -929,6 +1032,87 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      builder_event_materializations: {
+        Row: {
+          builder_id: string
+          consumption_id: string | null
+          created_at: string
+          event_id: string | null
+          id: string
+          idempotency_key: string
+          materialized_at: string | null
+          payload_hash: string
+          plan_id: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          builder_id: string
+          consumption_id?: string | null
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          idempotency_key: string
+          materialized_at?: string | null
+          payload_hash: string
+          plan_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          builder_id?: string
+          consumption_id?: string | null
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          idempotency_key?: string
+          materialized_at?: string | null
+          payload_hash?: string
+          plan_id?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "builder_event_materializations_builder_id_fkey"
+            columns: ["builder_id"]
+            isOneToOne: false
+            referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "builder_event_materializations_consumption_id_fkey"
+            columns: ["consumption_id"]
+            isOneToOne: true
+            referencedRelation: "builder_event_access_consumptions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "builder_event_materializations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "builder_event_materializations_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: true
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "builder_event_materializations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -1367,6 +1551,70 @@ export type Database = {
             columns: ["builder_id"]
             isOneToOne: false
             referencedRelation: "builder_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      canonical_booking_partner_bindings: {
+        Row: {
+          agent_action_id: string
+          approval_id: string
+          approval_snapshot_hash: string
+          binding_source: string
+          booking_kind: string
+          bound_at: string
+          bound_by: string | null
+          discovery_partner_id: string
+          id: string
+          physical_partner_id: string
+          plan_id: string
+        }
+        Insert: {
+          agent_action_id: string
+          approval_id: string
+          approval_snapshot_hash: string
+          binding_source?: string
+          booking_kind: string
+          bound_at?: string
+          bound_by?: string | null
+          discovery_partner_id: string
+          id?: string
+          physical_partner_id: string
+          plan_id: string
+        }
+        Update: {
+          agent_action_id?: string
+          approval_id?: string
+          approval_snapshot_hash?: string
+          binding_source?: string
+          booking_kind?: string
+          bound_at?: string
+          bound_by?: string | null
+          discovery_partner_id?: string
+          id?: string
+          physical_partner_id?: string
+          plan_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canonical_booking_partner_bindings_action_plan_fkey"
+            columns: ["agent_action_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id", "plan_id"]
+          },
+          {
+            foreignKeyName: "canonical_booking_partner_bindings_approval_plan_fkey"
+            columns: ["approval_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "plan_id"]
+          },
+          {
+            foreignKeyName: "canonical_booking_partner_bindings_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
             referencedColumns: ["id"]
           },
         ]
@@ -2189,6 +2437,52 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      discovery_vendor_claims: {
+        Row: {
+          binding_source: string
+          bound_at: string
+          bound_by: string | null
+          discovery_vendor_id: string
+          vendor_profile_id: string
+        }
+        Insert: {
+          binding_source?: string
+          bound_at?: string
+          bound_by?: string | null
+          discovery_vendor_id: string
+          vendor_profile_id: string
+        }
+        Update: {
+          binding_source?: string
+          bound_at?: string
+          bound_by?: string | null
+          discovery_vendor_id?: string
+          vendor_profile_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_vendor_claims_discovery_vendor_id_fkey"
+            columns: ["discovery_vendor_id"]
+            isOneToOne: true
+            referencedRelation: "discovery_vendors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discovery_vendor_claims_vendor_profile_id_fkey"
+            columns: ["vendor_profile_id"]
+            isOneToOne: true
+            referencedRelation: "vendor_analytics"
+            referencedColumns: ["vendor_id"]
+          },
+          {
+            foreignKeyName: "discovery_vendor_claims_vendor_profile_id_fkey"
+            columns: ["vendor_profile_id"]
+            isOneToOne: true
+            referencedRelation: "vendor_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       discovery_vendors: {
         Row: {
@@ -3911,6 +4205,7 @@ export type Database = {
           description: string | null
           duration_hours: number
           end_time: string
+          ends_at: string | null
           event_date: string
           event_description: string | null
           event_name: string
@@ -3924,14 +4219,20 @@ export type Database = {
           id: string
           is_recurring: boolean | null
           kickback_agreement_id: string | null
+          latest_venue_hold_outcome: Json | null
+          outcome_recorded_at: string | null
+          outcome_summary: Json | null
           parent_event_id: string | null
+          plan_id: string | null
           platform_fee_id: string | null
           platform_fee_paid: boolean | null
           posh_event_id: string | null
           recurring_frequency: string | null
           recurring_occurrences: number | null
           start_time: string
+          starts_at: string | null
           status: string | null
+          time_zone: string | null
           total_budget: number | null
           updated_at: string | null
           venue_confirmed: boolean | null
@@ -3946,6 +4247,7 @@ export type Database = {
           description?: string | null
           duration_hours: number
           end_time: string
+          ends_at?: string | null
           event_date: string
           event_description?: string | null
           event_name: string
@@ -3959,14 +4261,20 @@ export type Database = {
           id?: string
           is_recurring?: boolean | null
           kickback_agreement_id?: string | null
+          latest_venue_hold_outcome?: Json | null
+          outcome_recorded_at?: string | null
+          outcome_summary?: Json | null
           parent_event_id?: string | null
+          plan_id?: string | null
           platform_fee_id?: string | null
           platform_fee_paid?: boolean | null
           posh_event_id?: string | null
           recurring_frequency?: string | null
           recurring_occurrences?: number | null
           start_time: string
+          starts_at?: string | null
           status?: string | null
+          time_zone?: string | null
           total_budget?: number | null
           updated_at?: string | null
           venue_confirmed?: boolean | null
@@ -3981,6 +4289,7 @@ export type Database = {
           description?: string | null
           duration_hours?: number
           end_time?: string
+          ends_at?: string | null
           event_date?: string
           event_description?: string | null
           event_name?: string
@@ -3994,14 +4303,20 @@ export type Database = {
           id?: string
           is_recurring?: boolean | null
           kickback_agreement_id?: string | null
+          latest_venue_hold_outcome?: Json | null
+          outcome_recorded_at?: string | null
+          outcome_summary?: Json | null
           parent_event_id?: string | null
+          plan_id?: string | null
           platform_fee_id?: string | null
           platform_fee_paid?: boolean | null
           posh_event_id?: string | null
           recurring_frequency?: string | null
           recurring_occurrences?: number | null
           start_time?: string
+          starts_at?: string | null
           status?: string | null
+          time_zone?: string | null
           total_budget?: number | null
           updated_at?: string | null
           venue_confirmed?: boolean | null
@@ -4027,6 +4342,13 @@ export type Database = {
             columns: ["parent_event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: true
+            referencedRelation: "plans"
             referencedColumns: ["id"]
           },
           {
@@ -4798,6 +5120,7 @@ export type Database = {
       notifications: {
         Row: {
           action_url: string | null
+          canonical_venue_confirmation_booking_id: string | null
           created_at: string | null
           group_key: string | null
           id: string
@@ -4815,6 +5138,7 @@ export type Database = {
         }
         Insert: {
           action_url?: string | null
+          canonical_venue_confirmation_booking_id?: string | null
           created_at?: string | null
           group_key?: string | null
           id?: string
@@ -4832,6 +5156,7 @@ export type Database = {
         }
         Update: {
           action_url?: string | null
+          canonical_venue_confirmation_booking_id?: string | null
           created_at?: string | null
           group_key?: string | null
           id?: string
@@ -4848,6 +5173,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "notifications_canonical_venue_confirmation_booking_id_fkey"
+            columns: ["canonical_venue_confirmation_booking_id"]
+            isOneToOne: false
+            referencedRelation: "venue_bookings"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "notifications_user_id_fkey"
             columns: ["user_id"]
@@ -5060,16 +5392,21 @@ export type Database = {
           channel_external_id: string | null
           classification_json: Json | null
           created_at: string
+          delivery_status: string | null
           direction: string
+          dispatch_idempotency_key: string | null
           gmail_message_id: string | null
           gmail_thread_id: string | null
           headers_json: Json
           id: string
+          last_send_error: string | null
           provider_cost_cents: number | null
           provider_metadata_json: Json
           received_at: string | null
           recording_url: string | null
+          rfc_message_id: string | null
           scheduled_send_at: string | null
+          send_started_at: string | null
           sent_at: string | null
           sent_manually: boolean
           subject: string
@@ -5091,16 +5428,21 @@ export type Database = {
           channel_external_id?: string | null
           classification_json?: Json | null
           created_at?: string
+          delivery_status?: string | null
           direction: string
+          dispatch_idempotency_key?: string | null
           gmail_message_id?: string | null
           gmail_thread_id?: string | null
           headers_json?: Json
           id?: string
+          last_send_error?: string | null
           provider_cost_cents?: number | null
           provider_metadata_json?: Json
           received_at?: string | null
           recording_url?: string | null
+          rfc_message_id?: string | null
           scheduled_send_at?: string | null
+          send_started_at?: string | null
           sent_at?: string | null
           sent_manually?: boolean
           subject: string
@@ -5122,16 +5464,21 @@ export type Database = {
           channel_external_id?: string | null
           classification_json?: Json | null
           created_at?: string
+          delivery_status?: string | null
           direction?: string
+          dispatch_idempotency_key?: string | null
           gmail_message_id?: string | null
           gmail_thread_id?: string | null
           headers_json?: Json
           id?: string
+          last_send_error?: string | null
           provider_cost_cents?: number | null
           provider_metadata_json?: Json
           received_at?: string | null
           recording_url?: string | null
+          rfc_message_id?: string | null
           scheduled_send_at?: string | null
+          send_started_at?: string | null
           sent_at?: string | null
           sent_manually?: boolean
           subject?: string
@@ -5722,6 +6069,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "payment_intents_approval_plan_consistency_fkey"
+            columns: ["approval_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "plan_id"]
+          },
+          {
             foreignKeyName: "payment_intents_plan_id_fkey"
             columns: ["plan_id"]
             isOneToOne: false
@@ -6189,6 +6543,57 @@ export type Database = {
           },
         ]
       }
+      plan_status_transitions: {
+        Row: {
+          actor_id: string
+          event_id: string | null
+          from_status: Database["public"]["Enums"]["planner_plan_status"]
+          id: string
+          metadata: Json
+          plan_id: string
+          to_status: Database["public"]["Enums"]["planner_plan_status"]
+          transition_trigger: string
+          transitioned_at: string
+        }
+        Insert: {
+          actor_id: string
+          event_id?: string | null
+          from_status: Database["public"]["Enums"]["planner_plan_status"]
+          id?: string
+          metadata?: Json
+          plan_id: string
+          to_status: Database["public"]["Enums"]["planner_plan_status"]
+          transition_trigger: string
+          transitioned_at?: string
+        }
+        Update: {
+          actor_id?: string
+          event_id?: string | null
+          from_status?: Database["public"]["Enums"]["planner_plan_status"]
+          id?: string
+          metadata?: Json
+          plan_id?: string
+          to_status?: Database["public"]["Enums"]["planner_plan_status"]
+          transition_trigger?: string
+          transitioned_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_status_transitions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_status_transitions_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       plan_supply_intents: {
         Row: {
           activity_type: string | null
@@ -6281,6 +6686,27 @@ export type Database = {
           },
         ]
       }
+      planner_event_taxonomy: {
+        Row: {
+          archetype_key: string
+          created_at: string
+          display_name: string
+          event_type: string
+        }
+        Insert: {
+          archetype_key: string
+          created_at?: string
+          display_name: string
+          event_type: string
+        }
+        Update: {
+          archetype_key?: string
+          created_at?: string
+          display_name?: string
+          event_type?: string
+        }
+        Relationships: []
+      }
       planner_plan_updates: {
         Row: {
           created_at: string
@@ -6338,6 +6764,8 @@ export type Database = {
           food_responsibility: string | null
           guest_count: number | null
           id: string
+          latest_venue_hold_outcome: Json | null
+          materialized_event_id: string | null
           metadata: Json
           neighborhood: string | null
           notes: string | null
@@ -6377,6 +6805,8 @@ export type Database = {
           food_responsibility?: string | null
           guest_count?: number | null
           id?: string
+          latest_venue_hold_outcome?: Json | null
+          materialized_event_id?: string | null
           metadata?: Json
           neighborhood?: string | null
           notes?: string | null
@@ -6416,6 +6846,8 @@ export type Database = {
           food_responsibility?: string | null
           guest_count?: number | null
           id?: string
+          latest_venue_hold_outcome?: Json | null
+          materialized_event_id?: string | null
           metadata?: Json
           neighborhood?: string | null
           notes?: string | null
@@ -6440,6 +6872,13 @@ export type Database = {
             columns: ["committed_venue_id"]
             isOneToOne: false
             referencedRelation: "discovery_venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plans_materialized_event_id_fkey"
+            columns: ["materialized_event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
           {
@@ -7229,6 +7668,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "approvals"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "settlement_charges_approval_run_consistency_fkey"
+            columns: ["approval_id", "settlement_run_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "settlement_run_id"]
           },
           {
             foreignKeyName: "settlement_charges_settlement_run_id_fkey"
@@ -8080,6 +8526,7 @@ export type Database = {
           profit_assumptions: Json
           run_of_show: Json
           shopping_list: Json
+          source_event_id: string | null
           source_plan_id: string | null
           target_audience: string | null
           ticket_price_model: Json
@@ -8102,6 +8549,7 @@ export type Database = {
           profit_assumptions?: Json
           run_of_show?: Json
           shopping_list?: Json
+          source_event_id?: string | null
           source_plan_id?: string | null
           target_audience?: string | null
           ticket_price_model?: Json
@@ -8124,6 +8572,7 @@ export type Database = {
           profit_assumptions?: Json
           run_of_show?: Json
           shopping_list?: Json
+          source_event_id?: string | null
           source_plan_id?: string | null
           target_audience?: string | null
           ticket_price_model?: Json
@@ -8131,6 +8580,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "templates_source_event_id_fkey"
+            columns: ["source_event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "templates_source_plan_id_fkey"
             columns: ["source_plan_id"]
@@ -8353,6 +8809,9 @@ export type Database = {
       }
       vendor_bookings: {
         Row: {
+          agent_action_id: string | null
+          approval_id: string | null
+          approved_terms_snapshot: Json | null
           booking_date: string
           cancellation_reason: string | null
           cancelled_at: string | null
@@ -8372,10 +8831,12 @@ export type Database = {
           organizer_id: string
           paid_at: string | null
           payment_status: string | null
+          plan_id: string | null
           platform_fee_amount: number | null
           platform_fee_percentage: number | null
           quantity: number | null
           quoted_price: number | null
+          quoted_price_cents: number | null
           refund_amount: number | null
           requested_date: string | null
           requested_end_time: string | null
@@ -8394,6 +8855,9 @@ export type Database = {
           vendor_package_id: string | null
         }
         Insert: {
+          agent_action_id?: string | null
+          approval_id?: string | null
+          approved_terms_snapshot?: Json | null
           booking_date: string
           cancellation_reason?: string | null
           cancelled_at?: string | null
@@ -8413,10 +8877,12 @@ export type Database = {
           organizer_id: string
           paid_at?: string | null
           payment_status?: string | null
+          plan_id?: string | null
           platform_fee_amount?: number | null
           platform_fee_percentage?: number | null
           quantity?: number | null
           quoted_price?: number | null
+          quoted_price_cents?: number | null
           refund_amount?: number | null
           requested_date?: string | null
           requested_end_time?: string | null
@@ -8435,6 +8901,9 @@ export type Database = {
           vendor_package_id?: string | null
         }
         Update: {
+          agent_action_id?: string | null
+          approval_id?: string | null
+          approved_terms_snapshot?: Json | null
           booking_date?: string
           cancellation_reason?: string | null
           cancelled_at?: string | null
@@ -8454,10 +8923,12 @@ export type Database = {
           organizer_id?: string
           paid_at?: string | null
           payment_status?: string | null
+          plan_id?: string | null
           platform_fee_amount?: number | null
           platform_fee_percentage?: number | null
           quantity?: number | null
           quoted_price?: number | null
+          quoted_price_cents?: number | null
           refund_amount?: number | null
           requested_date?: string | null
           requested_end_time?: string | null
@@ -8477,11 +8948,32 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "vendor_bookings_action_plan_consistency_fkey"
+            columns: ["agent_action_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id", "plan_id"]
+          },
+          {
+            foreignKeyName: "vendor_bookings_approval_action_plan_consistency_fkey"
+            columns: ["approval_id", "agent_action_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "agent_action_id", "plan_id"]
+          },
+          {
             foreignKeyName: "vendor_bookings_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_bookings_event_plan_consistency_fkey"
+            columns: ["event_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id", "plan_id"]
           },
           {
             foreignKeyName: "vendor_bookings_organizer_id_fkey"
@@ -8537,6 +9029,7 @@ export type Database = {
       }
       vendor_invoices: {
         Row: {
+          booking_generation_key: string | null
           booking_id: string
           builder_id: string
           created_at: string
@@ -8563,6 +9056,7 @@ export type Database = {
           vendor_id: string
         }
         Insert: {
+          booking_generation_key?: string | null
           booking_id: string
           builder_id: string
           created_at?: string
@@ -8589,6 +9083,7 @@ export type Database = {
           vendor_id: string
         }
         Update: {
+          booking_generation_key?: string | null
           booking_id?: string
           builder_id?: string
           created_at?: string
@@ -9712,6 +10207,7 @@ export type Database = {
           action: string
           actor_id: string | null
           booking_id: string
+          canonical_confirmation_booking_id: string | null
           created_at: string | null
           id: string
           message: string | null
@@ -9724,6 +10220,7 @@ export type Database = {
           action: string
           actor_id?: string | null
           booking_id: string
+          canonical_confirmation_booking_id?: string | null
           created_at?: string | null
           id?: string
           message?: string | null
@@ -9736,6 +10233,7 @@ export type Database = {
           action?: string
           actor_id?: string | null
           booking_id?: string
+          canonical_confirmation_booking_id?: string | null
           created_at?: string | null
           id?: string
           message?: string | null
@@ -9753,6 +10251,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "venue_booking_approval_audit_canonical_confirmation_bookin_fkey"
+            columns: ["canonical_confirmation_booking_id"]
+            isOneToOne: false
+            referencedRelation: "venue_bookings"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "venue_booking_approval_audit_venue_id_fkey"
             columns: ["venue_id"]
             isOneToOne: false
@@ -9763,8 +10268,11 @@ export type Database = {
       }
       venue_bookings: {
         Row: {
+          agent_action_id: string | null
+          approval_id: string | null
           approval_source: string | null
           approved_at: string | null
+          approved_terms_snapshot: Json | null
           booking_date: string
           created_at: string | null
           decline_reason: string | null
@@ -9777,9 +10285,11 @@ export type Database = {
           organizer_id: string
           paid_at: string | null
           payment_status: string | null
+          plan_id: string | null
           platform_fee_amount: number | null
           platform_fee_percentage: number | null
           quoted_price: number | null
+          quoted_price_cents: number | null
           rejection_reason: string | null
           responded_at: string | null
           services_needed: Json | null
@@ -9793,8 +10303,11 @@ export type Database = {
           venue_id: string
         }
         Insert: {
+          agent_action_id?: string | null
+          approval_id?: string | null
           approval_source?: string | null
           approved_at?: string | null
+          approved_terms_snapshot?: Json | null
           booking_date: string
           created_at?: string | null
           decline_reason?: string | null
@@ -9807,9 +10320,11 @@ export type Database = {
           organizer_id: string
           paid_at?: string | null
           payment_status?: string | null
+          plan_id?: string | null
           platform_fee_amount?: number | null
           platform_fee_percentage?: number | null
           quoted_price?: number | null
+          quoted_price_cents?: number | null
           rejection_reason?: string | null
           responded_at?: string | null
           services_needed?: Json | null
@@ -9823,8 +10338,11 @@ export type Database = {
           venue_id: string
         }
         Update: {
+          agent_action_id?: string | null
+          approval_id?: string | null
           approval_source?: string | null
           approved_at?: string | null
+          approved_terms_snapshot?: Json | null
           booking_date?: string
           created_at?: string | null
           decline_reason?: string | null
@@ -9837,9 +10355,11 @@ export type Database = {
           organizer_id?: string
           paid_at?: string | null
           payment_status?: string | null
+          plan_id?: string | null
           platform_fee_amount?: number | null
           platform_fee_percentage?: number | null
           quoted_price?: number | null
+          quoted_price_cents?: number | null
           rejection_reason?: string | null
           responded_at?: string | null
           services_needed?: Json | null
@@ -9854,11 +10374,32 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "venue_bookings_action_plan_consistency_fkey"
+            columns: ["agent_action_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "agent_actions"
+            referencedColumns: ["id", "plan_id"]
+          },
+          {
+            foreignKeyName: "venue_bookings_approval_action_plan_consistency_fkey"
+            columns: ["approval_id", "agent_action_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "approvals"
+            referencedColumns: ["id", "agent_action_id", "plan_id"]
+          },
+          {
             foreignKeyName: "venue_bookings_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venue_bookings_event_plan_consistency_fkey"
+            columns: ["event_id", "plan_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id", "plan_id"]
           },
           {
             foreignKeyName: "venue_bookings_organizer_id_fkey"
@@ -11298,6 +11839,56 @@ export type Database = {
       }
     }
     Functions: {
+      annotate_plan_quote_event_lineage: {
+        Args: { p_event_id: string; p_plan_id: string }
+        Returns: {
+          agent_action: string | null
+          brief_render_version: number
+          budget_cap_cents: number | null
+          committed_vendors: Json | null
+          committed_venue_at: string | null
+          committed_venue_id: string | null
+          committed_venue_quoted_deal_model: string | null
+          committed_venue_quoted_price_cents: number | null
+          committed_venue_quoted_terms: Json | null
+          created_at: string
+          date_window_end: string | null
+          date_window_start: string | null
+          derived_state_recomputed_at: string | null
+          event_city: string | null
+          event_type: string | null
+          excluded_cuisines: string[]
+          excluded_vendor_attributes: Json
+          food_responsibility: string | null
+          guest_count: number | null
+          id: string
+          latest_venue_hold_outcome: Json | null
+          materialized_event_id: string | null
+          metadata: Json
+          neighborhood: string | null
+          notes: string | null
+          plan_revision_count: number
+          preferred_vendor_attributes: Json
+          profit_goal_cents: number | null
+          special_supply_radius_miles: number
+          status: Database["public"]["Enums"]["planner_plan_status"]
+          ticketed: boolean
+          ticketing_model: string | null
+          title: string
+          updated_at: string
+          user_id: string
+          vendor_approved_adjacent_cities: string[]
+          vendor_out_of_city_approved: boolean
+          vendor_same_city_required: boolean
+          venue_terms: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "plans"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       apply_plan_revision_atomic: {
         Args: {
           p_impact?: Json
@@ -11322,6 +11913,24 @@ export type Database = {
           p_event_id: string
           p_refunded_amount_cents: number
           p_stripe_payment_intent_id: string
+        }
+        Returns: Json
+      }
+      assert_canonical_booking_partner_binding: {
+        Args: {
+          p_agent_action_id: string
+          p_approval_id: string
+          p_booking_kind: string
+          p_physical_partner_id: string
+          p_plan_id: string
+        }
+        Returns: undefined
+      }
+      bind_discovery_vendor_claim: {
+        Args: {
+          p_actor_id?: string
+          p_discovery_vendor_id: string
+          p_vendor_profile_id: string
         }
         Returns: Json
       }
@@ -11362,6 +11971,130 @@ export type Database = {
         Args: { p_plan_id: string }
         Returns: boolean
       }
+      cancel_admin_task_execution: {
+        Args: {
+          p_actor_id: string
+          p_host_message?: string
+          p_reason?: string
+          p_task_id: string
+        }
+        Returns: {
+          agent_action_id: string | null
+          approval_id: string | null
+          assigned_to: string | null
+          completed_at: string | null
+          created_at: string
+          description: string
+          due_at: string | null
+          event_id: string | null
+          id: string
+          metadata: Json
+          notes: string | null
+          outcome_payload: Json
+          plan_id: string
+          priority: string
+          status: string
+          task_type: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "admin_tasks"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      cancel_approved_admin_task: {
+        Args: {
+          p_action_id: string
+          p_actor_id: string
+          p_approval_id: string
+          p_host_message?: string
+          p_plan_id: string
+          p_reason?: string
+        }
+        Returns: {
+          agent_action_id: string | null
+          approval_id: string | null
+          assigned_to: string | null
+          completed_at: string | null
+          created_at: string
+          description: string
+          due_at: string | null
+          event_id: string | null
+          id: string
+          metadata: Json
+          notes: string | null
+          outcome_payload: Json
+          plan_id: string
+          priority: string
+          status: string
+          task_type: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "admin_tasks"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      cancel_executing_canonical_quote_booking: {
+        Args: {
+          p_actor_id: string
+          p_agent_action_id: string
+          p_approval_id: string
+          p_plan_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      cancel_executing_canonical_quote_booking_pre_frozen_binding: {
+        Args: {
+          p_actor_id: string
+          p_agent_action_id: string
+          p_approval_id: string
+          p_plan_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      cancel_external_checkout_handoff: {
+        Args: {
+          p_action_id: string
+          p_actor_id: string
+          p_approval_id: string
+          p_expected_snapshot_hash: string
+          p_idempotency_key: string
+          p_plan_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      cancel_staged_plan_quote_booking: {
+        Args: {
+          p_actor_id: string
+          p_plan_id: string
+          p_quote_kind: string
+          p_response_id: string
+        }
+        Returns: Json
+      }
+      canonical_booking_has_execution_provenance: {
+        Args: {
+          p_agent_action_id: string
+          p_approval_id: string
+          p_approved_terms_snapshot: Json
+          p_booking_kind: string
+          p_booking_status: string
+          p_event_id: string
+          p_organizer_id: string
+          p_partner_id: string
+          p_plan_id: string
+          p_quoted_price_cents: number
+        }
+        Returns: boolean
+      }
       claim_app_jobs: {
         Args: { p_limit?: number; p_worker_id?: string }
         Returns: {
@@ -11389,11 +12122,106 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      claim_canonical_quote_booking_materialization_resume: {
+        Args: {
+          p_actor_id: string
+          p_agent_action_id: string
+          p_approval_id: string
+          p_expected_snapshot_hash: string
+          p_plan_id: string
+        }
+        Returns: Json
+      }
+      claim_failed_action_retry: {
+        Args: {
+          p_action_id: string
+          p_actor_id: string
+          p_approval_id: string
+          p_expected_snapshot_hash: string
+          p_idempotency_key: string
+          p_plan_id: string
+        }
+        Returns: {
+          action_status: string
+          outcome: string
+          result_metadata: Json
+        }[]
+      }
+      complete_admin_task_execution: {
+        Args: {
+          p_admin_user_id: string
+          p_host_message?: string
+          p_internal_note?: string
+          p_outcome_payload?: Json
+          p_task_id: string
+        }
+        Returns: {
+          agent_action_id: string | null
+          approval_id: string | null
+          assigned_to: string | null
+          completed_at: string | null
+          created_at: string
+          description: string
+          due_at: string | null
+          event_id: string | null
+          id: string
+          metadata: Json
+          notes: string | null
+          outcome_payload: Json
+          plan_id: string
+          priority: string
+          status: string
+          task_type: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "admin_tasks"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       complete_write_pause_drain: {
         Args: {
           p_changed_by: string
           p_expected_revision: number
           p_reason: string
+        }
+        Returns: Json
+      }
+      confirm_canonical_booking: {
+        Args: {
+          p_actor_id: string
+          p_booking_id: string
+          p_booking_kind: string
+          p_confirmation_context?: Json
+        }
+        Returns: Json
+      }
+      confirm_canonical_booking_pre_frozen_binding: {
+        Args: {
+          p_actor_id: string
+          p_booking_id: string
+          p_booking_kind: string
+          p_confirmation_context?: Json
+        }
+        Returns: Json
+      }
+      confirm_canonical_venue_bookings_batch: {
+        Args: {
+          p_actor_id: string
+          p_booking_ids: string[]
+          p_confirmation_context?: Json
+        }
+        Returns: Json
+      }
+      confirm_external_checkout_handoff: {
+        Args: {
+          p_action_id: string
+          p_actor_id: string
+          p_approval_id: string
+          p_expected_snapshot_hash: string
+          p_plan_id: string
         }
         Returns: Json
       }
@@ -11420,6 +12248,15 @@ export type Database = {
       consume_webhook_rate_limit: {
         Args: { p_key: string; p_limit?: number; p_window_seconds?: number }
         Returns: boolean
+      }
+      create_canonical_booking_from_approval: {
+        Args: {
+          p_actor_id: string
+          p_agent_action_id: string
+          p_approval_id: string
+          p_plan_id: string
+        }
+        Returns: Json
       }
       create_vendor_invite: {
         Args: {
@@ -11462,6 +12299,26 @@ export type Database = {
           venue_id: string
         }[]
       }
+      decline_canonical_bookings: {
+        Args: {
+          p_actor_id: string
+          p_booking_ids: string[]
+          p_booking_kind: string
+          p_decline_context?: Json
+          p_reason: string
+        }
+        Returns: Json
+      }
+      decline_canonical_bookings_pre_frozen_binding: {
+        Args: {
+          p_actor_id: string
+          p_booking_ids: string[]
+          p_booking_kind: string
+          p_decline_context?: Json
+          p_reason: string
+        }
+        Returns: Json
+      }
       defer_stripe_webhook_for_maintenance: {
         Args: {
           p_endpoint_path: string
@@ -11478,9 +12335,115 @@ export type Database = {
         }
         Returns: string
       }
+      enqueue_approved_admin_task: {
+        Args: {
+          p_action_id: string
+          p_actor_id: string
+          p_approval_id: string
+          p_description: string
+          p_due_at?: string
+          p_host_message?: string
+          p_metadata?: Json
+          p_plan_id: string
+          p_priority?: string
+          p_task_type: string
+        }
+        Returns: {
+          agent_action_id: string | null
+          approval_id: string | null
+          assigned_to: string | null
+          completed_at: string | null
+          created_at: string
+          description: string
+          due_at: string | null
+          event_id: string | null
+          id: string
+          metadata: Json
+          notes: string | null
+          outcome_payload: Json
+          plan_id: string
+          priority: string
+          status: string
+          task_type: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "admin_tasks"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      ensure_canonical_booking_partner_binding: {
+        Args: {
+          p_agent_action_id: string
+          p_approval_id: string
+          p_booking_kind: string
+          p_physical_partner_id: string
+          p_plan_id: string
+        }
+        Returns: {
+          agent_action_id: string
+          approval_id: string
+          approval_snapshot_hash: string
+          binding_source: string
+          booking_kind: string
+          bound_at: string
+          bound_by: string | null
+          discovery_partner_id: string
+          id: string
+          physical_partner_id: string
+          plan_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "canonical_booking_partner_bindings"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      ensure_canonical_venue_confirmation_effects: {
+        Args: {
+          p_actor_id: string
+          p_booking_ids: string[]
+          p_message?: string
+        }
+        Returns: Json
+      }
       ensure_planner_deposit_payout: {
         Args: { p_payment_intent_id: string }
         Returns: Json
+      }
+      finalize_approved_action_handoff_retry: {
+        Args: {
+          p_action_id: string
+          p_actor_id: string
+          p_idempotency_key: string
+          p_outcome: string
+          p_plan_id: string
+          p_result: Json
+          p_success_action_status: string
+        }
+        Returns: {
+          action_status: string
+          outcome: string
+          result_metadata: Json
+        }[]
+      }
+      finalize_failed_action_retry: {
+        Args: {
+          p_action_id: string
+          p_actor_id: string
+          p_idempotency_key: string
+          p_outcome: string
+          p_plan_id: string
+          p_result: Json
+        }
+        Returns: {
+          action_status: string
+          outcome: string
+          result_metadata: Json
+        }[]
       }
       get_event_kickback_summary: {
         Args: { p_event_id: string }
@@ -11559,10 +12522,126 @@ export type Database = {
       }
       is_event_builder: { Args: { p_event_id: string }; Returns: boolean }
       is_event_collaborator: { Args: { p_event_id: string }; Returns: boolean }
+      materialize_builder_event_with_access: {
+        Args: {
+          p_budget_cents: number
+          p_builder_id: string
+          p_description: string
+          p_duration_hours: number
+          p_end_time: string
+          p_event_date: string
+          p_event_type: string
+          p_expected_attendance: number
+          p_idempotency_key: string
+          p_payload_hash: string
+          p_start_time: string
+          p_status: string
+          p_title: string
+          p_user_id: string
+        }
+        Returns: {
+          access_source: string
+          amount_cents: number
+          consumption_id: string
+          event_id: string
+          event_record: Json
+          existing: boolean
+          plan_id: string
+        }[]
+      }
+      materialize_plan_event: {
+        Args: {
+          p_actor_id: string
+          p_archetype_key: string
+          p_duration_minutes: number
+          p_event_date: string
+          p_plan_id: string
+          p_start_time: string
+          p_time_zone: string
+        }
+        Returns: {
+          event_id: string
+          event_record: Json
+          existing: boolean
+          plan_status: string
+        }[]
+      }
       next_vendor_invoice_number: { Args: { p_year: number }; Returns: string }
+      prepare_approved_vendor_contact_draft: {
+        Args: {
+          p_action_id: string
+          p_actor_id: string
+          p_approval_id: string
+          p_plan_id: string
+        }
+        Returns: Json
+      }
       recalculate_vendor_review_stats: {
         Args: { p_vendor_id: string }
         Returns: undefined
+      }
+      record_plan_event_outcome: {
+        Args: {
+          p_actor_id: string
+          p_event_id: string
+          p_outcome_summary: Json
+        }
+        Returns: {
+          actual_cost: number | null
+          budget: number | null
+          builder_id: string
+          completion_percentage: number | null
+          created_at: string | null
+          description: string | null
+          duration_hours: number
+          end_time: string
+          ends_at: string | null
+          event_date: string
+          event_description: string | null
+          event_name: string
+          event_time: string | null
+          event_type: string
+          eventbrite_event_id: string | null
+          expected_attendance: number | null
+          expected_attendance_max: number | null
+          expected_attendance_min: number | null
+          field_confidence: Json
+          id: string
+          is_recurring: boolean | null
+          kickback_agreement_id: string | null
+          latest_venue_hold_outcome: Json | null
+          outcome_recorded_at: string | null
+          outcome_summary: Json | null
+          parent_event_id: string | null
+          plan_id: string | null
+          platform_fee_id: string | null
+          platform_fee_paid: boolean | null
+          posh_event_id: string | null
+          recurring_frequency: string | null
+          recurring_occurrences: number | null
+          start_time: string
+          starts_at: string | null
+          status: string | null
+          time_zone: string | null
+          total_budget: number | null
+          updated_at: string | null
+          venue_confirmed: boolean | null
+          venue_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "events"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      record_plan_event_outcome_command: {
+        Args: {
+          p_actor_id: string
+          p_event_id: string
+          p_outcome_summary: Json
+        }
+        Returns: Json
       }
       record_stripe_webhook_event_result:
         | {
@@ -11607,6 +12686,28 @@ export type Database = {
         Returns: {
           released_count: number
         }[]
+      }
+      repair_vendor_base_rate_atomic: {
+        Args: {
+          p_admin_user_id?: string
+          p_audit_action: string
+          p_expected_base_rate: number
+          p_metadata?: Json
+          p_new_base_rate_cents: number
+          p_vendor_id: string
+        }
+        Returns: Json
+      }
+      require_canonical_quote_booking_reapproval: {
+        Args: {
+          p_actor_id: string
+          p_agent_action_id: string
+          p_approval_id: string
+          p_expected_snapshot_hash: string
+          p_plan_id: string
+          p_reason: string
+        }
+        Returns: Json
       }
       reserve_planner_deposit_capture: {
         Args: {
@@ -11720,6 +12821,83 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      stage_plan_quote_booking: {
+        Args: {
+          p_action_id: string
+          p_action_payload: Json
+          p_actor_id: string
+          p_approval_id: string
+          p_expires_at: string
+          p_plan_id: string
+          p_quote_kind: string
+          p_response_id: string
+          p_snapshot_hash: string
+          p_snapshot_json: Json
+        }
+        Returns: Json
+      }
+      supersede_approval_version: {
+        Args: {
+          p_action_payload_json: Json
+          p_actor_id: string
+          p_approval_id: string
+          p_event_date: string
+          p_expected_snapshot_hash: string
+          p_expires_at: string
+          p_notes: string
+          p_plan_id: string
+          p_reason: string
+          p_requested_amount_cents: number
+          p_snapshot_hash: string
+          p_snapshot_json: Json
+        }
+        Returns: {
+          action_label: string
+          agent_action_id: string
+          approval_type: string | null
+          approved_at: string | null
+          approved_by: string | null
+          authorized_amount_cents: number | null
+          authorized_at: string | null
+          authorized_by: string | null
+          cancellation_terms: string | null
+          created_at: string
+          delivery_email: string | null
+          event_date: string | null
+          expires_at: string | null
+          fees_cents: number | null
+          id: string
+          notes: string | null
+          package_details: string | null
+          payment_method_id: string | null
+          plan_id: string
+          price_cents: number | null
+          provider: string | null
+          refund_terms: string | null
+          requested_amount_cents: number
+          root_approval_id: string
+          settlement_run_id: string | null
+          snapshot_hash: string | null
+          snapshot_json: Json | null
+          snapshot_schema_version: number | null
+          status: string
+          superseded_at: string | null
+          superseded_by_approval_id: string | null
+          superseded_by_revision_id: string | null
+          superseded_reason: string | null
+          supersedes_approval_id: string | null
+          updated_at: string
+          version_created_by: string | null
+          version_number: number
+          version_reason: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "approvals"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       sync_planner_refund_reversal_task: {
         Args: {
           p_event_id: string
@@ -11731,6 +12909,63 @@ export type Database = {
           p_target_payout_amount_cents: number
         }
         Returns: boolean
+      }
+      transition_plan_status: {
+        Args: {
+          p_actor_id: string
+          p_context: Json
+          p_expected_status: string
+          p_plan_id: string
+          p_to_status: string
+          p_trigger: string
+        }
+        Returns: {
+          agent_action: string | null
+          brief_render_version: number
+          budget_cap_cents: number | null
+          committed_vendors: Json | null
+          committed_venue_at: string | null
+          committed_venue_id: string | null
+          committed_venue_quoted_deal_model: string | null
+          committed_venue_quoted_price_cents: number | null
+          committed_venue_quoted_terms: Json | null
+          created_at: string
+          date_window_end: string | null
+          date_window_start: string | null
+          derived_state_recomputed_at: string | null
+          event_city: string | null
+          event_type: string | null
+          excluded_cuisines: string[]
+          excluded_vendor_attributes: Json
+          food_responsibility: string | null
+          guest_count: number | null
+          id: string
+          latest_venue_hold_outcome: Json | null
+          materialized_event_id: string | null
+          metadata: Json
+          neighborhood: string | null
+          notes: string | null
+          plan_revision_count: number
+          preferred_vendor_attributes: Json
+          profit_goal_cents: number | null
+          special_supply_radius_miles: number
+          status: Database["public"]["Enums"]["planner_plan_status"]
+          ticketed: boolean
+          ticketing_model: string | null
+          title: string
+          updated_at: string
+          user_id: string
+          vendor_approved_adjacent_cities: string[]
+          vendor_out_of_city_approved: boolean
+          vendor_same_city_required: boolean
+          venue_terms: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "plans"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       transition_release_runtime_control: {
         Args: {
@@ -11790,6 +13025,8 @@ export type Database = {
         | "executing"
         | "complete"
         | "archived"
+        | "booked"
+        | "completed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -11927,6 +13164,8 @@ export const Constants = {
         "executing",
         "complete",
         "archived",
+        "booked",
+        "completed",
       ],
     },
   },

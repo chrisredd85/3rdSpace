@@ -36,6 +36,10 @@ import {
 } from '@/lib/planner/archetypes'
 import { PLAN_MESSAGE_SELECT_COLUMNS, PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import { hasUnknownBudgetSignal, parseEventIntent } from '@/lib/planner/intentParser'
+import {
+  transitionPlanStatus,
+  type PlanStatusRpcClient,
+} from '@/lib/planner/planStatusTransitions'
 import { mergeUserPreferenceSignalsIntoMetadata } from '@/lib/planner/userPreferenceSignals'
 import { BYO_VENDORS_METADATA_KEY, mergeByoVendors, readByoVendors } from '@/lib/planner/byoVendors'
 import {
@@ -67,7 +71,7 @@ import {
   summarizeBuilderAttendance,
   type BuilderAttendanceSummary,
 } from '@/lib/server/builderAttendanceHistory'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { TicketPlatform } from '@/lib/constants/account-setup'
 import type {
   Json,
@@ -87,7 +91,9 @@ type AuthResult =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
 
-const planStatusSchema = z.enum(['drafting', 'ready', 'approved', 'executing', 'complete', 'archived'])
+// Imported/public drafts can only enter pre-approval lifecycle states. Every
+// later state is evidence-driven through the service transition command.
+const planStatusSchema = z.enum(['drafting', 'ready'])
 const planMessageRoleSchema = z.enum(['user', 'agent', 'system'])
 const planMessageTypeSchema = z.enum(['text', 'confirmation_card', 'recommendation', 'approval_request', 'status_update'])
 const draftMessageSchema = z.object({
@@ -216,14 +222,15 @@ export async function POST(
     }
 
     const plan = planData as Plan
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
     await syncPlanSupplyIntentRows(auth.db, plan.id, plan.metadata)
     const initialExchange: InitialMessageResult = draftMessages.length > 0
       ? {
         plan,
-        messages: await insertDraftMessages(auth.db, plan.id, draftMessages),
+        messages: await insertDraftMessages(writeDb, plan.id, draftMessages),
         agentMode: 'deterministic',
       }
-      : await insertInitialMessages(auth.db, plan, body.data.message, intent, auth.userId)
+      : await insertInitialMessages(auth.db, writeDb, plan, body.data.message, intent, auth.userId)
 
     if (!initialExchange.messages) {
       return NextResponse.json({ error: 'Failed to create initial messages' }, { status: 500 })
@@ -248,7 +255,7 @@ export async function POST(
       planId: finalPlan.id,
       intent,
     })
-    await insertAuditLog(auth.db, {
+    await insertAuditLog(writeDb, {
       user_id: auth.userId,
       plan_id: finalPlan.id,
       action: 'planner.plan.created',
@@ -373,12 +380,13 @@ function buildPlanInsert(
 
 async function insertInitialMessages(
   db: PlannerDb,
+  writeDb: PlannerDb,
   plan: Plan,
   message: string,
   intent: Partial<PlanIntent>,
   userId: string
 ): Promise<InitialMessageResult> {
-  const { data: userMessageData, error: userMessageError } = await db
+  const { data: userMessageData, error: userMessageError } = await writeDb
     .from('plan_messages')
     .insert({
       plan_id: plan.id,
@@ -398,13 +406,19 @@ async function insertInitialMessages(
   const userMessage = userMessageData as PlanMessage
   const agentResponse = await buildInitialAgentResponse({
     db,
+    writeDb,
     plan,
     userId,
     userMessage: message,
     messages: [userMessage],
   })
-  const finalPlan = await maybeMarkPlanReady(db, agentResponse.plan, agentResponse.agentDraft.message_type)
-  const { data: agentMessageData, error: agentMessageError } = await db
+  const finalPlan = await maybeMarkPlanReady(
+    writeDb as unknown as PlanStatusRpcClient,
+    agentResponse.plan,
+    agentResponse.agentDraft.message_type,
+    userId
+  )
+  const { data: agentMessageData, error: agentMessageError } = await writeDb
     .from('plan_messages')
     .insert({
       plan_id: plan.id,
@@ -430,6 +444,7 @@ async function insertInitialMessages(
 
 async function buildInitialAgentResponse(input: {
   db: PlannerDb
+  writeDb: PlannerDb
   plan: Plan
   userId: string
   userMessage: string
@@ -478,6 +493,7 @@ async function buildInitialAgentResponse(input: {
     const intakeOutput = agentResult.output as IntakeAgentOutput
     const planWithAgentUpdates = await updatePlanIfNeeded(
       input.db,
+      input.writeDb,
       input.plan,
       buildPlanUpdatesFromIntakeOutput(intakeOutput, input.plan, input.userMessage)
     )
@@ -495,6 +511,7 @@ async function buildInitialAgentResponse(input: {
 
 async function updatePlanIfNeeded(
   db: PlannerDb,
+  writeDb: PlannerDb,
   currentPlan: Plan,
   updates: Record<string, unknown>
 ): Promise<Plan> {
@@ -515,7 +532,7 @@ async function updatePlanIfNeeded(
     return currentPlan
   }
 
-  await insertPlanUpdateRows(db, currentPlan, changedUpdates)
+  await insertPlanUpdateRows(writeDb, currentPlan, changedUpdates)
   await syncPlanSupplyIntentRows(db, (data as Plan).id, (data as Plan).metadata)
 
   return data as Plan
@@ -546,25 +563,26 @@ function toIntakeBuilderHistory(summary: BuilderAttendanceSummary) {
 }
 
 async function maybeMarkPlanReady(
-  db: PlannerDb,
+  db: PlanStatusRpcClient,
   currentPlan: Plan,
-  messageType: PlanMessage['message_type']
+  messageType: PlanMessage['message_type'],
+  actorId: string
 ): Promise<Plan> {
   if (messageType !== 'recommendation' || currentPlan.status !== 'drafting') return currentPlan
 
-  const { data, error } = await db
-    .from('plans')
-    .update({ status: 'ready' })
-    .eq('id', currentPlan.id)
-    .select(PLAN_SELECT_COLUMNS)
-    .single()
-
-  if (error || !data) {
-    console.error('Planner initial ready status update error:', error)
+  try {
+    return await transitionPlanStatus(db, {
+      planId: currentPlan.id,
+      expectedStatus: 'drafting',
+      toStatus: 'ready',
+      trigger: 'intake_completed',
+      actorId,
+      context: { source: 'planner_initial_message' },
+    })
+  } catch (error) {
+    console.error('Planner initial ready status transition error:', error)
     return currentPlan
   }
-
-  return data as Plan
 }
 
 function buildIntakeAgentDraft(
@@ -1027,7 +1045,7 @@ function readBoolean(value: unknown): boolean | null {
 }
 
 function isTerminalStatus(status: Plan['status']) {
-  return status === 'complete' || status === 'archived'
+  return status === 'completed' || status === 'complete' || status === 'archived'
 }
 
 function normalizeCreatedAt(value: string | undefined, fallbackMs: number) {

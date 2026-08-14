@@ -8,8 +8,8 @@
  * (neutral) rather than surfacing false-positive blockers.
  *
  * Signals used:
- * - Agent action with action_type = hold_request + approved/executing status → active venue hold
- * - Pending hold_request action → awaiting venue response
+ * - Completed hold_request with a structured hold_confirmed outcome → active venue hold
+ * - Pending/approved/executing hold_request action → awaiting venue response
  * - Approval message with kind = 'venue_outreach' + status authorized → outreach sent
  * - Plan.ticketed + plan.ticketing_model → ticketing intent
  */
@@ -56,9 +56,9 @@ export interface DerivationAgentAction {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface DerivationContext {
-  /** A hold_request agent action has reached an approved/executing state. */
+  /** A hold_request completed with a structured hold_confirmed outcome. */
   hasVenueHold: boolean
-  /** A hold_request exists but is not yet approved or terminal. */
+  /** A hold_request exists but has not reached a terminal outcome. */
   hasPendingVenueHold: boolean
   /** Pending hold request venue name, when present in action metadata. */
   awaitingVenueName: string | null
@@ -72,8 +72,7 @@ interface DerivationContext {
   outreachMsgId: string | null
 }
 
-const CONFIRMED_HOLD_STATUSES = new Set(['approved', 'authorized', 'executing', 'complete'])
-const TERMINAL_HOLD_STATUSES = new Set(['cancelled', 'canceled', 'failed', 'rejected', 'declined', 'expired'])
+const TERMINAL_HOLD_STATUSES = new Set(['complete', 'cancelled', 'canceled', 'failed', 'rejected', 'declined', 'expired'])
 
 function readMeta(message: PlanMessage): Record<string, unknown> | null {
   if (!message.metadata || typeof message.metadata !== 'object' || Array.isArray(message.metadata)) {
@@ -106,10 +105,10 @@ function buildDerivationContext(messages: PlanMessage[], agentActions: Derivatio
   const holdActions = [...agentActions]
     .filter((action) => action.action_type === 'hold_request')
     .sort(compareNewestActionFirst)
-  const confirmedHold = holdActions.find((action) => CONFIRMED_HOLD_STATUSES.has(normalizeStatus(action.status)))
+  const confirmedHold = holdActions.find(isConfirmedVenueHold)
   const pendingHold = holdActions.find((action) => {
     const status = normalizeStatus(action.status)
-    return !CONFIRMED_HOLD_STATUSES.has(status) && !TERMINAL_HOLD_STATUSES.has(status)
+    return !isConfirmedVenueHold(action) && !TERMINAL_HOLD_STATUSES.has(status)
   })
 
   // Venue outreach approval message.
@@ -137,6 +136,13 @@ function buildDerivationContext(messages: PlanMessage[], agentActions: Derivatio
     recMsgId: phase2Rec?.id ?? null,
     outreachMsgId: outreachMsg?.id ?? null,
   }
+}
+
+function isConfirmedVenueHold(action: DerivationAgentAction) {
+  if (normalizeStatus(action.status) !== 'complete') return false
+  const metadata = readRecord(action.result_metadata)
+  const outcome = readRecord(metadata?.admin_task_outcome)
+  return normalizeStatus(readString(outcome?.outcome)) === 'hold_confirmed'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

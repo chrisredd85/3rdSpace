@@ -5,38 +5,50 @@
  * action so the system doesn't push vendor cards (or pay for OpenAI economics
  * calls) before a venue is held.
  *
- * "Live" status = anything that isn't a terminal cancel/fail.
+ * A hold is active only after operator completion records `hold_confirmed`.
+ * Approval or queue state alone is not evidence that a venue is being held.
  */
+
+type HoldActionQueryResult = {
+  data: unknown[] | null
+  error: { message?: string } | null
+}
+
+type HoldActionQuery = PromiseLike<HoldActionQueryResult> & {
+  eq(column: string, value: string): HoldActionQuery
+  limit(count: number): Promise<HoldActionQueryResult>
+}
 
 type AgentActionsDb = {
   from: (table: 'agent_actions') => {
-    select: (columns: string) => {
-      eq: (column: string, value: string) => {
-        eq: (column: string, value: string) => {
-          not: (column: string, op: 'in', value: string) => {
-            limit: (count: number) => Promise<{ data: unknown; error: { message?: string } | null }>
-          }
-        }
-      }
-    }
+    select: (columns: string) => HoldActionQuery
   }
 }
-
-const TERMINAL_HOLD_STATUSES = "('cancelled','failed')"
 
 export async function hasActiveVenueHold(db: AgentActionsDb, planId: string): Promise<boolean> {
   const { data, error } = await db
     .from('agent_actions')
-    .select('id')
+    .select('id,status,result_metadata')
     .eq('plan_id', planId)
     .eq('action_type', 'hold_request')
-    .not('status', 'in', TERMINAL_HOLD_STATUSES)
-    .limit(1)
+    .eq('status', 'complete')
+    .limit(10)
 
   if (error) {
     console.error('[planner.venueHold] Active hold lookup error', error)
     return false
   }
 
-  return Array.isArray(data) && data.length > 0
+  return Array.isArray(data) && data.some((row) => {
+    const record = readRecord(row)
+    const metadata = readRecord(record?.result_metadata)
+    const outcome = readRecord(metadata?.admin_task_outcome)
+    return outcome?.outcome === 'hold_confirmed'
+  })
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
 }

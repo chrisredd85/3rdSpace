@@ -110,7 +110,7 @@ export async function extractReplyTerms(
                 classification: 'yes | no | conditional | quote_received | follow_up_needed | unclear',
                 confidence: '0 to 1',
                 quoted_price_cents: 'integer cents or null',
-                quoted_deal_model: 'rental | minimum | CHI | other | null',
+                quoted_deal_model: 'flat_rental | minimum_spend | consumption_share | free_space | other | null',
                 availability_confirmed: 'boolean or null',
                 capacity_confirmed: 'integer or null',
                 conditions: [{ type: 'string', detail: 'string' }],
@@ -137,9 +137,34 @@ export async function extractReplyTerms(
 
   const parsed = parseJsonObject(content)
   if (input.entityType === 'venue') {
-    return { ...venueReplyTermsSchema.parse(parsed), model: MODEL }
+    const terms = venueReplyTermsSchema.parse(parsed)
+    return {
+      ...terms,
+      quoted_deal_model: canonicalizeVenueDealModel(terms.quoted_deal_model),
+      model: MODEL,
+    }
   }
   return { ...vendorReplyTermsSchema.parse(parsed), model: MODEL }
+}
+
+function canonicalizeVenueDealModel(value: string | null): string | null {
+  if (!value) return null
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+  if (normalized === 'rental' || normalized === 'flat_rental') return 'flat_rental'
+  if (normalized === 'minimum' || normalized === 'minimum_spend') return 'minimum_spend'
+  if (
+    normalized === 'chi' ||
+    normalized === 'community_host_incentive' ||
+    normalized === 'consumption_share' ||
+    normalized === 'bar_consumption_chi'
+  ) return 'consumption_share'
+  if (
+    normalized === 'free' ||
+    normalized === 'free_space' ||
+    normalized === 'complimentary' ||
+    normalized === 'comped'
+  ) return 'free_space'
+  return normalized || null
 }
 
 async function getDefaultCompletionClient(): Promise<ChatCompletionClient> {

@@ -97,11 +97,11 @@ export async function POST(
       )
     }
 
-    const admin = createServiceRoleClient() as unknown as PlannerDb
-    const plan = await loadOwnedPlan(admin, (await context.params).planId, user.id)
+    const readDb = supabase as unknown as PlannerDb
+    const plan = await loadOwnedPlan(readDb, (await context.params).planId, user.id)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const approval = await loadPlanApproval(admin, (await context.params).planId, parsed.data.approvalId)
+    const approval = await loadPlanApproval(readDb, (await context.params).planId, parsed.data.approvalId)
     if (!approval) return NextResponse.json({ error: 'Approval not found' }, { status: 404 })
 
     if (approval.status !== 'authorized' && approval.status !== 'approved') {
@@ -115,7 +115,7 @@ export async function POST(
       )
     }
 
-    const action = await loadAgentAction(admin, approval.agent_action_id)
+    const action = await loadAgentAction(readDb, approval.agent_action_id)
     if (!action) return NextResponse.json({ error: 'Linked approval action not found' }, { status: 422 })
     let actionTransitionEvents: AgentActionTransitionEvent[] = []
     try {
@@ -127,7 +127,13 @@ export async function POST(
       )
     }
 
-    if (approvalRequiresReapproval({ plan, approval, action, storedSnapshotHash: approval.snapshot_hash })) {
+    if (approvalRequiresReapproval({
+      plan,
+      approval,
+      action,
+      storedSnapshotHash: approval.snapshot_hash,
+      storedSnapshotVersion: approval.snapshot_schema_version,
+    })) {
       return NextResponse.json(
         { error: 'Approval details changed. Review the latest payment terms and approve again.' },
         { status: 409 }
@@ -209,6 +215,7 @@ export async function POST(
       )
     }
 
+    const admin = createServiceRoleClient() as unknown as PlannerDb
     const { data: builder, error: builderError } = await admin
       .from('builder_profiles')
       .select('id, stripe_customer_id')

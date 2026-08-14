@@ -33,21 +33,39 @@ describe('calculateEventPlanningEconomics', () => {
       ticket_revenue_cents: 175000,
       total_revenue_cents: 175000,
       profit_cents: -25000,
+      profit_margin: -14.2857,
     }))
     expect(output.revenue_scenarios.expected).toEqual(expect.objectContaining({
       attendance: 42,
       ticket_revenue_cents: 210000,
       total_revenue_cents: 210000,
       profit_cents: 10000,
+      profit_margin: 4.7619,
     }))
     expect(output.revenue_scenarios.optimistic).toEqual(expect.objectContaining({
       attendance: 50,
       ticket_revenue_cents: 250000,
       total_revenue_cents: 250000,
       profit_cents: 50000,
+      profit_margin: 20,
     }))
     expect(output.profit_projection_cents).toBe(10000)
     expect(output.risk_flags).toContain('Expected scenario is below a 20% projected profit margin.')
+  })
+
+  it('compares the 20 percent risk threshold in percentage points', () => {
+    const output = calculateEventPlanningEconomics({
+      event_plan: eventPlan,
+      budget_line_items: [],
+      expected_attendance: 50,
+      venue_cost_cents: 150000,
+      vendor_cost_cents: 50000,
+      ticket_price_cents: 6000,
+      sponsorship_revenue_cents: 0,
+    })
+
+    expect(output.revenue_scenarios.expected.profit_margin).toBe(20.6349)
+    expect(output.risk_flags).not.toContain('Expected scenario is below a 20% projected profit margin.')
   })
 
   it('includes budget line items in total cost and break-even math', () => {

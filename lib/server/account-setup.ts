@@ -1,7 +1,8 @@
 import { SERVICE_TYPE_LABELS, VENUE_AMENITY_LABEL_BY_ID, type TicketPlatform } from '@/lib/constants/account-setup'
-import { dollarsToCents } from '@/lib/money'
+import { dollarsToCents, type VenueNightlyRateCents } from '@/lib/money'
 import { normalizeBuilderAmenityPreferences, normalizeBuilderEventTypes } from '@/lib/server/builderPreferences'
 import type { ServiceType, UserType, VenueType } from '@/lib/types'
+import { buildVenueNightlyRateReconciliation } from '@/lib/venues/venueRateUnits'
 
 type SupabaseLikeClient = any
 
@@ -104,6 +105,14 @@ function toPositiveNumberOrNull(value: number | null | undefined) {
 function toIntegerCentsOrNull(value: number | null | undefined) {
   const positiveValue = toPositiveNumberOrNull(value)
   return positiveValue === null ? null : dollarsToCents(positiveValue)
+}
+
+export function buildVenueNightlyRateFields(pricePerNight: number | null | undefined): {
+  price_per_night_cents: VenueNightlyRateCents | null
+} {
+  return {
+    price_per_night_cents: toIntegerCentsOrNull(pricePerNight) as VenueNightlyRateCents | null,
+  }
 }
 
 function toPositivePercentageOrNull(value: number | null | undefined) {
@@ -331,14 +340,31 @@ export async function ensureOwnerProfile(admin: SupabaseLikeClient, input: Venue
 export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSetupInput) {
   let venueId: string
   const depositAmountCents = toIntegerCentsOrNull(input.deposit)
-  const pricePerNightCents = toIntegerCentsOrNull(input.pricePerNight)
   const supportedCommercialTerms = normalizeVenueCommercialTerms(input.supportedCommercialTerms)
   const supportsMinimumSpend = supportedCommercialTerms.includes('minimum_spend')
   const supportsBarConsumptionChi = supportedCommercialTerms.includes('bar_consumption_chi')
   const supportsTicketChi = supportedCommercialTerms.includes('ticket_chi')
   const supportsPerAttendeeChi = supportedCommercialTerms.includes('per_attendee_chi')
   const minimumSpendCents = supportsMinimumSpend ? toIntegerCentsOrNull(input.minBarSpend) : null
+  // The historical signup defect triple-wrote only these three *_cents fields;
+  // it never wrote the legacy dollar aliases, so those are intentionally not
+  // part of this reconciliation read.
+  const existingVenueQuery = input.claimVenueId
+    ? admin.from('venues').select('id, hourly_rate_cents, daily_rate_cents, price_per_night_cents, auto_approve_conditions').eq('id', input.claimVenueId).maybeSingle()
+    : admin.from('venues').select('id, hourly_rate_cents, daily_rate_cents, price_per_night_cents, auto_approve_conditions').eq('owner_id', input.userId).maybeSingle()
+
+  const { data: existingVenue, error: existingVenueError } = await existingVenueQuery
+
+  if (existingVenueError) {
+    throw new Error(`Failed to verify venue profile: ${existingVenueError.message}`)
+  }
+
+  const rateReconciliation = buildVenueNightlyRateReconciliation({
+    pricePerNightDollars: input.pricePerNight,
+    existing: existingVenue as Record<string, unknown> | null,
+  })
   const autoApproveConditions = {
+    ...rateReconciliation.auto_approve_conditions,
     ...(supportedCommercialTerms.length > 0 && {
       commercial_terms_supported: supportedCommercialTerms,
       chi_rate_source: 'system_calculated',
@@ -346,16 +372,6 @@ export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSe
     }),
     ...(minimumSpendCents !== null && { minimum_spend_cents: minimumSpendCents }),
     ...(input.neighborhood?.trim() && { neighborhood: input.neighborhood.trim() }),
-  }
-
-  const existingVenueQuery = input.claimVenueId
-    ? admin.from('venues').select('id').eq('id', input.claimVenueId).maybeSingle()
-    : admin.from('venues').select('id').eq('owner_id', input.userId).maybeSingle()
-
-  const { data: existingVenue, error: existingVenueError } = await existingVenueQuery
-
-  if (existingVenueError) {
-    throw new Error(`Failed to verify venue profile: ${existingVenueError.message}`)
   }
 
   const hasBar = input.hasBar ?? false
@@ -369,10 +385,7 @@ export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSe
     venue_type: input.venueType,
     standing_capacity: input.capacity,
     seated_capacity: input.capacity,
-    pricing_model: 'hourly',
-    hourly_rate_cents: pricePerNightCents,
-    daily_rate_cents: pricePerNightCents,
-    price_per_night_cents: pricePerNightCents,
+    ...rateReconciliation,
     bar_revenue_share_enabled: hasBar && supportsBarConsumptionChi,
     ticket_sales_share_enabled: supportsTicketChi,
     offers_kickbacks: hasBar && (supportsBarConsumptionChi || supportsTicketChi || supportsPerAttendeeChi),
@@ -391,9 +404,7 @@ export async function ensureVenueSetup(admin: SupabaseLikeClient, input: VenueSe
     is_claimed: true,
     claimed_user_id: input.userId,
     is_admin_seeded: false,
-    ...(Object.keys(autoApproveConditions).length > 0 && {
-      auto_approve_conditions: autoApproveConditions,
-    }),
+    auto_approve_conditions: autoApproveConditions,
     updated_at: new Date().toISOString(),
   }
 

@@ -1,4 +1,5 @@
 import type { Json, Plan } from '@/lib/types'
+import { getPlanCanonicalEventId } from '@/lib/planner/eventIdentity'
 
 export type PlannerVenueSelectionDb = { from: (table: string) => any }
 
@@ -125,8 +126,7 @@ export function mergeSelectedVenueIntoMetadata(metadataValue: unknown, selectedV
 }
 
 export function getPlanSourceEventId(plan: Plan) {
-  const metadata = readRecord(plan.metadata)
-  return readString(metadata?.event_id)
+  return getPlanCanonicalEventId(plan)
 }
 
 function estimateVenuePriceCents(amountCents: number | null, termType: VenueTermType) {

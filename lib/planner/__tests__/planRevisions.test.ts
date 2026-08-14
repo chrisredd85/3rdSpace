@@ -182,8 +182,10 @@ describe('applyPlanRevision atomic RPC wrapper', () => {
       rpcResult: [{ revision_id: 'revision-1', impact: {}, new_revision_count: 4 }],
     })
 
+    const baselineDb = { from: jest.fn() }
     const result = await applyPlanRevision({
       supabase: db as any,
+      baselineSupabase: baselineDb as any,
       planId: 'plan-1',
       userId: 'user-1',
       trigger: {
@@ -216,6 +218,7 @@ describe('applyPlanRevision atomic RPC wrapper', () => {
     ])
     expect(recomputePlanDerivedStateMock).toHaveBeenCalledWith({
       supabase: db,
+      baselineSupabase: baselineDb,
       planId: 'plan-1',
       trigger: 'plan_revision',
       revisionId: 'revision-1',
