@@ -787,7 +787,7 @@ describeIfDatabase('realized canonical plan and event identity', () => {
       ) values (
         '${ids.outcomeLockPlan}', '${ids.user}', 'Outcome lock-order event',
         'Community meetup', 'approved', 40,
-        current_date - 1, current_date - 1,
+        current_date - 2, current_date - 2,
         '{"event_archetype_lock":{"key":"community_meetup"}}'::jsonb
       );
     `)
@@ -796,7 +796,7 @@ describeIfDatabase('realized canonical plan and event identity', () => {
       select event_id
       from public.materialize_plan_event(
         '${ids.outcomeLockPlan}', '${ids.user}', 'community_meetup',
-        current_date - 1, '17:00'::time, 60, 'America/Los_Angeles'
+        current_date - 2, '17:00'::time, 60, 'America/Los_Angeles'
       );
     `))
 
