@@ -1,7 +1,12 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { CanonicalBookingConfirmationError } from '@/lib/planner/execution/canonicalBookingConfirmation'
+import {
+  CanonicalBookingDeclineError,
+  declineCanonicalBookingIfLinked,
+} from '@/lib/planner/execution/canonicalBookingDecline'
 import {
   normalizeVendorBooking,
   VENDOR_BOOKING_WITH_DETAILS_SELECT,
@@ -50,7 +55,7 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
 
     const { data: booking, error: bookingError } = await supabase
       .from('vendor_bookings')
-      .select('id, vendor_profiles!inner(user_id)')
+      .select('id, plan_id, agent_action_id, approval_id, vendor_profiles!inner(user_id)')
       .eq('id', parsedId.data)
       .maybeSingle()
 
@@ -63,12 +68,53 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
     }
 
-    const row = booking as { vendor_profiles?: { user_id?: string } }
+    const row = booking as {
+      plan_id?: string | null
+      agent_action_id?: string | null
+      approval_id?: string | null
+      vendor_profiles?: { user_id?: string }
+    }
     if (row.vendor_profiles?.user_id !== user.id) {
       return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     }
 
     const reason = parsedBody.data.reason || null
+    const admin = createServiceRoleClient()
+    try {
+      const canonicalResult = await declineCanonicalBookingIfLinked({
+        admin,
+        booking: row,
+        bookingId: parsedId.data,
+        bookingKind: 'vendor',
+        actorId: user.id,
+        reason: reason || 'Vendor declined without an additional reason.',
+        source: 'vendor_booking_reject_route',
+      })
+
+      if (canonicalResult) {
+        const { data: updated, error: reloadError } = await admin
+          .from('vendor_bookings')
+          .select(VENDOR_BOOKING_WITH_DETAILS_SELECT)
+          .eq('id', parsedId.data)
+          .single()
+
+        if (reloadError || !updated) {
+          console.error('[vendor.bookings.reject] Canonical booking reload failed', reloadError)
+          return NextResponse.json({ error: 'Failed to load declined booking' }, { status: 500 })
+        }
+
+        return NextResponse.json({ booking: normalizeVendorBooking(updated as unknown as VendorBookingJoinRow) })
+      }
+    } catch (declineError) {
+      if (
+        declineError instanceof CanonicalBookingDeclineError
+        || declineError instanceof CanonicalBookingConfirmationError
+      ) {
+        return NextResponse.json({ error: declineError.message }, { status: declineError.status })
+      }
+      throw declineError
+    }
+
     const { data: updated, error: updateError } = await supabase
       .from('vendor_bookings')
       .update({

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { eventPlanSchema } from '@/lib/ai/types'
+import { marginRatioToPercent } from '@/lib/money'
 
 const SCENARIO_ATTENDANCE_RATES = {
   conservative: 0.7,
@@ -7,7 +8,8 @@ const SCENARIO_ATTENDANCE_RATES = {
   optimistic: 1,
 } as const
 
-const TARGET_PROFIT_MARGIN = 0.2
+const TARGET_PROFIT_MARGIN_RATIO = 0.2
+const TARGET_PROFIT_MARGIN_PERCENT = 20
 const DEFAULT_ESTIMATED_SPEND_PER_HEAD_CENTS = 4000
 
 const venueCommercialModelSchema = z.enum([
@@ -45,7 +47,7 @@ export const revenueScenarioSchema = z.object({
   total_revenue_cents: z.number().int(),
   total_cost_cents: z.number().int(),
   profit_cents: z.number().int(),
-  profit_margin: z.number(),
+  profit_margin: z.number().describe('Profit margin in percentage points, not a 0-1 ratio.'),
 })
 
 export const eventPlanningEconomicsOutputSchema = z.object({
@@ -189,7 +191,7 @@ function buildRecommendedTicketPriceRange(
     Math.ceil(netCostAfterSponsorshipCents / expectedPaidAttendance)
   )
   const targetMarginPriceCents = roundUpToNearestDollarCents(
-    Math.ceil(netCostAfterSponsorshipCents / ((1 - TARGET_PROFIT_MARGIN) * expectedPaidAttendance))
+    Math.ceil(netCostAfterSponsorshipCents / ((1 - TARGET_PROFIT_MARGIN_RATIO) * expectedPaidAttendance))
   )
 
   return {
@@ -206,7 +208,7 @@ function buildRiskFlags(
 ) {
   const flags: string[] = []
 
-  if (expectedScenario.profit_margin < TARGET_PROFIT_MARGIN) {
+  if (expectedScenario.profit_margin < TARGET_PROFIT_MARGIN_PERCENT) {
     flags.push('Expected scenario is below a 20% projected profit margin.')
   }
 
@@ -244,7 +246,7 @@ function clamp(value: number, min: number, max: number) {
 
 function calculateProfitMargin(profitCents: number, totalRevenueCents: number) {
   if (totalRevenueCents <= 0) return 0
-  return profitCents / totalRevenueCents
+  return marginRatioToPercent(profitCents / totalRevenueCents) ?? 0
 }
 
 function roundUpToNearestDollarCents(valueCents: number) {

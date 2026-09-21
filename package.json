@@ -11,9 +11,11 @@
     "worker:jobs:once": "node scripts/run-job-worker.mjs --once",
     "seed:catalog": "npx tsx scripts/seed-catalog.ts",
     "seed:archetypes": "npx tsx scripts/seed-archetypes.ts",
+    "repair:vendor-base-rate": "npx tsx scripts/admin/repair-vendor-base-rate-units.ts",
     "db:types": "supabase gen types typescript --local > lib/types/database-generated.ts",
     "db:audit": "psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -v ON_ERROR_STOP=1 -f scripts/schema-audit.sql",
     "security:rls": "npx tsx scripts/security/check-rls.ts",
+    "release:migrations:parity": "npx tsx scripts/release/check-migration-parity.ts",
     "security:deps": "node scripts/security/check-dependency-audit.cjs && jest --runInBand __tests__/security/dependency-audit-policy.test.ts __tests__/security/venue-photo-validation.test.ts __tests__/security/venue-photo-upload-route.test.ts __tests__/security/image-optimizer-boundary.test.ts",
     "security:tied-house": "bash scripts/security/check-tied-house-compliance.sh",
     "eval:outreach": "npx tsx scripts/evals/run-outreach-evals.ts",
@@ -53,7 +55,7 @@
     "exceljs": "^4.4.0",
     "lucide-react": "^0.344.0",
     "nanoid": "^5.0.0",
-    "next": "^15.5.21",
+    "next": "^15.5.25",
     "openai": "^6.36.0",
     "papaparse": "^5.5.3",
     "pdf-parse": "^2.4.5",
@@ -68,7 +70,7 @@
     "zustand": "^4.4.7"
   },
   "devDependencies": {
-    "@next/bundle-analyzer": "^15.5.21",
+    "@next/bundle-analyzer": "^15.5.25",
     "@playwright/test": "^1.41.0",
     "@testing-library/jest-dom": "^6.1.5",
     "@testing-library/react": "^14.1.2",
@@ -81,7 +83,7 @@
     "@types/react-dom": "^18.2.18",
     "autoprefixer": "^10.4.17",
     "eslint": "^8.56.0",
-    "eslint-config-next": "^15.5.21",
+    "eslint-config-next": "^15.5.25",
     "husky": "^8.0.3",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
@@ -94,8 +96,11 @@
     "whatwg-fetch": "^3.6.20"
   },
   "overrides": {
+    "browserslist": "4.28.9",
+    "fast-uri": "3.1.7",
     "next": {
       "postcss": "8.5.26"
-    }
+    },
+    "sharp": "0.35.4"
   }
 }

@@ -5,6 +5,7 @@ type PlannerDb = { from: (table: string) => any }
 
 export interface VendorOpportunityCreateInput {
   db: PlannerDb
+  writeDb?: PlannerDb
   plan: Plan
   userId: string
   vendorIds: string[]
@@ -108,7 +109,8 @@ export async function createVendorOpportunityBrief(input: VendorOpportunityCreat
   const budgetRange = buildBudgetRange(input.plan.budget_cap_cents)
   const dateNeeded = input.plan.date_window_start ?? input.plan.date_window_end
 
-  const { data: briefData, error: briefError } = await input.db
+  const writeDb = input.writeDb ?? input.db
+  const { data: briefData, error: briefError } = await writeDb
     .from('vendor_opportunity_briefs')
     .insert({
       plan_id: input.plan.id,
@@ -142,7 +144,7 @@ export async function createVendorOpportunityBrief(input: VendorOpportunityCreat
     magic_link_expires_at: input.issueTokens ? tokenExpiry : null,
   }))
 
-  const { data: inviteData, error: inviteError } = await input.db
+  const { data: inviteData, error: inviteError } = await writeDb
     .from('vendor_opportunity_invites')
     .insert(inviteRows)
     .select(VENDOR_INVITE_SELECT)
@@ -161,7 +163,11 @@ export async function createVendorOpportunityBrief(input: VendorOpportunityCreat
 /**
  * Adds unique 14-day magic-link tokens to queued vendor invites for an existing brief.
  */
-export async function ensureVendorOpportunityInviteTokens(db: PlannerDb, briefId: string) {
+export async function ensureVendorOpportunityInviteTokens(
+  db: PlannerDb,
+  briefId: string,
+  writeDb: PlannerDb = db
+) {
   const { data, error } = await db
     .from('vendor_opportunity_invites')
     .select(VENDOR_INVITE_SELECT)
@@ -181,7 +187,7 @@ export async function ensureVendorOpportunityInviteTokens(db: PlannerDb, briefId
         return row
       }
 
-      const { data: updated, error: updateError } = await db
+      const { data: updated, error: updateError } = await writeDb
         .from('vendor_opportunity_invites')
         .update({
           status: row.status === 'concierge_followup' ? 'concierge_followup' : 'queued',

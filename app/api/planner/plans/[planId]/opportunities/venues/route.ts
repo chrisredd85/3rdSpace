@@ -8,7 +8,7 @@ import {
   createVenueOpportunityBrief,
   listVenueOpportunityBriefs,
 } from '@/lib/planner/venueOpportunityBriefs'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlannerApiErrorResponse } from '@/lib/types'
 
 type PlannerDb = { from: (table: string) => any }
@@ -42,7 +42,6 @@ export async function GET(
 
     const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
-
     const briefs = await listVenueOpportunityBriefs(auth.db, plan.id)
     return NextResponse.json({ briefs })
   } catch (error) {
@@ -72,6 +71,7 @@ export async function POST(
 
     const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
 
     const outreach = await buildVenueOpportunityOutreach({
       db: auth.db,
@@ -84,6 +84,7 @@ export async function POST(
     })
     const result = await createVenueOpportunityBrief({
       db: auth.db,
+      writeDb,
       plan,
       userId: auth.userId,
       venueIds: parsed.data.venue_ids,

@@ -1,47 +1,14 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 
-const {
-  SHARP_EXCEPTION,
-  validateAuditReport,
-} = require('../../scripts/security/check-dependency-audit.cjs') as {
-  SHARP_EXCEPTION: { expiresAt: string }
-  validateAuditReport: (report: unknown, now?: Date) => unknown
+const auditPolicy = require('../../scripts/security/check-dependency-audit.cjs') as {
+  validateAuditReport: (report: unknown) => unknown
 }
+const { validateAuditReport } = auditPolicy
 
-function scopedReport() {
+function cleanReport() {
   return {
     auditReportVersion: 2,
     vulnerabilities: {
-      next: {
-        name: 'next',
-        severity: 'high',
-        isDirect: true,
-        via: ['sharp'],
-        effects: [],
-        range: '9.3.4-canary.0 - 16.3.0-preview.10',
-        nodes: ['node_modules/next'],
-        fixAvailable: { name: 'next', version: '16.3.0', isSemVerMajor: true },
-      },
-      sharp: {
-        name: 'sharp',
-        severity: 'high',
-        isDirect: false,
-        via: [
-          {
-            source: 1124066,
-            name: 'sharp',
-            dependency: 'sharp',
-            title: 'sharp inherited vulnerabilities in libvips',
-            url: 'https://github.com/advisories/GHSA-f88m-g3jw-g9cj',
-            severity: 'high',
-            range: '<0.35.0',
-          },
-        ],
-        effects: ['next'],
-        range: '<0.35.0',
-        nodes: ['node_modules/sharp'],
-        fixAvailable: { name: 'next', version: '16.3.0', isSemVerMajor: true },
-      },
       harmless: {
         name: 'harmless',
         severity: 'moderate',
@@ -54,118 +21,100 @@ function scopedReport() {
       },
     },
     metadata: {
-      vulnerabilities: { info: 0, low: 0, moderate: 1, high: 2, critical: 0, total: 3 },
+      vulnerabilities: { info: 0, low: 0, moderate: 1, high: 0, critical: 0, total: 1 },
     },
   }
 }
 
-const beforeExpiry = new Date('2026-08-12T12:00:00.000Z')
-
 describe('dependency audit policy', () => {
-  it('accepts only the exact GHSA-f88m Sharp-to-Next chain before expiry', () => {
-    expect(validateAuditReport(scopedReport(), beforeExpiry)).toEqual({
-      allowedAdvisory: 'GHSA-f88m-g3jw-g9cj',
-      allowedPackages: ['next', 'sharp'],
-      expiresAt: SHARP_EXCEPTION.expiresAt,
-      high: 2,
+  it('accepts a production audit with zero high or critical advisories', () => {
+    expect(validateAuditReport(cleanReport())).toEqual({
+      high: 0,
       critical: 0,
     })
   })
 
-  it('fails closed when the exception expires', () => {
-    expect(() =>
-      validateAuditReport(scopedReport(), new Date(SHARP_EXCEPTION.expiresAt))
-    ).toThrow('Sharp exception expired')
-  })
-
-  it('fails closed for any additional high advisory', () => {
-    const report = scopedReport()
-    report.vulnerabilities.other = {
-      name: 'other',
+  it('fails closed for any high advisory', () => {
+    const report = cleanReport()
+    report.vulnerabilities.sharp = {
+      name: 'sharp',
       severity: 'high',
-      isDirect: true,
-      via: [],
-      effects: [],
-      range: '*',
-      nodes: ['node_modules/other'],
-      fixAvailable: false,
-    }
-    report.metadata.vulnerabilities.high = 3
-    report.metadata.vulnerabilities.total = 4
-
-    expect(() => validateAuditReport(report, beforeExpiry)).toThrow(
-      'Unapproved high/critical production advisories'
-    )
-  })
-
-  it('fails closed for any critical advisory', () => {
-    const report = scopedReport()
-    report.vulnerabilities.critical = {
-      name: 'critical',
-      severity: 'critical',
       isDirect: false,
       via: [],
       effects: [],
       range: '*',
-      nodes: ['node_modules/critical'],
+      nodes: ['node_modules/sharp'],
+      fixAvailable: false,
+    }
+    report.metadata.vulnerabilities.high = 1
+    report.metadata.vulnerabilities.total = 2
+
+    expect(() => validateAuditReport(report)).toThrow(
+      'Unapproved high/critical production advisories: sharp'
+    )
+  })
+
+  it('fails closed for any critical advisory', () => {
+    const report = cleanReport()
+    report.vulnerabilities.next = {
+      name: 'next',
+      severity: 'critical',
+      isDirect: true,
+      via: [],
+      effects: [],
+      range: '*',
+      nodes: ['node_modules/next'],
       fixAvailable: false,
     }
     report.metadata.vulnerabilities.critical = 1
-    report.metadata.vulnerabilities.total = 4
+    report.metadata.vulnerabilities.total = 2
 
-    expect(() => validateAuditReport(report, beforeExpiry)).toThrow(
-      'Unapproved high/critical production advisories'
-    )
-  })
-
-  it.each([
-    ['source', 999999],
-    ['url', 'https://github.com/advisories/GHSA-wrong'],
-    ['range', '<0.99.0'],
-  ])('rejects changed Sharp advisory %s', (field, value) => {
-    const report = scopedReport()
-    Object.assign(report.vulnerabilities.sharp.via[0], { [field]: value })
-    expect(() => validateAuditReport(report, beforeExpiry)).toThrow()
-  })
-
-  it('rejects a changed dependency path or parent chain', () => {
-    const report = scopedReport()
-    report.vulnerabilities.sharp.nodes = ['node_modules/next/node_modules/sharp']
-    expect(() => validateAuditReport(report, beforeExpiry)).toThrow(
-      'Scoped Sharp dependency path changed'
-    )
-  })
-
-  it('rejects a stale exception after the vulnerable chain disappears', () => {
-    const report = scopedReport()
-    report.vulnerabilities = {
-      harmless: report.vulnerabilities.harmless,
-    } as typeof report.vulnerabilities
-    report.metadata.vulnerabilities.high = 0
-    report.metadata.vulnerabilities.total = 1
-
-    expect(() => validateAuditReport(report, beforeExpiry)).toThrow(
-      'Sharp exception is stale or unused'
+    expect(() => validateAuditReport(report)).toThrow(
+      'Unapproved high/critical production advisories: next'
     )
   })
 
   it('rejects malformed and npm-error reports', () => {
-    expect(() => validateAuditReport(null, beforeExpiry)).toThrow('malformed JSON')
+    expect(() => validateAuditReport(null)).toThrow('malformed JSON')
     expect(() =>
-      validateAuditReport({ error: { code: 'EAUDIT', summary: 'audit failed' } }, beforeExpiry)
+      validateAuditReport({ error: { code: 'EAUDIT', summary: 'audit failed' } })
     ).toThrow('npm audit failed: audit failed')
   })
 
-  it('keeps the package script pinned to the strict production-audit wrapper', () => {
+  it('keeps a zero-exception production gate and pins the remediated dependency graph', () => {
     const packageJson = require('../../package.json') as {
+      dependencies: Record<string, string>
+      devDependencies: Record<string, string>
       scripts: Record<string, string>
       overrides: Record<string, unknown>
     }
+    const packageLock = require('../../package-lock.json') as {
+      packages: Record<string, { version?: string }>
+    }
+    const policySource = require('node:fs').readFileSync(
+      require('node:path').join(process.cwd(), 'scripts/security/check-dependency-audit.cjs'),
+      'utf8'
+    )
+
+    expect(auditPolicy).not.toHaveProperty('SHARP_EXCEPTION')
+    expect(policySource).not.toMatch(/SHARP_EXCEPTION|GHSA-f88m|expiresAt|Allowed advisory/)
     expect(packageJson.scripts['security:deps']).toContain(
       'node scripts/security/check-dependency-audit.cjs'
     )
     expect(packageJson.scripts['security:deps']).not.toContain('audit fix')
     expect(packageJson.scripts['security:deps']).not.toContain('--force')
-    expect(packageJson.overrides).toEqual({ next: { postcss: '8.5.26' } })
+    expect(packageJson.dependencies.next).toBe('^15.5.25')
+    expect(packageJson.devDependencies['@next/bundle-analyzer']).toBe('^15.5.25')
+    expect(packageJson.devDependencies['eslint-config-next']).toBe('^15.5.25')
+    expect(packageJson.overrides).toEqual({
+      browserslist: '4.28.9',
+      'fast-uri': '3.1.7',
+      next: { postcss: '8.5.26' },
+      sharp: '0.35.4',
+    })
+    expect(packageLock.packages['node_modules/browserslist']?.version).toBe('4.28.9')
+    expect(packageLock.packages['node_modules/fast-uri']?.version).toBe('3.1.7')
+    expect(packageLock.packages['node_modules/next']?.version).toBe('15.5.25')
+    expect(packageLock.packages['node_modules/sharp']?.version).toBe('0.35.4')
   })
 })

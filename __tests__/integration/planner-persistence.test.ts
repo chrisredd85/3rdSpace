@@ -5,7 +5,7 @@ import { GET as getPlan, PATCH as patchPlan } from '@/app/api/planner/plans/[pla
 import { GET as listPlans, POST as createPlan } from '@/app/api/planner/plans/route'
 import { POST as postMessage } from '@/app/api/planner/plans/[planId]/messages/route'
 import { runAgent } from '@/lib/ai/agents'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 jest.mock('@/lib/ai/agents', () => ({
   runAgent: jest.fn(),
@@ -13,6 +13,7 @@ jest.mock('@/lib/ai/agents', () => ({
 
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
+  createServiceRoleClient: jest.fn(),
 }))
 
 jest.mock('next/server', () => ({
@@ -31,6 +32,7 @@ jest.mock('next/server', () => ({
 }))
 
 const mockCreateClient = createClient as jest.Mock
+const mockCreateServiceRoleClient = createServiceRoleClient as jest.Mock
 const mockRunAgent = runAgent as jest.Mock
 
 type Row = Record<string, any>
@@ -41,6 +43,7 @@ class MemoryDb {
     plan_messages: [],
     recommendations: [],
     approvals: [],
+    agent_actions: [],
     planner_plan_updates: [],
     audit_logs: [],
     event_type_candidates: [],
@@ -52,6 +55,21 @@ class MemoryDb {
   from(table: string) {
     if (!this.rows[table]) this.rows[table] = []
     return new MemoryQuery(this, table)
+  }
+
+  async rpc(functionName: string, args: Row) {
+    if (functionName !== 'transition_plan_status') {
+      return { data: null, error: { message: `Unknown RPC ${functionName}` } }
+    }
+
+    const plan = this.rows.plans.find((row) => row.id === args.p_plan_id)
+    if (!plan || plan.status !== args.p_expected_status) {
+      return { data: null, error: { code: '40001', message: 'Plan status compare-and-swap failed' } }
+    }
+
+    plan.status = args.p_to_status
+    plan.updated_at = new Date().toISOString()
+    return { data: [{ ...plan }], error: null }
   }
 
   nextId(table: string) {
@@ -250,6 +268,10 @@ describe('Planner persistence integration', () => {
         }),
       },
       from: (table: string) => db.from(table),
+    })
+    mockCreateServiceRoleClient.mockReturnValue({
+      from: (table: string) => db.from(table),
+      rpc: (functionName: string, args: Row) => db.rpc(functionName, args),
     })
   })
 
@@ -684,7 +706,7 @@ describe('Planner persistence integration', () => {
     }
   })
 
-  it('creates a plan, appends messages, transitions status, and reloads persisted state', async () => {
+  it('creates a plan, persists messages, and blocks generic lifecycle authorization', async () => {
     const createResponse = await createPlan(makeRequest('/api/planner/plans', {
       message: 'I want to plan an event',
     }))
@@ -694,27 +716,39 @@ describe('Planner persistence integration', () => {
     expect(createResponse.status).toBe(200)
     expect(created.messages).toHaveLength(2)
 
-    for (const message of ['Event type: mixer', 'Date: June 12', '40 people']) {
+    for (const message of ['Event type: mixer', 'Date: June 12', '40 people', 'Neighborhood: Mission District']) {
       const response = await postMessage(makeRequest(`/api/planner/plans/${planId}/messages`, { message }), {
         params: { planId },
       })
       expect(response.status).toBe(200)
     }
 
+    const persistedPlan = db.rows.plans.find((row) => row.id === planId)!
+    if (persistedPlan.status === 'drafting') {
+      await db.rpc('transition_plan_status', {
+        p_plan_id: planId,
+        p_expected_status: 'drafting',
+        p_to_status: 'ready',
+      })
+    }
+
     const readyResponse = await patchPlan(makeRequest(`/api/planner/plans/${planId}`, { status: 'ready' }, 'PATCH'), {
       params: { planId },
     })
-    expect(readyResponse.status).toBe(200)
+    expect(readyResponse.status).toBe(422)
 
     const approvedResponse = await patchPlan(makeRequest(`/api/planner/plans/${planId}`, { status: 'approved' }, 'PATCH'), {
       params: { planId },
     })
-    expect(approvedResponse.status).toBe(200)
+    expect(approvedResponse.status).toBe(422)
+    await expect(readJson(approvedResponse)).resolves.toMatchObject({
+      details: { code: 'plan_status_command_required' },
+    })
 
     const listResponse = await listPlans(makeRequest('/api/planner/plans?limit=10'))
     const list = await readJson(listResponse)
     expect(list.plans[0].id).toBe(planId)
-    expect(list.plans[0].status).toBe('approved')
+    expect(list.plans[0].status).toBe('ready')
 
     const reloadResponse = await getPlan(makeRequest(`/api/planner/plans/${planId}`), {
       params: { planId },
@@ -722,7 +756,7 @@ describe('Planner persistence integration', () => {
     const reloaded = await readJson(reloadResponse)
 
     expect(reloadResponse.status).toBe(200)
-    expect(reloaded.plan.status).toBe('approved')
+    expect(reloaded.plan.status).toBe('ready')
     expect(reloaded.workspace_summary).toEqual(expect.objectContaining({
       current_status: 'on_track',
       blockers: [],
@@ -731,8 +765,193 @@ describe('Planner persistence integration', () => {
       impossible_timeline: expect.any(Boolean),
       planning_milestones: expect.any(Array),
     }))
-    expect(reloaded.messages).toHaveLength(8)
-    expect(db.rows.planner_plan_updates.filter((row) => row.field === 'status')).toHaveLength(2)
+    expect(reloaded.messages).toHaveLength(10)
+    expect(db.rows.planner_plan_updates.filter((row) => row.field === 'status')).toHaveLength(0)
+  })
+
+  it('archives through the centralized lifecycle command', async () => {
+    db.rows.plans.push({
+      id: 'archive-plan',
+      user_id: 'user-1',
+      title: 'Archive me',
+      event_type: 'community_mixer',
+      status: 'ready',
+      guest_count: 40,
+      budget_cap_cents: 100_000,
+      neighborhood: 'Mission',
+      date_window_start: '2026-08-15',
+      date_window_end: '2026-08-15',
+      ticketed: false,
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {},
+    })
+
+    const response = await patchPlan(
+      makeRequest('/api/planner/plans/archive-plan', { status: 'archived' }, 'PATCH'),
+      { params: { planId: 'archive-plan' } }
+    )
+
+    expect(response.status).toBe(200)
+    await expect(readJson(response)).resolves.toMatchObject({ plan: { id: 'archive-plan', status: 'archived' } })
+    expect(db.rows.plans.find((row) => row.id === 'archive-plan')?.status).toBe('archived')
+  })
+
+  it('does not let generic PATCH split a materialized plan from its event', async () => {
+    db.rows.plans.push({
+      id: 'materialized-plan',
+      user_id: 'user-1',
+      title: 'Canonical mixer',
+      event_type: 'community_mixer',
+      status: 'executing',
+      materialized_event_id: 'canonical-event-1',
+      guest_count: 40,
+      budget_cap_cents: 100_000,
+      neighborhood: 'Mission',
+      date_window_start: '2026-08-15',
+      date_window_end: '2026-08-15',
+      ticketed: false,
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {},
+    })
+
+    const response = await patchPlan(
+      makeRequest('/api/planner/plans/materialized-plan', { guest_count: 75 }, 'PATCH'),
+      { params: { planId: 'materialized-plan' } }
+    )
+
+    expect(response.status).toBe(409)
+    await expect(readJson(response)).resolves.toMatchObject({
+      details: { code: 'canonical_event_revision_required' },
+    })
+    expect(db.rows.plans.find((row) => row.id === 'materialized-plan')?.guest_count).toBe(40)
+    expect(db.rows.planner_plan_updates).toHaveLength(0)
+  })
+
+  it('does not let generic PATCH change facts covered by an existing authorization', async () => {
+    db.rows.plans.push({
+      id: 'approved-plan',
+      user_id: 'user-1',
+      title: 'Approved mixer',
+      event_type: 'community_mixer',
+      status: 'approved',
+      materialized_event_id: null,
+      guest_count: 40,
+      budget_cap_cents: 100_000,
+      neighborhood: 'Mission',
+      date_window_start: '2026-08-15',
+      date_window_end: '2026-08-15',
+      ticketed: false,
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {},
+    })
+
+    const response = await patchPlan(
+      makeRequest('/api/planner/plans/approved-plan', { date_window_start: '2026-08-22' }, 'PATCH'),
+      { params: { planId: 'approved-plan' } }
+    )
+
+    expect(response.status).toBe(409)
+    expect(db.rows.plans.find((row) => row.id === 'approved-plan')?.date_window_start).toBe('2026-08-15')
+    expect(db.rows.planner_plan_updates).toHaveLength(0)
+  })
+
+  it('does not let a confirmed chat change split a materialized plan from its event', async () => {
+    db.rows.plans.push({
+      id: 'materialized-chat-plan',
+      user_id: 'user-1',
+      title: 'Canonical dinner',
+      event_type: 'private_dinner_celebration',
+      status: 'executing',
+      materialized_event_id: 'canonical-event-2',
+      guest_count: 24,
+      budget_cap_cents: 200_000,
+      neighborhood: 'Mission',
+      date_window_start: '2026-08-15',
+      date_window_end: '2026-08-15',
+      ticketed: false,
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {
+        pending_plan_change: {
+          field: 'date_window_start',
+          from: '2026-08-15',
+          to: '2026-08-22',
+          raw_value: '2026-08-22',
+          prompt: 'Should I update the date?',
+        },
+      },
+    })
+
+    const response = await postMessage(
+      makeRequest('/api/planner/plans/materialized-chat-plan/messages', { message: 'Yes, update it' }),
+      { params: { planId: 'materialized-chat-plan' } }
+    )
+
+    expect(response.status).toBe(409)
+    expect(db.rows.plans.find((row) => row.id === 'materialized-chat-plan')?.date_window_start).toBe('2026-08-15')
+    expect(db.rows.plan_messages).toHaveLength(0)
+  })
+
+  it('returns action-aware approval truth from the full plan read model', async () => {
+    db.rows.plans.push({
+      id: 'failed-plan',
+      user_id: 'user-1',
+      title: 'Failed outreach plan',
+      event_type: 'Happy hour',
+      status: 'ready',
+      guest_count: 40,
+      budget_cap_cents: 100_000,
+      neighborhood: 'Mission',
+      date_window_start: '2026-08-10',
+      date_window_end: '2026-08-10',
+      ticketed: false,
+      ticketing_model: 'rsvp',
+      food_responsibility: 'venue',
+      profit_goal_cents: null,
+      notes: null,
+      metadata: {},
+      created_at: '2026-07-09T00:00:00.000Z',
+      updated_at: '2026-07-09T00:00:00.000Z',
+    })
+    db.rows.agent_actions.push({
+      id: 'failed-action',
+      plan_id: 'failed-plan',
+      action_type: 'email',
+      payload_json: { kind: 'gmail_approved_outreach' },
+      status: 'failed',
+      result_metadata: { error: 'Gmail unavailable' },
+      last_retry_result: null,
+    })
+    db.rows.approvals.push({
+      id: 'failed-approval',
+      plan_id: 'failed-plan',
+      agent_action_id: 'failed-action',
+      action_label: 'Send outreach',
+      provider: 'Gmail',
+      status: 'authorized',
+      expires_at: '2099-01-01T00:00:00.000Z',
+      created_at: '2026-07-09T00:00:00.000Z',
+      updated_at: '2026-07-09T00:00:00.000Z',
+    })
+
+    const response = await getPlan(makeRequest('/api/planner/plans/failed-plan'), {
+      params: { planId: 'failed-plan' },
+    })
+    const result = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(result.approvals).toEqual([
+      expect.objectContaining({
+        id: 'failed-approval',
+        action_status: 'failed',
+        action_result: { error: 'Gmail unavailable' },
+        ui_status: 'failed',
+        available_actions: ['retry'],
+      }),
+    ])
   })
 
   it('blocks free-tier creation after two active plans', async () => {
@@ -772,6 +991,33 @@ describe('Planner persistence integration', () => {
     }))
     expect(db.rows.plans).toHaveLength(2)
   })
+
+  it.each(['approved', 'executing', 'booked', 'completed', 'complete', 'archived'])(
+    'does not let a migrated client draft insert the %s lifecycle state',
+    async (requestedStatus) => {
+      const response = await createPlan(makeRequest('/api/planner/plans', {
+        message: 'Start an incomplete event draft',
+        draft: {
+          plan: {
+            title: 'Incomplete imported draft',
+            event_type: 'Networking mixer',
+            status: requestedStatus,
+          },
+          messages: [{
+            role: 'user',
+            content: 'Start an incomplete event draft',
+            message_type: 'text',
+            metadata: {},
+          }],
+        },
+      }))
+      const created = await readJson(response)
+
+      expect(response.status).toBe(200)
+      expect(created.plan.status).toBe('drafting')
+      expect(created.plan.status).not.toBe(requestedStatus)
+    }
+  )
 
   it('marks migrated ready public drafts as needing recommendations', async () => {
     const createResponse = await createPlan(makeRequest('/api/planner/plans', {

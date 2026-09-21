@@ -1,4 +1,5 @@
 import { readCents } from '@/lib/money'
+import { estimateVenueRentalCents } from '@/lib/venues/venueRateUnits'
 
 export interface VenueEstimatePlanSummary {
   guest_count?: number | null
@@ -60,22 +61,7 @@ export function estimateVenueRecommendationPriceCents(
   const minimumSpend = readMinimumSpendCents(venue)
   if (minimumSpend !== null) return minimumSpend
 
-  const hourlyRate = readCents(
-    readFirst(venue, ['hourly_rate_cents', 'rental_hourly_rate_cents']) as number | string | null | undefined,
-    readFirst(venue, ['hourly_rate', 'rental_hourly_rate']) as number | string | null | undefined
-  )
-  if (hourlyRate !== null && hourlyRate > 0) {
-    const minimumHours = readNumber(readFirst(venue, ['minimum_hours', 'min_hours'])) ?? plan.duration_hours ?? 4
-    return Math.round(hourlyRate * Math.max(minimumHours, 1))
-  }
-
-  const dailyRate = readCents(
-    readFirst(venue, ['daily_rate_cents', 'rental_daily_rate_cents']) as number | string | null | undefined,
-    readFirst(venue, ['daily_rate', 'rental_daily_rate']) as number | string | null | undefined
-  )
-  if (dailyRate !== null && dailyRate > 0) return dailyRate
-
-  return null
+  return estimateVenueRentalCents(venue, plan.duration_hours)
 }
 
 function inferVenueCommercialModel(venue: Record<string, unknown>): VenueCommercialModel {

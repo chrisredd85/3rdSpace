@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { applyPlanRevision, type PlanRevisionTrigger } from '@/lib/planner/planRevisions'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlanRevision, PlannerApiErrorResponse } from '@/lib/types'
 
 type PlannerDb = { from: (table: string) => any }
@@ -127,8 +127,11 @@ export async function POST(
     const plan = await loadOwnedPlan(auth.db, planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
     const result = await applyPlanRevision({
       supabase: auth.db,
+      writeSupabase: writeDb,
+      baselineSupabase: writeDb,
       planId,
       userId: auth.userId,
       trigger: parsed.data.trigger as PlanRevisionTrigger,

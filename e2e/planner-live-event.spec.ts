@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { loginAsPersona } from './helpers/auth'
 import { hasSupabaseAdminEnv } from './helpers/env'
+import { LEGAL_TERMS_VERSION } from '@/lib/legal/constants'
 
 const EVENT_ID = '00000000-0000-4000-8000-000000000041'
 
@@ -28,6 +29,8 @@ test.describe('Planner live event intelligence', () => {
         event_types: ['mixer'],
         preferred_amenities: ['bar', 'sound'],
         ticket_platforms: ['eventbrite'],
+        signup_terms_version: LEGAL_TERMS_VERSION,
+        signup_terms_accepted: true,
       },
     })
     expect(signupResponse.ok()).toBeTruthy()

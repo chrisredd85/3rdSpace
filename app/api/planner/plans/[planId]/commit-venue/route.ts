@@ -3,9 +3,13 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
+import {
+  cancelStagedCanonicalQuoteBooking,
+  stageCanonicalQuoteBooking,
+} from '@/lib/planner/execution/canonicalQuoteBooking'
 import { recomputePlanDerivedState } from '@/lib/planner/recomputeDerivedState'
-import { createClient } from '@/lib/supabase/server'
-import type { Json, Plan } from '@/lib/types'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import type { Plan } from '@/lib/types'
 
 type PlannerDb = { from: (table: string) => any }
 
@@ -16,11 +20,10 @@ interface RouteContext {
 }
 
 const commitVenueSchema = z.object({
-  discovery_venue_id: z.string().uuid(),
-  quoted_price_cents: z.number().int().nonnegative().nullable().optional(),
-  quoted_deal_model: z.string().trim().min(1).nullable().optional(),
-  quoted_terms: z.record(z.unknown()).default({}),
-})
+  response_id: z.string().uuid(),
+}).strict()
+
+const cancelVenueSchema = commitVenueSchema
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const auth = await getCreatorAuth()
@@ -34,102 +37,89 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
   if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
-
-  const committedAt = new Date().toISOString()
-  const metadata = readRecord(plan.metadata) ?? {}
-  const committedVenue = {
-    discovery_venue_id: parsed.data.discovery_venue_id,
-    quoted_price_cents: parsed.data.quoted_price_cents ?? null,
-    quoted_deal_model: parsed.data.quoted_deal_model ?? null,
-    quoted_terms: parsed.data.quoted_terms,
-    committed_at: committedAt,
-  }
-  const nextMetadata = {
-    ...metadata,
-    committed_venue: committedVenue,
-    accepted_quote_state: {
-      ...(readRecord(metadata.accepted_quote_state) ?? {}),
-      venue: committedVenue,
-      updated_at: committedAt,
-    },
-  }
-
-  const { data, error } = await auth.db
-    .from('plans')
-    .update({
-      committed_venue_id: parsed.data.discovery_venue_id,
-      committed_venue_quoted_price_cents: parsed.data.quoted_price_cents ?? null,
-      committed_venue_quoted_deal_model: parsed.data.quoted_deal_model ?? null,
-      committed_venue_quoted_terms: parsed.data.quoted_terms as Json,
-      committed_venue_at: committedAt,
-      metadata: nextMetadata as Json,
-    })
-    .eq('id', (await context.params).planId)
-    .eq('user_id', auth.userId)
-    .select(PLAN_SELECT_COLUMNS)
-    .single()
-
-  if (error || !data) {
-    return NextResponse.json({ error: error?.message ?? 'Failed to commit venue quote' }, { status: 500 })
-  }
-
-  await auth.db
-    .from('plan_discovery_venue_candidates')
-    .update({ status: 'superseded' })
-    .eq('plan_id', (await context.params).planId)
-    .neq('discovery_venue_id', parsed.data.discovery_venue_id)
-    .in('status', ['candidate', 'approval_created'])
-
+  const reapprovalResponse = requireMutableQuotePlan(plan)
+  if (reapprovalResponse) return reapprovalResponse
   const planId = (await context.params).planId
-  await insertStatusMessage(auth.db, planId, 'Committed venue quote for planning. Other venue outreach was marked superseded, not cancelled.')
-  await recomputePlanDerivedState({ supabase: auth.db, planId, trigger: 'commit_changed' })
+  const writeDb = createServiceRoleClient() as unknown as PlannerDb
+  let staged
+  try {
+    staged = await stageCanonicalQuoteBooking({
+      db: writeDb,
+      plan,
+      actorId: auth.userId,
+      quoteKind: 'venue',
+      responseId: parsed.data.response_id,
+    })
+  } catch (error) {
+    return mapQuoteBookingError(error)
+  }
+
+  await recomputePlanDerivedState({
+    supabase: auth.db,
+    writeSupabase: writeDb,
+    baselineSupabase: writeDb,
+    planId,
+    trigger: 'commit_changed',
+  })
   const refreshedPlan = await loadOwnedPlan(auth.db, planId, auth.userId)
-  return NextResponse.json({ plan: refreshedPlan ?? data })
+  const responsePlan = refreshedPlan ?? staged.plan
+  return NextResponse.json({
+    plan: responsePlan,
+    canonical_event_id: responsePlan.materialized_event_id ?? null,
+    agentAction: staged.agent_action,
+    approval: staged.approval,
+    approvalMessage: staged.approval_message,
+    existing: staged.existing,
+    booking_status: 'approval_required',
+  })
 }
 
-export async function DELETE(_request: NextRequest, context: RouteContext) {
+export async function DELETE(request: NextRequest, context: RouteContext) {
   const auth = await getCreatorAuth()
   if ('response' in auth) return auth.response
 
-  const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
-  if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
-
-  const metadata = readRecord(plan.metadata) ?? {}
-  const acceptedQuoteState = readRecord(metadata.accepted_quote_state) ?? {}
-  const nextMetadata = {
-    ...metadata,
-    committed_venue: null,
-    accepted_quote_state: {
-      ...acceptedQuoteState,
-      venue: null,
-      updated_at: new Date().toISOString(),
-    },
-  }
-
-  const { data, error } = await auth.db
-    .from('plans')
-    .update({
-      committed_venue_id: null,
-      committed_venue_quoted_price_cents: null,
-      committed_venue_quoted_deal_model: null,
-      committed_venue_quoted_terms: null,
-      committed_venue_at: null,
-      metadata: nextMetadata as Json,
-    })
-    .eq('id', (await context.params).planId)
-    .eq('user_id', auth.userId)
-    .select(PLAN_SELECT_COLUMNS)
-    .single()
-
-  if (error || !data) {
-    return NextResponse.json({ error: error?.message ?? 'Failed to cancel venue commitment' }, { status: 500 })
+  const body = await request.json().catch(() => null)
+  const parsed = cancelVenueSchema.safeParse(body)
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid venue cancellation payload', issues: parsed.error.flatten() }, { status: 400 })
   }
 
   const planId = (await context.params).planId
-  await insertStatusMessage(auth.db, planId, 'Cancelled accepted venue quote. The brief returned to comparison mode.')
-  await recomputePlanDerivedState({ supabase: auth.db, planId, trigger: 'cancel_commit' })
+  const plan = await loadOwnedPlan(auth.db, planId, auth.userId)
+  if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+  const reapprovalResponse = requireMutableQuotePlan(plan)
+  if (reapprovalResponse) return reapprovalResponse
+  const writeDb = createServiceRoleClient() as unknown as PlannerDb
+  let cancelled
+  try {
+    cancelled = await cancelStagedCanonicalQuoteBooking({
+      db: writeDb,
+      planId,
+      actorId: auth.userId,
+      quoteKind: 'venue',
+      responseId: parsed.data.response_id,
+    })
+  } catch (error) {
+    return mapQuoteBookingError(error)
+  }
+
+  await recomputePlanDerivedState({
+    supabase: auth.db,
+    writeSupabase: writeDb,
+    baselineSupabase: writeDb,
+    planId,
+    trigger: 'cancel_commit',
+  })
   const refreshedPlan = await loadOwnedPlan(auth.db, planId, auth.userId)
-  return NextResponse.json({ plan: refreshedPlan ?? data })
+  const responsePlan = refreshedPlan ?? cancelled.plan
+  return NextResponse.json({
+    plan: responsePlan,
+    canonical_event_id: responsePlan.materialized_event_id ?? null,
+    agentAction: cancelled.agent_action,
+    approval: cancelled.approval,
+    existing: cancelled.existing,
+    booking_status: 'cancelled_before_authorization',
+  })
 }
 
 async function getCreatorAuth(): Promise<
@@ -157,16 +147,64 @@ async function loadOwnedPlan(db: PlannerDb, planId: string, userId: string): Pro
   return data as Plan | null
 }
 
-async function insertStatusMessage(db: PlannerDb, planId: string, content: string) {
-  await db.from('plan_messages').insert({
-    plan_id: planId,
-    role: 'system',
-    content,
-    message_type: 'status_update',
-    metadata: { kind: 'accepted_quote_state' } as Json,
-  })
+function requireMutableQuotePlan(plan: Plan) {
+  if (
+    (!plan.materialized_event_id && (plan.status === 'drafting' || plan.status === 'ready')) ||
+    (Boolean(plan.materialized_event_id) && (plan.status === 'executing' || plan.status === 'booked'))
+  ) {
+    return null
+  }
+
+  return NextResponse.json(
+    {
+      error: 'Existing approved quote terms are frozen. Revise the plan and complete re-approval before changing venue, vendor, price, or terms.',
+      code: 'PLAN_REAPPROVAL_REQUIRED',
+      plan_id: plan.id,
+      plan_status: plan.status,
+      materialized_event_id: plan.materialized_event_id ?? null,
+    },
+    { status: 409 }
+  )
 }
 
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+function mapQuoteBookingError(error: unknown) {
+  const message = error instanceof Error ? error.message : 'Failed to stage venue quote booking'
+  if (/response_not_found/i.test(message)) {
+    return NextResponse.json({ error: 'Venue quote response not found' }, { status: 404 })
+  }
+  if (/action_not_found|approval_not_found/i.test(message)) {
+    return NextResponse.json({ error: 'Pending venue booking approval not found' }, { status: 404 })
+  }
+  if (/response_not_actionable/i.test(message)) {
+    return NextResponse.json({ error: 'This venue response does not contain an actionable quote' }, { status: 409 })
+  }
+  if (/exact_date_required/i.test(message)) {
+    return NextResponse.json(
+      {
+        error: 'Choose one exact event date before creating the booking approval',
+        code: 'canonical_quote_booking_exact_date_required',
+      },
+      { status: 409 }
+    )
+  }
+  if (/active_slot_exists|23505/i.test(message)) {
+    return NextResponse.json(
+      { error: 'Cancel the current venue booking approval before choosing another quote', code: 'canonical_quote_booking_active' },
+      { status: 409 }
+    )
+  }
+  if (/requires_mutable_plan|requires_reapproval/i.test(message)) {
+    return NextResponse.json(
+      { error: 'This quote changed after approval. Create a new approval version before booking.', code: 'PLAN_REAPPROVAL_REQUIRED' },
+      { status: 409 }
+    )
+  }
+  if (/requires_pending_approval/i.test(message)) {
+    return NextResponse.json(
+      { error: 'This booking approval is no longer pending. Use the approval workflow to cancel or revise it.', code: 'canonical_quote_booking_not_pending' },
+      { status: 409 }
+    )
+  }
+  console.error('[planner.commit-venue] Failed to stage canonical quote booking', error)
+  return NextResponse.json({ error: 'Failed to create venue booking approval' }, { status: 500 })
 }

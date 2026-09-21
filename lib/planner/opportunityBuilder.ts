@@ -19,6 +19,15 @@ import type {
   VenueOpportunityInvite,
 } from '@/lib/types'
 import { getVenueComplianceStatus } from '@/lib/planner/venueComplianceGate'
+import {
+  APPROVAL_SNAPSHOT_SCHEMA_VERSION,
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
+import {
+  hasAuthoritativeVenueNightlyRate,
+  readVenueRentalRateCents,
+} from '@/lib/venues/venueRateUnits'
 
 type PlannerDb = { from: (table: string) => any }
 
@@ -33,6 +42,9 @@ interface OpportunityVenueRow {
   standing_capacity?: number | null
   seated_capacity?: number | null
   hourly_rate?: number | null
+  hourly_rate_cents?: number | null
+  daily_rate_cents?: number | null
+  price_per_night_cents?: number | null
   minimum_hours?: number | null
   deposit_amount?: number | null
   deposit_percentage?: number | null
@@ -68,6 +80,7 @@ interface OpportunityVendorRow {
 
 interface CreateVenueOpportunityBundleInput {
   db: PlannerDb
+  writeDb: PlannerDb
   plan: Plan
   messages: PlanMessage[]
   userId: string
@@ -92,6 +105,9 @@ const VENUE_OPPORTUNITY_SELECT = `
   standing_capacity,
   seated_capacity,
   hourly_rate,
+  hourly_rate_cents,
+  daily_rate_cents,
+  price_per_night_cents,
   minimum_hours,
   deposit_amount,
   deposit_percentage,
@@ -347,7 +363,7 @@ export async function createVenueOpportunityBundle(
     must_haves: briefDraft.must_haves as unknown as Json,
     requested_terms: briefDraft.requested_terms as unknown as Json,
   }
-  const { data: briefData, error: briefError } = await input.db
+  const { data: briefData, error: briefError } = await input.writeDb
     .from('venue_opportunity_briefs')
     .insert(briefInsert)
     .select('*')
@@ -388,7 +404,7 @@ export async function createVenueOpportunityBundle(
     admin_notes: match.route_to_concierge ? 'Unclaimed or concierge-only target. Route through internal queue.' : null,
   }))
 
-  const { data: inviteData, error: inviteError } = await input.db
+  const { data: inviteData, error: inviteError } = await input.writeDb
     .from('venue_opportunity_invites')
     .insert(invitePayloads)
     .select('*')
@@ -408,7 +424,31 @@ export async function createVenueOpportunityBundle(
     route_to_concierge: match.route_to_concierge,
   }))
 
-  const { data: actionData, error: actionError } = await input.db
+  const actionPayload = {
+    opportunity_brief_id: opportunity.id,
+    invite_ids: invites.map((invite) => invite.id),
+    concierge_invite_ids: invites
+      .filter((invite) => invite.route_to_concierge)
+      .map((invite) => invite.id),
+    venue_ids: matches
+      .filter((match) => match.target_type === 'venue' && match.target_id)
+      .map((match) => match.target_id),
+    vendor_ids: matches
+      .filter((match) => match.target_type === 'vendor' && match.target_id)
+      .map((match) => match.target_id),
+    summary: `${briefDraft.title}: ${briefDraft.guest_count ?? 'TBD'} guests in ${briefDraft.neighborhood ?? 'the Bay Area'}.`,
+    requirements: {
+      must_haves: briefDraft.must_haves,
+      requested_terms: briefDraft.requested_terms,
+      date_window_start: briefDraft.date_window_start,
+      date_window_end: briefDraft.date_window_end,
+      budget_cents: briefDraft.budget_cents,
+    },
+    response_deadline: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+    targets: targetSummary,
+    action: 'send_to_venues',
+  }
+  const { data: actionData, error: actionError } = await input.writeDb
     .from('agent_actions')
     .insert({
       plan_id: input.plan.id,
@@ -420,24 +460,7 @@ export async function createVenueOpportunityBundle(
       status: 'pending',
       target_type: 'opportunity',
       target_id: opportunity.id,
-      payload_json: {
-        opportunity_brief_id: opportunity.id,
-        invite_ids: invites.map((invite) => invite.id),
-        venue_ids: matches
-          .filter((match) => match.target_type === 'venue' && match.target_id)
-          .map((match) => match.target_id),
-        summary: `${briefDraft.title}: ${briefDraft.guest_count ?? 'TBD'} guests in ${briefDraft.neighborhood ?? 'the Bay Area'}.`,
-        requirements: {
-          must_haves: briefDraft.must_haves,
-          requested_terms: briefDraft.requested_terms,
-          date_window_start: briefDraft.date_window_start,
-          date_window_end: briefDraft.date_window_end,
-          budget_cents: briefDraft.budget_cents,
-        },
-        response_deadline: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
-        targets: targetSummary,
-        action: 'send_to_venues',
-      } as Json,
+      payload_json: actionPayload as Json,
       result_metadata: {
         source: 'planner_opportunity_marketplace',
       } as Json,
@@ -451,22 +474,37 @@ export async function createVenueOpportunityBundle(
   }
 
   const agentAction = actionData as AgentAction
-  const { data: approvalData, error: approvalError } = await input.db
+  const approvalExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  const approvalSnapshot = {
+    action_label: approvalDraft.action_label,
+    event_date: input.plan.date_window_start,
+    price_cents: approvalDraft.requested_amount_cents,
+    fees_cents: 0,
+    requested_amount_cents: approvalDraft.requested_amount_cents,
+    provider: approvalDraft.provider,
+    delivery_email: approvalDraft.delivery_email,
+    refund_terms: approvalDraft.refund_terms,
+    cancellation_terms: approvalDraft.cancellation_terms,
+    package_details: approvalDraft.package_details,
+    expires_at: approvalExpiresAt,
+    notes: null,
+  }
+  const approvalSnapshotInput = {
+    plan: input.plan,
+    approval: approvalSnapshot,
+    action: agentAction,
+    payload: actionPayload,
+  }
+  const { data: approvalData, error: approvalError } = await input.writeDb
     .from('approvals')
     .insert({
       plan_id: input.plan.id,
       agent_action_id: agentAction.id,
-      action_label: approvalDraft.action_label,
-      provider: approvalDraft.provider,
-      price_cents: approvalDraft.requested_amount_cents,
-      fees_cents: 0,
-      package_details: approvalDraft.package_details,
-      refund_terms: approvalDraft.refund_terms,
-      cancellation_terms: approvalDraft.cancellation_terms,
-      delivery_email: approvalDraft.delivery_email,
-      requested_amount_cents: approvalDraft.requested_amount_cents,
+      ...approvalSnapshot,
       status: 'pending',
-      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      snapshot_hash: buildApprovalSnapshotHashV2(approvalSnapshotInput),
+      snapshot_json: buildApprovalSnapshotV2(approvalSnapshotInput) as unknown as Json,
+      snapshot_schema_version: APPROVAL_SNAPSHOT_SCHEMA_VERSION,
     })
     .select('*')
     .single()
@@ -477,10 +515,9 @@ export async function createVenueOpportunityBundle(
   }
 
   const approval = approvalData as Approval
-  await input.db.from('agent_actions').update({ approval_id: approval.id }).eq('id', agentAction.id)
-  await createConciergeFallbackTask(input.db, input.plan, opportunity, invites)
+  await input.writeDb.from('agent_actions').update({ approval_id: approval.id }).eq('id', agentAction.id)
 
-  const { data: messageData, error: messageError } = await input.db
+  const { data: messageData, error: messageError } = await input.writeDb
     .from('plan_messages')
     .insert({
       plan_id: input.plan.id,
@@ -626,11 +663,17 @@ function readCapacity(venue: OpportunityVenueRow) {
 }
 
 function estimateVenuePriceCents(venue: OpportunityVenueRow, guestCount: number) {
-  const hourlyRate = toIntegerCents(venue.hourly_rate)
+  const venueRecord = venue as unknown as Record<string, unknown>
+  const hourlyRate = toCanonicalIntegerCents(venue.hourly_rate_cents) ?? toIntegerCents(venue.hourly_rate)
   const minimumHours = Math.max(venue.minimum_hours ?? 4, 4)
   const rental = hourlyRate ? hourlyRate * minimumHours : null
+  const flatRate = toCanonicalIntegerCents(venue.daily_rate_cents) ??
+    toCanonicalIntegerCents(venue.price_per_night_cents)
+  const venueRate = hasAuthoritativeVenueNightlyRate(venueRecord)
+    ? readVenueRentalRateCents(venueRecord)
+    : rental ?? flatRate
   const perGuestFloor = guestCount > 0 ? guestCount * 3500 : 0
-  return rental ? Math.max(rental, perGuestFloor) : perGuestFloor || null
+  return venueRate ? Math.max(venueRate, perGuestFloor) : perGuestFloor || null
 }
 
 function estimateVendorPriceCents(vendor: OpportunityVendorRow, guestCount: number) {
@@ -643,6 +686,11 @@ function estimateVendorPriceCents(vendor: OpportunityVendorRow, guestCount: numb
 function toIntegerCents(value: number | null | undefined) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
   return value > 1000 ? Math.round(value) : Math.round(value * 100)
+}
+
+function toCanonicalIntegerCents(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
+  return Math.round(value)
 }
 
 function fitsBudget(estimatedPriceCents: number | null, budgetCents: number | null, allocation: number) {
@@ -737,34 +785,4 @@ function buildVendorSearchText(vendor: OpportunityVendorRow) {
 
 function clampScore(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)))
-}
-
-async function createConciergeFallbackTask(
-  db: PlannerDb,
-  plan: Plan,
-  opportunity: VenueOpportunityBrief,
-  invites: VenueOpportunityInvite[]
-) {
-  const conciergeInvites = invites.filter((invite) => invite.route_to_concierge)
-  if (conciergeInvites.length === 0) return
-
-  const metadata = {
-    type: 'concierge_booking',
-    opportunity_id: opportunity.id,
-    invite_ids: conciergeInvites.map((invite) => invite.id),
-    route_to_concierge_count: conciergeInvites.length,
-    reason: 'Unclaimed venue/vendor listing or no direct owner response UI yet.',
-  }
-
-  const { error } = await db.from('admin_tasks').insert({
-    plan_id: plan.id,
-    task_type: 'concierge_booking',
-    description: `Route ${conciergeInvites.length} opportunity target${conciergeInvites.length === 1 ? '' : 's'} through 3rdPlace admin fallback.`,
-    status: 'open',
-    priority: 'high',
-    metadata,
-    notes: JSON.stringify(metadata),
-  })
-
-  if (error) console.error('Planner opportunity concierge task insert error:', error)
 }

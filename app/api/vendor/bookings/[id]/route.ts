@@ -4,6 +4,15 @@ import { z } from 'zod'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { ensureInvoiceForBooking } from '@/lib/invoices/vendor-invoices'
 import {
+  CanonicalBookingConfirmationError,
+  confirmCanonicalBookingIfLinked,
+  hasCanonicalBookingProvenance,
+} from '@/lib/planner/execution/canonicalBookingConfirmation'
+import {
+  CanonicalBookingDeclineError,
+  declineCanonicalBookings,
+} from '@/lib/planner/execution/canonicalBookingDecline'
+import {
   normalizeVendorBooking,
   VENDOR_BOOKING_WITH_DETAILS_SELECT,
   type VendorBookingJoinRow,
@@ -60,7 +69,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
     const { data: booking, error: bookingError } = await supabase
       .from('vendor_bookings')
-      .select('id, vendor_id, requested_date, requested_start_time, requested_end_time, booking_date, vendor_profiles!inner(user_id)')
+      .select('id, vendor_id, requested_date, requested_start_time, requested_end_time, booking_date, quoted_price, final_price, plan_id, agent_action_id, approval_id, vendor_profiles!inner(user_id)')
       .eq('id', parsedId.data)
       .maybeSingle()
 
@@ -78,6 +87,11 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
       requested_start_time?: string | null
       requested_end_time?: string | null
       booking_date?: string | null
+      quoted_price?: number | null
+      final_price?: number | null
+      plan_id?: string | null
+      agent_action_id?: string | null
+      approval_id?: string | null
       vendor_profiles?: { user_id?: string }
     }
 
@@ -115,12 +129,81 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
     Object.keys(updates).forEach((key) => updates[key] === undefined && delete updates[key])
 
-    const { data: updated, error: updateError } = await supabase
-      .from('vendor_bookings')
-      .update(updates as never)
-      .eq('id', parsedId.data)
-      .select(VENDOR_BOOKING_WITH_DETAILS_SELECT)
-      .single()
+    const admin = createServiceRoleClient()
+    let updated: unknown
+    let updateError: { message?: string } | null = null
+    try {
+      const canonical = hasCanonicalBookingProvenance(row)
+      if (canonical) {
+        if (
+          body.confirmed_date !== undefined ||
+          body.confirmed_start_time !== undefined ||
+          body.confirmed_end_time !== undefined ||
+          body.final_price !== undefined ||
+          body.quoted_price !== undefined ||
+          (body.notes !== undefined && body.status !== 'declined')
+        ) {
+          return NextResponse.json(
+            { error: 'Canonical booking terms cannot change during a partner response. Request a new approval version.' },
+            { status: 409 },
+          )
+        }
+
+        if (body.status !== 'confirmed' && body.status !== 'declined') {
+          return NextResponse.json(
+            {
+              error: 'Canonical booking status changes require the approval workflow. Refresh before continuing.',
+              code: 'canonical_booking_status_transition_required',
+            },
+            { status: 409 },
+          )
+        }
+
+        if (body.status === 'declined') {
+          await declineCanonicalBookings({
+            admin,
+            bookingKind: 'vendor',
+            bookingIds: [parsedId.data],
+            actorId: user.id,
+            reason: body.notes?.trim() || 'Vendor declined without an additional reason.',
+            source: 'vendor_booking_detail_route',
+          })
+        } else {
+          await confirmCanonicalBookingIfLinked({
+            admin,
+            booking: row,
+            bookingId: parsedId.data,
+            bookingKind: 'vendor',
+            actorId: user.id,
+            source: 'vendor_booking_detail_route',
+          })
+        }
+        const reload = await admin
+          .from('vendor_bookings')
+          .select(VENDOR_BOOKING_WITH_DETAILS_SELECT)
+          .eq('id', parsedId.data)
+          .single()
+        updated = reload.data
+        updateError = reload.error
+      } else {
+        const legacyUpdate = await supabase
+          .from('vendor_bookings')
+          .update(updates as never)
+          .eq('id', parsedId.data)
+          .select(VENDOR_BOOKING_WITH_DETAILS_SELECT)
+          .single()
+        updated = legacyUpdate.data
+        updateError = legacyUpdate.error
+      }
+    } catch (canonicalError) {
+      if (
+        canonicalError instanceof CanonicalBookingConfirmationError
+        || canonicalError instanceof CanonicalBookingDeclineError
+      ) {
+        return NextResponse.json({ error: canonicalError.message }, { status: canonicalError.status })
+      }
+      throw canonicalError
+    }
 
     if (updateError) {
       console.error('[vendor.bookings.detail] Booking update failed', updateError)
@@ -130,7 +213,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     if (body.status === 'confirmed') {
       try {
         await ensureInvoiceForBooking({
-          admin: createServiceRoleClient() as any,
+          admin: admin as any,
           bookingId: parsedId.data,
           request,
         })

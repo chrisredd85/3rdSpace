@@ -9,7 +9,7 @@
 
 import type { NextRequest } from 'next/server'
 import { POST as applyTemplate } from '@/app/api/planner/templates/[id]/apply/route'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 jest.mock('@/lib/planner/autoRecommendations', () => ({
   createAutoRecommendationMessage: jest.fn().mockResolvedValue([]),
@@ -17,6 +17,7 @@ jest.mock('@/lib/planner/autoRecommendations', () => ({
 
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
+  createServiceRoleClient: jest.fn(),
 }))
 
 jest.mock('next/server', () => ({
@@ -38,10 +39,12 @@ const USER_ID = 'user-rebook-test-001'
 const PREFERRED_VENUE_ID = 'venue-saved-001'
 const PREFERRED_VENDOR_ID_1 = 'vendor-saved-001'
 const PREFERRED_VENDOR_ID_2 = 'vendor-saved-002'
+const SOURCE_EVENT_ID = 'event-source-001'
 
 const MOCK_TEMPLATE = {
   id: TEMPLATE_ID,
   name: 'Hayes Mixer Template',
+  source_event_id: SOURCE_EVENT_ID,
   event_type: 'mixer',
   target_audience: 'Hayes Valley',
   guest_count_min: 80,
@@ -145,6 +148,45 @@ function buildMockSupabase(insertedPlan: Record<string, unknown>) {
   }
 }
 
+function buildExistingPlanSupabase(existingPlan: Record<string, unknown>) {
+  const updatePlan = jest.fn()
+  const insertTemplateRun = jest.fn().mockResolvedValue({ error: null })
+  const from = jest.fn((table: string) => {
+    if (table === 'templates') {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: MOCK_TEMPLATE, error: null }),
+            }),
+          }),
+        }),
+      }
+    }
+    if (table === 'plans') {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: existingPlan, error: null }),
+            }),
+          }),
+        }),
+        update: updatePlan,
+      }
+    }
+    if (table === 'template_runs') return { insert: insertTemplateRun }
+    return { insert: jest.fn() }
+  })
+
+  return {
+    auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: USER_ID } }, error: null }) },
+    from,
+    updatePlan,
+    insertTemplateRun,
+  }
+}
+
 function buildRequest(body: Record<string, unknown>): NextRequest {
   return {
     json: jest.fn().mockResolvedValue(body),
@@ -177,6 +219,7 @@ describe('template apply — rebook preferences in plan metadata', () => {
     })
 
     ;(createClient as jest.Mock).mockReturnValue(mockSupabase)
+    ;(createServiceRoleClient as jest.Mock).mockReturnValue(mockSupabase)
 
     const request = buildRequest({
       create_new_plan: true,
@@ -193,6 +236,7 @@ describe('template apply — rebook preferences in plan metadata', () => {
     expect(response.status).toBe(200)
 
     expect(capturedInsertArg).not.toBeNull()
+    expect(capturedInsertArg!.materialized_event_id).toBeUndefined()
     const metadata = capturedInsertArg!.metadata as Record<string, unknown>
     expect(metadata).toBeDefined()
     const rebookPrefs = metadata.template_rebook_preferences as Record<string, unknown>
@@ -202,6 +246,29 @@ describe('template apply — rebook preferences in plan metadata', () => {
     expect(Array.isArray(rebookPrefs.preferred_venue_ids)).toBe(true)
     expect((rebookPrefs.preferred_venue_ids as string[])).toContain(PREFERRED_VENUE_ID)
     expect((rebookPrefs.preferred_vendor_ids as string[])).toHaveLength(0)
+    expect((metadata.applied_template as Record<string, unknown>).source_event_id).toBe(SOURCE_EVENT_ID)
+  })
+
+  it.each([
+    ['materialized', { status: 'executing', materialized_event_id: 'event-canonical-001' }],
+    ['approved', { status: 'approved', materialized_event_id: null }],
+    ['completed', { status: 'completed', materialized_event_id: 'event-canonical-001' }],
+  ])('rejects %s existing plans before any template write', async (_label, overrides) => {
+    const planId = '11111111-1111-4111-8111-111111111111'
+    const mockSupabase = buildExistingPlanSupabase({ ...MOCK_PLAN, id: planId, ...overrides })
+    ;(createClient as jest.Mock).mockReturnValue(mockSupabase)
+    ;(createServiceRoleClient as jest.Mock).mockReturnValue({ rpc: jest.fn(), from: jest.fn() })
+
+    const response = await applyTemplate(buildRequest({
+      plan_id: planId,
+      create_new_plan: false,
+      date_window_start: '2026-09-01',
+      rerun_recommendations: false,
+    }), { params: { id: TEMPLATE_ID } })
+
+    expect(response.status).toBe(409)
+    expect(mockSupabase.updatePlan).not.toHaveBeenCalled()
+    expect(mockSupabase.insertTemplateRun).not.toHaveBeenCalled()
   })
 
   it('stores preferred vendor IDs when use_same_vendors is true', async () => {
@@ -219,6 +286,7 @@ describe('template apply — rebook preferences in plan metadata', () => {
     })
 
     ;(createClient as jest.Mock).mockReturnValue(mockSupabase)
+    ;(createServiceRoleClient as jest.Mock).mockReturnValue(mockSupabase)
 
     const request = buildRequest({
       create_new_plan: true,
@@ -260,6 +328,7 @@ describe('template apply — rebook preferences in plan metadata', () => {
     })
 
     ;(createClient as jest.Mock).mockReturnValue(mockSupabase)
+    ;(createServiceRoleClient as jest.Mock).mockReturnValue(mockSupabase)
 
     const request = buildRequest({
       create_new_plan: true,
@@ -279,9 +348,16 @@ describe('template apply — rebook preferences in plan metadata', () => {
     const metadata = capturedInsertArg!.metadata as Record<string, unknown>
     const rebookPrefs = metadata.template_rebook_preferences as Record<string, unknown>
     expect(rebookPrefs.template_id).toBe(TEMPLATE_ID)
+    expect(rebookPrefs.source_event_id).toBe(SOURCE_EVENT_ID)
     expect((rebookPrefs.preferred_venue_ids as string[])).toContain(PREFERRED_VENUE_ID)
     expect((rebookPrefs.preferred_vendor_ids as string[])).toContain(PREFERRED_VENDOR_ID_1)
     expect((rebookPrefs.preferred_vendor_ids as string[])).toContain(PREFERRED_VENDOR_ID_2)
+    expect(metadata.applied_template).toEqual(expect.objectContaining({
+      source_event_id: SOURCE_EVENT_ID,
+    }))
+    expect(metadata.template_snapshot).toEqual(expect.objectContaining({
+      source_event_id: SOURCE_EVENT_ID,
+    }))
   })
 
   it('does not set template_rebook_preferences when both flags are false', async () => {
@@ -299,6 +375,7 @@ describe('template apply — rebook preferences in plan metadata', () => {
     })
 
     ;(createClient as jest.Mock).mockReturnValue(mockSupabase)
+    ;(createServiceRoleClient as jest.Mock).mockReturnValue(mockSupabase)
 
     const request = buildRequest({
       create_new_plan: true,

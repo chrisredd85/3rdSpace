@@ -1,6 +1,15 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import {
+  CanonicalBookingConfirmationError,
+  confirmCanonicalBookingIfLinked,
+  hasCanonicalBookingProvenance,
+} from '@/lib/planner/execution/canonicalBookingConfirmation'
+import {
+  CanonicalBookingDeclineError,
+  declineCanonicalBookings,
+} from '@/lib/planner/execution/canonicalBookingDecline'
 import type { BookingStatus } from '@/lib/types'
 import {
   normalizeVenueBooking,
@@ -69,7 +78,14 @@ export async function PATCH(request: NextRequest, props: RouteContext) {
     }
 
     // Verify venue belongs to user
-    const bookingWithVenue = booking as { venues?: { owner_id: string | null }; event_id: string; venue_id: string }
+    const bookingWithVenue = booking as {
+      venues?: { owner_id: string | null }
+      event_id: string
+      venue_id: string
+      plan_id?: string | null
+      agent_action_id?: string | null
+      approval_id?: string | null
+    }
     if (bookingWithVenue.venues?.owner_id !== user.id) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -87,13 +103,85 @@ export async function PATCH(request: NextRequest, props: RouteContext) {
       notes,
     })
 
-    // Update booking
-    const { data: updatedBooking, error: updateError } = await supabase
-      .from('venue_bookings')
-      .update(updates as never)
-      .eq('id', id)
-      .select(VENUE_BOOKING_WITH_DETAILS_SELECT)
-      .single()
+    const admin = createServiceRoleClient()
+    let updatedBooking: unknown
+    let updateError: { message?: string } | null = null
+    let canonicalHandled = false
+    try {
+      const canonical = hasCanonicalBookingProvenance(bookingWithVenue)
+      if (canonical) {
+        if (
+          confirmed_date !== undefined ||
+          confirmed_start_time !== undefined ||
+          confirmed_end_time !== undefined ||
+          final_price !== undefined ||
+          quoted_price !== undefined ||
+          (notes !== undefined && status !== 'declined')
+        ) {
+          return NextResponse.json(
+            { error: 'Canonical booking terms cannot change during a partner response. Request a new approval version.' },
+            { status: 409 },
+          )
+        }
+
+        if (status !== 'confirmed' && status !== 'declined') {
+          return NextResponse.json(
+            {
+              error: 'Canonical booking status changes require the approval workflow. Refresh before continuing.',
+              code: 'canonical_booking_status_transition_required',
+            },
+            { status: 409 },
+          )
+        }
+
+        if (status === 'declined') {
+          await declineCanonicalBookings({
+            admin,
+            bookingKind: 'venue',
+            bookingIds: [id],
+            actorId: user.id,
+            reason: typeof notes === 'string' && notes.trim()
+              ? notes.trim()
+              : 'Venue declined without an additional reason.',
+            source: 'venue_booking_detail_route',
+          })
+        } else {
+          await confirmCanonicalBookingIfLinked({
+            admin,
+            booking: bookingWithVenue,
+            bookingId: id,
+            bookingKind: 'venue',
+            actorId: user.id,
+            source: 'venue_booking_detail_route',
+          })
+        }
+        canonicalHandled = true
+        const reload = await admin
+          .from('venue_bookings')
+          .select(VENUE_BOOKING_WITH_DETAILS_SELECT)
+          .eq('id', id)
+          .single()
+        updatedBooking = reload.data
+        updateError = reload.error
+      } else {
+        const legacyUpdate = await supabase
+          .from('venue_bookings')
+          .update(updates as never)
+          .eq('id', id)
+          .select(VENUE_BOOKING_WITH_DETAILS_SELECT)
+          .single()
+        updatedBooking = legacyUpdate.data
+        updateError = legacyUpdate.error
+      }
+    } catch (canonicalError) {
+      if (
+        canonicalError instanceof CanonicalBookingConfirmationError
+        || canonicalError instanceof CanonicalBookingDeclineError
+      ) {
+        return NextResponse.json({ error: canonicalError.message }, { status: canonicalError.status })
+      }
+      throw canonicalError
+    }
 
     if (updateError) {
       console.error('Error updating booking:', updateError)
@@ -104,7 +192,7 @@ export async function PATCH(request: NextRequest, props: RouteContext) {
     }
 
     // Create message thread if status changed to confirmed or declined
-    if (status === 'confirmed' || status === 'declined') {
+    if (!canonicalHandled && (status === 'confirmed' || status === 'declined')) {
       try {
         const event = (updatedBooking as any).events
         const builderUserId = event?.builder_profiles?.user_id
@@ -135,7 +223,7 @@ export async function PATCH(request: NextRequest, props: RouteContext) {
     }
 
     // Create notification for organizer
-    if (status === 'confirmed' || status === 'declined') {
+    if (!canonicalHandled && (status === 'confirmed' || status === 'declined')) {
       try {
         const event = (updatedBooking as any).events
         const builderUserId = event?.builder_profiles?.user_id

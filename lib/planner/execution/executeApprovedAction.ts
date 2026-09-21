@@ -17,9 +17,51 @@ export type ApprovedActionExecutionKind =
 export interface ApprovedActionExecutionPlan {
   kind: ApprovedActionExecutionKind
   canStart: boolean
-  terminalActionStatus: 'approved' | 'complete'
+  terminalActionStatus: 'approved' | 'executing' | 'complete'
   reason: string
 }
+
+export type ApprovedActionRetryKind =
+  | 'no_retry'
+  | 'send_gmail_outreach'
+  | 'await_external_checkout'
+  | 'await_concierge_queue'
+
+export interface ApprovedActionRetryPlan {
+  kind: ApprovedActionRetryKind
+  canRetry: boolean
+  reason: string
+}
+
+export interface ApprovedActionExecutionContext {
+  action: AgentAction
+  approval: Approval
+}
+
+export interface ApprovedActionExecutionResult<Result = unknown> {
+  plan: ApprovedActionExecutionPlan
+  started: boolean
+  result: Result | null
+}
+
+export type ApprovedActionExecutionHandler<Result = unknown> = (
+  context: ApprovedActionExecutionContext
+) => Promise<Result>
+
+export type ApprovedActionExecutorRegistry = Partial<Record<
+  Exclude<ApprovedActionExecutionKind, 'no_execution'>,
+  ApprovedActionExecutionHandler
+>>
+
+export type ApprovedActionCancellationKind =
+  | 'no_cancellation'
+  | 'cancel_external_checkout'
+  | 'cancel_concierge_handoff'
+
+export type ApprovedActionCancellationRegistry<Result = unknown> = Partial<Record<
+  Exclude<ApprovedActionCancellationKind, 'no_cancellation'>,
+  ApprovedActionExecutionHandler<Result>
+>>
 
 type PlannerExecutionDb = { from: (table: string) => any }
 
@@ -66,18 +108,18 @@ export function planApprovedActionExecution(input: {
   if (input.action.action_type === 'external_checkout') {
     return {
       kind: 'await_external_checkout',
-      canStart: false,
-      terminalActionStatus: 'approved',
-      reason: 'External checkout approval only unlocks a handoff link',
+      canStart: true,
+      terminalActionStatus: 'executing',
+      reason: 'Approval unlocks a host-controlled external checkout handoff',
     }
   }
 
-  if (input.action.action_type === 'concierge_queue') {
+  if (isConciergeHandoffAction(input.action)) {
     return {
       kind: 'await_concierge_queue',
-      canStart: false,
-      terminalActionStatus: 'approved',
-      reason: 'Concierge execution requires an admin task handoff',
+      canStart: true,
+      terminalActionStatus: 'executing',
+      reason: 'Approval creates a durable concierge task, draft, or canonical booking handoff',
     }
   }
 
@@ -86,6 +128,126 @@ export function planApprovedActionExecution(input: {
     canStart: false,
     terminalActionStatus: 'approved',
     reason: 'Approval recorded; no automatic execution is defined for this action',
+  }
+}
+
+/**
+ * Defines the crash-safe retry subset of approved execution.
+ *
+ * Outreach preparation is intentionally excluded for now: its legacy flow can
+ * create several briefs, invites, drafts, and status messages without one
+ * durable step identity. Retrying that partial workflow could duplicate host
+ * work. The UI and retry route both consume this plan so they cannot disagree.
+ */
+export function planApprovedActionRetry(input: {
+  action: Pick<AgentAction, 'action_type' | 'payload_json' | 'result_metadata'>
+  approval: Pick<Approval, 'status'>
+}): ApprovedActionRetryPlan {
+  const execution = planApprovedActionExecution(input)
+  if (
+    execution.canStart &&
+    (
+      execution.kind === 'send_gmail_outreach' ||
+      execution.kind === 'await_external_checkout' ||
+      execution.kind === 'await_concierge_queue'
+    )
+  ) {
+    return {
+      kind: execution.kind,
+      canRetry: true,
+      reason: 'Approved action has a durable idempotent retry executor',
+    }
+  }
+
+  return {
+    kind: 'no_retry',
+    canRetry: false,
+    reason: execution.kind === 'prepare_outreach_drafts'
+      ? 'Outreach preparation retry is blocked until each preparation step has a durable identity'
+      : 'Approved action does not have a safe retry executor',
+  }
+}
+
+/**
+ * The sole action-kind dispatch point for approval-backed planner execution.
+ *
+ * Routes own authentication and pass narrowly scoped handlers for provider or
+ * service work. This registry owns kind selection so a new execution mode
+ * cannot quietly fork its own action-type switch inside a route.
+ */
+export async function executeApprovedAction<Result = unknown>(input: {
+  action: AgentAction
+  approval: Approval
+  registry: ApprovedActionExecutorRegistry
+}): Promise<ApprovedActionExecutionResult<Result>> {
+  const plan = planApprovedActionExecution({
+    action: input.action,
+    approval: input.approval,
+  })
+
+  if (!plan.canStart || plan.kind === 'no_execution') {
+    return { plan, started: false, result: null }
+  }
+
+  const handler = input.registry[plan.kind]
+  if (!handler) {
+    throw new Error(`No approved-action executor is registered for ${plan.kind}`)
+  }
+
+  return {
+    plan,
+    started: true,
+    result: await handler({ action: input.action, approval: input.approval }) as Result,
+  }
+}
+
+export function planApprovedActionCancellation(input: {
+  action: Pick<AgentAction, 'action_type' | 'payload_json' | 'result_metadata' | 'status'>
+  approval: Pick<Approval, 'status'>
+}): ApprovedActionCancellationKind {
+  if (!isApprovalExecutable(input.approval.status)) return 'no_cancellation'
+  if (input.action.status !== 'executing' && input.action.status !== 'approved') {
+    return 'no_cancellation'
+  }
+
+  const metadata = readRecord(input.action.result_metadata)
+  const externalEvidence = readRecord(metadata?.external_checkout)
+  if (
+    input.action.action_type === 'external_checkout' &&
+    input.action.status === 'executing' &&
+    readString(externalEvidence?.status) === 'ready'
+  ) {
+    return 'cancel_external_checkout'
+  }
+
+  if (
+    isConciergeHandoffAction(input.action) ||
+    (
+      readString(metadata?.execution_mode) === 'concierge_admin_queue' &&
+      Boolean(readString(metadata?.admin_task_id))
+    )
+  ) {
+    return 'cancel_concierge_handoff'
+  }
+
+  return 'no_cancellation'
+}
+
+/** Separate cancellation command; it never rewrites immutable authorization. */
+export async function cancelApprovedActionExecution<Result = unknown>(input: {
+  action: AgentAction
+  approval: Approval
+  registry: ApprovedActionCancellationRegistry<Result>
+}): Promise<{ kind: ApprovedActionCancellationKind; cancelled: boolean; result: Result | null }> {
+  const kind = planApprovedActionCancellation(input)
+  if (kind === 'no_cancellation') return { kind, cancelled: false, result: null }
+
+  const handler = input.registry[kind]
+  if (!handler) throw new Error(`No approved-action cancellation handler is registered for ${kind}`)
+  return {
+    kind,
+    cancelled: true,
+    result: await handler({ action: input.action, approval: input.approval }),
   }
 }
 
@@ -111,6 +273,26 @@ export function isOutreachPreparationAction(
       readString(metadata?.action_type_fallback) === 'opportunity_send_venues' ||
       readString(metadata?.action_type_fallback) === 'opportunity_send_vendors'
     )
+}
+
+/**
+ * Concierge actions are deliberately classified here so approval, retry, and
+ * cancellation routes cannot grow independent action-type switches.
+ */
+export function isConciergeHandoffAction(
+  action: Pick<AgentAction, 'action_type' | 'payload_json'>
+): boolean {
+  const payload = readRecord(action.payload_json)
+  if (
+    action.action_type === 'vendor_contact' &&
+    readString(payload?.kind) === 'vendor_reply_capture'
+  ) {
+    return false
+  }
+
+  return action.action_type === 'hold_request' ||
+    action.action_type === 'vendor_contact' ||
+    action.action_type === 'concierge_queue'
 }
 
 export function paymentAuthorizationTransitionEvents(

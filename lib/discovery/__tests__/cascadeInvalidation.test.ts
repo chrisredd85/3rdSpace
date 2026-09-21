@@ -113,6 +113,39 @@ describe('discovery cascade invalidation', () => {
       userId: 'user-2',
     }))
   })
+
+  it('uses the plan owner for RPC authorization while preserving a vendor or admin actor in audit data', async () => {
+    const db = createFakeSupabase({
+      recommendations: [
+        { id: 'rec-actor', plan_id: 'plan-actor', type: 'venue', reference_id: 'venue-actor', status: 'pending' },
+      ],
+      plan_discovery_venue_candidates: [],
+      outreach_threads: [],
+      plans: [
+        { id: 'plan-actor', user_id: 'plan-owner', committed_venue_id: null, committed_vendors: [] },
+      ],
+      outreach_notifications: [],
+    })
+
+    await cascadeInvalidationForEntityChange({
+      supabase: db as any,
+      entityType: 'discovery_venue',
+      entityId: 'venue-actor',
+      changedField: 'capacity',
+      newValue: 80,
+      actorId: 'vendor-or-admin-actor',
+      source: 'vendor_profile_update',
+    })
+
+    expect(applyPlanRevisionMock).toHaveBeenCalledWith(expect.objectContaining({
+      planId: 'plan-actor',
+      userId: 'plan-owner',
+      trigger: expect.objectContaining({
+        actor_id: 'vendor-or-admin-actor',
+        actor_source: 'vendor_profile_update',
+      }),
+    }))
+  })
 })
 
 function createFakeSupabase(rows: Record<string, Row[]>) {

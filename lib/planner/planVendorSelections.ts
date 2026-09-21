@@ -1,5 +1,6 @@
 import type { Json, Plan } from '@/lib/types'
 import type { VendorAgreementRateType } from '@/lib/vendors/rateAgreements'
+import { getPlanCanonicalEventId } from '@/lib/planner/eventIdentity'
 
 export type PlannerVendorSelectionDb = { from: (table: string) => any }
 
@@ -158,8 +159,7 @@ export function mergeSelectedVendorIntoMetadata(metadataValue: unknown, selected
 }
 
 export function getPlanSourceEventId(plan: Plan) {
-  const metadata = readRecord(plan.metadata)
-  return readString(metadata?.event_id)
+  return getPlanCanonicalEventId(plan)
 }
 
 export function estimateCommittedPriceCents(amountDollars: number, rateType: VendorAgreementRateType, guestCount: number | null) {

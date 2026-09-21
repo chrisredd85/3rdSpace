@@ -14,7 +14,6 @@ import {
   createVenueOpportunityBrief,
   ensureVenueOpportunityInviteTokens,
 } from '@/lib/planner/venueOpportunityBriefs'
-import { loadPendingApprovalsForPlan } from '@/lib/planner/pendingApprovals'
 import {
   createVendorOpportunityBrief,
   ensureVendorOpportunityInviteTokens,
@@ -28,9 +27,30 @@ import {
   transitionApprovalStatus,
   type AgentActionTransitionEvent,
 } from '@/lib/planner/execution/approvalState'
-import { planApprovedActionExecution } from '@/lib/planner/execution/executeApprovedAction'
-import { approvalRequiresReapproval } from '@/lib/planner/execution/reapproval'
-import { executeApprovedGmailOutreach } from '@/lib/outreach/gmailApprovalFlow'
+import {
+  executeApprovedAction as dispatchApprovedAction,
+  planApprovedActionCancellation,
+  planApprovedActionRetry,
+  type ApprovedActionExecutionKind,
+} from '@/lib/planner/execution/executeApprovedAction'
+import { executeExternalCheckoutHandoff } from '@/lib/planner/execution/externalCheckout'
+import {
+  executeOpportunityConciergeHandoff,
+} from '@/lib/server/concierge-execution'
+import {
+  executeConciergeApprovedAction,
+  requireApprovedHandoffDb,
+} from '@/lib/planner/execution/approvedActionHandoffs'
+import { deriveApprovalUiState } from '@/lib/planner/approvalUiState'
+import {
+  APPROVAL_SNAPSHOT_SCHEMA_VERSION,
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
+import {
+  executeApprovedGmailOutreach,
+  GmailDispatchRecoveryPendingError,
+} from '@/lib/outreach/gmailApprovalFlow'
 import { enqueueDraftsAfterVenueApproval } from '@/lib/planner/discoveryOutreachDrafts'
 import {
   checkAuthorizationActionStripeGate,
@@ -55,16 +75,120 @@ import type {
   Plan,
 } from '@/lib/types'
 
-type PlannerDb = { from: (table: string) => any }
+type PlannerDb = {
+  from: (table: string) => any
+  rpc?: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message?: string; code?: string } | null }>
+}
+type DbError = { message?: string; code?: string } | null | undefined
 type PlannerAuth =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
 
-const patchApprovalSchema = z.object({
-  approvalId: z.string().uuid(),
-  action: z.enum(['authorize', 'approve', 'reject', 'cancel']),
-  authorizedAmountCents: z.number().int().nonnegative().refine(Number.isSafeInteger).nullable().optional(),
-})
+const TERMINAL_PLAN_EXECUTION_STATUSES = new Set(['complete', 'completed', 'archived'])
+
+function isTerminalPlanForPositiveExecution(status: unknown): boolean {
+  return typeof status === 'string' && TERMINAL_PLAN_EXECUTION_STATUSES.has(status)
+}
+
+function terminalPlanPositiveExecutionResponse(): NextResponse<PlannerApiErrorResponse> {
+  return NextResponse.json(
+    {
+      error: 'Completed or archived plans cannot start new execution work.',
+      code: 'plan_terminal',
+    },
+    { status: 409 },
+  )
+}
+
+function isTerminalPlanPositiveExecutionError(error: DbError): boolean {
+  return error?.code === '23514' && /terminal_plan_positive_execution_forbidden/i.test(error.message ?? '')
+}
+
+function isRetryablePlanLockError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const record = error as { code?: unknown; message?: unknown }
+  return record.code === '55P03'
+    || (typeof record.message === 'string' && /could not obtain lock|lock not available|55P03/i.test(record.message))
+}
+
+function retryablePlanLockResponse(): NextResponse<PlannerApiErrorResponse> {
+  return NextResponse.json(
+    {
+      error: 'The plan changed at the same time. Refresh and retry from the current state.',
+      code: 'plan_execution_conflict',
+      retryable: true,
+    },
+    { status: 409 },
+  )
+}
+
+const approvalIdSchema = z.string().uuid()
+const snapshotHashSchema = z.string().trim().regex(/^[a-f0-9]{64}$/i)
+const centsSchema = z.number().int().nonnegative().refine(Number.isSafeInteger)
+const eventDateSchema = z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).nullable()
+
+const patchApprovalCommandSchema = z.discriminatedUnion('command', [
+  z.object({
+    approvalId: approvalIdSchema,
+    command: z.literal('edit'),
+    expectedSnapshotHash: snapshotHashSchema,
+    changes: z.object({
+      requestedAmountCents: centsSchema,
+      eventDate: eventDateSchema,
+      notes: z.string().trim().max(4000).nullable(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    approvalId: approvalIdSchema,
+    command: z.literal('authorize'),
+    expectedSnapshotHash: snapshotHashSchema,
+  }).strict(),
+  z.object({
+    approvalId: approvalIdSchema,
+    command: z.literal('request_reapproval'),
+    expectedSnapshotHash: snapshotHashSchema.nullable(),
+  }).strict(),
+  z.object({
+    approvalId: approvalIdSchema,
+    command: z.literal('cancel'),
+  }).strict(),
+])
+
+const legacyTerminalApprovalCommandSchema = z.object({
+  approvalId: approvalIdSchema,
+  action: z.enum(['reject', 'cancel']),
+}).strict()
+
+type PatchApprovalCommand = z.infer<typeof patchApprovalCommandSchema>
+
+type VersionedApproval = Approval & {
+  notes?: string | null
+  root_approval_id?: string | null
+  version_number?: number | null
+  supersedes_approval_id?: string | null
+  superseded_by_approval_id?: string | null
+  version_created_by?: string | null
+  version_reason?: string | null
+  snapshot_json?: Json | null
+  snapshot_schema_version?: number | null
+}
+
+type RetryableAgentAction = AgentAction & {
+  last_retry_idempotency_key?: string | null
+  last_retry_status?: string | null
+  last_retry_started_at?: string | null
+  last_retry_completed_at?: string | null
+  last_retry_result?: Json | null
+}
+
+type ApprovalCommandResponse = {
+  approval: VersionedApproval
+  actionStatus: string
+  actionResult: Json | null
+  confirmationSnapshot: Json | null
+  uiStatus: string
+  availableActions: string[]
+}
 
 const PLAN_SELECT_COLUMNS = `
   id,
@@ -85,6 +209,7 @@ const PLAN_SELECT_COLUMNS = `
   profit_goal_cents,
   notes,
   metadata,
+  materialized_event_id,
   created_at,
   updated_at
 `
@@ -112,6 +237,15 @@ const APPROVAL_SELECT_COLUMNS = `
   approved_at,
   expires_at,
   snapshot_hash,
+  notes,
+  root_approval_id,
+  version_number,
+  supersedes_approval_id,
+  superseded_by_approval_id,
+  version_created_by,
+  version_reason,
+  snapshot_json,
+  snapshot_schema_version,
   superseded_at,
   superseded_by_revision_id,
   superseded_reason,
@@ -134,6 +268,11 @@ const AGENT_ACTION_STATUS_SELECT_COLUMNS = `
   approval_id,
   executed_at,
   result_metadata,
+  last_retry_idempotency_key,
+  last_retry_status,
+  last_retry_started_at,
+  last_retry_completed_at,
+  last_retry_result,
   created_at,
   updated_at
 `
@@ -167,7 +306,7 @@ export async function GET(
     const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const approvals = await loadPendingApprovalsForPlan(auth.db, plan.id)
+    const approvals = await loadCurrentApprovalsForPlan(auth.db, plan.id)
 
     return NextResponse.json({ approvals })
   } catch (error) {
@@ -186,24 +325,36 @@ export async function GET(
 export async function PATCH(
   request: NextRequest,
   context: RouteContext
-): Promise<NextResponse<{ approval: Approval } | PlannerApiErrorResponse>> {
-  const logger = getRequestLogger(request).child({ plan_id: (await context.params).planId })
+): Promise<NextResponse<ApprovalCommandResponse | PlannerApiErrorResponse>> {
+  const planId = (await context.params).planId
+  const logger = getRequestLogger(request).child({ plan_id: planId })
   try {
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
 
-    const parsed = patchApprovalSchema.safeParse(await request.json())
-    if (!parsed.success) {
+    const rawBody: unknown = await request.json()
+    const parsed = patchApprovalCommandSchema.safeParse(rawBody)
+    const legacyParsed = parsed.success ? null : legacyTerminalApprovalCommandSchema.safeParse(rawBody)
+    if (!parsed.success && !legacyParsed?.success) {
       return NextResponse.json(
         { error: 'Invalid request body', details: parsed.error.flatten() as Json },
         { status: 400 }
       )
     }
+    const legacyCommand = legacyParsed?.success
+      ? {
+        approvalId: legacyParsed.data.approvalId,
+        command: legacyParsed.data.action === 'reject' ? 'reject' as const : 'cancel' as const,
+      }
+      : null
+    const command: PatchApprovalCommand | { approvalId: string; command: 'reject' | 'cancel' } = parsed.success
+      ? parsed.data
+      : legacyCommand!
 
-    let plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
+    let plan = await loadOwnedPlan(auth.db, planId, auth.userId)
     if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const existingApproval = await loadApproval(auth.db, (await context.params).planId, parsed.data.approvalId)
+    const existingApproval = await loadApproval(auth.db, planId, command.approvalId) as VersionedApproval | null
     if (!existingApproval) return NextResponse.json({ error: 'Approval not found' }, { status: 404 })
 
     if (existingApproval.status === 'superseded' || existingApproval.superseded_at) {
@@ -216,45 +367,185 @@ export async function PATCH(
       )
     }
 
-    const approvalTransition = transitionApprovalStatus(existingApproval.status, parsed.data.action)
+    const linkedAction = await loadAgentAction(auth.db, existingApproval.agent_action_id) as RetryableAgentAction | null
+    if (!linkedAction || linkedAction.plan_id !== planId) {
+      return NextResponse.json({ error: 'Linked approval action not found' }, { status: 409 })
+    }
+
+    if (
+      isTerminalPlanForPositiveExecution(plan.status)
+      && (
+        command.command === 'edit'
+        || command.command === 'request_reapproval'
+        || (command.command === 'authorize' && existingApproval.status !== 'authorized')
+      )
+    ) {
+      return terminalPlanPositiveExecutionResponse()
+    }
+
+    if (command.command === 'edit' || command.command === 'request_reapproval') {
+      const snapshotConflict = command.command === 'request_reapproval'
+        ? validateReapprovalVersion(existingApproval, command.expectedSnapshotHash)
+        : validateExpectedSnapshot({
+          plan,
+          approval: existingApproval,
+          action: linkedAction,
+          expectedSnapshotHash: command.expectedSnapshotHash,
+        })
+      if (snapshotConflict) {
+        if (snapshotConflict.persistedSnapshotIsStale) {
+          await markApprovalReapprovalRequired(auth.db, planId, existingApproval)
+        }
+        return snapshotConflict.response
+      }
+
+      const writeDb = createServiceRoleClient() as unknown as PlannerDb
+      const replacement = await supersedeApprovalVersion(writeDb, {
+        plan,
+        approval: existingApproval,
+        action: linkedAction,
+        actorId: auth.userId,
+        expectedSnapshotHash: command.command === 'request_reapproval'
+          ? existingApproval.snapshot_hash ?? 'legacy-missing'
+          : command.expectedSnapshotHash,
+        changes: command.command === 'edit' ? command.changes : null,
+        reason: command.command === 'edit' ? 'host_edit' : 'host_requested_reapproval',
+      })
+      if ('response' in replacement) return replacement.response
+
+      const superseded = await loadApproval(writeDb, planId, existingApproval.id) as VersionedApproval | null
+      if (superseded) await syncApprovalMessageMetadata(auth.db, writeDb, planId, superseded)
+      await insertSupersedingApprovalMessage(auth.db, writeDb, {
+        planId,
+        oldApprovalId: existingApproval.id,
+        approval: replacement.approval,
+      })
+      return NextResponse.json(await buildApprovalCommandResponse(writeDb, replacement.approval))
+    }
+
+    if (command.command === 'authorize') {
+      const snapshotConflict = validateExpectedSnapshot({
+        plan,
+        approval: existingApproval,
+        action: linkedAction,
+        expectedSnapshotHash: command.expectedSnapshotHash,
+      })
+      if (snapshotConflict) {
+        if (snapshotConflict.persistedSnapshotIsStale) {
+          await markApprovalReapprovalRequired(auth.db, planId, existingApproval)
+        }
+        return snapshotConflict.response
+      }
+    }
+
+    const decision = command.command === 'reject' ? 'reject' : command.command
+    const approvalTransition = transitionApprovalStatus(existingApproval.status, decision)
     if (!approvalTransition.ok) {
       return NextResponse.json({ error: approvalTransition.reason }, { status: 409 })
     }
 
     if (!approvalTransition.changed) {
-      return NextResponse.json({ approval: existingApproval })
-    }
-
-    if (
-      (parsed.data.action === 'authorize' || parsed.data.action === 'approve') &&
-      (await approvalRequiresFreshReview(auth.db, plan, existingApproval))
-    ) {
-      const staleApproval = await markApprovalReapprovalRequired(auth.db, (await context.params).planId, existingApproval.id)
-      if (staleApproval) {
-        await syncApprovalMessageMetadata(auth.db, (await context.params).planId, staleApproval)
-      }
-      return NextResponse.json(
-        { error: 'Plan details changed after this approval was created. Review the latest recommendations and approve again.' },
-        { status: 409 }
-      )
-    }
-
-    if (parsed.data.action === 'authorize' || parsed.data.action === 'approve') {
-      const stripeGate = await checkApprovalStripeGate({
-        db: createServiceRoleClient() as unknown as PlannerDb,
+      if (shouldRecoverExactAuthorizeReplay({
+        command: command.command,
+        plan,
         approval: existingApproval,
-        planId: (await context.params).planId,
+        action: linkedAction,
+      })) {
+        const writeDb = createServiceRoleClient() as unknown as PlannerDb
+        let recoveryAction = linkedAction
+        try {
+          if (recoveryAction.status === 'pending' || recoveryAction.status === 'proposed') {
+            try {
+              await syncAgentActionStatusForApproval(auth.db, writeDb, {
+                actionId: recoveryAction.id,
+                planId,
+                actorId: auth.userId,
+                approvalStatus: existingApproval.status,
+              })
+            } catch (syncError) {
+              if (isRetryablePlanLockError(syncError)) throw syncError
+              const concurrentAction = await loadAgentAction(writeDb, recoveryAction.id)
+              if (
+                !concurrentAction
+                || concurrentAction.status === 'pending'
+                || concurrentAction.status === 'proposed'
+              ) {
+                throw syncError
+              }
+            }
+
+            const synchronizedAction = await loadAgentAction(writeDb, recoveryAction.id)
+            if (!synchronizedAction) {
+              throw new Error('Authorized action could not be reloaded after status recovery')
+            }
+            recoveryAction = synchronizedAction as RetryableAgentAction
+          }
+
+          if (!shouldRecoverExactAuthorizeReplay({
+            command: command.command,
+            plan,
+            approval: existingApproval,
+            action: recoveryAction,
+          })) {
+            await syncApprovalMessageMetadata(auth.db, writeDb, planId, existingApproval)
+            return NextResponse.json(await buildApprovalCommandResponse(writeDb, existingApproval))
+          }
+
+          await executeApprovedAction(auth.db, writeDb, {
+            actionId: recoveryAction.id,
+            planId,
+            actorId: auth.userId,
+            plan,
+            approval: existingApproval,
+          })
+        } catch (executionError) {
+          await syncApprovalMessageMetadata(auth.db, writeDb, planId, existingApproval)
+          const failedResponse = await buildApprovalCommandResponse(writeDb, existingApproval)
+          logger.error('Planner exact authorization recovery failed', executionError, {
+            approval_id: existingApproval.id,
+            action_id: recoveryAction.id,
+          })
+          if (isRetryablePlanLockError(executionError)) return retryablePlanLockResponse()
+          return NextResponse.json(
+            {
+              ...failedResponse,
+              error: executionError instanceof Error ? executionError.message : 'Approved action recovery failed',
+              code: executionError instanceof GmailDispatchRecoveryPendingError
+                ? 'approval_recovery_pending'
+                : 'approval_execution_failed',
+              retryable: true,
+            } as ApprovalCommandResponse & PlannerApiErrorResponse,
+            { status: executionError instanceof GmailDispatchRecoveryPendingError ? 202 : 502 },
+          )
+        }
+        await syncApprovalMessageMetadata(auth.db, writeDb, planId, existingApproval)
+        return NextResponse.json(await buildApprovalCommandResponse(writeDb, existingApproval))
+      }
+      return NextResponse.json(await buildApprovalCommandResponse(auth.db, existingApproval))
+    }
+
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
+
+    if (command.command === 'authorize') {
+      const stripeGate = await checkApprovalStripeGate({
+        db: writeDb,
+        approval: existingApproval,
+        planId,
         organizerId: auth.userId,
       })
       if (stripeGate) return stripeGate
     }
 
-    const updates = buildApprovalUpdates(approvalTransition.to, auth.userId, parsed.data.authorizedAmountCents)
-    const { data, error } = await auth.db
+    const updates = buildApprovalUpdates(
+      approvalTransition.to,
+      auth.userId,
+      command.command === 'authorize' ? existingApproval.requested_amount_cents : undefined
+    )
+    const { data, error } = await writeDb
       .from('approvals')
       .update(updates)
-      .eq('id', parsed.data.approvalId)
-      .eq('plan_id', (await context.params).planId)
+      .eq('id', command.approvalId)
+      .eq('plan_id', planId)
       .eq('status', existingApproval.status)
       .select(APPROVAL_SELECT_COLUMNS)
       .maybeSingle()
@@ -262,10 +553,14 @@ export async function PATCH(
     if (error) {
       logger.error('Planner approval update failed', error, {
         user_id: auth.userId,
-        approval_id: parsed.data.approvalId,
+        approval_id: command.approvalId,
         previous_status: existingApproval.status,
         attempted_status: approvalTransition.to,
       })
+      if (isTerminalPlanPositiveExecutionError(error)) {
+        return terminalPlanPositiveExecutionResponse()
+      }
+      if (isRetryablePlanLockError(error)) return retryablePlanLockResponse()
       return NextResponse.json({ error: 'Failed to update approval' }, { status: 500 })
     }
 
@@ -279,8 +574,8 @@ export async function PATCH(
       )
     }
 
-    const approval = data as Approval
-    if (parsed.data.action === 'authorize' || parsed.data.action === 'approve') {
+    const approval = data as VersionedApproval
+    if (command.command === 'authorize') {
       try {
         plan = await ensurePlannerEventAccess({
           plan,
@@ -288,8 +583,8 @@ export async function PATCH(
           reason: 'approval',
         })
       } catch (accessError) {
-        await rollbackApprovalAfterAccessFailure(auth.db, {
-          planId: (await context.params).planId,
+        await rollbackApprovalAfterAccessFailure(auth.db, writeDb, {
+          planId,
           approval,
           originalStatus: existingApproval.status,
           actorId: auth.userId,
@@ -304,26 +599,45 @@ export async function PATCH(
       }
     }
 
-    await syncAgentActionStatusForApproval(auth.db, {
+    await syncAgentActionStatusForApproval(auth.db, writeDb, {
       actionId: approval.agent_action_id,
-      planId: (await context.params).planId,
+      planId,
       actorId: auth.userId,
       approvalStatus: approval.status,
     })
     if (isApprovalExecutable(approval.status)) {
-      await executeApprovedAction(auth.db, {
-        actionId: approval.agent_action_id,
-        planId: (await context.params).planId,
-        actorId: auth.userId,
-        plan,
-        approval,
-      })
+      try {
+        await executeApprovedAction(auth.db, writeDb, {
+          actionId: approval.agent_action_id,
+          planId,
+          actorId: auth.userId,
+          plan,
+          approval,
+        })
+      } catch (executionError) {
+        await syncApprovalMessageMetadata(auth.db, writeDb, planId, approval)
+        const failedResponse = await buildApprovalCommandResponse(writeDb, approval)
+        logger.error('Planner approval execution failed', executionError, {
+          approval_id: approval.id,
+          action_id: approval.agent_action_id,
+        })
+        if (isRetryablePlanLockError(executionError)) return retryablePlanLockResponse()
+        return NextResponse.json(
+          {
+            ...failedResponse,
+            error: executionError instanceof Error ? executionError.message : 'Approved action failed',
+            code: 'approval_execution_failed',
+            retryable: failedResponse.availableActions.includes('retry'),
+          } as ApprovalCommandResponse & PlannerApiErrorResponse,
+          { status: 502 }
+        )
+      }
     } else if (approval.status === 'cancelled' || approval.status === 'rejected') {
-      await syncOpportunityInviteStatuses(auth.db, plan, auth.userId, approval)
+      await syncOpportunityInviteStatuses(auth.db, writeDb, plan, auth.userId, approval)
     }
-    await syncApprovalMessageMetadata(auth.db, (await context.params).planId, approval)
+    await syncApprovalMessageMetadata(auth.db, writeDb, planId, approval)
 
-    return NextResponse.json({ approval })
+    return NextResponse.json(await buildApprovalCommandResponse(writeDb, approval))
   } catch (error) {
     logger.error('Planner approvals PATCH failed', error)
     return NextResponse.json({ error: 'An unexpected error occurred' }, { status: 500 })
@@ -381,6 +695,387 @@ async function loadApproval(db: PlannerDb, planId: string, approvalId: string): 
   return (data as Approval | null) ?? null
 }
 
+async function loadCurrentApprovalsForPlan(db: PlannerDb, planId: string): Promise<VersionedApproval[]> {
+  const { data, error } = await db
+    .from('approvals')
+    .select(APPROVAL_SELECT_COLUMNS)
+    .eq('plan_id', planId)
+    .in('status', ['pending', 'expired', 're_approval_required', 'authorized', 'approved'])
+    .order('created_at', { ascending: true })
+  if (error) throw new Error(error.message)
+  return (Array.isArray(data) ? data : []) as VersionedApproval[]
+}
+
+function validateExpectedSnapshot(input: {
+  plan: Plan
+  approval: VersionedApproval
+  action: RetryableAgentAction
+  expectedSnapshotHash: string
+}): {
+  response: NextResponse<PlannerApiErrorResponse>
+  persistedSnapshotIsStale: boolean
+} | null {
+  const storedSnapshotHash = readString(input.approval.snapshot_hash)
+  const freshSnapshotHash = buildApprovalSnapshotHashV2({
+    plan: input.plan,
+    approval: input.approval,
+    action: input.action,
+    payload: readRecord(input.action.payload_json),
+  })
+
+  if (
+    !storedSnapshotHash ||
+    input.approval.snapshot_schema_version !== APPROVAL_SNAPSHOT_SCHEMA_VERSION ||
+    input.expectedSnapshotHash !== storedSnapshotHash ||
+    storedSnapshotHash !== freshSnapshotHash
+  ) {
+    return {
+      response: NextResponse.json(
+        {
+          error: 'This approval changed after it was displayed. Refresh and review the current version before continuing.',
+          code: 'approval_snapshot_mismatch',
+          details: {
+            expected_snapshot_hash: input.expectedSnapshotHash,
+            current_snapshot_hash: storedSnapshotHash,
+            snapshot_schema_version: input.approval.snapshot_schema_version ?? null,
+          } as Json,
+        },
+        { status: 409 }
+      ),
+      persistedSnapshotIsStale: Boolean(
+        storedSnapshotHash &&
+        input.approval.snapshot_schema_version === APPROVAL_SNAPSHOT_SCHEMA_VERSION &&
+        input.expectedSnapshotHash === storedSnapshotHash &&
+        storedSnapshotHash !== freshSnapshotHash
+      ),
+    }
+  }
+
+  return null
+}
+
+function validateReapprovalVersion(
+  approval: VersionedApproval,
+  expectedSnapshotHash: string | null
+): {
+  response: NextResponse<PlannerApiErrorResponse>
+  persistedSnapshotIsStale: false
+} | null {
+  if ((approval.snapshot_hash ?? null) === expectedSnapshotHash) return null
+  return {
+    response: NextResponse.json(
+      {
+        error: 'This approval changed after it was displayed. Refresh before requesting a new version.',
+        code: 'approval_snapshot_mismatch',
+      },
+      { status: 409 }
+    ),
+    persistedSnapshotIsStale: false,
+  }
+}
+
+function shouldRecoverExactAuthorizeReplay(input: {
+  command: string
+  plan: Plan
+  approval: VersionedApproval
+  action: RetryableAgentAction
+}): boolean {
+  if (
+    input.command !== 'authorize'
+    || input.approval.status !== 'authorized'
+    || isTerminalPlanForPositiveExecution(input.plan.status)
+    || !['pending', 'proposed', 'approved', 'executing'].includes(input.action.status)
+  ) {
+    return false
+  }
+
+  const retryPlan = planApprovedActionRetry({
+    action: input.action,
+    approval: input.approval,
+  })
+  if (!retryPlan.canRetry) return false
+
+  const metadata = readRecord(input.action.result_metadata)
+  if (retryPlan.kind === 'send_gmail_outreach') {
+    // Per-target dispatch rows and deterministic RFC Message-IDs own provider
+    // reconciliation. Until the action is complete, replay may resume them.
+    return true
+  }
+
+  if (retryPlan.kind === 'await_external_checkout') {
+    const evidence = readRecord(metadata?.external_checkout)
+    const exactReadyEvidence = ['ready', 'completed', 'cancelled'].includes(
+      readString(evidence?.status) ?? '',
+    ) && readString(evidence?.approval_id) === input.approval.id
+      && readString(evidence?.snapshot_hash) === input.approval.snapshot_hash
+      && Boolean(readString(evidence?.external_url))
+    return !exactReadyEvidence
+  }
+
+  if (retryPlan.kind === 'await_concierge_queue') {
+    const handoffStatus = readString(metadata?.handoff_status)
+    const durableTask = handoffStatus === 'queued' && Boolean(readString(metadata?.admin_task_id))
+    const durableDraft = handoffStatus === 'draft_ready'
+      && Boolean(readString(metadata?.outreach_message_id))
+      && Boolean(readString(metadata?.outreach_thread_id))
+    const durableBooking = Boolean(readString(metadata?.booking_id))
+    const canonicalStatus = readString(metadata?.canonical_booking_status)
+    const durableCanonicalWait = [
+      'waiting_for_event_materialization',
+      'pending_partner_confirmation',
+      'confirmed',
+      'cancelled',
+      'reapproval_required',
+      'resume_blocked_plan_status',
+    ].includes(canonicalStatus ?? '')
+    return !(durableTask || durableDraft || durableBooking || durableCanonicalWait)
+  }
+
+  return false
+}
+
+async function markApprovalReapprovalRequired(
+  readDb: PlannerDb,
+  planId: string,
+  approval: VersionedApproval
+) {
+  if (approval.status === 're_approval_required') return
+  const writeDb = createServiceRoleClient() as unknown as PlannerDb
+  const { data, error } = await writeDb
+    .from('approvals')
+    .update({ status: 're_approval_required' })
+    .eq('id', approval.id)
+    .eq('plan_id', planId)
+    .eq('status', approval.status)
+    .select(APPROVAL_SELECT_COLUMNS)
+    .maybeSingle()
+  if (error || !data) return
+  await syncApprovalMessageMetadata(readDb, writeDb, planId, data as VersionedApproval)
+}
+
+async function supersedeApprovalVersion(
+  db: PlannerDb,
+  input: {
+    plan: Plan
+    approval: VersionedApproval
+    action: RetryableAgentAction
+    actorId: string
+    expectedSnapshotHash: string
+    changes: { requestedAmountCents: number; eventDate: string | null; notes: string | null } | null
+    reason: string
+  }
+): Promise<
+  | { approval: VersionedApproval }
+  | { response: NextResponse<PlannerApiErrorResponse> }
+> {
+  if (!db.rpc) {
+    return { response: NextResponse.json({ error: 'Approval versioning is unavailable' }, { status: 500 }) }
+  }
+
+  const requestedAmountCents = input.changes
+    ? assertIntegerCents(input.changes.requestedAmountCents, 'requestedAmountCents')
+    : assertIntegerCents(input.approval.requested_amount_cents ?? 0, 'requestedAmountCents')
+  const eventDate = input.changes ? input.changes.eventDate : input.approval.event_date
+  const notes = input.changes ? input.changes.notes : input.approval.notes ?? null
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  const currentPayload = readRecord(input.action.payload_json) ?? {}
+  const isCanonicalQuoteBooking = input.action.action_type === 'concierge_queue' &&
+    readString(currentPayload.kind) === 'canonical_quote_booking'
+  if (isCanonicalQuoteBooking) {
+    const currentRequestedAmountCents = readIntegerCents(input.approval.requested_amount_cents)
+    const currentApprovalEventDate = input.approval.event_date ?? null
+    const currentPayloadEventDate = Object.prototype.hasOwnProperty.call(currentPayload, 'event_date')
+      ? readString(currentPayload.event_date)
+      : Object.prototype.hasOwnProperty.call(currentPayload, 'eventDate')
+        ? readString(currentPayload.eventDate)
+        : null
+    const canonicalAmountsAreConsistent = currentRequestedAmountCents !== null && [
+      readIntegerCents(input.approval.price_cents),
+      readIntegerCents(input.action.amount_cents),
+      readIntegerCents(currentPayload.requested_amount_cents),
+      readIntegerCents(currentPayload.price_cents),
+    ].every((amount) => amount === currentRequestedAmountCents)
+    const canonicalEventDateIsConsistent = eventDate === currentApprovalEventDate &&
+      eventDate === currentPayloadEventDate
+
+    if (
+      !canonicalAmountsAreConsistent ||
+      requestedAmountCents !== currentRequestedAmountCents ||
+      !canonicalEventDateIsConsistent
+    ) {
+      return {
+        response: NextResponse.json(
+          {
+            error: 'Canonical quote pricing or event date changed. Capture and stage a fresh trusted quote before requesting approval.',
+            code: 'canonical_quote_fresh_quote_required',
+          },
+          { status: 409 },
+        ),
+      }
+    }
+  }
+  const actionPayload = {
+    ...currentPayload,
+    amount_cents: requestedAmountCents,
+    price_cents: requestedAmountCents,
+    requestedAmountCents,
+    requested_amount_cents: requestedAmountCents,
+    event_date: eventDate,
+    notes,
+    expires_at: expiresAt,
+  }
+  const nextApproval = {
+    ...input.approval,
+    price_cents: requestedAmountCents,
+    requested_amount_cents: requestedAmountCents,
+    event_date: eventDate,
+    notes,
+    expires_at: expiresAt,
+    status: 'pending' as const,
+    authorized_amount_cents: null,
+    authorized_by: null,
+    authorized_at: null,
+    approved_by: null,
+    approved_at: null,
+  }
+  const nextAction = {
+    ...input.action,
+    amount_cents: requestedAmountCents,
+    payload_json: actionPayload as Json,
+    status: 'pending' as const,
+  }
+  const snapshotJson = buildApprovalSnapshotV2({
+    plan: input.plan,
+    approval: nextApproval,
+    action: nextAction,
+    payload: actionPayload,
+  })
+  const snapshotHash = buildApprovalSnapshotHashV2({
+    plan: input.plan,
+    approval: nextApproval,
+    action: nextAction,
+    payload: actionPayload,
+  })
+  const { data, error } = await db.rpc('supersede_approval_version', {
+    p_plan_id: input.plan.id,
+    p_approval_id: input.approval.id,
+    p_expected_snapshot_hash: input.expectedSnapshotHash,
+    p_actor_id: input.actorId,
+    p_requested_amount_cents: requestedAmountCents,
+    p_event_date: eventDate,
+    p_notes: notes,
+    p_expires_at: expiresAt,
+    p_action_payload_json: actionPayload,
+    p_snapshot_json: snapshotJson,
+    p_snapshot_hash: snapshotHash,
+    p_reason: input.reason,
+  })
+
+  if (error || !data) {
+    if (isTerminalPlanPositiveExecutionError(error)) {
+      return { response: terminalPlanPositiveExecutionResponse() }
+    }
+    if (isRetryablePlanLockError(error)) {
+      return { response: retryablePlanLockResponse() }
+    }
+    const deadlockConflict = error?.code === '40P01'
+    const staleVersionConflict = error?.code === 'P0001' ||
+      /snapshot|supersed|active approval/i.test(error?.message ?? '')
+    const conflict = deadlockConflict || staleVersionConflict
+    return {
+      response: NextResponse.json(
+        {
+          error: deadlockConflict
+            ? 'Another approval update completed at the same time. Refresh and retry from the current version.'
+            : staleVersionConflict
+              ? 'This approval changed after it was displayed. Refresh and review the current version.'
+              : 'Failed to create a new approval version',
+          code: deadlockConflict
+            ? 'approval_version_conflict'
+            : staleVersionConflict
+              ? 'approval_snapshot_mismatch'
+              : 'approval_version_failed',
+        },
+        { status: conflict ? 409 : 500 }
+      ),
+    }
+  }
+
+  const approval = (Array.isArray(data) ? data[0] : data) as VersionedApproval | undefined
+  if (!approval) {
+    return { response: NextResponse.json({ error: 'Failed to create a new approval version' }, { status: 500 }) }
+  }
+  return { approval }
+}
+
+async function buildApprovalCommandResponse(
+  db: PlannerDb,
+  approval: VersionedApproval
+): Promise<ApprovalCommandResponse> {
+  const action = await loadAgentAction(db, approval.agent_action_id) as RetryableAgentAction | null
+  const uiState = deriveApprovalUiState({
+    approvalStatus: approval.status,
+    actionStatus: action?.status ?? null,
+    expiresAt: approval.expires_at,
+    supersededAt: approval.superseded_at,
+    executionCancellable: action
+      ? planApprovedActionCancellation({ action, approval }) !== 'no_cancellation'
+      : false,
+    executionRetryable: action
+      ? planApprovedActionRetry({ action, approval }).canRetry
+      : false,
+  })
+  return {
+    approval,
+    actionStatus: action?.status ?? 'unknown',
+    actionResult: (action?.result_metadata ?? action?.last_retry_result ?? null) as Json | null,
+    confirmationSnapshot: approval.snapshot_json ?? null,
+    uiStatus: uiState.status,
+    availableActions: [...uiState.availableActions],
+  }
+}
+
+async function insertSupersedingApprovalMessage(
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
+  input: {
+    planId: string
+    oldApprovalId: string
+    approval: VersionedApproval
+  }
+) {
+  const { data, error } = await readDb
+    .from('plan_messages')
+    .select('id, content, metadata')
+    .eq('plan_id', input.planId)
+    .eq('message_type', 'approval_request')
+
+  if (error) return
+  const source = (Array.isArray(data) ? data : []).find((row) => {
+    const metadata = readRecord(row.metadata)
+    return readString(readRecord(metadata?.approval)?.id) === input.oldApprovalId
+  })
+  if (!source) return
+  const metadata = readRecord(source.metadata) ?? {}
+  const oldEmbeddedApproval = readRecord(metadata.approval) ?? {}
+  const { error: insertError } = await writeDb.from('plan_messages').insert({
+    plan_id: input.planId,
+    role: 'agent',
+    content: source.content,
+    message_type: 'approval_request',
+    metadata: {
+      ...metadata,
+      status: input.approval.status,
+      supersedes_message_id: source.id,
+      approval: {
+        ...oldEmbeddedApproval,
+        ...input.approval,
+      },
+    } as Json,
+  })
+  if (insertError) console.error('Planner superseding approval message insert error:', insertError)
+}
+
 function buildApprovalUpdates(
   status: ApprovalStatus,
   userId: string,
@@ -410,39 +1105,9 @@ function buildSupersededApprovalMessage(approval: Approval): string {
   return `This approval was superseded by a plan update on ${date}. Please re-approve from the current recommendation.`
 }
 
-async function approvalRequiresFreshReview(db: PlannerDb, plan: Plan, approval: Approval): Promise<boolean> {
-  const action = await loadAgentAction(db, approval.agent_action_id)
-  return approvalRequiresReapproval({
-    plan,
-    approval,
-    action,
-    storedSnapshotHash: approval.snapshot_hash,
-  })
-}
-
-async function markApprovalReapprovalRequired(
-  db: PlannerDb,
-  planId: string,
-  approvalId: string
-): Promise<Approval | null> {
-  const { data, error } = await db
-    .from('approvals')
-    .update({ status: 're_approval_required' })
-    .eq('id', approvalId)
-    .eq('plan_id', planId)
-    .select(APPROVAL_SELECT_COLUMNS)
-    .single()
-
-  if (error || !data) {
-    console.error('Planner approval stale status update error:', error)
-    return null
-  }
-
-  return data as Approval
-}
-
 async function rollbackApprovalAfterAccessFailure(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   input: {
     planId: string
     approval: Approval
@@ -450,7 +1115,7 @@ async function rollbackApprovalAfterAccessFailure(
     actorId: string
   }
 ) {
-  const { data, error } = await db
+  const { data, error } = await writeDb
     .from('approvals')
     .update({
       status: input.originalStatus,
@@ -483,7 +1148,7 @@ async function rollbackApprovalAfterAccessFailure(
     return null
   }
 
-  await markAgentActionAccessGateRollback(db, {
+  await markAgentActionAccessGateRollback(readDb, writeDb, {
     actionId: input.approval.agent_action_id,
     actorId: input.actorId,
     planId: input.planId,
@@ -491,12 +1156,13 @@ async function rollbackApprovalAfterAccessFailure(
     attemptedStatus: input.approval.status,
   })
 
-  await syncApprovalMessageMetadata(db, input.planId, data as Approval)
+  await syncApprovalMessageMetadata(readDb, writeDb, input.planId, data as Approval)
   return data as Approval
 }
 
 async function markAgentActionAccessGateRollback(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   input: {
     actionId: string
     actorId: string
@@ -505,7 +1171,7 @@ async function markAgentActionAccessGateRollback(
     attemptedStatus: ApprovalStatus
   }
 ) {
-  const action = await loadAgentAction(db, input.actionId)
+  const action = await loadAgentAction(readDb, input.actionId)
   if (!action) return
 
   const nextMetadata = {
@@ -518,7 +1184,7 @@ async function markAgentActionAccessGateRollback(
     },
   } as Json
 
-  const { error } = await db
+  const { error } = await writeDb
     .from('agent_actions')
     .update({ result_metadata: nextMetadata })
     .eq('id', input.actionId)
@@ -541,7 +1207,8 @@ async function markAgentActionAccessGateRollback(
 }
 
 async function syncAgentActionStatusForApproval(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   payload: {
     actionId: string
     planId: string
@@ -549,7 +1216,7 @@ async function syncAgentActionStatusForApproval(
     approvalStatus: ApprovalStatus
   }
 ) {
-  const action = await loadAgentAction(db, payload.actionId)
+  const action = await loadAgentAction(readDb, payload.actionId)
   if (!action) return
 
   const transition = agentActionStatusForApprovalStatus(payload.approvalStatus, action.status)
@@ -570,7 +1237,7 @@ async function syncAgentActionStatusForApproval(
   }
   if (!transition.changed) return
 
-  await persistAgentActionTransition(db, {
+  await persistAgentActionTransition(writeDb, {
     action,
     planId: payload.planId,
     actorId: payload.actorId,
@@ -583,7 +1250,8 @@ async function syncAgentActionStatusForApproval(
 }
 
 async function executeApprovedAction(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   payload: {
     actionId: string
     planId: string
@@ -592,75 +1260,364 @@ async function executeApprovedAction(
     approval: Approval
   }
 ) {
-  let action = await loadAgentAction(db, payload.actionId)
+  const action = await loadAgentAction(readDb, payload.actionId)
   if (!action) return
 
-  const executionPlan = planApprovedActionExecution({ action, approval: payload.approval })
-  if (!executionPlan.canStart) return
-
-  action = await persistAgentActionTransition(db, {
+  await dispatchApprovedAction({
     action,
-    planId: payload.planId,
-    actorId: payload.actorId,
+    approval: payload.approval,
+    registry: {
+      send_gmail_outreach: async () => runCompletingActionExecutor(readDb, writeDb, {
+        action,
+        planId: payload.planId,
+        actorId: payload.actorId,
+        executionKind: 'send_gmail_outreach',
+        completionReason: 'approval.gmail_outreach_sent',
+        execute: async (executingAction) => executeApprovedGmailOutreach(readDb, {
+          userId: payload.actorId,
+          plan: payload.plan,
+          action: executingAction,
+          approval: payload.approval,
+        }),
+      }),
+      prepare_outreach_drafts: async () => runOutreachPreparationActionExecutor(readDb, writeDb, {
+        action,
+        planId: payload.planId,
+        actorId: payload.actorId,
+        plan: payload.plan,
+        approval: payload.approval,
+      }),
+      await_external_checkout: async () => runHandoffActionExecutor(writeDb, {
+        action,
+        planId: payload.planId,
+        actorId: payload.actorId,
+        executionKind: 'await_external_checkout',
+        execute: async (executingAction) => executeExternalCheckoutHandoff({
+          db: writeDb,
+          action: executingAction,
+          approval: payload.approval,
+          plan: payload.plan,
+          actorId: payload.actorId,
+        }),
+      }),
+      await_concierge_queue: async () => runHandoffActionExecutor(writeDb, {
+        action,
+        planId: payload.planId,
+        actorId: payload.actorId,
+        executionKind: 'await_concierge_queue',
+        execute: async (executingAction) => executeConciergeApprovedAction({
+          db: requireApprovedHandoffDb(writeDb),
+          action: executingAction,
+          approval: payload.approval,
+          plan: payload.plan,
+          actorId: payload.actorId,
+        }),
+      }),
+    },
+  })
+}
+
+async function runOutreachPreparationActionExecutor(
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
+  input: {
+    action: AgentAction
+    planId: string
+    actorId: string
+    plan: Plan
+    approval: Approval
+  }
+) {
+  let action = await persistAgentActionTransition(writeDb, {
+    action: input.action,
+    planId: input.planId,
+    actorId: input.actorId,
     reason: 'approval.execution_started',
     event: 'execution_started',
     metadata: {
-      execution_kind: executionPlan.kind,
+      execution_kind: 'prepare_outreach_drafts',
       outbound_message_sent: false,
     },
   })
 
   try {
-    if (executionPlan.kind === 'send_gmail_outreach') {
-      const gmailExecution = await executeApprovedGmailOutreach(db, {
-        userId: payload.actorId,
-        plan: payload.plan,
-        action,
-        approval: payload.approval,
-      })
-
-      await persistAgentActionTransition(db, {
-        action,
-        planId: payload.planId,
-        actorId: payload.actorId,
-        reason: 'approval.gmail_outreach_sent',
-        event: 'execution_completed',
-        metadata: {
-          execution_kind: executionPlan.kind,
-          ...gmailExecution,
-        },
-      })
-      return
-    }
-
-    const preparation = await syncOpportunityInviteStatuses(db, payload.plan, payload.actorId, payload.approval)
-
+    const preparation = await syncOpportunityInviteStatuses(
+      readDb,
+      writeDb,
+      input.plan,
+      input.actorId,
+      input.approval
+    )
     if (!preparation.prepared) {
       throw new Error(preparation.reason ?? 'Outreach drafts were not prepared')
     }
 
-    await persistAgentActionTransition(db, {
+    const refreshedAction = await loadAgentAction(writeDb, action.id)
+    if (!refreshedAction) throw new Error('Prepared outreach action could not be reloaded')
+    const concierge = await executeOpportunityConciergeHandoff({
+      db: requireApprovedHandoffDb(writeDb),
+      action: refreshedAction,
+      approval: input.approval,
+      plan: input.plan,
+      actorId: input.actorId,
+    })
+    const preparationMetadata = {
+      outbound_message_sent: false,
+      send_requires_explicit_flow: true,
+      ...preparation,
+    }
+
+    if (concierge.handled) {
+      const resultMetadata = {
+        ...(readRecord(refreshedAction.result_metadata) ?? {}),
+        execution_kind: 'prepare_outreach_drafts',
+        ...preparationMetadata,
+        ...concierge.metadata,
+      } as Json
+      const { data, error } = await writeDb
+        .from('agent_actions')
+        .update({ result_metadata: resultMetadata })
+        .eq('id', action.id)
+        .eq('plan_id', input.planId)
+        .eq('status', 'executing')
+        .select(AGENT_ACTION_STATUS_SELECT_COLUMNS)
+        .maybeSingle()
+      if (error || !data) throw new Error(error?.message ?? 'Concierge handoff metadata was not persisted')
+      return { ...preparationMetadata, ...concierge.metadata }
+    }
+
+    action = await persistAgentActionTransition(writeDb, {
       action,
-      planId: payload.planId,
-      actorId: payload.actorId,
+      planId: input.planId,
+      actorId: input.actorId,
       reason: 'approval.outreach_drafts_prepared',
       event: 'execution_completed',
       metadata: {
-        execution_kind: executionPlan.kind,
-        outbound_message_sent: false,
-        send_requires_explicit_flow: true,
-        ...preparation,
+        execution_kind: 'prepare_outreach_drafts',
+        ...preparationMetadata,
       },
     })
+    return preparationMetadata
   } catch (error) {
-    await persistAgentActionTransition(db, {
+    await persistAgentActionTransition(writeDb, {
       action,
-      planId: payload.planId,
-      actorId: payload.actorId,
+      planId: input.planId,
+      actorId: input.actorId,
       reason: 'approval.execution_failed',
       event: 'execution_failed',
       metadata: {
-        execution_kind: executionPlan.kind,
+        execution_kind: 'prepare_outreach_drafts',
+        error: error instanceof Error ? error.message : 'Unknown execution error',
+      },
+    })
+    throw error
+  }
+}
+
+async function runHandoffActionExecutor(
+  writeDb: PlannerDb,
+  input: {
+    action: AgentAction
+    planId: string
+    actorId: string
+    executionKind: ApprovedActionExecutionKind
+    execute: (executingAction: AgentAction) => Promise<{
+      disposition: 'executing' | 'complete' | 'waiting'
+      metadata: Json
+    }>
+  }
+) {
+  let action = input.action
+  if (action.status === 'approved') {
+    try {
+      action = await persistAgentActionTransition(writeDb, {
+        action,
+        planId: input.planId,
+        actorId: input.actorId,
+        reason: 'approval.execution_started',
+        event: 'execution_started',
+        metadata: {
+          execution_kind: input.executionKind,
+          outbound_message_sent: false,
+        },
+      })
+    } catch (transitionError) {
+      if (isRetryablePlanLockError(transitionError)) throw transitionError
+      const concurrentAction = await loadAgentAction(writeDb, action.id)
+      if (concurrentAction?.status === 'complete' || concurrentAction?.status === 'cancelled') {
+        return {
+          disposition: concurrentAction.status === 'complete' ? 'complete' : 'waiting',
+          metadata: (concurrentAction.result_metadata ?? {}) as Json,
+        }
+      }
+      if (!concurrentAction || concurrentAction.status !== 'executing') throw transitionError
+      action = concurrentAction
+    }
+  } else if (action.status !== 'executing') {
+    throw new Error(`Approved-action handoff cannot resume from ${action.status}`)
+  }
+
+  try {
+    const result = await input.execute(action)
+    const executorAction = await loadAgentAction(writeDb, action.id)
+    if (!executorAction) {
+      throw new Error('Approved handoff action could not be reloaded after execution')
+    }
+
+    // Some database commands complete or cancel the action atomically with the
+    // underlying handoff. That terminal compare-and-swap is authoritative; do
+    // not overwrite it or report a false execution failure from this route.
+    if (executorAction.status === 'complete' || executorAction.status === 'cancelled') {
+      return result
+    }
+    if (executorAction.status !== 'executing') {
+      throw new Error(`Approved handoff returned with unexpected action status ${executorAction.status}`)
+    }
+
+    action = executorAction
+    if (result.disposition === 'complete') {
+      await persistAgentActionTransition(writeDb, {
+        action,
+        planId: input.planId,
+        actorId: input.actorId,
+        reason: 'approval.handoff_completed',
+        event: 'execution_completed',
+        metadata: {
+          execution_kind: input.executionKind,
+          ...(readRecord(result.metadata) ?? {}),
+        },
+      })
+    } else {
+      // `waiting` and `executing` are durable host-visible outcomes too. Some
+      // handlers persist their own aggregate atomically, while others (notably
+      // a quote waiting for event materialization) only return evidence here.
+      // Merge that evidence under a status CAS so cancellation/completion wins
+      // any race instead of being overwritten by this request.
+      const resultMetadata = {
+        ...(readRecord(action.result_metadata) ?? {}),
+        execution_kind: input.executionKind,
+        ...(readRecord(result.metadata) ?? {}),
+      } as Json
+      const { data, error } = await writeDb
+        .from('agent_actions')
+        .update({ result_metadata: resultMetadata })
+        .eq('id', action.id)
+        .eq('plan_id', input.planId)
+        .eq('status', 'executing')
+        .select(AGENT_ACTION_STATUS_SELECT_COLUMNS)
+        .maybeSingle()
+      if (error || !data) {
+        const racedAction = await loadAgentAction(writeDb, action.id)
+        if (racedAction?.status === 'complete' || racedAction?.status === 'cancelled') {
+          return result
+        }
+        throw new Error(error?.message ?? 'Approved handoff evidence could not be persisted')
+      }
+    }
+    return result
+  } catch (error) {
+    const currentAction = await loadAgentAction(writeDb, action.id)
+    if (currentAction?.status === 'complete' || currentAction?.status === 'cancelled') {
+      return {
+        disposition: currentAction.status === 'complete' ? 'complete' : 'waiting',
+        metadata: (currentAction.result_metadata ?? {}) as Json,
+      }
+    }
+
+    await persistAgentActionTransition(writeDb, {
+      action: currentAction ?? action,
+      planId: input.planId,
+      actorId: input.actorId,
+      reason: 'approval.execution_failed',
+      event: 'execution_failed',
+      metadata: {
+        execution_kind: input.executionKind,
+        error: error instanceof Error ? error.message : 'Unknown execution error',
+      },
+    })
+    throw error
+  }
+}
+
+async function runCompletingActionExecutor(
+  _readDb: PlannerDb,
+  writeDb: PlannerDb,
+  input: {
+    action: AgentAction
+    planId: string
+    actorId: string
+    executionKind: ApprovedActionExecutionKind
+    completionReason: string
+    execute: (executingAction: AgentAction) => Promise<Record<string, unknown>>
+  }
+) {
+  let action = input.action
+  if (action.status === 'approved') {
+    try {
+      action = await persistAgentActionTransition(writeDb, {
+        action,
+        planId: input.planId,
+        actorId: input.actorId,
+        reason: 'approval.execution_started',
+        event: 'execution_started',
+        metadata: {
+          execution_kind: input.executionKind,
+          outbound_message_sent: false,
+        },
+      })
+    } catch (transitionError) {
+      if (isRetryablePlanLockError(transitionError)) throw transitionError
+      const concurrentAction = await loadAgentAction(writeDb, action.id)
+      if (concurrentAction?.status === 'complete' || concurrentAction?.status === 'cancelled') {
+        return readRecord(concurrentAction.result_metadata) ?? {}
+      }
+      if (!concurrentAction || concurrentAction.status !== 'executing') throw transitionError
+      action = concurrentAction
+    }
+  } else if (action.status !== 'executing') {
+    throw new Error(`Approved completing action cannot resume from ${action.status}`)
+  }
+
+  let result: Record<string, unknown> | null = null
+  try {
+    result = await input.execute(action)
+    const currentAction = await loadAgentAction(writeDb, action.id)
+    if (!currentAction) throw new Error('Approved completing action could not be reloaded')
+    if (currentAction.status === 'complete' || currentAction.status === 'cancelled') {
+      return result
+    }
+    if (currentAction.status !== 'executing') {
+      throw new Error(`Approved completing action returned with unexpected status ${currentAction.status}`)
+    }
+
+    await persistAgentActionTransition(writeDb, {
+      action: currentAction,
+      planId: input.planId,
+      actorId: input.actorId,
+      reason: input.completionReason,
+      event: 'execution_completed',
+      metadata: {
+        execution_kind: input.executionKind,
+        ...result,
+      },
+    })
+    return result
+  } catch (error) {
+    const currentAction = await loadAgentAction(writeDb, action.id)
+    if (currentAction?.status === 'complete' || currentAction?.status === 'cancelled') {
+      return result ?? (readRecord(currentAction.result_metadata) ?? {})
+    }
+    if (error instanceof GmailDispatchRecoveryPendingError || isRetryablePlanLockError(error)) throw error
+    if (!currentAction || currentAction.status !== 'executing') throw error
+
+    await persistAgentActionTransition(writeDb, {
+      action: currentAction,
+      planId: input.planId,
+      actorId: input.actorId,
+      reason: 'approval.execution_failed',
+      event: 'execution_failed',
+      metadata: {
+        execution_kind: input.executionKind,
         error: error instanceof Error ? error.message : 'Unknown execution error',
       },
     })
@@ -762,6 +1719,8 @@ async function persistAgentActionTransition(
     .from('agent_actions')
     .update(updates)
     .eq('id', input.action.id)
+    .eq('plan_id', input.planId)
+    .eq('status', transition.from)
     .select(AGENT_ACTION_STATUS_SELECT_COLUMNS)
     .single()
 
@@ -799,12 +1758,13 @@ type OutreachPreparationSummary = {
 }
 
 async function syncOpportunityInviteStatuses(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   plan: Plan,
   userId: string,
   approval: Approval
 ): Promise<OutreachPreparationSummary> {
-  const { data, error } = await db
+  const { data, error } = await readDb
     .from('agent_actions')
     .select(AGENT_ACTION_OPPORTUNITY_SELECT_COLUMNS)
     .eq('id', approval.agent_action_id)
@@ -825,19 +1785,19 @@ async function syncOpportunityInviteStatuses(
   const opportunityBriefId = readString(payloadRecord.opportunity_brief_id)
 
   if (isVenueOutreachAction(action)) {
-    return syncVenueOpportunitySendApproval(db, plan, userId, approval, payloadRecord, opportunityBriefId)
+    return syncVenueOpportunitySendApproval(readDb, writeDb, plan, userId, approval, payloadRecord, opportunityBriefId)
   }
 
   if (isVendorOutreachAction(action)) {
-    return syncVendorOpportunitySendApproval(db, plan, userId, approval, payloadRecord)
+    return syncVendorOpportunitySendApproval(readDb, writeDb, plan, userId, approval, payloadRecord)
   }
 
   if (!opportunityBriefId) return { prepared: false, reason: 'not_outreach_action' }
 
   if (approval.status === 'authorized' || approval.status === 'approved') {
-    const invites = await ensureVenueOpportunityInviteTokens(db, opportunityBriefId)
+    const invites = await ensureVenueOpportunityInviteTokens(readDb, opportunityBriefId, writeDb)
 
-    const { error: briefUpdateError } = await db
+    const { error: briefUpdateError } = await writeDb
       .from('venue_opportunity_briefs')
       .update({ status: 'approval_requested' })
       .eq('id', opportunityBriefId)
@@ -847,7 +1807,7 @@ async function syncOpportunityInviteStatuses(
       console.error('Planner opportunity brief authorized status update error:', briefUpdateError)
     }
 
-    await insertOpportunityStatusMessage(db, plan.id, {
+    await insertOpportunityStatusMessage(writeDb, plan.id, {
       opportunity_brief_id: opportunityBriefId,
       approval_id: approval.id,
       status: 'drafts_prepared',
@@ -861,7 +1821,7 @@ async function syncOpportunityInviteStatuses(
   }
 
   if (approval.status === 'cancelled' || approval.status === 'rejected') {
-    const { error: inviteUpdateError } = await db
+    const { error: inviteUpdateError } = await writeDb
       .from('venue_opportunity_invites')
       .update({ status: 'cancelled' })
       .eq('brief_id', opportunityBriefId)
@@ -870,7 +1830,7 @@ async function syncOpportunityInviteStatuses(
       console.error('Planner opportunity invite cancelled status update error:', inviteUpdateError)
     }
 
-    const { error: briefUpdateError } = await db
+    const { error: briefUpdateError } = await writeDb
       .from('venue_opportunity_briefs')
       .update({ status: 'cancelled' })
       .eq('id', opportunityBriefId)
@@ -885,7 +1845,8 @@ async function syncOpportunityInviteStatuses(
 }
 
 async function syncVendorOpportunitySendApproval(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   plan: Plan,
   userId: string,
   approval: Approval,
@@ -898,7 +1859,7 @@ async function syncVendorOpportunitySendApproval(
   if (approval.status === 'cancelled' || approval.status === 'rejected') {
     if (!vendorBriefId) return { prepared: false, reason: `approval_${approval.status}` }
 
-    const { error: inviteUpdateError } = await db
+    const { error: inviteUpdateError } = await writeDb
       .from('vendor_opportunity_invites')
       .update({ status: 'cancelled' })
       .eq('brief_id', vendorBriefId)
@@ -914,14 +1875,14 @@ async function syncVendorOpportunitySendApproval(
   }
 
   if (vendorBriefId) {
-    const invites = await ensureVendorOpportunityInviteTokens(db, vendorBriefId)
-    await updateActionPayload(db, approval.agent_action_id, {
+    const invites = await ensureVendorOpportunityInviteTokens(readDb, vendorBriefId, writeDb)
+    await updateActionPayload(writeDb, approval.agent_action_id, {
       ...payload,
       vendor_opportunity_brief_id: vendorBriefId,
       vendor_invite_ids: invites.map((invite) => invite.id),
       queued_vendor_invite_count: invites.length,
     })
-    await insertOpportunityStatusMessage(db, plan.id, {
+    await insertOpportunityStatusMessage(writeDb, plan.id, {
       opportunity_brief_id: vendorBriefId,
       approval_id: approval.id,
       status: 'drafts_prepared',
@@ -941,7 +1902,8 @@ async function syncVendorOpportunitySendApproval(
   }
 
   const result = await createVendorOpportunityBrief({
-    db,
+    db: readDb,
+    writeDb,
     plan,
     userId,
     vendorIds,
@@ -953,14 +1915,14 @@ async function syncVendorOpportunitySendApproval(
     issueTokens: true,
   })
 
-  await updateActionPayload(db, approval.agent_action_id, {
+  await updateActionPayload(writeDb, approval.agent_action_id, {
     ...payload,
     vendor_opportunity_brief_id: result.brief.id,
     vendor_invite_ids: result.invites.map((invite) => invite.id),
     queued_vendor_invite_count: result.invites.length,
   })
 
-  await insertOpportunityStatusMessage(db, plan.id, {
+  await insertOpportunityStatusMessage(writeDb, plan.id, {
     opportunity_brief_id: String(result.brief.id),
     approval_id: approval.id,
     status: 'drafts_prepared',
@@ -975,7 +1937,8 @@ async function syncVendorOpportunitySendApproval(
 }
 
 async function syncVenueOpportunitySendApproval(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   plan: Plan,
   userId: string,
   approval: Approval,
@@ -985,7 +1948,7 @@ async function syncVenueOpportunitySendApproval(
   if (approval.status === 'cancelled' || approval.status === 'rejected') {
     if (!opportunityBriefId) return { prepared: false, reason: `approval_${approval.status}` }
 
-    const { error: inviteUpdateError } = await db
+    const { error: inviteUpdateError } = await writeDb
       .from('venue_opportunity_invites')
       .update({ status: 'cancelled' })
       .eq('brief_id', opportunityBriefId)
@@ -1001,15 +1964,15 @@ async function syncVenueOpportunitySendApproval(
   }
 
   if (opportunityBriefId) {
-    const invites = await ensureVenueOpportunityInviteTokens(db, opportunityBriefId)
+    const invites = await ensureVenueOpportunityInviteTokens(readDb, opportunityBriefId, writeDb)
     const venuePayload = {
       ...payload,
       opportunity_brief_id: opportunityBriefId,
       invite_ids: invites.map((invite) => invite.id),
       queued_invite_count: invites.length,
     }
-    await updateActionPayload(db, approval.agent_action_id, venuePayload)
-    await insertOpportunityStatusMessage(db, plan.id, {
+    await updateActionPayload(writeDb, approval.agent_action_id, venuePayload)
+    await insertOpportunityStatusMessage(writeDb, plan.id, {
       opportunity_brief_id: opportunityBriefId,
       approval_id: approval.id,
       status: 'drafts_prepared',
@@ -1017,7 +1980,7 @@ async function syncVenueOpportunitySendApproval(
     })
     let vendorSummary: OutreachPreparationSummary = { prepared: false }
     if (hasVendorOutreachPayload(payload)) {
-      vendorSummary = await syncVendorOpportunitySendApproval(db, plan, userId, approval, venuePayload)
+      vendorSummary = await syncVendorOpportunitySendApproval(readDb, writeDb, plan, userId, approval, venuePayload)
     }
     return {
       prepared: true,
@@ -1031,21 +1994,22 @@ async function syncVenueOpportunitySendApproval(
   const venueIds = readStringArray(payload.venue_ids).filter(isUuid)
   if (venueIds.length === 0) {
     if (hasVendorOutreachPayload(payload)) {
-      return syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
+      return syncVendorOpportunitySendApproval(readDb, writeDb, plan, userId, approval, payload)
     }
     console.error('Planner venue opportunity send approval missing venue_ids')
     return { prepared: false, reason: 'missing_venue_ids' }
   }
 
   const discoveryDrafts = await enqueueDraftsAfterVenueApproval({
-    db,
+    db: readDb,
+    writeDb,
     planId: plan.id,
     userId,
     venueIds,
   })
 
   if (discoveryDrafts.prepared) {
-    await updateActionPayload(db, approval.agent_action_id, {
+    await updateActionPayload(writeDb, approval.agent_action_id, {
       ...payload,
       venue_ids: discoveryDrafts.unhandledVenueIds,
       discovery_outreach_results: discoveryDrafts.results,
@@ -1053,7 +2017,7 @@ async function syncVenueOpportunitySendApproval(
       contact_extraction_pending_count: discoveryDrafts.extractionPendingCount,
       contact_email_required_count: discoveryDrafts.emailRequiredCount,
     })
-    await insertOpportunityStatusMessage(db, plan.id, {
+    await insertOpportunityStatusMessage(writeDb, plan.id, {
       opportunity_brief_id: approval.id,
       approval_id: approval.id,
       status: 'drafts_prepared',
@@ -1063,7 +2027,8 @@ async function syncVenueOpportunitySendApproval(
     let legacySummary: OutreachPreparationSummary = { prepared: false }
     if (discoveryDrafts.unhandledVenueIds.length > 0) {
       const result = await createVenueOpportunityBrief({
-        db,
+        db: readDb,
+        writeDb,
         plan,
         userId,
         venueIds: discoveryDrafts.unhandledVenueIds,
@@ -1073,7 +2038,7 @@ async function syncVenueOpportunitySendApproval(
         issueTokens: true,
       })
 
-      await updateActionPayload(db, approval.agent_action_id, {
+      await updateActionPayload(writeDb, approval.agent_action_id, {
         ...payload,
         venue_ids: discoveryDrafts.unhandledVenueIds,
         opportunity_brief_id: result.brief.id,
@@ -1085,7 +2050,7 @@ async function syncVenueOpportunitySendApproval(
         contact_email_required_count: discoveryDrafts.emailRequiredCount,
       })
 
-      await insertOpportunityStatusMessage(db, plan.id, {
+      await insertOpportunityStatusMessage(writeDb, plan.id, {
         opportunity_brief_id: String(result.brief.id),
         approval_id: approval.id,
         status: 'drafts_prepared',
@@ -1101,7 +2066,7 @@ async function syncVenueOpportunitySendApproval(
 
     let vendorSummary: OutreachPreparationSummary = { prepared: false }
     if (hasVendorOutreachPayload(payload)) {
-      vendorSummary = await syncVendorOpportunitySendApproval(db, plan, userId, approval, payload)
+      vendorSummary = await syncVendorOpportunitySendApproval(readDb, writeDb, plan, userId, approval, payload)
     }
 
     return {
@@ -1118,7 +2083,8 @@ async function syncVenueOpportunitySendApproval(
   }
 
   const result = await createVenueOpportunityBrief({
-    db,
+    db: readDb,
+    writeDb,
     plan,
     userId,
     venueIds,
@@ -1134,9 +2100,9 @@ async function syncVenueOpportunitySendApproval(
     invite_ids: result.invites.map((invite) => invite.id),
     queued_invite_count: result.invites.length,
   }
-  await updateActionPayload(db, approval.agent_action_id, venuePayload)
+  await updateActionPayload(writeDb, approval.agent_action_id, venuePayload)
 
-  await insertOpportunityStatusMessage(db, plan.id, {
+  await insertOpportunityStatusMessage(writeDb, plan.id, {
     opportunity_brief_id: String(result.brief.id),
     approval_id: approval.id,
     status: 'drafts_prepared',
@@ -1145,7 +2111,7 @@ async function syncVenueOpportunitySendApproval(
 
   let vendorSummary: OutreachPreparationSummary = { prepared: false }
   if (hasVendorOutreachPayload(payload)) {
-    vendorSummary = await syncVendorOpportunitySendApproval(db, plan, userId, approval, venuePayload)
+    vendorSummary = await syncVendorOpportunitySendApproval(readDb, writeDb, plan, userId, approval, venuePayload)
   }
 
   return {
@@ -1234,10 +2200,15 @@ async function insertOpportunityStatusMessage(
   if (error) console.error('Planner opportunity status message insert error:', error)
 }
 
-async function syncApprovalMessageMetadata(db: PlannerDb, planId: string, approval: Approval) {
-  const actionPayload = await loadAgentActionPayload(db, approval.agent_action_id)
+async function syncApprovalMessageMetadata(
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
+  planId: string,
+  approval: Approval
+) {
+  const actionPayload = await loadAgentActionPayload(readDb, approval.agent_action_id)
   const executionMetadata = actionPayload ? buildApprovalExecutionMetadata(actionPayload) : {}
-  const { data, error } = await db
+  const { data, error } = await readDb
     .from('plan_messages')
     .select(PLAN_MESSAGE_METADATA_SELECT_COLUMNS)
     .eq('plan_id', planId)
@@ -1269,7 +2240,7 @@ async function syncApprovalMessageMetadata(db: PlannerDb, planId: string, approv
         },
       } as Json
 
-      const { error: updateError } = await db
+      const { error: updateError } = await writeDb
         .from('plan_messages')
         .update({ metadata: nextMetadata })
         .eq('id', row.id)
@@ -1357,6 +2328,12 @@ function readStringArray(value: unknown): string[] {
 
 function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function readIntegerCents(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {

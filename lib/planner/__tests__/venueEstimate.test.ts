@@ -10,6 +10,27 @@ describe('venue recommendation estimate', () => {
     ).toBe(150_000)
   })
 
+  it('reads a signup nightly rate without requiring hourly or daily duplicates', () => {
+    expect(
+      estimateVenueRecommendationPriceCents({
+        pricing_model: 'flat_rate',
+        price_per_night_cents: 9550,
+      })
+    ).toBe(9550)
+  })
+
+  it('honors a newly confirmed nightly rate over preserved ambiguous legacy fields', () => {
+    expect(
+      estimateVenueRecommendationPriceCents({
+        pricing_model: 'flat_rate',
+        hourly_rate_cents: 35_000,
+        daily_rate_cents: 120_000,
+        price_per_night_cents: 9550,
+        auto_approve_conditions: { nightly_rate_cents_authoritative: true },
+      })
+    ).toBe(9550)
+  })
+
   it('returns negative organizer payout cents for per-head CHI', () => {
     expect(
       estimateVenueRecommendationPriceCents(

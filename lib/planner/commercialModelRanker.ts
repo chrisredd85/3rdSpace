@@ -113,7 +113,8 @@ function inferSupportedCommercialModels(venue: Record<string, unknown>, fallback
     pricingModel.includes('flat') ||
     pricingModel.includes('hourly') ||
     readCents(venue.hourly_rate_cents as number | string | null | undefined, venue.hourly_rate as number | string | null | undefined) !== null ||
-    readCents(venue.daily_rate_cents as number | string | null | undefined, venue.daily_rate as number | string | null | undefined) !== null
+    readCents(venue.daily_rate_cents as number | string | null | undefined, venue.daily_rate as number | string | null | undefined) !== null ||
+    readCents(venue.price_per_night_cents as number | string | null | undefined, venue.price_per_night as number | string | null | undefined) !== null
   ) {
     models.add('flat_rental')
   }

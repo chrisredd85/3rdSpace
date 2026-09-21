@@ -6,6 +6,7 @@ import type {
 } from '@/lib/planner/archetypes/types'
 import { readCents } from '@/lib/money'
 import type { BuilderAttendanceSummary } from '@/lib/server/builderAttendanceHistory'
+import { readVenueRentalRateCents } from '@/lib/venues/venueRateUnits'
 
 export interface VenueRankerPlanInput {
   guest_count?: number | null
@@ -609,11 +610,7 @@ function computeAttendanceCalibration(
 function estimateVenueCents(row: Record<string, unknown>): number {
   const directEstimate = readNumber(row.estimate_cents)
   if (directEstimate !== null) return directEstimate
-  return (
-    readCents(row.hourly_rate_cents as number | string | null | undefined, row.hourly_rate as number | string | null | undefined) ??
-    readCents(row.daily_rate_cents as number | string | null | undefined, row.daily_rate as number | string | null | undefined) ??
-    0
-  )
+  return readVenueRentalRateCents(row) ?? 0
 }
 
 function serializeSearchValue(value: unknown): string {

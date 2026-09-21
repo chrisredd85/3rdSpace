@@ -16,6 +16,11 @@ import { supabase } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/toast'
 import { VendorServicesManager } from '@/components/vendor/VendorServicesManager'
 import type { ServiceType } from '@/lib/types'
+import type { VendorBaseRateCents } from '@/lib/money'
+import {
+  loadVendorServicesBaseRateDollars,
+  saveVendorServicesBaseRateCents,
+} from '@/lib/vendors/vendorRateUnits'
 
 const serviceAreaOptions = [
   { value: 'all_bay_area', label: 'All Bay Area' },
@@ -68,7 +73,7 @@ type VendorProfile = {
   setup_time_minutes: number | null
   photo_url: string | null
   is_published: boolean | null
-  base_rate: number | null
+  base_rate: VendorBaseRateCents | null
   deposit_percentage: number | null
   requires_deposit: boolean | null
   lead_time_days: number | null
@@ -242,7 +247,7 @@ export default function VendorServicesPage() {
           service_area: (profile.service_area || 'all_bay_area') as VendorFormData['service_area'],
           setup_time: String(profile.setup_time_minutes || 60) as VendorFormData['setup_time'],
           is_published: profile.is_published !== false,
-          base_rate: profile.base_rate ?? null,
+          base_rate: loadVendorServicesBaseRateDollars(profile.base_rate),
           deposit_percentage: profile.deposit_percentage ?? null,
           lead_time_days: profile.lead_time_days ?? null,
           availability_notes: profile.availability_notes || '',
@@ -339,7 +344,7 @@ export default function VendorServicesPage() {
           vendor_type: getVendorType(data.service_type),
           setup_time_minutes: Number(data.setup_time),
           is_published: data.is_published,
-          base_rate: data.base_rate,
+          base_rate: saveVendorServicesBaseRateCents(data.base_rate),
           deposit_percentage: data.deposit_percentage,
           requires_deposit: typeof data.deposit_percentage === 'number' && data.deposit_percentage > 0,
           lead_time_days: data.lead_time_days,
@@ -693,7 +698,7 @@ export default function VendorServicesPage() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div>
                 <label className="mb-2 block text-sm font-medium text-ink">Base / starting price ($)</label>
-                <Input type="number" step="1" {...register('base_rate')} placeholder="950" />
+                <Input type="number" min="0" step="0.01" {...register('base_rate')} placeholder="950" />
               </div>
               <div>
                 <label className="mb-2 block text-sm font-medium text-ink">Deposit required (%)</label>

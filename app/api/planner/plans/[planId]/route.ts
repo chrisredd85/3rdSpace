@@ -18,7 +18,12 @@ import {
 import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
 import { loadPlanAgentFields } from '@/lib/planner/planAgentSummaries'
 import { enrichPlanSelectedVendors } from '@/lib/planner/planVendorSelections'
-import { createClient } from '@/lib/supabase/server'
+import { enrichApprovalsWithActionState } from '@/lib/planner/pendingApprovals'
+import {
+  transitionPlanStatus,
+  type PlanStatusRpcClient,
+} from '@/lib/planner/planStatusTransitions'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type {
   Approval,
   Json,
@@ -26,7 +31,6 @@ import type {
   PlannerApiErrorResponse,
   PlannerFullPlanResponse,
   PlanMessage,
-  PlanStatus,
   Recommendation,
 } from '@/lib/types'
 
@@ -35,7 +39,16 @@ type PlannerAuth =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
 
-const planStatusSchema = z.enum(['drafting', 'ready', 'approved', 'executing', 'complete', 'archived'])
+const planStatusSchema = z.enum([
+  'drafting',
+  'ready',
+  'approved',
+  'executing',
+  'booked',
+  'completed',
+  'complete',
+  'archived',
+])
 
 const patchPlanSchema = z.object({
   status: planStatusSchema.optional(),
@@ -128,18 +141,65 @@ export async function PATCH(
     const existingPlan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
     if (!existingPlan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
 
-    const updates = normalizePlanPatch(parsed.data, existingPlan)
-    if (updates.status && !isAllowedPlanStatusTransition(existingPlan.status, updates.status as PlanStatus)) {
+    if (parsed.data.status && parsed.data.status !== 'archived') {
       return NextResponse.json(
-        { error: `Illegal status transition from ${existingPlan.status} to ${updates.status}` },
+        {
+          error: 'Plan lifecycle status is advanced by the corresponding planner command, not by a generic update.',
+          details: { code: 'plan_status_command_required' },
+        },
         { status: 422 }
       )
     }
 
+    const updates = normalizePlanPatch(parsed.data, existingPlan)
     const changedUpdates = pickChangedFields(existingPlan, updates)
-    if (Object.keys(changedUpdates).length === 0) {
-      return NextResponse.json({ plan: existingPlan })
+    if (arePlanFactsLocked(existingPlan) && hasCanonicalEventSensitiveChanges(changedUpdates)) {
+      return NextResponse.json(
+        {
+          error: 'This plan has already been approved or materialized. Create a revision and re-authorize it before changing event facts.',
+          details: { code: 'canonical_event_revision_required' },
+        },
+        { status: 409 }
+      )
     }
+
+    if (parsed.data.status === 'archived') {
+      if (Object.keys(changedUpdates).length > 0) {
+        return NextResponse.json(
+          {
+            error: 'Archive a plan separately from editing its details.',
+            details: { code: 'archive_command_must_be_isolated' },
+          },
+          { status: 422 }
+        )
+      }
+      if (existingPlan.status === 'archived') return NextResponse.json({ plan: existingPlan })
+
+      try {
+        const plan = await transitionPlanStatus(
+          createServiceRoleClient() as unknown as PlanStatusRpcClient,
+          {
+            planId: existingPlan.id,
+            expectedStatus: existingPlan.status,
+            toStatus: 'archived',
+            trigger: 'plan_archived',
+            actorId: auth.userId,
+            context: { source: 'planner_plan_patch' },
+          }
+        )
+        return NextResponse.json({ plan })
+      } catch (error) {
+        console.error('Planner plan archive transition error:', error)
+        return NextResponse.json(
+          { error: 'Plan could not be archived', details: { code: 'plan_status_transition_failed' } },
+          { status: 409 }
+        )
+      }
+    }
+
+    if (Object.keys(changedUpdates).length === 0) return NextResponse.json({ plan: existingPlan })
+
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
 
     const { data, error } = await auth.db
       .from('plans')
@@ -154,11 +214,12 @@ export async function PATCH(
       return NextResponse.json({ error: 'Failed to update plan' }, { status: 500 })
     }
 
-    await insertPlanUpdateRows(auth.db, existingPlan, changedUpdates)
+    await insertPlanUpdateRows(writeDb, existingPlan, changedUpdates)
     const plan = data as Plan
     const followUpMessages = didMatchAffectingFieldsChange(existingPlan, plan)
       ? await refreshRecommendationsAfterPlanChange({
           db: auth.db,
+          writeDb,
           request,
           plan,
           changedFields: findMatchAffectingChangedFields(existingPlan, plan),
@@ -252,14 +313,13 @@ async function loadApprovals(db: PlannerDb, planId: string): Promise<Approval[]>
     return []
   }
 
-  return (data ?? []) as Approval[]
+  return enrichApprovalsWithActionState(db, (data ?? []) as Approval[])
 }
 
 function normalizePlanPatch(input: z.infer<typeof patchPlanSchema>, currentPlan: Plan): Record<string, unknown> {
   const updates: Record<string, unknown> = {}
 
   for (const key of [
-    'status',
     'title',
     'event_type',
     'date_window_start',
@@ -308,6 +368,7 @@ function normalizePlanPatch(input: z.infer<typeof patchPlanSchema>, currentPlan:
 
 async function refreshRecommendationsAfterPlanChange(input: {
   db: PlannerDb
+  writeDb: PlannerDb
   request: NextRequest
   plan: Plan
   changedFields: string[]
@@ -317,11 +378,12 @@ async function refreshRecommendationsAfterPlanChange(input: {
 
   const supersededAt = new Date().toISOString()
   await Promise.all(recommendations.map((recommendation) => supersedeRecommendation(input.db, recommendation, supersededAt, input.changedFields)))
-  await invalidatePendingOutreachApprovals(input.db, input.plan.id, supersededAt, input.changedFields)
+  await invalidatePendingOutreachApprovals(input.db, input.writeDb, input.plan.id, supersededAt, input.changedFields)
 
-  const statusMessage = await insertRecommendationRefreshStatusMessage(input.db, input.plan.id, input.changedFields)
+  const statusMessage = await insertRecommendationRefreshStatusMessage(input.writeDb, input.plan.id, input.changedFields)
   const recommendationMessages = await createAutoRecommendationMessage({
     db: input.db,
+    writeDb: input.writeDb as Parameters<typeof createAutoRecommendationMessage>[0]['writeDb'],
     request: input.request,
     planId: input.plan.id,
   })
@@ -368,12 +430,13 @@ async function supersedeRecommendation(
 }
 
 async function invalidatePendingOutreachApprovals(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   planId: string,
   supersededAt: string,
   changedFields: string[]
 ) {
-  const { data, error } = await db
+  const { data, error } = await readDb
     .from('agent_actions')
     .select('id, action_type, status, payload_json')
     .eq('plan_id', planId)
@@ -391,7 +454,7 @@ async function invalidatePendingOutreachApprovals(
     .filter((id): id is string => Boolean(id))
   if (actionIds.length === 0) return
 
-  const { error: approvalError } = await db
+  const { error: approvalError } = await writeDb
     .from('approvals')
     .update({ status: 're_approval_required' })
     .in('agent_action_id', actionIds)
@@ -399,16 +462,17 @@ async function invalidatePendingOutreachApprovals(
 
   if (approvalError) console.error('Planner outreach approval invalidation error:', approvalError)
 
-  await markOutreachApprovalMessagesReapprovalRequired(db, planId, supersededAt, changedFields)
+  await markOutreachApprovalMessagesReapprovalRequired(readDb, writeDb, planId, supersededAt, changedFields)
 }
 
 async function markOutreachApprovalMessagesReapprovalRequired(
-  db: PlannerDb,
+  readDb: PlannerDb,
+  writeDb: PlannerDb,
   planId: string,
   supersededAt: string,
   changedFields: string[]
 ) {
-  const { data, error } = await db
+  const { data, error } = await readDb
     .from('plan_messages')
     .select(PLAN_MESSAGE_SELECT_COLUMNS)
     .eq('plan_id', planId)
@@ -436,7 +500,7 @@ async function markOutreachApprovalMessagesReapprovalRequired(
         : approval,
     } as Json
 
-    const { error: updateError } = await db
+    const { error: updateError } = await writeDb
       .from('plan_messages')
       .update({ metadata: nextMetadata })
       .eq('id', message.id)
@@ -517,19 +581,28 @@ function pickChangedFields(plan: Plan, updates: Record<string, unknown>) {
   )
 }
 
-function isAllowedPlanStatusTransition(current: PlanStatus, next: PlanStatus) {
-  if (current === next) return true
+function hasCanonicalEventSensitiveChanges(updates: Record<string, unknown>): boolean {
+  const eventSensitiveFields = new Set([
+    'title',
+    'event_type',
+    'guest_count',
+    'neighborhood',
+    'date_window_start',
+    'date_window_end',
+    'budget_cap_cents',
+    'ticketed',
+    'ticketing_model',
+    'food_responsibility',
+    'venue_terms',
+    'agent_action',
+    'profit_goal_cents',
+    'notes',
+  ])
+  return Object.keys(updates).some((field) => eventSensitiveFields.has(field))
+}
 
-  const allowed: Record<PlanStatus, PlanStatus[]> = {
-    drafting: ['ready', 'archived'],
-    ready: ['approved', 'drafting', 'archived'],
-    approved: ['executing', 'archived'],
-    executing: ['complete', 'archived'],
-    complete: ['archived'],
-    archived: [],
-  }
-
-  return allowed[current].includes(next)
+function arePlanFactsLocked(plan: Plan): boolean {
+  return Boolean(plan.materialized_event_id) || !['drafting', 'ready'].includes(plan.status)
 }
 
 async function insertPlanUpdateRows(db: PlannerDb, plan: Plan, updates: Record<string, unknown>) {

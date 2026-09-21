@@ -5,6 +5,7 @@ import {
   listGmailThreadMessages,
   modifyGmailThreadLabels,
   parseGmailOAuthState,
+  reconcileGmailMessageByRfcMessageId,
   sendGmailMessage,
 } from '@/lib/outreach/gmail'
 import { decryptEmailToken } from '@/lib/outreach/crypto'
@@ -144,6 +145,48 @@ describe('Gmail outreach helpers', () => {
     )
     const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
     expect(body.raw).toEqual(expect.any(String))
+  })
+
+  it('persists a deterministic RFC Message-ID in the outbound MIME payload', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: 'gmail-message-id',
+      threadId: 'gmail-thread-id',
+    }), { status: 200 })) as jest.Mock
+
+    await sendGmailMessage({
+      accessToken: 'access-token',
+      from: 'creator@example.com',
+      to: 'venue@example.com',
+      replyTo: 'creator@example.com',
+      subject: 'Event partnership',
+      bodyText: 'Approved outreach body',
+      rfcMessageId: '<approval.action.recipient@mail.3rdplace.app>',
+    })
+
+    const requestBody = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
+    const mime = Buffer.from(requestBody.raw, 'base64url').toString('utf8')
+    expect(mime).toContain('Message-ID: <approval.action.recipient@mail.3rdplace.app>')
+  })
+
+  it('reconciles an ambiguous send by deterministic RFC Message-ID', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({
+      messages: [{ id: 'gmail-message-id', threadId: 'gmail-thread-id' }],
+    }), { status: 200 })) as jest.Mock
+
+    await expect(reconcileGmailMessageByRfcMessageId({
+      accessToken: 'access-token',
+      rfcMessageId: '<approval.action.recipient@mail.3rdplace.app>',
+    })).resolves.toEqual({
+      gmailMessageId: 'gmail-message-id',
+      gmailThreadId: 'gmail-thread-id',
+    })
+
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0]
+    expect(String(url)).toContain('rfc822msgid%3A%3Capproval.action.recipient%40mail.3rdplace.app%3E')
+    expect(init).toEqual(expect.objectContaining({
+      headers: { Authorization: 'Bearer access-token' },
+      cache: 'no-store',
+    }))
   })
 
   it('reads and parses replies from a Gmail thread', async () => {

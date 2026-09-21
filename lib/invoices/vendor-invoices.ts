@@ -509,6 +509,7 @@ export function renderInvoicePdf(context: InvoiceContext) {
 export async function generateInvoiceFromBooking(params: {
   admin: any
   bookingId: string
+  generationKey?: string
   lineItems?: InvoiceLineItem[]
   taxRate?: number
   depositDueDate?: string
@@ -599,6 +600,7 @@ export async function generateInvoiceFromBooking(params: {
     .from('vendor_invoices')
     .insert({
       booking_id: booking.id,
+      booking_generation_key: params.generationKey ?? null,
       vendor_id: booking.vendor_id,
       event_id: booking.event_id,
       builder_id: eventResult.data.builder_id,
@@ -622,7 +624,18 @@ export async function generateInvoiceFromBooking(params: {
     .select('*')
     .single()
 
-  if (insertError) throw new Error(insertError.message)
+  if (insertError) {
+    if (params.generationKey && insertError.code === '23505') {
+      const { data: winner, error: winnerError } = await admin
+        .from('vendor_invoices')
+        .select('*')
+        .eq('booking_generation_key', params.generationKey)
+        .maybeSingle()
+      if (winnerError) throw new Error(winnerError.message)
+      if (winner) return winner as VendorInvoice
+    }
+    throw new Error(insertError.message)
+  }
 
   await admin
     .from('vendor_invoices')
@@ -725,7 +738,10 @@ export async function ensureInvoiceForBooking(params: {
   if (error) throw new Error(error.message)
   if (existing?.[0]) return existing[0] as VendorInvoice
 
-  return generateInvoiceFromBooking(params)
+  return generateInvoiceFromBooking({
+    ...params,
+    generationKey: params.bookingId,
+  })
 }
 
 export async function sendInvoiceEmail(params: {

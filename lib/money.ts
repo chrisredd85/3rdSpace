@@ -1,3 +1,21 @@
+declare const centsBrand: unique symbol
+declare const marginPercentBrand: unique symbol
+
+/** Integer minor currency units persisted by 3rdPlace. */
+export type Cents = number & { readonly [centsBrand]: 'Cents' }
+
+/** Canonical persisted vendor base rate. */
+export type VendorBaseRateCents = Cents
+
+/** Canonical venue booking estimate used at the deposit UI boundary. */
+export type VenueBookingCostCents = Cents
+
+/** Canonical venue nightly rate persisted by signup. */
+export type VenueNightlyRateCents = Cents
+
+/** A percentage expressed in percentage points, not a 0-1 ratio. */
+export type MarginPercent = number & { readonly [marginPercentBrand]: 'MarginPercent' }
+
 export function toFiniteNumber(value: number | string | null | undefined): number | null {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null
   if (typeof value === 'string') {
@@ -7,14 +25,46 @@ export function toFiniteNumber(value: number | string | null | undefined): numbe
   return null
 }
 
+/**
+ * Parses a UI-facing dollar value into canonical integer cents.
+ * Invalid or absent optional values remain null instead of silently becoming $0.
+ */
+export function parseDollarsToCents(
+  value: number | string | null | undefined
+): Cents | null {
+  if (typeof value === 'string' && value.trim() === '') return null
+  const dollars = toFiniteNumber(value)
+  if (dollars === null) return null
+  return Math.round(dollars * 100) as Cents
+}
+
+/**
+ * Converts canonical cents to the numeric dollar value expected by form controls.
+ * Currency copy should still use Intl.NumberFormat for display formatting.
+ */
+export function formatCentsToDollars(
+  value: number | string | null | undefined
+): number | null {
+  const cents = toFiniteNumber(value)
+  if (cents === null) return null
+  return Math.round(cents) / 100
+}
+
+/** Converts a 0-1 financial ratio into canonical percentage points. */
+export function marginRatioToPercent(
+  value: number | string | null | undefined
+): MarginPercent | null {
+  const ratio = toFiniteNumber(value)
+  if (ratio === null) return null
+  return Number((ratio * 100).toFixed(4)) as MarginPercent
+}
+
 export function dollarsToCents(value: number | string | null | undefined): number {
-  const dollars = toFiniteNumber(value) ?? 0
-  return Math.round(dollars * 100)
+  return parseDollarsToCents(value) ?? 0
 }
 
 export function centsToDollars(value: number | string | null | undefined): number {
-  const cents = toFiniteNumber(value) ?? 0
-  return Math.round(cents) / 100
+  return formatCentsToDollars(value) ?? 0
 }
 
 export function readCents(

@@ -1,5 +1,6 @@
 import { readCents } from '@/lib/money'
 import type { PricingModel, Venue } from '@/lib/types'
+import { hasAuthoritativeVenueNightlyRate } from '@/lib/venues/venueRateUnits'
 
 export type VenueRow = Record<string, any>
 
@@ -98,9 +99,14 @@ export const VENUE_DETAIL_SELECT_COLUMNS = VENUE_SELECT_COLUMNS
  */
 export function normalizeVenue(row: VenueRow): Venue {
   const standingCapacity = row.capacity ?? row.standing_capacity ?? row.seated_capacity ?? 0
-  const hourlyRateCents = readCents(row.hourly_rate_cents, row.hourly_rate)
-  const dailyRateCents = readCents(row.daily_rate_cents, row.daily_rate)
   const pricePerNightCents = readCents(row.price_per_night_cents, row.price_per_night)
+  const nightlyRateIsAuthoritative = hasAuthoritativeVenueNightlyRate(row)
+  const hourlyRateCents = nightlyRateIsAuthoritative
+    ? null
+    : readCents(row.hourly_rate_cents, row.hourly_rate)
+  const dailyRateCents = nightlyRateIsAuthoritative
+    ? null
+    : readCents(row.daily_rate_cents, row.daily_rate)
   const depositAmountCents = readCents(row.deposit_amount_cents, row.deposit_amount)
   const perHeadChiCents =
     readCents(
@@ -139,8 +145,8 @@ export function normalizeVenue(row: VenueRow): Venue {
     square_footage: row.square_footage ?? null,
     hourly_rate: hourlyRateCents,
     hourly_rate_cents: hourlyRateCents,
-    daily_rate: dailyRateCents ?? pricePerNightCents,
-    daily_rate_cents: dailyRateCents,
+    daily_rate: nightlyRateIsAuthoritative ? pricePerNightCents : dailyRateCents ?? pricePerNightCents,
+    daily_rate_cents: nightlyRateIsAuthoritative ? pricePerNightCents : dailyRateCents,
     price_per_night_cents: pricePerNightCents,
     pricing_model: normalizeVenuePricingModel(row.pricing_model),
     ticket_sales_share_enabled: row.ticket_sales_share_enabled ?? false,

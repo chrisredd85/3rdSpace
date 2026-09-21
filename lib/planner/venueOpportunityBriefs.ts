@@ -5,6 +5,7 @@ type PlannerDb = { from: (table: string) => any }
 
 export interface VenueOpportunityCreateInput {
   db: PlannerDb
+  writeDb?: PlannerDb
   plan: Plan
   userId: string
   venueIds: string[]
@@ -97,7 +98,8 @@ export async function createVenueOpportunityBrief(input: VenueOpportunityCreateI
     outreach_message: input.outreachMessage ?? null,
   }
 
-  const { data: briefData, error: briefError } = await input.db
+  const writeDb = input.writeDb ?? input.db
+  const { data: briefData, error: briefError } = await writeDb
     .from('venue_opportunity_briefs')
     .insert(briefInsert)
     .select('*')
@@ -133,7 +135,7 @@ export async function createVenueOpportunityBrief(input: VenueOpportunityCreateI
     }
   })
 
-  const { data: inviteData, error: inviteError } = await input.db
+  const { data: inviteData, error: inviteError } = await writeDb
     .from('venue_opportunity_invites')
     .insert(inviteRows)
     .select('*')
@@ -152,7 +154,11 @@ export async function createVenueOpportunityBrief(input: VenueOpportunityCreateI
 /**
  * Adds unique 14-day magic-link tokens to queued invites for an existing brief.
  */
-export async function ensureVenueOpportunityInviteTokens(db: PlannerDb, briefId: string) {
+export async function ensureVenueOpportunityInviteTokens(
+  db: PlannerDb,
+  briefId: string,
+  writeDb: PlannerDb = db
+) {
   const { data, error } = await db
     .from('venue_opportunity_invites')
     .select('*')
@@ -172,7 +178,7 @@ export async function ensureVenueOpportunityInviteTokens(db: PlannerDb, briefId:
         return row
       }
 
-      const { data: updated, error: updateError } = await db
+      const { data: updated, error: updateError } = await writeDb
         .from('venue_opportunity_invites')
         .update({
           status: 'queued',

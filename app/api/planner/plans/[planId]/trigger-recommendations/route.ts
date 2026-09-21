@@ -17,7 +17,7 @@ export const maxDuration = 60
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAutoRecommendationMessage } from '@/lib/planner/autoRecommendations'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { PlannerApiErrorResponse } from '@/lib/types'
 
 interface RouteContext {
@@ -46,7 +46,23 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const { planId } = (await context.params)
 
   try {
-    const messages = await createAutoRecommendationMessage({ db, request, planId })
+    const { data: plan, error: planError } = await supabase
+      .from('plans')
+      .select('id')
+      .eq('id', planId)
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (planError) {
+      console.error('[trigger-recommendations] Plan lookup failed', planError)
+      return NextResponse.json({ messages: [] }, { status: 500 })
+    }
+    if (!plan) {
+      return NextResponse.json<PlannerApiErrorResponse>({ error: 'Plan not found' }, { status: 404 })
+    }
+
+    const writeDb = createServiceRoleClient() as unknown as Parameters<typeof createAutoRecommendationMessage>[0]['writeDb']
+    const messages = await createAutoRecommendationMessage({ db, writeDb, request, planId })
     return NextResponse.json({ messages })
   } catch (error) {
     console.error('[trigger-recommendations] Unexpected error', error)

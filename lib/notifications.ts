@@ -225,12 +225,11 @@ function isOffline(lastLoginAt?: string | null) {
 }
 
 /**
- * Uses service role when available so trigger/helper code can notify other users.
+ * Uses service role so trigger/helper code can notify other users.
  */
 function getNotificationClient() {
-  try {
-    return createServiceRoleClient() as any
-  } catch {
-    return createClient() as any
-  }
+  // Grouped notifications may target a user other than the current request
+  // caller (for example, booking triggers). The RPC is service-only, so never
+  // silently downgrade this server path to a session-scoped client.
+  return createServiceRoleClient() as any
 }

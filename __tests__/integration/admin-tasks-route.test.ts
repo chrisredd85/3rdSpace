@@ -107,7 +107,15 @@ describe('PATCH /api/admin/tasks/[id]', () => {
     mockAdmin()
     mockMutateAdminTask.mockResolvedValue({ id: TASK_ID, status: 'complete' })
 
-    const response = await PATCH(request({ action: 'complete', note: 'Done.' }), routeContext())
+    const response = await PATCH(request({
+      action: 'complete',
+      note: 'Internal reference only.',
+      hostMessage: 'The venue confirmed the hold.',
+      outcomePayload: {
+        outcome: 'hold_confirmed',
+        hold_reference: 'hold-ref-1',
+      },
+    }), routeContext())
     const body = await json(response)
 
     expect(response.status).toBe(200)
@@ -117,8 +125,25 @@ describe('PATCH /api/admin/tasks/[id]', () => {
       adminUserId: '22222222-2222-4222-8222-222222222222',
       adminUserEmail: 'admin@example.com',
       action: 'complete',
-      note: 'Done.',
+      note: 'Internal reference only.',
+      hostMessage: 'The venue confirmed the hold.',
+      outcomePayload: {
+        outcome: 'hold_confirmed',
+        hold_reference: 'hold-ref-1',
+      },
     })
+  })
+
+  it('rejects an unstructured venue-hold outcome', async () => {
+    mockAdmin()
+
+    const response = await PATCH(request({
+      action: 'complete',
+      outcomePayload: { outcome: 'maybe' },
+    }), routeContext())
+
+    expect(response.status).toBe(400)
+    expect(mockMutateAdminTask).not.toHaveBeenCalled()
   })
 
   it('returns service status codes for invalid state transitions', async () => {

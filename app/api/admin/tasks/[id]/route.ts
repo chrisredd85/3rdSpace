@@ -6,6 +6,13 @@ import { getAdminContext } from '@/lib/server/admin-auth'
 import { AdminTaskServiceError, mutateAdminTask } from '@/lib/server/admin-tasks'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 
+const completionOutcomeSchema = z.object({
+  outcome: z.enum(['completed', 'hold_confirmed', 'venue_unavailable']),
+  hold_reference: z.string().trim().max(240).nullable().optional(),
+  hold_expires_at: z.string().datetime().nullable().optional(),
+  summary: z.string().trim().max(1000).nullable().optional(),
+}).strict()
+
 const taskActionSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('assign'),
@@ -17,10 +24,13 @@ const taskActionSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('complete'),
     note: z.string().trim().max(4000).nullable().optional(),
+    hostMessage: z.string().trim().max(1000).nullable().optional(),
+    outcomePayload: completionOutcomeSchema.optional(),
   }),
   z.object({
     action: z.literal('cancel'),
     note: z.string().trim().max(4000).nullable().optional(),
+    hostMessage: z.string().trim().max(1000).nullable().optional(),
   }),
   z.object({
     action: z.literal('append_note'),

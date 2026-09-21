@@ -24,6 +24,11 @@ class Query {
     return this
   }
 
+  in(column: string, values: unknown[]) {
+    this.filters.push((row) => values.includes(row[column]))
+    return this
+  }
+
   order(column: string, options?: { ascending?: boolean }) {
     this.orderColumn = column
     this.ascending = options?.ascending ?? true
@@ -122,6 +127,84 @@ describe('pending approvals planner helpers', () => {
           created_at: '2026-06-24T00:00:00.000Z',
           updated_at: '2026-06-24T00:00:00.000Z',
         },
+        {
+          id: 'approval-expired',
+          plan_id: plan.id,
+          agent_action_id: 'action-expired',
+          action_label: 'Expired hold',
+          provider: 'Venue',
+          status: 'expired',
+          created_at: '2026-06-24T00:03:00.000Z',
+          updated_at: '2026-06-24T00:03:00.000Z',
+        },
+        {
+          id: 'approval-reapproval',
+          plan_id: plan.id,
+          agent_action_id: 'action-reapproval',
+          action_label: 'Changed quote',
+          provider: 'Venue',
+          status: 're_approval_required',
+          created_at: '2026-06-24T00:04:00.000Z',
+          updated_at: '2026-06-24T00:04:00.000Z',
+        },
+        {
+          id: 'approval-failed',
+          plan_id: plan.id,
+          agent_action_id: 'action-failed',
+          action_label: 'Failed Gmail send',
+          provider: 'Gmail',
+          status: 'authorized',
+          created_at: '2026-06-24T00:05:00.000Z',
+          updated_at: '2026-06-24T00:05:00.000Z',
+        },
+        {
+          id: 'approval-executing',
+          plan_id: plan.id,
+          agent_action_id: 'action-executing',
+          action_label: 'Venue hold follow-up',
+          provider: '3rdPlace',
+          status: 'authorized',
+          created_at: '2026-06-24T00:06:00.000Z',
+          updated_at: '2026-06-24T00:06:00.000Z',
+        },
+        {
+          id: 'approval-unsafe-preparation',
+          plan_id: plan.id,
+          agent_action_id: 'action-unsafe-preparation',
+          action_label: 'Prepare venue outreach',
+          provider: '3rdPlace',
+          status: 'authorized',
+          created_at: '2026-06-24T00:07:00.000Z',
+          updated_at: '2026-06-24T00:07:00.000Z',
+        },
+      ],
+      agent_actions: [
+        { id: 'action-expired', action_type: 'hold_request', payload_json: {}, status: 'pending', result_metadata: null, last_retry_result: null },
+        { id: 'action-reapproval', action_type: 'hold_request', payload_json: {}, status: 'pending', result_metadata: null, last_retry_result: null },
+        { id: 'action-failed', action_type: 'email', payload_json: { kind: 'gmail_approved_outreach' }, status: 'failed', result_metadata: { error: 'provider failed' }, last_retry_result: null },
+        {
+          id: 'action-executing',
+          action_type: 'hold_request',
+          payload_json: {},
+          status: 'executing',
+          result_metadata: {
+            execution_mode: 'concierge_admin_queue',
+            admin_task_id: 'task-1',
+          },
+          last_retry_result: {
+            execution_mode: 'concierge_admin_queue',
+            handoff_status: 'retry_claimed',
+            admin_task_id: 'task-1',
+          },
+        },
+        {
+          id: 'action-unsafe-preparation',
+          action_type: 'opportunity_send_venues',
+          payload_json: { venue_ids: ['venue-1'] },
+          status: 'failed',
+          result_metadata: { error: 'partial preparation failed' },
+          last_retry_result: null,
+        },
       ],
     })
 
@@ -130,7 +213,27 @@ describe('pending approvals planner helpers', () => {
     const withPlan = attachPendingApprovalPlanContext(approvals, plans as Plan[])
 
     expect(plans.map((row) => row.id)).toEqual(['plan-1', 'archived-plan'])
-    expect(approvals.map((approval) => approval.id)).toEqual(['approval-earlier', 'approval-later'])
+    expect(approvals.map((approval) => approval.id)).toEqual([
+      'approval-earlier',
+      'approval-later',
+      'approval-expired',
+      'approval-reapproval',
+      'approval-failed',
+      'approval-executing',
+    ])
+    expect(approvals.map((approval) => [approval.id, approval.ui_status, approval.available_actions])).toEqual([
+      ['approval-earlier', 'pending', ['edit', 'authorize', 'cancel']],
+      ['approval-later', 'pending', ['edit', 'authorize', 'cancel']],
+      ['approval-expired', 'expired', ['request_reapproval']],
+      ['approval-reapproval', 'reapproval_required', ['request_reapproval']],
+      ['approval-failed', 'failed', ['retry']],
+      ['approval-executing', 'executing', ['cancel_execution']],
+    ])
+    expect(approvals.find((approval) => approval.id === 'approval-executing')?.action_result).toEqual({
+      execution_mode: 'concierge_admin_queue',
+      admin_task_id: 'task-1',
+    })
+    expect(approvals.find((approval) => approval.id === 'approval-unsafe-preparation')).toBeUndefined()
     expect(withPlan[0]?.plan?.title).toBe('Oakland happy hour')
   })
 })

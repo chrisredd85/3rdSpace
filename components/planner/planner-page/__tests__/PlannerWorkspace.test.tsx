@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { PlannerWorkspace } from '@/components/planner/planner-page/PlannerWorkspace'
+import { isTemplateEligiblePlan, PlannerWorkspace, resolveTemplateApplyMessages, updateApprovalMessageState } from '@/components/planner/planner-page/PlannerWorkspace'
 import {
   getRecommendationActionKind,
   isControlledPaymentApprovalMetadata,
@@ -8,7 +8,7 @@ import {
 } from '@/components/planner/planner-page/PlannerConversation'
 import { shouldStartNewPlanFromReply } from '@/components/planner/planner-page/plannerState'
 import { ToastProvider } from '@/components/ui/toast'
-import type { Plan } from '@/lib/types'
+import type { Plan, PlanMessage } from '@/lib/types'
 
 jest.mock('@/components/planner/InviteVenueModal', () => ({
   InviteVenueModal: ({ isOpen }: { isOpen: boolean }) =>
@@ -332,6 +332,35 @@ describe('PlannerWorkspace desktop draft handoff', () => {
     expect(shouldStartNewPlanFromReply('fresh conversation please', makePlan())).toBe(true)
     expect(shouldStartNewPlanFromReply('start over with a clean workspace', makePlan())).toBe(true)
   })
+
+  it('starts fresh from both canonical and legacy completed plans while keeping booked plans active', () => {
+    expect(shouldStartNewPlanFromReply('summarize this', makePlan({ status: 'completed' }))).toBe(true)
+    expect(shouldStartNewPlanFromReply('summarize this', makePlan({ status: 'complete' }))).toBe(true)
+    expect(shouldStartNewPlanFromReply('summarize this', makePlan({ status: 'booked' }))).toBe(false)
+  })
+
+  it('only offers a new template from a canonical completed plan', () => {
+    expect(isTemplateEligiblePlan(makePlan({ status: 'completed', materialized_event_id: 'event-1' }))).toBe(true)
+    expect(isTemplateEligiblePlan(makePlan({ status: 'complete', materialized_event_id: 'event-legacy' }))).toBe(false)
+    expect(isTemplateEligiblePlan(makePlan({ status: 'completed', materialized_event_id: null }))).toBe(false)
+    expect(isTemplateEligiblePlan(makePlan({ status: 'booked', materialized_event_id: 'event-1' }))).toBe(false)
+  })
+
+  it('replaces a non-empty prior thread with the new rebook plan messages', () => {
+    const priorMessage = makePlanMessage('old-message', 'Old event thread')
+    const rebookMessage = makePlanMessage('new-message', 'Fresh rebook thread')
+
+    expect(resolveTemplateApplyMessages({
+      currentMessages: [priorMessage],
+      appliedMessages: [rebookMessage],
+      createsNewPlan: true,
+    })).toEqual([rebookMessage])
+    expect(resolveTemplateApplyMessages({
+      currentMessages: [priorMessage],
+      appliedMessages: [rebookMessage],
+      createsNewPlan: false,
+    })).toEqual([priorMessage, rebookMessage])
+  })
 })
 
 describe('planner outreach batch approval metadata', () => {
@@ -358,6 +387,63 @@ describe('planner outreach batch approval metadata', () => {
   })
 })
 
+describe('PlannerWorkspace approval version identity', () => {
+  it('replaces the superseded id and accepts later state updates only against the new row', () => {
+    const oldApprovalId = '11111111-1111-4111-8111-111111111111'
+    const newApprovalId = '22222222-2222-4222-8222-222222222222'
+    const messages: PlanMessage[] = [{
+      id: 'approval-message-1',
+      plan_id: 'plan-1',
+      role: 'agent',
+      content: 'Review this venue hold.',
+      message_type: 'approval_request',
+      metadata: {
+        status: 'pending',
+        approval: {
+          id: oldApprovalId,
+          status: 'pending',
+          snapshot_hash: 'old-snapshot',
+        },
+      },
+      created_at: '2026-07-09T12:00:00.000Z',
+    }]
+
+    const afterEdit = updateApprovalMessageState(messages, oldApprovalId, 'pending', {
+      id: newApprovalId,
+      status: 'pending',
+      ui_status: 'pending',
+      snapshot_hash: 'new-snapshot',
+    })
+    const afterExecutionFailure = updateApprovalMessageState(afterEdit, newApprovalId, 'failed', {
+      id: newApprovalId,
+      status: 'authorized',
+      ui_status: 'failed',
+      action_status: 'failed',
+    })
+
+    expect(afterEdit[0].metadata).toEqual(expect.objectContaining({
+      approval: expect.objectContaining({
+        id: newApprovalId,
+        snapshot_hash: 'new-snapshot',
+      }),
+    }))
+    expect(afterExecutionFailure[0].metadata).toEqual(expect.objectContaining({
+      status: 'authorized',
+      ui_status: 'failed',
+      approval: expect.objectContaining({
+        id: newApprovalId,
+        status: 'authorized',
+        ui_status: 'failed',
+        action_status: 'failed',
+      }),
+    }))
+    expect(updateApprovalMessageState(afterEdit, oldApprovalId, 'cancelled')).toBe(afterEdit)
+    expect(messages[0].metadata).toEqual(expect.objectContaining({
+      approval: expect.objectContaining({ id: oldApprovalId }),
+    }))
+  })
+})
+
 function makePlan(overrides: Partial<Plan> = {}): Plan {
   return {
     id: '11111111-1111-4111-8111-111111111111',
@@ -381,5 +467,17 @@ function makePlan(overrides: Partial<Plan> = {}): Plan {
     created_at: '2026-06-16T12:00:00.000Z',
     updated_at: '2026-06-16T12:00:00.000Z',
     ...overrides,
+  }
+}
+
+function makePlanMessage(id: string, content: string): PlanMessage {
+  return {
+    id,
+    plan_id: 'plan-1',
+    role: 'agent',
+    content,
+    message_type: 'text',
+    metadata: {},
+    created_at: '2026-07-10T12:00:00.000Z',
   }
 }

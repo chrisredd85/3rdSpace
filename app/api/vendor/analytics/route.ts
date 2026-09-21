@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -50,6 +50,10 @@ export async function GET(request: Request) {
     }
 
     const vendorRow = vendor as { id: string }
+    // The vendor_analytics materialized view cannot apply RLS. Resolve the
+    // caller's vendor id with the session client first, then use the service
+    // client for the explicitly scoped financial read.
+    const admin = createServiceRoleClient()
     const cacheKey = `${vendorRow.id}:${period}:${range.startDate}:${range.endDate}`
     const cached = analyticsCache.get(cacheKey)
     if (cached && cached.expiresAt > Date.now()) {
@@ -58,7 +62,7 @@ export async function GET(request: Request) {
       })
     }
 
-    const payload = await buildVendorAnalytics(supabase as any, {
+    const payload = await buildVendorAnalytics(admin as any, {
       vendorId: vendorRow.id,
       startDate: range.startDate,
       endDate: range.endDate,

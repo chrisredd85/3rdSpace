@@ -4,6 +4,10 @@ import type { NextRequest } from 'next/server'
 import { PATCH as updateApproval } from '@/app/api/planner/plans/[planId]/approvals/route'
 import { buildApprovalSnapshotHash } from '@/lib/planner/execution/reapproval'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import {
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
+} from '@/lib/planner/execution/reapproval'
 import * as Sentry from '@sentry/nextjs'
 
 jest.mock('@/lib/supabase/server', () => ({
@@ -437,11 +441,15 @@ function seedDb() {
     expires_at: null,
     snapshot_hash: null,
   })
-  db.rows.approvals[0].snapshot_hash = buildApprovalSnapshotHash({
+  const snapshotInput = {
     plan: db.rows.plans[0] as any,
     approval: db.rows.approvals[0] as any,
     action: db.rows.agent_actions[0] as any,
-  })
+    payload: db.rows.agent_actions[0].payload_json as Record<string, unknown>,
+  }
+  db.rows.approvals[0].snapshot_hash = buildApprovalSnapshotHashV2(snapshotInput)
+  db.rows.approvals[0].snapshot_json = buildApprovalSnapshotV2(snapshotInput)
+  db.rows.approvals[0].snapshot_schema_version = 2
   mockCreateClient.mockReturnValue({
     auth: {
       getUser: jest.fn().mockResolvedValue({
@@ -470,14 +478,16 @@ describe('P0 approval concurrency hardening', () => {
       updateApproval(
         request(`/api/planner/plans/${PLAN_ID}/approvals`, {
           approvalId: APPROVAL_ID,
-          action: 'authorize',
+          command: 'authorize',
+          expectedSnapshotHash: db.rows.approvals[0].snapshot_hash,
         }),
         { params: { planId: PLAN_ID } }
       ),
       updateApproval(
         request(`/api/planner/plans/${PLAN_ID}/approvals`, {
           approvalId: APPROVAL_ID,
-          action: 'authorize',
+          command: 'authorize',
+          expectedSnapshotHash: db.rows.approvals[0].snapshot_hash,
         }),
         { params: { planId: PLAN_ID } }
       ),
@@ -513,7 +523,8 @@ describe('P0 approval concurrency hardening', () => {
     const response = await updateApproval(
       request(`/api/planner/plans/${PLAN_ID}/approvals`, {
         approvalId: APPROVAL_ID,
-        action: 'authorize',
+        command: 'authorize',
+        expectedSnapshotHash: db.rows.approvals[0].snapshot_hash,
       }),
       { params: { planId: PLAN_ID } }
     )
@@ -556,7 +567,8 @@ describe('P0 approval concurrency hardening', () => {
     const response = await updateApproval(
       request(`/api/planner/plans/${PLAN_ID}/approvals`, {
         approvalId: APPROVAL_ID,
-        action: 'authorize',
+        command: 'authorize',
+        expectedSnapshotHash: db.rows.approvals[0].snapshot_hash,
       }),
       { params: { planId: PLAN_ID } }
     )

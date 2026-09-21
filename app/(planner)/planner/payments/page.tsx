@@ -4,7 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, CreditCard, ExternalLink, Loader2, RefreshCw, RotateCcw, ShieldCheck, WalletCards, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  approvalActionLabel,
+  getApprovalPresentation,
+  readApprovalUiState,
+  type ApprovalPresentationTone,
+} from '@/components/planner/approvalPresentation'
 import { centsToDollars, dollarsToCents } from '@/lib/money'
+import type { ApprovalUiAction } from '@/lib/planner/approvalUiState'
 import { cn } from '@/lib/utils'
 
 type BuilderPayoutPayment = {
@@ -105,6 +112,9 @@ type PendingPlannerApproval = {
   cancellation_terms: string | null
   package_details: string | null
   status: string
+  action_status?: string | null
+  ui_status?: string | null
+  available_actions?: string[] | null
   requested_amount_cents: number | null
   authorized_amount_cents: number | null
   created_at: string
@@ -468,12 +478,17 @@ export default function PaymentsPage() {
                       </p>
                     </div>
                   ) : null}
-                  {pendingApprovals.map((approval) => (
+                  {pendingApprovals.map((approval) => {
+                    const approvalState = readApprovalUiState(approval as unknown as Record<string, unknown>)
+                    const approvalPresentation = getApprovalPresentation(approvalState.status)
+                    const primaryAction = preferredApprovalAction(approvalState.availableActions)
+
+                    return (
                     <article key={approval.id} className="rounded-lg border border-tan bg-cream-deep/55 p-4">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <StatusBadge status={approval.status} />
+                            <ApprovalStatusBadge label={approvalPresentation.label} tone={approvalPresentation.tone} />
                             <span className="text-xs font-semibold text-ink-soft">{approval.provider ?? 'Planner approval'}</span>
                           </div>
                           <h3 className="mt-2 font-display text-lg font-bold text-ink">{approval.action_label}</h3>
@@ -483,16 +498,18 @@ export default function PaymentsPage() {
                           <p className="mt-2 text-xs font-semibold text-ink-soft">
                             {formatApprovalAmount(approval)}
                           </p>
+                          <p className="mt-1 text-xs leading-5 text-ink-soft">{approvalPresentation.description}</p>
                         </div>
                         <Button asChild size="sm" className="shrink-0">
                           <Link href={`/planner?plan=${encodeURIComponent(approval.plan_id)}&tab=approvals`}>
-                            Review
+                            {primaryAction ? approvalActionLabel(primaryAction) : 'Review details'}
                             <ArrowRight className="h-4 w-4" />
                           </Link>
                         </Button>
                       </div>
                     </article>
-                  ))}
+                    )
+                  })}
                 </div>
               ) : (
                 <div className="rounded-lg border border-dashed border-tan bg-cream-deep/55 p-8 text-center">
@@ -799,6 +816,41 @@ function StatusBadge({ status }: { status: string }) {
       {formatStatus(status)}
     </span>
   )
+}
+
+function ApprovalStatusBadge({
+  label,
+  tone,
+}: {
+  label: string
+  tone: ApprovalPresentationTone
+}) {
+  return (
+    <span className={cn(
+      'w-fit rounded-full border px-3 py-1 text-xs font-bold',
+      tone === 'success'
+        ? 'border-forest/30 bg-forest-tint text-forest'
+        : tone === 'danger'
+          ? 'border-brick/30 bg-brick-tint text-brick'
+          : tone === 'warning'
+            ? 'border-ochre/30 bg-ochre-tint text-ochre'
+            : tone === 'info'
+              ? 'border-clay/30 bg-clay-tint text-clay'
+              : 'border-tan bg-cream-deep/60 text-ink-soft'
+    )}>
+      {label}
+    </span>
+  )
+}
+
+function preferredApprovalAction(actions: readonly ApprovalUiAction[]): ApprovalUiAction | null {
+  if (actions.includes('authorize')) return 'authorize'
+  if (actions.includes('retry')) return 'retry'
+  if (actions.includes('cancel_execution')) return 'cancel_execution'
+  if (actions.includes('request_reapproval')) return 'request_reapproval'
+  if (actions.includes('edit')) return 'edit'
+  if (actions.includes('cancel')) return 'cancel'
+  return null
 }
 
 function getPayoutCents(payment: BuilderPayoutPayment) {

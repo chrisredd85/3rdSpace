@@ -1,5 +1,6 @@
 import { normalizeVendorProfile } from '@/lib/vendors/profile-adapter'
 import { normalizeStringArray } from '@/lib/vendor-services/types'
+import { formatCentsToDollars } from '@/lib/money'
 import type { Vendor } from '@/lib/types'
 
 export type VendorSearchSort = 'rating' | 'price' | 'popularity'
@@ -130,10 +131,13 @@ export function buildVendorDiscoveryResult(
         vendor.per_head_chi_cents ??
         0
     ) || null
+  // Service/package prices are reviewed legacy-major-unit columns. Profile
+  // rates are canonical cents, so convert them before this dollar-denominated
+  // discovery/UI comparison boundary.
   const prices = [
     ...services.map((service) => service.base_price).filter((price) => price > 0),
-    Number(row.base_rate || 0),
-    Number(row.hourly_rate || 0),
+    formatCentsToDollars(row.base_rate) ?? 0,
+    formatCentsToDollars(row.hourly_rate) ?? 0,
   ].filter((price) => price > 0)
 
   return {

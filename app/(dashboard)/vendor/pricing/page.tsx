@@ -29,6 +29,10 @@ import { PackageModal } from '@/components/vendor/PackageModal'
 import { VendorDepositSettings } from '@/components/vendor/VendorDepositSettings'
 import { cn } from '@/lib/utils'
 import type { PricingModel, VendorPackage } from '@/lib/types'
+import {
+  loadVendorPricingFormMoney,
+  saveVendorPricingFormMoney,
+} from '@/lib/vendors/vendorRateUnits'
 
 const optionalMoney = z.preprocess((value) => {
   if (value === '' || value === null || value === undefined) return undefined
@@ -131,14 +135,18 @@ export default function VendorPricingPage() {
   useEffect(() => {
     if (vendor) {
       const storedPerHeadRate = vendor.per_head_chi_cents ?? 0
+      const storedBaseRateCents = vendor.pricing_model === 'hourly'
+        ? vendor.hourly_rate ?? vendor.base_rate
+        : vendor.base_rate ?? vendor.hourly_rate
+      const formMoney = loadVendorPricingFormMoney({
+        baseRateCents: storedBaseRateCents,
+        perPersonRateCents: vendor.per_person_rate ?? storedPerHeadRate,
+      })
       reset({
         pricing_model: vendor.pricing_model,
-        base_rate:
-          vendor.pricing_model === 'hourly'
-            ? vendor.hourly_rate ?? vendor.base_rate ?? undefined
-            : vendor.base_rate ?? vendor.hourly_rate ?? undefined,
+        base_rate: formMoney.baseRateDollars ?? undefined,
         headcount_chi: storedPerHeadRate > 0,
-        per_person_rate: (vendor.per_person_rate ?? storedPerHeadRate) || undefined,
+        per_person_rate: formMoney.perPersonRateDollars ?? undefined,
       })
     }
   }, [vendor, reset])
@@ -162,17 +170,21 @@ export default function VendorPricingPage() {
   const handleSave = async (data: PricingFormData) => {
     if (!vendorId || !vendor) return
     try {
+      const { baseRateCents, perPersonRateCents } = saveVendorPricingFormMoney({
+        baseRateDollars: data.base_rate,
+        perPersonRateDollars: data.per_person_rate,
+      })
       await updateVendor.mutateAsync({
         id: vendorId,
         updates: {
           pricing_model: data.pricing_model,
-          base_rate: data.base_rate ?? null,
+          base_rate: baseRateCents,
           hourly_rate:
             data.pricing_model === 'hourly'
-              ? data.base_rate ?? null
+              ? baseRateCents
               : vendor.hourly_rate ?? null,
-          per_person_rate: data.per_person_rate ?? null,
-          per_head_chi_cents: data.headcount_chi ? (data.per_person_rate ?? 0) : 0,
+          per_person_rate: perPersonRateCents,
+          per_head_chi_cents: data.headcount_chi ? (perPersonRateCents ?? 0) : 0,
         },
       })
       addToast({ title: 'Pricing updated', description: 'Your pricing settings have been saved.' })
@@ -285,6 +297,8 @@ export default function VendorPricingPage() {
                 <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft/60" />
                 <Input
                   type="number"
+                  min="0"
+                  step="0.01"
                   {...register('base_rate', { valueAsNumber: true })}
                   className="pl-10"
                   placeholder={pricingModel === 'hourly' ? '150' : '1500'}
@@ -315,6 +329,8 @@ export default function VendorPricingPage() {
                   <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft/60" />
                   <Input
                     type="number"
+                    min="0"
+                    step="0.01"
                     {...register('per_person_rate', { valueAsNumber: true })}
                     className="pl-10"
                     placeholder="25"
@@ -366,6 +382,8 @@ export default function VendorPricingPage() {
                       <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft/60" />
                       <Input
                         type="number"
+                        min="0"
+                        step="0.01"
                         {...register('per_person_rate', { valueAsNumber: true })}
                         className="pl-10"
                         placeholder="5"

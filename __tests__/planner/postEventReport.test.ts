@@ -38,7 +38,7 @@ async function readJson(response: Response) {
   return JSON.parse(await response.text()) as Record<string, any>
 }
 
-function mockPlannerClient() {
+function mockPlannerClient(overrides: Partial<Record<string, any[]>> = {}) {
   const rows: Record<string, any[]> = {
     events: [{ id: 'event-1', event_name: 'Mixer', event_date: '2026-07-04' }],
     imported_attendees: [
@@ -68,6 +68,7 @@ function mockPlannerClient() {
       },
     ],
   }
+  Object.assign(rows, overrides)
 
   mockCreateClient.mockReturnValue({
     auth: {
@@ -126,5 +127,37 @@ describe('post-event report', () => {
         tickets_refunded: 1,
       }),
     ])
+  })
+
+  it('uses recorded canonical outcome evidence when imports are absent', async () => {
+    mockPlannerClient({
+      events: [{
+        id: 'event-1',
+        event_name: 'Mixer',
+        event_date: '2026-07-04',
+        outcome_recorded_at: '2026-07-05T12:00:00.000Z',
+        outcome_summary: {
+          actual_attendance: 84,
+          gross_revenue_cents: 245050,
+          total_cost_cents: 172525,
+        },
+      }],
+      imported_attendees: [],
+      event_sales_data: [],
+    })
+
+    const response = await getPostEventReport(makeRequest('/api/planner/post-event/report?eventId=event-1'))
+    const json = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(json.summary).toEqual(expect.objectContaining({
+      checked_in: 84,
+      rsvps_or_imported_attendees: 84,
+      gross_revenue_cents: 245050,
+      net_revenue_cents: 245050,
+      total_cost_cents: 172525,
+      canonical_outcome_recorded: true,
+      source_confidence: 'canonical_outcome',
+    }))
   })
 })

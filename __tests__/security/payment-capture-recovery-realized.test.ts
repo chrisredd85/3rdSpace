@@ -79,6 +79,16 @@ describeIfDatabase('realized payment capture recovery schema', () => {
     const output = psql(`
       begin;
 
+      insert into auth.users (id, aud, role, email, created_at, updated_at)
+      values (
+        '91000000-0000-4000-8000-000000000001',
+        'authenticated',
+        'authenticated',
+        'capture-owner@example.com',
+        now(),
+        now()
+      );
+
       insert into public.users (id, email, role, user_type)
       values
         ('91000000-0000-4000-8000-000000000001', 'capture-owner@example.com', 'builder', 'community_builder'),
@@ -142,7 +152,8 @@ describeIfDatabase('realized payment capture recovery schema', () => {
 
       insert into public.approvals (
         id, plan_id, agent_action_id, action_label, status,
-        requested_amount_cents, authorized_amount_cents
+        requested_amount_cents, authorized_amount_cents,
+        snapshot_hash, authorized_by, authorized_at
       ) values
         (
           '91000000-0000-4000-8000-000000000040',
@@ -151,7 +162,10 @@ describeIfDatabase('realized payment capture recovery schema', () => {
           'In-flight payment',
           'authorized',
           25000,
-          25000
+          25000,
+          'capture-inflight-snapshot',
+          '91000000-0000-4000-8000-000000000001',
+          now()
         ),
         (
           '91000000-0000-4000-8000-000000000041',
@@ -160,7 +174,10 @@ describeIfDatabase('realized payment capture recovery schema', () => {
           'Future payment',
           'authorized',
           30000,
-          30000
+          30000,
+          'capture-future-snapshot',
+          '91000000-0000-4000-8000-000000000001',
+          now()
         ),
         (
           '91000000-0000-4000-8000-000000000042',
@@ -169,7 +186,10 @@ describeIfDatabase('realized payment capture recovery schema', () => {
           'Refunded payment',
           'authorized',
           25000,
-          25000
+          25000,
+          'capture-refunded-snapshot',
+          '91000000-0000-4000-8000-000000000001',
+          now()
         );
 
       update public.agent_actions
@@ -442,6 +462,16 @@ describeIfDatabase('realized payment capture recovery schema', () => {
     const output = psql(`
       begin;
 
+      insert into auth.users (id, aud, role, email, created_at, updated_at)
+      values (
+        '92000000-0000-4000-8000-000000000001',
+        'authenticated',
+        'authenticated',
+        'refund-owner@example.com',
+        now(),
+        now()
+      );
+
       insert into public.users (id, email, role, user_type)
       values
         ('92000000-0000-4000-8000-000000000001', 'refund-owner@example.com', 'builder', 'community_builder'),
@@ -486,7 +516,8 @@ describeIfDatabase('realized payment capture recovery schema', () => {
 
       insert into public.approvals (
         id, plan_id, agent_action_id, action_label, status,
-        requested_amount_cents, authorized_amount_cents
+        requested_amount_cents, authorized_amount_cents,
+        snapshot_hash, authorized_by, authorized_at
       ) values
         (
           '92000000-0000-4000-8000-000000000040',
@@ -495,7 +526,10 @@ describeIfDatabase('realized payment capture recovery schema', () => {
           'Externally paid refund',
           'authorized',
           25000,
-          25000
+          25000,
+          'external-refund-snapshot',
+          '92000000-0000-4000-8000-000000000001',
+          now()
         ),
         (
           '92000000-0000-4000-8000-000000000041',
@@ -504,7 +538,10 @@ describeIfDatabase('realized payment capture recovery schema', () => {
           'Legacy full refund',
           'authorized',
           25000,
-          25000
+          25000,
+          'legacy-refund-snapshot',
+          '92000000-0000-4000-8000-000000000001',
+          now()
         );
 
       update public.agent_actions
@@ -647,7 +684,7 @@ describeIfDatabase('realized payment capture recovery schema', () => {
       'complete|25000|0|1',
       'refunded',
       'refunded|null|true',
-      'f',
+      't',
     ])
   })
 
@@ -760,6 +797,11 @@ describeIfDatabase('realized payment capture recovery schema', () => {
         '93000000-0000-4000-8000-000000000061'
       );
 
+      -- Simulate a pre-control-plane legacy row. The final schema rejects new
+      -- executable approvals without snapshots, but the capture RPC must remain
+      -- safe for legacy NULL/NULL snapshot pairs that predate that trigger.
+      set local session_replication_role = replica;
+
       update public.approvals
       set status = 'authorized', superseded_at = null, snapshot_hash = null
       where id = '93000000-0000-4000-8000-000000000040';
@@ -859,6 +901,8 @@ describeIfDatabase('realized payment capture recovery schema', () => {
         '93000000-0000-4000-8000-000000000030',
         '93000000-0000-4000-8000-000000000067'
       );
+
+      set local session_replication_role = origin;
 
       select has_function_privilege(
         'authenticated',

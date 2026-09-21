@@ -59,6 +59,7 @@ describe('runEconomicsAgent', () => {
     expect(result.model).toBe('gpt-4o-mini')
     expect(result.output.break_even_attendance).toBe(40)
     expect(result.output.revenue_scenarios.expected.profit_cents).toBe(10000)
+    expect(result.output.revenue_scenarios.expected.profit_margin).toBe(4.7619)
     expect(result.output.recommendation_summary).toMatch(/expected case/i)
     expect(result.output.price_points.length).toBeGreaterThan(0)
     expect(result.output.recommended_price_cents).toBe(5000)
@@ -66,6 +67,9 @@ describe('runEconomicsAgent', () => {
       model: 'gpt-4o-mini',
       response_format: { type: 'json_object' },
     }))
+    const messages = create.mock.calls[0][0].messages
+    const userPayload = JSON.parse(messages[1].content)
+    expect(userPayload.calculated_output_cents.revenue_scenarios.expected.profit_margin).toBe(4.7619)
   })
 
   it('passes vendor cost confidence and negotiated savings as deterministic model inputs', async () => {

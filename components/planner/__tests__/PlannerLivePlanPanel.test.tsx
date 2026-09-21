@@ -244,7 +244,9 @@ describe('PlannerLivePlanPanel', () => {
     expect(screen.getByText('Payment authorization blocked')).toBeInTheDocument()
     expect(screen.getAllByText('Stripe setup needed').length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: 'Stripe setup needed' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Authorize' })).toBeEnabled()
+    expect(
+      screen.getAllByRole('button', { name: 'Create approval' }).some((button) => !button.hasAttribute('disabled'))
+    ).toBe(true)
   })
 
   it('renders projection source badge and historical range when a baseline is available', async () => {
@@ -461,6 +463,32 @@ describe('PlannerLivePlanPanel', () => {
     await userEvent.click(chip)
 
     expect(onNavigateToTab).toHaveBeenCalledWith('approvals', 'gmail-approval-1')
+  })
+
+  it('preserves an existing approval id and navigates to canonical review without hashless authorization', async () => {
+    const user = userEvent.setup()
+    const onNavigateToTab = jest.fn()
+    window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      plan: makePlanSnapshot({ title: 'Canonical approval review' }),
+      messages: [
+        makeGmailApprovalMessage('approval-message-1', {
+          approvalId: 'approval-row-1',
+          discoveryVenueId: 'venue-1',
+          venueName: 'Moongate Lounge',
+          status: 'pending',
+        }),
+      ],
+      planId: 'plan-canonical-approval',
+    }))
+
+    render(<PlannerLivePlanPanel inline onNavigateToTab={onNavigateToTab} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Review approval' }))
+
+    expect(onNavigateToTab).toHaveBeenCalledWith('approvals', 'approval-message-1')
+    expect((global.fetch as jest.Mock).mock.calls.some(([url, init]) => (
+      String(url).includes('/approvals') && init?.method === 'PATCH'
+    ))).toBe(false)
   })
 
   it('lets organizers add a missing venue email and keeps draft review in approvals', async () => {

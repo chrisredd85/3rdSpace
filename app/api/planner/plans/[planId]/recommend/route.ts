@@ -37,7 +37,9 @@ import { deriveEventCity, formatVendorLocationContext, isVendorEligibleForDefaul
 import { evaluateVendorPoolSparsity, type VendorPoolSparsityResult } from '@/lib/planner/vendorDiscoverySparsity'
 import { estimateVenueRecommendationPriceCents } from '@/lib/planner/venueEstimate'
 import {
-  buildApprovalSnapshotHash,
+  APPROVAL_SNAPSHOT_SCHEMA_VERSION,
+  buildApprovalSnapshotHashV2,
+  buildApprovalSnapshotV2,
   buildLegacyPlanApprovalSnapshotHash,
 } from '@/lib/planner/execution/reapproval'
 import { getVenueComplianceStatus } from '@/lib/planner/venueComplianceGate'
@@ -88,7 +90,7 @@ import {
   type DiscoveryVendorRow,
   type VendorServiceType,
 } from '@/lib/server/places-vendor-search'
-import { readCents } from '@/lib/money'
+import { marginRatioToPercent, readCents } from '@/lib/money'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlanMessage, PlannerApiErrorResponse, Recommendation } from '@/lib/types'
 import {
@@ -415,6 +417,8 @@ export async function POST(
       )
     }
 
+    const writeDb = createServiceRoleClient() as unknown as PlannerDb
+
     const messages = await loadPlanContextMessages(auth.db, plan.id)
     const organizerPreferences = await loadBuilderOrganizerPreferences(auth.db, auth.userId)
     const baseRankingInput = buildRankingInput(plan, messages, organizerPreferences)
@@ -436,6 +440,7 @@ export async function POST(
     if (!hasOpenAIKey()) {
       return runCatalogFallback({
         auth,
+        writeDb,
         plan: recommendationPlan,
         archetype,
         builderAttendance,
@@ -486,6 +491,7 @@ export async function POST(
     const venueResult = await runLoggedVenueMatchingAgent(auth.userId, plan.id, venuePayload)
     const venueMatch = await resolveVenueMatches({
       auth,
+      writeDb,
       plan: recommendationPlan,
       rankingInput,
       archetype,
@@ -518,7 +524,7 @@ export async function POST(
     const byoVendorCostCents = sumByoVendorCostsCents(byoVendors)
 
     const rawSuggestedVendors = shouldRunVendors
-      ? await loadSuggestedVendors(auth.db, recommendationPlan, archetype, venueCostCents)
+      ? await loadSuggestedVendors(auth.db, writeDb, recommendationPlan, archetype, venueCostCents)
       : []
     const suggestedVendors = rawSuggestedVendors.filter((vendor) => !byoServiceTypes.has(String(vendor.service_type)))
     const vendorRecommendationGroups = shouldRunVendors
@@ -598,6 +604,7 @@ export async function POST(
     const outreachApproval = shouldRunVendors
       ? await ensureOutreachApprovalRequest({
           db: auth.db,
+          writeDb,
           plan: recommendationPlan,
           userId: auth.userId,
           venueIds: venueMatch.venueResult.output.ranked_venues.slice(0, 3).map((venue) => venue.venue_id),
@@ -620,6 +627,7 @@ export async function POST(
     const operationalArtifacts = shouldRunVendors
       ? await generateAndPersistOperationalArtifacts({
           db: auth.db,
+          writeDb,
           userId: auth.userId,
           plan: recommendationPlan,
           eventPlan,
@@ -649,7 +657,7 @@ export async function POST(
       })
     }
 
-    await insertAuditLog(auth.db, {
+    await insertAuditLog(writeDb, {
       user_id: auth.userId,
       plan_id: plan.id,
       action: 'planner.agent_recommendations.generated',
@@ -733,6 +741,7 @@ export async function POST(
       console.warn('[planner.recommend] Agent-backed recommendation pipeline failed; falling back to catalog ranker', error)
       return runCatalogFallback({
         auth,
+        writeDb,
         plan: recommendationPlan,
         archetype,
         builderAttendance,
@@ -759,6 +768,7 @@ export async function POST(
 
 async function runCatalogFallback(input: {
   auth: { db: PlannerDb; userId: string }
+  writeDb: PlannerDb
   plan: Plan
   archetype: EventArchetypeConfig
   builderAttendance: BuilderAttendanceSummary | null
@@ -814,6 +824,7 @@ async function runCatalogFallback(input: {
   const eventPlan = buildAgentEventPlan(input.plan, input.rankingInput)
   const catalogVenueMatch = await resolveCatalogVenueMatches({
     db: input.auth.db,
+    writeDb: input.writeDb,
     plan: input.plan,
     rankingInput: input.rankingInput,
     archetype: input.archetype,
@@ -896,6 +907,7 @@ async function runCatalogFallback(input: {
   )
   const outreachApproval = await ensureOutreachApprovalRequest({
     db: input.auth.db,
+    writeDb: input.writeDb,
     plan: input.plan,
     userId: input.auth.userId,
     venueIds: rankedVenues.slice(0, 3).map((venue) => venue.venue_id),
@@ -916,6 +928,7 @@ async function runCatalogFallback(input: {
   })
   const operationalArtifacts = await generateAndPersistOperationalArtifacts({
     db: input.auth.db,
+    writeDb: input.writeDb,
     userId: input.auth.userId,
     plan: input.plan,
     eventPlan,
@@ -941,7 +954,7 @@ async function runCatalogFallback(input: {
     profitProjection,
   })
 
-  await insertAuditLog(input.auth.db, {
+  await insertAuditLog(input.writeDb, {
     user_id: input.auth.userId,
     plan_id: input.plan.id,
     action: 'planner.catalog_recommendations.generated',
@@ -1191,6 +1204,7 @@ function withEconomicsCompat<T extends Record<string, unknown> | null>(economics
 
 async function ensureOutreachApprovalRequest(input: {
   db: PlannerDb
+  writeDb: PlannerDb
   plan: Plan
   userId: string
   venueIds: string[]
@@ -1231,28 +1245,14 @@ async function ensureOutreachApprovalRequest(input: {
     plan_snapshot_hash: planSnapshotHash,
     source: 'planner_recommendations',
   }
-  const snapshotHash = buildApprovalSnapshotHash({
-    plan: input.plan,
-    approval: {
-      event_date: input.plan.date_window_start,
-      price_cents: projectedCostsCents,
-      fees_cents: 0,
-      requested_amount_cents: projectedCostsCents,
-      provider: '3rdPlace partners',
-      refund_terms: 'No charge is made now. This only approves outreach and quote requests.',
-      cancellation_terms: 'You can cancel before outreach drafts are sent; changed plan details require fresh approval.',
-      package_details: buildOutreachApprovalPackageDetails(venueIds.length, vendorIds.length),
-    },
-    action: {
-      action_type: 'email',
-      target_type: 'outreach',
-      target_id: null,
-      amount_cents: projectedCostsCents,
-      payload_json: actionPayload as Json,
-    },
-    payload: actionPayload,
-  })
-  let { data: actionRows, error: actionError } = await input.db
+  const snapshotAction = {
+    action_type: 'email' as const,
+    target_type: 'outreach' as const,
+    target_id: null,
+    amount_cents: projectedCostsCents,
+    payload_json: actionPayload as Json,
+  }
+  let { data: actionRows, error: actionError } = await input.writeDb
     .from('agent_actions')
     .insert({
       plan_id: input.plan.id,
@@ -1275,7 +1275,7 @@ async function ensureOutreachApprovalRequest(input: {
 
   if (actionError?.code === '23514') {
     console.warn('[planner.recommend] Falling back to email agent action type for outreach approval', actionError)
-    const fallbackInsert = await input.db
+    const fallbackInsert = await input.writeDb
       .from('agent_actions')
       .insert({
         plan_id: input.plan.id,
@@ -1307,26 +1307,39 @@ async function ensureOutreachApprovalRequest(input: {
 
   // Look up contact emails from catalog so the approval card can show "Contact info on file"
   const contactEmail = await resolveOutreachContactEmail(input.db, venueIds, vendorIds)
+  const approvalExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  const approvalSnapshotFields = {
+    action_label: buildOutreachApprovalLabel(venueIds.length, vendorIds.length),
+    event_date: input.plan.date_window_start,
+    price_cents: projectedCostsCents,
+    fees_cents: 0,
+    requested_amount_cents: projectedCostsCents,
+    provider: '3rdPlace partners',
+    delivery_email: contactEmail,
+    refund_terms: 'No charge is made now. This only approves outreach and quote requests.',
+    cancellation_terms: 'You can cancel before outreach drafts are sent; changed plan details require fresh approval.',
+    package_details: buildOutreachApprovalPackageDetails(venueIds.length, vendorIds.length),
+    expires_at: approvalExpiresAt,
+    notes: null,
+  }
+  const approvalSnapshotInput = {
+    plan: input.plan,
+    approval: approvalSnapshotFields,
+    action: snapshotAction,
+    payload: actionPayload,
+  }
 
-  const { data: approvalRows, error: approvalError } = await input.db
+  const { data: approvalRows, error: approvalError } = await input.writeDb
     .from('approvals')
     .insert({
       plan_id: input.plan.id,
       agent_action_id: String(agentAction.id),
-      action_label: buildOutreachApprovalLabel(venueIds.length, vendorIds.length),
-      provider: '3rdPlace partners',
-      event_date: input.plan.date_window_start,
-      price_cents: projectedCostsCents,
-      fees_cents: 0,
-      package_details: buildOutreachApprovalPackageDetails(venueIds.length, vendorIds.length),
-      refund_terms: 'No charge is made now. This only approves outreach and quote requests.',
-      cancellation_terms: 'You can cancel before outreach drafts are sent; changed plan details require fresh approval.',
-      delivery_email: contactEmail,
+      ...approvalSnapshotFields,
       payment_method_id: null,
-      requested_amount_cents: projectedCostsCents,
       status: 'pending',
-      snapshot_hash: snapshotHash,
-      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      snapshot_hash: buildApprovalSnapshotHashV2(approvalSnapshotInput),
+      snapshot_json: buildApprovalSnapshotV2(approvalSnapshotInput) as unknown as Json,
+      snapshot_schema_version: APPROVAL_SNAPSHOT_SCHEMA_VERSION,
     })
     .select('*')
 
@@ -1349,7 +1362,7 @@ async function ensureOutreachApprovalRequest(input: {
     response_deadline: responseDeadline,
     approval,
   }
-  const { data: messageRows, error: messageError } = await input.db
+  const { data: messageRows, error: messageError } = await input.writeDb
     .from('plan_messages')
     .insert({
       plan_id: input.plan.id,
@@ -1449,6 +1462,7 @@ async function resolveOutreachContactEmail(
 
 async function resolveVenueMatches(input: {
   auth: { db: PlannerDb; userId: string }
+  writeDb: PlannerDb
   plan: Plan
   rankingInput: CatalogPlanRankingInput
   archetype: EventArchetypeConfig
@@ -1511,13 +1525,7 @@ async function resolveVenueMatches(input: {
     }
   }
 
-  const adminTaskCreated = await insertCatalogGapAdminTask({
-    db: input.auth.db,
-    plan: input.plan,
-    archetypeKey: input.archetype.key,
-    sampleSearchCount: broaderCandidateVenues.length,
-  })
-  const notice = buildCatalogGapNotice(input.plan, adminTaskCreated)
+  const notice = buildCatalogGapNotice(input.plan, false)
   return {
     venueResult: replaceVenueMatchingOutput(input.baseVenueResult, [], notice.message, true),
     candidateVenues: broaderCandidateVenues.length > 0 ? broaderCandidateVenues : input.baseCandidateVenues,
@@ -1527,6 +1535,7 @@ async function resolveVenueMatches(input: {
 
 async function resolveCatalogVenueMatches(input: {
   db: PlannerDb
+  writeDb: PlannerDb
   plan: Plan
   rankingInput: CatalogPlanRankingInput
   archetype: EventArchetypeConfig
@@ -1576,15 +1585,9 @@ async function resolveCatalogVenueMatches(input: {
     }
   }
 
-  const adminTaskCreated = await insertCatalogGapAdminTask({
-    db: input.db,
-    plan: input.plan,
-    archetypeKey: input.archetype.key,
-    sampleSearchCount: broaderRanking.recommendations.filter((recommendation) => recommendation.kind === 'venue').length,
-  })
   return {
     recommendations: vendorRecommendations,
-    notice: buildCatalogGapNotice(input.plan, adminTaskCreated),
+    notice: buildCatalogGapNotice(input.plan, false),
   }
 }
 
@@ -1630,40 +1633,6 @@ function buildCatalogGapNotice(plan: Plan, adminTaskCreated: boolean): VenueMatc
       "Our Bay Area catalog doesn't have a strong match yet. I can flag this for the 3rdPlace team to source manually - want me to do that?",
     admin_task_created: adminTaskCreated,
   }
-}
-
-async function insertCatalogGapAdminTask(input: {
-  db: PlannerDb
-  plan: Plan
-  archetypeKey: string | null | undefined
-  sampleSearchCount: number
-}): Promise<boolean> {
-  const requestedAt = new Date().toISOString()
-  const metadata = {
-    type: 'catalog_gap',
-    plan_id: input.plan.id,
-    neighborhood: input.plan.neighborhood,
-    guest_count: input.plan.guest_count,
-    archetype_key: input.archetypeKey ?? input.plan.event_type ?? null,
-    requested_at: requestedAt,
-    sample_search_count: input.sampleSearchCount,
-  }
-  const { error } = await input.db.from('admin_tasks').insert({
-    plan_id: input.plan.id,
-    task_type: 'catalog_gap',
-    description: `Source venue options for ${input.plan.title || 'planner event'} because the catalog has no strong match.`,
-    status: 'pending',
-    priority: 'low',
-    metadata: toJson(metadata),
-    notes: JSON.stringify(metadata),
-  })
-
-  if (error) {
-    console.error('[planner.recommend] Catalog gap admin task insert error', error)
-    return false
-  }
-
-  return true
 }
 
 function sortRankedVenuesByEstimatedProfit(
@@ -1813,6 +1782,7 @@ async function runLoggedEconomicsAgent(
 
 async function generateAndPersistOperationalArtifacts(input: {
   db: PlannerDb
+  writeDb: PlannerDb
   userId: string
   plan: Plan
   eventPlan: ReturnType<typeof buildAgentEventPlan>
@@ -1832,7 +1802,7 @@ async function generateAndPersistOperationalArtifacts(input: {
   if (!input.topVenue) {
     artifacts.errors.timeline = 'No venue recommendation was available.'
     artifacts.errors.workspace = 'No venue recommendation was available.'
-    await persistPlanOperationalMetadata(input.db, input.plan, input.userId, artifacts)
+    await persistPlanOperationalMetadata(input.db, input.writeDb, input.plan, input.userId, artifacts)
     return artifacts
   }
 
@@ -1895,7 +1865,7 @@ async function generateAndPersistOperationalArtifacts(input: {
     console.warn('[planner.recommend] Workspace summary generation failed:', error)
   }
 
-  await persistPlanOperationalMetadata(input.db, input.plan, input.userId, artifacts)
+  await persistPlanOperationalMetadata(input.db, input.writeDb, input.plan, input.userId, artifacts)
   return artifacts
 }
 
@@ -1959,6 +1929,7 @@ async function runLoggedOperationalAgent<TOutput>(input: {
 
 async function persistPlanOperationalMetadata(
   db: PlannerDb,
+  writeDb: PlannerDb,
   plan: Plan,
   userId: string,
   artifacts: OperationalAgentArtifacts
@@ -1982,7 +1953,7 @@ async function persistPlanOperationalMetadata(
     return
   }
 
-  await insertOperationalPlanVersion(db, plan, userId, nextMetadata, artifacts)
+  await insertOperationalPlanVersion(db, writeDb, plan, userId, nextMetadata, artifacts)
 }
 
 function buildOperationalAgentCacheMetadata(
@@ -2020,6 +1991,7 @@ function buildOperationalAgentCacheMetadata(
 
 async function insertOperationalPlanVersion(
   db: PlannerDb,
+  writeDb: PlannerDb,
   plan: Plan,
   userId: string,
   metadata: Record<string, unknown>,
@@ -2038,7 +2010,7 @@ async function insertOperationalPlanVersion(
   }
 
   const latestVersion = readNumber(firstRow(data)?.version_number) ?? 0
-  const { error: insertError } = await db.from('plan_versions').insert({
+  const { error: insertError } = await writeDb.from('plan_versions').insert({
     plan_id: plan.id,
     version_number: latestVersion + 1,
     snapshot: {
@@ -2091,7 +2063,7 @@ function buildWorkspaceBudgetSummary(
     expected_profit: projection.net_profit_cents,
     profit_margin:
       projection.gross_revenue_cents > 0
-        ? projection.net_profit_cents / projection.gross_revenue_cents
+        ? marginRatioToPercent(projection.net_profit_cents / projection.gross_revenue_cents)
         : null,
     break_even_tickets: projection.break_even_tickets,
     net_revenue: projection.gross_revenue_cents,
@@ -2367,6 +2339,7 @@ async function loadCatalogVendors(db: PlannerDb): Promise<CatalogVendorRankingIn
 
 async function loadSuggestedVendors(
   db: PlannerDb,
+  writeDb: PlannerDb,
   plan: Plan,
   archetype: EventArchetypeConfig,
   venueCostCents: number
@@ -2378,7 +2351,7 @@ async function loadSuggestedVendors(
     const rankedSuggestions = Object.values(ranked.by_service_type)
       .flat()
       .map(toSuggestedVendorFromRanked)
-    const placesSuggestions = await loadSparseDiscoveryVendorSuggestions(db, plan, archetype, rankedSuggestions)
+    const placesSuggestions = await loadSparseDiscoveryVendorSuggestions(db, writeDb, plan, archetype, rankedSuggestions)
     if (rankedSuggestions.length > 0 || placesSuggestions.length > 0) {
       return mergeVendorSuggestions(rankedSuggestions, placesSuggestions).filter(limitTwoPerServiceType)
     }
@@ -2434,12 +2407,13 @@ async function loadSuggestedVendors(
     .filter((vendor): vendor is SuggestedVendorRecommendation => vendor !== null)
     .filter(limitTwoPerServiceType)
 
-  const placesSuggestions = await loadSparseDiscoveryVendorSuggestions(db, plan, archetype, catalogSuggestions)
+  const placesSuggestions = await loadSparseDiscoveryVendorSuggestions(db, writeDb, plan, archetype, catalogSuggestions)
   return mergeVendorSuggestions(catalogSuggestions, placesSuggestions).filter(limitTwoPerServiceType)
 }
 
 async function loadSparseDiscoveryVendorSuggestions(
   db: PlannerDb,
+  writeDb: PlannerDb,
   plan: Plan,
   archetype: EventArchetypeConfig,
   existingSuggestions: SuggestedVendorRecommendation[]
@@ -2499,7 +2473,7 @@ async function loadSparseDiscoveryVendorSuggestions(
         threshold: SPARSE_THRESHOLD_PER_SERVICE,
       })
       if (sparsity.sparse) {
-        await insertVendorSparsityPrompt(db, plan.id, serviceType, sparsity)
+        await insertVendorSparsityPrompt(db, writeDb, plan.id, serviceType, sparsity)
       }
     } catch (error) {
       console.warn('[planner.recommend] Vendor Places fallback failed', {
@@ -2560,6 +2534,7 @@ function toSuggestedVendorFromDiscovery(
 
 async function insertVendorSparsityPrompt(
   db: PlannerDb,
+  writeDb: PlannerDb,
   planId: string,
   serviceType: string,
   sparsity: VendorPoolSparsityResult
@@ -2582,7 +2557,7 @@ async function insertVendorSparsityPrompt(
   })
   if (alreadyPrompted) return
 
-  const { error } = await db
+  const { error } = await writeDb
     .from('plan_messages')
     .insert({
       plan_id: planId,

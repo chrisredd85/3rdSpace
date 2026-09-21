@@ -6,6 +6,7 @@ import type { BuilderAttendanceSummary } from '@/lib/server/builderAttendanceHis
 import { readCents } from '@/lib/money'
 import { computeVendorLocationScore, formatVendorLocationContext } from '@/lib/planner/geography'
 import { scoreVenueAgainstArchetype } from '@/lib/venues/venueRanker'
+import { estimateVenueRentalCents } from '@/lib/venues/venueRateUnits'
 
 export type CatalogPartnerKind = 'venue' | 'vendor'
 
@@ -653,22 +654,7 @@ function estimateVenueCents(row: Record<string, unknown>): number {
     readCents(null, row.minimum_spend as number | string | null | undefined)
   if (minimumSpend !== null && minimumSpend > 0) return Math.round(minimumSpend)
 
-  const hourlyRate = readCents(
-    row.hourly_rate_cents as number | string | null | undefined,
-    row.hourly_rate as number | string | null | undefined
-  )
-  if (hourlyRate !== null && hourlyRate > 0) {
-    const minimumHours = readNumber(row.minimum_hours) ?? 4
-    return Math.round(hourlyRate * minimumHours)
-  }
-
-  const dailyRate = readCents(
-    row.daily_rate_cents as number | string | null | undefined,
-    row.daily_rate as number | string | null | undefined
-  )
-  if (dailyRate !== null && dailyRate > 0) return Math.round(dailyRate)
-
-  return 0
+  return estimateVenueRentalCents(row) ?? 0
 }
 
 function estimateVendorCents(
@@ -1021,6 +1007,10 @@ function inferVenueTerms(row: Record<string, unknown>): string[] {
     readCents(
       row.hourly_rate_cents as number | string | null | undefined,
       row.hourly_rate as number | string | null | undefined
+    ) !== null ||
+    readCents(
+      row.price_per_night_cents as number | string | null | undefined,
+      row.price_per_night as number | string | null | undefined
     ) !== null
   ) {
     terms.add('flat_rental')

@@ -460,6 +460,7 @@ function seedDb() {
         error: null,
       }),
     },
+    from: (table: string) => db.from(table),
   })
   mockCreateServiceRoleClient.mockReturnValue({
     from: (table: string) => db.from(table),

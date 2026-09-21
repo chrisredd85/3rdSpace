@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useMemo, useState } from 'react'
+import { use, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, CalendarPlus, DollarSign, MapPin, Users } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,8 +11,7 @@ import { BookingRequestForm, type BookingRequestFormData } from '@/components/fo
 import { VenueAmenitiesBadges } from '@/components/builder/VenueAmenitiesBadges'
 import { VenueUniqueFeatures } from '@/components/builder/VenueUniqueFeatures'
 import { VenueRulesDisplay } from '@/components/builder/VenueRulesDisplay'
-import { DepositDisplay } from '@/components/builder/DepositDisplay'
-import { centsToDollars } from '@/lib/money'
+import { centsToDollars, type VenueBookingCostCents } from '@/lib/money'
 
 interface BuilderVenueDetailPageProps {
   params: Promise<{
@@ -27,10 +26,10 @@ interface BuilderVenueDetailPageProps {
  * @param dailyRate - Venue daily rate.
  * @returns Four-hour hourly estimate or daily rate fallback.
  */
-function estimatePreviewCost(hourlyRate?: number | null, dailyRate?: number | null) {
-  if (hourlyRate && hourlyRate > 0) return hourlyRate * 4
-  if (dailyRate && dailyRate > 0) return dailyRate
-  return 0
+function estimatePreviewCost(hourlyRate?: number | null, dailyRate?: number | null): VenueBookingCostCents {
+  if (hourlyRate && hourlyRate > 0) return Math.round(hourlyRate * 4) as VenueBookingCostCents
+  if (dailyRate && dailyRate > 0) return Math.round(dailyRate) as VenueBookingCostCents
+  return 0 as VenueBookingCostCents
 }
 
 function formatRate(cents?: number | null, suffix = '') {
@@ -50,11 +49,7 @@ export default function BuilderVenueDetailPage({ params }: BuilderVenueDetailPag
   const { addToast } = useToast()
   const [submitting, setSubmitting] = useState(false)
 
-  const bookingCost = useMemo(
-    () => estimatePreviewCost(venue?.hourly_rate, venue?.daily_rate),
-    [venue?.hourly_rate, venue?.daily_rate]
-  )
-  const bookingCostDollars = centsToDollars(bookingCost)
+  const bookingCostCents = estimatePreviewCost(venue?.hourly_rate, venue?.daily_rate)
 
   /**
    * Submits a pending venue booking request.
@@ -166,8 +161,6 @@ export default function BuilderVenueDetailPage({ params }: BuilderVenueDetailPag
           </Card>
 
           <VenueRulesDisplay venueId={venue.id} audience="builders" />
-
-          <DepositDisplay venueId={venue.id} bookingCost={bookingCostDollars} />
         </div>
 
         <Card className="h-fit">
@@ -182,7 +175,7 @@ export default function BuilderVenueDetailPage({ params }: BuilderVenueDetailPag
             <BookingRequestForm
               type="venue"
               venueId={venue.id}
-              bookingCost={bookingCost}
+              bookingCostCents={bookingCostCents}
               onSubmit={handleBookingSubmit}
               isLoading={submitting}
             />

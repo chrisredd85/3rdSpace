@@ -1,5 +1,7 @@
 import 'server-only'
 
+import * as Sentry from '@sentry/nextjs'
+
 import type { Json } from '@/lib/types'
 import {
   searchGooglePlacesText,
@@ -10,6 +12,7 @@ import {
   type DiscoveryCascadeImpact,
   type DiscoveryEntityType,
 } from '@/lib/discovery/cascadeInvalidation'
+import { PLACES_REFRESH_CHANGE_SOURCE } from '@/lib/discovery/changeLogSources'
 import type { SupabaseAdminClient } from '@/lib/planner/planRevisions'
 
 export type DiscoveryRefreshResult = {
@@ -260,7 +263,7 @@ async function insertChangeLog(
     .insert({
       entity_type: input.entityType,
       entity_id: input.entityId,
-      source: 'google_places_refresh',
+      source: PLACES_REFRESH_CHANGE_SOURCE,
       field_name: input.change.field,
       old_value: toJson(input.change.oldValue),
       new_value: toJson(input.change.newValue),
@@ -281,10 +284,32 @@ async function insertChangeLog(
       field: input.change.field,
       error: error.message,
     })
+
+    if (isConstraintViolation(error)) {
+      Sentry.captureMessage('discovery_change_log_constraint', {
+        level: 'error',
+        tags: {
+          alert_class: 'discovery_change_log_constraint',
+          postgres_code: error.code ?? 'unknown',
+        },
+        extra: {
+          entity_type: input.entityType,
+          entity_id: input.entityId,
+          field: input.change.field,
+          source: PLACES_REFRESH_CHANGE_SOURCE,
+          error: error.message,
+        },
+      })
+    }
     return null
   }
 
   return data?.id ? String(data.id) : null
+}
+
+function isConstraintViolation(error: { code?: string | null; message?: string | null }): boolean {
+  if (error.code?.startsWith('23')) return true
+  return /constraint/i.test(error.message ?? '')
 }
 
 async function updateRefreshStatus(

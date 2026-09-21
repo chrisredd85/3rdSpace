@@ -60,22 +60,23 @@ type CandidateWithVenue = {
 
 export async function enqueueDraftAfterVenueApproval(input: {
   db: PlannerDb
+  writeDb?: PlannerDb
   planId: string
   userId: string
   discoveryVenueId: string
   subject?: string | null
   bodyText?: string | null
 }): Promise<EnqueueVenueDraftResult> {
-  const admin = createServiceRoleClient() as PlannerDb
-  const plan = await loadPlan(admin, input.planId, input.userId)
+  const plan = await loadPlan(input.db, input.planId, input.userId)
   if (!plan) throw new Error('Plan not found')
+  const writeDb = input.writeDb ?? createServiceRoleClient() as PlannerDb
 
-  const row = await loadCandidateWithVenue(admin, input.planId, input.discoveryVenueId)
+  const row = await loadCandidateWithVenue(input.db, input.planId, input.discoveryVenueId)
   if (!row) throw new Error('Discovery venue candidate not found')
 
-  const existing = await loadExistingGmailDraftForVenue(admin, input.planId, input.discoveryVenueId)
+  const existing = await loadExistingGmailDraftForVenue(input.db, input.planId, input.discoveryVenueId)
   if (existing) {
-    await markCandidateApprovalCreated(admin, row.candidate, input.userId, {
+    await markCandidateApprovalCreated(writeDb, row.candidate, input.userId, {
       approvalId: existing.approvalId,
       approvalMessageId: existing.approvalMessageId,
     })
@@ -107,7 +108,7 @@ export async function enqueueDraftAfterVenueApproval(input: {
         subject,
         bodyText,
       })
-      await markCandidateApprovalCreated(admin, row.candidate, input.userId, {
+      await markCandidateApprovalCreated(writeDb, row.candidate, input.userId, {
         approvalId: draft.approval.id,
         approvalMessageId: draft.approvalMessageId,
       })
@@ -122,7 +123,7 @@ export async function enqueueDraftAfterVenueApproval(input: {
       }
     } catch (error) {
       if (error instanceof GmailConnectionRequiredError) {
-        await markCandidateDraftRequest(admin, row.candidate, {
+        await markCandidateDraftRequest(writeDb, row.candidate, {
           status: 'gmail_required',
           requestedByUserId: input.userId,
           error: error.message,
@@ -133,7 +134,7 @@ export async function enqueueDraftAfterVenueApproval(input: {
   }
 
   if (contact.status === 'contact_form_available') {
-    await markCandidateDraftRequest(admin, row.candidate, {
+    await markCandidateDraftRequest(writeDb, row.candidate, {
       status: 'email_required',
       requestedByUserId: input.userId,
     })
@@ -146,11 +147,11 @@ export async function enqueueDraftAfterVenueApproval(input: {
   }
 
   if (row.venue.website) {
-    await markCandidateDraftRequest(admin, row.candidate, {
+    await markCandidateDraftRequest(writeDb, row.candidate, {
       status: 'extraction_pending',
       requestedByUserId: input.userId,
     })
-    await markWebsiteExtractionNeeded(admin, row.venue)
+    await markWebsiteExtractionNeeded(writeDb, row.venue)
     return {
       status: 'extraction_pending',
       discoveryVenueId: row.venue.id,
@@ -159,7 +160,7 @@ export async function enqueueDraftAfterVenueApproval(input: {
     }
   }
 
-  await markCandidateDraftRequest(admin, row.candidate, {
+  await markCandidateDraftRequest(writeDb, row.candidate, {
     status: 'email_required',
     requestedByUserId: input.userId,
   })
@@ -173,6 +174,7 @@ export async function enqueueDraftAfterVenueApproval(input: {
 
 export async function enqueueDraftsAfterVenueApproval(input: {
   db: PlannerDb
+  writeDb?: PlannerDb
   planId: string
   userId: string
   venueIds: string[]
@@ -182,6 +184,7 @@ export async function enqueueDraftsAfterVenueApproval(input: {
 
 export async function enqueueDraftBatchAfterVenueApproval(input: {
   db: PlannerDb
+  writeDb?: PlannerDb
   planId: string
   userId: string
   venueIds: string[]
@@ -189,11 +192,11 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
   bodyText?: string | null
 }): Promise<EnqueueVenueDraftBatchResult> {
   const uniqueVenueIds = Array.from(new Set(input.venueIds))
-  const admin = createServiceRoleClient() as PlannerDb
-  const plan = await loadPlan(admin, input.planId, input.userId)
+  const plan = await loadPlan(input.db, input.planId, input.userId)
   if (!plan) throw new Error('Plan not found')
+  const writeDb = input.writeDb ?? createServiceRoleClient() as PlannerDb
 
-  const rows = await loadCandidateRowsWithVenues(admin, input.planId, uniqueVenueIds)
+  const rows = await loadCandidateRowsWithVenues(input.db, input.planId, uniqueVenueIds)
   const rowByVenueId = new Map(rows.map((row) => [row.venue.id, row]))
   const handledVenueIds = uniqueVenueIds.filter((venueId) => rowByVenueId.has(venueId))
   const unhandledVenueIds = uniqueVenueIds.filter((venueId) => !rowByVenueId.has(venueId))
@@ -203,9 +206,9 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
   for (const venueId of handledVenueIds) {
     const row = rowByVenueId.get(venueId)
     if (!row) continue
-    const existing = await loadExistingGmailDraftForVenue(admin, input.planId, venueId)
+    const existing = await loadExistingGmailDraftForVenue(input.db, input.planId, venueId)
     if (existing) {
-      await markCandidateApprovalCreated(admin, row.candidate, input.userId, {
+      await markCandidateApprovalCreated(writeDb, row.candidate, input.userId, {
         approvalId: existing.approvalId,
         approvalMessageId: existing.approvalMessageId,
       })
@@ -227,7 +230,7 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
     }
 
     if (contact.status === 'contact_form_available') {
-      await markCandidateDraftRequest(admin, row.candidate, {
+      await markCandidateDraftRequest(writeDb, row.candidate, {
         status: 'email_required',
         requestedByUserId: input.userId,
       })
@@ -241,11 +244,11 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
     }
 
     if (row.venue.website) {
-      await markCandidateDraftRequest(admin, row.candidate, {
+      await markCandidateDraftRequest(writeDb, row.candidate, {
         status: 'extraction_pending',
         requestedByUserId: input.userId,
       })
-      await markWebsiteExtractionNeeded(admin, row.venue)
+      await markWebsiteExtractionNeeded(writeDb, row.venue)
       results.push({
         status: 'extraction_pending',
         discoveryVenueId: row.venue.id,
@@ -255,7 +258,7 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
       continue
     }
 
-    await markCandidateDraftRequest(admin, row.candidate, {
+    await markCandidateDraftRequest(writeDb, row.candidate, {
       status: 'email_required',
       requestedByUserId: input.userId,
     })
@@ -286,7 +289,7 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
       })
 
       for (const row of targetRows) {
-        await markCandidateApprovalCreated(admin, row.candidate, input.userId, {
+        await markCandidateApprovalCreated(writeDb, row.candidate, input.userId, {
           approvalId: draft.approval.id,
           approvalMessageId: draft.approvalMessageId,
         })
@@ -302,7 +305,7 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
       }
     } catch (error) {
       if (error instanceof GmailConnectionRequiredError) {
-        await Promise.all(targetRows.map((row) => markCandidateDraftRequest(admin, row.candidate, {
+        await Promise.all(targetRows.map((row) => markCandidateDraftRequest(writeDb, row.candidate, {
           status: 'gmail_required',
           requestedByUserId: input.userId,
           error: error.message,
@@ -347,6 +350,7 @@ export async function enqueuePendingDraftsForDiscoveryVenue(input: {
     try {
       results.push(await enqueueDraftAfterVenueApproval({
         db: input.db,
+        writeDb: admin,
         planId: candidate.plan_id,
         userId,
         discoveryVenueId: input.discoveryVenueId,
@@ -367,8 +371,7 @@ export async function enqueuePendingDraftsForUserVenue(input: {
   userId: string
   discoveryVenueId: string
 }): Promise<EnqueueVenueDraftResult[]> {
-  const admin = createServiceRoleClient() as PlannerDb
-  const { data, error } = await admin
+  const { data, error } = await input.db
     .from('plan_discovery_venue_candidates')
     .select('*, plans!inner(id,user_id)')
     .eq('discovery_venue_id', input.discoveryVenueId)

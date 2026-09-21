@@ -5,7 +5,15 @@ import type { Json } from '@/lib/types/database'
 import type { ServiceType, VenueType } from '@/lib/types/enums'
 
 /** Lifecycle states for an Agent Planner plan. */
-export type PlanStatus = 'drafting' | 'ready' | 'approved' | 'executing' | 'complete' | 'archived'
+export type PlanStatus =
+  | 'drafting'
+  | 'ready'
+  | 'approved'
+  | 'executing'
+  | 'booked'
+  | 'completed'
+  | 'complete' // Legacy read compatibility; new transitions use `completed`.
+  | 'archived'
 
 /** Author roles for planner timeline messages. */
 export type PlanMessageRole = 'user' | 'agent' | 'system'
@@ -239,6 +247,8 @@ export interface Plan {
   committed_venue_at?: string | null
   /** Accepted vendor quote snapshots used for planning comparison. */
   committed_vendors?: Json
+  /** Canonical event created by the explicit plan materialization transition. */
+  materialized_event_id?: string | null
   /** Planner-owned metadata cache for generated agent summaries and timelines. */
   metadata?: Json
   /** Timestamp when the plan was created. */
@@ -371,6 +381,16 @@ export interface AgentAction {
   executed_at: string | null
   /** Provider response, export result, payment receipt, or execution error details. */
   result_metadata: Json
+  /** Idempotency key for the most recently claimed failed-action retry. */
+  last_retry_idempotency_key?: string | null
+  /** Current-state retry outcome; generalized attempt history is stored separately in a later phase. */
+  last_retry_status?: 'in_progress' | 'succeeded' | 'failed' | null
+  /** Timestamp when the current retry key was claimed. */
+  last_retry_started_at?: string | null
+  /** Timestamp when the current retry key reached a terminal outcome. */
+  last_retry_completed_at?: string | null
+  /** Result returned by the most recently finalized retry. */
+  last_retry_result?: Json | null
   /** Timestamp when the action was created. */
   created_at: string
   /** Timestamp when the action was last updated. */
@@ -423,6 +443,24 @@ export interface Approval {
   expires_at: string | null
   /** Hash of important approval fields for detecting price, date, or provider changes. */
   snapshot_hash: string | null
+  /** Organizer notes included in the exact authorization snapshot. */
+  notes?: string | null
+  /** First approval row in this immutable version lineage. */
+  root_approval_id?: string
+  /** Monotonic version number within the approval lineage. */
+  version_number?: number
+  /** Approval version immediately replaced by this row. */
+  supersedes_approval_id?: string | null
+  /** Approval version that replaced this row. */
+  superseded_by_approval_id?: string | null
+  /** User who created this version. */
+  version_created_by?: string | null
+  /** Reason this version was created. */
+  version_reason?: string | null
+  /** Canonical full snapshot presented before authorization. */
+  snapshot_json?: Json | null
+  /** Schema version for snapshot_json. */
+  snapshot_schema_version?: number | null
   /** Timestamp when the approval was created. */
   created_at: string
   /** Timestamp when the approval was last updated. */
@@ -465,6 +503,8 @@ export interface PlannerTemplate {
   user_id: string
   /** Original plan this template was created from, when applicable. */
   source_plan_id: string | null
+  /** Canonical materialized event this template was saved from, when applicable. */
+  source_event_id?: string | null
   /** Template name displayed in the rebook flow. */
   name: string
   /** Event category this template supports. */
