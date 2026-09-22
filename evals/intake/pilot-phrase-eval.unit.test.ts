@@ -2,20 +2,21 @@
  * @jest-environment node
  */
 jest.mock('server-only', () => ({}))
-jest.mock('@/lib/ai/agents/intakeAgent', () => ({ runIntakeAgent: jest.fn() }))
 
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { runIntakeAgent } from '@/lib/ai/agents/intakeAgent'
+import type { runIntakeAgent } from '@/lib/ai/agents/intakeAgent'
 import {
+  MAX_OUTPUT_TOKENS_PER_CALL,
   pruneHistoryReports,
   readPreviousSevenDayMatchRate,
   runIntakePhraseEval,
 } from './pilot-phrase-eval'
 
-const mockedRunIntakeAgent = runIntakeAgent as jest.MockedFunction<typeof runIntakeAgent>
+const mockedRunIntakeAgent = jest.fn() as jest.MockedFunction<typeof runIntakeAgent>
 const originalApiKey = process.env.OPENAI_API_KEY
+const originalBudget = process.env.EVAL_BUDGET_USD
 const tempDirs: string[] = []
 
 async function makeTempDir() {
@@ -34,13 +35,16 @@ async function writeHistoricalRate(directory: string, name: string, generatedAt:
 }
 
 beforeEach(() => {
-  process.env.OPENAI_API_KEY = 'test-eval-key'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.EVAL_BUDGET_USD
   mockedRunIntakeAgent.mockReset()
 })
 
 afterEach(async () => {
   if (originalApiKey === undefined) delete process.env.OPENAI_API_KEY
   else process.env.OPENAI_API_KEY = originalApiKey
+  if (originalBudget === undefined) delete process.env.EVAL_BUDGET_USD
+  else process.env.EVAL_BUDGET_USD = originalBudget
   await Promise.all(tempDirs.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
 })
 
@@ -91,7 +95,10 @@ describe('intake phrase eval history', () => {
       },
     } as Awaited<ReturnType<typeof runIntakeAgent>>)
 
-    const report = await runIntakePhraseEval({ historyDir, limit: 1 })
+    const report = await runIntakePhraseEval(
+      { historyDir, limit: 1 },
+      { runAgent: mockedRunIntakeAgent },
+    )
     const files = await readdir(historyDir)
 
     expect(report.summary).toEqual(
@@ -103,15 +110,98 @@ describe('intake phrase eval history', () => {
         match_rate_delta_from_previous_7_day: 0.5,
       }),
     )
-    expect(files.filter((file) => file.endsWith('.json'))).toHaveLength(2)
+    const reportFiles = files.filter((file) => file.endsWith('.json'))
+    const currentReportFile = reportFiles.find((file) => file !== 'prior.json')
+    expect(reportFiles).toHaveLength(2)
+    expect(currentReportFile).toBeDefined()
+    await expect(
+      readFile(path.join(historyDir, currentReportFile as string), 'utf8').then(JSON.parse),
+    ).resolves.toEqual(report)
+    expect(mockedRunIntakeAgent).toHaveBeenCalledWith(
+      expect.any(Object),
+      undefined,
+      { maxCompletionTokens: MAX_OUTPUT_TOKENS_PER_CALL },
+    )
   })
 
   it('rejects a missing credential before attempting a model call', async () => {
-    delete process.env.OPENAI_API_KEY
-
     await expect(runIntakePhraseEval({ writeHistory: false, limit: 1 })).rejects.toThrow(
       'OPENAI_API_KEY is required to run the intake phrase eval',
     )
+    expect(mockedRunIntakeAgent).not.toHaveBeenCalled()
+  })
+
+  it('rejects a projected over-budget run before the offline runner is called', async () => {
+    process.env.EVAL_BUDGET_USD = '0.01'
+
+    await expect(runIntakePhraseEval(
+      { writeHistory: false, limit: 1 },
+      { runAgent: mockedRunIntakeAgent },
+    )).rejects.toThrow(/Projected intake eval cost .* aborting before model calls/)
+    expect(mockedRunIntakeAgent).not.toHaveBeenCalled()
+  })
+
+  it('aborts before another call when actual cumulative usage crosses the budget', async () => {
+    process.env.EVAL_BUDGET_USD = '0.06'
+    mockedRunIntakeAgent.mockResolvedValue({
+      prompt_tokens: 10_000,
+      completion_tokens: MAX_OUTPUT_TOKENS_PER_CALL,
+      output: {
+        extracted_fields: { event_type: 'happy hour' },
+        updated_event_plan: { event_name: null, venue_type: null },
+        next_best_question: null,
+        reflection: 'test result',
+      },
+    } as Awaited<ReturnType<typeof runIntakeAgent>>)
+
+    await expect(runIntakePhraseEval(
+      { writeHistory: false, limit: 2 },
+      { runAgent: mockedRunIntakeAgent },
+    )).rejects.toThrow(/cumulative cost .* exceeded EVAL_BUDGET_USD .* after 2 call\(s\)/)
+    expect(mockedRunIntakeAgent).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses a conservative non-zero cost when usage metadata is missing', async () => {
+    mockedRunIntakeAgent.mockResolvedValue({
+      prompt_tokens: null,
+      completion_tokens: null,
+      output: {
+        extracted_fields: { event_type: 'happy hour' },
+        updated_event_plan: { event_name: null, venue_type: null },
+        next_best_question: null,
+        reflection: 'test result',
+      },
+    } as Awaited<ReturnType<typeof runIntakeAgent>>)
+
+    const report = await runIntakePhraseEval(
+      { writeHistory: false, limit: 1 },
+      { runAgent: mockedRunIntakeAgent },
+    )
+
+    expect(report.results[0]?.cost_estimate_cents).toBeGreaterThan(0)
+    expect(report.summary.total_cost_cents).toBeGreaterThan(0)
+  })
+
+  it.each(['', 'bogus', 'Infinity', '-1', '0'])(
+    'rejects invalid EVAL_BUDGET_USD=%p before the offline runner is called',
+    async (budget) => {
+      process.env.EVAL_BUDGET_USD = budget
+
+      await expect(runIntakePhraseEval(
+        { writeHistory: false, limit: 1 },
+        { runAgent: mockedRunIntakeAgent },
+      )).rejects.toThrow('EVAL_BUDGET_USD must be a positive finite number')
+      expect(mockedRunIntakeAgent).not.toHaveBeenCalled()
+    },
+  )
+
+  it('treats an explicit zero-call limit as zero calls instead of the full paid corpus', async () => {
+    const report = await runIntakePhraseEval(
+      { writeHistory: false, limit: 0 },
+      { runAgent: mockedRunIntakeAgent },
+    )
+
+    expect(report.summary.total).toBe(0)
     expect(mockedRunIntakeAgent).not.toHaveBeenCalled()
   })
 })

@@ -99,7 +99,7 @@ The workflow snapshots the history directory before each eval and records an exp
 
 The paid eval job has only `actions: read` and `contents: read`. A separate reconciliation job receives `issues: write`, so dependency installation and model execution never run with issue-write permission. Every REST call pins GitHub API version `2026-03-10`.
 
-Expected cost is low, but nonzero. The exact cost depends on model output length; the script records an estimate per run.
+The harness defaults to a `$3.00` ceiling from `EVAL_BUDGET_USD`, projects the full run before the first model call, and caps every completion at 1,200 tokens. The 96-phrase run projects to `$2.832` using 7,000 estimated input tokens per call and current GPT-4o rates (`$2.50/M` input, `$10/M` output). It aborts before the first call when the projection is over budget and before any further call when recorded usage crosses the ceiling. Missing or invalid usage metadata is charged at the conservative per-call estimate instead of `$0`.
 
 The Jest wrapper is skipped by default. To run the eval through Jest:
 

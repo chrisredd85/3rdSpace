@@ -10,8 +10,11 @@ import {
   resolveArchetypeMatch,
 } from '@/lib/planner/archetypes'
 
-const GPT_4O_INPUT_CENTS_PER_MILLION = 500
-const GPT_4O_OUTPUT_CENTS_PER_MILLION = 1500
+const GPT_4O_INPUT_USD_PER_MILLION = 2.5
+const GPT_4O_OUTPUT_USD_PER_MILLION = 10
+export const DEFAULT_EVAL_BUDGET_USD = 3
+export const ESTIMATED_INPUT_TOKENS_PER_CALL = 7_000
+export const MAX_OUTPUT_TOKENS_PER_CALL = 1_200
 const DEFAULT_MATCH_RATE_THRESHOLD = 0.9
 const DEFAULT_HISTORY_DIR = 'evals/intake/history'
 const HISTORY_RETENTION_DAYS = 30
@@ -57,14 +60,38 @@ type CliOptions = {
   limit: number | null
 }
 
-export async function runIntakePhraseEval(options: Partial<CliOptions> = {}): Promise<IntakePhraseEvalReport> {
-  if (!process.env.OPENAI_API_KEY) {
+type IntakePhraseEvalDependencies = {
+  runAgent: typeof runIntakeAgent
+}
+
+export async function runIntakePhraseEval(
+  options: Partial<CliOptions> = {},
+  dependencies: Partial<IntakePhraseEvalDependencies> = {},
+): Promise<IntakePhraseEvalReport> {
+  const runAgent = dependencies.runAgent ?? runIntakeAgent
+
+  const limit = options.limit ?? null
+  if (limit !== null && (!Number.isSafeInteger(limit) || limit < 0)) {
+    throw new Error('Intake eval limit must be a non-negative integer')
+  }
+  const phrases = limit === null ? PILOT_PHRASES : PILOT_PHRASES.slice(0, limit)
+  const budgetUsd = readEvalBudgetUsd()
+  const projectedCostUsd = phrases.length * estimateGpt4oCostUsd(
+    ESTIMATED_INPUT_TOKENS_PER_CALL,
+    MAX_OUTPUT_TOKENS_PER_CALL,
+  )
+  if (projectedCostUsd > budgetUsd) {
+    throw new Error(
+      `Projected intake eval cost $${projectedCostUsd.toFixed(4)} exceeds EVAL_BUDGET_USD $${budgetUsd.toFixed(4)}; aborting before model calls`,
+    )
+  }
+
+  if (!dependencies.runAgent && !process.env.OPENAI_API_KEY) {
     throw new Error('OPENAI_API_KEY is required to run the intake phrase eval')
   }
 
-  const limit = options.limit ?? null
-  const phrases = limit ? PILOT_PHRASES.slice(0, limit) : PILOT_PHRASES
   const results: IntakePhraseEvalResult[] = []
+  let runningCostUsd = 0
 
   for (const fixture of phrases) {
     const startedAt = Date.now()
@@ -72,7 +99,7 @@ export async function runIntakePhraseEval(options: Partial<CliOptions> = {}): Pr
     const archetype = getArchetypeByKey(resolvedArchetype?.key)
     const conversationText = buildArchetypeAnswerText([{ role: 'user', content: fixture.phrase }])
 
-    const result = await runIntakeAgent({
+    const result = await runAgent({
       user_message: fixture.phrase,
       current_plan: {},
       existing_event_plan: null,
@@ -87,14 +114,24 @@ export async function runIntakePhraseEval(options: Partial<CliOptions> = {}): Pr
             conversationText,
           })
         : null,
-    })
+    }, undefined, { maxCompletionTokens: MAX_OUTPUT_TOKENS_PER_CALL })
 
     const output = result.output
     const actualEventType = pickActualEventType(output)
     const actualArchetype = actualEventType ? resolveArchetypeMatch(actualEventType)?.key ?? null : null
     const promptTokens = result.prompt_tokens
     const completionTokens = result.completion_tokens
-    const costEstimateCents = estimateGpt4oCostCents(promptTokens, completionTokens)
+    const callCostUsd = estimateGpt4oCostUsd(
+      conservativeUsageTokens(promptTokens, ESTIMATED_INPUT_TOKENS_PER_CALL),
+      conservativeUsageTokens(completionTokens, MAX_OUTPUT_TOKENS_PER_CALL),
+    )
+    const costEstimateCents = Number((callCostUsd * 100).toFixed(4))
+    runningCostUsd += callCostUsd
+    if (runningCostUsd > budgetUsd) {
+      throw new Error(
+        `Intake eval cumulative cost $${runningCostUsd.toFixed(4)} exceeded EVAL_BUDGET_USD $${budgetUsd.toFixed(4)} after ${results.length + 1} call(s); aborting before another model call`,
+      )
+    }
 
     results.push({
       phrase: fixture.phrase,
@@ -138,10 +175,25 @@ function pickActualEventType(output: Awaited<ReturnType<typeof runIntakeAgent>>[
   ].find((value): value is string => typeof value === 'string' && value.trim().length > 0) ?? null
 }
 
-function estimateGpt4oCostCents(promptTokens: number | null, completionTokens: number | null) {
-  const inputCost = ((promptTokens ?? 0) / 1_000_000) * GPT_4O_INPUT_CENTS_PER_MILLION
-  const outputCost = ((completionTokens ?? 0) / 1_000_000) * GPT_4O_OUTPUT_CENTS_PER_MILLION
-  return Number((inputCost + outputCost).toFixed(4))
+function estimateGpt4oCostUsd(promptTokens: number, completionTokens: number) {
+  const inputCost = (promptTokens / 1_000_000) * GPT_4O_INPUT_USD_PER_MILLION
+  const outputCost = (completionTokens / 1_000_000) * GPT_4O_OUTPUT_USD_PER_MILLION
+  return inputCost + outputCost
+}
+
+function conservativeUsageTokens(value: number | null, fallback: number) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : fallback
+}
+
+function readEvalBudgetUsd() {
+  const configured = process.env.EVAL_BUDGET_USD
+  if (configured === undefined) return DEFAULT_EVAL_BUDGET_USD
+
+  const budget = Number(configured.trim())
+  if (!Number.isFinite(budget) || budget <= 0) {
+    throw new Error('EVAL_BUDGET_USD must be a positive finite number')
+  }
+  return budget
 }
 
 function buildSummary(

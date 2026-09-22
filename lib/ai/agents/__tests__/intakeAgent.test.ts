@@ -81,6 +81,23 @@ describe('runIntakeAgent', () => {
     }))
   })
 
+  it('passes an eval output-token ceiling to the provider request', async () => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify(founderDinnerOutput) } }],
+    })
+
+    await runIntakeAgent(
+      { user_message: 'I want to host a founder dinner' },
+      { create },
+      { maxCompletionTokens: 1_200 },
+    )
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'gpt-4o',
+      max_completion_tokens: 1_200,
+    }))
+  })
+
   it('normalizes multiple missing questions down to one active prompt', () => {
     const modelOutput = {
       ...founderDinnerOutput,

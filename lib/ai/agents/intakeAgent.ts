@@ -325,6 +325,10 @@ export const intakeAgentDefinition = {
 
 type ChatCompletionClient = Pick<OpenAI['chat']['completions'], 'create'>
 
+export type IntakeAgentRunOptions = {
+  maxCompletionTokens?: number
+}
+
 const INTAKE_OUTPUT_CONTRACT = {
   reflection: 'One short natural acknowledgement reflecting what the user said.',
   next_best_question: 'one conversational question string, or null when ready',
@@ -447,7 +451,8 @@ const INTAKE_SYSTEM_PROMPT = [
 
 export async function runIntakeAgent(
   payload: unknown,
-  client: ChatCompletionClient = openai.chat.completions
+  client: ChatCompletionClient = openai.chat.completions,
+  options: IntakeAgentRunOptions = {},
 ): Promise<IntakeAgentResult> {
   const startedAt = Date.now()
   const input = intakeAgentInputSchema.parse(payload)
@@ -469,6 +474,9 @@ export async function runIntakeAgent(
     model: intakeAgentDefinition.model,
     response_format: { type: 'json_object' },
     messages,
+    ...(options.maxCompletionTokens == null
+      ? {}
+      : { max_completion_tokens: options.maxCompletionTokens }),
   })
 
   const content = completion.choices[0]?.message?.content ?? null
