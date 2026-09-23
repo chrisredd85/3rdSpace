@@ -7,8 +7,8 @@ import { getDiscoveryPhoto } from '@/lib/server/discovery-photo'
 
 export async function GET(
   _request: NextRequest,
-  context: { params: Promise<{ venueId: string; index: string }> },
+  context: { params: Promise<{ vendorId: string; index: string }> },
 ) {
-  const { venueId, index } = await context.params
-  return getDiscoveryPhoto('discovery_venue', venueId, index)
+  const { vendorId, index } = await context.params
+  return getDiscoveryPhoto('discovery_vendor', vendorId, index)
 }

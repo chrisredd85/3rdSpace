@@ -1,5 +1,7 @@
 import 'server-only'
 
+import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
+
 import type { AgentName, AgentRunStatus } from '@/lib/ai/types'
 
 const TABLES = {
@@ -36,7 +38,7 @@ export type AgentRunLogInput = {
 }
 
 export async function logAgentRun(db: AgentRunDb, input: AgentRunLogInput) {
-  const { error } = await db.from(TABLES.AGENT_RUNS).insert({
+  const { error } = await db.from(TABLES.AGENT_RUNS).insert(stripGooglePhotoData({
     user_id: input.userId,
     event_id: input.eventId ?? null,
     plan_id: input.planId ?? null,
@@ -51,7 +53,7 @@ export async function logAgentRun(db: AgentRunDb, input: AgentRunLogInput) {
     completion_tokens: input.completionTokens ?? null,
     messages_payload: input.messagesPayload ?? null,
     raw_model_output: input.rawModelOutput ?? null,
-  })
+  }))
 
   if (error) {
     throw new Error(`Failed to log agent run: ${error.message}`)

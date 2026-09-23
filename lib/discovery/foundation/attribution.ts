@@ -1,6 +1,7 @@
 export type GooglePhotoAuthorAttribution = {
   displayName: string | null
   uri: string | null
+  photoUri?: string
 }
 
 export type GooglePhotoAttribution = {
@@ -24,7 +25,8 @@ export function parseGooglePhotoAttribution(value: unknown): GooglePhotoAttribut
 
       const displayName = readText(author.displayName)
       const uri = readSafeHttpsUrl(author.uri)
-      return displayName || uri ? [{ displayName, uri }] : []
+      const photoUri = readSafeHttpsUrl(author.photoUri)
+      return displayName || uri ? [{ displayName, uri, ...(photoUri ? { photoUri } : {}) }] : []
     })
     : []
 
@@ -48,10 +50,12 @@ function readText(value: unknown): string | null {
 
 function readSafeHttpsUrl(value: unknown): string | null {
   const text = readText(value)
-  if (!text || !/^https:\/\//i.test(text) || /[\u0000-\u0020\u007f\\]/.test(text)) return null
+  if (!text || /[\u0000-\u0020\u007f\\]/.test(text)) return null
+  const absolute = text.startsWith('//') ? `https:${text}` : text
+  if (!/^https:\/\/[^/]/i.test(absolute)) return null
 
   try {
-    const url = new URL(text)
+    const url = new URL(absolute)
     if (url.protocol !== 'https:' || !url.hostname || url.username || url.password) return null
     return url.href
   } catch {

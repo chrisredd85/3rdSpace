@@ -1,5 +1,7 @@
 import 'server-only'
 
+import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
+
 export const GOOGLE_PLACES_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText'
 
 export const GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK = [
@@ -15,7 +17,6 @@ export const GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK = [
   'places.userRatingCount',
   'places.priceLevel',
   'places.businessStatus',
-  'places.photos',
 ].join(',')
 
 const REQUEST_INTERVAL_MS = 1000
@@ -445,7 +446,7 @@ export class GooglePlacesConfigurationError extends Error {
 
 export class GooglePlacesApiError extends Error {
   constructor(public readonly status: number, message: string) {
-    super(`Google Places API error ${status}: ${message}`)
+    super(`Google Places API error ${status}: ${stripGooglePhotoData(message)}`)
     this.name = 'GooglePlacesApiError'
   }
 }
@@ -500,40 +501,9 @@ function readPlaces(payload: unknown): GooglePlaceCandidate[] {
         userRatingCount: readNumber(record.userRatingCount) ?? undefined,
         priceLevel: readString(record.priceLevel) ?? undefined,
         businessStatus: readString(record.businessStatus) ?? undefined,
-        photos: readPhotos(record.photos),
       }
     })
     .filter((place): place is GooglePlaceCandidate => Boolean(place))
-}
-
-function readPhotos(value: unknown): GooglePlacePhoto[] | undefined {
-  if (!Array.isArray(value)) return undefined
-  const photos = value.flatMap((photo): GooglePlacePhoto[] => {
-    if (!photo || typeof photo !== 'object' || Array.isArray(photo)) return []
-    const record = photo as Record<string, unknown>
-    const name = readString(record.name)
-    if (!name) return []
-    return [{
-      name,
-      heightPx: readNumber(record.heightPx) ?? undefined,
-      widthPx: readNumber(record.widthPx) ?? undefined,
-      authorAttributions: readAuthorAttributions(record.authorAttributions),
-    }]
-  })
-  return photos.length > 0 ? photos : undefined
-}
-
-function readAuthorAttributions(value: unknown): GooglePlacePhoto['authorAttributions'] {
-  if (!Array.isArray(value)) return undefined
-  const attributions = value.flatMap((attribution): NonNullable<GooglePlacePhoto['authorAttributions']> => {
-    if (!attribution || typeof attribution !== 'object' || Array.isArray(attribution)) return []
-    const record = attribution as Record<string, unknown>
-    const displayName = readString(record.displayName)
-    const uri = readString(record.uri)
-    if (!displayName && !uri) return []
-    return [{ displayName: displayName ?? undefined, uri: uri ?? undefined }]
-  })
-  return attributions.length > 0 ? attributions : undefined
 }
 
 function readDisplayName(value: unknown): GooglePlaceCandidate['displayName'] | null {

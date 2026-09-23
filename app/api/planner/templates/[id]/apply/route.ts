@@ -1,3 +1,4 @@
+import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -503,7 +504,7 @@ function buildTemplateMetadata(currentMetadata: unknown, template: TemplateRow, 
     },
   }
 
-  if (!input) return base
+  if (!input) return stripGooglePhotoData(base)
 
   const shoppingList = readRecord(template.shopping_list)
   const useSameVenue = input.use_same_venue === true
@@ -544,7 +545,7 @@ function buildTemplateMetadata(currentMetadata: unknown, template: TemplateRow, 
     }
   }
 
-  return base
+  return stripGooglePhotoData(base)
 }
 
 function getInputGuestCount(input: ApplyTemplateInput, template: TemplateRow): number | null {

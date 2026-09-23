@@ -3,11 +3,13 @@
  * NEXT_PUBLIC_SENTRY_DSN is configured in the hosting environment.
  */
 import * as Sentry from '@sentry/nextjs'
+import { dropGooglePhotoTelemetry, sentryPhotoPrivacyOptions } from './sentry.photo-filter'
 
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN
 
 if (dsn) {
   Sentry.init({
+    ...sentryPhotoPrivacyOptions,
     dsn,
     environment: process.env.NEXT_PUBLIC_VERCEL_ENV ?? process.env.NODE_ENV ?? 'development',
     sampleRate: 1.0, // Launch burn-in: capture 100% of errors for the first two production weeks.
@@ -21,6 +23,7 @@ if (dsn) {
       'Non-Error promise rejection captured',
     ],
     beforeSend(event) {
+      if (!dropGooglePhotoTelemetry(event)) return null
       if (event.request?.url) {
         try {
           const url = new URL(event.request.url)

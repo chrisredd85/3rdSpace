@@ -1,6 +1,7 @@
 jest.mock('server-only', () => ({}))
 
 import {
+  buildDiscoveryVendorInsert,
   normalizeVendorServiceType,
   resolveDiscoveryVendorRate,
   searchPlacesForVendor,
@@ -34,7 +35,7 @@ describe('places vendor search helpers', () => {
         websiteUri: 'https://charter.example',
       }],
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-    const admin = createVendorSearchDb()
+    const admin = createVendorSearchDb({ photos: [{ name: 'places/vendor/photos/legacy-token' }], website_extraction_metadata: { google_photo_names: ['opaque-token'] } })
 
     const result = await searchPlacesForVendor({
       serviceType: 'yacht_charter',
@@ -57,6 +58,20 @@ describe('places vendor search helpers', () => {
       data_freshness_status: 'fresh',
     }))
     expect(admin.rows.plan_discovery_vendor_candidates).toHaveLength(1)
+    expect(admin.rows.discovery_vendors[0]).not.toHaveProperty('photos')
+    expect(result.vendors[0]).not.toHaveProperty('photos')
+    expect(JSON.stringify(result)).not.toMatch(/legacy-token|opaque-token/)
+  })
+
+  it('omits Google photo values from vendor writes', () => {
+    const insert = buildDiscoveryVendorInsert({
+      id: 'place-vendor', displayName: { text: 'Vendor' },
+      photos: [{ name: 'places/vendor/photos/secret' }],
+    }, { serviceType: 'photographer', searchQuery: 'photographer', request: {
+      textQuery: 'photographer', maxResultCount: 4, languageCode: 'en', regionCode: 'US', includePureServiceAreaBusinesses: false,
+    } })
+    expect(insert).not.toHaveProperty('photos')
+    expect(JSON.stringify(insert)).not.toContain('secret')
   })
 
   it('uses high-confidence inferred package rates as estimates', () => {
@@ -93,7 +108,7 @@ describe('places vendor search helpers', () => {
   })
 })
 
-function createVendorSearchDb() {
+function createVendorSearchDb(existing: Record<string, unknown> = {}) {
   const rows: Record<string, any[]> = {
     discovery_vendors: [],
     plan_discovery_vendor_candidates: [],
@@ -111,7 +126,7 @@ function createVendorSearchDb() {
               select() {
                 return {
                   async single() {
-                    return { data: withIds[0], error: null }
+                    return { data: { ...existing, ...withIds[0] }, error: null }
                   },
                 }
               },

@@ -1,5 +1,7 @@
 import 'server-only'
 
+import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
+
 import { archetypeFor } from '@/lib/planner/archetypes'
 import { rankCatalogPartners, type CatalogPlanRankingInput, type CatalogVenueRankingInput } from '@/lib/planner/catalogRanker'
 import { buildSpecialSupplySearchQuery, readPlanSpecialSupply } from '@/lib/planner/specialSupply'
@@ -72,8 +74,6 @@ export const DISCOVERY_VENUE_SELECT = `
   source_external_id,
   google_rating,
   google_user_ratings_total,
-  google_photo_names,
-  photos,
   opening_hours_json,
   metadata,
   business_status,
@@ -129,7 +129,6 @@ export type DiscoveryCandidateResponse = {
   last_places_refresh_at: string | null
   last_meaningful_change_at: string | null
   photo_urls: string[]
-  photos: DiscoveryVenuePhoto[]
   metadata: Json
   quote_required: boolean
   verification_status: 'unverified_quote_required' | null
@@ -144,16 +143,6 @@ export type ContactResolution = {
   contactFormLabel: string | null
   contactFormSourcePath: string | null
   status: ContactStatus
-}
-
-export type DiscoveryVenuePhoto = {
-  name: string
-  heightPx?: number
-  widthPx?: number
-  authorAttributions?: Array<{
-    displayName?: string
-    uri?: string
-  }>
 }
 
 type CandidateWithVenue = {
@@ -189,7 +178,6 @@ export function buildDiscoveryVenueInsert(
     google_rating: place.rating ?? null,
     google_user_ratings_total: place.userRatingCount ?? null,
     business_status: place.businessStatus ?? null,
-    photos: sanitizePlacesPhotos(place.photos) as Json,
     last_places_refresh_at: new Date().toISOString(),
     last_meaningful_change_at: null,
     data_freshness_status: 'fresh',
@@ -340,9 +328,8 @@ export function buildDiscoveryCandidateResponses(
         data_freshness_status: readString((venue as unknown as Record<string, unknown>).data_freshness_status),
         last_places_refresh_at: readString((venue as unknown as Record<string, unknown>).last_places_refresh_at),
         last_meaningful_change_at: readString((venue as unknown as Record<string, unknown>).last_meaningful_change_at),
-        photo_urls: buildPhotoUrls(venue.id, venue.photos),
-        photos: readPlacesPhotos(venue.photos).slice(0, 3),
-        metadata: venue.metadata,
+        photo_urls: buildPhotoUrls(venue.id, venue.source === 'google_places' ? venue.source_external_id : null),
+        metadata: stripGooglePhotoData(venue.metadata),
         quote_required: Boolean(specialSupply?.quote_required),
         verification_status: specialSupply ? 'unverified_quote_required' : null,
         candidate_label: specialSupply?.candidate_status_label ?? null,
@@ -413,7 +400,7 @@ export function mapDiscoveryVenueToCatalogVenue(row: DiscoveryVenueRow): Catalog
     review_count: row.google_user_ratings_total,
     source: row.source,
     source_external_id: row.source_external_id,
-    metadata: row.metadata,
+    metadata: stripGooglePhotoData(row.metadata),
     venue_cluster_id: venueClusterId,
     subspace_hint: subspaceHint,
     is_claimed: row.is_claimed,
@@ -768,55 +755,9 @@ function readBestContactForm(value: unknown): { url: string; label: string; sour
     : null
 }
 
-export function readPlacesPhotos(value: Json): DiscoveryVenuePhoto[] {
-  if (!Array.isArray(value)) return []
-  return value.flatMap((entry): DiscoveryVenuePhoto[] => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return []
-    const record = entry as Record<string, unknown>
-    const name = readString(record.name)
-    if (!name) return []
-    return [{
-      name,
-      heightPx: readNumber(record.heightPx) ?? undefined,
-      widthPx: readNumber(record.widthPx) ?? undefined,
-      authorAttributions: readAuthorAttributions(record.authorAttributions),
-    }]
-  })
-}
-
-function sanitizePlacesPhotos(value: unknown): DiscoveryVenuePhoto[] {
-  if (!Array.isArray(value)) return []
-  return value.flatMap((entry): DiscoveryVenuePhoto[] => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return []
-    const record = entry as Record<string, unknown>
-    const name = readString(record.name)
-    if (!name) return []
-    return [{
-      name,
-      heightPx: readNumber(record.heightPx) ?? undefined,
-      widthPx: readNumber(record.widthPx) ?? undefined,
-      authorAttributions: readAuthorAttributions(record.authorAttributions),
-    }]
-  }).slice(0, 10)
-}
-
-function readAuthorAttributions(value: unknown): DiscoveryVenuePhoto['authorAttributions'] {
-  if (!Array.isArray(value)) return undefined
-  const attributions = value.flatMap((entry): NonNullable<DiscoveryVenuePhoto['authorAttributions']> => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return []
-    const record = entry as Record<string, unknown>
-    const displayName = readString(record.displayName)
-    const uri = readString(record.uri)
-    if (!displayName && !uri) return []
-    return [{ displayName: displayName ?? undefined, uri: uri ?? undefined }]
-  })
-  return attributions.length > 0 ? attributions : undefined
-}
-
-function buildPhotoUrls(venueId: string, photos: Json): string[] {
-  return readPlacesPhotos(photos)
-    .slice(0, 3)
-    .map((_photo, index) => `/api/planner/discovery-venues/${encodeURIComponent(venueId)}/photo/${index}`)
+function buildPhotoUrls(venueId: string, placeId: string | null): string[] {
+  if (process.env.GOOGLE_PLACES_PHOTOS_ENABLED !== 'true' || !placeId?.trim()) return []
+  return Array.from({ length: 3 }, (_, index) => `/api/planner/discovery-venues/${encodeURIComponent(venueId)}/photo/${index}`)
 }
 
 function shouldSkipEmail(email: string) {

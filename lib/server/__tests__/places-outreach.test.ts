@@ -22,6 +22,13 @@ import {
 import type { Plan } from '@/lib/types'
 
 describe('places outreach helpers', () => {
+  const previousPhotoFlag = process.env.GOOGLE_PLACES_PHOTOS_ENABLED
+  beforeEach(() => { process.env.GOOGLE_PLACES_PHOTOS_ENABLED = 'true' })
+  afterEach(() => {
+    if (previousPhotoFlag === undefined) delete process.env.GOOGLE_PLACES_PHOTOS_ENABLED
+    else process.env.GOOGLE_PLACES_PHOTOS_ENABLED = previousPhotoFlag
+  })
+
   it('uses organizer-provided emails before extracted emails', () => {
     const contact = resolveDiscoveryVenueContact({
       contact_email: null,
@@ -71,7 +78,7 @@ describe('places outreach helpers', () => {
     })
   })
 
-  it('stores sanitized Google Places photos on discovery venue inserts', () => {
+  it('omits Google photos on discovery writes without clearing old stored arrays', () => {
     const insert = buildDiscoveryVenueInsert({
       id: 'places/moongate',
       displayName: { text: 'Moongate Lounge' },
@@ -104,12 +111,9 @@ describe('places outreach helpers', () => {
     expect(insert.name).toBe('Moongate Lounge')
     expect(insert.source).toBe('google_places')
     expect(insert.source_external_id).toBe('places/moongate')
-    expect(insert.photos).toEqual([{
-      name: 'places/moongate/photos/photo-1',
-      heightPx: 900,
-      widthPx: 1200,
-      authorAttributions: [{ displayName: 'Moongate Lounge', uri: 'https://maps.example/photo' }],
-    }])
+    expect(insert).not.toHaveProperty('photos')
+    expect(insert).not.toHaveProperty('google_photo_names')
+    expect(JSON.stringify(insert)).not.toContain('photo-1')
   })
 
   it('stores Places intent, cluster, and subspace metadata on discovery venue inserts', () => {
@@ -175,6 +179,8 @@ describe('places outreach helpers', () => {
       } as PlanDiscoveryVenueCandidateRow,
       venue: {
         id: 'venue-1',
+        source: 'google_places',
+        source_external_id: 'places/moongate',
         name: 'Moongate Lounge',
         address: '123 Mission St',
         neighborhood: 'Mission',
@@ -200,8 +206,33 @@ describe('places outreach helpers', () => {
         contact_status: 'ready_to_reach_out',
         contact_form_url: null,
         fit_score: 87,
-        photo_urls: ['/api/planner/discovery-venues/venue-1/photo/0'],
+        photo_urls: [0, 1, 2].map(index => `/api/planner/discovery-venues/venue-1/photo/${index}`),
       })
+  })
+
+  it('does not expose stored Google photos or nested photo metadata to ranking or responses', () => {
+    const venue = {
+      id: 'venue-1', source: 'google_places', source_external_id: 'places/moongate', name: 'Moongate',
+      photos: [{ name: 'places/moongate/photos/old-token' }],
+      google_photo_names: ['opaque-old-token'],
+      metadata: { nested: { photos: [{ name: 'places/moongate/photos/nested-token' }] }, own_image: 'https://example.com/owned.jpg' },
+    } as unknown as DiscoveryVenueRow
+    const responses = buildDiscoveryCandidateResponses(fakePlan(), [{ venue, candidate: { id: 'candidate-1' } as PlanDiscoveryVenueCandidateRow }])
+    expect(responses[0]).not.toHaveProperty('photos')
+    expect(responses[0].photo_urls).toHaveLength(3)
+    expect(JSON.stringify(responses)).not.toMatch(/old-token|nested-token/)
+    expect(JSON.stringify(mapDiscoveryVenueToCatalogVenue(venue))).not.toContain('nested-token')
+    expect(responses[0].metadata).toMatchObject({ own_image: 'https://example.com/owned.jpg' })
+    expect(venue.photos).toEqual([{ name: 'places/moongate/photos/old-token' }])
+    const missingIdentity = { ...venue, source_external_id: null }
+    expect(buildDiscoveryCandidateResponses(fakePlan(), [{ venue: missingIdentity, candidate: {} as PlanDiscoveryVenueCandidateRow }])[0].photo_urls).toEqual([])
+  })
+
+  it.each([undefined, 'false'])('hides photo capability when the feature is not opted in: %s', (flag) => {
+    if (flag === undefined) delete process.env.GOOGLE_PLACES_PHOTOS_ENABLED
+    else process.env.GOOGLE_PLACES_PHOTOS_ENABLED = flag
+    const venue = { id: 'venue-1', name: 'Venue', source: 'google_places', source_external_id: 'place-1' } as DiscoveryVenueRow
+    expect(buildDiscoveryCandidateResponses(fakePlan(), [{ venue, candidate: {} as PlanDiscoveryVenueCandidateRow }])[0].photo_urls).toEqual([])
   })
 
   it('passes inferred capacity fields through to catalog ranking inputs', () => {

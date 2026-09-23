@@ -5,13 +5,17 @@ type GooglePlacesAttributionProps = {
   photo: unknown
 }
 
-/** Dormant credit-only view; the future photo flow must pair it with the same image. */
+/** Compact photo caption; supplied alongside the bytes from the same fresh response. */
 export function GooglePlacesAttribution({ photo }: GooglePlacesAttributionProps) {
   const attribution = parseGooglePhotoAttribution(photo)
 
   return (
-    <div aria-label="Google Maps attribution" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink">
-      <span className="font-medium">Google Maps</span>
+    <div aria-label="Google Maps attribution" className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-white p-3 font-sans text-xs text-[#1F1F1F]">
+      <span className="shrink-0 px-[10px] pb-[5px] pt-[10px]" translate="no">
+        {/* Official unmodified branding is a local static asset, not Places photo content. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand/google-maps-attribution.svg" alt="Google Maps" width={98} height={18} className="h-[18px] w-[98px]" />
+      </span>
       {attribution?.authorAttributions.map((author, index) => (
         author.uri ? (
           <a

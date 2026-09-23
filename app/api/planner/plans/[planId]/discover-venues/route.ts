@@ -68,8 +68,6 @@ const DISCOVERY_VENUE_SELECT = `
   source_external_id,
   google_rating,
   google_user_ratings_total,
-  google_photo_names,
-  photos,
   opening_hours_json,
   metadata,
   business_status,

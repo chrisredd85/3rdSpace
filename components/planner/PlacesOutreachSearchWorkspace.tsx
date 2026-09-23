@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { GooglePlacesPhoto } from '@/components/discovery/GooglePlacesPhoto'
 
 type ContactStatus = 'ready_to_reach_out' | 'contact_form_available' | 'contact_pending' | 'no_contact_available'
 
@@ -45,13 +46,6 @@ type DiscoveryCandidate = {
   google_rating: number | null
   google_user_ratings_total: number | null
   photo_urls: string[]
-  photos: Array<{
-    name: string
-    authorAttributions?: Array<{
-      displayName?: string
-      uri?: string
-    }>
-  }>
 }
 
 type DiscoverySummary = {
@@ -538,21 +532,10 @@ function CandidateCard({
   onEmailChange?: (value: string) => void
   onSaveEmail?: () => void
 }) {
-  const firstPhoto = candidate.photo_urls[0]
-  const attribution = candidate.photos[0]?.authorAttributions?.[0]
-
   return (
     <article className="overflow-hidden rounded-md border border-border bg-background/70">
-      {firstPhoto ? (
-        <div className="relative h-40 w-full overflow-hidden bg-cream-deep">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={firstPhoto} alt="" className="h-full w-full object-cover" loading="lazy" />
-          {attribution?.displayName ? (
-            <span className="absolute bottom-2 right-2 rounded-full bg-ink/70 px-2 py-1 text-[10px] font-semibold text-cream">
-              {attribution.displayName}
-            </span>
-          ) : null}
-        </div>
+      {candidate.photo_urls.length > 0 ? (
+        <GooglePlacesPhoto entityType="discovery_venue" entityId={candidate.discovery_venue_id} alt={candidate.name} />
       ) : null}
       <div className="space-y-4 p-4">
         <div className="flex items-start justify-between gap-4">

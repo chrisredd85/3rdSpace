@@ -1,5 +1,7 @@
 import 'server-only'
 
+import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
+
 import type { Json } from '@/lib/types'
 import {
   type GooglePlaceCandidate,
@@ -43,7 +45,6 @@ export type DiscoveryVendorRow = {
   google_price_level: string | null
   business_status: string | null
   place_types: Json
-  photos: Json
   contact_email: string | null
   organizer_provided_email: string | null
   extracted_emails: Json
@@ -213,7 +214,9 @@ export async function searchPlacesForVendor(opts: {
       continue
     }
 
-    vendors.push(data as DiscoveryVendorRow)
+    // Old stored photos stay in the database until a separately approved cleanup.
+    const { photos: _photos, ...withoutStoredPhotos } = data
+    vendors.push(stripGooglePhotoData(withoutStoredPhotos) as DiscoveryVendorRow)
   }
 
   if (opts.planId && vendors.length > 0) {
@@ -279,7 +282,6 @@ export function buildDiscoveryVendorInsert(
     google_price_level: place.priceLevel ?? null,
     business_status: place.businessStatus ?? null,
     place_types: (place.types ?? []) as unknown as Json,
-    photos: sanitizePlacesPhotos(place.photos) as unknown as Json,
     website_extraction_status: place.websiteUri ? 'never_attempted' : null,
     last_refreshed_at: new Date().toISOString(),
     last_places_refresh_at: new Date().toISOString(),
@@ -385,22 +387,6 @@ function inferCity(address: string | undefined): string | null {
   if (/\bsan francisco\b/i.test(address)) return 'San Francisco'
   if (/\bsan jose\b/i.test(address)) return 'San Jose'
   return null
-}
-
-function sanitizePlacesPhotos(value: unknown): Array<Record<string, unknown>> {
-  if (!Array.isArray(value)) return []
-  return value.flatMap((photo) => {
-    if (!photo || typeof photo !== 'object' || Array.isArray(photo)) return []
-    const record = photo as Record<string, unknown>
-    const name = typeof record.name === 'string' ? record.name.trim() : ''
-    if (!name) return []
-    return [{
-      name,
-      heightPx: typeof record.heightPx === 'number' ? record.heightPx : undefined,
-      widthPx: typeof record.widthPx === 'number' ? record.widthPx : undefined,
-      authorAttributions: Array.isArray(record.authorAttributions) ? record.authorAttributions : undefined,
-    }]
-  })
 }
 
 function readPositiveInteger(value: unknown): number | null {

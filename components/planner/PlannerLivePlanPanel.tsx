@@ -51,6 +51,7 @@ import {
 } from '@/lib/planner/entityStripeReadiness'
 import { readVendorNeedStatusFromMetadata } from '@/lib/planner/vendorNeedStatus'
 import { calculateBreakEvenAttendance } from '@/lib/finance/eventPlanningEconomics'
+import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
 import type { PlanMessage, VendorNeedStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/utils/relativeTime'
@@ -1782,7 +1783,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
               }),
               updatedAt: now,
             }
-        const nextPayload = { ...current, plan: nextPlan }
+        const nextPayload = stripGooglePhotoData({ ...current, plan: nextPlan })
         if (typeof window !== 'undefined') {
           window.localStorage.setItem('planner-live-plan', JSON.stringify(nextPayload))
         }
@@ -1824,14 +1825,14 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
 
       setLivePayload((current) => {
         if (!current.plan) return current
-        const nextPayload = {
+        const nextPayload = stripGooglePhotoData({
           ...current,
           plan: {
             ...current.plan,
             runOfShow: nextRunOfShow ?? current.plan.runOfShow,
             workspaceSummary: nextWorkspaceSummary ?? current.plan.workspaceSummary,
           },
-        }
+        })
         if (typeof window !== 'undefined') {
           window.localStorage.setItem('planner-live-plan', JSON.stringify(nextPayload))
         }

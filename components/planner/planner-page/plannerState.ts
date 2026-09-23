@@ -2,6 +2,7 @@
 
 import type { Plan, PlanMessage, PlannerFullPlanResponse, PlannerListPlansResponse } from '@/lib/types'
 import { normalizePlanAttendanceSnapshot } from '@/lib/planner/attendanceSummary'
+import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
 import { activeConversationStorageKey, planTabs, type EventPlanPayload, type PendingConversionAction, type PendingConversionActionType, type PlannerAccountSummary, type PlannerStateLoadResult, type PlannerTab, type TimelineOutput } from './types'
 
 const PLANNER_STATE_CACHE_TTL_MS = 5_000
@@ -254,11 +255,11 @@ export function publishLivePlan(plan: Plan | null, messages: PlanMessage[]) {
     updatedAt: plan.updated_at,
   }
 
-  const payload = {
+  const payload = stripGooglePhotoData({
     plan: snapshot,
     messages,
     planId: plan.id,
-  }
+  })
 
   window.localStorage.setItem('planner-live-plan', JSON.stringify(payload))
   window.dispatchEvent(new CustomEvent('planner-live-plan:update', { detail: payload }))
@@ -365,11 +366,11 @@ export function persistStoredPlannerConversation(plan: Plan | null, messages: Pl
 
   window.localStorage.setItem(
     activeConversationStorageKey,
-    JSON.stringify({
+    JSON.stringify(stripGooglePhotoData({
       plan,
       messages,
       savedAt: new Date().toISOString(),
-    })
+    }))
   )
 }
 

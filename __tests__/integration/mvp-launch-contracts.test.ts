@@ -779,6 +779,38 @@ describe('MVP launch API contracts', () => {
     mockPlannerClient(db)
   })
 
+  it('creates a valid approval from a new draft containing legacy photos without rewriting existing approvals', async () => {
+    const oldApproval = { id: 'old-approved', status: 'authorized', snapshot_hash: 'unchanged-hash',
+      snapshot_json: { legacy: 'places/old/photos/old-token' } }
+    db.rows.approvals.push(oldApproval)
+    const response = await createAgentAction(makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
+      actionType: 'hold_request', targetType: 'venue', targetId: VENUE_ID_1, requestedAmountCents: 500_000,
+      payloadJson: {
+        action_label: 'Request hold', provider: 'Foundry Rooftop', package_details: '48-hour soft hold',
+        google_photo_names: ['opaque-photo-token'],
+        photos: [{ name: 'places/venue/photos/new-photo-token', authorAttributions: [{ displayName: 'Credit' }] }],
+        independent_image: 'https://example.com/own-image.jpg',
+        commercial_terms: { partner_id: VENUE_ID_1, amount_cents: 500_000, url: 'https://places.googleapis.com/v1/places/venue/photos/terms-photo-token/media' },
+      },
+    }), { params: { planId: PLAN_ID } })
+    const json = await readJson(response)
+    expect(response.status).toBe(200)
+    expect(json.agentAction.amount_cents).toBe(500_000)
+    expect(json.agentAction.target_id).toBe(VENUE_ID_1)
+    expect(json.agentAction.payload_json).toMatchObject({
+      provider: 'Foundry Rooftop', package_details: '48-hour soft hold', independent_image: 'https://example.com/own-image.jpg',
+      commercial_terms: { partner_id: VENUE_ID_1, amount_cents: 500_000 },
+    })
+    expect(JSON.stringify(json)).not.toMatch(/new-photo-token|opaque-photo-token|terms-photo-token/)
+    const newApproval = db.rows.approvals.find(row => row.id === json.approval.id)!
+    expect(newApproval.snapshot_hash).toBe(buildApprovalSnapshotHashV2({
+      plan: db.rows.plans[0] as any, approval: newApproval as any,
+      action: db.rows.agent_actions[0] as any, payload: db.rows.agent_actions[0].payload_json,
+    }))
+    expect(oldApproval).toEqual({ id: 'old-approved', status: 'authorized', snapshot_hash: 'unchanged-hash',
+      snapshot_json: { legacy: 'places/old/photos/old-token' } })
+  })
+
   it('POST planner agent-actions creates the agent_action, approval row, and visible approval_request message', async () => {
     const response = await createAgentAction(
       makeRequest(`/api/planner/plans/${PLAN_ID}/agent-actions`, {
