@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
+import { isGoogleVenueEnabled } from '@/lib/server/google-places-flags'
 
 export const GOOGLE_PLACES_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText'
 
@@ -18,6 +19,123 @@ export const GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK = [
   'places.priceLevel',
   'places.businessStatus',
 ].join(',')
+
+// The vendor profile above is intentionally unchanged. Venue discovery pays for
+// Pro fields only; richer fields are fetched for the bounded shortlist.
+export const GOOGLE_VENUE_PRO_FIELDS = [
+  'id', 'displayName', 'formattedAddress', 'location', 'primaryType', 'types',
+  'businessStatus', 'googleMapsUri', 'attributions',
+] as const
+export const GOOGLE_VENUE_TEXT_SEARCH_FIELD_MASK = GOOGLE_VENUE_PRO_FIELDS.map((field) => `places.${field}`).join(',')
+
+export type VenuePlaceCandidate = {
+  id: string
+  displayName?: { text: string; languageCode?: string }
+  formattedAddress?: string
+  location?: { latitude: number; longitude: number }
+  primaryType?: string
+  types?: string[]
+  businessStatus?: string
+  googleMapsUri?: string
+  attributions?: Array<{ provider: string; providerUri?: string }>
+  websiteUri?: string
+  nationalPhoneNumber?: string
+  rating?: number
+  userRatingCount?: number
+  priceLevel?: string
+}
+
+export type VenuePlacesSearchResult = {
+  places: VenuePlaceCandidate[]
+  request: GooglePlacesTextSearchRequest
+}
+
+/** Normalize only a single legacy resource prefix, never suffix-match IDs. */
+export function canonicalGooglePlaceId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const id = value.trim().replace(/^places\//, '')
+  return /^[A-Za-z0-9_-]{1,255}$/.test(id) ? id : null
+}
+
+export function parseVenuePlace(value: unknown, profile: 'pro' | 'enterprise' = 'pro'): VenuePlaceCandidate | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const row = value as Record<string, unknown>
+  const id = canonicalGooglePlaceId(row.id)
+  if (!id) return null
+  const location = readLocation(row.location)
+  const result: VenuePlaceCandidate = {
+    id,
+    ...(readDisplayName(row.displayName) ? { displayName: readDisplayName(row.displayName)! } : {}),
+    ...(readString(row.formattedAddress) ? { formattedAddress: readString(row.formattedAddress)! } : {}),
+    ...(location && location.latitude != null && location.longitude != null
+      && Math.abs(location.latitude) <= 90 && Math.abs(location.longitude) <= 180
+      ? { location: { latitude: location.latitude, longitude: location.longitude } } : {}),
+    ...(readString(row.primaryType) ? { primaryType: readString(row.primaryType)! } : {}),
+    ...(readStringArray(row.types) ? { types: readStringArray(row.types) } : {}),
+    ...(readString(row.businessStatus) ? { businessStatus: readString(row.businessStatus)! } : {}),
+    ...(safePlacesUrl(row.googleMapsUri) ? { googleMapsUri: safePlacesUrl(row.googleMapsUri)! } : {}),
+  }
+  if (Array.isArray(row.attributions)) {
+    result.attributions = row.attributions.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return []
+      const attribution = entry as Record<string, unknown>
+      const provider = readString(attribution.provider)
+      return provider ? [{ provider, ...(safePlacesUrl(attribution.providerUri) ? { providerUri: safePlacesUrl(attribution.providerUri)! } : {}) }] : []
+    })
+  }
+  if (profile === 'enterprise') {
+    const websiteUri = safePlacesUrl(row.websiteUri)
+    if (websiteUri) result.websiteUri = websiteUri
+    const phone = readString(row.nationalPhoneNumber)
+    if (phone) result.nationalPhoneNumber = phone
+    const rating = readNumber(row.rating)
+    if (rating != null && rating >= 0 && rating <= 5) result.rating = rating
+    const count = readNumber(row.userRatingCount)
+    if (count != null && Number.isInteger(count) && count >= 0) result.userRatingCount = count
+    const priceLevel = readString(row.priceLevel)
+    if (priceLevel) result.priceLevel = priceLevel
+  }
+  return result
+}
+
+function safePlacesUrl(value: unknown): string | null {
+  const candidate = readString(value)
+  if (!candidate) return null
+  try {
+    const url = new URL(candidate)
+    return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? url.href : null
+  } catch { return null }
+}
+
+/** Request-only Pro search. Unsolicited rich fields and photo content are ignored. */
+export async function searchGoogleVenuePlacesText(input: GooglePlacesSearchInput): Promise<VenuePlacesSearchResult> {
+  const request = buildGooglePlacesTextSearchRequest(input)
+  if (!isGoogleVenueEnabled()) return { places: [], request }
+  if (!input.apiKey?.trim()) throw new GooglePlacesConfigurationError('GOOGLE_PLACES_API_KEY is not configured')
+  const fetchImpl = input.fetchImpl ?? fetch
+  const sleep = input.sleep ?? defaultSleep
+  await waitForRateLimit({ now: input.now ?? Date.now, sleep })
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(fetchImpl, GOOGLE_PLACES_TEXT_SEARCH_URL, {
+        method: 'POST', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': input.apiKey, 'X-Goog-FieldMask': GOOGLE_VENUE_TEXT_SEARCH_FIELD_MASK },
+        body: JSON.stringify(request),
+      }, input.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+      if (!response.ok) throw new GooglePlacesApiError(response.status, 'Venue search unavailable')
+      const payload: unknown = await response.json()
+      const rows = payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>).places : null
+      const places = Array.isArray(rows) ? rows.slice(0, request.maxResultCount).map((row) => parseVenuePlace(row)).filter((place): place is VenuePlaceCandidate => Boolean(place) && (!place!.businessStatus || place!.businessStatus === 'OPERATIONAL')) : []
+      return { places, request }
+    } catch (error) {
+      const transient = error instanceof GooglePlacesApiError ? error.status === 429 || error.status >= 500 : error instanceof Error && (isRetryableError(error) || error instanceof TypeError)
+      if (attempt === 0 && transient) { await sleep(200); continue }
+      if (error instanceof GooglePlacesApiError) throw error
+      throw new Error('Google venue search unavailable')
+    }
+  }
+  return { places: [], request }
+}
 
 const REQUEST_INTERVAL_MS = 1000
 const DEFAULT_TIMEOUT_MS = 10_000
