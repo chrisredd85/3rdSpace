@@ -170,7 +170,16 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Start local Supabase
-        run: supabase start
+        run: |
+          for supabase_attempt in 1 2 3; do
+            if supabase start; then
+              exit 0
+            fi
+            if [ "$supabase_attempt" -lt 3 ]; then
+              sleep "$((supabase_attempt * 30))"
+            fi
+          done
+          exit 1
 
       - name: Reset local database
         run: supabase db reset
