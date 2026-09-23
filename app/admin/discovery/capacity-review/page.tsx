@@ -1,3 +1,4 @@
+import { writeVenueFacts, independentVenueEvidence } from '@/lib/discovery/venueRepository'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { getAdminContext } from '@/lib/server/admin-auth'
@@ -7,7 +8,7 @@ export const dynamic = 'force-dynamic'
 
 type DiscoveryVenueCapacityRow = {
   id: string
-  name: string
+  name: string | null
   address: string | null
   city: string | null
   state: string | null
@@ -29,7 +30,7 @@ export default async function VenueCapacityReviewPage() {
 
   const admin = createServiceRoleClient() as any
   const { data, error } = await admin
-    .from('discovery_venues')
+    .from('discovery_venues_safe')
     .select('id,name,address,city,state,website,inferred_capacity_standing,inferred_capacity_seated,capacity_inference_confidence,capacity_inference_source_quote,capacity_inference_admin_status,updated_at')
     .or('capacity_inference_admin_status.is.null,capacity_inference_admin_status.eq.pending')
     .order('capacity_inference_confidence', { ascending: true, nullsFirst: true })
@@ -67,7 +68,7 @@ export default async function VenueCapacityReviewPage() {
                       <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                         {[row.city, row.state].filter(Boolean).join(', ') || 'Discovery venue'}
                       </p>
-                      <h2 className="mt-1 truncate font-display text-2xl font-bold" title={row.name}>{row.name}</h2>
+                      <h2 className="mt-1 truncate font-display text-2xl font-bold" title={row.name ?? undefined}>{row.name ?? 'Venue name unavailable'}</h2>
                       {row.address ? <p className="mt-1 text-sm text-muted-foreground">{row.address}</p> : null}
                       {row.website ? (
                         <a className="mt-1 block truncate text-sm font-semibold text-primary hover:underline" href={row.website} target="_blank" rel="noreferrer">
@@ -127,10 +128,7 @@ async function approveCapacity(formData: FormData) {
   'use server'
   await assertAdminAction()
   const id = readFormId(formData)
-  await (createServiceRoleClient() as any)
-    .from('discovery_venues')
-    .update({ capacity_inference_admin_status: 'approved', updated_at: new Date().toISOString() })
-    .eq('id', id)
+  await writeVenueFacts(createServiceRoleClient(), id, {}, {}, { capacity_inference_admin_status: 'approved' })
   revalidatePath('/admin/discovery/capacity-review')
 }
 
@@ -138,10 +136,7 @@ async function rejectCapacity(formData: FormData) {
   'use server'
   await assertAdminAction()
   const id = readFormId(formData)
-  await (createServiceRoleClient() as any)
-    .from('discovery_venues')
-    .update({ capacity_inference_admin_status: 'rejected', updated_at: new Date().toISOString() })
-    .eq('id', id)
+  await writeVenueFacts(createServiceRoleClient(), id, {}, {}, { capacity_inference_admin_status: 'rejected' })
   revalidatePath('/admin/discovery/capacity-review')
 }
 
@@ -149,18 +144,14 @@ async function editCapacity(formData: FormData) {
   'use server'
   await assertAdminAction()
   const id = readFormId(formData)
-  await (createServiceRoleClient() as any)
-    .from('discovery_venues')
-    .update({
-      inferred_capacity_standing: readOptionalPeople(formData.get('standing')),
-      inferred_capacity_seated: readOptionalPeople(formData.get('seated')),
-      capacity_inference_confidence: 1,
-      capacity_inference_source_quote: 'Admin-reviewed venue capacity override.',
-      capacity_inference_admin_status: 'edited',
-      capacity_inference_extracted_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id)
+  const now = new Date().toISOString()
+  const evidence = independentVenueEvidence('host_input', `admin-capacity-entry:${id}`, now)
+  await writeVenueFacts(createServiceRoleClient(), id, {
+    inferred_capacity_standing: readOptionalPeople(formData.get('standing')),
+    inferred_capacity_seated: readOptionalPeople(formData.get('seated')),
+  }, { inferred_capacity_standing: evidence, inferred_capacity_seated: evidence }, {
+    capacity_inference_admin_status: 'edited', capacity_inference_extracted_at: now,
+  })
   revalidatePath('/admin/discovery/capacity-review')
 }
 

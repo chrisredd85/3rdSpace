@@ -1,3 +1,4 @@
+import { independentVenueEvidence } from '@/lib/discovery/venueRepository'
 jest.mock('server-only', () => ({}))
 
 jest.mock('@/lib/planner/catalogRanker', () => ({
@@ -22,9 +23,12 @@ import {
 import type { Plan } from '@/lib/types'
 
 describe('places outreach helpers', () => {
+  const previousVenueFlag = process.env.GOOGLE_PLACES_VENUES_ENABLED
   const previousPhotoFlag = process.env.GOOGLE_PLACES_PHOTOS_ENABLED
-  beforeEach(() => { process.env.GOOGLE_PLACES_PHOTOS_ENABLED = 'true' })
+  beforeEach(() => { process.env.GOOGLE_PLACES_PHOTOS_ENABLED = 'true'; process.env.GOOGLE_PLACES_VENUES_ENABLED = 'true' })
   afterEach(() => {
+    if (previousVenueFlag === undefined) delete process.env.GOOGLE_PLACES_VENUES_ENABLED
+    else process.env.GOOGLE_PLACES_VENUES_ENABLED = previousVenueFlag
     if (previousPhotoFlag === undefined) delete process.env.GOOGLE_PLACES_PHOTOS_ENABLED
     else process.env.GOOGLE_PLACES_PHOTOS_ENABLED = previousPhotoFlag
   })
@@ -63,6 +67,7 @@ describe('places outreach helpers', () => {
         confidence: 0.9,
         extracted_at: '2026-06-26T00:00:00.000Z',
         is_likely_booking_contact: true,
+        evidence_kind: 'observed_form',
       }],
       website: 'https://lacorneta.example',
     } as unknown as DiscoveryVenueRow)
@@ -76,6 +81,26 @@ describe('places outreach helpers', () => {
       contactFormSourcePath: '/page/catering-request',
       status: 'contact_form_available',
     })
+  })
+
+  it('shows unverified booking links and legacy form evidence as neutral contact links', () => {
+    const contact = resolveDiscoveryVenueContact({
+      contact_email: null, organizer_provided_emails: [], extracted_emails: [],
+      extracted_contact_forms: [{ url: 'https://venue.test/book', confidence: 0.9, label: 'Book' }],
+      website: 'https://venue.test',
+    } as unknown as DiscoveryVenueRow)
+    expect(contact.status).toBe('contact_link_available')
+    expect(contact.contactFormUrl).toBe('https://venue.test/book')
+  })
+
+  it.each([
+    ['blocked_by_robots', 1], ['timeout', 3], ['no_emails_found', 1], ['successful', 1],
+  ])('does not report terminal %s contact extraction as pending', (status, attempts) => {
+    const contact = resolveDiscoveryVenueContact({
+      contact_email: null, organizer_provided_emails: [], extracted_emails: [{ email: 'info@venue.test', confidence: 0.2 }],
+      website: 'https://venue.test', website_extraction_status: status, website_extraction_attempts: attempts,
+    } as unknown as DiscoveryVenueRow)
+    expect(contact.status).toBe('no_contact_available')
   })
 
   it('omits Google photos on discovery writes without clearing old stored arrays', () => {
@@ -108,15 +133,15 @@ describe('places outreach helpers', () => {
       neighborhood: 'Mission',
     })
 
-    expect(insert.name).toBe('Moongate Lounge')
+    expect(insert).not.toHaveProperty('name')
     expect(insert.source).toBe('google_places')
-    expect(insert.source_external_id).toBe('places/moongate')
+    expect(insert.source_external_id).toBe('moongate')
     expect(insert).not.toHaveProperty('photos')
     expect(insert).not.toHaveProperty('google_photo_names')
     expect(JSON.stringify(insert)).not.toContain('photo-1')
   })
 
-  it('stores Places intent, cluster, and subspace metadata on discovery venue inserts', () => {
+  it('keeps Places intent, cluster, and subspace signals out of identity writes', () => {
     const place = {
       id: 'places/hotel-ballroom',
       displayName: { text: 'Marriott Union Square Ballroom' },
@@ -148,15 +173,8 @@ describe('places outreach helpers', () => {
 
     expect(computeVenueCluster(place)).toBe('hotel_marriott_union_square_san_francisco')
     expect(computeSubspaceHint(place)).toBe('ballroom')
-    expect(insert.metadata).toMatchObject({
-      places_intent_cluster_label: 'event_space',
-      places_intent_requested_types: ['convention_center', 'hotel', 'event_venue', 'banquet_hall'],
-      places_intent_matched_type: 'hotel',
-      places_primary_type_match: 'hotel',
-      places_all_types: ['hotel', 'lodging', 'banquet_hall'],
-      venue_cluster_id: 'hotel_marriott_union_square_san_francisco',
-      subspace_hint: 'ballroom',
-    })
+    expect(insert).toEqual({ source: 'google_places', source_external_id: 'hotel-ballroom' })
+
   })
 
   it('builds response candidates with proxied photo urls and ready contact status', () => {
@@ -195,13 +213,13 @@ describe('places outreach helpers', () => {
         photos: [{ name: 'places/moongate/photos/photo-1', authorAttributions: [{ displayName: 'Moongate Lounge' }] }],
         google_rating: 4.8,
         google_user_ratings_total: 99,
-        metadata: {},
+        metadata: { venue_boundary_version: 1, field_provenance: { organizer_provided_emails: independentVenueEvidence('host_input', 'host:manual-contact') } },
       } as DiscoveryVenueRow,
     }])
 
     expect(responses[0]).toMatchObject({
       discovery_venue_id: 'venue-1',
-      name: 'Moongate Lounge',
+      name: 'Venue details unavailable',
         contact_email: 'booking@moongate.example',
         contact_status: 'ready_to_reach_out',
         contact_form_url: null,
@@ -222,7 +240,8 @@ describe('places outreach helpers', () => {
     expect(responses[0].photo_urls).toHaveLength(3)
     expect(JSON.stringify(responses)).not.toMatch(/old-token|nested-token/)
     expect(JSON.stringify(mapDiscoveryVenueToCatalogVenue(venue))).not.toContain('nested-token')
-    expect(responses[0].metadata).toMatchObject({ own_image: 'https://example.com/owned.jpg' })
+    expect(responses[0].metadata).toMatchObject({ venue_boundary_version: 1 })
+    expect(responses[0].metadata).not.toHaveProperty('own_image')
     expect(venue.photos).toEqual([{ name: 'places/moongate/photos/old-token' }])
     const missingIdentity = { ...venue, source_external_id: null }
     expect(buildDiscoveryCandidateResponses(fakePlan(), [{ venue: missingIdentity, candidate: {} as PlanDiscoveryVenueCandidateRow }])[0].photo_urls).toEqual([])
@@ -235,7 +254,7 @@ describe('places outreach helpers', () => {
     expect(buildDiscoveryCandidateResponses(fakePlan(), [{ venue, candidate: {} as PlanDiscoveryVenueCandidateRow }])[0].photo_urls).toEqual([])
   })
 
-  it('passes inferred capacity fields through to catalog ranking inputs', () => {
+  it('keeps unresolved inferred capacity unavailable in ranking inputs', () => {
     const mapped = mapDiscoveryVenueToCatalogVenue({
       id: 'venue-1',
       name: 'Moongate Lounge',
@@ -270,9 +289,9 @@ describe('places outreach helpers', () => {
     } as DiscoveryVenueRow)
 
     expect(mapped).toMatchObject({
-      inferred_capacity_standing: 110,
-      inferred_capacity_seated: 64,
-      capacity_inference_confidence: 0.82,
+      inferred_capacity_standing: null,
+      inferred_capacity_seated: null,
+      capacity_inference_confidence: null,
       capacity_inference_admin_status: 'pending',
     })
   })
@@ -340,7 +359,7 @@ describe('places outreach helpers', () => {
         photos: [],
         google_rating: null,
         google_user_ratings_total: null,
-        metadata: {},
+        metadata: { venue_boundary_version: 1, field_provenance: { organizer_provided_emails: independentVenueEvidence('host_input', 'host:manual-contact') } },
       } as DiscoveryVenueRow,
     }])
 

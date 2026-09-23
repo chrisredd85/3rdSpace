@@ -1,9 +1,10 @@
 import 'server-only'
+import { readSafeDiscoveryVenue, writeVenueFacts, type VenueRpcClient } from './venueRepository'
+import { asRecord, readFieldProvenance } from './foundation/provenance'
 
 import * as Sentry from '@sentry/nextjs'
 import { enqueueJob, type SupabaseJobClient } from '@/lib/server/job-queue'
 import { inferVenueCapacity, shouldSkipVenueCapacityInference, type VenueCapacityInference } from '@/lib/discovery/inferCapacity'
-import { toJsonObject, type JsonObject } from '@/lib/types/databaseRows'
 import type { Json } from '@/lib/types/database-generated'
 
 type DbError = { message: string }
@@ -19,8 +20,8 @@ type CapacityVenueTable = {
   select(columns: string): CapacityVenueSelectBuilder
   update(values: Record<string, unknown>): CapacityVenueUpdateBuilder
 }
-export type VenueCapacityJobClient = SupabaseJobClient & {
-  from(table: 'discovery_venues'): CapacityVenueTable
+export type VenueCapacityJobClient = SupabaseJobClient & VenueRpcClient & {
+  from(table: 'discovery_venues_safe'): CapacityVenueTable
 }
 
 export type CapacityVenueCandidate = {
@@ -73,14 +74,17 @@ export async function runVenueCapacityInferenceJob(
   admin: VenueCapacityJobClient,
   input: { discoveryVenueId: string; websiteSnippet?: string | null }
 ) {
-  const { data: venue, error } = await admin
-    .from('discovery_venues')
+  const { data: storedVenue, error } = await admin
+    .from('discovery_venues_safe')
     .select(VENUE_CAPACITY_JOB_SELECT)
     .eq('id', input.discoveryVenueId)
     .maybeSingle()
 
   if (error) throw new Error(`Failed to load discovery venue: ${error.message}`)
-  if (!venue) return { processed: false, skipped: true, reason: 'not_found' }
+  if (!storedVenue) return { processed: false, skipped: true, reason: 'not_found' }
+  const venue = readSafeDiscoveryVenue(storedVenue)
+  if (input.websiteSnippet) throw new Error('Unversioned capacity snippet rejected')
+  if (!venue.name) return { processed: false, skipped: true, reason: 'independent_evidence_required' }
   if (hasKnownCapacity(venue)) return { processed: false, skipped: true, reason: 'capacity_already_known' }
   if (shouldSkipVenueCapacityInference(venue)) return { processed: false, skipped: true, reason: 'already_inferred' }
   if (!process.env.OPENAI_API_KEY?.trim()) return { processed: false, skipped: true, reason: 'openai_not_configured' }
@@ -89,14 +93,12 @@ export async function runVenueCapacityInferenceJob(
   try {
     inference = await inferVenueCapacity({
       name: venue.name,
-      venue_type: readVenueType(venue.metadata),
+      venue_type: 'venue',
       address: venue.address,
       city: venue.city,
       state: venue.state,
       website_url: venue.website,
-      google_types: readGoogleTypes(venue.metadata),
-      google_rating: venue.google_rating,
-      google_user_ratings_total: venue.google_user_ratings_total,
+      google_types: [],
     }, input.websiteSnippet ?? null)
   } catch (error) {
     Sentry.captureException(error, {
@@ -107,11 +109,15 @@ export async function runVenueCapacityInferenceJob(
   }
 
   const attemptedAt = new Date().toISOString()
-  const update = buildVenueCapacityInferenceUpdate(inference, attemptedAt)
-  const { error: updateError } = await admin
-    .from('discovery_venues')
-    .update(update)
-    .eq('id', venue.id)
+  const evidence = asRecord(asRecord(venue.metadata)?.field_provenance) ?? {}
+  const lineage = ['name', 'address', 'city', 'state', 'website'].filter(key => evidence[key]).map(field => ({ field, provenance: readFieldProvenance(evidence[field]) }))
+  const provenance = { resolution: 'resolved', source: 'derived', evidence_reference: `capacity-inference:${venue.id}:${attemptedAt}`, collected_at: attemptedAt,
+    confirmation_status: 'unconfirmed', confidence: inference?.confidence ?? null, lineage }
+  const { error: updateError } = await writeVenueFacts(admin, venue.id, {
+    inferred_capacity_standing: inference?.standing ?? null, inferred_capacity_seated: inference?.seated ?? null,
+  }, { inferred_capacity_standing: provenance, inferred_capacity_seated: provenance }, {
+    capacity_inference_admin_status: 'pending', capacity_inference_extracted_at: attemptedAt,
+  })
 
   if (updateError) throw new Error(`Failed to update venue capacity inference: ${updateError.message}`)
 
@@ -143,22 +149,4 @@ export function buildVenueCapacityInferenceUpdate(
 export function hasKnownCapacity(venue: Pick<CapacityVenueCandidate, 'capacity_seated' | 'capacity_standing' | 'capacity_cocktail'>) {
   return [venue.capacity_cocktail, venue.capacity_standing, venue.capacity_seated]
     .some((value) => typeof value === 'number' && Number.isFinite(value) && value > 0)
-}
-
-function readVenueType(metadata: Json | null) {
-  const value = toJsonObject(metadata).google_primary_type
-  return typeof value === 'string' && value.trim() ? value.trim() : 'venue'
-}
-
-function readGoogleTypes(metadata: Json | null): string[] {
-  const record = toJsonObject(metadata)
-  return [
-    ...readStringArray(record.google_types),
-    ...readStringArray(record.places_all_types),
-  ]
-}
-
-function readStringArray(value: JsonObject[keyof JsonObject]): string[] {
-  if (!Array.isArray(value)) return []
-  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
 }

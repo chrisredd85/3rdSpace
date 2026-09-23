@@ -63,8 +63,8 @@ export class NonDurableDiscoveryContentError extends Error {
 }
 
 /**
- * ISOLATED ONLY: unused by all live writers. This allowlist serializes a specific
- * discovery contract, not arbitrary messages/JSON. Later gates must adapt each sink.
+ * C1 venue writers activate this allowlist through sink-specific adapters.
+ * It serializes discovery facts, not arbitrary messages or JSON; vendor activation remains deferred.
  * Evidence labels must come from trusted acquisition paths; this is not proof that
  * caller-supplied provenance is truthful or permission to relabel Google facts.
  */

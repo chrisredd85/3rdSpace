@@ -31,6 +31,11 @@ export const venueAmenitySchema = z.object({
 })
 
 export const venueMatchingCandidateSchema = z.object({
+  venue_identity_kind: z.enum(['catalog', 'discovery']).optional(),
+  google_place_id: z.string().nullable().optional(),
+  claimed_venue_id: z.string().nullable().optional(),
+  room_id: z.string().nullable().optional(),
+  venue_data: z.unknown().optional(),
   id: z.string().trim().min(1),
   venue_name: z.string().trim().min(1),
   venue_type: nullableStringSchema,

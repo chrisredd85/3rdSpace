@@ -1,3 +1,4 @@
+import { readSafeDiscoveryVenue } from '@/lib/discovery/venueRepository'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       if (!isPlacesBackedCandidate(row)) {
         return [{
           discovery_venue_id: venueId,
-          name: row.venue.name,
+          name: row.venue.name ?? 'Venue contact',
           error: 'places_discovery_required',
         }]
       }
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       if (contact.status !== 'ready_to_reach_out' || !contact.email) {
         return [{
           discovery_venue_id: venueId,
-          name: row.venue.name,
+          name: row.venue.name ?? 'Venue contact',
           error: 'contact_not_ready',
           contact_status: contact.status,
         }]
@@ -203,7 +204,7 @@ async function loadCandidateRows(planId: string, venueIds: string[]): Promise<Ca
   if (candidateRows.length === 0) return []
 
   const { data: venues, error: venueError } = await admin
-    .from('discovery_venues')
+    .from('discovery_venues_safe')
     .select(`
       id,name,address,neighborhood,city,state,lat,lng,contact_email,contact_phone,website,
       instagram_handle,capacity_seated,capacity_standing,capacity_cocktail,vibe_tags,
@@ -218,7 +219,7 @@ async function loadCandidateRows(planId: string, venueIds: string[]): Promise<Ca
     .returns<DiscoveryVenueRow[]>()
 
   if (venueError) throw new Error(venueError.message)
-  const venueById = new Map((venues ?? []).map((venue) => [venue.id, venue]))
+  const venueById = new Map((venues ?? []).map((venue) => [venue.id, readSafeDiscoveryVenue(venue)]))
   return candidateRows.flatMap((candidate) => {
     const venue = venueById.get(candidate.discovery_venue_id)
     return venue ? [{ candidate, venue }] : []

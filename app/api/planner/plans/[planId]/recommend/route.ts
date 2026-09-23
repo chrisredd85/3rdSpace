@@ -1,4 +1,7 @@
-import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
+import { dedupeVenueIdentity } from '@/lib/venues/venueIdentity'
+import { readSafeDiscoveryVenue } from '@/lib/discovery/venueRepository'
+import { isGoogleVenueEnabled } from '@/lib/server/google-places-flags'
+import { serializeVenueDurable, withIndependentVenueDerivation } from '@/lib/discovery/venuePersistence'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
@@ -113,6 +116,7 @@ interface RouteContext {
 }
 
 interface PlannerRecommendResponse {
+  discovery_venue_candidates?: Array<{ discovery_venue_id: string; place_id: string | null }>
   resolved_archetype: ResolvedArchetypeSummary
   ranked_venues: VenueMatchingAgentOutput['ranked_venues']
   recommendations: VenueMatchingAgentOutput['ranked_venues']
@@ -717,6 +721,7 @@ export async function POST(
       }),
     ])
     return jsonWithDeprecatedKeys({
+      discovery_venue_candidates: await discoveryCandidateReferences(placesFallbackCache),
       resolved_archetype: toResolvedArchetypeSummary(archetype),
       ranked_venues: paymentReadyVenues,
       recommendations: paymentReadyVenues,
@@ -1020,6 +1025,7 @@ async function runCatalogFallback(input: {
     }),
   ])
   return jsonWithDeprecatedKeys({
+    discovery_venue_candidates: await discoveryCandidateReferences(input.placesFallbackCache),
     resolved_archetype: toResolvedArchetypeSummary(input.archetype),
     ranked_venues: paymentReadyVenues,
     recommendations: paymentReadyVenues,
@@ -1104,7 +1110,7 @@ async function attachDiscoveryContactMetadata<T extends Record<string, unknown>>
     },
   ]))
   const { data: discoveryVenues, error: venueError } = await admin
-    .from('discovery_venues')
+    .from('discovery_venues_safe')
     .select(DISCOVERY_VENUE_SELECT)
     .in('id', [...candidateByVenueId.keys()])
     .returns<DiscoveryVenueRow[]>()
@@ -1114,7 +1120,7 @@ async function attachDiscoveryContactMetadata<T extends Record<string, unknown>>
     return venues
   }
 
-  const discoveryById = new Map(discoveryVenues.map((venue) => [venue.id, venue]))
+  const discoveryById = new Map(discoveryVenues.map((venue) => [venue.id, readSafeDiscoveryVenue(venue)]))
   return venues.map((venue) => {
     const venueId = readString(venue.venue_id)
     if (!venueId) return venue
@@ -1124,9 +1130,10 @@ async function attachDiscoveryContactMetadata<T extends Record<string, unknown>>
 
     const contact = resolveDiscoveryVenueContact(discoveryVenue)
     const draftRequest = readRecord(readRecord(candidate.places_request_json)?.outreach_draft_request)
-    return {
+    return withIndependentVenueDerivation({
       ...venue,
       discovery_venue_id: discoveryVenue.id,
+      venue_data: discoveryVenue.venue_data,
       discovery_candidate_id: candidate.id,
       discovery_candidate_status: candidate.status,
       contact_status: contact.status,
@@ -1143,7 +1150,7 @@ async function attachDiscoveryContactMetadata<T extends Record<string, unknown>>
       outreach_draft_request_status: readString(draftRequest?.status),
       outreach_draft_approval_message_id: readString(draftRequest?.approval_message_id),
       outreach_draft_approval_id: readString(draftRequest?.approval_id),
-    }
+    }, discoveryVenue.venue_data)
   })
 }
 
@@ -2014,7 +2021,7 @@ async function insertOperationalPlanVersion(
   const { error: insertError } = await writeDb.from('plan_versions').insert({
     plan_id: plan.id,
     version_number: latestVersion + 1,
-    snapshot: stripGooglePhotoData({
+    snapshot: serializeVenueDurable({
       ...plan,
       metadata,
       run_of_show: artifacts.timeline,
@@ -2419,6 +2426,7 @@ async function loadSparseDiscoveryVendorSuggestions(
   archetype: EventArchetypeConfig,
   existingSuggestions: SuggestedVendorRecommendation[]
 ): Promise<SuggestedVendorRecommendation[]> {
+  if (!isGoogleVenueEnabled()) return []
   const apiKey = process.env.GOOGLE_PLACES_API_KEY
   if (!apiKey) return []
 
@@ -2924,6 +2932,7 @@ async function loadPlacesVenueAgentCandidates(input: {
 }): Promise<VenueMatchingCandidate[]> {
   const rows = await loadPlacesDiscoveryVenues(input)
   return rows
+    .filter((row) => Boolean(row.name))
     .map((row) => toVenueMatchingCandidate(mapDiscoveryVenueToCatalogVenue(row) as Record<string, unknown>))
     .filter((candidate): candidate is VenueMatchingCandidate => candidate !== null)
 }
@@ -2936,7 +2945,7 @@ async function loadPlacesCatalogVenues(input: {
   placesFallbackCache?: PlacesFallbackCache
 }): Promise<CatalogVenueRankingInput[]> {
   const rows = await loadPlacesDiscoveryVenues(input)
-  return rows.map(mapDiscoveryVenueToCatalogVenue)
+  return rows.filter((row) => Boolean(row.name)).map(mapDiscoveryVenueToCatalogVenue)
 }
 
 async function loadPlacesDiscoveryVenues(input: {
@@ -2946,6 +2955,7 @@ async function loadPlacesDiscoveryVenues(input: {
   existingVenueCount: number
   placesFallbackCache?: PlacesFallbackCache
 }) {
+  if (!isGoogleVenueEnabled()) return []
   const apiKey = process.env.GOOGLE_PLACES_API_KEY?.trim()
   if (!apiKey) {
     console.error('[discovery] GOOGLE_PLACES_API_KEY missing - discovery degraded to catalog-only', {
@@ -2976,7 +2986,7 @@ async function loadPlacesDiscoveryVenues(input: {
         areas,
       })
       searchPromise = searchPlacesForPlan(input.plan, {
-        admin: createServiceRoleClient() as any,
+        admin: createServiceRoleClient(),
         apiKey,
         areas,
         maxResultCount,
@@ -2996,45 +3006,33 @@ async function loadPlacesDiscoveryVenues(input: {
       places_result_count: result.places_result_counts.total,
       discovery_venue_count: result.venues.length,
     })
-    return result.venues
+    return result.venues.map(readSafeDiscoveryVenue)
   } catch (error) {
     console.error('[planner.recommend] Places venue search failed; continuing with supplemental catalog results', {
       plan_id: input.plan.id,
       reason: classifyPlacesSearchFailure(error),
-      error: error instanceof Error ? error.message : String(error),
+      error_class: error instanceof Error ? error.name : 'unknown',
     })
     return []
   }
 }
 
-function dedupeVenueMatchingCandidates(candidates: VenueMatchingCandidate[]): VenueMatchingCandidate[] {
-  const seen = new Set<string>()
-  return candidates.filter((candidate) => {
-    const key = normalizeText([
-      candidate.venue_name,
-      candidate.city,
-    ].filter(Boolean).join('|'))
-    if (!key) return true
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+async function discoveryCandidateReferences(cache: PlacesFallbackCache) {
+  const results = await Promise.allSettled([...cache.values()])
+  const references = new Map<string, { discovery_venue_id: string; place_id: string | null }>()
+  for (const result of results) {
+    if (result.status !== 'fulfilled') continue
+    for (const venue of result.value.venues) {
+      const safe = readSafeDiscoveryVenue(venue)
+      references.set(safe.id, { discovery_venue_id: safe.id, place_id: safe.venue_data.identity.place_id })
+    }
+  }
+  return [...references.values()]
 }
 
+function dedupeVenueMatchingCandidates(candidates: VenueMatchingCandidate[]): VenueMatchingCandidate[] { return dedupeVenueIdentity(candidates) }
 function dedupeCatalogVenueRows(rows: CatalogVenueRankingInput[]): CatalogVenueRankingInput[] {
-  const seen = new Set<string>()
-  return rows.filter((row) => {
-    const record = row as Record<string, unknown>
-    const key = normalizeText([
-      readString(record.venue_name) ?? readString(record.name),
-      readString(record.address),
-      readString(record.city),
-    ].filter(Boolean).join('|'))
-    if (!key) return true
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+  return dedupeVenueIdentity(rows.map(row => ({ ...row, venue_identity_kind: row.venue_identity_kind ?? (row.source === 'google_places' ? 'discovery' : 'catalog') })))
 }
 
 async function filterCompliantVenueCandidates(
@@ -3328,6 +3326,28 @@ function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
 }
 
+async function evidenceForVenueRecommendations<T extends { type: string; reference_id?: string | null; metadata: Json }>(db: PlannerDb, rows: T[]): Promise<T[]> {
+  const ids = rows.filter(row => row.type === 'venue' && row.reference_id).map(row => row.reference_id!)
+  if (!ids.length) return rows
+  const { data, error } = await db.from('discovery_venues_safe').select(DISCOVERY_VENUE_SELECT).in('id', ids)
+  if (error) throw new Error('Independent venue evidence unavailable')
+  const byId = new Map<string, ReturnType<typeof readSafeDiscoveryVenue>>((Array.isArray(data) ? data : []).map((row: unknown) => { const safe = readSafeDiscoveryVenue(row); return [safe.id, safe] as const }))
+  return rows.map(row => {
+    const venue = row.reference_id ? byId.get(row.reference_id) : null
+    if (!venue) return row
+    const metadata = { ...(readRecord(row.metadata) ?? {}) }
+    const archetype = readRecord(metadata.archetype)
+    const ranker = readRecord(metadata.ranker)
+    const rankerArchetype = readRecord(ranker?.archetype)
+    // Keep the app's archetype identity here; its display label belongs to the plan response,
+    // not the discovery venue's evidenced presentation fields. All other ranker data stays fenced.
+    if (archetype) metadata.archetype = { key: readString(archetype.key) }
+    if (ranker && rankerArchetype) metadata.ranker = { ...ranker, archetype: { key: readString(rankerArchetype.key) } }
+    const tagged = withIndependentVenueDerivation({ ...row, metadata: withIndependentVenueDerivation(metadata, venue.venue_data) }, venue.venue_data)
+    return tagged as T
+  })
+}
+
 async function persistRecommendations(
   db: PlannerDb,
   planId: string,
@@ -3364,7 +3384,7 @@ async function persistRecommendations(
 
   const { data, error } = await db
     .from('recommendations')
-    .insert(inserts)
+    .insert(await evidenceForVenueRecommendations(db, inserts))
     .select(RECOMMENDATION_SELECT_COLUMNS)
 
   if (error) {
@@ -3459,7 +3479,7 @@ async function persistAgentRecommendations(
 
   const { data, error } = await db
     .from('recommendations')
-    .insert(inserts)
+    .insert(await evidenceForVenueRecommendations(db, inserts))
     .select(RECOMMENDATION_SELECT_COLUMNS)
 
   if (error) {
@@ -3501,7 +3521,7 @@ async function persistRecommendationShoppingList(input: {
 }) {
   const currentMetadata = readRecord(input.plan.metadata) ?? {}
   const currentShoppingList = readRecord(currentMetadata.shopping_list) ?? {}
-  const selectedVenue = input.topVenue
+  const selectedVenueProjection = input.topVenue
     ? {
         id: input.topVenue.venue_id,
         reference_id: input.topVenue.venue_id,
@@ -3511,7 +3531,12 @@ async function persistRecommendationShoppingList(input: {
         fit_score: input.topRankedVenue?.fit_score ?? null,
         reason: input.topRankedVenue?.user_facing_intro ?? null,
         is_best_fit: true,
+        metadata: {} as Json,
       }
+    : null
+  // The shopping-list copy needs the same trusted evidence as the saved recommendation.
+  const selectedVenue = selectedVenueProjection
+    ? (await evidenceForVenueRecommendations(input.db, [selectedVenueProjection]))[0]
     : null
   const selectedVendors = input.vendorRecommendations.slice(0, 3).map((vendor, index) => ({
     id: vendor.vendor_id,
@@ -3703,6 +3728,11 @@ function buildVenueRecommendationNotes(venue: VenueMatchingAgentOutput['ranked_v
 function toVenueMatchingCandidate(row: Record<string, unknown>): VenueMatchingCandidate | null {
   const parsed = venueMatchingCandidateSchema.safeParse({
     id: readString(row.id) ?? '',
+    venue_identity_kind: row.venue_identity_kind === 'discovery' || row.source === 'google_places' ? 'discovery' : 'catalog',
+    google_place_id: readString(row.google_place_id ?? row.source_external_id),
+    claimed_venue_id: readString(row.claimed_venue_id),
+    room_id: readString(row.room_id),
+    venue_data: row.venue_data,
     venue_name: readString(row.venue_name) ?? '',
     venue_type: readString(row.venue_type),
     standing_capacity: readNumber(row.standing_capacity),

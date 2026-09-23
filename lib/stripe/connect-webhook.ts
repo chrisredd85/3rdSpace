@@ -308,7 +308,7 @@ async function loadDiscoveryVenueIdsForVenueOwner(
   if (venueIds.length === 0) return []
 
   const { data: discoveryVenues, error: discoveryError } = await admin
-    .from('discovery_venues')
+    .from('discovery_venues_safe')
     .select('id')
     .in('claimed_venue_id', venueIds)
 

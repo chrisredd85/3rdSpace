@@ -231,6 +231,18 @@ describe('date-change outreach helper', () => {
     }))
   })
 
+  it('keeps the saved discovery identity when requesting date-change reapproval', async () => {
+    const db = memoryDb()
+    db.rows.outreach_threads[0].discovery_venue_id = '11111111-1111-4111-8111-111111111111'
+    await createDateChangeOutreachApproval(db, {
+      userId: 'user-1', planId: 'plan-1', dateWindowStart: '2026-07-12',
+    })
+    expect(mockCreateApproval.mock.calls[0][1].targets).toEqual([{
+      kind: 'venue', name: 'Moongate Lounge', email: 'events@moongate.example',
+      discoveryVenueId: '11111111-1111-4111-8111-111111111111',
+    }])
+  })
+
   it('runs product access consumption before creating a date-change approval', async () => {
     const db = memoryDb()
     const ensureProductAccess = jest.fn(async (plan) => ({

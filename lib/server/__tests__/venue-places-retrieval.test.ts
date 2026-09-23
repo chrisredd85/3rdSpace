@@ -35,7 +35,7 @@ describe('venue-only staged Places retrieval', () => {
   })
 
   it('keeps the vendor mask unchanged while using only Pro venue fields', async () => {
-    expect(GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK).toContain('places.websiteUri')
+    expect(GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK).toBe('places.id,places.displayName,places.formattedAddress,places.primaryType,places.types,places.location,places.websiteUri,places.nationalPhoneNumber,places.rating,places.userRatingCount,places.priceLevel,places.businessStatus')
     expect(GOOGLE_VENUE_TEXT_SEARCH_FIELD_MASK).toBe('places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types,places.businessStatus,places.googleMapsUri,places.attributions')
     const fetchImpl = jest.fn().mockResolvedValue(json({ places: [{ id: 'places/one', rating: 5, websiteUri: 'https://secret.example', photos: [{ name: 'token' }], location: { latitude: 37, longitude: -122 } }, { id: '../unsafe' }] }))
     const result = await searchGoogleVenuePlacesText({ apiKey: 'test', textQuery: 'venues', fetchImpl })
@@ -124,6 +124,19 @@ describe('venue-only staged Places retrieval', () => {
       const result = await getVenueDetails({ placeId: 'one', apiKey: 'test', context: createVenueDetailsContext({ fetchImpl }) })
       expect(result.status).toBe(expected); expect(result).not.toHaveProperty('place'); expect(fetchImpl).toHaveBeenCalledTimes(1)
     }
+  })
+
+  it('keeps a moved permanently closed business unavailable without following its replacement identity', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(json({
+      ...place('original'), businessStatus: 'CLOSED_PERMANENTLY',
+      movedPlaceId: 'replacement', movedPlace: 'places/replacement',
+    }))
+    const result = await getVenueDetails({ placeId: 'original', apiKey: 'test', context: createVenueDetailsContext({ fetchImpl }) })
+    expect(result).toMatchObject({ status: 'closed', place_id: 'original', attempts: 1 })
+    expect(result).not.toHaveProperty('place')
+    expect(JSON.stringify(result)).not.toContain('replacement')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://places.googleapis.com/v1/places/original')
   })
 
   it('stops all queued hydration when one shared deadline expires', async () => {

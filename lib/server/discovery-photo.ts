@@ -1,4 +1,5 @@
 import 'server-only'
+import { areGooglePhotosEnabled } from './google-places-flags'
 
 import { NextResponse } from 'next/server'
 import { parseGooglePhotoAttribution } from '@/lib/discovery/foundation/attribution'
@@ -21,7 +22,7 @@ export async function getDiscoveryPhoto(
   rawIndex: string,
 ) {
   // Rollback is hide-only. Stored names and public caching are never re-enabled.
-  if (process.env.GOOGLE_PLACES_PHOTOS_ENABLED !== 'true') return unavailable()
+  if (!areGooglePhotosEnabled(entityType)) return unavailable()
   if (!/^[0-9]$/.test(rawIndex)) return unavailable(400)
   const index = Number(rawIndex)
 
@@ -42,7 +43,7 @@ export async function getDiscoveryPhoto(
 
     const admin = createServiceRoleClient()
     const lookup = isVenue
-      ? await admin.from('discovery_venues').select('source,source_external_id').eq('id', entityId).maybeSingle()
+      ? await admin.from('discovery_venues_safe').select('source,source_external_id').eq('id', entityId).maybeSingle()
       : await admin.from('discovery_vendors').select('source,source_external_id,google_place_id').eq('id', entityId).maybeSingle()
     const entity = lookup.data
     const placeId = entity?.source === 'google_places'

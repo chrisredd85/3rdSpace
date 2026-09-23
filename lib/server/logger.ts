@@ -1,4 +1,5 @@
 import 'server-only'
+import { safeVenueTelemetry } from '@/lib/discovery/venuePersistence'
 
 import * as Sentry from '@sentry/nextjs'
 import type { NextRequest } from 'next/server'
@@ -41,6 +42,7 @@ export class Logger {
 
   warn(message: string, context?: LogContext) {
     const merged = this.merge(context)
+    if (safeVenueTelemetry(merged) !== merged) message = 'Venue operation warning (content omitted)'
     this.write('warn', message, merged, true)
     Sentry.addBreadcrumb({
       level: 'warning',
@@ -51,6 +53,7 @@ export class Logger {
 
   error(message: string, error?: unknown, context?: LogContext) {
     const merged = this.merge(context)
+    if (safeVenueTelemetry(merged) !== merged) { message = 'Venue operation failed (content omitted)'; error = new Error(message) }
     this.write('error', message, merged, true, error)
 
     const redacted = redact(merged)
@@ -78,7 +81,7 @@ export class Logger {
     const merged = this.merge(context)
     const payload: ConsolePayload = {
       level,
-      message,
+      message: safeVenueTelemetry(merged) !== merged ? 'Venue operation (content omitted)' : message,
       ...redact(merged),
     }
     const serializedError = serializeError(error)
@@ -98,7 +101,7 @@ export class Logger {
 }
 
 export function redact<T>(value: T): T {
-  return redactValue(value, new WeakSet()) as T
+  return safeVenueTelemetry(redactValue(value, new WeakSet())) as T
 }
 
 export function getRequestLogger(request: NextRequest): Logger {

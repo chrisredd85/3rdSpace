@@ -1,3 +1,5 @@
+import { independentVenueEvidence } from '@/lib/discovery/venueRepository'
+import { assertDurableVenueContent } from '@/lib/discovery/venuePersistence'
 jest.mock('server-only', () => ({}))
 
 jest.mock('@/lib/outreach/gmail', () => ({
@@ -30,6 +32,7 @@ import {
   sendGmailMessage,
 } from '@/lib/outreach/gmail'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { enqueueDraftAfterVenueApproval, enqueueDraftBatchAfterVenueApproval } from '@/lib/planner/discoveryOutreachDrafts'
 
 const mockSendGmailMessage = sendGmailMessage as jest.Mock
 const mockReconcileGmailMessage = reconcileGmailMessageByRfcMessageId as jest.Mock
@@ -100,6 +103,9 @@ class MemoryDb {
       approved_at: null,
       event_date: params.p_event_date,
       notes: params.p_notes,
+      action_label: (params.p_snapshot_json as any)?.approval.action_label,
+      package_details: (params.p_snapshot_json as any)?.approval.package_details,
+      delivery_email: (params.p_snapshot_json as any)?.approval.delivery_email,
       expires_at: params.p_expires_at,
       snapshot_json: params.p_snapshot_json,
       snapshot_hash: params.p_snapshot_hash,
@@ -113,6 +119,11 @@ class MemoryDb {
     previous.superseded_by_approval_id = replacement.id
     previous.superseded_at = now
     this.rows.approvals.push(replacement)
+    for (const message of this.rows.plan_messages) {
+      if (message.metadata?.approval?.id === previous.id || message.metadata?.approval_id === previous.id) {
+        message.metadata = { kind: 'gmail_approved_outreach', status: 'superseded', approval_id: previous.id, superseded_by_approval_id: replacement.id, snapshot_hash: previous.snapshot_hash }
+      }
+    }
     Object.assign(action, {
       approval_id: replacement.id,
       amount_cents: params.p_requested_amount_cents,
@@ -364,6 +375,109 @@ describe('Gmail approval flow', () => {
       message_type: 'status_update',
       metadata: expect.objectContaining({ outbound_message_sent: true }),
     }))
+  })
+
+  it('uses independent venue identity before hashing and rejects an unevidenced recipient without sending', async () => {
+    const db = new MemoryDb()
+    db.rows.plans.push(buildExecutionInput([]).plan)
+    const id = '11111111-1111-4111-8111-111111111111'
+    const evidence = independentVenueEvidence('venue_site', 'https://example.com/events')
+    db.rows.discovery_venues_safe = [{ id, source: 'google_places', source_external_id: 'place-one', name: 'Independent hall', contact_email: 'events@example.com', metadata: { venue_boundary_version: 1, field_provenance: { name: evidence, contact_email: evidence } } }]
+    mockCreateServiceRoleClient.mockReturnValue(db)
+    const input = { userId: 'user-1', planId: 'plan-1', reuseExisting: false, subject: 'Event request', bodyText: 'Hi {{place_name}}', targets: [{ kind: 'venue' as const, name: 'UNTRUSTED_GOOGLE_LABEL', email: 'events@example.com', discoveryVenueId: id }] }
+    await createOrReuseGmailOutreachApproval(db, input)
+    const action = db.rows.agent_actions[0]
+    expect(JSON.stringify(action)).toContain('Independent hall')
+    expect(JSON.stringify(action)).not.toContain('UNTRUSTED_GOOGLE_LABEL')
+    for (const table of ['agent_actions', 'approvals', 'plan_messages']) expect(() => assertDurableVenueContent(db.rows[table])).not.toThrow()
+    const count = db.rows.approvals.length
+    await expect(createOrReuseGmailOutreachApproval(db, { ...input, targets: [{ ...input.targets[0], email: 'unobserved@example.com' }] })).rejects.toThrow('Independent venue contact evidence required')
+    expect(db.rows.approvals).toHaveLength(count)
+    expect(mockSendGmailMessage).not.toHaveBeenCalled()
+  })
+
+  it.each(['single', 'batch'])('requires new consent when the saved contact changes after a %s discovery draft', async (mode) => {
+    const db = new MemoryDb()
+    db.rows.plans.push(buildExecutionInput([]).plan)
+    const id = '11111111-1111-4111-8111-111111111111'
+    const evidence = independentVenueEvidence('venue_site', 'https://example.com/events', '2026-09-22T00:00:00Z')
+    db.rows.discovery_venues_safe = [{ id, source_external_id: 'place-one', name: 'Independent hall', contact_email: 'old@example.com', metadata: { venue_boundary_version: 1, field_provenance: { name: evidence, contact_email: evidence } } }]
+    db.rows.plan_discovery_venue_candidates = [{ id: 'candidate-one', plan_id: 'plan-1', discovery_venue_id: id, status: 'candidate', dismissed_at: null, places_request_json: {} }]
+    mockCreateServiceRoleClient.mockReturnValue(db)
+    const prepare = async () => mode === 'single'
+      ? enqueueDraftAfterVenueApproval({ db, writeDb: db, userId: 'user-1', planId: 'plan-1', discoveryVenueId: id })
+      : (await enqueueDraftBatchAfterVenueApproval({ db, writeDb: db, userId: 'user-1', planId: 'plan-1', venueIds: [id] })).results[0]
+    const first = await prepare()
+    const oldApproval = db.rows.approvals[0]
+    const originalSnapshot = JSON.stringify(oldApproval.snapshot_json)
+    const originalHash = oldApproval.snapshot_hash
+    expect((await prepare()).gmailApprovalId).toBe(first.gmailApprovalId)
+    expect(db.rows.approvals).toHaveLength(1)
+
+    db.rows.discovery_venues_safe[0].contact_email = 'new@example.com'
+    db.rows.discovery_venues_safe[0].metadata.field_provenance.contact_email = independentVenueEvidence('venue_site', 'https://example.com/updated-contact', '2026-09-23T00:00:00Z')
+    const next = await prepare()
+    expect(next.gmailApprovalId).not.toBe(first.gmailApprovalId)
+    const newApproval = db.rows.approvals.find(row => row.id === next.gmailApprovalId)!
+    const newAction = db.rows.agent_actions.find(row => row.id === newApproval.agent_action_id)!
+    expect(newApproval).toMatchObject({ status: 'pending', delivery_email: 'new@example.com' })
+    expect(newAction.payload_json.targets[0].email).toBe('new@example.com')
+    expect(newApproval.snapshot_json.action.payload_json.targets[0].email).toBe('new@example.com')
+    expect(newApproval.snapshot_hash).not.toBe(originalHash)
+    expect(JSON.stringify(oldApproval.snapshot_json)).toBe(originalSnapshot)
+    expect(oldApproval.snapshot_hash).toBe(originalHash)
+    expect(oldApproval.delivery_email).toBe('old@example.com')
+    expect(oldApproval.status).toBe('superseded')
+    expect(newApproval.supersedes_approval_id).toBe(oldApproval.id)
+    expect(db.rows.agent_actions).toHaveLength(1)
+    expect(db.rpcCalls).toHaveLength(1)
+    expect(db.rows.plan_messages.find(row => row.id === first.approvalMessageId)?.metadata).toEqual({ kind: 'gmail_approved_outreach', status: 'superseded', approval_id: oldApproval.id, superseded_by_approval_id: newApproval.id, snapshot_hash: originalHash })
+    expect(db.rows.outreach_messages).toHaveLength(0)
+    expect(mockSendGmailMessage).not.toHaveBeenCalled()
+  })
+
+  it('preserves the batch and updates all candidate references when one saved recipient changes', async () => {
+    const db = new MemoryDb()
+    db.rows.plans.push(buildExecutionInput([]).plan)
+    const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
+    const evidence = independentVenueEvidence('venue_site', 'https://example.com/events')
+    db.rows.discovery_venues_safe = ids.map((id, index) => ({ id, source_external_id: `place-${index}`, name: `Independent hall ${index}`, contact_email: `events${index}@example.com`, metadata: { venue_boundary_version: 1, field_provenance: { name: evidence, contact_email: evidence } } }))
+    db.rows.plan_discovery_venue_candidates = ids.map(id => ({ id: `candidate-${id}`, plan_id: 'plan-1', discovery_venue_id: id, status: 'candidate', dismissed_at: null, places_request_json: {} }))
+    mockCreateServiceRoleClient.mockReturnValue(db)
+    const input = { db, writeDb: db, userId: 'user-1', planId: 'plan-1', venueIds: ids }
+    const first = await enqueueDraftBatchAfterVenueApproval(input)
+    const oldApproval = db.rows.approvals[0]
+    const oldHash = oldApproval.snapshot_hash
+    db.rows.discovery_venues_safe[1].contact_email = 'changed@example.com'
+    const next = await enqueueDraftBatchAfterVenueApproval(input)
+    const newApproval = db.rows.approvals.find(row => row.id !== oldApproval.id)!
+    expect(next.results.map(row => row.gmailApprovalId)).toEqual([newApproval.id, newApproval.id])
+    expect(newApproval.status).toBe('pending')
+    expect(newApproval.snapshot_json.action.payload_json.targets.map((target: Row) => target.email)).toEqual(['events0@example.com', 'changed@example.com'])
+    expect(db.rows.plan_discovery_venue_candidates.map(row => row.places_request_json.outreach_draft_request.approval_id)).toEqual([newApproval.id, newApproval.id])
+    expect(oldApproval.status).toBe('superseded')
+    expect(oldApproval.snapshot_hash).toBe(oldHash)
+    expect(first.results[0].gmailApprovalId).toBe(oldApproval.id)
+    expect(db.rows.agent_actions).toHaveLength(1)
+    expect(db.rpcCalls).toHaveLength(1)
+    expect(mockSendGmailMessage).not.toHaveBeenCalled()
+  })
+
+  it.each(['other-plan', 'executing', 'approved', 'different-current-approval'])('rejects an explicit replacement with %s state before mutation or sending', async (invalidState) => {
+    const db = new MemoryDb()
+    db.rows.plans.push(buildExecutionInput([]).plan)
+    mockCreateServiceRoleClient.mockReturnValue(db)
+    const input = { userId: 'user-1', planId: 'plan-1', reuseExisting: false, targets: [{ kind: 'venue' as const, name: 'Host-supplied hall', email: 'host@example.com' }], subject: 'Event request', bodyText: 'Please review.' }
+    const first = await createOrReuseGmailOutreachApproval(db, input)
+    if (invalidState === 'other-plan') db.rows.approvals[0].plan_id = 'other-plan'
+    if (invalidState === 'executing') db.rows.agent_actions[0].status = 'executing'
+    if (invalidState === 'approved') db.rows.approvals[0].status = 'approved'
+    if (invalidState === 'different-current-approval') db.rows.agent_actions[0].approval_id = 'different-approval'
+    const before = JSON.stringify(db.rows)
+    await expect(createOrReuseGmailOutreachApproval(db, { ...input, replacementApprovalId: first.approval.id })).rejects.toThrow('Pending unexecuted approval replacement required')
+    expect(JSON.stringify(db.rows)).toBe(before)
+    expect(db.rpcCalls).toHaveLength(0)
+    expect(mockSendGmailMessage).not.toHaveBeenCalled()
   })
 
   it('persists an exactly recomputable V2 snapshot for a new Gmail approval', async () => {

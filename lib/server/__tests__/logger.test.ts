@@ -68,6 +68,15 @@ describe('server logger', () => {
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('"stripe_secret":"[REDACTED]"'))
   })
 
+  it('omits provider error text and sibling prose when logging a mixed venue payload', () => {
+    const logger = new Logger({ plan_id: 'plan-one' })
+    logger.error('GOOGLE_CANARY', new Error('GOOGLE_CANARY'), { google_live: { name: 'GOOGLE_CANARY' } })
+    expect(console.error).not.toHaveBeenCalledWith(expect.stringContaining('GOOGLE_CANARY'))
+    const captured = (Sentry.captureException as jest.Mock).mock.calls[0]
+    expect(captured[0].message).not.toContain('GOOGLE_CANARY')
+    expect(captured[1].extra).toEqual({ plan_id: 'plan-one' })
+  })
+
   it('merges child logger contexts', () => {
     const logger = new Logger({ request_id: 'req-1', plan_id: 'plan-1' })
       .child({ approval_id: 'approval-1' })

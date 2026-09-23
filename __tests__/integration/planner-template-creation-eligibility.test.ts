@@ -1,6 +1,8 @@
 import type { NextRequest } from 'next/server'
 import { GET, POST } from '@/app/api/planner/templates/route'
 import { createClient } from '@/lib/supabase/server'
+import { independentVenueEvidence, readSafeDiscoveryVenue } from '@/lib/discovery/venueRepository'
+import { serializeVenueDurable, withIndependentVenueDerivation } from '@/lib/discovery/venuePersistence'
 
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
@@ -118,6 +120,36 @@ describe('POST /api/planner/templates canonical eligibility', () => {
     expect(mock.from).not.toHaveBeenCalledWith('payments')
   })
 
+  it.each(['top-level', 'metadata'])('preserves %s independent venue evidence in template recommendation copies', async (location) => {
+    const venueId = '55555555-5555-4555-8555-555555555555'
+    const venue = readSafeDiscoveryVenue({
+      id: venueId, source: 'google_places', source_external_id: 'retained-place-id', name: 'Host-confirmed Hall',
+      metadata: { field_provenance: { name: independentVenueEvidence('host_input', 'fixture:host-name') } },
+    })
+    const tagged = withIndependentVenueDerivation({
+      id: 'recommendation-1', type: 'venue', reference_id: venueId,
+      external_name: 'Host-confirmed Hall', price_cents: 250000,
+      rank: 1, is_best_fit: true, metadata: { fit_score: 82 },
+    }, venue.venue_data) as Record<string, unknown>
+    const recommendation = location === 'top-level' ? tagged : {
+      ...tagged, venue_data: undefined, venue_derivation: undefined,
+      metadata: { fit_score: 82, venue_data: tagged.venue_data, venue_derivation: tagged.venue_derivation },
+    }
+    const mock = mockPlannerDb({ recommendations: [recommendation] })
+
+    const response = await POST(request())
+
+    expect(response.status).toBe(201)
+    const insert = mock.templateInsert.mock.calls[0][0]
+    const selectedVenue = insert.shopping_list.selected_venue
+    expect(selectedVenue).toEqual(expect.objectContaining({
+      reference_id: venueId, external_name: 'Host-confirmed Hall', price_cents: 250000,
+      metadata: { fit_score: 82, venue_data: tagged.venue_data, venue_derivation: tagged.venue_derivation },
+    }))
+    expect(insert.shopping_list.recommendations[0]).toEqual(selectedVenue)
+    expect(() => serializeVenueDurable(insert)).not.toThrow()
+  })
+
   it('rejects a legacy complete plan before canonical event or template writes', async () => {
     const mock = mockPlannerDb({ plan: { ...completedPlan, status: 'complete' } })
 
@@ -217,6 +249,7 @@ describe('GET /api/planner/templates legacy read compatibility', () => {
 function mockPlannerDb(input: {
   plan?: Record<string, unknown>
   event?: Record<string, unknown> | null
+  recommendations?: Record<string, unknown>[]
 } = {}) {
   const templateInsert = jest.fn().mockReturnValue({
     select: jest.fn().mockReturnValue({
@@ -231,7 +264,7 @@ function mockPlannerDb(input: {
         select: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
             order: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({ data: [], error: null }),
+              limit: jest.fn().mockResolvedValue({ data: input.recommendations ?? [], error: null }),
             }),
           }),
         }),

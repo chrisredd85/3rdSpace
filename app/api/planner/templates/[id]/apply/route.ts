@@ -1,4 +1,4 @@
-import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
+import { serializeVenueDurable } from '@/lib/discovery/venuePersistence'
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -504,7 +504,7 @@ function buildTemplateMetadata(currentMetadata: unknown, template: TemplateRow, 
     },
   }
 
-  if (!input) return stripGooglePhotoData(base)
+  if (!input) return serializeVenueDurable(base)
 
   const shoppingList = readRecord(template.shopping_list)
   const useSameVenue = input.use_same_venue === true
@@ -545,7 +545,7 @@ function buildTemplateMetadata(currentMetadata: unknown, template: TemplateRow, 
     }
   }
 
-  return stripGooglePhotoData(base)
+  return serializeVenueDurable(base)
 }
 
 function getInputGuestCount(input: ApplyTemplateInput, template: TemplateRow): number | null {

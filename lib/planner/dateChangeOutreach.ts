@@ -15,6 +15,8 @@ export type DateChangeOutreachTarget = {
   kind?: 'venue' | 'vendor'
   name: string
   email: string
+  discoveryVenueId?: string | null
+  discoveryVendorId?: string | null
 }
 
 export type DateChangeOutreachInput = {
@@ -194,7 +196,7 @@ async function resolveDateChangeTargets(
 
   const { data, error } = await db
     .from('outreach_threads')
-    .select('target_name, target_type, target_email, updated_at')
+    .select('target_name, target_type, target_email, updated_at, discovery_venue_id, discovery_vendor_id, channel_strategy')
     .eq('plan_id', input.planId)
     .eq('user_id', input.userId)
     .order('updated_at', { ascending: false })
@@ -210,6 +212,8 @@ async function resolveDateChangeTargets(
     return [{
       name,
       email,
+      discoveryVenueId: readString(record?.discovery_venue_id),
+      discoveryVendorId: readString(record?.discovery_vendor_id),
       kind: readString(record?.target_type) === 'vendor' ? 'vendor' as const : 'venue' as const,
     }]
   }))
@@ -226,6 +230,8 @@ function normalizeTargets(targets: DateChangeOutreachTarget[]): GmailOutreachTar
     return [{
       name,
       email,
+      ...(target.discoveryVenueId ? { discoveryVenueId: target.discoveryVenueId } : {}),
+      ...(target.discoveryVendorId ? { discoveryVendorId: target.discoveryVendorId } : {}),
       kind: target.kind === 'vendor' ? 'vendor' as const : 'venue' as const,
     }]
   }).slice(0, 6)

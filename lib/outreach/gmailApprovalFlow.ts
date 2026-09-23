@@ -1,4 +1,6 @@
 import 'server-only'
+import { readSafeDiscoveryVenue, venueActionEnvelope } from '@/lib/discovery/venueRepository'
+import type { DurableDiscovery } from '@/lib/discovery/foundation/boundary'
 
 import { createHash } from 'node:crypto'
 import {
@@ -24,7 +26,7 @@ import type { Database } from '@/lib/types/database-generated'
 type CreatorEmailAccount = Database['public']['Tables']['creator_email_accounts']['Row']
 type PlannerDb = {
   from: (table: string) => any
-  rpc?: (name: string, args: Record<string, unknown>) => Promise<{
+  rpc?: (name: string, args: Record<string, unknown>) => PromiseLike<{
     data: unknown
     error: { message?: string; code?: string } | null
   }>
@@ -71,6 +73,7 @@ const VERSIONED_APPROVAL_SELECT_COLUMNS = `${APPROVAL_SELECT_COLUMNS},
 `
 
 export type GmailOutreachTarget = {
+  venue_data?: DurableDiscovery
   name: string
   email: string
   kind?: 'venue' | 'vendor'
@@ -177,27 +180,46 @@ export async function createOrReuseGmailOutreachApproval(
     bodyText: string
     planId?: string | null
     reuseExisting?: boolean
+    /** Server-resolved pending draft only; never accepted directly from a browser request. */
+    replacementApprovalId?: string
   }
 ) {
   const account = await loadActiveGmailAccount(db, input.userId)
   if (!account) throw new GmailConnectionRequiredError()
 
-  const targets = normalizeTargets(input.targets)
-  const subject = input.subject.trim()
-  const bodyText = input.bodyText.trim()
   const plan = input.planId
     ? await loadPlanForGmailApproval(db, input.planId, input.userId)
     : await getOrCreateGmailApprovalPlan(db, input.userId)
   if (!plan) throw new Error('Plan not found')
+  if (input.replacementApprovalId && !input.planId) throw new Error('Replacement approval requires an owned plan')
+  const replacement = input.replacementApprovalId
+    ? await loadReusableApprovalBundle(db, plan.id, input.replacementApprovalId)
+    : null
+  if (input.replacementApprovalId && !replacement) throw new Error('Pending unexecuted approval replacement required')
+  let targets: GmailOutreachTarget[] = normalizeTargets(input.targets)
+  if (replacement) targets = mergeReplacementVenueTargets(readTargets(readRecord(replacement.action.payload_json)), targets)
+  // Client labels/approval do not establish independent origin. Resolve the
+  // safe identity before constructing any rendered message or approval hash.
+  for (const target of targets) {
+    if (!target.discoveryVenueId || target.kind === 'vendor') continue
+    const { data, error } = await db.from('discovery_venues_safe').select('*').eq('id', target.discoveryVenueId).maybeSingle()
+    if (error || !data) throw new Error('Venue contact evidence unavailable')
+    const venue = readSafeDiscoveryVenue(data)
+    target.name = venue.name ?? 'Venue contact'
+    target.venue_data = venueActionEnvelope(venue, target.email)
+    if (target.venue_data.values.contact_email !== target.email) throw new Error('Independent venue contact evidence required')
+  }
+  const subject = input.subject.trim()
+  const bodyText = input.bodyText.trim()
   const actionPayload = buildActionPayload({
     targets,
     subject,
     bodyText,
     senderEmail: account.email_address,
   })
-  const existing = input.planId || input.reuseExisting === false
+  const existing = replacement ?? (input.planId || input.reuseExisting === false
     ? null
-    : await loadReusableApprovalBundle(db, plan.id)
+    : await loadReusableApprovalBundle(db, plan.id))
   // The session client proved the Gmail account and plan belong to this user.
   // Only trusted-state mutations below use the service writer.
   const writeDb = createServiceRoleClient() as unknown as PlannerDb
@@ -254,10 +276,8 @@ export async function createOrReuseGmailOutreachApproval(
     if (actionUpdateError || !updatedAction) throw new Error(actionUpdateError?.message ?? 'Failed to update Gmail outreach action')
     const finalAction = updatedAction as AgentAction
 
-    const supersededApproval = await loadApproval(writeDb, approval.id)
-    if (supersededApproval) {
-      await updateApprovalMessage(writeDb, messageId, plan, finalAction, supersededApproval, readRecord(action.payload_json) ?? {})
-    }
+    // The versioning RPC owns the old message's non-actionable superseded
+    // reference. Never copy obsolete target evidence or re-hash prior consent.
     const newMessage = await insertGmailApprovalMessage(writeDb, {
       plan,
       action: finalAction,
@@ -721,6 +741,7 @@ function buildApprovalMessageMetadata(
       name: target.name,
       email: target.email,
       discovery_venue_id: target.discoveryVenueId ?? null,
+      ...(target.venue_data ? { venue_data: target.venue_data } : {}),
       discovery_vendor_id: target.discoveryVendorId ?? null,
     })),
     comparison_goal: readString(payload.comparison_goal),
@@ -731,6 +752,7 @@ function buildApprovalMessageMetadata(
         target_name: target.name,
         target_email: target.email,
         discovery_venue_id: target.discoveryVenueId ?? null,
+        ...(target.venue_data ? { venue_data: target.venue_data } : {}),
         discovery_vendor_id: target.discoveryVendorId ?? null,
       },
     })),
@@ -746,22 +768,6 @@ function buildApprovalMessageMetadata(
       terms: approval.refund_terms,
     },
   }
-}
-
-async function updateApprovalMessage(
-  db: PlannerDb,
-  messageId: string,
-  plan: Plan,
-  action: AgentAction,
-  approval: Approval,
-  payload: Record<string, unknown>
-) {
-  await db
-    .from('plan_messages')
-    .update({
-      metadata: buildApprovalMessageMetadata(plan, action, approval, payload) as Json,
-    })
-      .eq('id', messageId)
 }
 
 async function insertGmailApprovalMessage(
@@ -850,7 +856,8 @@ async function loadPlanForGmailApproval(db: PlannerDb, planId: string, userId: s
 
 async function loadReusableApprovalBundle(
   db: PlannerDb,
-  planId: string
+  planId: string,
+  onlyApprovalId?: string,
 ): Promise<{ action: AgentAction; approval: Approval; messageId: string } | null> {
   const { data: messages, error } = await db
     .from('plan_messages')
@@ -868,12 +875,15 @@ async function loadReusableApprovalBundle(
     const approval = readRecord(metadata?.approval)
     const approvalId = readString(approval?.id)
     if (!approvalId) continue
+    if (onlyApprovalId && approvalId !== onlyApprovalId) continue
 
     const loadedApproval = await loadApproval(db, approvalId)
     if (!loadedApproval || loadedApproval.status !== 'pending') continue
     const action = await loadAgentAction(db, loadedApproval.agent_action_id)
     if (!action || !['pending', 'proposed', 'approved'].includes(action.status)) continue
     if (!isGmailApprovedOutreachAction(action)) continue
+    if (onlyApprovalId && (loadedApproval.plan_id !== planId || action.plan_id !== planId
+      || action.approval_id !== loadedApproval.id || !['pending', 'proposed'].includes(action.status) || action.executed_at)) continue
 
     return {
       action,
@@ -883,6 +893,17 @@ async function loadReusableApprovalBundle(
   }
 
   return null
+}
+
+function mergeReplacementVenueTargets(previous: GmailOutreachTarget[], replacements: GmailOutreachTarget[]): GmailOutreachTarget[] {
+  const original = normalizeTargets(previous)
+  if (!replacements.length || replacements.some(target => !target.discoveryVenueId || target.kind === 'vendor'
+    || !original.some(prior => prior.discoveryVenueId === target.discoveryVenueId && prior.kind !== 'vendor'))) {
+    throw new Error('Replacement targets must belong to the existing venue approval')
+  }
+  const byVenue = new Map(replacements.map(target => [target.discoveryVenueId, target]))
+  return original.map(target => target.kind !== 'vendor' && target.discoveryVenueId
+    ? byVenue.get(target.discoveryVenueId) ?? target : target)
 }
 
 async function loadApproval(db: PlannerDb, approvalId: string): Promise<Approval | null> {
@@ -929,7 +950,7 @@ async function loadGmailOutreachThreads(
 ): Promise<GmailOutreachThreadSummary[]> {
   let query = db
     .from('outreach_threads')
-    .select('id, plan_id, target_name, target_type, target_email, state, needs_attention, last_event_at, last_inbound_at, last_outbound_at, updated_at, channel_strategy')
+    .select('id, plan_id, target_name, target_type, target_email, state, needs_attention, last_event_at, last_inbound_at, last_outbound_at, updated_at, channel_strategy, discovery_venue_id')
     .eq('user_id', userId)
     .eq('target_source', GMAIL_APPROVAL_DEMO_TARGET_SOURCE)
     .order('updated_at', { ascending: false })
@@ -1180,13 +1201,14 @@ async function insertOutreachThread(
       channel_strategy: {
         source: GMAIL_APPROVED_OUTREACH_KIND,
         approval_required: true,
+        ...(input.target.venue_data ? { venue_data: input.target.venue_data } : {}),
       } as Json,
       state: 'draft',
       needs_attention: false,
       last_event_at: input.now,
       last_outbound_at: null,
     })
-    .select('id, plan_id, target_name, target_email, state, needs_attention, last_event_at, last_inbound_at, last_outbound_at')
+    .select('id, plan_id, target_name, target_email, state, needs_attention, last_event_at, last_inbound_at, last_outbound_at, discovery_venue_id, channel_strategy')
     .single()
 
   if (error || !data) throw new Error(error?.message ?? 'Failed to record Gmail outreach thread')
@@ -1548,6 +1570,7 @@ function normalizeTargets(targets: GmailOutreachTarget[]) {
   const cleaned = targets
     .map((target) => ({
       name: target.name.trim(),
+      venue_data: target.venue_data,
       email: target.email.trim().toLowerCase(),
       kind: target.kind === 'vendor' ? 'vendor' as const : 'venue' as const,
       discoveryVenueId: readUuid(target.discoveryVenueId),
@@ -1572,7 +1595,7 @@ function readTargets(payload: Record<string, unknown> | null): GmailOutreachTarg
     const kind = readString(record.kind) === 'vendor' ? 'vendor' : 'venue'
     const discoveryVenueId = readUuid(record.discoveryVenueId ?? record.discovery_venue_id)
     const discoveryVendorId = readUuid(record.discoveryVendorId ?? record.discovery_vendor_id)
-    return name && email ? [{ name, email, kind, discoveryVenueId, discoveryVendorId }] : []
+    return name && email ? [{ name, email, kind, discoveryVenueId, discoveryVendorId, venue_data: readRecord(record.venue_data) as DurableDiscovery | undefined }] : []
   })
 }
 

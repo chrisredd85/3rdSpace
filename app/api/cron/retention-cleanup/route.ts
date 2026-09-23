@@ -34,22 +34,10 @@ export async function GET(request: NextRequest) {
   const twoYearsAgo = yearsAgo(2)
 
   const steps = await Promise.all([
-    runCleanupStep('discovery_venues_contact_fields', () =>
-      admin
-        .from('discovery_venues')
-        .update({
-          contact_email: null,
-          contact_phone: null,
-          organizer_provided_emails: [],
-          extracted_emails: [],
-          website_extraction_metadata: {
-            redacted_at: new Date().toISOString(),
-            retention_policy: 'discovery_contact_data_1_year_unused',
-          },
-        })
-        .lt('updated_at', oneYearAgo)
-        .select('id', { count: 'exact', head: true })
-    ),
+    runCleanupStep('discovery_venues_contact_fields', async () => {
+      const result = await admin.rpc('redact_expired_discovery_venue_contacts', { p_before: oneYearAgo })
+      return { count: result.data ?? 0, error: result.error }
+    }),
     runCleanupStep('venue_outreach_responses', () =>
       admin
         .from('venue_outreach_responses')

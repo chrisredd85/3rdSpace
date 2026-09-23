@@ -2,13 +2,16 @@ jest.mock('server-only', () => ({}))
 
 const searchGooglePlacesTextMock = jest.fn()
 const captureMessageMock = jest.fn()
+const detailsMock = jest.fn()
+jest.mock('@/lib/server/venue-places-details', () => ({getVenueDetails: (...args: unknown[]) => detailsMock(...args)}))
 
 jest.mock('@/lib/server/google-places-client', () => ({
+  ...jest.requireActual('@/lib/server/google-places-client'),
   searchGooglePlacesText: (...args: unknown[]) => searchGooglePlacesTextMock(...args),
 }))
 
 jest.mock('@/lib/discovery/cascadeInvalidation', () => ({
-  cascadeInvalidationForEntityChange: jest.fn(),
+  cascadeInvalidationForEntityChange: jest.fn(async () => ({invalidated_recommendation_ids:[],flagged_commitment_ids:[],superseded_outreach_thread_ids:[],notifications_to_send:[]})),
 }))
 
 jest.mock('@sentry/nextjs', () => ({
@@ -70,7 +73,7 @@ describe('discovery Places refresh change-log contract', () => {
 
     await refreshDiscoveryEntityFromPlaces({
       supabase: db.client as any,
-      entityType: 'discovery_venue',
+      entityType: 'discovery_vendor',
       entityId: 'venue-1',
       apiKey: 'test-key',
     })
@@ -93,7 +96,7 @@ describe('discovery Places refresh change-log contract', () => {
 
     await refreshDiscoveryEntityFromPlaces({
       supabase: db.client as any,
-      entityType: 'discovery_venue',
+      entityType: 'discovery_vendor',
       entityId: 'venue-1',
       apiKey: 'test-key',
     })
@@ -122,10 +125,14 @@ function createRefreshDb(input: {
     name: 'Mission Room',
     address: '100 Mission St, San Francisco, CA',
     city: 'San Francisco',
+    formatted_address: '100 Mission St, San Francisco, CA',
+    phone: '(415) 555-0100',
     contact_phone: '(415) 555-0100',
     website: 'https://mission-room.example.com',
     business_status: 'OPERATIONAL',
     google_rating: 4.5,
+    google_user_rating_count: 120,
+    place_types: [],
     google_user_ratings_total: 120,
     last_meaningful_change_at: null,
   }
@@ -190,3 +197,20 @@ class RefreshQuery {
     resolve({ data: null, error: null })
   }
 }
+
+describe('C1 venue refresh', () => {
+  afterEach(() => delete process.env.GOOGLE_PLACES_VENUES_ENABLED)
+  it('never searches by name or writes history even with an exact-ID display response', async () => {
+    process.env.GOOGLE_PLACES_VENUES_ENABLED='true'
+    const db=createRefreshDb(); const before=JSON.stringify(db.venue)
+    detailsMock.mockResolvedValue({status:'available',place_id:'venue-places-id',profile:'pro',attempts:1,place:{id:'venue-places-id',displayName:{text:'GOOGLE_CANARY'}}})
+    await refreshDiscoveryEntityFromPlaces({supabase:db.client as any,entityType:'discovery_venue',entityId:'venue-1',apiKey:'test'})
+    expect(detailsMock).toHaveBeenCalledWith(expect.objectContaining({placeId:'venue-places-id',profile:'pro'}))
+    expect(db.changeLogInserts).toEqual([]);expect(JSON.stringify(db.venue)).toBe(before)
+  })
+  it('flag-off makes no venue Details call', async()=>{
+    delete process.env.GOOGLE_PLACES_VENUES_ENABLED;detailsMock.mockClear()
+    await refreshDiscoveryEntityFromPlaces({supabase:createRefreshDb().client as any,entityType:'discovery_venue',entityId:'venue-1',apiKey:'test'})
+    expect(detailsMock).not.toHaveBeenCalled()
+  })
+})

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   ArrowRight,
@@ -19,9 +19,11 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { GoogleVenueCardDetails } from '@/components/discovery/GoogleVenueCardDetails'
+import type { VenueDetailsResult } from '@/lib/server/venue-places-details'
 import { GooglePlacesPhoto } from '@/components/discovery/GooglePlacesPhoto'
 
-type ContactStatus = 'ready_to_reach_out' | 'contact_form_available' | 'contact_pending' | 'no_contact_available'
+type ContactStatus = 'ready_to_reach_out' | 'contact_form_available' | 'contact_link_available' | 'contact_pending' | 'no_contact_available'
 
 type DiscoveryCandidate = {
   candidate_id: string
@@ -59,6 +61,7 @@ type DiscoverySummary = {
 type DiscoverResponse = {
   candidates: DiscoveryCandidate[]
   summary: DiscoverySummary
+  google_live_overlays?: Record<string, VenueDetailsResult & { fit_score?: number }>
 }
 
 type ApprovalResponse = {
@@ -90,6 +93,7 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
   const planId = initialPlanId ?? ''
   const [query, setQuery] = useState('')
   const [candidates, setCandidates] = useState<DiscoveryCandidate[]>([])
+  const [overlays, setOverlays] = useState<Record<string, VenueDetailsResult & { fit_score?: number }>>({})
   const [summary, setSummary] = useState<DiscoverySummary | null>(null)
   const [selectedVenueIds, setSelectedVenueIds] = useState<string[]>([])
   const [emailDrafts, setEmailDrafts] = useState<Record<string, string>>({})
@@ -102,13 +106,17 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
   const [gmailAccount, setGmailAccount] = useState<GmailAccountResponse['account']>(null)
   const [isGmailLoading, setIsGmailLoading] = useState(true)
 
+  const displayCandidates = useMemo(() => [...candidates].sort((a, b) =>
+    contactPriority(a.contact_status) - contactPriority(b.contact_status)
+      || (overlays[b.discovery_venue_id]?.fit_score ?? b.fit_score ?? 0) - (overlays[a.discovery_venue_id]?.fit_score ?? a.fit_score ?? 0)
+  ), [candidates, overlays])
   const readyCandidates = useMemo(
-    () => candidates.filter((candidate) => candidate.contact_status === 'ready_to_reach_out'),
-    [candidates]
+    () => displayCandidates.filter((candidate) => candidate.contact_status === 'ready_to_reach_out'),
+    [displayCandidates]
   )
   const rescueCandidates = useMemo(
-    () => candidates.filter((candidate) => candidate.contact_status !== 'ready_to_reach_out'),
-    [candidates]
+    () => displayCandidates.filter((candidate) => candidate.contact_status !== 'ready_to_reach_out'),
+    [displayCandidates]
   )
   const selectedReadyCount = selectedVenueIds.filter((id) => readyCandidates.some((candidate) => candidate.discovery_venue_id === id)).length
   const approvalTargetCount = approvalResult?.target_count ?? approvalResult?.approvals.reduce((sum, approval) => sum + approval.target_count, 0) ?? 0
@@ -117,6 +125,18 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
     ? `/planner/outreach-search?plan=${encodeURIComponent(planId.trim())}`
     : '/planner/outreach-search'
   const gmailConnectHref = `/api/integrations/gmail/connect?returnTo=${encodeURIComponent(gmailConnectReturnTo)}`
+
+  const applyCandidates = useCallback((nextCandidates: DiscoveryCandidate[], nextSummary: DiscoverySummary | null) => {
+    setCandidates(nextCandidates)
+    setSummary(nextSummary)
+    const readyIds = nextCandidates
+      .filter((candidate) => candidate.contact_status === 'ready_to_reach_out')
+      .map((candidate) => candidate.discovery_venue_id)
+    setSelectedVenueIds((current) => {
+      const currentReady = current.filter((id) => readyIds.includes(id))
+      return currentReady.length > 0 ? currentReady : readyIds.slice(0, 6)
+    })
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -142,7 +162,7 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
     }
   }, [])
 
-  async function loadCandidates(nextPlanId = planId) {
+  const loadCandidates = useCallback(async (nextPlanId = planId, signal?: AbortSignal) => {
     const trimmedPlanId = nextPlanId.trim()
     if (!trimmedPlanId) {
       setError('Select an active plan before loading venue candidates.')
@@ -153,17 +173,30 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
     setError(null)
     try {
       const response = await fetch(`/api/planner/plans/${encodeURIComponent(trimmedPlanId)}/discover-venues`, {
-        cache: 'no-store',
+        cache: 'no-store', signal,
       })
       const payload = await response.json().catch(() => ({})) as Partial<DiscoverResponse> & { error?: string }
+      if (signal?.aborted) return
       if (!response.ok) throw new Error(payload.error ?? 'Unable to load venues')
+      setOverlays(payload.google_live_overlays ?? {})
       applyCandidates(payload.candidates ?? [], payload.summary ?? null)
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Unable to load venues')
+      if (!signal?.aborted) setError(loadError instanceof Error ? loadError.message : 'Unable to load venues')
     } finally {
-      setIsLoading(false)
+      if (!signal?.aborted) setIsLoading(false)
     }
-  }
+  }, [planId, applyCandidates])
+
+  useEffect(() => {
+    setCandidates([])
+    setOverlays({})
+    setSummary(null)
+    setSelectedVenueIds([])
+    setEmailDrafts({})
+    const controller = new AbortController()
+    if (planId.trim()) void loadCandidates(planId, controller.signal)
+    return () => controller.abort()
+  }, [planId, loadCandidates])
 
   async function searchVenues() {
     const trimmedPlanId = planId.trim()
@@ -186,6 +219,7 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
       })
       const payload = await response.json().catch(() => ({})) as Partial<DiscoverResponse> & { error?: string }
       if (!response.ok) throw new Error(payload.error ?? 'Unable to search Places')
+      setOverlays(payload.google_live_overlays ?? {})
       applyCandidates(payload.candidates ?? [], payload.summary ?? null)
     } catch (searchError) {
       setError(searchError instanceof Error ? searchError.message : 'Unable to search Places')
@@ -281,17 +315,6 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
     }
   }
 
-  function applyCandidates(nextCandidates: DiscoveryCandidate[], nextSummary: DiscoverySummary | null) {
-    setCandidates(nextCandidates)
-    setSummary(nextSummary)
-    const readyIds = nextCandidates
-      .filter((candidate) => candidate.contact_status === 'ready_to_reach_out')
-      .map((candidate) => candidate.discovery_venue_id)
-    setSelectedVenueIds((current) => {
-      const currentReady = current.filter((id) => readyIds.includes(id))
-      return currentReady.length > 0 ? currentReady : readyIds.slice(0, 6)
-    })
-  }
 
   function toggleSelected(candidate: DiscoveryCandidate) {
     setSelectedVenueIds((current) => {
@@ -461,6 +484,7 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
                   <CandidateCard
                     key={candidate.discovery_venue_id}
                     candidate={candidate}
+                    overlay={overlays[candidate.discovery_venue_id]}
                     isSelected={selectedVenueIds.includes(candidate.discovery_venue_id)}
                     onToggleSelected={() => toggleSelected(candidate)}
                     onSkip={() => skipCandidate(candidate)}
@@ -490,6 +514,7 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
                   <CandidateCard
                     key={candidate.discovery_venue_id}
                     candidate={candidate}
+                    overlay={overlays[candidate.discovery_venue_id]}
                     isSelected={false}
                     onToggleSelected={() => undefined}
                     onSkip={() => skipCandidate(candidate)}
@@ -513,6 +538,7 @@ export function PlacesOutreachSearchWorkspace({ initialPlanId }: PlacesOutreachS
 
 function CandidateCard({
   candidate,
+  overlay,
   isSelected,
   onToggleSelected,
   onSkip,
@@ -523,6 +549,7 @@ function CandidateCard({
   onSaveEmail,
 }: {
   candidate: DiscoveryCandidate
+  overlay?: VenueDetailsResult & { fit_score?: number }
   isSelected: boolean
   onToggleSelected: () => void
   onSkip: () => void
@@ -538,6 +565,7 @@ function CandidateCard({
         <GooglePlacesPhoto entityType="discovery_venue" entityId={candidate.discovery_venue_id} alt={candidate.name} />
       ) : null}
       <div className="space-y-4 p-4">
+        <GoogleVenueCardDetails key={candidate.discovery_venue_id} venueId={candidate.discovery_venue_id} initial={overlay} />
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="font-display text-2xl font-semibold leading-tight text-foreground">{candidate.name}</h2>
@@ -547,7 +575,7 @@ function CandidateCard({
             </p>
           </div>
           <span className="shrink-0 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-bold text-muted-foreground">
-            Fit {candidate.fit_score}
+            {(overlay?.fit_score ?? candidate.fit_score) == null ? 'Fit unavailable' : `Fit ${overlay?.fit_score ?? candidate.fit_score}`}
           </span>
         </div>
 
@@ -592,7 +620,7 @@ function CandidateCard({
           {candidate.contact_form_url ? (
             <Button asChild type="button" variant="outline" size="sm">
               <a href={candidate.contact_form_url} target="_blank" rel="noreferrer">
-                {candidate.contact_form_label ?? 'Open contact form'}
+                {candidate.contact_form_label ?? (candidate.contact_status === 'contact_form_available' ? 'Open contact form' : 'Open contact page')}
                 <ExternalLink className="h-3.5 w-3.5" />
               </a>
             </Button>
@@ -659,4 +687,11 @@ function EmptyState({ text }: { text: string }) {
       {text}
     </div>
   )
+}
+
+function contactPriority(status: ContactStatus): number {
+  if (status === 'ready_to_reach_out') return 0
+  if (status === 'contact_form_available' || status === 'contact_link_available') return 1
+  if (status === 'contact_pending') return 2
+  return 3
 }

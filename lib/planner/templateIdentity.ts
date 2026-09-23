@@ -1,4 +1,4 @@
-import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
+import { serializeVenueDurable } from '@/lib/discovery/venuePersistence'
 import type { Json, Plan, Recommendation } from '@/lib/types'
 
 export type TemplateRow = {
@@ -101,20 +101,29 @@ export function buildTemplateInsert(input: {
   attendanceSummary: AttendanceSummaryInput
   sourceEvent: TemplateSourceEventRow
 }) {
-  input = stripGooglePhotoData(input)
+  input = serializeVenueDurable(input)
   const metadata = readRecord(input.plan.metadata)
   const ticketPriceTargetCents = readNumber(metadata?.ticket_price_target_cents) ?? readNumber(metadata?.ticket_price_target)
   const guestCount = input.plan.guest_count
-  const recommendations = input.recommendations.map((recommendation) => ({
-    id: recommendation.id,
-    type: recommendation.type,
-    reference_id: recommendation.reference_id,
-    external_name: recommendation.external_name,
-    price_cents: recommendation.price_cents,
-    rank: recommendation.rank,
-    is_best_fit: recommendation.is_best_fit,
-    metadata: recommendation.metadata,
-  }))
+  const recommendations = input.recommendations.map((recommendation) => {
+    const row = readRecord(recommendation)
+    const metadata = readRecord(recommendation.metadata) ?? {}
+    // Recommendation columns have no provenance fields; retain validated runtime evidence in JSON.
+    const venueData = row?.venue_data ?? metadata.venue_data
+    const venueDerivation = row?.venue_derivation ?? metadata.venue_derivation
+    return {
+      id: recommendation.id,
+      type: recommendation.type,
+      reference_id: recommendation.reference_id,
+      external_name: recommendation.external_name,
+      price_cents: recommendation.price_cents,
+      rank: recommendation.rank,
+      is_best_fit: recommendation.is_best_fit,
+      metadata: venueData || venueDerivation
+        ? { ...metadata, ...(venueData ? { venue_data: venueData } : {}), ...(venueDerivation ? { venue_derivation: venueDerivation } : {}) }
+        : recommendation.metadata,
+    }
+  })
   const economicsRecommendation = input.recommendations.find((recommendation) => {
     const metadata = readRecord(recommendation.metadata)
     return readString(metadata?.recommendation_type) === 'economics'

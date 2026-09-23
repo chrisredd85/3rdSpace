@@ -887,3 +887,12 @@ describe('rankCatalogPartners', () => {
     )
   })
 })
+
+it('preserves hand-computed rating contributions while missing ratings remain unknown', () => {
+  const plan = { headcount: 20, area: 'San Francisco', budget_cents: 1000000, event_type: 'mixer' }
+  const base = { id: 'independent', venue_name: 'Independent hall', city: 'San Francisco', is_published: true, standing_capacity: 100, is_claimed: false }
+  const contribution = (rating?: number, review_count?: number) => rankCatalogPartners({ plan, venues: [{ ...base, rating, review_count }], vendors: [] }).recommendations[0].metadata.partner_score
+  expect(contribution()).toBe(8) // unknown 6 + unknown activity 2
+  expect(contribution(5, 40)).toBe(12) // 5/5*8 + min(40/10,4)
+  expect(contribution(1, 0)).toBe(1.6) // 1/5*8 + 0; unknown is not zero
+})
