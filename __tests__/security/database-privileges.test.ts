@@ -48,6 +48,33 @@ type ServiceOnlyFunction = {
   postgrestCallable?: boolean
 }
 
+// Reviewed EXPAND inventory (20260922000002): every function below pins
+// search_path=pg_catalog. Relations, composite types and helpers are qualified;
+// no caller-controlled schema/object resolution is used. EXECUTE grants below
+// describe non-owner roles; PUBLIC/anon/authenticated are denied throughout.
+//
+// Schema  Function (identity arguments)                              Security  EXECUTE
+// public  lock_discovery_venue_identity(uuid)                         DEFINER   service_role
+// public  redact_expired_discovery_venue_contacts(timestamptz)         DEFINER   service_role
+// public  upsert_discovery_venue_identity(text)                        DEFINER   service_role
+// public  write_discovery_venue_independent_facts(uuid,jsonb,jsonb,jsonb)
+//                                                                   DEFINER   service_role
+// private venue_boundary_provenance_valid(jsonb,integer)              INVOKER   service_role
+// private venue_boundary_fact_valid(text,jsonb)                       INVOKER   service_role
+// private venue_boundary_legacy_contacts(jsonb,text)                  INVOKER   service_role
+// private discovery_venue_safe_json(jsonb)                            DEFINER   service_role
+// private venue_boundary_stripe_history_valid(jsonb)                  INVOKER   none
+// private assert_venue_durable_json(jsonb,boolean,text,integer,jsonb,text)
+//                                                                   DEFINER   none
+// private fence_venue_durable_sink()                                  DEFINER   none
+//
+// Private functions are not additions to the PUBLIC-schema DEFINER tripwire:
+// validators inspect typed/allowlisted values and bounded provenance lineage;
+// the pure safe JSON projector exposes only evidenced facts/legacy contacts,
+// with no table access or dynamic SQL. The dormant assertion validates envelopes
+// against safe rows (depth <=64), and the unattached trigger checks changed values
+// through that assertion. Neither is directly executable by any API role.
+// Public RPC-specific input validation is recorded alongside each entry below.
 const serviceOnlyFunctions: ServiceOnlyFunction[] = [
   {
     signature: 'advance_plan_after_confirmed_booking()',
@@ -137,6 +164,12 @@ const serviceOnlyFunctions: ServiceOnlyFunction[] = [
     call: `select public.insert_grouped_notification('${ids.userA}', 'acl', 'ACL', 'ACL', null, null, '{}'::jsonb, 'acl');`,
   },
   {
+    // Typed UUID scopes one qualified row lock; null/missing IDs return null.
+    // No row data is written or exposed beyond its ID.
+    signature: 'lock_discovery_venue_identity(uuid)',
+    call: 'select public.lock_discovery_venue_identity(null::uuid);',
+  },
+  {
     signature: 'next_vendor_invoice_number(integer)',
     call: 'select public.next_vendor_invoice_number(2026);',
   },
@@ -167,6 +200,11 @@ const serviceOnlyFunctions: ServiceOnlyFunction[] = [
   {
     signature: 'record_stripe_webhook_event_result(text,text,jsonb,text,text,boolean,text,boolean,text)',
     call: "select public.record_stripe_webhook_event_result('evt_acl', 'test', '{}'::jsonb, 'test', '/acl', false, 'test', false, null);",
+  },
+  {
+    // Rejects null/recent cutoffs before UPDATE; retention must be >= one year.
+    signature: 'redact_expired_discovery_venue_contacts(timestamp with time zone)',
+    call: 'select public.redact_expired_discovery_venue_contacts(null::timestamptz);',
   },
   {
     signature: 'refresh_projection_baselines()',
@@ -215,6 +253,12 @@ const serviceOnlyFunctions: ServiceOnlyFunction[] = [
     call: "select public.unblock_stripe_account_settlements('acct_acl', 'evt_acl');",
   },
   {
+    // Rejects null/malformed Place IDs and ambiguous aliases before INSERT.
+    // Accepts identity only: no facts/provenance input; returns the safe view.
+    signature: 'upsert_discovery_venue_identity(text)',
+    call: 'select public.upsert_discovery_venue_identity(null::text);',
+  },
+  {
     signature: 'validate_event_cost_commitment_scope()',
     call: 'select public.validate_event_cost_commitment_scope();',
     triggerOnly: true,
@@ -228,6 +272,12 @@ const serviceOnlyFunctions: ServiceOnlyFunction[] = [
     signature: 'validate_live_recommendation_scope()',
     call: 'select public.validate_live_recommendation_scope();',
     triggerOnly: true,
+  },
+  {
+    // RAISE on invalid contract, fact/provenance or operational key BEFORE DML.
+    // Dynamic SET identifiers are allowlisted and %I-quoted; values use USING.
+    signature: 'write_discovery_venue_independent_facts(uuid,jsonb,jsonb,jsonb)',
+    call: "select public.write_discovery_venue_independent_facts(null::uuid, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb);",
   },
 ]
 
@@ -425,6 +475,8 @@ function rpcArgsFor(signature: string): Record<string, unknown> {
         p_metadata: {},
         p_group_key: 'acl',
       }
+    case 'lock_discovery_venue_identity(uuid)':
+      return { p_id: null }
     case 'next_vendor_invoice_number(integer)':
       return { p_year: 2026 }
     case 'recalculate_vendor_review_stats(uuid)':
@@ -441,6 +493,8 @@ function rpcArgsFor(signature: string): Record<string, unknown> {
         p_processed: false,
         p_error: null,
       }
+    case 'redact_expired_discovery_venue_contacts(timestamp with time zone)':
+      return { p_before: null }
     case 'refresh_projection_baselines()':
     case 'refresh_vendor_analytics()':
       return {}
@@ -502,6 +556,10 @@ function rpcArgsFor(signature: string): Record<string, unknown> {
       }
     case 'unblock_stripe_account_settlements(text,text)':
       return { p_stripe_account_id: 'acct_acl', p_event_id: 'evt_acl' }
+    case 'upsert_discovery_venue_identity(text)':
+      return { p_place_id: 'acl_place_id' }
+    case 'write_discovery_venue_independent_facts(uuid,jsonb,jsonb,jsonb)':
+      return { p_venue_id: null, p_values: {}, p_field_provenance: {}, p_operational: {} }
     default:
       throw new Error(`No PostgREST fixture for ${signature}`)
   }
@@ -613,7 +671,7 @@ describeIfDatabase('database privilege lockdown', () => {
   describe('SECURITY DEFINER tripwire', () => {
     it('matches every privileged function to the reviewed classification', () => {
       expect(authenticatedFunctions).toHaveLength(11)
-      expect(serviceOnlyFunctions).toHaveLength(41)
+      expect(serviceOnlyFunctions).toHaveLength(45)
 
       const realized = psql(`
         select p.oid::regprocedure::text
@@ -629,7 +687,7 @@ describeIfDatabase('database privilege lockdown', () => {
         ...serviceOnlyFunctions.map(({ signature }) => signature),
       ].sort()
 
-      expect(classified).toHaveLength(52)
+      expect(classified).toHaveLength(56)
       expect(realized).toEqual(classified)
     })
 
