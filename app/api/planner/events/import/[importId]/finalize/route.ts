@@ -397,7 +397,7 @@ function buildSyntheticSales(
       platform: session.source,
       ticket_buyer_name: null,
       ticket_buyer_email: null,
-      ticket_quantity: -1,
+      ticket_quantity: 0,
       ticket_type: 'Aggregate refund',
       ticket_tier_name: 'Aggregate refund',
       ticket_tier_category: 'ga',

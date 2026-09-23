@@ -26,6 +26,7 @@ jest.mock('@/lib/finance/calculate-event-financials', () => ({
 import type { NextRequest } from 'next/server'
 import { POST } from '@/app/api/planner/events/import/[importId]/finalize/route'
 import { recalculateEventFinancials } from '@/lib/finance/calculate-event-financials'
+import { computeEventActuals } from '@/lib/finance/eventActuals'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 
@@ -216,6 +217,44 @@ describe('event import finalization source conflicts', () => {
       })
       expect(input.attendees).toHaveLength(1)
       expect(input.attendees[0].checked_in).toBe(true)
+    })
+
+    it.each([
+      { label: 'partial', refundCents: 1000, netCents: 4000 },
+      { label: 'full monetary', refundCents: 5000, netCents: 0 },
+    ])('reduces revenue for a $label aggregate refund without inferring ticket cancellation', async ({ refundCents, netCents }) => {
+      const staged = stageAggregate(source, {
+        ...SALES_TOTALS,
+        refunds_cents: refundCents,
+        checked_in_count: 1,
+      })
+      const result = await finalize(staged.payload, staged.body)
+
+      expect(result.response.status).toBe(200)
+      expect(result.body.salesWritten).toBe(2)
+      expect(recalculateEventFinancials).toHaveBeenCalledTimes(1)
+      expect(db.rows.event_sales_data).toHaveLength(2)
+      const actuals = await computeEventActuals(db, EVENT_ID)
+
+      // Two $25 tickets minus a $10/$50 refund leaves $40/$0. The refund
+      // amount alone does not establish that either ticket was canceled.
+      expect({ summary: db.rows.event_financial_summary[0], actuals }).toMatchObject({
+        summary: {
+          tickets_sold: 2,
+          current_attendance: 2,
+          gross_revenue: 50,
+          total_refunds: refundCents / 100,
+          net_revenue: netCents / 100,
+        },
+        actuals: {
+          tickets_sold: 2,
+          tickets_refunded: 0,
+          tickets_checked_in: 1,
+          gross_revenue_cents: 5000,
+          refunds_cents: refundCents,
+          net_revenue_cents: netCents,
+        },
+      })
     })
 
     it('does not reject or synthesize rows for explicit zero totals alongside detail', async () => {
@@ -412,6 +451,7 @@ class MemoryDb {
     venue_bookings: [],
     vendor_bookings: [],
     event_kickback_agreements: [],
+    event_revenue_terms: [],
     event_financial_summary: [{ event_id: EVENT_ID, gross_revenue: 999 }],
   }
 
