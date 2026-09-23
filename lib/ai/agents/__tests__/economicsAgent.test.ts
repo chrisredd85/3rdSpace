@@ -70,6 +70,7 @@ describe('runEconomicsAgent', () => {
     const messages = create.mock.calls[0][0].messages
     const userPayload = JSON.parse(messages[1].content)
     expect(userPayload.calculated_output_cents.revenue_scenarios.expected.profit_margin).toBe(4.7619)
+    expect(userPayload.input_cents.cost_estimate_complete).toBe(false)
   })
 
   it('passes vendor cost confidence and negotiated savings as deterministic model inputs', async () => {
@@ -90,6 +91,7 @@ describe('runEconomicsAgent', () => {
     await runEconomicsAgent({
       ...economicsInput,
       cost_confidence: 'mixed',
+      cost_estimate_complete: true,
       negotiated_savings_cents: 25000,
     }, { create })
 
@@ -97,6 +99,7 @@ describe('runEconomicsAgent', () => {
     const userPayload = JSON.parse(messages[1].content)
     expect(userPayload.input_cents).toMatchObject({
       cost_confidence: 'mixed',
+      cost_estimate_complete: true,
       negotiated_savings_cents: 25000,
     })
     expect(userPayload.cost_confidence).toBe('mixed')
@@ -191,7 +194,7 @@ describe('runEconomicsAgent', () => {
     expect(result.output.price_points.find((point) => point.price_cents === 5000)?.recommendation).toBe('recommended')
   })
 
-  it('clamps economics to server-side budget and attendance constraints', async () => {
+  it('uses explicit costs instead of the budget and ignores model financial math', async () => {
     const create = jest.fn().mockResolvedValue({
       choices: [{
         message: {
@@ -232,19 +235,107 @@ describe('runEconomicsAgent', () => {
       ticket_price_sweep_cents: [8500],
     }, { create })
 
-    expect(result.output.cost_summary_cents.total_cost_cents).toBe(220000)
+    // $300 venue + $400 vendor = $700 costs; the $2,200 budget is a spending limit.
+    expect(result.output.cost_summary_cents.total_cost_cents).toBe(70000)
+    expect(result.output.break_even_attendance).toBe(9)
     expect(result.output.price_points[0]).toEqual(
       expect.objectContaining({
         price_cents: 8500,
-        projected_net_cents: 52000,
-        break_even_tickets: 26,
+        projected_net_cents: 202000,
+        break_even_tickets: 9,
       })
     )
-    expect(result.output.risk_flags).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining('Profit goal $700 exceeds the maximum possible $520'),
-      ])
-    )
+    // floor(32 * 85%) = 27 tickets; 27 * $85 - $700 = $1,595.
+    expect(result.output.revenue_scenarios.expected).toMatchObject({
+      attendance: 27,
+      ticket_revenue_cents: 229500,
+      total_cost_cents: 70000,
+      profit_cents: 159500,
+    })
+    expect(result.output.profit_projection_cents).toBe(159500)
+    expect(result.output.risk_flags).toEqual(expect.arrayContaining([
+      expect.stringContaining('Cost estimate incomplete:'),
+    ]))
+    const userPayload = JSON.parse(create.mock.calls[0][0].messages[1].content)
+    expect(userPayload.calculated_output_cents.cost_summary_cents.total_cost_cents).toBe(70000)
+    expect(userPayload.score_breakdown.financial.details.price_points[0]).toMatchObject({
+      projected_net_cents: 202000,
+      break_even_tickets: 9,
+    })
+  })
+
+  it.each([
+    {
+      label: 'reports 150 tickets needed when expected attendance is only 100',
+      expectedAttendance: 100,
+      costCents: 750000,
+      sponsorshipCents: 0,
+      priceCents: 5000,
+      breakEven: 150,
+      projectedNetCents: -250000,
+    },
+    {
+      label: 'reports zero tickets needed when sponsorship covers all costs',
+      expectedAttendance: 50,
+      costCents: 200000,
+      sponsorshipCents: 200000,
+      priceCents: 5000,
+      breakEven: 0,
+      projectedNetCents: 250000,
+    },
+    {
+      label: 'reports unavailable ticket break-even for a free event with uncovered costs',
+      expectedAttendance: 50,
+      costCents: 200000,
+      sponsorshipCents: 0,
+      priceCents: 0,
+      breakEven: null,
+      projectedNetCents: -200000,
+    },
+    {
+      label: 'keeps ticket break-even unavailable for a free event even when costs are covered',
+      expectedAttendance: 50,
+      costCents: 200000,
+      sponsorshipCents: 200000,
+      priceCents: 0,
+      breakEven: null,
+      projectedNetCents: 0,
+    },
+    {
+      label: 'retains the required ticket count when expected attendance is zero',
+      expectedAttendance: 0,
+      costCents: 200000,
+      sponsorshipCents: 0,
+      priceCents: 5000,
+      breakEven: 40,
+      projectedNetCents: -200000,
+    },
+  ])('$label', async ({ expectedAttendance, costCents, sponsorshipCents, priceCents, breakEven, projectedNetCents }) => {
+    const create = jest.fn().mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({
+        recommendation_summary: 'Use the supplied financial assumptions.',
+        price_points: [{ price_cents: priceCents, projected_net_cents: 999999, break_even_tickets: 1 }],
+        recommended_price_cents: priceCents,
+      }) } }],
+    })
+
+    const result = await runEconomicsAgent({
+      ...economicsInput,
+      expected_attendance: expectedAttendance,
+      venue_cost_cents: costCents,
+      vendor_cost_cents: 0,
+      sponsorship_revenue_cents: sponsorshipCents,
+      ticket_price_cents: priceCents,
+      ticket_price_sweep_cents: [priceCents],
+    }, { create })
+
+    expect(result.output.break_even_attendance).toBe(breakEven)
+    expect(result.output.price_points).toHaveLength(1)
+    expect(result.output.price_points[0]).toMatchObject({
+      price_cents: priceCents,
+      break_even_tickets: breakEven,
+      projected_net_cents: projectedNetCents,
+    })
   })
 
   it('rejects invalid final economics output shape', () => {

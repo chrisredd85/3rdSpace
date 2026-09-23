@@ -366,6 +366,9 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
         no_match: false,
       },
     })
+    // Hand-computed from venue 200000 + vendor 0 cents, $70 tickets and 80 guests:
+    // ceil(200000 / 7000) = 29 tickets; 56/68/80 sold yield 192000/276000/360000 profit.
+    // At 68 tickets, dollar-rounded break-even/20% margin prices are $30/$37.
     mockRunEconomicsAgent.mockResolvedValue({
       agent_name: 'economics',
       status: 'succeeded',
@@ -373,49 +376,52 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       prompt_tokens: 80,
       completion_tokens: 16,
       messages_payload: [{ role: 'system', content: 'Explain economics.' }],
-      raw_model_output: '{"recommendation_summary":"Works if tickets clear $75."}',
+      raw_model_output: '{"recommendation_summary":"Projection uses $2,000 in supplied costs; confirm remaining costs."}',
       duration_ms: 40,
       output: {
-        break_even_attendance: 67,
-        recommended_ticket_price_range: { min_cents: 5900, max_cents: 7400 },
+        break_even_attendance: 29,
+        recommended_ticket_price_range: { min_cents: 3000, max_cents: 3700 },
         revenue_scenarios: {
           conservative: {
             attendance: 56,
             ticket_revenue_cents: 392000,
             sponsorship_revenue_cents: 0,
+            venue_chi_projection_cents: 0,
             total_revenue_cents: 392000,
-            total_cost_cents: 400000,
-            profit_cents: -8000,
-            profit_margin: -2.0408,
+            total_cost_cents: 200000,
+            profit_cents: 192000,
+            profit_margin: 48.9796,
           },
           expected: {
             attendance: 68,
             ticket_revenue_cents: 476000,
             sponsorship_revenue_cents: 0,
+            venue_chi_projection_cents: 0,
             total_revenue_cents: 476000,
-            total_cost_cents: 400000,
-            profit_cents: 76000,
-            profit_margin: 15.9664,
+            total_cost_cents: 200000,
+            profit_cents: 276000,
+            profit_margin: 57.9832,
           },
           optimistic: {
             attendance: 80,
             ticket_revenue_cents: 560000,
             sponsorship_revenue_cents: 0,
+            venue_chi_projection_cents: 0,
             total_revenue_cents: 560000,
-            total_cost_cents: 400000,
-            profit_cents: 160000,
-            profit_margin: 28.5714,
+            total_cost_cents: 200000,
+            profit_cents: 360000,
+            profit_margin: 64.2857,
           },
         },
         cost_summary_cents: {
           venue_cost_cents: 200000,
-          vendor_cost_cents: 200000,
+          vendor_cost_cents: 0,
           budget_line_items_total_cents: 0,
-          total_cost_cents: 400000,
+          total_cost_cents: 200000,
         },
-        profit_projection_cents: 76000,
-        risk_flags: ['Expected scenario is below a 20% projected profit margin.'],
-        recommendation_summary: 'Works if tickets clear $75.',
+        profit_projection_cents: 276000,
+        risk_flags: ['Cost estimate incomplete: projected spend includes only supplied costs and estimates. Confirm remaining costs before relying on profit.'],
+        recommendation_summary: 'Projection uses $2,000 in supplied costs; confirm remaining costs.',
       },
     })
     mockRunAgent.mockImplementation(async ({ agent_name }: { agent_name: string }) => ({
@@ -481,8 +487,8 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       payment_required: true,
     })])
     expect(json.economics).toEqual(expect.objectContaining({
-      break_even_attendance: 67,
-      recommendation_summary: 'Works if tickets clear $75.',
+      break_even_attendance: 29,
+      recommendation_summary: 'Projection uses $2,000 in supplied costs; confirm remaining costs.',
     }))
     expect(mockRunVenueMatchingAgent).toHaveBeenCalledWith(expect.objectContaining({
       event_plan: expect.objectContaining({
@@ -537,7 +543,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
           answer_text: expect.stringContaining('two hour load-in'),
         }),
         budget_summary: expect.objectContaining({
-          profit_margin: 28.5714,
+          profit_margin: 64.2857,
         }),
       }),
     }))
@@ -558,9 +564,10 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
         type: 'external',
         metadata: expect.objectContaining({
           recommendation_type: 'economics',
+          break_even_attendance: 29,
           revenue_scenarios: expect.objectContaining({
             expected: expect.objectContaining({
-              profit_margin: 15.9664,
+              profit_margin: 57.9832,
             }),
           }),
         }),
@@ -779,6 +786,185 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
         }),
       }),
     ]))
+  })
+
+  it('keeps a $700 fallback cost estimate separate from a $2,200 budget cap', async () => {
+    mockRunVenueMatchingAgent.mockRejectedValueOnce(new Error('model unavailable'))
+    Object.assign(db.rows.plans[0], {
+      guest_count: 100,
+      budget_cap_cents: 220000,
+      metadata: { ticket_price_target_cents: 1000 },
+    })
+    Object.assign(db.rows.venues[0], { hourly_rate_cents: 17500, minimum_hours: 4 })
+
+    const response = await recommendPlan(makeRequest({ venueLimit: 3, phase: 'vendors' }), {
+      params: { planId: 'plan-1' },
+    })
+    const json = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(json.economics).toEqual(expect.objectContaining({
+      cost_summary_cents: expect.objectContaining({ total_cost_cents: 70000 }),
+      break_even_attendance: 70,
+      profit_projection_cents: 15000,
+      risk_flags: expect.arrayContaining([expect.stringMatching(/incomplete/i)]),
+      price_points: expect.arrayContaining([expect.objectContaining({
+        price_cents: 1000,
+        projected_net_cents: 30000,
+        break_even_tickets: 70,
+      })]),
+    }))
+    expect(json.profit_projection).toEqual(expect.objectContaining({
+      recommended_projection: expect.objectContaining({
+        total_costs_cents: 70000,
+        net_profit_cents: 30000,
+        break_even_tickets: 70,
+      }),
+      assumption_notes: expect.arrayContaining([
+        expect.stringMatching(/incomplete/i),
+        'The $2,200 budget cap is a spending limit, not a cost estimate.',
+      ]),
+    }))
+  })
+
+  it('reports 150 break-even tickets for a 100-guest fallback plan', async () => {
+    mockRunVenueMatchingAgent.mockRejectedValueOnce(new Error('model unavailable'))
+    Object.assign(db.rows.plans[0], {
+      guest_count: 100,
+      budget_cap_cents: 220000,
+      metadata: { ticket_price_target_cents: 1000 },
+    })
+    Object.assign(db.rows.venues[0], { hourly_rate_cents: 37500, minimum_hours: 4 })
+
+    const response = await recommendPlan(makeRequest({ venueLimit: 3, phase: 'vendors' }), {
+      params: { planId: 'plan-1' },
+    })
+    const json = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(json.economics).toEqual(expect.objectContaining({
+      break_even_attendance: 150,
+      price_points: expect.arrayContaining([expect.objectContaining({
+        price_cents: 1000,
+        projected_net_cents: -50000,
+        break_even_tickets: 150,
+      })]),
+    }))
+    expect(json.profit_projection).toEqual(expect.objectContaining({
+      recommended_projection: expect.objectContaining({
+        total_costs_cents: 150000,
+        net_profit_cents: -50000,
+        break_even_tickets: 150,
+      }),
+    }))
+  })
+
+  it.each([
+    { budgetCapCents: 80000, budgetLabel: '$800' },
+    { budgetCapCents: 0, budgetLabel: '$0' },
+  ])('uses the same organizer-provided vendor cost in fallback economics and flags spend above $budgetLabel', async ({ budgetCapCents, budgetLabel }) => {
+    mockRunVenueMatchingAgent.mockRejectedValueOnce(new Error('model unavailable'))
+    Object.assign(db.rows.plans[0], {
+      guest_count: 100,
+      budget_cap_cents: budgetCapCents,
+      metadata: {
+        ticket_price_target_cents: 1000,
+        byo_vendors: [{ service_type: 'photography', name: 'Host photographer', cost_cents: 30000 }],
+      },
+    })
+    Object.assign(db.rows.venues[0], { hourly_rate_cents: 17500, minimum_hours: 4 })
+
+    const response = await recommendPlan(makeRequest({ venueLimit: 3, phase: 'vendors' }), {
+      params: { planId: 'plan-1' },
+    })
+    const json = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(json.economics).toEqual(expect.objectContaining({
+      cost_summary_cents: expect.objectContaining({ vendor_cost_cents: 30000, total_cost_cents: 100000 }),
+      break_even_attendance: 100,
+      price_points: expect.arrayContaining([expect.objectContaining({
+        price_cents: 1000,
+        projected_net_cents: 0,
+        break_even_tickets: 100,
+      })]),
+    }))
+    expect(json.profit_projection).toEqual(expect.objectContaining({
+      recommended_projection: expect.objectContaining({
+        total_costs_cents: 100000,
+        net_profit_cents: 0,
+        break_even_tickets: 100,
+      }),
+      assumption_notes: expect.arrayContaining([`Projected costs of $1,000 exceed the ${budgetLabel} budget cap.`]),
+    }))
+  })
+
+  it('passes only a zero-price option to the economics agent for an explicitly free event', async () => {
+    Object.assign(db.rows.plans[0], {
+      ticketed: false,
+      ticketing_model: 'free',
+      metadata: {},
+    })
+
+    const response = await recommendPlan(makeRequest({ venueLimit: 3, phase: 'vendors' }), {
+      params: { planId: 'plan-1' },
+    })
+
+    expect(response.status).toBe(200)
+    expect(mockRunEconomicsAgent).toHaveBeenCalledWith(expect.objectContaining({
+      ticket_price_cents: 0,
+      ticket_price_sweep_cents: [0],
+    }))
+  })
+
+  it('keeps break-even unavailable for a free fallback event with positive costs', async () => {
+    mockRunVenueMatchingAgent.mockRejectedValueOnce(new Error('model unavailable'))
+    Object.assign(db.rows.plans[0], {
+      ticketed: false,
+      ticketing_model: 'free',
+      metadata: {},
+    })
+
+    const response = await recommendPlan(makeRequest({ venueLimit: 3, phase: 'vendors' }), {
+      params: { planId: 'plan-1' },
+    })
+    const json = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(json.economics).toEqual(expect.objectContaining({
+      break_even_attendance: null,
+      recommended_price_cents: 0,
+      price_points: [expect.objectContaining({ price_cents: 0, break_even_tickets: null })],
+    }))
+    expect(json.profit_projection).toEqual(expect.objectContaining({
+      recommended_price_cents: 0,
+      recommended_projection: expect.objectContaining({
+        ticket_price_cents: 0,
+        gross_revenue_cents: 0,
+        break_even_tickets: null,
+      }),
+    }))
+  })
+
+  it('reports zero break-even tickets for a fallback plan with no provided costs', async () => {
+    mockRunVenueMatchingAgent.mockRejectedValueOnce(new Error('model unavailable'))
+    Object.assign(db.rows.venues[0], { hourly_rate_cents: 0, minimum_hours: 4 })
+
+    const response = await recommendPlan(makeRequest({ venueLimit: 3, phase: 'vendors' }), {
+      params: { planId: 'plan-1' },
+    })
+    const json = await readJson(response)
+
+    expect(response.status).toBe(200)
+    expect(json.economics).toEqual(expect.objectContaining({
+      cost_summary_cents: expect.objectContaining({ total_cost_cents: 0 }),
+      break_even_attendance: 0,
+      price_points: expect.arrayContaining([expect.objectContaining({ break_even_tickets: 0 })]),
+      risk_flags: expect.arrayContaining([expect.stringMatching(/incomplete/i)]),
+    }))
+    expect(json.profit_projection).toEqual(expect.objectContaining({
+      recommended_projection: expect.objectContaining({ break_even_tickets: 0 }),
+    }))
   })
 
   it('uses Places discovery by default even when catalog venue candidates exist', async () => {

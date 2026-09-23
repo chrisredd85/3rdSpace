@@ -869,7 +869,7 @@ export function PlannerMessageMetadata({
           ) : null}
           {economicsDetails.risk_flags.length > 0 ? (
             <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-medium leading-snug text-destructive">
-              {economicsDetails.risk_flags.slice(0, 2).map((flag) => (
+              {economicsDetails.risk_flags.map((flag) => (
                 <p key={flag}>{flag}</p>
               ))}
             </div>
@@ -897,7 +897,9 @@ export function PlannerMessageMetadata({
                         Net {formatMockCents(point.projected_net_cents)}
                       </span>
                       <span className="text-muted-foreground">
-                        Break-even {point.break_even_tickets} tickets
+                        {point.break_even_tickets === null
+                          ? 'Break-even N/A — no ticket price'
+                          : `Break-even ${point.break_even_tickets} tickets`}
                       </span>
                       <span className={cn(
                         'w-fit rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
@@ -1725,7 +1727,7 @@ export function readRecommendationEconomicsDetails(metadata: unknown): {
   price_points: Array<{
     price_cents: number
     projected_net_cents: number
-    break_even_tickets: number
+    break_even_tickets: number | null
     recommendation: string
     reasoning: string
   }>
@@ -1761,10 +1763,13 @@ export function readRecommendationEconomicsDetails(metadata: unknown): {
       if (!point) return []
       const priceCents = typeof point.price_cents === 'number' ? point.price_cents : null
       const projectedNetCents = typeof point.projected_net_cents === 'number' ? point.projected_net_cents : null
-      const breakEvenTickets = typeof point.break_even_tickets === 'number' ? point.break_even_tickets : null
+      const breakEvenTickets = typeof point.break_even_tickets === 'number' && Number.isFinite(point.break_even_tickets)
+        ? point.break_even_tickets
+        : null
       const recommendation = typeof point.recommendation === 'string' ? point.recommendation : null
       const reasoning = typeof point.reasoning === 'string' ? point.reasoning : null
-      if (priceCents === null || projectedNetCents === null || breakEvenTickets === null || !recommendation || !reasoning) return []
+      if (priceCents === null || projectedNetCents === null || !recommendation || !reasoning) return []
+      if (point.break_even_tickets !== null && breakEvenTickets === null) return []
 
       return [{
         price_cents: priceCents,

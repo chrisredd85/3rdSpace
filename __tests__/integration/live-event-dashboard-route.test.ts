@@ -95,6 +95,24 @@ describe('live event dashboard route and recompute job', () => {
     expect(db.rows.live_recommendations.filter((row) => row.trigger_key === 'velocity_drop')).toHaveLength(1)
   })
 
+  it('keeps an unknown live-event budget distinct from a zero-dollar spending ceiling', async () => {
+    const db = new MemoryDb({
+      events: [{ ...makeEvent(), budget: null, total_budget: null }],
+    })
+    mockRunEconomicsAgent.mockResolvedValueOnce({
+      output: { narrative: 'Review the current sales pace and recorded costs.' },
+    })
+
+    const result = await runLiveEventRecompute(db, EVENT_ID)
+
+    expect(result.agent_status).toBe('succeeded')
+    expect(mockRunEconomicsAgent).toHaveBeenCalledWith(expect.objectContaining({
+      event_plan: expect.objectContaining({ budget: null }),
+      venue_cost_cents: 0,
+      vendor_cost_cents: 50000,
+    }))
+  })
+
   it('returns a structured live snapshot for the event owner', async () => {
     const userDb = authenticatedUserDb({
       events: [makeEvent()],
