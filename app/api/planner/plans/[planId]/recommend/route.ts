@@ -21,7 +21,7 @@ import {
   type VenueMatchingAgentResult,
 } from '@/lib/ai/agents/venueMatchingAgent'
 import { getAgentRunErrorMetadata, type AgentName } from '@/lib/ai/types'
-import { calculateEventPlanningEconomics } from '@/lib/finance/eventPlanningEconomics'
+import { calculateBreakEvenAttendance, calculateEventPlanningEconomics } from '@/lib/finance/eventPlanningEconomics'
 import { generateMilestoneTemplate } from '@/lib/events/milestoneTemplates'
 import { archetypeFor, buildArchetypeAnswerText, buildMutationContract, readEventArchetypeLock } from '@/lib/planner/archetypes'
 import type { EventArchetypeConfig, VendorStackItem, VendorTrigger } from '@/lib/planner/archetypes'
@@ -877,7 +877,7 @@ async function runCatalogFallback(input: {
         eventPlan,
         recommendationsForPersistence,
         ticketPriceSweepCents,
-        vendorCostSummary
+        vendorCostCents
       )
   const profitProjection = buildProfitProjectionSummary(
     input.plan,
@@ -3153,10 +3153,12 @@ function buildEconomicsPayload(
   }
 ): EconomicsAgentInput {
   const venueChi = deriveVenueChiEconomics(context.venue)
+  const noTicketRevenue = plan.ticketed === false || hasExplicitNoTicketRevenueModel(plan)
 
   return {
     event_plan: eventPlan,
     budget_line_items: [],
+    cost_estimate_complete: false,
     expected_attendance: plan.guest_count ?? eventPlan.expected_attendance ?? 0,
     venue_cost_cents: venueCostCents,
     vendor_cost_cents: vendorCostCents,
@@ -3175,10 +3177,12 @@ function buildEconomicsPayload(
     conversation_history: context.conversationHistory,
     elasticity: context.elasticity,
     historical_attendance: context.historicalAttendance as unknown as Record<string, unknown> | null,
-    ticket_price_sweep_cents: normalizeTicketPriceSweep([
-      ...context.ticketPriceSweepCents,
-      ...(eventPlan.ticket_price_target ? [eventPlan.ticket_price_target] : []),
-    ]),
+    ticket_price_sweep_cents: noTicketRevenue
+      ? [0]
+      : normalizeTicketPriceSweep([
+          ...context.ticketPriceSweepCents,
+          ...(eventPlan.ticket_price_target ? [eventPlan.ticket_price_target] : []),
+        ]),
     score_breakdown: {
       financial: {
         details: {
@@ -3231,13 +3235,13 @@ function buildFallbackEconomicsOutput(
   eventPlan: ReturnType<typeof buildAgentEventPlan>,
   recommendations: RankedCatalogRecommendation[],
   ticketPriceSweepCents: number[] = [25, 50, 75, 100].map((amount) => amount * 100),
-  vendorCostSummary: VendorEconomicsCostSummary | null = null
+  vendorCostCents = 0
 ): EconomicsAgentOutput {
   const topVenueEstimate = recommendations.find((recommendation) => recommendation.kind === 'venue')?.estimate_cents ?? 0
-  const vendorCostCents = vendorCostSummary?.vendor_cost_cents ?? 0
   const calculations = calculateEventPlanningEconomics({
     event_plan: eventPlan,
     budget_line_items: [],
+    cost_estimate_complete: false,
     expected_attendance: plan.guest_count ?? eventPlan.expected_attendance ?? 0,
     venue_cost_cents: topVenueEstimate,
     vendor_cost_cents: vendorCostCents,
@@ -3254,7 +3258,7 @@ function buildFallbackEconomicsOutput(
   const pricePoints = sweep.projections.map((projection) => ({
     price_cents: projection.ticket_price_cents,
     projected_net_cents: projection.net_profit_cents,
-    break_even_tickets: projection.break_even_tickets ?? 0,
+    break_even_tickets: projection.break_even_tickets,
     recommendation: projection.ticket_price_cents === sweep.recommended_price_cents
       ? 'recommended' as const
       : projection.ticket_price_cents > (sweep.recommended_price_cents ?? 0)
@@ -3778,19 +3782,6 @@ function chooseVenueCostCents(
     .find((estimate): estimate is number => estimate !== null) ?? 0
 }
 
-function sumVendorCostCents(vendors: SuggestedVendorRecommendation[]): number {
-  return vendors.reduce((sum, vendor) => sum + (vendor.base_rate_cents ?? 0), 0)
-}
-
-function estimateVendorCostCents(
-  plan: Plan,
-  venueCostCents: number,
-  vendors: SuggestedVendorRecommendation[]
-): number {
-  if (vendors.length > 0) return sumVendorCostCents(vendors)
-  return Math.max((plan.budget_cap_cents ?? 0) - venueCostCents, 0)
-}
-
 function buildProfitProjectionSummary(
   plan: Plan,
   venueCostCents: number,
@@ -3798,23 +3789,23 @@ function buildProfitProjectionSummary(
   ticketPriceSweepCents: number[] = [25, 50, 75, 100].map((amount) => amount * 100)
 ): ProfitProjectionSummary {
   const guestCount = plan.guest_count ?? 0
-  const knownCostsCents = venueCostCents + vendorCostCents
-  const totalCostsCents = Math.max(knownCostsCents, plan.budget_cap_cents ?? 0)
-  const explicitTicketPriceCents = readPlanTicketPriceTargetCents(plan)
-  const ticketPriceOptions = normalizeTicketPriceSweep([
-    ...ticketPriceSweepCents,
-    ...(explicitTicketPriceCents ? [explicitTicketPriceCents] : []),
-  ])
+  const totalCostsCents = venueCostCents + vendorCostCents
+  const noTicketRevenue = plan.ticketed === false || hasExplicitNoTicketRevenueModel(plan)
+  const explicitTicketPriceCents = noTicketRevenue ? null : readPlanTicketPriceTargetCents(plan)
+  const ticketPriceOptions = noTicketRevenue
+    ? [0]
+    : normalizeTicketPriceSweep([
+        ...ticketPriceSweepCents,
+        ...(explicitTicketPriceCents ? [explicitTicketPriceCents] : []),
+      ])
   const projections = ticketPriceOptions.map((ticketPriceCents) => {
     const grossRevenueCents = guestCount * ticketPriceCents
-    const rawBreakEvenTickets = ticketPriceCents > 0 ? Math.ceil(totalCostsCents / ticketPriceCents) : null
-
     return {
       ticket_price_cents: ticketPriceCents,
       gross_revenue_cents: grossRevenueCents,
       total_costs_cents: totalCostsCents,
       net_profit_cents: grossRevenueCents - totalCostsCents,
-      break_even_tickets: rawBreakEvenTickets === null ? null : clampBreakEvenTickets(rawBreakEvenTickets, guestCount),
+      break_even_tickets: calculateBreakEvenAttendance(totalCostsCents, ticketPriceCents),
     }
   })
   const breakEvenProjection = projections.find((projection) => projection.net_profit_cents >= 0) ?? null
@@ -3856,13 +3847,15 @@ function buildProfitProjectionAssumptionNotes(
 ): string[] {
   const notes = [
     'Projection is an estimate until venue/vendor quotes confirm minimums, deposits, service fees, tax, gratuity, and included services.',
+    'Cost estimate is incomplete. Projected spend includes only the venue and vendor costs provided; missing costs are not covered by the budget cap.',
   ]
-  const knownCostsCents = venueCostCents + vendorCostCents
 
-  if (!plan.budget_cap_cents) {
+  if (plan.budget_cap_cents === null || plan.budget_cap_cents === undefined) {
     notes.push('No budget cap is set, so partner affordability is based on market estimates rather than a hard ceiling.')
-  } else if (plan.budget_cap_cents > knownCostsCents) {
-    notes.push(`Using the ${formatCurrency(plan.budget_cap_cents)} budget cap as projected spend until partner quotes are confirmed.`)
+  } else if (totalCostsCents > plan.budget_cap_cents) {
+    notes.push(`Projected costs of ${formatCurrency(totalCostsCents)} exceed the ${formatCurrency(plan.budget_cap_cents)} budget cap.`)
+  } else {
+    notes.push(`The ${formatCurrency(plan.budget_cap_cents)} budget cap is a spending limit, not a cost estimate.`)
   }
   if (venueCostCents === 0) {
     notes.push('Venue cost is unknown and must be confirmed before deposit authorization.')
@@ -4181,11 +4174,6 @@ function hasExplicitNoTicketRevenueModel(plan: Plan): boolean {
     normalized.includes('free') ||
     normalized.includes('no ticket') ||
     normalized.includes('not ticket')
-}
-
-function clampBreakEvenTickets(rawBreakEvenTickets: number, guestCount: number): number {
-  if (guestCount <= 0) return 0
-  return Math.min(Math.max(rawBreakEvenTickets, 1), guestCount)
 }
 
 function normalizeMonetizationModel(ticketingModel: string | null | undefined): string {

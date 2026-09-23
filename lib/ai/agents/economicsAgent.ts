@@ -4,6 +4,7 @@ import { assertOpenAIConfigured, openai } from '@/lib/ai/client'
 import { AgentRunExecutionError, type AgentResult } from '@/lib/ai/types'
 import { buildAgentRunMetadata, type AgentMessagePayload } from '@/lib/ai/run-metadata'
 import {
+  calculateBreakEvenAttendance,
   calculateEventPlanningEconomics,
   calculateVenueChiProjectionCents,
   eventPlanningEconomicsInputSchema,
@@ -42,7 +43,7 @@ const elasticitySignalSchema = z.object({
 const economicsPricePointSchema = z.object({
   price_cents: z.number().int().nonnegative(),
   projected_net_cents: z.number().int(),
-  break_even_tickets: z.number().int().nonnegative(),
+  break_even_tickets: z.number().int().nonnegative().nullable(),
   recommendation: z.enum(['aggressive', 'recommended', 'conservative', 'avoid']),
   reasoning: z.string().trim().min(1),
 })
@@ -128,6 +129,7 @@ const ECONOMICS_SYSTEM_PROMPT = [
   'If elasticity.tier_pattern is vip_dead, do not recommend the highest price point. Note: historically your top tier has not moved, so recommend a tighter band.',
   'If elasticity.confidence is low or elasticity is null, ignore tier elasticity and price using archetype defaults plus venue economics only. Do not fabricate historical patterns.',
   'You will receive cost_confidence for vendor costs. If cost_confidence is confirmed, you may state vendor-cost assumptions directly. If it is mixed, say some vendor rates are confirmed and some are estimates. If it is estimated, hedge the narrative and say vendor quotes still need confirmation.',
+  'cost_estimate_complete states whether the supplied costs cover the full event. When false, describe profitability as based on partial costs and preserve the supplied cost-completeness risk warning, even when individual vendor rates are confirmed.',
   'You will receive negotiated_savings_cents. This is deterministic and organizer-scoped. Never recompute it, never alter it, and only quote it verbatim when useful.',
   'The financial figures come from score_breakdown.financial.details and calculated_price_points and must be used verbatim. Elasticity affects price recommendations, not the math of any specific price point.',
   'Use archetype_intake and conversation_history only for narrative risks and assumptions, such as user-stated load-in windows, outside vendors, or required support. Do not recalculate totals from conversational text.',
@@ -170,6 +172,7 @@ export async function runEconomicsAgent(
           venue_chi_rate: input.venue_chi_rate,
           estimated_spend_per_head_cents: input.estimated_spend_per_head_cents,
           cost_confidence: input.cost_confidence,
+          cost_estimate_complete: input.cost_estimate_complete,
           negotiated_savings_cents: input.negotiated_savings_cents,
         },
         calculated_output_cents: calculations,
@@ -280,18 +283,11 @@ function buildPricePoints(
     return {
       price_cents: priceCents,
       projected_net_cents: projectedNetCents,
-      break_even_tickets: priceCents > 0
-        ? clampBreakEvenTickets(Math.ceil(netCostAfterSponsorshipCents / priceCents), input.expected_attendance)
-        : 0,
+      break_even_tickets: calculateBreakEvenAttendance(netCostAfterSponsorshipCents, priceCents),
       recommendation: 'conservative',
       reasoning: `At ${formatCurrency(priceCents)}, projected net is ${formatCurrency(projectedNetCents)}.`,
     }
   })
-}
-
-function clampBreakEvenTickets(rawBreakEvenTickets: number, expectedAttendance: number): number {
-  if (expectedAttendance <= 0) return 0
-  return Math.min(Math.max(rawBreakEvenTickets, 1), expectedAttendance)
 }
 
 function normalizeModelPricePoints(value: unknown): unknown {

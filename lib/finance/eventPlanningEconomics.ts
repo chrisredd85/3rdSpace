@@ -32,6 +32,9 @@ export const eventPlanningEconomicsInputSchema = z.object({
   expected_attendance: z.number().int().nonnegative(),
   venue_cost_cents: z.number().int().nonnegative(),
   vendor_cost_cents: z.number().int().nonnegative(),
+  // Only an explicit completeness signal can distinguish missing costs from a
+  // deliberately complete estimate, including confirmed zero-cost categories.
+  cost_estimate_complete: z.boolean().default(false),
   ticket_price_cents: z.number().int().nonnegative(),
   sponsorship_revenue_cents: z.number().int().nonnegative().default(0),
   venue_commercial_model: venueCommercialModelSchema.optional(),
@@ -85,12 +88,11 @@ export function calculateEventPlanningEconomics(
     (sum, item) => sum + item.amount_cents,
     0
   )
-  const knownCostCents = input.venue_cost_cents + input.vendor_cost_cents + budgetLineItemsTotalCents
-  const totalCostCents = Math.max(knownCostCents, input.event_plan.budget ?? 0)
+  // Each supplied amount may be a quote or an explicit estimate. A budget cap
+  // is spending authority, not evidence of an additional cost.
+  const totalCostCents = input.venue_cost_cents + input.vendor_cost_cents + budgetLineItemsTotalCents
   const netCostAfterSponsorshipCents = Math.max(totalCostCents - input.sponsorship_revenue_cents, 0)
-  const rawBreakEvenAttendance =
-    input.ticket_price_cents > 0 ? Math.ceil(netCostAfterSponsorshipCents / input.ticket_price_cents) : null
-  const breakEvenAttendance = clampBreakEvenAttendance(rawBreakEvenAttendance, input.expected_attendance)
+  const breakEvenAttendance = calculateBreakEvenAttendance(netCostAfterSponsorshipCents, input.ticket_price_cents)
   const revenueScenarios = {
     conservative: buildRevenueScenario('conservative', input, totalCostCents),
     expected: buildRevenueScenario('expected', input, totalCostCents),
@@ -113,7 +115,7 @@ export function calculateEventPlanningEconomics(
       total_cost_cents: totalCostCents,
     },
     profit_projection_cents: expectedScenario.profit_cents,
-    risk_flags: buildRiskFlags(input, rawBreakEvenAttendance, expectedScenario, revenueScenarios.optimistic),
+    risk_flags: buildRiskFlags(input, breakEvenAttendance, expectedScenario, revenueScenarios.optimistic),
   })
 }
 
@@ -208,6 +210,14 @@ function buildRiskFlags(
 ) {
   const flags: string[] = []
 
+  if (!input.cost_estimate_complete) {
+    flags.push('Cost estimate incomplete: projected spend includes only supplied costs and estimates. Confirm remaining costs before relying on profit.')
+  }
+
+  if (input.event_plan.budget !== null && expectedScenario.total_cost_cents > input.event_plan.budget) {
+    flags.push(`Projected spend ${formatCurrency(expectedScenario.total_cost_cents)} exceeds the budget ceiling of ${formatCurrency(input.event_plan.budget)}.`)
+  }
+
   if (expectedScenario.profit_margin < TARGET_PROFIT_MARGIN_PERCENT) {
     flags.push('Expected scenario is below a 20% projected profit margin.')
   }
@@ -234,14 +244,10 @@ function buildRiskFlags(
   return flags
 }
 
-function clampBreakEvenAttendance(rawBreakEvenAttendance: number | null, expectedAttendance: number): number | null {
-  if (rawBreakEvenAttendance === null) return null
-  if (expectedAttendance <= 0) return 0
-  return clamp(rawBreakEvenAttendance, 1, expectedAttendance)
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max)
+/** Required paid tickets at a stated price; attendance limits never alter the math. */
+export function calculateBreakEvenAttendance(netCostCents: number, ticketPriceCents: number): number | null {
+  if (ticketPriceCents <= 0) return null
+  return Math.ceil(Math.max(netCostCents, 0) / ticketPriceCents)
 }
 
 function calculateProfitMargin(profitCents: number, totalRevenueCents: number) {

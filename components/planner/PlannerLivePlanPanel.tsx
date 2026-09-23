@@ -50,6 +50,7 @@ import {
   type EntityStripeReadinessInput,
 } from '@/lib/planner/entityStripeReadiness'
 import { readVendorNeedStatusFromMetadata } from '@/lib/planner/vendorNeedStatus'
+import { calculateBreakEvenAttendance } from '@/lib/finance/eventPlanningEconomics'
 import type { PlanMessage, VendorNeedStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/utils/relativeTime'
@@ -363,6 +364,15 @@ interface TicketPricingModel {
   targetProfitCents: number
   projectedMarginCents: number
   rationale: string
+}
+
+interface RecommendationEconomicsSnapshot {
+  priceCents: number
+  breakEvenTickets: number | null
+  projectedNetCents: number
+  totalCostCents: number | null
+  narrative: string | null
+  riskFlags: string[]
 }
 
 interface PlannerProjectionBaseline {
@@ -1129,32 +1139,18 @@ function deriveGmailOutreachDraftSummary(messages: PlanMessage[]): GmailOutreach
 /**
  * Builds budget rows from the latest event summary.
  */
-function buildBudgetItems(summary: EventSummary, plan: LivePlanSnapshot | null): BudgetLineItem[] {
-  const budgetCapCents = summary.budget_cents ?? plan?.budgetCapCents ?? null
+function buildBudgetItems(summary: EventSummary): BudgetLineItem[] {
   const noOrganizerFoodCost = hasNoOrganizerFoodCost(summary)
   const noPaidVendors = summary.vendor_need_status === 'none' || isNoVendorNeed(summary.vendor_needs) || noOrganizerFoodCost
-  const venueRatio = getVenueTargetRatio(summary)
-  const venueAmountCents = budgetCapCents ? Math.round(budgetCapCents * venueRatio) : null
-
-  if (!budgetCapCents) {
-    return [
-      { label: 'Venue target', amountCents: null },
-      noPaidVendors
-        ? { label: 'Vendor pool not needed', amountCents: 0 }
-        : { label: 'Vendor pool', amountCents: null },
-      { label: 'Contingency', amountCents: null },
-      { label: 'Buffer', amountCents: null },
-    ]
-  }
 
   return [
-    { label: venueBudgetLabel(summary), amountCents: venueAmountCents },
+    { label: venueBudgetLabel(summary), amountCents: null },
     {
       label: isDinnerLike(summary.event_type) ? foodBudgetLabel(summary) : 'Vendor pool',
-      amountCents: noPaidVendors ? 0 : Math.round(budgetCapCents * 0.3),
+      amountCents: noPaidVendors ? 0 : null,
     },
-    { label: 'Contingency', amountCents: Math.round(budgetCapCents * 0.1) },
-    { label: 'Buffer', amountCents: Math.round(budgetCapCents * 0.05) },
+    { label: 'Contingency', amountCents: null },
+    { label: 'Buffer', amountCents: null },
   ]
 }
 
@@ -1183,9 +1179,11 @@ function buildProfitModel(
     budgetItems[0]?.amountCents ??
     0
   const vendorCostCents =
-    (committedVendorCostCents > 0 ? committedVendorCostCents : null) ??
+    (livePlan?.committedVendors.some((vendor) => committedVendorQuoteCents(vendor) !== null)
+      ? committedVendorCostCents
+      : null) ??
     budgetItems.find((item) => /vendor|dinner/i.test(item.label))?.amountCents ??
-    Math.max(0, Math.round((summary.budget_cents ?? 0) * 0.3))
+    0
   const customCostsTotalCents = Math.round(customCosts.reduce((sum, c) => sum + c.amount * 100, 0))
   const ticketPricing = buildTicketPricingModel(summary, paidAverage, venueCostCents + customCostsTotalCents, vendorCostCents)
   const ticketRevenueCents = summary.ticketed && paidAverage > 0 ? ticketPricing.recommendedCents * paidAverage : 0
@@ -1205,10 +1203,7 @@ function buildProfitModel(
   const perAttendeeNetCents = attendeeBasis > 0 ? Math.round(expectedCents / attendeeBasis) : null
   const totalCostCents = venueCostCents + vendorCostCents + customCostsTotalCents + feesCents
   const breakEvenCostCents = Math.max(0, totalCostCents - venueIncentive.amountCents)
-  const breakEvenTickets =
-    summary.ticketed && ticketPricing.recommendedCents > 0 && breakEvenCostCents > 0
-      ? Math.ceil(breakEvenCostCents / ticketPricing.recommendedCents)
-      : null
+  const breakEvenTickets = calculateBreakEvenAttendance(breakEvenCostCents, ticketPricing.recommendedCents)
 
   const baselineStddev = baseline?.stddevMarginCents && baseline.stddevMarginCents > 0 ? baseline.stddevMarginCents : null
   const rangeLowCents = baselineStddev ? expectedCents - baselineStddev : Math.min(conservativeCents, upsideCents)
@@ -1412,7 +1407,6 @@ function buildOpenQuestions(summary: EventSummary, recommendations: Recommendati
 export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   messages,
   planId,
-  estimatedTotalCents,
   capLabel,
   budgetLineItems,
   approvals,
@@ -1496,7 +1490,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const baseEventSummary = deriveEventSummary(activeMessages, livePlan)
   const ticketPriceTargetCents = deriveTicketPriceTargetCents(baseEventSummary, livePlan, activeMessages)
   const eventSummary = applyTicketPriceIntent(baseEventSummary, ticketPriceTargetCents)
-  const renderedBudgetLineItems = budgetLineItems ?? buildBudgetItems(eventSummary, livePlan)
+  const renderedBudgetLineItems = budgetLineItems ?? buildBudgetItems(eventSummary)
   const renderedApprovals = approvals ?? deriveApprovals(activeMessages)
   const renderedRecommendations = deriveRecommendations(activeMessages)
   const outreachDraftSummary = useMemo(
@@ -1519,10 +1513,16 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
     () => buildProfitModel(eventSummary, renderedRecommendations, renderedBudgetLineItems, customCosts, projectionBaseline, livePlan),
     [eventSummary, renderedBudgetLineItems, renderedRecommendations, customCosts, projectionBaseline, livePlan]
   )
-  const renderedEstimatedTotal =
-    estimatedTotalCents !== undefined ? formatCents(estimatedTotalCents) : formatCents(eventSummary.budget_cents)
+  const recommendationEconomics = useMemo(
+    () => readLatestRecommendationEconomics(activeMessages),
+    [activeMessages]
+  )
+  const breakEvenTickets = recommendationEconomics
+    ? recommendationEconomics.breakEvenTickets
+    : profitModel.breakEvenTickets
+  const breakEvenTicketPriceCents = recommendationEconomics?.priceCents ?? profitModel.ticketPricing.recommendedCents
   const title = derivePlanTitle(livePlan, eventSummary)
-  const suggestedTicketPriceCents = ticketPriceTargetCents ?? profitModel.ticketPricing.recommendedCents
+  const suggestedTicketPriceCents = recommendationEconomics?.priceCents ?? ticketPriceTargetCents ?? profitModel.ticketPricing.recommendedCents
   const statusPillLabel = getStatusPillLabel({
     budgetCents: eventSummary.budget_cents,
     capLabel,
@@ -2352,9 +2352,9 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           />
         </ArtifactSection>
 
-        <ArtifactSection id="profit-window" icon={<TrendingUp className="h-5 w-5" />} title="Profit Window" subtitle="Realistic forecast + range">
+        <ArtifactSection id="profit-window" icon={<TrendingUp className="h-5 w-5" />} title="Profit Window" subtitle={recommendationEconomics ? 'Recommended-price projection' : 'Realistic forecast + range'}>
           <div className="mb-4 flex flex-wrap items-center gap-2">
-            {profitModel.baselineSource !== 'default' ? (
+            {!recommendationEconomics && profitModel.baselineSource !== 'default' ? (
               <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-forest/20 bg-forest/10 px-3 py-1 text-xs font-semibold text-forest">
                 <TrendingUp className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">{profitModel.baselineBasisLabel}</span>
@@ -2369,26 +2369,44 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
           <div className="mb-5 rounded-lg border border-tan bg-cream-deep/50 p-5">
             <p className="label-caps text-ink-soft">Ticket Pricing</p>
             <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(118px,1fr))]">
-              <PricingMetric label="Market avg" value={formatCents(profitModel.ticketPricing.marketAverageCents)} />
-              <PricingMetric label="Break-even" value={eventSummary.ticketed ? formatCents(profitModel.ticketPricing.breakEvenCents) : 'N/A'} />
-              <PricingMetric label="Recommend" value={eventSummary.ticketed ? formatCents(profitModel.ticketPricing.recommendedCents) : 'Free RSVP'} featured />
+              {recommendationEconomics ? (
+                <PricingMetric label="Modeled costs" value={formatCents(recommendationEconomics.totalCostCents)} />
+              ) : (
+                <>
+                  <PricingMetric label="Market avg" value={formatCents(profitModel.ticketPricing.marketAverageCents)} />
+                  <PricingMetric label="Break-even" value={eventSummary.ticketed ? formatCents(profitModel.ticketPricing.breakEvenCents) : 'N/A'} />
+                </>
+              )}
+              <PricingMetric label="Recommend" value={recommendationEconomics ? formatCents(recommendationEconomics.priceCents) : eventSummary.ticketed ? formatCents(profitModel.ticketPricing.recommendedCents) : 'Free RSVP'} featured />
             </div>
             <p className="mt-4 text-sm leading-snug text-ink-soft">
-              {profitModel.ticketPricing.rationale}
+              {recommendationEconomics ? recommendationEconomics.narrative : profitModel.ticketPricing.rationale}
             </p>
+            {recommendationEconomics ? (
+              <p className="mt-2 text-sm text-ink-soft">Latest recommendation estimate. Refresh recommendations after changing costs or ticket assumptions.</p>
+            ) : null}
+            {recommendationEconomics ? recommendationEconomics.riskFlags.map((flag, index) => (
+              <p key={`${index}-${flag}`} className="mt-2 text-sm text-clay">{flag}</p>
+            )) : (
+              <p className="mt-2 text-sm text-clay">Estimate incomplete — based only on supplied costs. Confirm remaining costs before relying on this projection.</p>
+            )}
           </div>
           <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
-            <ProfitCard label="Realistic" value={profitModel.realisticCents} featured />
-            <ProfitRangeCard
-              label={profitModel.baselineSource === 'default' ? 'Range' : 'Historical range'}
-              low={profitModel.rangeLowCents}
-              high={profitModel.rangeHighCents}
-            />
-            <ProfitCard label="Per-attendee net" value={profitModel.perAttendeeNetCents} />
+            <ProfitCard label={recommendationEconomics ? 'Projected net' : 'Realistic'} value={recommendationEconomics?.projectedNetCents ?? profitModel.realisticCents} featured />
+            {!recommendationEconomics ? (
+              <>
+                <ProfitRangeCard
+                  label={profitModel.baselineSource === 'default' ? 'Range' : 'Historical range'}
+                  low={profitModel.rangeLowCents}
+                  high={profitModel.rangeHighCents}
+                />
+                <ProfitCard label="Per-attendee net" value={profitModel.perAttendeeNetCents} />
+              </>
+            ) : null}
           </div>
 
           <div className="mt-5 overflow-hidden rounded-lg border border-tan bg-cream-deep/50">
-            {profitModel.lineItems.map((item) => (
+            {!recommendationEconomics ? profitModel.lineItems.map((item) => (
               <div key={item.label} className="flex min-w-0 items-center justify-between gap-5 border-b border-tan px-5 py-3 last:border-b-0">
                 <span className="min-w-0 truncate text-base text-ink-soft" title={item.label}>{item.label}</span>
                 <span className={cn('shrink-0 font-semibold tabular-nums', item.negative ? 'text-brick' : 'text-ink')}>
@@ -2396,13 +2414,11 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                   {formatCents(item.amountCents)}
                 </span>
               </div>
-            ))}
-            {profitModel.breakEvenTickets !== null ? (
-              <div className="flex min-w-0 items-center justify-between gap-5 border-t border-clay/25 bg-clay-tint px-5 py-3">
-                <span className="min-w-0 truncate text-sm font-semibold text-clay">Break-even tickets</span>
-                <span className="shrink-0 font-bold tabular-nums text-clay">{profitModel.breakEvenTickets}</span>
-              </div>
-            ) : null}
+            )) : null}
+            <div className="flex min-w-0 items-center justify-between gap-5 border-t border-clay/25 bg-clay-tint px-5 py-3">
+              <span className="min-w-0 text-sm font-semibold text-clay">Break-even tickets at {formatCents(breakEvenTicketPriceCents)}/ticket</span>
+              <span className="shrink-0 font-bold tabular-nums text-clay">{breakEvenTickets ?? 'N/A — no ticket price'}</span>
+            </div>
           </div>
 
           {/* Custom costs */}
@@ -3829,12 +3845,6 @@ function foodBudgetLabel(summary: EventSummary) {
   return 'Dinner package'
 }
 
-function getVenueTargetRatio(summary: EventSummary) {
-  if (/\b(free space|minimum spend)\b/i.test(summary.venue_terms ?? '')) return 0
-  if (isDinnerLike(summary.event_type) && hasNoOrganizerFoodCost(summary)) return 0.25
-  return 0.55
-}
-
 function buildTicketPricingModel(
   summary: EventSummary,
   paidAverage: number,
@@ -3947,6 +3957,37 @@ function readLatestRecommendationResponse(messages: PlanMessage[]): Record<strin
     const response = asRecord(metadata?.recommendation_response)
     if (response) return response
     if (asRecord(metadata?.timeline) || asRecord(metadata?.workspace_summary)) return metadata
+  }
+
+  return null
+}
+
+function readLatestRecommendationEconomics(messages: PlanMessage[]): RecommendationEconomicsSnapshot | null {
+  for (const message of [...messages].reverse()) {
+    if (String(message.message_type) !== 'recommendation') continue
+    const metadata = asRecord(message.metadata)
+    const response = asRecord(metadata?.recommendation_response)
+    if (readString(metadata?.economics_placeholder) ?? readString(response?.economics_placeholder)) return null
+    const economics = asRecord(metadata?.economics) ?? asRecord(response?.economics)
+    if (!economics) continue
+
+    const priceCents = readNumber(economics.recommended_price_cents)
+    const pricePoints = Array.isArray(economics.price_points) ? economics.price_points : []
+    const point = pricePoints.map(asRecord).find((item) => item?.price_cents === priceCents)
+    const projectedNetCents = readNumber(point?.projected_net_cents)
+    const breakEvenTickets = readNumber(point?.break_even_tickets)
+    if (priceCents === null || !point || projectedNetCents === null) return null
+    if (point.break_even_tickets !== null && breakEvenTickets === null) return null
+
+    const costs = asRecord(economics.cost_summary_cents)
+    return {
+      priceCents,
+      breakEvenTickets,
+      projectedNetCents,
+      totalCostCents: readNumber(costs?.total_cost_cents),
+      narrative: readString(economics.narrative) ?? readString(economics.recommendation_summary),
+      riskFlags: readStringArray(economics.risk_flags),
+    }
   }
 
   return null

@@ -282,7 +282,7 @@ function buildEconomicsInput(event: EventRow, pnl: EventPnL) {
       expected_attendance: expectedAttendance,
       city: null,
       venue_type: null,
-      budget: 0,
+      budget: null,
       event_date: event.event_date,
       monetization_model: averageTicketPriceCents > 0 ? 'ticketed' : 'free',
       headcount_min: null,
