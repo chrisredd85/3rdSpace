@@ -634,8 +634,16 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
     expect(db.rows.agent_runs).toHaveLength(4)
   })
 
-  it.each(['agent', 'catalog'])('preserves independent venue evidence in the %s shopping-list copy', async (mode) => {
+  it.each(['agent', 'catalog'])('preserves %s recommendation and shopping-list evidence when only service can read the safe view', async (mode) => {
     if (mode === 'catalog') delete process.env.OPENAI_API_KEY
+    const session = mockCreateClient()
+    const sessionFrom = jest.fn((table: string) => {
+      if (table === 'discovery_venues_safe') throw new Error('permission denied for view discovery_venues_safe')
+      return db.from(table)
+    })
+    mockCreateClient.mockReturnValue({ ...session, from: sessionFrom })
+    const serviceFrom = jest.fn(db.from.bind(db))
+    mockCreateServiceRoleClient.mockReturnValue({ from: serviceFrom })
     const nameEvidence = independentVenueEvidence('host_input', 'fixture:host-name')
     db.rows.discovery_venues_safe = [{
       id: VENUE_ID,
@@ -650,6 +658,9 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
     })
 
     expect(response.status).toBe(200)
+    expect(sessionFrom).toHaveBeenCalledWith('plans')
+    expect(sessionFrom).not.toHaveBeenCalledWith('discovery_venues_safe')
+    expect(serviceFrom).toHaveBeenCalledWith('discovery_venues_safe')
     const metadata = db.rows.plans[0].metadata as Row
     const shoppingList = metadata.shopping_list as Row
     const selectedVenue = shoppingList.selected_venue as Row
@@ -685,6 +696,20 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
     expect(() => serializeVenueDurable({ ...savedVenue, metadata: { ...savedMetadata,
       ranker: { ...(savedMetadata.ranker as Row ?? {}), provider_payload: { website: 'https://GOOGLE_CANARY.example' } },
     } })).toThrow('website')
+  })
+
+  it.each(['unauthenticated', 'other-owner'])('does not read service venue facts for %s recommendation requests', async (mode) => {
+    const session = mockCreateClient()
+    if (mode === 'unauthenticated') {
+      session.auth.getUser.mockResolvedValue({ data: { user: null }, error: null })
+    } else {
+      db.rows.plans[0].user_id = 'different-owner'
+    }
+    const serviceFrom = jest.fn(db.from.bind(db))
+    mockCreateServiceRoleClient.mockReturnValue({ from: serviceFrom })
+    const response = await recommendPlan(makeRequest({ venueLimit: 3 }), { params: { planId: 'plan-1' } })
+    expect(response.status).toBe(mode === 'unauthenticated' ? 401 : 404)
+    expect(serviceFrom).not.toHaveBeenCalledWith('discovery_venues_safe')
   })
 
   it('marks priced Stripe-ready vendor recommendations as controlled payments', async () => {

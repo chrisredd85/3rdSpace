@@ -3326,10 +3326,12 @@ function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
 }
 
-async function evidenceForVenueRecommendations<T extends { type: string; reference_id?: string | null; metadata: Json }>(db: PlannerDb, rows: T[]): Promise<T[]> {
+async function evidenceForVenueRecommendations<T extends { type: string; reference_id?: string | null; metadata: Json }>(rows: T[]): Promise<T[]> {
   const ids = rows.filter(row => row.type === 'venue' && row.reference_id).map(row => row.reference_id!)
   if (!ids.length) return rows
-  const { data, error } = await db.from('discovery_venues_safe').select(DISCOVERY_VENUE_SELECT).in('id', ids)
+  // The route already proved plan ownership with the session client. Only this
+  // independent-evidence read uses the service-only projection privilege.
+  const { data, error } = await createServiceRoleClient().from('discovery_venues_safe').select(DISCOVERY_VENUE_SELECT).in('id', ids)
   if (error) throw new Error('Independent venue evidence unavailable')
   const byId = new Map<string, ReturnType<typeof readSafeDiscoveryVenue>>((Array.isArray(data) ? data : []).map((row: unknown) => { const safe = readSafeDiscoveryVenue(row); return [safe.id, safe] as const }))
   return rows.map(row => {
@@ -3384,7 +3386,7 @@ async function persistRecommendations(
 
   const { data, error } = await db
     .from('recommendations')
-    .insert(await evidenceForVenueRecommendations(db, inserts))
+    .insert(await evidenceForVenueRecommendations(inserts))
     .select(RECOMMENDATION_SELECT_COLUMNS)
 
   if (error) {
@@ -3479,7 +3481,7 @@ async function persistAgentRecommendations(
 
   const { data, error } = await db
     .from('recommendations')
-    .insert(await evidenceForVenueRecommendations(db, inserts))
+    .insert(await evidenceForVenueRecommendations(inserts))
     .select(RECOMMENDATION_SELECT_COLUMNS)
 
   if (error) {
@@ -3536,7 +3538,7 @@ async function persistRecommendationShoppingList(input: {
     : null
   // The shopping-list copy needs the same trusted evidence as the saved recommendation.
   const selectedVenue = selectedVenueProjection
-    ? (await evidenceForVenueRecommendations(input.db, [selectedVenueProjection]))[0]
+    ? (await evidenceForVenueRecommendations([selectedVenueProjection]))[0]
     : null
   const selectedVendors = input.vendorRecommendations.slice(0, 3).map((vendor, index) => ({
     id: vendor.vendor_id,

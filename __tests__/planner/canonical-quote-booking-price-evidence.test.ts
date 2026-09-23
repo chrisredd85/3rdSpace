@@ -1,4 +1,5 @@
 import { stageCanonicalQuoteBooking } from '@/lib/planner/execution/canonicalQuoteBooking'
+import { independentVenueEvidence } from '@/lib/discovery/venueRepository'
 import type { Plan } from '@/lib/types'
 
 const plan = {
@@ -28,11 +29,6 @@ function venueResponseQuery(dealModel: string) {
         conditions: [],
         raw_response_excerpt: 'Venue described a share model without a quoted price.',
         extracted_at: '2026-07-12T00:00:00.000Z',
-        discovery_venues: {
-          id: 'discovery-venue-1',
-          name: 'Test Venue',
-          claimed_venue_id: null,
-        },
       },
       error: null,
     }),
@@ -49,8 +45,31 @@ describe('canonical quote booking price evidence', () => {
     'ticket_revenue_share',
   ])('fails closed before staging an unpriced %s response', async (dealModel) => {
     const responseQuery = venueResponseQuery(dealModel)
+    // C1 hydrates independent identity separately from the owned quote response.
+    // Permit that read while still rejecting every write and an unpriced quote.
+    const venueQuery = {
+      select: jest.fn(),
+      eq: jest.fn(),
+      maybeSingle: jest.fn().mockResolvedValue({
+        data: {
+          id: 'discovery-venue-1',
+          name: 'Test Venue',
+          source_external_id: 'fixture-price-evidence',
+          metadata: {
+            venue_boundary_version: 1,
+            field_provenance: {
+              name: independentVenueEvidence('host_input', 'fixture:host-venue-name'),
+            },
+          },
+        },
+        error: null,
+      }),
+    }
+    venueQuery.select.mockReturnValue(venueQuery)
+    venueQuery.eq.mockReturnValue(venueQuery)
     const rpc = jest.fn()
     const from = jest.fn((table: string) => {
+      if (table === 'discovery_venues_safe') return venueQuery
       if (table !== 'venue_outreach_responses') {
         throw new Error(`unexpected write or lookup: ${table}`)
       }
@@ -66,7 +85,9 @@ describe('canonical quote booking price evidence', () => {
     })).rejects.toThrow('canonical_quote_booking_price_required')
 
     expect(rpc).not.toHaveBeenCalled()
-    expect(from).toHaveBeenCalledTimes(1)
+    expect(from).toHaveBeenCalledTimes(2)
+    expect(responseQuery.eq).toHaveBeenCalledWith('plan_id', plan.id)
+    expect(venueQuery.eq).toHaveBeenCalledWith('id', 'discovery-venue-1')
     expect(from).not.toHaveBeenCalledWith('agent_actions')
     expect(from).not.toHaveBeenCalledWith('approvals')
   })

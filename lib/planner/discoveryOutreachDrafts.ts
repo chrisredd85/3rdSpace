@@ -462,7 +462,9 @@ async function loadCandidateRowsWithVenues(
   const candidates = await loadCandidateRowsForPlan(db, planId, venueIds)
   if (candidates.length === 0) return []
 
-  const { data: venues, error: venueError } = await db
+  // Keep plan/candidate authorization on db; privileged facts are read only
+  // after those scoped candidate rows have been resolved.
+  const { data: venues, error: venueError } = await createServiceRoleClient()
     .from('discovery_venues_safe')
     .select(DISCOVERY_VENUE_SELECT)
     .in('id', candidates.map((candidate) => candidate.discovery_venue_id))
@@ -494,7 +496,8 @@ async function loadCandidateWithVenue(
   if (error) throw new Error(error.message)
   if (!candidate) return null
 
-  const { data: venue, error: venueError } = await db
+  // The session-scoped plan/candidate checks above authorize this one venue.
+  const { data: venue, error: venueError } = await createServiceRoleClient()
     .from('discovery_venues_safe')
     .select(DISCOVERY_VENUE_SELECT)
     .eq('id', discoveryVenueId)

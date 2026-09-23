@@ -202,7 +202,9 @@ export async function createOrReuseGmailOutreachApproval(
   // safe identity before constructing any rendered message or approval hash.
   for (const target of targets) {
     if (!target.discoveryVenueId || target.kind === 'vendor') continue
-    const { data, error } = await db.from('discovery_venues_safe').select('*').eq('id', target.discoveryVenueId).maybeSingle()
+    // Account and plan ownership remain session-scoped above. The safe view is
+    // service-only; changing this read must not elevate the other db operations.
+    const { data, error } = await createServiceRoleClient().from('discovery_venues_safe').select('*').eq('id', target.discoveryVenueId).maybeSingle()
     if (error || !data) throw new Error('Venue contact evidence unavailable')
     const venue = readSafeDiscoveryVenue(data)
     target.name = venue.name ?? 'Venue contact'

@@ -33,6 +33,7 @@ import {
 } from '@/lib/outreach/gmail'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { enqueueDraftAfterVenueApproval, enqueueDraftBatchAfterVenueApproval } from '@/lib/planner/discoveryOutreachDrafts'
+import { createDateChangeOutreachApproval } from '@/lib/planner/dateChangeOutreach'
 
 const mockSendGmailMessage = sendGmailMessage as jest.Mock
 const mockReconcileGmailMessage = reconcileGmailMessageByRfcMessageId as jest.Mock
@@ -396,17 +397,23 @@ describe('Gmail approval flow', () => {
     expect(mockSendGmailMessage).not.toHaveBeenCalled()
   })
 
-  it.each(['single', 'batch'])('requires new consent when the saved contact changes after a %s discovery draft', async (mode) => {
+  it.each(['single', 'batch'])('uses service-only venue reads and requires new consent after a %s saved-contact change', async (mode) => {
     const db = new MemoryDb()
     db.rows.plans.push(buildExecutionInput([]).plan)
     const id = '11111111-1111-4111-8111-111111111111'
     const evidence = independentVenueEvidence('venue_site', 'https://example.com/events', '2026-09-22T00:00:00Z')
     db.rows.discovery_venues_safe = [{ id, source_external_id: 'place-one', name: 'Independent hall', contact_email: 'old@example.com', metadata: { venue_boundary_version: 1, field_provenance: { name: evidence, contact_email: evidence } } }]
     db.rows.plan_discovery_venue_candidates = [{ id: 'candidate-one', plan_id: 'plan-1', discovery_venue_id: id, status: 'candidate', dismissed_at: null, places_request_json: {} }]
-    mockCreateServiceRoleClient.mockReturnValue(db)
+    const sessionFrom = jest.fn((table: string) => {
+      if (table === 'discovery_venues_safe') throw new Error('permission denied for view discovery_venues_safe')
+      return db.from(table)
+    })
+    const serviceFrom = jest.fn(db.from.bind(db))
+    mockCreateServiceRoleClient.mockReturnValue({ from: serviceFrom, rpc: db.rpc.bind(db) })
+    const session = { from: sessionFrom }
     const prepare = async () => mode === 'single'
-      ? enqueueDraftAfterVenueApproval({ db, writeDb: db, userId: 'user-1', planId: 'plan-1', discoveryVenueId: id })
-      : (await enqueueDraftBatchAfterVenueApproval({ db, writeDb: db, userId: 'user-1', planId: 'plan-1', venueIds: [id] })).results[0]
+      ? enqueueDraftAfterVenueApproval({ db: session, writeDb: db, userId: 'user-1', planId: 'plan-1', discoveryVenueId: id })
+      : (await enqueueDraftBatchAfterVenueApproval({ db: session, writeDb: db, userId: 'user-1', planId: 'plan-1', venueIds: [id] })).results[0]
     const first = await prepare()
     const oldApproval = db.rows.approvals[0]
     const originalSnapshot = JSON.stringify(oldApproval.snapshot_json)
@@ -434,6 +441,65 @@ describe('Gmail approval flow', () => {
     expect(db.rows.plan_messages.find(row => row.id === first.approvalMessageId)?.metadata).toEqual({ kind: 'gmail_approved_outreach', status: 'superseded', approval_id: oldApproval.id, superseded_by_approval_id: newApproval.id, snapshot_hash: originalHash })
     expect(db.rows.outreach_messages).toHaveLength(0)
     expect(mockSendGmailMessage).not.toHaveBeenCalled()
+    expect(sessionFrom).toHaveBeenCalledWith('plans')
+    expect(sessionFrom).toHaveBeenCalledWith('plan_discovery_venue_candidates')
+    expect(sessionFrom).not.toHaveBeenCalledWith('discovery_venues_safe')
+    expect(serviceFrom).toHaveBeenCalledWith('discovery_venues_safe')
+  })
+
+  it.each([
+    ['single', 'other-owner'], ['single', 'unlinked-candidate'],
+    ['batch', 'other-owner'], ['batch', 'unlinked-candidate'],
+  ])('does not read privileged venue facts after %s draft %s authorization fails', async (kind, mode) => {
+    const db = new MemoryDb()
+    db.rows.plans.push({ ...buildExecutionInput([]).plan, user_id: mode === 'other-owner' ? 'someone-else' : 'user-1' })
+    db.rows.plan_discovery_venue_candidates = [{ id: 'candidate-one', plan_id: 'other-plan', discovery_venue_id: 'venue-one', dismissed_at: null }]
+    const serviceFrom = jest.fn(db.from.bind(db))
+    mockCreateServiceRoleClient.mockReturnValue({ from: serviceFrom })
+    const pending = kind === 'single'
+      ? enqueueDraftAfterVenueApproval({ db, userId: 'user-1', planId: 'plan-1', discoveryVenueId: 'venue-one' })
+      : enqueueDraftBatchAfterVenueApproval({ db, userId: 'user-1', planId: 'plan-1', venueIds: ['venue-one'] })
+    if (kind === 'batch' && mode === 'unlinked-candidate') {
+      await expect(pending).resolves.toMatchObject({ handledVenueIds: [], unhandledVenueIds: ['venue-one'], results: [] })
+    } else {
+      await expect(pending).rejects.toThrow(mode === 'other-owner' ? 'Plan not found' : 'Discovery venue candidate not found')
+    }
+    expect(serviceFrom).not.toHaveBeenCalledWith('discovery_venues_safe')
+    expect(db.rows.approvals).toHaveLength(0)
+  })
+
+  it('creates date-change consent with stored venue identity when the session cannot read venue facts', async () => {
+    const db = new MemoryDb()
+    db.rows.plans.push(buildExecutionInput([]).plan)
+    const id = '11111111-1111-4111-8111-111111111111'
+    const evidence = independentVenueEvidence('venue_site', 'https://example.com/events')
+    db.rows.discovery_venues_safe = [{ id, source_external_id: 'place-one', name: 'Independent hall', contact_email: 'events@example.com', metadata: { venue_boundary_version: 1, field_provenance: { name: evidence, contact_email: evidence } } }]
+    db.rows.outreach_threads.push({ plan_id: 'plan-1', user_id: 'user-1', target_name: 'Independent hall', target_email: 'events@example.com', target_type: 'venue', discovery_venue_id: id })
+    const sessionFrom = jest.fn((table: string) => {
+      if (table === 'discovery_venues_safe') throw new Error('permission denied for view discovery_venues_safe')
+      return db.from(table)
+    })
+    const serviceFrom = jest.fn(db.from.bind(db))
+    mockCreateServiceRoleClient.mockReturnValue({ from: serviceFrom, rpc: db.rpc.bind(db) })
+    const result = await createDateChangeOutreachApproval({ from: sessionFrom }, { userId: 'user-1', planId: 'plan-1', dateWindowStart: '2026-10-15' })
+    expect(result.approval).toMatchObject({ status: 'pending', delivery_email: 'events@example.com' })
+    expect(db.rows.agent_actions[0].payload_json.targets[0].discoveryVenueId).toBe(id)
+    expect(sessionFrom).toHaveBeenCalledWith('plans')
+    expect(sessionFrom).toHaveBeenCalledWith('outreach_threads')
+    expect(sessionFrom).not.toHaveBeenCalledWith('discovery_venues_safe')
+    expect(serviceFrom).toHaveBeenCalledWith('discovery_venues_safe')
+    expect(mockSendGmailMessage).not.toHaveBeenCalled()
+  })
+
+  it('does not read service venue facts for a date-change plan owned by someone else', async () => {
+    const db = new MemoryDb()
+    db.rows.plans.push({ ...buildExecutionInput([]).plan, user_id: 'someone-else' })
+    const serviceFrom = jest.fn(db.from.bind(db))
+    mockCreateServiceRoleClient.mockReturnValue({ from: serviceFrom })
+    await expect(createDateChangeOutreachApproval(db, { userId: 'user-1', planId: 'plan-1', dateWindowStart: '2026-10-15' }))
+      .rejects.toThrow('Plan not found')
+    expect(serviceFrom).not.toHaveBeenCalledWith('discovery_venues_safe')
+    expect(db.rows.approvals).toHaveLength(0)
   })
 
   it('preserves the batch and updates all candidate references when one saved recipient changes', async () => {
