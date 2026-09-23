@@ -249,7 +249,7 @@ describe('GET /api/internal/jobs/venue-website-extraction', () => {
     db.rows.discovery_venues = [
       discoveryVenue(1, { contact_email: 'bookings@example.com' }),
       discoveryVenue(2, {
-        extracted_emails: [{ email: 'events@example.com', confidence: 0.8, source_path: '/', extracted_at: 'now', is_likely_booking_contact: true }],
+        extracted_emails: [{ email: 'events@venue.example', confidence: 0.8, source_path: '/', extracted_at: 'now', is_likely_booking_contact: true }],
       }),
       discoveryVenue(3, { website_extraction_status: 'successful' }),
       discoveryVenue(4, { website_extraction_attempts: 3 }),

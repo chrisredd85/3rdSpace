@@ -59,9 +59,9 @@ describe('venue website extractor', () => {
     expect(scoreEmailConfidence('info@venue.com', '/contact', false)).toBe(0.7)
   })
 
-  it('extracts likely booking contact forms and request links', () => {
+  it('distinguishes observed contact forms from unverified request links', () => {
     const forms = extractContactFormsFromHtml(`
-      <form id="catering-request" action="/page/catering-request#catering-form"></form>
+      <form id="catering-request" action="/submit"><input name="email"><button>Request quote</button></form>
       <a href="/private-events/request">Request a private event quote</a>
       <form id="newsletter" action="/subscribe"></form>
     `, '/private-events', new URL('https://lacorneta.example/page/catering-request'))
@@ -69,14 +69,73 @@ describe('venue website extractor', () => {
     expect(forms).toHaveLength(2)
     expect(forms).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        url: 'https://lacorneta.example/page/catering-request#catering-form',
+        url: 'https://lacorneta.example/page/catering-request',
         label: 'catering request',
+        evidence_kind: 'observed_form',
+        source_url: 'https://lacorneta.example/page/catering-request',
       }),
       expect.objectContaining({
         url: 'https://lacorneta.example/private-events/request',
         label: 'Request a private event quote',
+        evidence_kind: 'contact_link',
       }),
     ]))
+  })
+
+  it('never labels a booking anchor, ticket checkout, or empty form as an observed contact form', () => {
+    const contacts = extractContactFormsFromHtml(`
+      <a href="/book">Book</a>
+      <a href="https://tickets.example/event">Book tickets</a>
+      <form id="event-request"></form>
+    `, '/', new URL('https://venue.example/'))
+    expect(contacts).toHaveLength(2)
+    expect(contacts.every((contact) => contact.evidence_kind === 'contact_link')).toBe(true)
+  })
+
+  it.each([
+    [429, 'rate_limited'],
+    [403, 'fetch_failed'],
+    [500, 'fetch_failed'],
+  ])('preserves early independent contacts after a later HTTP %s interruption', async (httpStatus, status) => {
+    let time = 0
+    const fetchImpl = jest.fn(async (input: string | URL) => {
+      const path = new URL(input.toString()).pathname
+      if (path === '/robots.txt') return new Response('', { status: 404 })
+      if (path === '/') return new Response('<p>events@venue.test</p><form id="booking"><input name="email"><button>Request quote</button></form>')
+      return new Response('', { status: path === '/contact' ? Number(httpStatus) : 404 })
+    })
+    const result = await extractVenueContacts('https://venue.test', {
+      fetchImpl, maxRetries: 0, totalBudgetMs: 120_000,
+      now: () => time, sleep: async (ms) => { time += ms },
+    })
+    expect(result.status).toBe(status)
+    expect(result.emails).toEqual([expect.objectContaining({ email: 'events@venue.test', source: 'business_website', source_url: 'https://venue.test/' })])
+    expect(result.contact_forms).toEqual([expect.objectContaining({ url: 'https://venue.test/', evidence_kind: 'observed_form', source_url: 'https://venue.test/' })])
+    expect(result.metadata).toMatchObject({ partial: true, paths_successful: ['/'] })
+  })
+
+  it.each(['between_paths', 'during_request'])('preserves contacts when the total budget expires %s and skips model disambiguation', async (mode) => {
+    let time = 0
+    const disambiguate = jest.fn()
+    const fetchImpl = jest.fn(async (input: string | URL) => {
+      const path = new URL(input.toString()).pathname
+      if (path === '/robots.txt') return new Response('', { status: 404 })
+      if (path === '/') {
+        if (mode === 'between_paths') time = 5_000
+        return new Response('<p>events@venue.test booking@venue.test</p>')
+      }
+      time = 5_000
+      throw new Error('secret locator must not be persisted')
+    })
+    const result = await extractVenueContacts('https://venue.test', {
+      fetchImpl, disambiguate, totalBudgetMs: 5_000,
+      now: () => time, sleep: async (ms) => { time += ms },
+    })
+    expect(result.status).toBe('timeout')
+    expect(result.emails.map((entry) => entry.email).sort()).toEqual(['booking@venue.test', 'events@venue.test'])
+    expect(result.metadata.partial).toBe(true)
+    expect(disambiguate).not.toHaveBeenCalled()
+    expect(JSON.stringify(result)).not.toContain('secret locator')
   })
 
   it('respects robots.txt allow and disallow rules', () => {

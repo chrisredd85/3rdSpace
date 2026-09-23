@@ -1,6 +1,7 @@
 import {
   getDiscoveryVenueContactEmails,
   shouldAttemptWebsiteExtraction,
+  buildWebsiteExtractionUpdate,
   type DiscoveryVenueRow,
 } from '@/lib/server/discovery-enrichment'
 
@@ -16,7 +17,7 @@ function row(overrides: Partial<DiscoveryVenueRow> = {}): DiscoveryVenueRow {
 }
 
 describe('discovery enrichment helpers', () => {
-  it('prefers an existing Places contact email over cached website emails', () => {
+  it('prefers a direct contact without claiming that Google supplied an email', () => {
     expect(getDiscoveryVenueContactEmails(row({
       contact_email: 'booking@venue.example',
       extracted_emails: [{
@@ -28,7 +29,7 @@ describe('discovery enrichment helpers', () => {
       }],
     }))).toEqual([{
       email: 'booking@venue.example',
-      source: 'places',
+      source: 'direct',
       confidence: 1,
       is_likely_booking_contact: true,
     }])
@@ -63,5 +64,33 @@ describe('discovery enrichment helpers', () => {
     expect(shouldAttemptWebsiteExtraction(row({ website_extraction_status: 'successful' }))).toBe(false)
     expect(shouldAttemptWebsiteExtraction(row({ website_extraction_status: 'blocked_by_robots' }))).toBe(false)
     expect(shouldAttemptWebsiteExtraction(row({ website_extraction_status: 'fetch_failed', website_extraction_attempts: 2 }))).toBe(true)
+  })
+
+  it('allows an ID-only venue only when fresh Google hydration is enabled', () => {
+    const venue = row({ website: null, source: 'google_places', source_external_id: 'place-1' })
+    expect(shouldAttemptWebsiteExtraction(venue)).toBe(false)
+    expect(shouldAttemptWebsiteExtraction(venue, { googleHydrationEnabled: true })).toBe(true)
+    expect(shouldAttemptWebsiteExtraction({ ...venue, contact_email: 'events@venue.test' }, { googleHydrationEnabled: true })).toBe(false)
+    expect(shouldAttemptWebsiteExtraction({ ...venue, organizer_provided_emails: [{ email: 'bookings@venue.test' }] }, { googleHydrationEnabled: true })).toBe(false)
+  })
+
+  it('does not let low-confidence evidence consume the remaining retry budget', () => {
+    const venue = row({ website_extraction_status: 'fetch_failed', website_extraction_attempts: 1, extracted_emails: [
+      { email: 'info@venue.test', confidence: 0.3, is_likely_booking_contact: false },
+    ] })
+    expect(shouldAttemptWebsiteExtraction(venue)).toBe(true)
+    expect(shouldAttemptWebsiteExtraction({ ...venue, website_extraction_attempts: 3 })).toBe(false)
+    expect(shouldAttemptWebsiteExtraction({ ...venue, website_extraction_status: 'blocked_by_robots' })).toBe(false)
+  })
+
+  it('keeps prior independent contacts when an extraction attempt returns no new evidence', () => {
+    const previous = row({ extracted_emails: [{ email: 'events@venue.test', confidence: 0.9, source_path: '/events', source_url: 'https://venue.test/events', source: 'business_website', extracted_at: '2026-09-22T00:00:00Z', is_likely_booking_contact: true }] })
+    const update = buildWebsiteExtractionUpdate({
+      status: 'timeout', emails: [], contact_forms: [],
+      metadata: { paths_attempted: ['/'], paths_successful: [], total_fetch_time_ms: 30_000, robots_txt_consulted: true },
+    }, 1, '2026-09-22T01:00:00Z', previous)
+    expect(update.extracted_emails).toEqual(previous.extracted_emails)
+    expect(update.website_extraction_attempts).toBe(2)
+    expect(update.website_extraction_status).toBe('timeout')
   })
 })

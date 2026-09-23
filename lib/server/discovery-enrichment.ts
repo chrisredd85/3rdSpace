@@ -10,11 +10,14 @@ export type DiscoveryVenueRow = Pick<
   | 'website_extraction_attempts'
 > & {
   extracted_contact_forms?: Json | null
+  organizer_provided_emails?: Json | null
+  source?: string | null
+  source_external_id?: string | null
 }
 
 export type DiscoveryVenueContactEmail = {
   email: string
-  source: 'places' | 'website'
+  source: 'direct' | 'website'
   confidence: number
   is_likely_booking_contact: boolean
 }
@@ -23,17 +26,16 @@ const RETRYABLE_EXTRACTION_STATUSES = new Set<string | null>([
   null,
   'never_attempted',
   'fetch_failed',
-  'no_emails_found',
   'rate_limited',
   'timeout',
 ])
 
 export function getDiscoveryVenueContactEmails(row: DiscoveryVenueRow): DiscoveryVenueContactEmail[] {
-  const placesEmail = row.contact_email?.trim()
-  if (placesEmail) {
+  const directEmail = row.contact_email?.trim()
+  if (directEmail) {
     return [{
-      email: placesEmail,
-      source: 'places',
+      email: directEmail,
+      source: 'direct',
       confidence: 1,
       is_likely_booking_contact: true,
     }]
@@ -54,29 +56,54 @@ export function getDiscoveryVenueContactEmails(row: DiscoveryVenueRow): Discover
     }))
 }
 
-export function shouldAttemptWebsiteExtraction(row: DiscoveryVenueRow) {
-  if (!row.website?.trim()) return false
+export function shouldAttemptWebsiteExtraction(row: DiscoveryVenueRow, options: { googleHydrationEnabled?: boolean } = {}) {
+  const canHydrate = options.googleHydrationEnabled === true && row.source === 'google_places' && Boolean(row.source_external_id?.trim())
+  if (!row.website?.trim() && !canHydrate) return false
   if (row.contact_email?.trim()) return false
-  if (parseExtractedEmails(row.extracted_emails).length > 0) return false
-  if (parseExtractedContactForms(row.extracted_contact_forms).length > 0) return false
+  if (Array.isArray(row.organizer_provided_emails) && row.organizer_provided_emails.some((entry) => entry && typeof entry === 'object' && !Array.isArray(entry) && isContactEmail(entry.email))) return false
+  if (getUsableExtractedEmails(row.extracted_emails).length > 0) return false
+  if (getUsableContactForms(row.extracted_contact_forms).some((form) => form.evidence_kind === 'observed_form')) return false
   if (!RETRYABLE_EXTRACTION_STATUSES.has(row.website_extraction_status)) return false
   return (row.website_extraction_attempts ?? 0) < 3
+}
+
+export function getUsableExtractedEmails(value: Json | null | undefined) {
+  return parseExtractedEmails(value).filter((email) => isContactEmail(email.email)
+    && (email.is_likely_booking_contact || email.confidence >= 0.7))
+}
+
+export function getUsableContactForms(value: Json | null | undefined) {
+  return parseExtractedContactForms(value).filter((form) => form.confidence >= 0.55)
+}
+
+function isContactEmail(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) return false
+  const [local, domain] = value.trim().toLowerCase().split('@')
+  return !['user', 'noreply', 'no-reply', 'donotreply', 'do-not-reply', 'webmaster'].includes(local)
+    && !['domain.com', 'example.com'].includes(domain) && !domain.endsWith('.sentry-next.wixpress.com')
 }
 
 export function buildWebsiteExtractionUpdate(
   result: ExtractionResult,
   attempts: number | null | undefined,
-  attemptedAt: string
+  attemptedAt: string,
+  existing?: Pick<DiscoveryVenueRow, 'extracted_emails' | 'extracted_contact_forms'>
 ): Database['public']['Tables']['discovery_venues']['Update'] & { extracted_contact_forms: Json } {
   return {
-    extracted_emails: toJson(result.emails),
-    extracted_contact_forms: toJson(result.contact_forms ?? []),
+    extracted_emails: toJson(mergeEvidence(parseExtractedEmails(existing?.extracted_emails), result.emails, (entry) => entry.email.toLowerCase())),
+    extracted_contact_forms: toJson(mergeEvidence(parseExtractedContactForms(existing?.extracted_contact_forms), result.contact_forms ?? [], (entry) => entry.url)),
     website_extraction_attempted_at: attemptedAt,
     website_extraction_status: result.status,
     website_extraction_metadata: toJson(result.metadata),
     website_extraction_attempts: (attempts ?? 0) + 1,
     updated_at: attemptedAt,
   }
+}
+
+function mergeEvidence<T>(previous: T[], next: T[], key: (entry: T) => string): T[] {
+  const merged = new Map(previous.map((entry) => [key(entry), entry]))
+  next.forEach((entry) => merged.set(key(entry), entry))
+  return [...merged.values()]
 }
 
 export function parseExtractedContactForms(value: Json | null | undefined): ExtractedContactForm[] {
@@ -86,13 +113,13 @@ export function parseExtractedContactForms(value: Json | null | undefined): Extr
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return []
     const record = entry as Record<string, unknown>
     const url = typeof record.url === 'string' ? record.url.trim() : ''
-    const label = typeof record.label === 'string' ? record.label.trim() : 'Contact form'
+    const label = typeof record.label === 'string' ? record.label.trim() : 'Contact page'
     const confidence = typeof record.confidence === 'number' ? record.confidence : 0
     const sourcePath = typeof record.source_path === 'string' ? record.source_path : '/'
     const extractedAt = typeof record.extracted_at === 'string' ? record.extracted_at : ''
     const isLikelyBookingContact = record.is_likely_booking_contact === true
 
-    if (!url) return []
+    if (!/^https?:\/\//i.test(url)) return []
     return [{
       url,
       label,
@@ -100,6 +127,9 @@ export function parseExtractedContactForms(value: Json | null | undefined): Extr
       source_path: sourcePath,
       extracted_at: extractedAt,
       is_likely_booking_contact: isLikelyBookingContact,
+      evidence_kind: record.evidence_kind === 'observed_form' ? 'observed_form' : 'contact_link',
+      ...(record.source === 'business_website' ? { source: 'business_website' as const } : {}),
+      ...(typeof record.source_url === 'string' ? { source_url: record.source_url } : {}),
     }]
   })
 }
@@ -123,6 +153,8 @@ export function parseExtractedEmails(value: Json | null | undefined): ExtractedE
       source_path: sourcePath,
       extracted_at: extractedAt,
       is_likely_booking_contact: isLikelyBookingContact,
+      ...(record.source === 'business_website' ? { source: 'business_website' as const } : {}),
+      ...(typeof record.source_url === 'string' ? { source_url: record.source_url } : {}),
     }]
   })
 }
