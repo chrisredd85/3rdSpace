@@ -171,8 +171,9 @@ jobs:
 
       - name: Start local Supabase
         run: |
+          # SQL and real REST permission tests need PostgreSQL, PostgREST, and Kong.
           for supabase_attempt in 1 2 3; do
-            if supabase start; then
+            if supabase start --exclude gotrue,realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor; then
               exit 0
             fi
             if [ "$supabase_attempt" -lt 3 ]; then
