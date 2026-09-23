@@ -1,3 +1,4 @@
+import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
 import type { Json, Plan, Recommendation } from '@/lib/types'
 
 export type TemplateRow = {
@@ -100,6 +101,7 @@ export function buildTemplateInsert(input: {
   attendanceSummary: AttendanceSummaryInput
   sourceEvent: TemplateSourceEventRow
 }) {
+  input = stripGooglePhotoData(input)
   const metadata = readRecord(input.plan.metadata)
   const ticketPriceTargetCents = readNumber(metadata?.ticket_price_target_cents) ?? readNumber(metadata?.ticket_price_target)
   const guestCount = input.plan.guest_count

@@ -3,11 +3,13 @@
  * SENTRY_DSN or NEXT_PUBLIC_SENTRY_DSN is configured.
  */
 import * as Sentry from '@sentry/nextjs'
+import { sentryPhotoPrivacyOptions } from './sentry.photo-filter'
 
 const dsn = process.env.SENTRY_DSN ?? process.env.NEXT_PUBLIC_SENTRY_DSN
 
 if (dsn) {
   Sentry.init({
+    ...sentryPhotoPrivacyOptions,
     dsn,
     environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? 'development',
     sampleRate: 1.0, // Launch burn-in: capture 100% of errors for the first two production weeks.

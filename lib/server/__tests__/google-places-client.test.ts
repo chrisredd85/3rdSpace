@@ -29,7 +29,7 @@ describe('google places client', () => {
     expect(request.locationRestriction?.rectangle.low.latitude).toBeCloseTo(37.748)
     expect(request.locationRestriction?.rectangle.high.longitude).toBeCloseTo(-122.4)
     expect(request.maxResultCount).toBe(12)
-    expect(GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK).toContain('places.photos')
+    expect(GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK).not.toContain('places.photos')
     expect(GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK).not.toContain('places.emailAddress')
   })
 
@@ -81,7 +81,7 @@ describe('google places client', () => {
     expect(request.includePureServiceAreaBusinesses).toBe(false)
   })
 
-  it('searches Places, retries 5xx responses, filters non-operational places, and parses photos', async () => {
+  it('searches Places, retries 5xx responses, filters non-operational places, and ignores unsolicited photo metadata', async () => {
     let currentTime = 0
     const fetchImpl = jest
       .fn()
@@ -132,12 +132,8 @@ describe('google places client', () => {
     })
     expect(result.places).toHaveLength(1)
     expect(result.places[0].displayName.text).toBe('Moongate Lounge')
-    expect(result.places[0].photos?.[0]).toMatchObject({
-      name: 'places/open-bar/photos/photo-1',
-      heightPx: 800,
-      widthPx: 1200,
-      authorAttributions: [{ displayName: 'Moongate Lounge', uri: 'https://maps.example/photo' }],
-    })
+    expect(result.places[0]).not.toHaveProperty('photos')
+    expect(JSON.stringify(result)).not.toContain('photo-1')
     expect(currentTime).toBe(200)
   })
 

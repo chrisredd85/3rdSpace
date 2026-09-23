@@ -34,7 +34,6 @@ const discoveryResponse = {
       google_rating: 4.8,
       google_user_ratings_total: 120,
       photo_urls: [],
-      photos: [],
     },
     {
       candidate_id: 'candidate-2',
@@ -59,7 +58,6 @@ const discoveryResponse = {
       google_rating: 4.5,
       google_user_ratings_total: 88,
       photo_urls: [],
-      photos: [],
     },
   ],
 }
@@ -73,6 +71,7 @@ const connectedGmailAccount = {
 describe('PlacesOutreachSearchWorkspace', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    global.fetch = jest.fn().mockResolvedValue(jsonResponse({ account: null }))
   })
 
   it('shows a planner-first state instead of asking for a raw plan ID', () => {
@@ -110,6 +109,35 @@ describe('PlacesOutreachSearchWorkspace', () => {
       query: 'Oakland bars',
       maxResultCount: 8,
     })
+  })
+
+  it('uses the canonical fresh photo response and ignores old response names and arbitrary photo URLs', async () => {
+    const user = userEvent.setup()
+    const candidate = discoveryResponse.candidates[0]
+    const endpoint = `/api/planner/discovery-venues/${candidate.discovery_venue_id}/photo/0`
+    const fetchMock = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === endpoint) return Promise.resolve(jsonResponse({
+        entityType: 'discovery_venue', entityId: candidate.discovery_venue_id, index: 0,
+        dataUrl: 'data:image/jpeg;base64,/9j/2Q==',
+        attribution: { googleMapsUri: 'https://www.google.com/maps/photo/fresh', authorAttributions: [{ displayName: 'Fresh author', uri: '//www.google.com/maps/contrib/fresh' }] },
+      }))
+      return Promise.resolve(jsonResponse({ ...discoveryResponse, candidates: [{
+        ...candidate, photo_urls: ['https://legacy.example/not-requested.jpg'],
+        photos: [{ name: 'places/legacy/photos/old', authorAttributions: [{ displayName: 'Old author' }] }],
+      }] }))
+    })
+    global.fetch = fetchMock
+    render(<PlacesOutreachSearchWorkspace initialPlanId="plan-photos" />)
+    await user.type(screen.getByLabelText(/Search places/i), 'venue')
+    await user.click(screen.getByRole('button', { name: /Search Places/i }))
+    await screen.findByText(candidate.name)
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: `View photo of ${candidate.name}` }))
+    expect(await screen.findByRole('link', { name: 'Fresh author' })).toBeVisible()
+    expect(screen.queryByText('Old author')).not.toBeInTheDocument()
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain('https://legacy.example/not-requested.jpg')
+    expect(fetchMock).toHaveBeenCalledWith(endpoint, expect.objectContaining({ cache: 'no-store' }))
   })
 
   it('searches venues, saves organizer-provided email, and creates approval payloads', async () => {

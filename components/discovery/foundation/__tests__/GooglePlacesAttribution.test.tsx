@@ -13,7 +13,13 @@ describe('GooglePlacesAttribution', () => {
     }} />)
 
     const credit = within(screen.getByLabelText('Google Maps attribution'))
-    expect(credit.getByText('Google Maps')).toBeVisible()
+    const logo = credit.getByRole('img', { name: 'Google Maps' })
+    expect(logo).toBeVisible()
+    expect(logo).toHaveAttribute('src', '/brand/google-maps-attribution.svg')
+    expect(logo).toHaveAttribute('height', '18')
+    expect(logo.parentElement).toHaveAttribute('translate', 'no')
+    expect(logo.parentElement).toHaveClass('px-[10px]', 'pt-[10px]', 'pb-[5px]')
+    expect(screen.getByLabelText('Google Maps attribution')).toHaveClass('bg-white', 'font-sans', 'text-xs', 'text-[#1F1F1F]')
     expect(credit.getByRole('link', { name: 'Alex Example' })).toHaveAttribute('href', 'https://www.google.com/maps/contrib/alex')
     expect(credit.getByRole('link', { name: 'Jordan Example' })).toHaveAttribute('href', 'https://www.google.com/maps/contrib/jordan')
     expect(credit.getByRole('link', { name: 'View photo on Google Maps' })).toHaveAttribute('href', 'https://www.google.com/maps/photo/fixture-one')
@@ -50,9 +56,8 @@ describe('GooglePlacesAttribution', () => {
   it.each([null, [], 'malformed', {}])('keeps Google attribution without inventing photo credit for %s', (photo) => {
     render(<GooglePlacesAttribution photo={photo} />)
 
-    expect(screen.getByText('Google Maps')).toBeVisible()
+    expect(screen.getByRole('img', { name: 'Google Maps' })).toBeVisible()
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Google Maps attribution')).toHaveTextContent(/^Google Maps$/)
   })
 
   it('renders provider text as text rather than markup', () => {
@@ -61,7 +66,8 @@ describe('GooglePlacesAttribution', () => {
     }} />)
 
     expect(screen.getByText('<img src=x onerror=alert(1)>')).toBeVisible()
-    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelectorAll('img')).toHaveLength(1)
+    expect(screen.getByRole('img', { name: 'Google Maps' })).toHaveAttribute('src', '/brand/google-maps-attribution.svg')
     expect(container.querySelector('script')).toBeNull()
   })
 })

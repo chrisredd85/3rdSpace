@@ -1,3 +1,4 @@
+import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
@@ -2013,13 +2014,13 @@ async function insertOperationalPlanVersion(
   const { error: insertError } = await writeDb.from('plan_versions').insert({
     plan_id: plan.id,
     version_number: latestVersion + 1,
-    snapshot: {
+    snapshot: stripGooglePhotoData({
       ...plan,
       metadata,
       run_of_show: artifacts.timeline,
       workspace_summary: artifacts.workspace_summary,
       operational_artifact_errors: artifacts.errors,
-    } as Json,
+    }) as Json,
     changed_by: userId,
     change_reason: 'agent_operational_artifacts_generated',
   })

@@ -209,7 +209,7 @@ async function loadCandidateRows(planId: string, venueIds: string[]): Promise<Ca
       instagram_handle,capacity_seated,capacity_standing,capacity_cocktail,vibe_tags,
       alcohol_policy,av_available,parking_notes,price_hint_cents_low,price_hint_cents_high,
       price_hint_note,source,source_external_id,google_rating,google_user_ratings_total,
-      google_photo_names,photos,opening_hours_json,metadata,last_enriched_at,last_verified_at,
+      opening_hours_json,metadata,last_enriched_at,last_verified_at,
       last_rescue_at,organizer_provided_emails,organizer_rescue_count,is_claimed,claimed_venue_id,
       created_at,updated_at,extracted_emails,extracted_contact_forms,website_extraction_attempted_at,
       website_extraction_attempts,website_extraction_metadata,website_extraction_status

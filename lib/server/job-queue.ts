@@ -1,3 +1,4 @@
+import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
 import 'server-only'
 
 import { randomUUID } from 'crypto'
@@ -82,7 +83,7 @@ export async function enqueueJob(
 ) {
   const insert: AppJobInsert = {
     job_type: params.jobType,
-    payload: params.payload,
+    payload: stripGooglePhotoData(params.payload),
     unique_key: params.uniqueKey ?? null,
     scheduled_at: params.scheduledAt ?? new Date().toISOString(),
     max_attempts: params.maxAttempts ?? 5,
@@ -142,7 +143,7 @@ export async function completeJob(
 ) {
   const update: AppJobUpdate = {
     status: 'succeeded',
-    result,
+    result: stripGooglePhotoData(result),
     error: null,
     completed_at: new Date().toISOString(),
     locked_at: null,
@@ -168,7 +169,7 @@ export async function failJob(
   const retryDelayMs = Math.min(60_000 * Math.max(job.attempts, 1), 10 * 60_000)
   const update: AppJobUpdate = {
     status: nextStatus,
-    error: message,
+    error: stripGooglePhotoData(message),
     scheduled_at: shouldRetry
       ? new Date(Date.now() + retryDelayMs).toISOString()
       : new Date().toISOString(),

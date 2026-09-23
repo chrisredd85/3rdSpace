@@ -1,3 +1,4 @@
+import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
 import { NextRequest } from 'next/server'
 import { PLAN_MESSAGE_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import { estimateVenueRecommendationPriceCents } from '@/lib/planner/venueEstimate'
@@ -422,5 +423,5 @@ function formatCurrency(cents: number): string {
 }
 
 function toJson(value: Record<string, unknown>): Json {
-  return value as Json
+  return stripGooglePhotoData(value) as Json
 }

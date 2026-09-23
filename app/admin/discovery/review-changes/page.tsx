@@ -1,3 +1,4 @@
+import { containsGooglePhotoData, isGooglePhotoField } from '@/lib/discovery/googlePhotoPersistence'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 
@@ -120,6 +121,9 @@ async function applyDiscoveryChange(formData: FormData) {
   const entityType = data.entity_type as DiscoveryEntityType
   const table = entityType === 'discovery_venue' ? 'discovery_venues' : 'discovery_vendors'
   const fieldName = String(data.field_name)
+  if (isGooglePhotoField(fieldName) || containsGooglePhotoData(data.new_value)) {
+    throw new Error('Google photo changes cannot be reapplied. Request a fresh photo instead.')
+  }
   const appliedAt = new Date().toISOString()
 
   await admin

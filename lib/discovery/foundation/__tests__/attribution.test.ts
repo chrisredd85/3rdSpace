@@ -42,7 +42,7 @@ describe('parseGooglePhotoAttribution', () => {
     'data:text/html,<script>alert(1)</script>',
     'http://www.google.com/maps/photo/fixture',
     'https:www.google.com/maps/photo/fixture',
-    '//www.google.com/maps/photo/fixture',
+    '///www.google.com/maps/photo/fixture',
     '/maps/photo/fixture',
     'https://user:password@www.google.com/maps/photo/fixture',
     'https://www.google.com/\nphoto',
@@ -58,6 +58,16 @@ describe('parseGooglePhotoAttribution', () => {
     })).toEqual({
       googleMapsUri: null,
       authorAttributions: [{ displayName: 'Author stays visible', uri: null }],
+    })
+  })
+
+  it('normalizes protocol-relative author and photo links to HTTPS', () => {
+    expect(parseGooglePhotoAttribution({
+      googleMapsUri: '//www.google.com/maps/photo/fixture',
+      authorAttributions: [{ displayName: 'Alex', uri: '//www.google.com/maps/contrib/alex', photoUri: '//lh3.googleusercontent.com/avatar' }],
+    })).toEqual({
+      googleMapsUri: 'https://www.google.com/maps/photo/fixture',
+      authorAttributions: [{ displayName: 'Alex', uri: 'https://www.google.com/maps/contrib/alex', photoUri: 'https://lh3.googleusercontent.com/avatar' }],
     })
   })
 

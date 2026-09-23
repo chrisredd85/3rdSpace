@@ -40,6 +40,7 @@ type Row = Record<string, any>
 
 class MemoryDb {
   rows: Record<string, Row[]>
+  mutations: Array<{ table: string; payload: Row }> = []
 
   constructor(rows: Record<string, Row[]>) {
     this.rows = rows
@@ -135,6 +136,7 @@ class MemoryQuery {
   }
 
   private upsertRow(payload: Row) {
+    this.db.mutations.push({ table: this.table, payload: JSON.parse(JSON.stringify(payload)) })
     const rows = this.db.rows[this.table]
     let existing: Row | undefined
 
@@ -199,10 +201,12 @@ function makeDb() {
 
 describe('POST /api/planner/plans/[planId]/discover-venues', () => {
   const oldApiKey = process.env.GOOGLE_PLACES_API_KEY
+  const previousPhotoFlag = process.env.GOOGLE_PLACES_PHOTOS_ENABLED
 
   beforeEach(() => {
     jest.clearAllMocks()
     process.env.GOOGLE_PLACES_API_KEY = 'google-key'
+    process.env.GOOGLE_PLACES_PHOTOS_ENABLED = 'true'
     const db = makeDb()
     mockCreateClient.mockReturnValue(db)
     mockCreateServiceRoleClient.mockReturnValue(db)
@@ -210,6 +214,32 @@ describe('POST /api/planner/plans/[planId]/discover-venues', () => {
 
   afterEach(() => {
     process.env.GOOGLE_PLACES_API_KEY = oldApiKey
+    if (previousPhotoFlag === undefined) delete process.env.GOOGLE_PLACES_PHOTOS_ENABLED
+    else process.env.GOOGLE_PLACES_PHOTOS_ENABLED = previousPhotoFlag
+  })
+
+  it('never writes unsolicited photos and does not purge old stored photo values', async () => {
+    const db = makeDb()
+    db.rows.discovery_venues.push({ id: 'old-venue', source: 'google_places', source_external_id: 'places/marriott',
+      photos: [{ name: 'places/marriott/photos/legacy-token' }], google_photo_names: ['opaque-legacy-token'] })
+    mockCreateClient.mockReturnValue(db)
+    mockCreateServiceRoleClient.mockReturnValue(db)
+    mockSearchGooglePlacesText.mockImplementation(async (input: Row) => ({ request: { textQuery: input.textQuery },
+      places: [{ id: 'places/marriott', displayName: { text: 'Marriott Ballroom' }, photos: [{ name: 'places/marriott/photos/new-token' }] }],
+    }))
+    const response = await POST(makeRequest({ maxResultCount: 8 }), { params: Promise.resolve({ planId: 'plan-1' }) })
+    const json = await response.json()
+    expect(response.status).toBe(200)
+    expect(db.mutations.filter(write => write.table === 'discovery_venues')).toHaveLength(1)
+    for (const write of db.mutations) {
+      expect(write.payload).not.toHaveProperty('photos')
+      expect(write.payload).not.toHaveProperty('google_photo_names')
+      expect(JSON.stringify(write.payload)).not.toMatch(/new-token|legacy-token/)
+    }
+    expect(db.rows.discovery_venues[0].photos).toEqual([{ name: 'places/marriott/photos/legacy-token' }])
+    expect(db.rows.discovery_venues[0].google_photo_names).toEqual(['opaque-legacy-token'])
+    expect(JSON.stringify(json)).not.toMatch(/new-token|legacy-token/)
+    expect(json.candidates[0].photo_urls).toHaveLength(3)
   })
 
   it('runs conference multi-query searches, dedupes places, and stores cluster metadata', async () => {

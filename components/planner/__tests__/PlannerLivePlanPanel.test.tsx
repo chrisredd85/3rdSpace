@@ -43,6 +43,30 @@ describe('PlannerLivePlanPanel', () => {
     global.fetch = originalFetch
   })
 
+  it('does not copy legacy Google photo data when a fresh timeline rewrites the browser cache', async () => {
+    const user = userEvent.setup()
+    const legacyName = 'places/fixture/photos/old-photo'
+    window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      plan: makePlanSnapshot({ title: 'Timeline test' }),
+      messages: [{
+        id: 'legacy-photo-message', role: 'agent', message_type: 'status_update', content: 'Saved event',
+        metadata: { photos: [{ name: legacyName }], independent_image: 'https://partner.example/photo.jpg' },
+      }],
+      planId: 'plan-timeline-photo',
+    }))
+    global.fetch = jest.fn().mockImplementation((input: RequestInfo | URL) => Promise.resolve(new Response(JSON.stringify(
+      String(input).endsWith('/recommend')
+        ? { timeline: { planning_milestones: [{ title: 'Confirm partners', due_date: '2026-07-16', category: 'planning' }] } }
+        : { baseline: null }
+    ), { status: 200 })))
+
+    render(<PlannerLivePlanPanel inline />)
+    await user.click(await screen.findByRole('button', { name: 'Generate timeline' }))
+    await waitFor(() => expect(window.localStorage.getItem('planner-live-plan')).toContain('Confirm partners'))
+    expect(window.localStorage.getItem('planner-live-plan')).not.toContain(legacyName)
+    expect(window.localStorage.getItem('planner-live-plan')).toContain('https://partner.example/photo.jpg')
+  })
+
   it('updates the event brief when outreach and partner confirmations publish new plan data', async () => {
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
       plan: makePlanSnapshot({
