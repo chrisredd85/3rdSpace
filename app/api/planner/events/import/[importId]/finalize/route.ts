@@ -10,6 +10,8 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { getBuilderProfileId } from '@/lib/supabase/server-helpers'
 
 type SupabaseAdminClient = any
+type ImportRow = Record<string, unknown>
+type ImportDomain = 'sales' | 'attendees' | 'check_ins'
 
 const finalizeSchema = z.object({
   event: z.object({
@@ -53,18 +55,36 @@ export async function POST(request: NextRequest, props: { params: Promise<{ impo
     if (!session?.event_id) return NextResponse.json({ error: 'Import session not found' }, { status: 404 })
 
     const payload = session.payload ?? {}
+    const detailAttendees: ImportRow[] = payload.attendees ?? []
+    const detailSales: ImportRow[] = payload.sales ?? []
+    const syntheticAttendees = buildSyntheticAttendees(session, body.gap_fill)
+    const syntheticSales = buildSyntheticSales(session, body.gap_fill)
+    // Re-finalizing can encounter aggregates written by an earlier request.
+    // Check the same event-wide population that financial recalculation reads.
+    const [existingSales, existingAttendees] = await Promise.all([
+      loadExistingImportRows(admin, 'event_sales_data', session.event_id),
+      loadExistingImportRows(admin, 'imported_attendees', session.event_id),
+    ])
+    const conflictingDomains = findConflictingDomains(
+      [...existingSales, ...detailSales, ...syntheticSales],
+      [...existingAttendees, ...detailAttendees, ...syntheticAttendees]
+    )
+
+    if (conflictingDomains.length > 0) {
+      const labels = conflictingDomains.map((domain) => domain === 'check_ins' ? 'check-ins' : domain)
+      return NextResponse.json({
+        code: 'IMPORT_SOURCE_CONFLICT',
+        conflicting_domains: conflictingDomains,
+        error: `Overlapping import sources for ${labels.join(', ')}. Choose one authoritative source per affected domain: itemized CSV rows or screenshot/manual totals. Start a new import using only the chosen sources. Nothing was saved by this finalization.`,
+      }, { status: 409 })
+    }
+
     const eventPatch = buildEventPatch(payload.event ?? {}, body.event ?? {})
     await updateEvent(admin, session.event_id, eventPatch)
 
     const integrationId = await upsertIntegration(admin, session)
-    const attendees = [
-      ...withIntegration(payload.attendees ?? [], integrationId, session.event_id),
-      ...buildSyntheticAttendees(session, integrationId, body.gap_fill),
-    ]
-    const sales = [
-      ...withIntegration(payload.sales ?? [], integrationId, session.event_id),
-      ...buildSyntheticSales(session, integrationId, body.gap_fill),
-    ]
+    const attendees = withIntegration([...detailAttendees, ...syntheticAttendees], integrationId, session.event_id)
+    const sales = withIntegration([...detailSales, ...syntheticSales], integrationId, session.event_id)
 
     if (attendees.length > 0) {
       const { error } = await admin
@@ -154,6 +174,49 @@ async function loadSession(db: SupabaseAdminClient, importId: string, builderId:
   return data as ImportSession | null
 }
 
+async function loadExistingImportRows(
+  db: SupabaseAdminClient,
+  table: 'event_sales_data' | 'imported_attendees',
+  eventId: string
+): Promise<ImportRow[]> {
+  const rows: ImportRow[] = []
+  const columns = table === 'imported_attendees' ? 'raw_data, checked_in' : 'raw_data'
+  while (true) {
+    const { data, error } = await db
+      .from(table)
+      .select(columns)
+      .eq('event_id', eventId)
+      .order('id', { ascending: true })
+      .range(rows.length, rows.length + 999)
+    if (error) throw new Error(error.message ?? 'Unable to verify existing import sources')
+    const page = (data ?? []) as ImportRow[]
+    if (page.length === 0) return rows
+    rows.push(...page)
+    // Continue until an empty page, even if the server caps responses below 1,000.
+  }
+}
+
+function findConflictingDomains(sales: ImportRow[], attendees: ImportRow[]): ImportDomain[] {
+  const conflicts: ImportDomain[] = []
+  if (hasMixedRepresentations(sales)) conflicts.push('sales')
+  // A synthetic check-in also creates an attendee, even when detailed attendees
+  // have no positive check-in flags. It cannot safely be added to that roster.
+  if (hasMixedRepresentations(attendees)) conflicts.push('attendees')
+  if (hasMixedRepresentations(attendees.filter((row) => row.checked_in === true))) conflicts.push('check_ins')
+  return conflicts
+}
+
+function hasMixedRepresentations(rows: ImportRow[]): boolean {
+  // Aggregate provenance is not evidence that the underlying populations are
+  // disjoint. Unmarked rows are treated as detail; IDs never reconcile totals.
+  const isAggregate = (row: ImportRow) => {
+    const rawData = row.raw_data
+    return typeof rawData === 'object' && rawData !== null && !Array.isArray(rawData)
+      && (rawData as Record<string, unknown>).aggregate_row === true
+  }
+  return rows.some(isAggregate) && rows.some((row) => !isAggregate(row))
+}
+
 async function updateEvent(
   db: SupabaseAdminClient,
   eventId: string,
@@ -239,7 +302,6 @@ function withIntegration(rows: Array<Record<string, unknown>>, integrationId: st
 
 function buildSyntheticAttendees(
   session: ImportSession,
-  integrationId: string,
   gapFill?: z.infer<typeof finalizeSchema>['gap_fill']
 ) {
   const checkedInCount =
@@ -248,7 +310,6 @@ function buildSyntheticAttendees(
   if (!checkedInCount || checkedInCount <= 0 || !session.event_id) return []
 
   return Array.from({ length: checkedInCount }).map((_, index) => ({
-    integration_id: integrationId,
     event_id: session.event_id,
     external_attendee_id: `${session.source}:aggregate-checkin:${session.id}:${index + 1}`,
     first_name: null,
@@ -281,7 +342,6 @@ function buildSyntheticAttendees(
 
 function buildSyntheticSales(
   session: ImportSession,
-  integrationId: string,
   gapFill?: z.infer<typeof finalizeSchema>['gap_fill']
 ) {
   if (!session.event_id) return []
@@ -297,7 +357,6 @@ function buildSyntheticSales(
     const totalCents = grossRevenueCents ?? 0
     const tierName = 'Aggregate tickets'
     rows.push({
-      integration_id: integrationId,
       event_id: session.event_id,
       order_id: `${session.source}:aggregate-sale:${session.id}`,
       platform: session.source,
@@ -333,7 +392,6 @@ function buildSyntheticSales(
 
   if (refundsCents > 0) {
     rows.push({
-      integration_id: integrationId,
       event_id: session.event_id,
       order_id: `${session.source}:aggregate-refund:${session.id}`,
       platform: session.source,
