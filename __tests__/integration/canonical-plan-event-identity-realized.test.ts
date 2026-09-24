@@ -1,4 +1,5 @@
 import { execFile, execFileSync } from 'node:child_process'
+import { seedIndependentDiscoveryVenue } from '@/test-utils/discoveryVenueDbFixture'
 
 const DATABASE_URL = process.env.CANONICAL_EVENT_TEST_DATABASE_URL
   ?? 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
@@ -361,27 +362,9 @@ function setup(): void {
     );
   `)
 
-  // A synthetic Place ID identifies this fixture; the name is independently
-  // supplied by the host, not copied from a Google listing or a legacy raw row.
-  ids.discoveryVenue = psql(asService(`
-    select public.upsert_discovery_venue_identity('${discoveryPlaceId}')->>'id';
-  `))
-  psql(asService(`
-    select public.write_discovery_venue_independent_facts(
-      '${ids.discoveryVenue}',
-      '{"name":"Canonical Venue"}'::jsonb,
-      ${jsonLiteral({
-        name: {
-          resolution: 'resolved',
-          source: 'host_input',
-          evidence_reference: 'fixture:canonical-plan-event-identity:host-name',
-          collected_at: '2026-09-23T00:00:00Z',
-          confirmation_status: 'unconfirmed',
-          lineage: [],
-        },
-      })}
-    );
-  `))
+  ids.discoveryVenue = seedIndependentDiscoveryVenue(psql, {
+    placeId: discoveryPlaceId, name: 'Canonical Venue',
+  }).id
   // Claim binding is privileged fixture setup, separate from independent facts.
   psql(`
     update public.discovery_venues
