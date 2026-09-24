@@ -1,24 +1,57 @@
 -- C1 ACTIVATE: install 26 durable-sink guards, switch the two existing RPC
 -- bodies to their safe behavior, and revoke raw discovery table/column access.
--- Run only inside the existing Phase 4 write-pause window after admitted work
--- drains and the reviewed application is ready. This file and its ledger row
+-- With existing at-risk data, run only inside the Phase 4 write-pause window
+-- after admitted work drains and the reviewed application is ready. Empty
+-- bootstrap/reset databases may replay without a pause. This file and its ledger row
 -- MUST share one outer transaction (psql --single-transaction, ON_ERROR_STOP).
 -- Use the approved bounded lock/statement timeouts. The control-row lock below
 -- must remain held through the final DDL and ledger commit, not just this DO.
 -- This migration never changes the pause state or rewrites historical data.
 
 DO $require_venue_boundary_write_pause$
-DECLARE v_state TEXT; v_enabled BOOLEAN;
+DECLARE
+  v_state TEXT; v_enabled BOOLEAN; v_table TEXT; v_has_rows BOOLEAN;
+  -- Every ACTIVATE sink plus the source table whose direct access is revoked.
+  -- Any row counts as at risk, regardless of its current content/provenance.
+  -- Unrelated bootstrap configuration/catalog rows do not require a pause.
+  v_tables CONSTANT TEXT[] := ARRAY[
+    'admin_audit_log','admin_tasks','agent_action_audit_log','agent_actions',
+    'agent_runs','app_jobs','approvals','audit_logs','discovery_change_log',
+    'discovery_venue_events','discovery_venues','event_templates','notifications',
+    'outreach_messages','outreach_notifications','outreach_threads',
+    'plan_discovery_venue_candidates','plan_messages','plan_revisions','plan_versions',
+    'plans','recommendations','supply_scout_venue_leads','templates','venue_bookings',
+    'venue_opportunity_briefs','venue_opportunity_invites'
+  ];
 BEGIN
   SELECT state, enabled INTO v_state, v_enabled
   FROM public.release_runtime_controls
   WHERE control_key = 'write_pause'
   FOR SHARE;
-  IF NOT FOUND OR v_state IS DISTINCT FROM 'paused'
-    OR v_enabled IS DISTINCT FROM true THEN
-    RAISE EXCEPTION 'venue_boundary_activation_requires_write_pause'
-      USING ERRCODE = '55000';
+  IF FOUND AND v_state = 'paused' AND v_enabled IS TRUE THEN
+    RETURN;
   END IF;
+
+  -- An older transaction snapshot could hide a writer that commits while the
+  -- locks below are acquired. Only READ COMMITTED may use the empty-replay bypass.
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'venue_boundary_empty_replay_requires_read_committed'
+      USING ERRCODE = '25001';
+  END IF;
+
+  -- Lock ALL tables before checking ANY rows. Locks persist through the outer
+  -- DDL/ledger transaction, so no writer can race the empty check and installation.
+  -- Missing tables fail closed; actual EXISTS checks avoid stale row statistics.
+  FOREACH v_table IN ARRAY v_tables LOOP
+    EXECUTE format('LOCK TABLE public.%I IN SHARE ROW EXCLUSIVE MODE',v_table);
+  END LOOP;
+  FOREACH v_table IN ARRAY v_tables LOOP
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I)',v_table) INTO v_has_rows;
+    IF v_has_rows THEN
+      RAISE EXCEPTION 'venue_boundary_activation_requires_write_pause'
+        USING ERRCODE = '55000', DETAIL = v_table;
+    END IF;
+  END LOOP;
 END;
 $require_venue_boundary_write_pause$;
 
