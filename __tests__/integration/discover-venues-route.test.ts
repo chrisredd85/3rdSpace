@@ -1,3 +1,4 @@
+import { independentVenueEvidence, readSafeDiscoveryVenue } from '@/lib/discovery/venueRepository'
 jest.mock('server-only', () => ({}))
 
 jest.mock('next/server', () => ({
@@ -18,9 +19,14 @@ jest.mock('@/lib/server/google-places-client', () => {
   const actual = jest.requireActual('@/lib/server/google-places-client')
   return {
     ...actual,
-    searchGooglePlacesText: jest.fn(),
+    searchGoogleVenuePlacesText: jest.fn(),
   }
 })
+
+jest.mock('@/lib/server/venue-places-details', () => ({
+  ...jest.requireActual('@/lib/server/venue-places-details'),
+  getVenueDetails: jest.fn(async ({ placeId }) => ({ status: 'available', place_id: placeId, profile: 'enterprise', attempts: 1, place: { id: placeId, displayName: { text: 'Live Google label' } } })),
+}))
 
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
@@ -28,11 +34,14 @@ jest.mock('@/lib/supabase/server', () => ({
 }))
 
 import type { NextRequest } from 'next/server'
+import { searchPlacesForPlan } from '@/lib/server/places-outreach'
+import { getVenueDetails } from '@/lib/server/venue-places-details'
+import type { Plan } from '@/lib/types'
 import { POST } from '@/app/api/planner/plans/[planId]/discover-venues/route'
-import { searchGooglePlacesText } from '@/lib/server/google-places-client'
+import { searchGoogleVenuePlacesText } from '@/lib/server/google-places-client'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
-const mockSearchGooglePlacesText = searchGooglePlacesText as jest.Mock
+const mockSearchGooglePlacesText = searchGoogleVenuePlacesText as jest.Mock
 const mockCreateClient = createClient as jest.Mock
 const mockCreateServiceRoleClient = createServiceRoleClient as jest.Mock
 
@@ -53,7 +62,15 @@ class MemoryDb {
     }),
   }
 
+  async rpc(name: string, args: Row) {
+    expect(name).toBe('upsert_discovery_venue_identity')
+    this.mutations.push({table:'venue_identity_rpc',payload:args})
+    let row=this.rows.discovery_venues.find(row => row.source_external_id?.replace(/^places\//, '')===args.p_place_id)
+    if (!row) { row={id:`venue-${this.rows.discovery_venues.length}`,source:'google_places',source_external_id:args.p_place_id};this.rows.discovery_venues.push(row) }
+    return {data:readSafeDiscoveryVenue(row),error:null}
+  }
   from(table: string) {
+    if (table==='discovery_venues_safe') this.rows[table]=this.rows.discovery_venues.map(readSafeDiscoveryVenue)
     return new MemoryQuery(this, table)
   }
 }
@@ -205,7 +222,9 @@ describe('POST /api/planner/plans/[planId]/discover-venues', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    ;(getVenueDetails as jest.Mock).mockImplementation(async ({ placeId }) => ({ status: 'available', place_id: placeId, profile: 'enterprise', attempts: 1, place: { id: placeId, displayName: { text: 'Live Google label' } } }))
     process.env.GOOGLE_PLACES_API_KEY = 'google-key'
+    process.env.GOOGLE_PLACES_VENUES_ENABLED='true'
     process.env.GOOGLE_PLACES_PHOTOS_ENABLED = 'true'
     const db = makeDb()
     mockCreateClient.mockReturnValue(db)
@@ -214,6 +233,7 @@ describe('POST /api/planner/plans/[planId]/discover-venues', () => {
 
   afterEach(() => {
     process.env.GOOGLE_PLACES_API_KEY = oldApiKey
+    delete process.env.GOOGLE_PLACES_VENUES_ENABLED
     if (previousPhotoFlag === undefined) delete process.env.GOOGLE_PLACES_PHOTOS_ENABLED
     else process.env.GOOGLE_PLACES_PHOTOS_ENABLED = previousPhotoFlag
   })
@@ -230,7 +250,8 @@ describe('POST /api/planner/plans/[planId]/discover-venues', () => {
     const response = await POST(makeRequest({ maxResultCount: 8 }), { params: Promise.resolve({ planId: 'plan-1' }) })
     const json = await response.json()
     expect(response.status).toBe(200)
-    expect(db.mutations.filter(write => write.table === 'discovery_venues')).toHaveLength(1)
+    expect(db.mutations.filter(write => write.table === 'discovery_venues')).toHaveLength(0)
+    expect(db.mutations.filter(write => write.table === 'venue_identity_rpc')).toHaveLength(1)
     for (const write of db.mutations) {
       expect(write.payload).not.toHaveProperty('photos')
       expect(write.payload).not.toHaveProperty('google_photo_names')
@@ -242,7 +263,51 @@ describe('POST /api/planner/plans/[planId]/discover-venues', () => {
     expect(json.candidates[0].photo_urls).toHaveLength(3)
   })
 
-  it('runs conference multi-query searches, dedupes places, and stores cluster metadata', async () => {
+  it('scores the complete 3-area by 4-query by 20-result pool before selecting at most 20 IDs', async () => {
+    const db = makeDb()
+    const evidence = independentVenueEvidence('host_input', 'test:host-capacity')
+    db.rows.discovery_venues.push({ id: 'late-known', source: 'google_places', source_external_id: 'slot239',
+      capacity_standing: 400, metadata: { field_provenance: { capacity_standing: evidence } } })
+    let queryIndex = 0
+    mockSearchGooglePlacesText.mockImplementation(async (input: Row) => {
+      const start = queryIndex++ * 20
+      return { request: { textQuery: input.textQuery, includedType: input.includedType },
+        places: Array.from({ length: 20 }, (_, index) => ({ id: `slot${start + index}`,
+          displayName: { text: `Provider ${start + index}` }, primaryType: 'event_venue',
+          formattedAddress: 'Mission, San Francisco, CA' })) }
+    })
+    const result = await searchPlacesForPlan(db.rows.plans[0] as Plan, { admin: db as any,
+      apiKey: 'test', areas: ['San Francisco', 'Oakland', 'Berkeley', 'ignored-fourth-area'], maxResultCount: 20, searchedByUserId: 'user-1' })
+    expect(mockSearchGooglePlacesText).toHaveBeenCalledTimes(12)
+    expect(mockSearchGooglePlacesText.mock.calls.every(([input]) => input.maxResultCount === 20)).toBe(true)
+    expect(result.places_result_counts.total).toBe(240)
+    expect(result.venues).toHaveLength(20)
+    const hydrated = (getVenueDetails as jest.Mock).mock.calls.map(([input]) => input.placeId)
+    expect(hydrated).toHaveLength(20)
+    expect(hydrated).toContain('slot239')
+    expect(new Set(hydrated).size).toBe(20)
+    expect(db.mutations.filter(write => write.table === 'venue_identity_rpc')).toHaveLength(20)
+    expect(JSON.stringify(db.mutations)).not.toMatch(/Provider|fit_score":(?:[0-9])|latitude|google_rating/)
+  })
+
+  it('uses fresh ratings to reorder only the selected shortlist and never hydrates discarded IDs', async () => {
+    const db = makeDb()
+    mockSearchGooglePlacesText.mockImplementation(async (input: Row) => ({ request: { textQuery: input.textQuery, includedType: input.includedType },
+      places: ['first', 'second', 'discarded'].map(id => ({ id, displayName: { text: 'Same event venue' }, primaryType: 'event_venue',
+        formattedAddress: 'San Francisco, CA', rating: id === 'discarded' ? 5 : 1, userRatingCount: 999 })) }))
+    ;(getVenueDetails as jest.Mock).mockImplementation(async ({ placeId }) => ({ status: 'available', place_id: placeId, profile: 'enterprise', attempts: 1,
+      place: { id: placeId, displayName: { text: 'Same event venue' }, primaryType: 'event_venue', formattedAddress: 'San Francisco, CA',
+        rating: placeId === 'second' ? 5 : 1, userRatingCount: placeId === 'second' ? 40 : 0 } }))
+    const result = await searchPlacesForPlan(db.rows.plans[0] as Plan, { admin: db as any, apiKey: 'test', areas: ['San Francisco'], maxResultCount: 2 })
+    expect((getVenueDetails as jest.Mock).mock.calls.map(([input]) => input.placeId)).toEqual(['first', 'second'])
+    expect(result.venues.map(row => row.source_external_id)).toEqual(['second', 'first'])
+    const byPlace = Object.fromEntries(Object.values(result.google_live_overlays).map(overlay => [overlay.place_id, overlay.fit_score]))
+    // Existing weights: 5 stars/40 reviews = 12, 1 star/0 reviews = 1.6; whole fit rounds once.
+    expect(byPlace.second! - byPlace.first!).toBe(10)
+    expect(db.mutations.every(write => write.table === 'venue_identity_rpc')).toBe(true)
+  })
+
+  it('runs conference Pro queries, dedupes exact identity and persists no Google facts or derived clusters', async () => {
     mockSearchGooglePlacesText.mockImplementation(async (input: Row) => ({
       request: {
         textQuery: input.textQuery,
@@ -267,12 +332,8 @@ describe('POST /api/planner/plans/[planId]/discover-venues', () => {
       'banquet_hall',
     ])
     expect(db.rows.discovery_venues).toHaveLength(3)
-    expect(db.rows.discovery_venues.find((row) => row.source_external_id === 'places/marriott')?.metadata).toMatchObject({
-      places_intent_cluster_label: 'event_space',
-      places_intent_requested_types: ['convention_center', 'hotel', 'event_venue', 'banquet_hall'],
-      venue_cluster_id: 'hotel_marriott_union_square_san_francisco',
-      subspace_hint: 'ballroom',
-    })
+    expect(db.rows.discovery_venues.every(row=>!row.name && !row.metadata)).toBe(true)
+    expect(db.mutations.filter(write=>write.table==='plan_discovery_venue_candidates').every(write=>write.payload.fit_score===null)).toBe(true)
     expect(json.places_result_counts).toEqual({
       total: 4,
       by_type: {
@@ -282,12 +343,8 @@ describe('POST /api/planner/plans/[planId]/discover-venues', () => {
         banquet_hall: 1,
       },
     })
-    expect(json.places_request.intent.primary_types).toEqual([
-      'convention_center',
-      'hotel',
-      'event_venue',
-      'banquet_hall',
-    ])
+    expect(Object.keys(json.google_live_overlays)).toHaveLength(3)
+
   })
 })
 

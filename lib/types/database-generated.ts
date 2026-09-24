@@ -2718,7 +2718,7 @@ export type Database = {
           capacity_inference_source_quote: string | null
           capacity_seated: number | null
           capacity_standing: number | null
-          city: string
+          city: string | null
           claimed_venue_id: string | null
           contact_email: string | null
           contact_phone: string | null
@@ -2742,7 +2742,7 @@ export type Database = {
           lat: number | null
           lng: number | null
           metadata: Json
-          name: string
+          name: string | null
           neighborhood: string | null
           opening_hours_json: Json
           organizer_provided_emails: Json | null
@@ -2754,7 +2754,7 @@ export type Database = {
           price_hint_note: string | null
           source: string
           source_external_id: string | null
-          state: string
+          state: string | null
           updated_at: string
           vibe_tags: string[]
           website: string | null
@@ -2776,7 +2776,7 @@ export type Database = {
           capacity_inference_source_quote?: string | null
           capacity_seated?: number | null
           capacity_standing?: number | null
-          city?: string
+          city?: string | null
           claimed_venue_id?: string | null
           contact_email?: string | null
           contact_phone?: string | null
@@ -2800,7 +2800,7 @@ export type Database = {
           lat?: number | null
           lng?: number | null
           metadata?: Json
-          name: string
+          name?: string | null
           neighborhood?: string | null
           opening_hours_json?: Json
           organizer_provided_emails?: Json | null
@@ -2812,7 +2812,7 @@ export type Database = {
           price_hint_note?: string | null
           source?: string
           source_external_id?: string | null
-          state?: string
+          state?: string | null
           updated_at?: string
           vibe_tags?: string[]
           website?: string | null
@@ -2834,7 +2834,7 @@ export type Database = {
           capacity_inference_source_quote?: string | null
           capacity_seated?: number | null
           capacity_standing?: number | null
-          city?: string
+          city?: string | null
           claimed_venue_id?: string | null
           contact_email?: string | null
           contact_phone?: string | null
@@ -2858,7 +2858,7 @@ export type Database = {
           lat?: number | null
           lng?: number | null
           metadata?: Json
-          name?: string
+          name?: string | null
           neighborhood?: string | null
           opening_hours_json?: Json
           organizer_provided_emails?: Json | null
@@ -2870,7 +2870,7 @@ export type Database = {
           price_hint_note?: string | null
           source?: string
           source_external_id?: string | null
-          state?: string
+          state?: string | null
           updated_at?: string
           vibe_tags?: string[]
           website?: string | null
@@ -11643,6 +11643,68 @@ export type Database = {
       }
     }
     Views: {
+      discovery_venues_safe: {
+        Row: {
+          address: string | null
+          alcohol_policy: string | null
+          av_available: boolean | null
+          business_status: string | null
+          capacity_cocktail: number | null
+          capacity_inference_admin_status: string | null
+          capacity_inference_confidence: number | null
+          capacity_inference_extracted_at: string | null
+          capacity_inference_model: string | null
+          capacity_inference_source_quote: string | null
+          capacity_seated: number | null
+          capacity_standing: number | null
+          city: string | null
+          claimed_venue_id: string | null
+          contact_email: string | null
+          contact_phone: string | null
+          created_at: string | null
+          data_freshness_status: string | null
+          extracted_contact_forms: Json
+          extracted_emails: Json
+          google_photo_names: string[] | null
+          google_rating: number | null
+          google_user_ratings_total: number | null
+          id: string | null
+          inferred_capacity_seated: number | null
+          inferred_capacity_standing: number | null
+          instagram_handle: string | null
+          is_claimed: boolean | null
+          last_enriched_at: string | null
+          last_meaningful_change_at: string | null
+          last_places_refresh_at: string | null
+          last_rescue_at: string | null
+          last_verified_at: string | null
+          lat: number | null
+          lng: number | null
+          metadata: Json
+          name: string | null
+          neighborhood: string | null
+          opening_hours_json: Json
+          organizer_provided_emails: Json
+          organizer_rescue_count: number | null
+          parking_notes: string | null
+          photos: Json
+          price_hint_cents_high: number | null
+          price_hint_cents_low: number | null
+          price_hint_note: string | null
+          source: string | null
+          source_external_id: string | null
+          state: string | null
+          updated_at: string | null
+          vibe_tags: string[] | null
+          website: string | null
+          website_extraction_attempted_at: string | null
+          website_extraction_attempts: number | null
+          website_extraction_metadata: Json
+          website_extraction_status: string | null
+        }
+        Relationships: []
+      }
+
       archetype_baselines: {
         Row: {
           archetype: string | null
@@ -11839,6 +11901,23 @@ export type Database = {
       }
     }
     Functions: {
+      redact_expired_discovery_venue_contacts: {
+        Args: { p_before: string }
+        Returns: number
+      }
+      lock_discovery_venue_identity: {
+        Args: { p_id: string }
+        Returns: string
+      }
+      upsert_discovery_venue_identity: {
+        Args: { p_place_id: string }
+        Returns: Json
+      }
+      write_discovery_venue_independent_facts: {
+        Args: { p_venue_id: string; p_values: Json; p_field_provenance: Json; p_operational?: Json }
+        Returns: Json
+      }
+
       annotate_plan_quote_event_lineage: {
         Args: { p_event_id: string; p_plan_id: string }
         Returns: {

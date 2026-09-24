@@ -1,4 +1,5 @@
 import 'server-only'
+import { venueBoundaryFetch } from './venueBoundaryFetch'
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
@@ -35,6 +36,7 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      global: { fetch: venueBoundaryFetch() },
       cookies: {
         get(name: string) {
           return cookieStore.get(name)?.value
@@ -79,7 +81,7 @@ export function createServiceRoleClient() {
       persistSession: false,
     },
     global: {
-      fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }),
+      fetch: venueBoundaryFetch(),
     },
   })
 }

@@ -265,7 +265,7 @@ async function loadDiscoveryVenueClaim(
   discoveryVenueId: string,
 ): Promise<{ claimed_venue_id: string | null } | null> {
   const { data, error } = await supabase
-    .from('discovery_venues')
+    .from('discovery_venues_safe')
     .select('claimed_venue_id')
     .eq('id', discoveryVenueId)
     .maybeSingle()

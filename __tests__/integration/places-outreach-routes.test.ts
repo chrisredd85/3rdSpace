@@ -1,3 +1,4 @@
+import { independentVenueEvidence, readSafeDiscoveryVenue } from '@/lib/discovery/venueRepository'
 jest.mock('server-only', () => ({}))
 
 import type { NextRequest } from 'next/server'
@@ -51,6 +52,9 @@ class MemoryDb {
   }
 
   from(table: string) {
+    if (table === 'discovery_venues_safe') {
+      this.rows.discovery_venues_safe = (this.rows.discovery_venues ?? []).map(row => readSafeDiscoveryVenue({ ...row, metadata: { venue_boundary_version: 1, field_provenance: Object.fromEntries(['name', 'website', 'contact_email', 'organizer_provided_emails'].map(key => [key, independentVenueEvidence(key === 'organizer_provided_emails' ? 'host_input' : 'venue_site', 'https://example.com/events')])) } }))
+    }
     return new MemoryQuery(this, table)
   }
 

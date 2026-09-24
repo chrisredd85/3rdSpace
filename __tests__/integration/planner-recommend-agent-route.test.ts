@@ -12,6 +12,8 @@ import {
   buildApprovalSnapshotHashV2,
   buildApprovalSnapshotV2,
 } from '@/lib/planner/execution/reapproval'
+import { independentVenueEvidence } from '@/lib/discovery/venueRepository'
+import { serializeVenueDurable } from '@/lib/discovery/venuePersistence'
 import { searchPlacesForPlan } from '@/lib/server/places-outreach'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
@@ -241,6 +243,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
   let db: MemoryDb
 
   beforeEach(() => {
+    process.env.GOOGLE_PLACES_VENUES_ENABLED = 'true'
     jest.clearAllMocks()
     process.env.OPENAI_API_KEY = 'test-openai-key'
     delete process.env.GOOGLE_PLACES_API_KEY
@@ -459,6 +462,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
   })
 
   afterEach(() => {
+    delete process.env.GOOGLE_PLACES_VENUES_ENABLED
     process.env.OPENAI_API_KEY = previousOpenAIKey
     process.env.GOOGLE_PLACES_API_KEY = previousPlacesKey
   })
@@ -628,6 +632,84 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       expect.objectContaining({ agent_name: 'workspace', status: 'succeeded' }),
     ]))
     expect(db.rows.agent_runs).toHaveLength(4)
+  })
+
+  it.each(['agent', 'catalog'])('preserves %s recommendation and shopping-list evidence when only service can read the safe view', async (mode) => {
+    if (mode === 'catalog') delete process.env.OPENAI_API_KEY
+    const session = mockCreateClient()
+    const sessionFrom = jest.fn((table: string) => {
+      if (table === 'discovery_venues_safe') throw new Error('permission denied for view discovery_venues_safe')
+      return db.from(table)
+    })
+    mockCreateClient.mockReturnValue({ ...session, from: sessionFrom })
+    const serviceFrom = jest.fn(db.from.bind(db))
+    mockCreateServiceRoleClient.mockReturnValue({ from: serviceFrom })
+    const nameEvidence = independentVenueEvidence('host_input', 'fixture:host-name')
+    db.rows.discovery_venues_safe = [{
+      id: VENUE_ID,
+      source: 'google_places',
+      source_external_id: 'retained-place-id',
+      name: 'Mission Hall',
+      metadata: { field_provenance: { name: nameEvidence } },
+    }]
+
+    const response = await recommendPlan(makeRequest({ venueLimit: 3, phase: 'vendors' }), {
+      params: { planId: 'plan-1' },
+    })
+
+    expect(response.status).toBe(200)
+    expect(sessionFrom).toHaveBeenCalledWith('plans')
+    expect(sessionFrom).not.toHaveBeenCalledWith('discovery_venues_safe')
+    expect(serviceFrom).toHaveBeenCalledWith('discovery_venues_safe')
+    const metadata = db.rows.plans[0].metadata as Row
+    const shoppingList = metadata.shopping_list as Row
+    const selectedVenue = shoppingList.selected_venue as Row
+    expect(selectedVenue).toEqual(expect.objectContaining({
+      reference_id: VENUE_ID, external_name: 'Mission Hall', price_cents: 200000,
+      venue_data: expect.objectContaining({
+        identity: expect.objectContaining({ id: VENUE_ID, place_id: 'retained-place-id' }),
+        values: { name: 'Mission Hall' },
+        field_provenance: { name: nameEvidence },
+      }),
+      venue_derivation: expect.objectContaining({
+        source: 'derived', lineage: [{ field: 'name', provenance: nameEvidence }],
+      }),
+    }))
+    expect((selectedVenue.metadata as Row).venue_data).toEqual(selectedVenue.venue_data)
+    expect((selectedVenue.metadata as Row).venue_derivation).toEqual(expect.objectContaining({
+      source: 'derived', lineage: [{ field: 'name', provenance: nameEvidence }],
+    }))
+    expect(() => serializeVenueDurable(metadata)).not.toThrow()
+    const savedVenue = db.rows.recommendations.find(row => row.type === 'venue' && row.reference_id === VENUE_ID)!
+    const savedMetadata = savedVenue.metadata as Row
+    const archetype = mode === 'agent' ? savedMetadata.archetype : (savedMetadata.ranker as Row).archetype
+    expect(archetype).toEqual({ key: expect.any(String) })
+    expect(savedVenue.price_cents).toBe(200000)
+    if (mode === 'agent') {
+      expect(savedMetadata).toMatchObject({ source: 'venue_matching_agent', fit_score: 91 })
+    } else {
+      expect(savedMetadata.score).toEqual(expect.any(Number))
+    }
+    expect(() => serializeVenueDurable(db.rows.recommendations)).not.toThrow()
+    const json = await readJson(response)
+    expect(json.resolved_archetype).toEqual({ key: (archetype as Row).key, display_name: expect.any(String) })
+    expect(() => serializeVenueDurable({ ...savedVenue, metadata: { ...savedMetadata,
+      ranker: { ...(savedMetadata.ranker as Row ?? {}), provider_payload: { website: 'https://GOOGLE_CANARY.example' } },
+    } })).toThrow('website')
+  })
+
+  it.each(['unauthenticated', 'other-owner'])('does not read service venue facts for %s recommendation requests', async (mode) => {
+    const session = mockCreateClient()
+    if (mode === 'unauthenticated') {
+      session.auth.getUser.mockResolvedValue({ data: { user: null }, error: null })
+    } else {
+      db.rows.plans[0].user_id = 'different-owner'
+    }
+    const serviceFrom = jest.fn(db.from.bind(db))
+    mockCreateServiceRoleClient.mockReturnValue({ from: serviceFrom })
+    const response = await recommendPlan(makeRequest({ venueLimit: 3 }), { params: { planId: 'plan-1' } })
+    expect(response.status).toBe(mode === 'unauthenticated' ? 401 : 404)
+    expect(serviceFrom).not.toHaveBeenCalledWith('discovery_venues_safe')
   })
 
   it('marks priced Stripe-ready vendor recommendations as controlled payments', async () => {
@@ -967,7 +1049,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
     }))
   })
 
-  it('uses Places discovery by default even when catalog venue candidates exist', async () => {
+  it('keeps Google-only discovery visible through IDs while model and durable output stay independent', async () => {
     process.env.GOOGLE_PLACES_API_KEY = 'test-places-key'
     const baseVenue = db.rows.venues[0]
     db.rows.venues = Array.from({ length: 5 }, (_, index) => ({
@@ -1000,6 +1082,7 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
     }
     mockSearchPlacesForPlan.mockResolvedValue({
       venues: [discoveryVenue],
+      google_live_overlays: { [discoveryVenue.id]: { status: 'available', place_id: 'places-first', profile: 'enterprise', attempts: 1, place: { id: 'places-first', displayName: { text: 'LIVE_GOOGLE_CANARY' } } } },
       search_query: 'dinner in Mission',
       places_requests: [],
       places_result_counts: { total: 1, by_type: { bar: 1 } },
@@ -1015,14 +1098,14 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       duration_ms: 50,
       output: {
         ranked_venues: [{
-          venue_id: discoveryVenue.id,
-          venue_name: discoveryVenue.name,
+          venue_id: 'catalog-venue-0',
+          venue_name: 'Mission Hall 1',
           fit_score: 88,
           pros: ['Live Places result can be contacted after approval.'],
           cons: [],
           questions_to_ask_venue: ['Can you confirm capacity and pricing?'],
         }],
-        best_recommendation: 'Places First Lounge is the strongest discovered fit.',
+        best_recommendation: 'Mission Hall 1 is the strongest independently documented fit.',
         reason_summary: 'Places discovery is the default search source.',
         no_match: false,
       },
@@ -1030,25 +1113,58 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
 
     const response = await recommendPlan(makeRequest(), { params: { planId: 'plan-1' } })
 
+    const json = await readJson(response)
     expect(response.status).toBe(200)
+    expect(json.discovery_venue_candidates).toEqual([{ discovery_venue_id: discoveryVenue.id, place_id: 'places-first' }])
+    expect(JSON.stringify(json)).not.toContain('LIVE_GOOGLE_CANARY')
+    expect(JSON.stringify(db.rows)).not.toContain('LIVE_GOOGLE_CANARY')
     expect(mockSearchPlacesForPlan).toHaveBeenCalledTimes(1)
-    expect(mockRunVenueMatchingAgent).toHaveBeenCalledWith(expect.objectContaining({
-      candidate_venues: expect.arrayContaining([
-        expect.objectContaining({
-          id: discoveryVenue.id,
-          venue_name: discoveryVenue.name,
-        }),
-        expect.objectContaining({
-          id: 'catalog-venue-0',
-          venue_name: 'Mission Hall 1',
-        }),
-      ]),
-    }))
-    const candidateVenues = mockRunVenueMatchingAgent.mock.calls[0][0].candidate_venues
-    expect(candidateVenues[0]).toEqual(expect.objectContaining({
-      id: discoveryVenue.id,
-      venue_name: discoveryVenue.name,
-    }))
+    const candidates = mockRunVenueMatchingAgent.mock.calls[0][0].candidate_venues
+    expect(candidates).toEqual(expect.arrayContaining([expect.objectContaining({id:'catalog-venue-0',venue_name:'Mission Hall 1'})]))
+    expect(candidates.some((row: Row)=>row.id===discoveryVenue.id)).toBe(false)
+    expect(JSON.stringify(mockRunVenueMatchingAgent.mock.calls[0][0])).not.toContain('Places First Lounge')
+
+  })
+
+  it.each(['agent', 'catalog'])('preserves stable businesses and rooms and prefers claimed catalog facts in the %s merge', async (mode) => {
+    process.env.GOOGLE_PLACES_API_KEY = 'test-places-key'
+    if (mode === 'catalog') delete process.env.OPENAI_API_KEY
+    const base = db.rows.venues[0]
+    db.rows.venues = [
+      { ...base, id: 'native-room-one', venue_name: 'Same venue name', google_place_id: 'parent-place', room_id: 'one' },
+      { ...base, id: 'native-room-two', venue_name: 'Same venue name', google_place_id: 'parent-place', room_id: 'two' },
+      { ...base, id: 'other-business', venue_name: 'Same venue name', google_place_id: 'different-place' },
+    ]
+    const independent = { name: 'Independent alias', address: 'Mission, San Francisco, CA', city: 'San Francisco', state: 'CA', capacity_standing: 140, capacity_seated: 100 }
+    mockSearchPlacesForPlan.mockResolvedValue({
+      venues: [{ id: 'discovery-alias', source: 'google_places', source_external_id: 'parent-place', claimed_venue_id: 'native-room-one',
+        ...independent, metadata: { field_provenance: Object.fromEntries(Object.keys(independent).map(key => [key, independentVenueEvidence('host_input', 'fixture:host')])) } }],
+      google_live_overlays: {}, search_query: 'dinner in Mission', places_requests: [], places_result_counts: { total: 1, by_type: {} },
+    })
+    const response = await recommendPlan(makeRequest({ venueLimit: 3 }), { params: { planId: 'plan-1' } })
+    const json = await readJson(response)
+    expect(response.status).toBe(200)
+    if (mode === 'agent') {
+      const ids = mockRunVenueMatchingAgent.mock.calls[0][0].candidate_venues.map((row: Row) => row.id)
+      expect(ids).toEqual(expect.arrayContaining(['native-room-one', 'native-room-two', 'other-business']))
+      expect(ids).not.toContain('discovery-alias')
+      expect(ids).toHaveLength(3)
+    } else {
+      const ids = json.ranked_venues.map((row: Row) => row.venue_id)
+      expect(ids).toEqual(expect.arrayContaining(['native-room-one', 'native-room-two', 'other-business']))
+      expect(ids).not.toContain('discovery-alias')
+    }
+    expect(json.discovery_venue_candidates).toEqual([{ discovery_venue_id: 'discovery-alias', place_id: 'parent-place' }])
+  })
+
+  it('does not call the venue discovery helper when the global flag is off', async () => {
+    process.env.GOOGLE_PLACES_VENUES_ENABLED = 'false'
+    process.env.GOOGLE_PLACES_API_KEY = 'test-places-key'
+    const response = await recommendPlan(makeRequest(), { params: { planId: 'plan-1' } })
+    const json = await readJson(response)
+    expect(response.status).toBe(200)
+    expect(mockSearchPlacesForPlan).not.toHaveBeenCalled()
+    expect(json.discovery_venue_candidates).toEqual([])
   })
 
   it('uses Places discovery for split Oakland areas', async () => {
@@ -1128,14 +1244,9 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
       areas: ['downtown oakland', 'uptown oakland'],
       searchedByUserId: 'user-1',
     }))
-    expect(json.ranked_venues).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        venue_id: discoveryVenue.id,
-        venue_name: discoveryVenue.name,
-        capacity: null,
-        capacity_known: false,
-      }),
-    ]))
+    expect(JSON.stringify(mockRunVenueMatchingAgent.mock.calls[0]?.[0]?.candidate_venues ?? [])).not.toContain(discoveryVenue.name)
+    expect(json).toBeDefined()
+
   })
 
   it('runs recommendations for the named planner chat flow completions without fallback messages', async () => {

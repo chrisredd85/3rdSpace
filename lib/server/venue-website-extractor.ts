@@ -39,6 +39,8 @@ export type ExtractedEmail = {
   source_path: string
   extracted_at: string
   is_likely_booking_contact: boolean
+  source?: 'business_website'
+  source_url?: string
 }
 
 export type ExtractedContactForm = {
@@ -48,6 +50,9 @@ export type ExtractedContactForm = {
   source_path: string
   extracted_at: string
   is_likely_booking_contact: boolean
+  evidence_kind?: 'observed_form' | 'contact_link'
+  source?: 'business_website'
+  source_url?: string
 }
 
 export type ExtractionResult = {
@@ -61,6 +66,7 @@ export type ExtractionResult = {
     robots_txt_consulted: boolean
     error?: string
     disambiguation_error?: string
+    partial?: boolean
   }
 }
 
@@ -68,6 +74,7 @@ export type EmailCandidate = {
   email: string
   source_path: string
   surrounding_context?: string
+  source_url?: string
 }
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>
@@ -87,7 +94,7 @@ export type ExtractVenueContactsOptions = {
 }
 
 type FetchTextResult =
-  | { status: 'ok'; text: string }
+  | { status: 'ok'; text: string; url: string }
   | { status: 'not_found' }
   | { status: 'rate_limited' }
   | { status: 'timeout' }
@@ -121,19 +128,43 @@ export async function extractVenueContacts(
     robots_txt_consulted: false,
   }
 
+  const foundByEmail = new Map<string, EmailCandidate>()
+  const foundContactForms = new Map<string, Omit<ExtractedContactForm, 'extracted_at'>>()
+  const materializeContacts = () => {
+    const extractedAt = new Date(now()).toISOString()
+    const candidates = Array.from(foundByEmail.values())
+    const emails: ExtractedEmail[] = candidates.map((candidate) => ({
+      email: candidate.email,
+      confidence: scoreEmailConfidence(candidate.email, candidate.source_path, candidates.length > 1),
+      source_path: candidate.source_path,
+      source_url: candidate.source_url,
+      source: 'business_website' as const,
+      extracted_at: extractedAt,
+      is_likely_booking_contact: candidates.length === 1,
+    })).sort((a, b) => b.confidence - a.confidence || a.email.localeCompare(b.email))
+    const contactForms = Array.from(foundContactForms.values())
+      .map((form) => ({ ...form, extracted_at: extractedAt }))
+      .sort((a, b) => b.confidence - a.confidence || a.url.localeCompare(b.url))
+    return { emails, contactForms }
+  }
+
   const finalize = (
     status: WebsiteExtractionStatus,
-    emails: ExtractedEmail[] = [],
-    contactForms: ExtractedContactForm[] = []
-  ): ExtractionResult => ({
-    status,
-    emails,
-    contact_forms: contactForms,
-    metadata: {
-      ...metadata,
-      total_fetch_time_ms: Math.max(0, now() - startedAt),
-    },
-  })
+    emails?: ExtractedEmail[],
+    contactForms?: ExtractedContactForm[]
+  ): ExtractionResult => {
+    const collected = materializeContacts()
+    return {
+      status,
+      emails: emails ?? collected.emails,
+      contact_forms: contactForms ?? collected.contactForms,
+      metadata: {
+        ...metadata,
+        partial: !['successful', 'no_emails_found'].includes(status) && metadata.paths_successful.length > 0,
+        total_fetch_time_ms: Math.max(0, now() - startedAt),
+      },
+    }
+  }
 
   try {
     const baseUrl = normalizeWebsiteUrl(websiteUrl)
@@ -167,9 +198,6 @@ export async function extractVenueContacts(
       return finalize('blocked_by_robots')
     }
 
-    const foundByEmail = new Map<string, EmailCandidate>()
-    const foundContactForms = new Map<string, Omit<ExtractedContactForm, 'extracted_at'>>()
-    let hadSuccessfulFetch = false
     let hadFetchFailure = false
 
     for (const path of allowedPaths) {
@@ -186,16 +214,15 @@ export async function extractVenueContacts(
         continue
       }
 
-      hadSuccessfulFetch = true
       metadata.paths_successful.push(path)
       for (const candidate of extractEmailsFromHtml(pageResult.text, path)) {
         const key = candidate.email.toLowerCase()
         const existing = foundByEmail.get(key)
         if (!existing || scoreEmailConfidence(candidate.email, path, true) > scoreEmailConfidence(existing.email, existing.source_path, true)) {
-          foundByEmail.set(key, candidate)
+          foundByEmail.set(key, { ...candidate, source_url: pageResult.url })
         }
       }
-      for (const form of extractContactFormsFromHtml(pageResult.text, path, new URL(path, baseUrl))) {
+      for (const form of extractContactFormsFromHtml(pageResult.text, path, new URL(pageResult.url))) {
         const key = form.url.toLowerCase()
         const existing = foundContactForms.get(key)
         if (!existing || form.confidence > existing.confidence) {
@@ -204,31 +231,16 @@ export async function extractVenueContacts(
       }
     }
 
-    const extractedAt = new Date(now()).toISOString()
-    const contactForms = Array.from(foundContactForms.values())
-      .map((form) => ({
-        ...form,
-        extracted_at: extractedAt,
-      }))
-      .sort((a, b) => b.confidence - a.confidence || a.url.localeCompare(b.url))
+    const { emails, contactForms } = materializeContacts()
 
     if (foundByEmail.size === 0) {
-      if (!hadSuccessfulFetch && hadFetchFailure) return finalize('fetch_failed')
+      if (hadFetchFailure) return finalize('fetch_failed')
       return finalize('no_emails_found', [], contactForms)
     }
 
     const candidates = Array.from(foundByEmail.values())
-    const emails = candidates
-      .map((candidate) => ({
-        email: candidate.email,
-        confidence: scoreEmailConfidence(candidate.email, candidate.source_path, candidates.length > 1),
-        source_path: candidate.source_path,
-        extracted_at: extractedAt,
-        is_likely_booking_contact: candidates.length === 1,
-      }))
-      .sort((a, b) => b.confidence - a.confidence || a.email.localeCompare(b.email))
 
-    if (emails.length > 1) {
+    if (emails.length > 1 && !isBudgetExpired(startedAt, now, requestContext.totalBudgetMs)) {
       try {
         const disambiguation = await (options.disambiguate ?? disambiguateBookingContact)({
           emails: candidates,
@@ -237,20 +249,16 @@ export async function extractVenueContacts(
         })
         markLikelyBookingContact(emails, disambiguation)
       } catch (error) {
-        metadata.disambiguation_error = error instanceof Error ? error.message : 'Contact disambiguation failed'
-        Sentry.captureException(error, {
-          tags: { component: 'venue_website_extractor', phase: 'contact_disambiguation' },
-          extra: { venue_name: options.venueName ?? 'Unknown venue', email_count: emails.length },
-        })
+        metadata.disambiguation_error = 'Contact disambiguation failed'
         markHighestConfidenceEmail(emails)
       }
     }
 
-    return finalize('successful', emails, contactForms)
+    return finalize(hadFetchFailure ? 'fetch_failed' : 'successful', emails, contactForms)
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Venue website extraction failed'
+    const message = 'Venue website extraction failed'
     metadata.error = message
-    Sentry.captureException(error, {
+    Sentry.captureMessage('venue_website_extraction_failed', {
       tags: { component: 'venue_website_extractor', phase: 'extract' },
     })
     console.error('[venue-website-extractor] extraction_failed', { error: message })
@@ -286,16 +294,18 @@ export function extractContactFormsFromHtml(
   const decoded = decodeHtmlEntities(html)
   const candidates = new Map<string, Omit<ExtractedContactForm, 'extracted_at'>>()
 
-  for (const match of decoded.matchAll(/<form\b[^>]*>/gi)) {
+  for (const match of decoded.matchAll(/<form\b[^>]*>[\s\S]*?<\/form>/gi)) {
     const tag = match[0]
     const action = readHtmlAttribute(tag, 'action')
     const id = readHtmlAttribute(tag, 'id')
     const name = readHtmlAttribute(tag, 'name')
     const ariaLabel = readHtmlAttribute(tag, 'aria-label')
     if (isNonBookingForm(`${tag} ${action ?? ''} ${id ?? ''} ${name ?? ''} ${ariaLabel ?? ''}`)) continue
+    if (!/<(?:input|textarea|select)\b/i.test(tag) || !/<button\b|<input\b[^>]*type\s*=\s*["']?submit\b/i.test(tag)) continue
     const context = getSurroundingContext(decoded, match.index ?? 0, tag.length)
     const label = pickContactFormLabel([ariaLabel, id, name, context], 'Contact form')
-    const absoluteUrl = toAbsoluteContactUrl(action || pageUrl.href, pageUrl)
+    // Open the observed human-facing page, never a form submission endpoint.
+    const absoluteUrl = toAbsoluteContactUrl(pageUrl.href, pageUrl)
     if (!absoluteUrl) continue
 
     const confidence = scoreContactFormConfidence(`${tag} ${context}`, sourcePath)
@@ -306,6 +316,9 @@ export function extractContactFormsFromHtml(
       source_path: sourcePath,
       confidence,
       is_likely_booking_contact: confidence >= 0.75,
+      evidence_kind: 'observed_form',
+      source: 'business_website' as const,
+      source_url: pageUrl.href,
     })
   }
 
@@ -324,6 +337,9 @@ export function extractContactFormsFromHtml(
       source_path: sourcePath,
       confidence,
       is_likely_booking_contact: confidence >= 0.75,
+      evidence_kind: 'contact_link',
+      source: 'business_website' as const,
+      source_url: pageUrl.href,
     })
   }
 
@@ -517,12 +533,12 @@ async function fetchTextOnce(
     if (response.status >= 500) return { status: 'failed', error: `HTTP ${response.status}` }
     if (!response.ok) return { status: 'failed', error: `HTTP ${response.status}` }
 
-    return { status: 'ok', text: await response.text() }
+    return { status: 'ok', text: await response.text(), url: response.url || url.toString() }
   } catch (error) {
     if (controller.signal.aborted || isBudgetExpired(context.startedAt, context.now, context.totalBudgetMs)) {
       return { status: 'timeout' }
     }
-    return { status: 'failed', error: error instanceof Error ? error.message : 'Network error' }
+    return { status: 'failed', error: 'Network error' }
   } finally {
     clearTimeout(timer)
   }

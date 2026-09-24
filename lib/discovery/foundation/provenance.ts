@@ -1,4 +1,4 @@
-/** Dormant Gate A contract. No acquisition or persistence path imports this module. */
+/** Gate A provenance contract, activated for venue acquisition by C1. */
 export type DiscoveryFactSource = 'google_places' | 'venue_site' | 'host_input' | 'outreach_reply' | 'derived'
 export type DiscoveryConfirmation = 'unconfirmed' | 'site_published' | 'venue_confirmed'
 

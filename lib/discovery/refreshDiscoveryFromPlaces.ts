@@ -13,6 +13,9 @@ import {
   type DiscoveryEntityType,
 } from '@/lib/discovery/cascadeInvalidation'
 import { PLACES_REFRESH_CHANGE_SOURCE } from '@/lib/discovery/changeLogSources'
+import { getVenueDetails } from '@/lib/server/venue-places-details'
+import { isGoogleVenueEnabled } from '@/lib/server/google-places-flags'
+import { SAFE_VENUE_TABLE } from '@/lib/discovery/venueRepository'
 import type { SupabaseAdminClient } from '@/lib/planner/planRevisions'
 
 export type DiscoveryRefreshResult = {
@@ -21,6 +24,7 @@ export type DiscoveryRefreshResult = {
   changes_detected: number
   applied_changes: string[]
   cascade_impact: DiscoveryCascadeImpact
+  observation_status?: string
 }
 
 type RefreshInput = {
@@ -71,6 +75,16 @@ const CASCADE_FIELDS = new Set([
 ])
 
 export async function refreshDiscoveryEntityFromPlaces(input: RefreshInput): Promise<DiscoveryRefreshResult> {
+  if (input.entityType === 'discovery_venue') {
+    const base = { entity_type: input.entityType, entity_id: input.entityId,
+      changes_detected: 0, applied_changes: [], cascade_impact: EMPTY_IMPACT }
+    if (!isGoogleVenueEnabled()) return { ...base, observation_status: 'disabled' }
+    const { data, error } = await input.supabase.from(SAFE_VENUE_TABLE).select('id,source_external_id').eq('id', input.entityId).maybeSingle()
+    if (error || !data) throw new Error('Venue identity unavailable')
+    const result = await getVenueDetails({ placeId: String(data.source_external_id ?? ''), apiKey: input.apiKey, profile: 'pro' })
+    // The observation is returned only. No commercial updates, history, or cascades.
+    return { ...base, observation_status: result.status }
+  }
   const row = await loadDiscoveryRow(input.supabase, input.entityType, input.entityId)
   if (!row) throw new Error(`Discovery entity not found: ${input.entityType}:${input.entityId}`)
 

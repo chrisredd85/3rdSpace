@@ -1,3 +1,4 @@
+import { venueBoundaryFetch } from './venueBoundaryFetch'
 import { createBrowserClient } from '@supabase/ssr'
 import type { Database } from '@/lib/types/database-generated'
 
@@ -17,7 +18,8 @@ import type { Database } from '@/lib/types/database-generated'
 export function createClient() {
   return createBrowserClient<Database, 'public', Database['public']>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { global: { fetch: venueBoundaryFetch() } }
   )
 }
 
@@ -27,7 +29,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
 export const supabase = supabaseUrl && supabaseAnonKey
-  ? createBrowserClient<Database, 'public', Database['public']>(supabaseUrl, supabaseAnonKey)
+  ? createBrowserClient<Database, 'public', Database['public']>(supabaseUrl, supabaseAnonKey, { global: { fetch: venueBoundaryFetch() } })
   : (() => {
       if (typeof window !== 'undefined') {
         console.error('Missing Supabase environment variables')

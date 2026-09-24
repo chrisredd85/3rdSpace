@@ -1,29 +1,17 @@
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
+export const fetchCache = 'force-no-store'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import {
-  buildDiscoveryCandidateResponses,
-  buildDefaultDiscoverySearchQuery,
-  buildDiscoveryVenueInsert,
-  rankDiscoveryVenues,
-  type DiscoveryVenueRow,
-  type PlanDiscoveryVenueCandidateRow,
+  buildDiscoveryCandidateResponses, searchPlacesForPlan, DISCOVERY_VENUE_SELECT,
+  type DiscoveryVenueRow, type PlanDiscoveryVenueCandidateRow,
 } from '@/lib/server/places-outreach'
-import {
-  GooglePlacesApiError,
-  GooglePlacesConfigurationError,
-  type GooglePlacesIncludedType,
-  type GooglePlacesSearchResult,
-  searchGooglePlacesText,
-} from '@/lib/server/google-places-client'
-import { resolvePlacesIntent } from '@/lib/server/places-archetype-intent'
-import {
-  buildSupplyIntentPlacesSearches,
-  type SupplyIntentPlacesSearch,
-} from '@/lib/planner/supplyIntent/activityCatalog'
+import { GooglePlacesApiError, GooglePlacesConfigurationError, type GooglePlacesIncludedType } from '@/lib/server/google-places-client'
+import { isGoogleVenueEnabled } from '@/lib/server/google-places-flags'
+import { readSafeDiscoveryVenue, SAFE_VENUE_TABLE } from '@/lib/discovery/venueRepository'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan, PlannerApiErrorResponse } from '@/lib/types'
 
@@ -36,60 +24,6 @@ type RouteContext = {
 type PlannerAuth =
   | { userId: string; db: ReturnType<typeof createClient> }
   | { response: NextResponse<PlannerApiErrorResponse> }
-
-type GooglePlacesSearchResultWithSupply = GooglePlacesSearchResult & {
-  supplyIntent?: SupplyIntentPlacesSearch | null
-}
-
-const DISCOVERY_VENUE_SELECT = `
-  id,
-  name,
-  address,
-  neighborhood,
-  city,
-  state,
-  lat,
-  lng,
-  contact_email,
-  contact_phone,
-  website,
-  instagram_handle,
-  capacity_seated,
-  capacity_standing,
-  capacity_cocktail,
-  vibe_tags,
-  alcohol_policy,
-  av_available,
-  parking_notes,
-  price_hint_cents_low,
-  price_hint_cents_high,
-  price_hint_note,
-  source,
-  source_external_id,
-  google_rating,
-  google_user_ratings_total,
-  opening_hours_json,
-  metadata,
-  business_status,
-  last_places_refresh_at,
-  last_meaningful_change_at,
-  data_freshness_status,
-  last_enriched_at,
-  last_verified_at,
-  last_rescue_at,
-  organizer_provided_emails,
-  organizer_rescue_count,
-  is_claimed,
-  claimed_venue_id,
-  created_at,
-  updated_at,
-  extracted_emails,
-  extracted_contact_forms,
-  website_extraction_attempted_at,
-  website_extraction_attempts,
-  website_extraction_metadata,
-  website_extraction_status
-`
 
 const discoverVenuesSchema = z.object({
   query: z.string().trim().min(2).max(180).optional(),
@@ -110,167 +44,50 @@ export async function GET(
     if ('response' in auth) return auth.response
 
     const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
-    if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+    if (!plan) return venueJson({ error: 'Plan not found' }, { status: 404 })
 
     const candidates = await loadPlanCandidates((await context.params).planId)
     const responseCandidates = buildDiscoveryCandidateResponses(plan, candidates)
-    return NextResponse.json({
+    return venueJson({
       candidates: responseCandidates,
       summary: summarizeCandidates(responseCandidates),
     })
   } catch (error) {
     console.error('[planner.discover-venues] GET failed', error)
-    return NextResponse.json({ error: 'Failed to load discovered venues' }, { status: 500 })
+    return venueJson({ error: 'Failed to load discovered venues' }, { status: 500 })
   }
 }
 
-export async function POST(
-  request: NextRequest,
-  context: RouteContext
-): Promise<NextResponse<{
-  candidates: ReturnType<typeof buildDiscoveryCandidateResponses>
-  summary: DiscoverySummary
-  places_request: Json
-  places_requests: Json
-  places_result_counts: PlacesResultCounts
-} | PlannerApiErrorResponse>> {
+export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const auth = await getPlannerAuth()
     if ('response' in auth) return auth.response
-
     const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
-    if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
-
+    if (!plan) return venueJson({ error: 'Plan not found' }, { status: 404 })
     const parsed = discoverVenuesSchema.safeParse(await readOptionalJsonBody(request))
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: 'Invalid request body', details: parsed.error.flatten() as Json },
-        { status: 400 }
-      )
+    if (!parsed.success) return venueJson({ error: 'Invalid request body', details: parsed.error.flatten() as Json }, { status: 400 })
+    if (!isGoogleVenueEnabled()) {
+      const candidates = buildDiscoveryCandidateResponses(plan, await loadPlanCandidates(plan.id))
+      return venueJson({ candidates, summary: summarizeCandidates(candidates), google_live_overlays: {},
+        places_request: null, places_requests: [], places_result_counts: { total: 0, by_type: {} }, discovery_status: 'disabled' }, { headers: { 'Cache-Control': 'private, no-store' } })
     }
-
     const apiKey = process.env.GOOGLE_PLACES_API_KEY
-    if (!apiKey) {
-      return NextResponse.json({ error: 'GOOGLE_PLACES_API_KEY is not configured' }, { status: 500 })
-    }
-
-    const searchQuery = parsed.data.query ?? buildDefaultDiscoverySearchQuery(plan)
-    const maxResultCount = parsed.data.maxResultCount ?? 8
-    const placesIntent = resolvePlacesIntent(plan.event_type, buildPlacesIntentHints(plan))
-    const supplySearches = parsed.data.query ? [] : buildSupplyIntentPlacesSearches(plan)
-    const placesResults: GooglePlacesSearchResultWithSupply[] = supplySearches.length > 0
-      ? await Promise.all(supplySearches.map(async (supplySearch) => ({
-          ...(await searchGooglePlacesText({
-            apiKey,
-            textQuery: supplySearch.textQuery,
-            eventType: plan.event_type,
-            neighborhood: plan.neighborhood,
-            city: readPlanCity(plan),
-            includedType: supplySearch.includedType,
-            maxResultCount,
-          })),
-          supplyIntent: supplySearch,
-        })))
-      : await Promise.all(placesIntent.primary_types.map(async (includedType) => ({
-          ...(await searchGooglePlacesText({
-            apiKey,
-            textQuery: searchQuery,
-            eventType: plan.event_type,
-            neighborhood: plan.neighborhood,
-            city: readPlanCity(plan),
-            includedType,
-            maxResultCount,
-          })),
-          supplyIntent: null,
-        })))
-    const placesResultCounts = summarizePlacesResults(placesResults)
-    const dedupedPlaces = dedupePlacesByGoogleId(placesResults).slice(0, maxResultCount)
-    const placesRequestBundle = {
-      text_query: searchQuery,
-      intent: {
-        primary_types: [...placesIntent.primary_types],
-        cluster_label: placesIntent.cluster_label,
-        venue_style: placesIntent.venue_style,
-        subspace_keywords: [...placesIntent.subspace_keywords],
-      },
-      result_counts: placesResultCounts,
-      requests: placesResults.map((result) => ({
-        ...result.request,
-        supply_intent: result.supplyIntent ?? null,
-      })),
-    }
-
-    const admin = createServiceRoleClient()
-    const upsertedVenues: DiscoveryVenueRow[] = []
-    for (const { place, request: placesRequest, matchedIncludedType, supplyIntent } of dedupedPlaces) {
-      const insert = buildDiscoveryVenueInsert(place, {
-        request: placesRequest,
-        searchQuery,
-        neighborhood: plan.neighborhood,
-        intent: placesIntent,
-        matchedIncludedType,
-        supplyIntent,
-      })
-      const { data, error } = await (admin as any)
-        .from('discovery_venues')
-        .upsert(insert, { onConflict: 'source,source_external_id' })
-        .select(DISCOVERY_VENUE_SELECT)
-        .single()
-
-      if (error || !data) {
-        console.error('[planner.discover-venues] discovery_venue_upsert_failed', {
-          error: error?.message,
-          place_id: place.id,
-        })
-        continue
-      }
-      upsertedVenues.push(data as unknown as DiscoveryVenueRow)
-    }
-
-    if (upsertedVenues.length > 0) {
-      const scoreByVenueId = rankDiscoveryVenues(plan, upsertedVenues)
-      const candidateInserts = upsertedVenues.map((venue) => ({
-        plan_id: plan.id,
-        discovery_venue_id: venue.id,
-        searched_by_user_id: auth.userId,
-        search_query: searchQuery,
-        archetype_id: plan.event_type,
-        neighborhood: plan.neighborhood,
-        fit_score: scoreByVenueId.get(venue.id) ?? null,
-        status: 'candidate',
-        dismissed_at: null,
-        places_request_json: placesRequestBundle as unknown as Json,
-      }))
-
-      const { error } = await admin
-        .from('plan_discovery_venue_candidates')
-        .upsert(candidateInserts, { onConflict: 'plan_id,discovery_venue_id' })
-
-      if (error) {
-        console.error('[planner.discover-venues] candidate_upsert_failed', { error: error.message })
-        return NextResponse.json({ error: 'Failed to attach discovered venues to plan' }, { status: 500 })
-      }
-    }
-
-    const candidates = await loadPlanCandidates((await context.params).planId)
-    const responseCandidates = buildDiscoveryCandidateResponses(plan, candidates)
-    return NextResponse.json({
-      candidates: responseCandidates,
-      summary: summarizeCandidates(responseCandidates),
-      places_request: placesRequestBundle as unknown as Json,
-      places_requests: placesResults.map((result) => result.request) as Json,
-      places_result_counts: placesResultCounts,
-    })
+    if (!apiKey) return venueJson({ error: 'GOOGLE_PLACES_API_KEY is not configured' }, { status: 500 })
+    const metadata = plan.metadata && typeof plan.metadata === 'object' && !Array.isArray(plan.metadata) ? plan.metadata : {}
+    const city = typeof metadata.city === 'string' ? metadata.city : null
+    const result = await searchPlacesForPlan(plan, { admin: createServiceRoleClient(), apiKey,
+      areas: [plan.neighborhood || city || 'Bay Area'], maxResultCount: parsed.data.maxResultCount,
+      query: parsed.data.query, searchedByUserId: auth.userId })
+    const candidates = buildDiscoveryCandidateResponses(plan, await loadPlanCandidates(plan.id))
+    return venueJson({ candidates, summary: summarizeCandidates(candidates),
+      google_live_overlays: result.google_live_overlays,
+      places_request: { text_query: result.search_query }, places_requests: result.places_requests,
+      places_result_counts: result.places_result_counts }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
-    if (error instanceof GooglePlacesConfigurationError) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-    if (error instanceof GooglePlacesApiError) {
-      return NextResponse.json({ error: error.message }, { status: error.status === 429 ? 429 : 502 })
-    }
-
-    console.error('[planner.discover-venues] POST failed', error)
-    return NextResponse.json({ error: 'Failed to discover venues' }, { status: 500 })
+    if (error instanceof GooglePlacesConfigurationError) return venueJson({ error: 'Venue discovery is unavailable' }, { status: 500 })
+    if (error instanceof GooglePlacesApiError) return venueJson({ error: 'Venue discovery is unavailable' }, { status: error.status === 429 ? 429 : 502 })
+    console.error('[planner.discover-venues] POST failed', { category: error instanceof Error ? error.name : 'unknown' })
+    return venueJson({ error: 'Failed to discover venues' }, { status: 500 })
   }
 }
 
@@ -283,11 +100,11 @@ export async function PATCH(
     if ('response' in auth) return auth.response
 
     const plan = await loadOwnedPlan(auth.db, (await context.params).planId, auth.userId)
-    if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+    if (!plan) return venueJson({ error: 'Plan not found' }, { status: 404 })
 
     const parsed = updateCandidateSchema.safeParse(await readOptionalJsonBody(request))
     if (!parsed.success) {
-      return NextResponse.json(
+      return venueJson(
         { error: 'Invalid request body', details: parsed.error.flatten() as Json },
         { status: 400 }
       )
@@ -311,22 +128,22 @@ export async function PATCH(
         plan_id: plan.id,
         discovery_venue_id: parsed.data.discovery_venue_id,
       })
-      return NextResponse.json({ error: 'Failed to skip venue' }, { status: 500 })
+      return venueJson({ error: 'Failed to skip venue' }, { status: 500 })
     }
 
     if (!data) {
-      return NextResponse.json({ error: 'Discovery venue not found' }, { status: 404 })
+      return venueJson({ error: 'Discovery venue not found' }, { status: 404 })
     }
 
     const candidates = await loadPlanCandidates((await context.params).planId)
     const responseCandidates = buildDiscoveryCandidateResponses(plan, candidates)
-    return NextResponse.json({
+    return venueJson({
       candidates: responseCandidates,
       summary: summarizeCandidates(responseCandidates),
     })
   } catch (error) {
     console.error('[planner.discover-venues] PATCH failed', error)
-    return NextResponse.json({ error: 'Failed to skip venue' }, { status: 500 })
+    return venueJson({ error: 'Failed to skip venue' }, { status: 500 })
   }
 }
 
@@ -338,11 +155,11 @@ async function getPlannerAuth(): Promise<PlannerAuth> {
   } = await supabase.auth.getUser()
 
   if (error || !user) {
-    return { response: NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
+    return { response: venueJson({ error: 'Not authenticated' }, { status: 401 }) }
   }
 
   if (user.user_metadata?.user_type !== 'community_builder') {
-    return { response: NextResponse.json({ error: 'Unauthorized' }, { status: 403 }) }
+    return { response: venueJson({ error: 'Unauthorized' }, { status: 403 }) }
   }
 
   return { db: supabase, userId: user.id }
@@ -379,13 +196,13 @@ async function loadPlanCandidates(planId: string) {
   if (candidateRows.length === 0) return []
 
   const { data: venues, error: venueError } = await admin
-    .from('discovery_venues')
+    .from(SAFE_VENUE_TABLE as any)
     .select(DISCOVERY_VENUE_SELECT)
     .in('id', candidateRows.map((candidate) => candidate.discovery_venue_id))
     .returns<DiscoveryVenueRow[]>()
 
   if (venueError) throw new Error(venueError.message)
-  const venueById = new Map((venues ?? []).map((venue) => [venue.id, venue]))
+  const venueById = new Map((venues ?? []).map((venue) => [venue.id, readSafeDiscoveryVenue(venue)]))
   return candidateRows.flatMap((candidate) => {
     const venue = venueById.get(candidate.discovery_venue_id)
     return venue ? [{ candidate, venue }] : []
@@ -396,6 +213,7 @@ type DiscoverySummary = {
   total: number
   ready_to_reach_out: number
   contact_form_available: number
+  contact_link_available: number
   contact_pending: number
   no_contact_available: number
 }
@@ -410,6 +228,7 @@ function summarizeCandidates(candidates: ReturnType<typeof buildDiscoveryCandida
     total: candidates.length,
     ready_to_reach_out: candidates.filter((candidate) => candidate.contact_status === 'ready_to_reach_out').length,
     contact_form_available: candidates.filter((candidate) => candidate.contact_status === 'contact_form_available').length,
+    contact_link_available: candidates.filter((candidate) => candidate.contact_status === 'contact_link_available').length,
     contact_pending: candidates.filter((candidate) => candidate.contact_status === 'contact_pending').length,
     no_contact_available: candidates.filter((candidate) => candidate.contact_status === 'no_contact_available').length,
   }
@@ -421,87 +240,11 @@ async function readOptionalJsonBody(request: NextRequest) {
   return JSON.parse(text) as unknown
 }
 
-function readPlanCity(plan: Plan) {
-  const metadata = plan.metadata && typeof plan.metadata === 'object' && !Array.isArray(plan.metadata)
-    ? plan.metadata as Record<string, unknown>
-    : null
-  const city = metadata?.city
-  return typeof city === 'string' && city.trim() ? city.trim() : null
-}
 
-function summarizePlacesResults(results: GooglePlacesSearchResult[]): PlacesResultCounts {
-  const byType: PlacesResultCounts['by_type'] = {}
-  for (const result of results) {
-    const type = result.request.includedType
-    if (!type) continue
-    byType[type] = result.places.length
-  }
-  return {
-    total: results.reduce((sum, result) => sum + result.places.length, 0),
-    by_type: byType,
-  }
-}
-
-function dedupePlacesByGoogleId(results: GooglePlacesSearchResultWithSupply[]) {
-  const byId = new Map<string, {
-    place: GooglePlacesSearchResult['places'][number]
-    request: GooglePlacesSearchResult['request']
-    matchedIncludedType: GooglePlacesIncludedType | null
-    supplyIntent: SupplyIntentPlacesSearch | null
-  }>()
-
-  for (const result of results) {
-    for (const place of result.places) {
-      if (byId.has(place.id)) continue
-      byId.set(place.id, {
-        place,
-        request: result.request,
-        matchedIncludedType: result.request.includedType ?? null,
-        supplyIntent: result.supplyIntent ?? null,
-      })
-    }
-  }
-
-  return [...byId.values()]
-}
-
-function buildPlacesIntentHints(plan: Plan) {
-  const metadata = readRecord(plan.metadata)
-  return {
-    venue_style: readString(metadata?.venue_style) ?? readString(metadata?.room_type) ?? readString(metadata?.preferred_venue_style),
-    vibe: [
-      ...readStringArray(metadata?.vibe),
-      ...readStringArray(metadata?.vibes),
-      ...readStringArray(metadata?.vibe_tags),
-    ],
-    subspace_keywords: [
-      ...readStringArray(metadata?.subspace_keywords),
-      ...readStringArray(metadata?.venue_keywords),
-      ...extractSubspaceKeywords([
-        readString(metadata?.venue_style),
-        readString(metadata?.room_type),
-        readString(plan.notes),
-      ].filter(Boolean).join(' ')),
-    ],
-  }
-}
-
-function extractSubspaceKeywords(text: string) {
-  const matches = text.match(/\b(rooftop|ballroom|private dining|lounge|hotel|resort|lodging)\b/gi)
-  return matches ? [...new Set(matches.map((match) => match.toLowerCase()))] : []
-}
-
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
-}
-
-function readStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value.map((item) => readString(item)).filter((item): item is string => Boolean(item))
+function venueJson<T>(body: T, init?: ResponseInit) {
+  const headers = new Headers(init?.headers)
+  headers.set('Cache-Control', 'private, no-store, max-age=0')
+  headers.set('CDN-Cache-Control', 'no-store')
+  headers.set('Vercel-CDN-Cache-Control', 'no-store')
+  return NextResponse.json(body, { ...init, headers })
 }

@@ -37,7 +37,7 @@ export default async function DiscoveryChangeReviewPage() {
     .order('created_at', { ascending: false })
     .limit(75)
 
-  const rows = (data ?? []) as DiscoveryChangeRow[]
+  const rows = ((data ?? []) as DiscoveryChangeRow[]).filter(row => row.entity_type !== 'discovery_venue')
 
   return (
     <main className="min-h-screen bg-background px-6 py-8 text-foreground">
@@ -119,7 +119,8 @@ async function applyDiscoveryChange(formData: FormData) {
 
   if (error || !data) throw new Error(error?.message ?? 'Discovery change not found')
   const entityType = data.entity_type as DiscoveryEntityType
-  const table = entityType === 'discovery_venue' ? 'discovery_venues' : 'discovery_vendors'
+  if (entityType === 'discovery_venue') throw new Error('Legacy venue changes require independently reacquired evidence before applying.')
+  const table = 'discovery_vendors'
   const fieldName = String(data.field_name)
   if (isGooglePhotoField(fieldName) || containsGooglePhotoData(data.new_value)) {
     throw new Error('Google photo changes cannot be reapplied. Request a fresh photo instead.')

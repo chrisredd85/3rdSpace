@@ -1,3 +1,4 @@
+import { independentVenueEvidence } from '@/lib/discovery/venueRepository'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PlannerLivePlanPanel } from '@/components/planner/PlannerLivePlanPanel'
@@ -29,6 +30,7 @@ jest.mock('@/components/planner/InviteVendorModal', () => ({
 
 describe('PlannerLivePlanPanel', () => {
   const originalFetch = global.fetch
+  const originalObserver = global.IntersectionObserver
 
   beforeEach(() => {
     window.localStorage.clear()
@@ -42,11 +44,49 @@ describe('PlannerLivePlanPanel', () => {
   afterAll(() => {
     global.fetch = originalFetch
   })
+  afterEach(() => { global.IntersectionObserver = originalObserver })
+
+  it('renders ID-only discovered candidates as attributed live cards without duplicating independent recommendations', async () => {
+    global.IntersectionObserver = jest.fn((callback: IntersectionObserverCallback) => ({
+      observe: (target: Element) => callback([{ target, isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry], {} as IntersectionObserver),
+      disconnect: jest.fn(), unobserve: jest.fn(), takeRecords: jest.fn(),
+    })) as unknown as typeof IntersectionObserver
+    const message = makeRecommendationMessage('with-discovery-ids', [
+      makeVenueRecommendation({ id: 'known', discovery_venue_id: 'known', name: 'Independent known venue' }),
+      makeVenueRecommendation({ id: 'other', name: 'Other independent venue' }),
+    ])
+    message.metadata = { ...(message.metadata as Record<string, any>), recommendation_response: {
+      discovery_venue_candidates: [
+        { discovery_venue_id: 'known', place_id: 'known-place' },
+        { discovery_venue_id: 'new-discovery', place_id: 'new-place' },
+        { discovery_venue_id: 'new-discovery', place_id: 'new-place' },
+      ],
+    } }
+    global.fetch = jest.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      const id = url.includes('/new-discovery/card') ? 'new-discovery' : url.includes('/known/card') ? 'known' : null
+      return Promise.resolve(new Response(JSON.stringify(id ? { venue_id: id, google_live: {
+        status: 'available', place_id: `${id}-place`, profile: 'pro', attempts: 1,
+        place: { id: `${id}-place`, displayName: { text: id === 'new-discovery' ? 'Fresh discovered venue' : 'Fresh known venue' }, googleMapsUri: 'https://maps.google.com/venue' },
+      } } : { baseline: null }), { status: 200 }))
+    })
+    render(<PlannerLivePlanPanel inline planId="plan-discovery" messages={[message]} />)
+    const section = await screen.findByRole('region', { name: 'Discovered venue options' })
+    expect(await within(section).findByText('Fresh discovered venue')).toBeInTheDocument()
+    expect(within(section).getByAltText('Google Maps')).toBeInTheDocument()
+    expect(within(section).getAllByLabelText('Live venue details')).toHaveLength(1)
+    expect(within(section).queryByText('Independent known venue')).not.toBeInTheDocument()
+    expect(within(section).getByRole('link', { name: 'Review venue contacts' })).toHaveAttribute('href', '/planner/outreach-search?plan=plan-discovery')
+    expect(within(section).queryByRole('button', { name: /approve|book|pay/i })).not.toBeInTheDocument()
+    expect(JSON.stringify(message)).not.toContain('Fresh discovered venue')
+    expect(window.localStorage.getItem('planner-live-plan') ?? '').not.toContain('Fresh discovered venue')
+  })
 
   it('does not copy legacy Google photo data when a fresh timeline rewrites the browser cache', async () => {
     const user = userEvent.setup()
     const legacyName = 'places/fixture/photos/old-photo'
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({ title: 'Timeline test' }),
       messages: [{
         id: 'legacy-photo-message', role: 'agent', message_type: 'status_update', content: 'Saved event',
@@ -69,6 +109,7 @@ describe('PlannerLivePlanPanel', () => {
 
   it('updates the event brief when outreach and partner confirmations publish new plan data', async () => {
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({
         title: 'Bay Area happy hour',
         guestCount: 40,
@@ -173,6 +214,7 @@ describe('PlannerLivePlanPanel', () => {
 
   it('includes venue consumption incentive revenue in the event brief profit window', async () => {
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({
         title: 'Consumption venue happy hour',
         guestCount: 120,
@@ -208,6 +250,7 @@ describe('PlannerLivePlanPanel', () => {
 
   it('shows venue Stripe readiness in the brief when recommendation state includes it', async () => {
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({
         title: 'Stripe-ready venue plan',
         guestCount: 50,
@@ -239,6 +282,7 @@ describe('PlannerLivePlanPanel', () => {
 
   it('blocks payment authorization when the selected venue still needs Stripe setup', async () => {
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({
         title: 'Venue setup needed plan',
         guestCount: 50,
@@ -288,6 +332,7 @@ describe('PlannerLivePlanPanel', () => {
     }), { status: 200 }))
 
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({
         title: 'Baseline founder dinner',
         guestCount: 80,
@@ -318,6 +363,7 @@ describe('PlannerLivePlanPanel', () => {
 
   it('shows ticket sales and checked-in counts in the event brief', async () => {
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({
         title: 'Ticketed founder dinner',
         guestCount: 80,
@@ -351,6 +397,7 @@ describe('PlannerLivePlanPanel', () => {
 
   it('uses confirmation summary attendance when it supersedes the plan snapshot', async () => {
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({
         title: 'Imported ticketing plan',
         guestCount: 60,
@@ -383,6 +430,7 @@ describe('PlannerLivePlanPanel', () => {
     const user = userEvent.setup()
     const onDateChangeRequest = jest.fn().mockResolvedValue(undefined)
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({
         title: 'Founder Dinner',
         guestCount: 72,
@@ -427,6 +475,7 @@ describe('PlannerLivePlanPanel', () => {
   it('opens known venue and vendor invite dialogs from the event brief', async () => {
     const user = userEvent.setup()
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({
         title: 'Known partner plan',
         guestCount: 40,
@@ -459,6 +508,7 @@ describe('PlannerLivePlanPanel', () => {
   it('shows pending Gmail outreach drafts as an approvals chip and venue status', async () => {
     const onNavigateToTab = jest.fn()
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({ title: 'Outreach draft review' }),
       messages: [
         makeRecommendationMessage('recommendation-draft-status', [
@@ -493,6 +543,7 @@ describe('PlannerLivePlanPanel', () => {
     const user = userEvent.setup()
     const onNavigateToTab = jest.fn()
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({ title: 'Canonical approval review' }),
       messages: [
         makeGmailApprovalMessage('approval-message-1', {
@@ -529,6 +580,7 @@ describe('PlannerLivePlanPanel', () => {
       }),
     } as Response)
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({ title: 'Contact rescue review' }),
       messages: [
         makeRecommendationMessage('recommendation-email-required', [
@@ -564,8 +616,31 @@ describe('PlannerLivePlanPanel', () => {
     expect(onNavigateToTab).toHaveBeenCalledWith('approvals', 'gmail-approval-created')
   })
 
+  it.each(['no_contact_available', 'contact_link_available'])('does not let stale extraction_pending hide the %s fallback', async (contactStatus) => {
+    window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
+      plan: makePlanSnapshot({ title: 'Finished contact lookup' }),
+      messages: [makeRecommendationMessage('terminal-contact', [makeVenueRecommendation({
+        id: 'venue-1', name: 'Moongate Lounge', discovery_venue_id: 'venue-1',
+        contact_status: contactStatus, outreach_draft_request_status: 'extraction_pending',
+        contact_form_url: contactStatus === 'contact_link_available' ? 'https://venue.test/book' : null,
+        contact_form_label: 'Book',
+      })])],
+      planId: 'plan-terminal-contact',
+    }))
+    render(<PlannerLivePlanPanel inline />)
+    if (contactStatus === 'no_contact_available') {
+      expect(await screen.findByLabelText(/contact email for moongate lounge/i)).toBeInTheDocument()
+    } else {
+      expect(await screen.findByRole('link', { name: /open contact page/i })).toHaveAttribute('href', 'https://venue.test/book')
+      expect(screen.queryByText(/open contact form/i)).not.toBeInTheDocument()
+    }
+    expect(screen.queryByText('Checking website for contact email')).not.toBeInTheDocument()
+  })
+
   it('hides venue comparison when fewer than two venue recommendations are available', async () => {
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({ title: 'Single venue review' }),
       messages: [
         makeRecommendationMessage('recommendation-single', [
@@ -584,6 +659,7 @@ describe('PlannerLivePlanPanel', () => {
   it('marks recommendations stale when the plan revision count has advanced', async () => {
     const user = userEvent.setup()
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({
         title: 'Stale recommendation review',
         planRevisionCount: 3,
@@ -616,6 +692,7 @@ describe('PlannerLivePlanPanel', () => {
 
   it('renders two recommended venues in a comparison table', async () => {
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({ title: 'Two venue review' }),
       messages: [
         makeRecommendationMessage('recommendation-two', [
@@ -637,6 +714,7 @@ describe('PlannerLivePlanPanel', () => {
 
   it('renders three recommended venues in a comparison table', async () => {
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({ title: 'Three venue review' }),
       messages: [
         makeRecommendationMessage('recommendation-three', [
@@ -659,6 +737,7 @@ describe('PlannerLivePlanPanel', () => {
 
   it('shows negative venue estimates as money back to the organizer', async () => {
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({ title: 'CHI venue review' }),
       messages: [
         makeRecommendationMessage('recommendation-chi', [
@@ -678,6 +757,7 @@ describe('PlannerLivePlanPanel', () => {
 
   it('marks the top-ranked venue as the best fit', async () => {
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({ title: 'Best fit review' }),
       messages: [
         makeRecommendationMessage('recommendation-best-fit', [
@@ -704,6 +784,7 @@ describe('PlannerLivePlanPanel', () => {
       value: scrollIntoView,
     })
     window.localStorage.setItem('planner-live-plan', JSON.stringify({
+      venue_storage_version: 1,
       plan: makePlanSnapshot({ title: 'Venue jump review' }),
       messages: [
         makeRecommendationMessage('recommendation-jump', [
@@ -768,7 +849,7 @@ function makeRecommendationMessage(id: string, recommendations: Array<Record<str
     role: 'agent',
     content: 'Confirmed partner recommendations.',
     message_type: 'recommendation',
-    metadata: { recommendations },
+    metadata: { recommendations: recommendations.map(withVenueEvidence) },
     created_at: '2026-06-16T16:05:00.000Z',
   }
 }
@@ -797,6 +878,7 @@ function makeGmailApprovalMessage(
         name: input.venueName,
         email: 'events@example.com',
         discovery_venue_id: input.discoveryVenueId,
+        venue_data: testVenueEnvelope(input.discoveryVenueId, input.venueName),
       }],
       approval: {
         id: input.approvalId,
@@ -822,4 +904,12 @@ function makeVenueRecommendation(overrides: Record<string, unknown> = {}) {
     deal_model_summary: 'Quote pending partner confirmation.',
     ...overrides,
   }
+}
+
+function testVenueEnvelope(id: string, name: string, address?: unknown) {
+ const fields: Record<string, unknown>={name,...(typeof address==='string'?{address}: {})}
+ return {schema_version:1,identity:{kind:'venue',id,place_id:null},values:fields,field_provenance:Object.fromEntries(Object.keys(fields).map(key=>[key,independentVenueEvidence('venue_site','https://example.com/venue')]))}
+}
+function withVenueEvidence(row: Record<string,unknown>) {
+ return row.discovery_venue_id && typeof row.name==='string' ? {...row,venue_data:testVenueEnvelope(String(row.discovery_venue_id),row.name,row.address)} : row
 }

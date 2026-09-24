@@ -1,4 +1,6 @@
 import 'server-only'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/lib/types/database-generated'
 
 import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
 
@@ -13,17 +15,22 @@ import type { Json, Plan, TableRow } from '@/lib/types'
 import {
   type GooglePlaceCandidate,
   type GooglePlacesIncludedType,
-  type GooglePlacesSearchResult,
+  type VenuePlacesSearchResult,
+  type VenuePlaceCandidate,
+  canonicalGooglePlaceId,
   type GooglePlacesTextSearchRequest,
-  searchGooglePlacesText,
+  searchGoogleVenuePlacesText,
 } from '@/lib/server/google-places-client'
 import type { PlacesIntent } from '@/lib/server/places-archetype-intent'
 import { resolvePlacesIntent } from '@/lib/server/places-archetype-intent'
-import { enqueueVenueCapacityInferenceJob, hasKnownCapacity } from '@/lib/discovery/venueCapacityJobs'
-import type { SupabaseJobClient } from '@/lib/server/job-queue'
-import { parseExtractedContactForms } from '@/lib/server/discovery-enrichment'
+import { readSafeDiscoveryVenue, upsertVenueIdentity, SAFE_VENUE_TABLE, type SafeDiscoveryVenue, type VenueRpcClient } from '@/lib/discovery/venueRepository'
+import { areGooglePhotosEnabled } from '@/lib/server/google-places-flags'
+import { selectVenuePlaces, hydrateVenueShortlist, venueResultLimit } from '@/lib/server/venue-places-orchestrator'
+import type { VenueDetailsResult } from '@/lib/server/venue-places-details'
+import { getUsableContactForms, getUsableExtractedEmails, shouldAttemptWebsiteExtraction } from '@/lib/server/discovery-enrichment'
+import { isGoogleVenueEnabled } from '@/lib/server/google-places-flags'
 
-type GooglePlacesSearchResultWithSupply = GooglePlacesSearchResult & {
+type GooglePlacesSearchResultWithSupply = VenuePlacesSearchResult & {
   supplyIntent?: SupplyIntentPlacesSearch | null
 }
 
@@ -37,7 +44,7 @@ export type DiscoveryVenueCapacityInferenceFields = {
   capacity_inference_admin_status?: 'pending' | 'approved' | 'rejected' | 'edited' | string | null
 }
 
-export type DiscoveryVenueRow = TableRow<'discovery_venues'> & DiscoveryVenueCapacityInferenceFields
+export type DiscoveryVenueRow = SafeDiscoveryVenue & DiscoveryVenueCapacityInferenceFields
 export type PlanDiscoveryVenueCandidateRow = TableRow<'plan_discovery_venue_candidates'>
 
 export const DISCOVERY_VENUE_SELECT = `
@@ -97,12 +104,13 @@ export const DISCOVERY_VENUE_SELECT = `
   website_extraction_status
 `
 
-export type ContactStatus = 'ready_to_reach_out' | 'contact_form_available' | 'contact_pending' | 'no_contact_available'
+export type ContactStatus = 'ready_to_reach_out' | 'contact_form_available' | 'contact_link_available' | 'contact_pending' | 'no_contact_available'
 export type ContactEmailSource = 'direct' | 'organizer_provided' | 'extracted' | null
 export type ContactEmailConfidence = 'high' | 'medium' | 'low' | null
 
 export type DiscoveryCandidateResponse = {
   candidate_id: string
+  venue_data: SafeDiscoveryVenue['venue_data']
   discovery_venue_id: string
   name: string
   address: string | null
@@ -161,46 +169,10 @@ export function buildDiscoveryVenueInsert(
     supplyIntent?: SupplyIntentPlacesSearch | null
   }
 ) {
-  const venueClusterId = computeVenueCluster(place)
-  const subspaceHint = computeSubspaceHint(place)
-  return {
-    name: place.displayName.text,
-    address: place.formattedAddress ?? null,
-    neighborhood: input.neighborhood,
-    city: inferCity(place.formattedAddress) ?? 'San Francisco',
-    state: 'CA',
-    lat: place.location?.latitude ?? null,
-    lng: place.location?.longitude ?? null,
-    contact_phone: place.nationalPhoneNumber ?? null,
-    website: place.websiteUri ?? null,
-    source: 'google_places',
-    source_external_id: place.id,
-    google_rating: place.rating ?? null,
-    google_user_ratings_total: place.userRatingCount ?? null,
-    business_status: place.businessStatus ?? null,
-    last_places_refresh_at: new Date().toISOString(),
-    last_meaningful_change_at: null,
-    data_freshness_status: 'fresh',
-    metadata: {
-      google_primary_type: place.primaryType ?? null,
-      google_types: place.types ?? [],
-      google_price_level: place.priceLevel ?? null,
-      google_business_status: place.businessStatus ?? null,
-      places_search_query: input.searchQuery,
-      places_request: input.request,
-      places_primary_type_match: place.primaryType ?? null,
-      places_all_types: place.types ?? [],
-      places_intent_cluster_label: input.intent?.cluster_label ?? null,
-      places_intent_requested_types: input.intent ? [...input.intent.primary_types] : [],
-      places_intent_matched_type: input.matchedIncludedType ?? input.request.includedType ?? null,
-      places_supply_intent_category: input.supplyIntent?.category ?? null,
-      places_supply_intent_activity_type: input.supplyIntent?.activity_type ?? null,
-      places_supply_intent_label: input.supplyIntent?.label ?? null,
-      venue_cluster_id: venueClusterId,
-      subspace_hint: subspaceHint,
-    } as unknown as Json,
-    website_extraction_status: place.websiteUri ? 'never_attempted' : null,
-  }
+  // Compatibility builder is identity-only; live acquisition uses the guarded RPC.
+  const id = canonicalGooglePlaceId(place.id)
+  if (!id) throw new Error('Invalid venue Place ID')
+  return { source: 'google_places' as const, source_external_id: id }
 }
 
 export type DiscoveryVenueSubspaceHint = 'ballroom' | 'rooftop' | 'private_dining' | 'lounge' | 'main_floor' | null
@@ -275,7 +247,7 @@ export function resolveDiscoveryVenueContact(venue: DiscoveryVenueRow): ContactR
       contactFormUrl: contactForm.url,
       contactFormLabel: contactForm.label,
       contactFormSourcePath: contactForm.source_path,
-      status: 'contact_form_available',
+      status: contactForm.evidence_kind === 'observed_form' ? 'contact_form_available' : 'contact_link_available',
     }
   }
 
@@ -286,7 +258,8 @@ export function resolveDiscoveryVenueContact(venue: DiscoveryVenueRow): ContactR
     contactFormUrl: null,
     contactFormLabel: null,
     contactFormSourcePath: null,
-    status: venue.website ? 'contact_pending' : 'no_contact_available',
+    status: shouldAttemptWebsiteExtraction(venue, { googleHydrationEnabled: isGoogleVenueEnabled() })
+      ? 'contact_pending' : 'no_contact_available',
   }
 }
 
@@ -298,13 +271,15 @@ export function buildDiscoveryCandidateResponses(
   const specialSupply = readPlanSpecialSupply(plan)
 
   return rows
-    .map(({ candidate, venue }) => {
+    .map(({ candidate, venue: inputVenue }) => {
+      const venue = readSafeDiscoveryVenue(inputVenue)
       const contact = resolveDiscoveryVenueContact(venue)
-      const fitScore = candidate.fit_score ?? scoreByVenueId.get(venue.id) ?? 0
+      const fitScore = scoreByVenueId.get(venue.id) ?? 0
       return {
         candidate_id: candidate.id,
+        venue_data: venue.venue_data,
         discovery_venue_id: venue.id,
-        name: venue.name,
+        name: venue.name ?? 'Venue details unavailable',
         address: venue.address,
         neighborhood: venue.neighborhood,
         city: venue.city,
@@ -359,7 +334,8 @@ export function rankDiscoveryVenues(plan: Plan, venues: DiscoveryVenueRow[]): Ma
   return scores
 }
 
-export function mapDiscoveryVenueToCatalogVenue(row: DiscoveryVenueRow): CatalogVenueRankingInput {
+export function mapDiscoveryVenueToCatalogVenue(inputRow: DiscoveryVenueRow): CatalogVenueRankingInput {
+  const row = readSafeDiscoveryVenue(inputRow)
   const metadata = readRecord(row.metadata)
   const venueClusterId = readString(metadata?.venue_cluster_id)
   const subspaceHint = readString(metadata?.subspace_hint)
@@ -369,6 +345,7 @@ export function mapDiscoveryVenueToCatalogVenue(row: DiscoveryVenueRow): Catalog
   const hasBarSignal = typeSignals.some((type) => /\b(bar|cocktail|lounge|brewery|winery|night_club)\b/i.test(type))
   return {
     id: row.id,
+    venue_identity_kind: 'discovery',
     name: row.name,
     venue_name: row.name,
     address: row.address,
@@ -400,6 +377,9 @@ export function mapDiscoveryVenueToCatalogVenue(row: DiscoveryVenueRow): Catalog
     review_count: row.google_user_ratings_total,
     source: row.source,
     source_external_id: row.source_external_id,
+    google_place_id: canonicalGooglePlaceId(row.source_external_id),
+    claimed_venue_id: row.claimed_venue_id,
+    venue_data: row.venue_data,
     metadata: stripGooglePhotoData(row.metadata),
     venue_cluster_id: venueClusterId,
     subspace_hint: subspaceHint,
@@ -455,153 +435,116 @@ export function buildDefaultDiscoverySearchQuery(plan: Plan) {
   return `${eventText} in ${locationText}`
 }
 
-type PlannerDbLike = {
-  from: (table: string) => any
-}
+type PlannerDbLike = Pick<SupabaseClient<Database>, 'from' | 'rpc'>
 
+export type VenueLiveOverlay = VenueDetailsResult & { fit_score?: number }
 export type SearchPlacesForPlanResult = {
   venues: DiscoveryVenueRow[]
+  google_live_overlays: Record<string, VenueLiveOverlay>
   search_query: string
   places_requests: GooglePlacesTextSearchRequest[]
-  places_result_counts: {
-    total: number
-    by_type: Partial<Record<GooglePlacesIncludedType, number>>
-  }
+  places_result_counts: { total: number; by_type: Partial<Record<GooglePlacesIncludedType, number>> }
 }
 
 export async function searchPlacesForPlan(
   plan: Plan,
   options: {
-    admin: PlannerDbLike
-    apiKey: string
-    areas?: string[]
-    maxResultCount?: number
-    searchedByUserId?: string
+    admin: PlannerDbLike; apiKey: string; areas?: string[]; maxResultCount?: number
+    searchedByUserId?: string; query?: string
   }
 ): Promise<SearchPlacesForPlanResult> {
-  const maxResultCount = options.maxResultCount ?? 8
+  const maxResultCount = venueResultLimit(options.maxResultCount)
   const areas = normalizeSearchAreas(options.areas, plan)
+  const searchQuery = options.query ?? buildDefaultDiscoverySearchQuery({ ...plan, neighborhood: areas.join(' or ') })
+  const empty = { venues: [], google_live_overlays: {}, search_query: searchQuery, places_requests: [], places_result_counts: { total: 0, by_type: {} } }
+  if (!isGoogleVenueEnabled()) return empty
   const placesIntent = resolvePlacesIntent(plan.event_type, buildPlacesIntentHints(plan))
   const allResults: GooglePlacesSearchResultWithSupply[] = []
-
   for (const area of areas) {
     const planForArea = { ...plan, neighborhood: area }
-    const searchQuery = buildDefaultDiscoverySearchQuery(planForArea)
-    const supplySearches = buildSupplyIntentPlacesSearches(planForArea)
-    const results: GooglePlacesSearchResultWithSupply[] = supplySearches.length > 0
-      ? await Promise.all(supplySearches.map(async (supplySearch) => ({
-          ...(await searchGooglePlacesText({
-            apiKey: options.apiKey,
-            textQuery: supplySearch.textQuery,
-            eventType: plan.event_type,
-            neighborhood: area,
-            city: readPlanCity(plan),
-            includedType: supplySearch.includedType,
-            maxResultCount,
-          })),
-          supplyIntent: supplySearch,
-        })))
-      : await Promise.all(placesIntent.primary_types.map(async (includedType) => ({
-          ...(await searchGooglePlacesText({
-            apiKey: options.apiKey,
-            textQuery: searchQuery,
-            eventType: plan.event_type,
-            neighborhood: area,
-            city: readPlanCity(plan),
-            includedType,
-            maxResultCount,
-          })),
-          supplyIntent: null,
-        })))
+    const query = options.query ?? buildDefaultDiscoverySearchQuery(planForArea)
+    const supplySearches = options.query ? [] : buildSupplyIntentPlacesSearches(planForArea)
+    const searches = supplySearches.length ? supplySearches : placesIntent.primary_types.slice(0, 4).map((includedType) => ({ textQuery: query, includedType }))
+    const results = await Promise.all(searches.slice(0, 4).map(async (search) => ({
+      ...(await searchGoogleVenuePlacesText({ apiKey: options.apiKey, textQuery: search.textQuery,
+        eventType: plan.event_type, neighborhood: area, city: readPlanCity(plan), includedType: search.includedType, maxResultCount })),
+      supplyIntent: supplySearches.length ? search as SupplyIntentPlacesSearch : null,
+    })))
     allResults.push(...results)
   }
-
-  const searchQuery = buildDefaultDiscoverySearchQuery({
-    ...plan,
-    neighborhood: areas.join(' or '),
-  })
-  const dedupedPlaces = dedupePlacesByGoogleId(allResults).slice(0, maxResultCount)
-  const placesResultCounts = summarizePlacesResults(allResults)
-  const upsertedVenues: DiscoveryVenueRow[] = []
-
-  for (const { place, request, matchedIncludedType, supplyIntent } of dedupedPlaces) {
-    const insert = buildDiscoveryVenueInsert(place, {
-      request,
-      searchQuery,
-      neighborhood: areas.join(' or '),
-      intent: placesIntent,
-      matchedIncludedType,
-      supplyIntent,
-    })
-    const { data, error } = await options.admin
-      .from('discovery_venues')
-      .upsert(insert, { onConflict: 'source,source_external_id' })
-      .select(DISCOVERY_VENUE_SELECT)
-      .single()
-
+  const pool = dedupePlacesByGoogleId(allResults)
+  const ids = pool.map(({ place }) => place.id)
+  const known = ids.length ? await options.admin.from(SAFE_VENUE_TABLE).select(DISCOVERY_VENUE_SELECT).in('source_external_id', ids) : { data: [] }
+  const independentByPlaceId = new Map<string, DiscoveryVenueRow>()
+  for (const row of known.data ?? []) {
+    const safe = readSafeDiscoveryVenue(row)
+    const id = canonicalGooglePlaceId(safe.source_external_id)
+    if (id) independentByPlaceId.set(id, safe)
+  }
+  const score = (places: VenuePlaceCandidate[]) => scoreTransientVenuePlaces(plan, places, independentByPlaceId)
+  // Ratings are unknown for the entire Pro pool; selection occurs BEFORE cap.
+  const selected = selectVenuePlaces(pool, score, maxResultCount)
+  const hydrated = await hydrateVenueShortlist(selected.map(({ place }) => place), { apiKey: options.apiKey })
+  const detailsById = new Map(hydrated.map((detail) => [detail.place_id, detail]))
+  const successfulPlaces = selected.map(({ place }) => detailsById.get(place.id)?.place ?? place)
+  const liveScores = score(successfulPlaces)
+  const venues: DiscoveryVenueRow[] = []
+  const overlays: Record<string, VenueLiveOverlay> = {}
+  for (const { place } of selected) {
+    const detail = detailsById.get(place.id)
+    // Identity mismatch/closed/deleted is never replaced by a different business.
+    if (detail && ['identity_mismatch', 'closed', 'unavailable', 'invalid_id'].includes(detail.status)) continue
+    const { data, error } = await upsertVenueIdentity(options.admin, place.id)
     if (error || !data) {
-      console.error('[places.outreach] discovery_venue_upsert_failed', {
-        error: error?.message,
-        place_id: place.id,
-      })
+      console.error('[places.outreach] identity_write_failed', { place_id: place.id, code: error?.code })
       continue
     }
-    upsertedVenues.push(data as DiscoveryVenueRow)
-    await enqueueCapacityInferenceForSearchResult(options.admin, data as DiscoveryVenueRow)
+    venues.push(data)
+    overlays[data.id] = { ...(detail ?? { status: 'failed', place_id: place.id, profile: 'pro', attempts: 0 }),
+      place: detail?.place ?? place, fit_score: liveScores.get(place.id) ?? 0 }
   }
-
-  if (upsertedVenues.length > 0 && options.searchedByUserId) {
-    const scoreByVenueId = rankDiscoveryVenues(plan, upsertedVenues)
-    const candidateInserts = upsertedVenues.map((venue) => ({
-      plan_id: plan.id,
-      discovery_venue_id: venue.id,
-      searched_by_user_id: options.searchedByUserId,
-      search_query: searchQuery,
-      archetype_id: plan.event_type,
-      neighborhood: areas.join(' or '),
-      fit_score: scoreByVenueId.get(venue.id) ?? null,
-      status: 'candidate',
-      dismissed_at: null,
-      places_request_json: {
-        text_query: searchQuery,
-        result_counts: placesResultCounts,
-        requests: allResults.map((result) => ({
-          ...result.request,
-          supply_intent: result.supplyIntent ?? null,
-        })),
-      } as unknown as Json,
+  const searchedByUserId = options.searchedByUserId
+  if (venues.length && searchedByUserId) {
+    const inserts = venues.map((venue) => ({
+      plan_id: plan.id, discovery_venue_id: venue.id, searched_by_user_id: searchedByUserId,
+      search_query: searchQuery, archetype_id: plan.event_type, neighborhood: areas.join(' or '),
+      // No Google-derived score, reasons, type, cluster, coordinates, or response.
+      fit_score: null, status: 'candidate', dismissed_at: null,
+      places_request_json: { contract_version: 1, place_id: venue.source_external_id, discovery_venue_id: venue.id },
     }))
-
-    const { error } = await options.admin
-      .from('plan_discovery_venue_candidates')
-      .upsert(candidateInserts, { onConflict: 'plan_id,discovery_venue_id' })
-
-    if (error) {
-      console.error('[places.outreach] candidate_upsert_failed', { error: error.message })
-    }
+    const { error } = await options.admin.from('plan_discovery_venue_candidates').upsert(inserts, { onConflict: 'plan_id,discovery_venue_id' })
+    if (error) throw new Error('Failed to attach venue identities to plan')
   }
-
-  return {
-    venues: upsertedVenues,
-    search_query: searchQuery,
-    places_requests: allResults.map((result) => result.request),
-    places_result_counts: placesResultCounts,
-  }
+  // Reorder only the already selected IDs; discarded IDs never receive Details.
+  venues.sort((a, b) => (overlays[b.id]?.fit_score ?? 0) - (overlays[a.id]?.fit_score ?? 0))
+  return { venues, google_live_overlays: overlays, search_query: searchQuery,
+    places_requests: allResults.map((result) => result.request), places_result_counts: summarizePlacesResults(allResults) }
 }
 
-async function enqueueCapacityInferenceForSearchResult(admin: PlannerDbLike, venue: DiscoveryVenueRow) {
-  if (venue.capacity_inference_extracted_at) return
-  if (hasKnownCapacity(venue)) return
-  if (!process.env.OPENAI_API_KEY?.trim()) return
-
-  try {
-    await enqueueVenueCapacityInferenceJob(admin as unknown as SupabaseJobClient, venue.id)
-  } catch (error) {
-    console.warn('[places.outreach] capacity_inference_enqueue_failed', {
-      discovery_venue_id: venue.id,
-      error: error instanceof Error ? error.message : String(error),
-    })
+/** Ephemeral projection only. Never feed this object into a model or writer. */
+function scoreTransientVenuePlaces(plan: Plan, places: VenuePlaceCandidate[], independent: Map<string, DiscoveryVenueRow>): Map<string, number> {
+  const scores = new Map<string, number>()
+  for (const place of places) {
+    const row = independent.get(place.id)
+    const known = row ? mapDiscoveryVenueToCatalogVenue(row) : {}
+    const venue: CatalogVenueRankingInput = {
+      ...known, id: place.id,
+      name: row?.name ?? place.displayName?.text,
+      venue_name: row?.name ?? place.displayName?.text,
+      address: row?.address ?? place.formattedAddress,
+      venue_type: place.primaryType,
+      unique_features_tags: [...(row?.vibe_tags ?? [])],
+      rating: place.rating ?? null, review_count: place.userRatingCount ?? null,
+      // No inferred cluster/room name or copied provider metadata.
+      metadata: {},
+    }
+    const scoringPlan = row?.address || place.formattedAddress ? mapPlanToRankingInput(plan) : { ...mapPlanToRankingInput(plan), area: null, neighborhood: null }
+    const ranked = rankCatalogPartners({ plan: scoringPlan, venues: [venue], vendors: [],
+      archetype: archetypeFor(plan.event_type ?? null), limit: 1, venueLimit: 1, vendorLimit: 0 })
+    const result = [...ranked.recommendations, ...ranked.rejected][0]
+    if (result) scores.set(place.id, result.blocking_issues.length ? result.score - 1000 : result.score)
   }
+  return scores
 }
 
 export function compareCandidateResponses(first: DiscoveryCandidateResponse, second: DiscoveryCandidateResponse) {
@@ -660,7 +603,7 @@ function normalizeSearchAreas(areas: string[] | undefined, plan: Plan): string[]
   return [...new Set(normalized)].slice(0, 3)
 }
 
-function summarizePlacesResults(results: GooglePlacesSearchResult[]): SearchPlacesForPlanResult['places_result_counts'] {
+function summarizePlacesResults(results: VenuePlacesSearchResult[]): SearchPlacesForPlanResult['places_result_counts'] {
   const byType: SearchPlacesForPlanResult['places_result_counts']['by_type'] = {}
   for (const result of results) {
     const type = result.request.includedType
@@ -675,8 +618,8 @@ function summarizePlacesResults(results: GooglePlacesSearchResult[]): SearchPlac
 
 function dedupePlacesByGoogleId(results: GooglePlacesSearchResultWithSupply[]) {
   const byId = new Map<string, {
-    place: GooglePlacesSearchResult['places'][number]
-    request: GooglePlacesSearchResult['request']
+    place: VenuePlacesSearchResult['places'][number]
+    request: VenuePlacesSearchResult['request']
     matchedIncludedType: GooglePlacesIncludedType | null
     supplyIntent: SupplyIntentPlacesSearch | null
   }>()
@@ -719,26 +662,18 @@ function readLatestOrganizerEmail(value: Json): string | null {
 }
 
 function readBestExtractedEmail(value: Json): { email: string; confidence: number } | null {
-  if (!Array.isArray(value)) return null
-
-  const candidates = value.flatMap((entry) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return []
-    const record = entry as Record<string, unknown>
-    const email = normalizeEmail(record.email)
-    if (!email || shouldSkipEmail(email)) return []
-    const confidence = readNumber(record.confidence) ?? 0
-    const likely = record.is_likely_booking_contact === true
-    if (!likely && confidence < 0.7) return []
-    return [{ email, confidence: likely ? Math.max(confidence, 0.8) : confidence }]
-  })
+  const candidates = getUsableExtractedEmails(value).map((entry) => ({
+    email: entry.email.toLowerCase(),
+    confidence: entry.is_likely_booking_contact ? Math.max(entry.confidence, 0.8) : entry.confidence,
+  }))
 
   return candidates.sort((first, second) => second.confidence - first.confidence)[0] ?? null
 }
 
-function readBestContactForm(value: unknown): { url: string; label: string; source_path: string; confidence: number } | null {
-  const forms = parseExtractedContactForms(value as Json | null | undefined)
-    .filter((form) => form.url && form.confidence >= 0.55)
+function readBestContactForm(value: unknown) {
+  const forms = getUsableContactForms(value as Json | null | undefined)
     .sort((first, second) => {
+      if (first.evidence_kind !== second.evidence_kind) return first.evidence_kind === 'observed_form' ? -1 : 1
       if (first.is_likely_booking_contact !== second.is_likely_booking_contact) {
         return first.is_likely_booking_contact ? -1 : 1
       }
@@ -751,12 +686,13 @@ function readBestContactForm(value: unknown): { url: string; label: string; sour
       label: form.label,
       source_path: form.source_path,
       confidence: form.confidence,
+      evidence_kind: form.evidence_kind,
     }
     : null
 }
 
 function buildPhotoUrls(venueId: string, placeId: string | null): string[] {
-  if (process.env.GOOGLE_PLACES_PHOTOS_ENABLED !== 'true' || !placeId?.trim()) return []
+  if (!areGooglePhotosEnabled('venue') || !canonicalGooglePlaceId(placeId)) return []
   return Array.from({ length: 3 }, (_, index) => `/api/planner/discovery-venues/${encodeURIComponent(venueId)}/photo/${index}`)
 }
 
@@ -777,7 +713,7 @@ function normalizeEmail(value: unknown): string | null {
 
 function contactStatusWeight(status: ContactStatus) {
   if (status === 'ready_to_reach_out') return 0
-  if (status === 'contact_form_available') return 1
+  if (status === 'contact_form_available' || status === 'contact_link_available') return 1
   if (status === 'contact_pending') return 2
   return 3
 }

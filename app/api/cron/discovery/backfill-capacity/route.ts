@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(Math.max(Number.isFinite(limitParam) ? Math.trunc(limitParam) : MAX_BACKFILL_JOBS_PER_INVOCATION, 1), MAX_BACKFILL_JOBS_PER_INVOCATION)
 
   const { data, error } = await admin
-    .from('discovery_venues')
+    .from('discovery_venues_safe')
     .select('id,capacity_seated,capacity_standing,capacity_cocktail,capacity_inference_extracted_at')
     .is('capacity_inference_extracted_at', null)
     .is('capacity_seated', null)

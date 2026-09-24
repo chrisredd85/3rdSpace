@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { enqueuePendingDraftsForUserVenue } from '@/lib/planner/discoveryOutreachDrafts'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
-import type { Json } from '@/lib/types'
+import { writeVenueFacts, independentVenueEvidence } from '@/lib/discovery/venueRepository'
 
 type RouteContext = {
   params: Promise<{
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const admin = createServiceRoleClient()
     const { data: venue, error: loadError } = await admin
-      .from('discovery_venues')
+      .from('discovery_venues_safe')
       .select('id,organizer_provided_emails,organizer_rescue_count')
       .eq('id', (await context.params).venueId)
       .maybeSingle()
@@ -71,16 +71,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
     ]
 
-    const { data: updated, error: updateError } = await admin
-      .from('discovery_venues')
-      .update({
-        organizer_provided_emails: nextEmails as Json,
-        organizer_rescue_count: (venue.organizer_rescue_count ?? 0) + 1,
-        last_rescue_at: now,
-      })
-      .eq('id', (await context.params).venueId)
-      .select('id,organizer_provided_emails,organizer_rescue_count,last_rescue_at')
-      .single()
+    const { data: updated, error: updateError } = await writeVenueFacts(admin, (await context.params).venueId,
+      { organizer_provided_emails: nextEmails },
+      { organizer_provided_emails: independentVenueEvidence('host_input', `host:${user.id}:contact-email`, now) },
+      { organizer_rescue_count: (venue.organizer_rescue_count ?? 0) + 1, last_rescue_at: now },
+    )
 
     if (updateError || !updated) {
       console.error('[planner.discovery-venues.contact-email] update_failed', {

@@ -12,8 +12,9 @@ import {
 } from '@/lib/server/places-outreach'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json, Plan } from '@/lib/types'
+import { readSafeDiscoveryVenue, writeVenueFacts, type VenueRpcClient } from '@/lib/discovery/venueRepository'
 
-type PlannerDb = { from: (table: string) => any }
+type PlannerDb = { from: (table: string) => any; rpc?: (name: string, args: Record<string, unknown>) => PromiseLike<{data: unknown; error: {message?: string; code?: string} | null}> }
 
 type DraftRequestStatus =
   | 'extraction_pending'
@@ -74,8 +75,11 @@ export async function enqueueDraftAfterVenueApproval(input: {
   const row = await loadCandidateWithVenue(input.db, input.planId, input.discoveryVenueId)
   if (!row) throw new Error('Discovery venue candidate not found')
 
-  const existing = await loadExistingGmailDraftForVenue(input.db, input.planId, input.discoveryVenueId)
-  if (existing) {
+  const contact = resolveDiscoveryVenueContact(row.venue)
+  const existing = contact.email && contact.confidence !== 'low'
+    ? await loadExistingGmailDraftForVenue(input.db, input.planId, input.discoveryVenueId, contact.email)
+    : null
+  if (existing?.recipientMatches) {
     await markCandidateApprovalCreated(writeDb, row.candidate, input.userId, {
       approvalId: existing.approvalId,
       approvalMessageId: existing.approvalMessageId,
@@ -83,14 +87,13 @@ export async function enqueueDraftAfterVenueApproval(input: {
     return {
       status: 'draft_created',
       discoveryVenueId: input.discoveryVenueId,
-      venueName: row.venue.name,
+      venueName: row.venue.name ?? 'Venue contact',
       candidateId: row.candidate.id,
       gmailApprovalId: existing.approvalId,
       approvalMessageId: existing.approvalMessageId,
     }
   }
 
-  const contact = resolveDiscoveryVenueContact(row.venue)
   if (contact.email && contact.confidence !== 'low') {
     try {
       const subject = input.subject ?? buildDefaultOutreachSubject(plan)
@@ -99,9 +102,10 @@ export async function enqueueDraftAfterVenueApproval(input: {
         userId: input.userId,
         planId: plan.id,
         reuseExisting: false,
+        ...(existing ? { replacementApprovalId: existing.approvalId } : {}),
         targets: [{
           kind: 'venue',
-          name: row.venue.name,
+          name: row.venue.name ?? 'Venue contact',
           email: contact.email,
           discoveryVenueId: row.venue.id,
         }],
@@ -115,7 +119,7 @@ export async function enqueueDraftAfterVenueApproval(input: {
       return {
         status: 'draft_created',
         discoveryVenueId: row.venue.id,
-        venueName: row.venue.name,
+        venueName: row.venue.name ?? 'Venue contact',
         candidateId: row.candidate.id,
         gmailApprovalId: draft.approval.id,
         approvalMessageId: draft.approvalMessageId,
@@ -126,14 +130,14 @@ export async function enqueueDraftAfterVenueApproval(input: {
         await markCandidateDraftRequest(writeDb, row.candidate, {
           status: 'gmail_required',
           requestedByUserId: input.userId,
-          error: error.message,
+          error: 'gmail_connection_required',
         })
       }
       throw error
     }
   }
 
-  if (contact.status === 'contact_form_available') {
+  if (contact.status === 'contact_form_available' || contact.status === 'contact_link_available') {
     await markCandidateDraftRequest(writeDb, row.candidate, {
       status: 'email_required',
       requestedByUserId: input.userId,
@@ -141,12 +145,12 @@ export async function enqueueDraftAfterVenueApproval(input: {
     return {
       status: 'email_required',
       discoveryVenueId: row.venue.id,
-      venueName: row.venue.name,
+      venueName: row.venue.name ?? 'Venue contact',
       candidateId: row.candidate.id,
     }
   }
 
-  if (row.venue.website) {
+  if (contact.status === 'contact_pending') {
     await markCandidateDraftRequest(writeDb, row.candidate, {
       status: 'extraction_pending',
       requestedByUserId: input.userId,
@@ -155,7 +159,7 @@ export async function enqueueDraftAfterVenueApproval(input: {
     return {
       status: 'extraction_pending',
       discoveryVenueId: row.venue.id,
-      venueName: row.venue.name,
+      venueName: row.venue.name ?? 'Venue contact',
       candidateId: row.candidate.id,
     }
   }
@@ -167,7 +171,7 @@ export async function enqueueDraftAfterVenueApproval(input: {
   return {
     status: 'email_required',
     discoveryVenueId: row.venue.id,
-    venueName: row.venue.name,
+    venueName: row.venue.name ?? 'Venue contact',
     candidateId: row.candidate.id,
   }
 }
@@ -202,12 +206,17 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
   const unhandledVenueIds = uniqueVenueIds.filter((venueId) => !rowByVenueId.has(venueId))
   const results: EnqueueVenueDraftResult[] = []
   const targetRows: Array<CandidateWithVenue & { email: string }> = []
+  const replacedVenueIds = new Set<string>()
 
   for (const venueId of handledVenueIds) {
+    if (replacedVenueIds.has(venueId)) continue
     const row = rowByVenueId.get(venueId)
     if (!row) continue
-    const existing = await loadExistingGmailDraftForVenue(input.db, input.planId, venueId)
-    if (existing) {
+    const contact = resolveDiscoveryVenueContact(row.venue)
+    const existing = contact.email && contact.confidence !== 'low'
+      ? await loadExistingGmailDraftForVenue(input.db, input.planId, venueId, contact.email)
+      : null
+    if (existing?.recipientMatches) {
       await markCandidateApprovalCreated(writeDb, row.candidate, input.userId, {
         approvalId: existing.approvalId,
         approvalMessageId: existing.approvalMessageId,
@@ -215,7 +224,7 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
       results.push({
         status: 'draft_created',
         discoveryVenueId: row.venue.id,
-        venueName: row.venue.name,
+        venueName: row.venue.name ?? 'Venue contact',
         candidateId: row.candidate.id,
         gmailApprovalId: existing.approvalId,
         approvalMessageId: existing.approvalMessageId,
@@ -223,13 +232,33 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
       continue
     }
 
-    const contact = resolveDiscoveryVenueContact(row.venue)
     if (contact.email && contact.confidence !== 'low') {
+      if (existing) {
+        const replacementRows = rows.filter(candidate => existing.targetVenueIds.includes(candidate.venue.id))
+        const replacementTargets = replacementRows.map(candidate => {
+          const current = resolveDiscoveryVenueContact(candidate.venue)
+          if (!current.email || current.confidence === 'low') throw new Error('Independent venue contact evidence required')
+          return { kind: 'venue' as const, name: candidate.venue.name ?? 'Venue contact', email: current.email, discoveryVenueId: candidate.venue.id }
+        })
+        const draft = await createOrReuseGmailOutreachApproval(input.db, {
+          userId: input.userId, planId: plan.id, reuseExisting: false, replacementApprovalId: existing.approvalId,
+          targets: replacementTargets, subject: input.subject ?? buildDefaultOutreachSubject(plan), bodyText: input.bodyText ?? buildDefaultOutreachBody(plan),
+        })
+        for (const candidate of replacementRows) {
+          await markCandidateApprovalCreated(writeDb, candidate.candidate, input.userId, { approvalId: draft.approval.id, approvalMessageId: draft.approvalMessageId })
+          const next: EnqueueVenueDraftResult = { status: 'draft_created', discoveryVenueId: candidate.venue.id, venueName: candidate.venue.name ?? 'Venue contact', candidateId: candidate.candidate.id, gmailApprovalId: draft.approval.id, approvalMessageId: draft.approvalMessageId, redirectUrl: draft.redirectUrl }
+          const previousIndex = results.findIndex(result => result.discoveryVenueId === candidate.venue.id)
+          if (previousIndex >= 0) results[previousIndex] = next
+          else results.push(next)
+          replacedVenueIds.add(candidate.venue.id)
+        }
+        continue
+      }
       targetRows.push({ ...row, email: contact.email })
       continue
     }
 
-    if (contact.status === 'contact_form_available') {
+    if (contact.status === 'contact_form_available' || contact.status === 'contact_link_available') {
       await markCandidateDraftRequest(writeDb, row.candidate, {
         status: 'email_required',
         requestedByUserId: input.userId,
@@ -237,13 +266,13 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
       results.push({
         status: 'email_required',
         discoveryVenueId: row.venue.id,
-        venueName: row.venue.name,
+        venueName: row.venue.name ?? 'Venue contact',
         candidateId: row.candidate.id,
       })
       continue
     }
 
-    if (row.venue.website) {
+    if (contact.status === 'contact_pending') {
       await markCandidateDraftRequest(writeDb, row.candidate, {
         status: 'extraction_pending',
         requestedByUserId: input.userId,
@@ -252,7 +281,7 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
       results.push({
         status: 'extraction_pending',
         discoveryVenueId: row.venue.id,
-        venueName: row.venue.name,
+        venueName: row.venue.name ?? 'Venue contact',
         candidateId: row.candidate.id,
       })
       continue
@@ -265,7 +294,7 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
     results.push({
       status: 'email_required',
       discoveryVenueId: row.venue.id,
-      venueName: row.venue.name,
+      venueName: row.venue.name ?? 'Venue contact',
       candidateId: row.candidate.id,
     })
   }
@@ -280,7 +309,7 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
         reuseExisting: false,
         targets: targetRows.map((row) => ({
           kind: 'venue',
-          name: row.venue.name,
+          name: row.venue.name ?? 'Venue contact',
           email: row.email,
           discoveryVenueId: row.venue.id,
         })),
@@ -296,7 +325,7 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
         results.push({
           status: 'draft_created',
           discoveryVenueId: row.venue.id,
-          venueName: row.venue.name,
+          venueName: row.venue.name ?? 'Venue contact',
           candidateId: row.candidate.id,
           gmailApprovalId: draft.approval.id,
           approvalMessageId: draft.approvalMessageId,
@@ -308,7 +337,7 @@ export async function enqueueDraftBatchAfterVenueApproval(input: {
         await Promise.all(targetRows.map((row) => markCandidateDraftRequest(writeDb, row.candidate, {
           status: 'gmail_required',
           requestedByUserId: input.userId,
-          error: error.message,
+          error: 'gmail_connection_required',
         })))
       }
       throw error
@@ -359,7 +388,7 @@ export async function enqueuePendingDraftsForDiscoveryVenue(input: {
       console.error('[planner.discovery-outreach-drafts] pending_enqueue_failed', {
         plan_id: candidate.plan_id,
         discovery_venue_id: input.discoveryVenueId,
-        error: error instanceof Error ? error.message : String(error),
+        error: 'pending_draft_preparation_failed',
       })
     }
   }
@@ -433,13 +462,18 @@ async function loadCandidateRowsWithVenues(
   const candidates = await loadCandidateRowsForPlan(db, planId, venueIds)
   if (candidates.length === 0) return []
 
-  const { data: venues, error: venueError } = await db
-    .from('discovery_venues')
+  // Keep plan/candidate authorization on db; privileged facts are read only
+  // after those scoped candidate rows have been resolved.
+  const { data: venues, error: venueError } = await createServiceRoleClient()
+    .from('discovery_venues_safe')
     .select(DISCOVERY_VENUE_SELECT)
     .in('id', candidates.map((candidate) => candidate.discovery_venue_id))
 
   if (venueError) throw new Error(venueError.message)
-  const venueById = new Map(((venues ?? []) as DiscoveryVenueRow[]).map((venue) => [venue.id, venue]))
+  const venueById = new Map(((venues ?? []) as DiscoveryVenueRow[]).map((venue) => {
+    const safe = readSafeDiscoveryVenue(venue) as DiscoveryVenueRow
+    return [safe.id, safe]
+  }))
   return candidates.flatMap((candidate) => {
     const venue = venueById.get(candidate.discovery_venue_id)
     return venue ? [{ candidate, venue }] : []
@@ -462,8 +496,9 @@ async function loadCandidateWithVenue(
   if (error) throw new Error(error.message)
   if (!candidate) return null
 
-  const { data: venue, error: venueError } = await db
-    .from('discovery_venues')
+  // The session-scoped plan/candidate checks above authorize this one venue.
+  const { data: venue, error: venueError } = await createServiceRoleClient()
+    .from('discovery_venues_safe')
     .select(DISCOVERY_VENUE_SELECT)
     .eq('id', discoveryVenueId)
     .maybeSingle()
@@ -472,7 +507,7 @@ async function loadCandidateWithVenue(
   return venue
     ? {
       candidate: candidate as PlanDiscoveryVenueCandidateRow,
-      venue: venue as DiscoveryVenueRow,
+      venue: readSafeDiscoveryVenue(venue) as DiscoveryVenueRow,
     }
     : null
 }
@@ -480,8 +515,9 @@ async function loadCandidateWithVenue(
 async function loadExistingGmailDraftForVenue(
   db: PlannerDb,
   planId: string,
-  discoveryVenueId: string
-): Promise<{ approvalId: string; approvalMessageId: string | null } | null> {
+  discoveryVenueId: string,
+  currentEmail: string,
+): Promise<{ approvalId: string; approvalMessageId: string | null; recipientMatches: boolean; targetVenueIds: string[] } | null> {
   const { data, error } = await db
     .from('plan_messages')
     .select('id,metadata')
@@ -506,10 +542,17 @@ async function loadExistingGmailDraftForVenue(
     const approval = readRecord(metadata?.approval)
     const approvalId = readString(approval?.id)
     const status = readString(approval?.status) ?? readString(metadata?.status)
-    if (!approvalId || status === 'cancelled' || status === 'rejected' || status === 'expired') continue
+    if (!approvalId || ['cancelled', 'rejected', 'expired', 'superseded', 're_approval_required'].includes(status ?? '')) continue
+    const recipientMatches = partnerTargets.some(target => {
+      const record = readRecord(target)
+      return readString(record?.discovery_venue_id) === discoveryVenueId
+        && readString(record?.email)?.toLowerCase() === currentEmail.toLowerCase()
+    })
     return {
       approvalId,
       approvalMessageId: readString(message.id),
+      recipientMatches,
+      targetVenueIds: Array.from(new Set([discoveryVenueId, ...ids, ...partnerTargets.map(target => readString(readRecord(target)?.discovery_venue_id)).filter((id): id is string => Boolean(id))])),
     }
   }
   return null
@@ -535,7 +578,7 @@ async function markCandidateApprovalCreated(
       status: 'approval_created',
       outreach_approval_created_at: now,
       places_request_json: {
-        ...(readRecord(candidate.places_request_json) ?? {}),
+        ...readSafeCandidateRequest(candidate.places_request_json),
         outreach_draft_request: nextRequest,
       } as Json,
     })
@@ -563,7 +606,7 @@ async function markCandidateDraftRequest(
     .from('plan_discovery_venue_candidates')
     .update({
       places_request_json: {
-        ...(readRecord(candidate.places_request_json) ?? {}),
+        ...readSafeCandidateRequest(candidate.places_request_json),
         outreach_draft_request: nextRequest,
       } as Json,
     })
@@ -573,17 +616,25 @@ async function markCandidateDraftRequest(
 }
 
 async function markWebsiteExtractionNeeded(db: PlannerDb, venue: DiscoveryVenueRow) {
-  if (!venue.website) return
   if (venue.website_extraction_status && venue.website_extraction_status !== 'never_attempted') return
-  const { error } = await db
-    .from('discovery_venues')
-    .update({ website_extraction_status: 'never_attempted' })
-    .eq('id', venue.id)
+  if (!db.rpc) throw new Error('Venue boundary operation unavailable')
+  const { error } = await writeVenueFacts({ rpc: db.rpc.bind(db) }, venue.id, {}, {}, { website_extraction_status: 'never_attempted' })
 
   if (error) console.error('[planner.discovery-outreach-drafts] extraction_mark_failed', {
     discovery_venue_id: venue.id,
     error: error.message,
   })
+}
+
+function readSafeCandidateRequest(value: unknown): Record<string, Json> {
+  const record = readRecord(value) ?? {}
+  const safe: Record<string, Json> = {}
+  for (const key of ['text_query', 'query', 'intent', 'place_id', 'discovery_venue_id']) {
+    const text = readString(record[key])
+    if (text) safe[key] = text
+  }
+  if (record.contract_version === 1) safe.contract_version = 1
+  return safe
 }
 
 function candidateHasPendingDraftRequest(candidate: PlanDiscoveryVenueCandidateRow) {

@@ -1,3 +1,4 @@
+import { assertDurableVenueContent, withIndependentVenueDerivation } from '@/lib/discovery/venuePersistence'
 import type OpenAI from 'openai'
 import { z } from 'zod'
 import { assertOpenAIConfigured, openai } from '@/lib/ai/client'
@@ -134,6 +135,7 @@ export async function runVenueMatchingAgent(
   payload: unknown,
   client: ChatCompletionClient = openai.chat.completions
 ): Promise<VenueMatchingAgentResult> {
+  assertDurableVenueContent(payload)
   const startedAt = Date.now()
   const input = venueMatchingAgentInputSchema.parse(payload)
   const preFilteredVenues = preFilterVenues({
@@ -286,7 +288,7 @@ function finalizeVenueMatchingOutput(
     }
   })
 
-  return venueMatchingAgentOutputSchema.parse({
+  const finalized = venueMatchingAgentOutputSchema.parse({
     ...modelOutput,
     best_recommendation:
       modelOutput.best_recommendation ??
@@ -295,6 +297,11 @@ function finalizeVenueMatchingOutput(
     no_match: false,
     ranked_venues: rankedVenues,
   })
+  finalized.ranked_venues = finalized.ranked_venues.map(venue => {
+    const candidate = candidatesById.get(venue.venue_id)
+    return candidate?.venue_data ? withIndependentVenueDerivation(venue, candidate.venue_data) : venue
+  })
+  return finalized
 }
 
 function parseJsonObject(content: string): unknown {

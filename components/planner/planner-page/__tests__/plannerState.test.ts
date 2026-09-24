@@ -108,6 +108,7 @@ describe('planner browser photo copy boundary', () => {
     expect(stored).not.toContain(legacyName)
     expect(stored).toContain(independentImage)
     expect(stored).toContain('Updated event')
-    expect(JSON.parse(stored).messages).toHaveLength(1)
+    expect(JSON.parse(stored).messages).toHaveLength(0)
+    expect(JSON.parse(stored).venue_storage_version).toBe(1)
   })
 })

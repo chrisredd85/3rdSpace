@@ -1,4 +1,4 @@
-import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
+import { serializeVenueDurable } from '@/lib/discovery/venuePersistence'
 /**
  * API route for creating planner agent actions from recommendation CTAs.
  *
@@ -358,7 +358,7 @@ export async function POST(
 
     // This is a new, unapproved draft: remove incidental photo content before
     // normalizing terms or constructing the approval snapshot and hash.
-    const submittedPayload = stripGooglePhotoData(parsed.data.payloadJson ?? {}) as JsonObject
+    const submittedPayload = serializeVenueDurable(parsed.data.payloadJson ?? {}) as JsonObject
     const cents = readActionCents(submittedPayload, parsed.data.requestedAmountCents)
     if ('error' in cents) {
       return NextResponse.json({ error: cents.error }, { status: 400 })

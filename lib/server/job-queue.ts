@@ -1,4 +1,4 @@
-import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
+import { serializeVenueDurable, readSafeVenueSnapshot } from '@/lib/discovery/venuePersistence'
 import 'server-only'
 
 import { randomUUID } from 'crypto'
@@ -83,7 +83,7 @@ export async function enqueueJob(
 ) {
   const insert: AppJobInsert = {
     job_type: params.jobType,
-    payload: stripGooglePhotoData(params.payload),
+    payload: serializeVenueDurable(params.payload),
     unique_key: params.uniqueKey ?? null,
     scheduled_at: params.scheduledAt ?? new Date().toISOString(),
     max_attempts: params.maxAttempts ?? 5,
@@ -143,7 +143,7 @@ export async function completeJob(
 ) {
   const update: AppJobUpdate = {
     status: 'succeeded',
-    result: stripGooglePhotoData(result),
+    result: serializeVenueDurable(result),
     error: null,
     completed_at: new Date().toISOString(),
     locked_at: null,
@@ -169,7 +169,7 @@ export async function failJob(
   const retryDelayMs = Math.min(60_000 * Math.max(job.attempts, 1), 10 * 60_000)
   const update: AppJobUpdate = {
     status: nextStatus,
-    error: stripGooglePhotoData(message),
+    error: job.job_type === 'infer_venue_capacity' ? 'Venue enrichment failed' : serializeVenueDurable(message),
     scheduled_at: shouldRetry
       ? new Date(Date.now() + retryDelayMs).toISOString()
       : new Date().toISOString(),
@@ -193,7 +193,7 @@ export function normalizeAppJobRow(row: AppJobRow): AppJob {
     ...row,
     job_type: row.job_type as AppJobType,
     status: row.status as AppJobStatus,
-    payload: toJsonObject(row.payload),
-    result: row.result === null ? null : toJsonObject(row.result),
+    payload: toJsonObject(readSafeVenueSnapshot(row.payload)),
+    result: row.result === null ? null : toJsonObject(readSafeVenueSnapshot(row.result)),
   }
 }

@@ -1,3 +1,4 @@
+import { independentVenueEvidence } from '@/lib/discovery/venueRepository'
 import {
   cancelExecutingCanonicalQuoteBooking,
   cancelStagedCanonicalQuoteBooking,
@@ -32,6 +33,7 @@ describe('canonical quote booking execution', () => {
     })
     const db = {
       from: jest.fn((table: string) => {
+        if (table === 'discovery_venues_safe') return trustedResponseQuery(safeVenue())
         expect(table).toBe('venue_outreach_responses')
         return trustedResponseQuery({
           id: RESPONSE_ID,
@@ -86,7 +88,7 @@ describe('canonical quote booking execution', () => {
   it('does not turn an unknown price into a zero-cent authorization', async () => {
     const rpc = jest.fn()
     const db = {
-      from: jest.fn(() => trustedResponseQuery({
+      from: jest.fn((table: string) => trustedResponseQuery(table === 'discovery_venues_safe' ? safeVenue() : {
         id: RESPONSE_ID,
         plan_id: PLAN_ID,
         discovery_venue_id: DISCOVERY_ID,
@@ -125,7 +127,7 @@ describe('canonical quote booking execution', () => {
       error: null,
     }))
     const db = {
-      from: jest.fn(() => trustedResponseQuery({
+      from: jest.fn((table: string) => trustedResponseQuery(table === 'discovery_venues_safe' ? safeVenue() : {
         id: RESPONSE_ID,
         plan_id: PLAN_ID,
         discovery_venue_id: DISCOVERY_ID,
@@ -207,6 +209,7 @@ describe('canonical quote booking execution', () => {
     }))
     const db = {
       from: jest.fn((table: string) => {
+        if (table === 'discovery_venues_safe') return trustedResponseQuery(safeVenue())
         if (table === 'events') {
           return singleRowSelect({ id: EVENT_ID, plan_id: PLAN_ID, event_date: '2026-08-20' })
         }
@@ -356,6 +359,7 @@ describe('canonical quote booking execution', () => {
 
     const db = {
       from: jest.fn((table: string) => {
+        if (table === 'discovery_venues_safe') return trustedResponseQuery(safeVenue())
         if (table === 'plans') return singleRowSelect(plan)
         if (table === 'approvals') return listSelect([approval])
         if (table === 'agent_actions') {
@@ -453,6 +457,7 @@ describe('canonical quote booking execution', () => {
     })
     const db = {
       from: jest.fn((table: string) => {
+        if (table === 'discovery_venues_safe') return trustedResponseQuery(safeVenue())
         if (table === 'plans') return singleRowSelect(plan)
         if (table === 'approvals') return listSelect([approval])
         if (table === 'agent_actions') {
@@ -512,6 +517,7 @@ describe('canonical quote booking execution', () => {
     const rpc = jest.fn()
     const db = {
       from: jest.fn((table: string) => {
+        if (table === 'discovery_venues_safe') return trustedResponseQuery(safeVenue())
         if (table === 'plans') return singleRowSelect(plan)
         if (table === 'approvals') return listSelect([approval])
         if (table === 'agent_actions') {
@@ -561,6 +567,7 @@ describe('canonical quote booking execution', () => {
     const rpc = jest.fn()
     const db = {
       from: jest.fn((table: string) => {
+        if (table === 'discovery_venues_safe') return trustedResponseQuery(safeVenue())
         if (table === 'plans') return singleRowSelect(plan)
         if (table === 'approvals') return listSelect([approval])
         if (table === 'agent_actions') {
@@ -636,6 +643,7 @@ describe('canonical quote booking execution', () => {
     const update = jest.fn()
     const db = {
       from: jest.fn((table: string) => {
+        if (table === 'discovery_venues_safe') return trustedResponseQuery(safeVenue())
         if (table === 'plans') return singleRowSelect(plan)
         if (table === 'approvals') return listSelect([expiredApproval])
         if (table === 'agent_actions') {
@@ -704,6 +712,7 @@ describe('canonical quote booking execution', () => {
         })
     const db = {
       from: jest.fn((table: string) => {
+        if (table === 'discovery_venues_safe') return trustedResponseQuery(safeVenue())
         if (table === 'plans') return singleRowSelect(plan)
         // Deliberately return the obsolete row last. Mapping by agent_action_id
         // would select it; binding action.approval_id must select currentApproval.
@@ -781,6 +790,7 @@ describe('canonical quote booking execution', () => {
     })
     const db = {
       from: jest.fn((table: string) => {
+        if (table === 'discovery_venues_safe') return trustedResponseQuery(safeVenue())
         if (table === 'plans') return singleRowSelect(plan)
         if (table === 'approvals') return listSelect([approval])
         if (table === 'agent_actions') {
@@ -836,6 +846,7 @@ describe('canonical quote booking execution', () => {
     const rpc = jest.fn()
     const db = {
       from: jest.fn((table: string) => {
+        if (table === 'discovery_venues_safe') return trustedResponseQuery(safeVenue())
         if (table === 'plans') return singleRowSelect(plan)
         if (table === 'approvals') return listSelect([])
         if (table === 'agent_actions') return { select: jest.fn(() => actionQuery), update: jest.fn() }
@@ -879,6 +890,7 @@ describe('canonical quote booking execution', () => {
       const rpc = jest.fn()
       const db = {
         from: jest.fn((table: string) => {
+        if (table === 'discovery_venues_safe') return trustedResponseQuery(safeVenue())
           if (table === 'plans') return singleRowSelect(plan)
           if (table === 'agent_actions') return { select: jest.fn(() => actionQuery), update }
           throw new Error(`Unexpected table: ${table}`)
@@ -933,6 +945,7 @@ describe('canonical quote booking execution', () => {
     })
     const db = {
       from: jest.fn((table: string) => {
+        if (table === 'discovery_venues_safe') return trustedResponseQuery(safeVenue())
         if (table === 'plans') return singleRowSelect(plan)
         if (table === 'approvals') return listSelect([approval])
         if (table === 'agent_actions') {
@@ -995,6 +1008,7 @@ describe('canonical quote booking execution', () => {
     })
     const db = {
       from: jest.fn((table: string) => {
+        if (table === 'discovery_venues_safe') return trustedResponseQuery(safeVenue())
         if (table === 'plans') return singleRowSelect(plan)
         if (table === 'approvals') return listSelect([approval])
         if (table === 'agent_actions') {
@@ -1059,6 +1073,7 @@ describe('canonical quote booking execution', () => {
       })
       const db = {
         from: jest.fn((table: string) => {
+        if (table === 'discovery_venues_safe') return trustedResponseQuery(safeVenue())
           if (table === 'plans') return singleRowSelect(plan)
           if (table === 'approvals') return listSelect([approval])
           if (table === 'agent_actions') {
@@ -1288,3 +1303,5 @@ function buildApproval(overrides: Partial<Approval> = {}): Approval {
     ...overrides,
   } as Approval
 }
+
+function safeVenue() { return { id: DISCOVERY_ID, name: 'Moongate Lounge', source_external_id: 'moongate', metadata: { venue_boundary_version: 1, field_provenance: { name: independentVenueEvidence('venue_site', 'https://example.com/about') } } } }

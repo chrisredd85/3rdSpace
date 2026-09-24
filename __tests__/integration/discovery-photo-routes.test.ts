@@ -9,6 +9,7 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 const fetchMock = jest.fn()
 const originalFetch = global.fetch
+const originalVenueFlag = process.env.GOOGLE_PLACES_VENUES_ENABLED
 const originalFlag = process.env.GOOGLE_PLACES_PHOTOS_ENABLED
 const originalKey = process.env.GOOGLE_PLACES_API_KEY
 let owns = true
@@ -76,6 +77,7 @@ beforeEach(() => {
   fetchMock.mockRejectedValue(new Error('Unexpected mocked fetch'))
   global.fetch = fetchMock
   process.env.GOOGLE_PLACES_PHOTOS_ENABLED = 'true'
+  process.env.GOOGLE_PLACES_VENUES_ENABLED = 'true'
   process.env.GOOGLE_PLACES_API_KEY = 'fake-test-key'
   owns = true; loggedIn = true; placeId = 'place-1'; steps = []; selects = []; filters = []
   ;(createClient as jest.Mock).mockImplementation(() => ({
@@ -86,6 +88,8 @@ beforeEach(() => {
 })
 
 afterAll(() => {
+  if (originalVenueFlag === undefined) delete process.env.GOOGLE_PLACES_VENUES_ENABLED
+  else process.env.GOOGLE_PLACES_VENUES_ENABLED = originalVenueFlag
   global.fetch = originalFetch
   if (originalFlag === undefined) delete process.env.GOOGLE_PLACES_PHOTOS_ENABLED
   else process.env.GOOGLE_PLACES_PHOTOS_ENABLED = originalFlag
@@ -93,7 +97,7 @@ afterAll(() => {
   else process.env.GOOGLE_PLACES_API_KEY = originalKey
 })
 
-describe.each(['venue', 'vendor'] as const)('%s fresh photo route', (kind) => {
+describe.each(['venue'] as const)('%s fresh photo route', (kind) => {
   it('proves ownership before fresh IDs-only details and media, pairing bytes with the selected photo credits', async () => {
     mockSuccess()
     const response = await request(kind)
@@ -217,4 +221,16 @@ it('bounds in-memory photo payload size', async () => {
 it('disables framework caching on both routes', () => {
   expect(venueCache).toBe('force-no-store')
   expect(vendorCache).toBe('force-no-store')
+})
+
+it('keeps vendor photo endpoints off even with both venue/master flags enabled', async () => {
+  expect((await request('vendor')).status).toBe(204)
+  expect(createClient).not.toHaveBeenCalled()
+  expect(fetchMock).not.toHaveBeenCalled()
+})
+it('venue acquisition rollback also hides photos without any lookup', async () => {
+  process.env.GOOGLE_PLACES_VENUES_ENABLED = 'false'
+  expect((await request()).status).toBe(204)
+  expect(createClient).not.toHaveBeenCalled()
+  expect(fetchMock).not.toHaveBeenCalled()
 })

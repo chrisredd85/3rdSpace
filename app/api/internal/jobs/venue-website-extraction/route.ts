@@ -17,6 +17,11 @@ import { enqueuePendingDraftsForDiscoveryVenue } from '@/lib/planner/discoveryOu
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import type { SupabaseJobClient } from '@/lib/server/job-queue'
 import type { Database, Json } from '@/lib/types/database-generated'
+import { readSafeDiscoveryVenue, writeVenueFacts } from '@/lib/discovery/venueRepository'
+import { readFieldProvenance, retentionOrigin, type FieldProvenance } from '@/lib/discovery/foundation/provenance'
+import { getVenueContactDetails } from '@/lib/server/venue-places-details'
+import { isGoogleVenueEnabled } from '@/lib/server/google-places-flags'
+import type { ExtractionResult } from '@/lib/server/venue-website-extractor'
 
 type SupabaseAdminClient = SupabaseClient<any, 'public'>
 type DiscoveryVenue = Database['public']['Tables']['discovery_venues']['Row']
@@ -36,6 +41,9 @@ type DiscoveryVenueExtractionCandidate = Pick<
 > & {
   capacity_inference_extracted_at?: string | null
   extracted_contact_forms?: Json | null
+  organizer_provided_emails?: Json | null
+  source?: string | null
+  source_external_id?: string | null
 }
 
 type DiscoveryVendorExtractionCandidate = {
@@ -99,9 +107,8 @@ export async function runVenueWebsiteExtraction() {
 
   const admin = createServiceRoleClient() as SupabaseAdminClient
   const { data, error } = await admin
-    .from('discovery_venues')
-    .select('id,name,website,contact_email,extracted_emails,extracted_contact_forms,website_extraction_status,website_extraction_attempts,metadata,capacity_seated,capacity_standing,capacity_cocktail,capacity_inference_extracted_at')
-    .not('website', 'is', null)
+    .from('discovery_venues_safe')
+    .select('id,name,website,contact_email,organizer_provided_emails,extracted_emails,extracted_contact_forms,website_extraction_status,website_extraction_attempts,metadata,capacity_seated,capacity_standing,capacity_cocktail,capacity_inference_extracted_at,source,source_external_id')
     .order('website_extraction_attempted_at', { ascending: true, nullsFirst: true })
     .limit(QUERY_LIMIT)
     .returns<DiscoveryVenueExtractionCandidate[]>()
@@ -116,8 +123,9 @@ export async function runVenueWebsiteExtraction() {
     return NextResponse.json({ error: 'Failed to query discovery venues' }, { status: 500 })
   }
 
-  const venues = (data ?? [])
-    .filter((row) => shouldAttemptWebsiteExtraction(row as DiscoveryVenueRow))
+  const safeVenues = (data ?? []).map((row) => readSafeDiscoveryVenue(row) as DiscoveryVenueExtractionCandidate)
+  const venues = safeVenues
+    .filter((row) => shouldAttemptWebsiteExtraction(row as DiscoveryVenueRow, { googleHydrationEnabled: isGoogleVenueEnabled() }))
     .slice(0, PROCESS_LIMIT)
 
   const { data: vendorData, error: vendorError } = await admin
@@ -175,7 +183,8 @@ export async function runVenueWebsiteExtraction() {
     for (const result of batchResults) {
       summary.processed += 1
       results.push(result)
-      if (result.status === 'successful') summary.successful += 1
+      if (result.status === 'skipped') summary.skipped += 1
+      else if (result.status === 'successful') summary.successful += 1
       else if (result.status === 'no_emails_found') summary.no_emails += 1
       else if (result.status === 'rate_limited') summary.rate_limited += 1
       else if (result.status === 'blocked_by_robots') summary.blocked_by_robots += 1
@@ -184,6 +193,14 @@ export async function runVenueWebsiteExtraction() {
       console.info('[venue-website-extraction] venue_processed', result)
     }
   }
+
+  // Reconcile old pending requests even when a terminal row is no longer crawled.
+  const terminalVenues = safeVenues.filter((venue) => !venues.includes(venue)
+    && (venue.website_extraction_status === 'blocked_by_robots'
+      || venue.website_extraction_status === 'no_emails_found'
+      || venue.website_extraction_status === 'successful'
+      || (venue.website_extraction_attempts ?? 0) >= 3)).slice(0, PROCESS_LIMIT)
+  for (const venue of terminalVenues) await resumePendingDrafts(admin, venue.id)
 
   for (const batch of chunk(vendors, BATCH_SIZE)) {
     const batchResults = await Promise.all(batch.map((vendor) => processVendor(admin, vendor)))
@@ -200,7 +217,7 @@ export async function runVenueWebsiteExtraction() {
     }
   }
 
-  summary.skipped = Math.max(0, (data?.length ?? 0) - venues.length)
+  summary.skipped += Math.max(0, (data?.length ?? 0) - venues.length)
   vendorSummary.skipped = Math.max(0, (vendorData?.length ?? 0) - vendors.length)
   const durationMs = Date.now() - startedAt
   console.info('[venue-website-extraction] invocation_completed', {
@@ -213,77 +230,94 @@ export async function runVenueWebsiteExtraction() {
 
 async function processVenue(admin: SupabaseAdminClient, venue: DiscoveryVenueExtractionCandidate) {
   const attemptedAt = new Date().toISOString()
-
+  let result: ExtractionResult
   try {
-    const result = await extractVenueContacts(venue.website ?? '', {
-      venueName: venue.name,
-      venueType: readVenueType(venue.metadata),
+    let website = venue.website
+    if (!website && venue.source === 'google_places' && venue.source_external_id && isGoogleVenueEnabled()) {
+      const { data: saved, error: savedError } = await admin.from('plan_discovery_venue_candidates')
+        .select('id').eq('discovery_venue_id', venue.id).is('dismissed_at', null).limit(1).maybeSingle()
+      if (savedError || !saved) return { id: venue.id, status: 'skipped', emails: 0 }
+      const details = await getVenueContactDetails(venue.source_external_id)
+      if (!details) throw new Error('venue_contact_lookup_unavailable')
+      website = details.websiteUri ?? null
+    }
+    result = website
+      ? await extractVenueContacts(website, { venueName: venue.name ?? undefined, venueType: readVenueType(venue.metadata) })
+      : emptyExtractionResult('no_emails_found')
+  } catch {
+    result = emptyExtractionResult('fetch_failed')
+  }
+
+  // Only a successful site observation supplies durable facts. Locator responses
+  // and provider error text never enter this update or its provenance.
+  const values: Record<string, unknown> = {}
+  const provenance: Record<string, FieldProvenance> = {}
+  const update = buildWebsiteExtractionUpdate(result, venue.website_extraction_attempts, attemptedAt, venue)
+  const metadata = venue.metadata && typeof venue.metadata === 'object' && !Array.isArray(venue.metadata)
+    ? venue.metadata as Record<string, unknown> : {}
+  const priorProvenance = metadata.field_provenance && typeof metadata.field_provenance === 'object'
+    ? metadata.field_provenance as Record<string, unknown> : {}
+  try {
+    for (const [field, entries] of [
+      ['extracted_emails', result.emails],
+      ['extracted_contact_forms', result.contact_forms ?? []],
+    ] as const) {
+      if (entries.length === 0) continue
+      if (entries.some((entry) => entry.source !== 'business_website' || !entry.source_url || !/^https?:\/\//i.test(entry.source_url))) {
+        throw new Error('contact_evidence_missing')
+      }
+      values[field] = update[field]
+      const lineage = entries.map((entry) => ({
+        field,
+        provenance: {
+          resolution: 'resolved', source: 'venue_site', evidence_reference: entry.source_url!,
+          collected_at: entry.extracted_at, confidence: entry.confidence,
+          confirmation_status: 'site_published', lineage: [],
+        } as FieldProvenance,
+      }))
+      const prior = readFieldProvenance(priorProvenance[field])
+      if (retentionOrigin(prior) === 'independent') lineage.push({ field, provenance: prior })
+      provenance[field] = {
+        resolution: 'resolved', source: 'venue_site', evidence_reference: entries[0].source_url!,
+        collected_at: attemptedAt, confidence: null, confirmation_status: 'site_published', lineage,
+      }
+    }
+    const { error } = await writeVenueFacts(admin, venue.id, values, provenance, {
+      website_extraction_status: result.status,
+      website_extraction_attempts: (venue.website_extraction_attempts ?? 0) + 1,
+      website_extraction_attempted_at: attemptedAt,
     })
-    const update = buildWebsiteExtractionUpdate(result, venue.website_extraction_attempts, attemptedAt)
-    const { error } = await admin
-      .from('discovery_venues')
-      .update(update)
-      .eq('id', venue.id)
+    if (error) throw new Error('contact_persistence_failed')
+  } catch {
+    console.warn('[venue-website-extraction] contact_persistence_failed', { discovery_venue_id: venue.id })
+    return { id: venue.id, status: 'fetch_failed', emails: 0, error: 'contact_persistence_failed' }
+  }
 
-    if (error) {
-      Sentry.captureException(error, {
-        tags: { component: 'venue_website_extraction_cron', phase: 'update' },
-        extra: { discovery_venue_id: venue.id, extraction_status: result.status },
-      })
-      console.error('[venue-website-extraction] discovery_venue_update_failed', {
-        discovery_venue_id: venue.id,
-        status: result.status,
-        error: error.message,
-      })
-      return { id: venue.id, status: 'fetch_failed', emails: result.emails.length, error: error.message }
-    }
+  // Draft preparation is a separate retryable step. Its failure cannot erase
+  // facts that were just saved, and every final extraction outcome is reconciled.
+  const resumed = await resumePendingDrafts(admin, venue.id)
+  const capacityJobQueued = venue.website ? await maybeEnqueueVenueCapacityInference(admin, venue) : false
+  return {
+    id: venue.id, status: result.status, emails: result.emails.length,
+    draft_approvals: resumed.count, draft_resume_failed: resumed.failed,
+    capacity_job_queued: capacityJobQueued,
+  }
+}
 
-    let draftApprovals = 0
-    if (result.emails.length > 0) {
-      const draftResults = await enqueuePendingDraftsForDiscoveryVenue({
-        db: admin,
-        discoveryVenueId: venue.id,
-      })
-      draftApprovals = draftResults.filter((draft) => draft.status === 'draft_created').length
-    }
-    const capacityJobQueued = await maybeEnqueueVenueCapacityInference(admin, venue)
+function emptyExtractionResult(status: 'fetch_failed' | 'no_emails_found'): ExtractionResult {
+  return {
+    status, emails: [], contact_forms: [],
+    metadata: { paths_attempted: [], paths_successful: [], total_fetch_time_ms: 0, robots_txt_consulted: false },
+  }
+}
 
-    return {
-      id: venue.id,
-      status: result.status,
-      emails: result.emails.length,
-      draft_approvals: draftApprovals,
-      capacity_job_queued: capacityJobQueued,
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Website extraction failed'
-    Sentry.captureException(error, {
-      tags: { component: 'venue_website_extraction_cron', phase: 'process_venue' },
-      extra: { discovery_venue_id: venue.id },
-    })
-    console.error('[venue-website-extraction] extraction_failed', {
-      discovery_venue_id: venue.id,
-      error: message,
-    })
-
-    const fallbackResult = {
-      status: 'fetch_failed' as const,
-      emails: [],
-      contact_forms: [],
-      metadata: {
-        paths_attempted: [],
-        paths_successful: [],
-        total_fetch_time_ms: 0,
-        robots_txt_consulted: false,
-        error: message,
-      },
-    }
-    await admin
-      .from('discovery_venues')
-      .update(buildWebsiteExtractionUpdate(fallbackResult, venue.website_extraction_attempts, attemptedAt))
-      .eq('id', venue.id)
-
-    return { id: venue.id, status: 'fetch_failed', emails: 0, error: message }
+async function resumePendingDrafts(admin: SupabaseAdminClient, venueId: string) {
+  try {
+    const results = await enqueuePendingDraftsForDiscoveryVenue({ db: admin, discoveryVenueId: venueId })
+    return { count: results.filter((draft) => draft.status === 'draft_created').length, failed: false }
+  } catch {
+    console.warn('[venue-website-extraction] pending_draft_lookup_failed', { discovery_venue_id: venueId })
+    return { count: 0, failed: true }
   }
 }
 

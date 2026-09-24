@@ -1,3 +1,5 @@
+import { readSafeDiscoveryVenue } from '@/lib/discovery/venueRepository'
+import type { DurableDiscovery } from '@/lib/discovery/foundation/boundary'
 import { randomUUID } from 'node:crypto'
 import type { AgentAction, Approval, Json, Plan } from '@/lib/types'
 import {
@@ -21,6 +23,7 @@ type PlannerDb = {
 export type CanonicalQuoteKind = 'venue' | 'vendor'
 
 type TrustedQuote = {
+  venue_data?: DurableDiscovery
   kind: CanonicalQuoteKind
   responseId: string
   discoveryId: string
@@ -119,6 +122,7 @@ export async function stageCanonicalQuoteBooking(input: {
     target_type: targetType,
     target_id: quote.discoveryId,
     target_name: quote.partnerName,
+    ...(quote.venue_data ? { venue_data: quote.venue_data } : {}),
     requested_amount_cents: amountCents,
     price_cents: amountCents,
     event_date: eventDate,
@@ -879,8 +883,7 @@ async function loadTrustedQuote(
         id, plan_id, discovery_venue_id, classification,
         classification_confidence, quoted_price_cents, quoted_deal_model,
         availability_confirmed, capacity_confirmed, conditions,
-        raw_response_excerpt, extracted_at,
-        discovery_venues!inner(id, name, claimed_venue_id)
+        raw_response_excerpt, extracted_at
       `)
       .eq('id', responseId)
       .eq('plan_id', planId)
@@ -888,14 +891,18 @@ async function loadTrustedQuote(
     if (error) throw new Error(error.message)
     const row = readRecord(data)
     if (!row) return null
-    const venue = readRelationRecord(row.discovery_venues)
     const discoveryId = readString(row.discovery_venue_id)
     if (!discoveryId) return null
+    const { data: venue, error: venueError } = await db.from('discovery_venues_safe').select('*').eq('id', discoveryId).maybeSingle()
+    if (venueError) throw new Error('canonical_quote_booking_identity_unavailable')
+    const partnerName = readString(readRecord(venue)?.name)
+    if (!partnerName) throw new Error('canonical_quote_booking_independent_identity_required')
     return {
       kind,
       responseId,
       discoveryId,
-      partnerName: readString(venue?.name) ?? 'Venue',
+      partnerName,
+      venue_data: readSafeDiscoveryVenue(venue).venue_data,
       serviceType: null,
       amountCents: readNullableInteger(row.quoted_price_cents),
       dealModel: readString(row.quoted_deal_model),

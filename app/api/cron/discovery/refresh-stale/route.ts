@@ -29,26 +29,10 @@ export async function GET(request: NextRequest) {
 
   const startedAt = Date.now()
   const admin = createServiceRoleClient() as any
-  const [venueResult, vendorResult] = await Promise.all([
-    loadStaleCandidates(admin, 'discovery_venues'),
-    loadStaleCandidates(admin, 'discovery_vendors'),
-  ])
-
+  // Venue observations are on-demand only; broad paid refresh is disabled.
+  const vendorResult = await loadStaleCandidates(admin, 'discovery_vendors')
   const errors: Array<{ entity_type: string; entity_id: string; error: string }> = []
   const results = []
-
-  for (const venue of venueResult.rows) {
-    try {
-      results.push(await refreshDiscoveryEntityFromPlaces({
-        supabase: admin,
-        entityType: 'discovery_venue',
-        entityId: venue.id,
-        apiKey,
-      }))
-    } catch (error) {
-      errors.push({ entity_type: 'discovery_venue', entity_id: venue.id, error: error instanceof Error ? error.message : 'Unknown error' })
-    }
-  }
 
   for (const vendor of vendorResult.rows) {
     try {
@@ -81,7 +65,7 @@ export async function GET(request: NextRequest) {
     changes_detected: results.reduce((sum, result) => sum + result.changes_detected, 0),
     discovery_extraction: discoveryExtraction,
     errors,
-    skipped_query_errors: [...venueResult.errors, ...vendorResult.errors],
+    skipped_query_errors: vendorResult.errors,
   })
 }
 

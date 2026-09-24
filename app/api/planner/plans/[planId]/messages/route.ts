@@ -1,4 +1,4 @@
-import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
+import { serializeVenueDurable } from '@/lib/discovery/venuePersistence'
 /**
  * API route for Agent Planner conversation messages on a single plan.
  *
@@ -1666,7 +1666,7 @@ async function insertAuditLog(
     ip_address: string | null
   }
 ) {
-  const { error } = await db.from('audit_logs').insert(stripGooglePhotoData(payload))
+  const { error } = await db.from('audit_logs').insert(serializeVenueDurable(payload))
   if (error) console.error('Planner audit log insert error:', error)
 }
 

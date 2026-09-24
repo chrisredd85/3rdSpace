@@ -51,7 +51,8 @@ import {
 } from '@/lib/planner/entityStripeReadiness'
 import { readVendorNeedStatusFromMetadata } from '@/lib/planner/vendorNeedStatus'
 import { calculateBreakEvenAttendance } from '@/lib/finance/eventPlanningEconomics'
-import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
+import { GoogleVenueCardDetails } from '@/components/discovery/GoogleVenueCardDetails'
+import { serializePlannerStorage, readPlannerStorage } from '@/lib/discovery/venueBrowserStorage'
 import type { PlanMessage, VendorNeedStatus } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/utils/relativeTime'
@@ -456,7 +457,7 @@ function readLivePlanPayload(): LivePlanPanelPayload {
   if (!raw) return readStoredDraftLivePlanPayload()
 
   try {
-    return normalizeLivePlanPayload(JSON.parse(raw))
+    return normalizeLivePlanPayload(readPlannerStorage(JSON.parse(raw)))
   } catch {
     return readStoredDraftLivePlanPayload()
   }
@@ -469,7 +470,7 @@ function readStoredDraftLivePlanPayload(): LivePlanPanelPayload {
   if (!raw) return emptyPayload
 
   try {
-    return normalizeLivePlanPayload(JSON.parse(raw))
+    return normalizeLivePlanPayload(readPlannerStorage(JSON.parse(raw)))
   } catch {
     return emptyPayload
   }
@@ -1503,6 +1504,8 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
     [activeMessages]
   )
   const venueRecommendations = renderedRecommendations.filter((recommendation) => /venue/i.test(recommendation.type))
+  const representedVenueIds = new Set(venueRecommendations.flatMap(venue => [venue.id, venue.discoveryVenueId].filter((id): id is string => Boolean(id))))
+  const discoveredVenueIds = readLatestDiscoveryVenueIds(activeMessages).filter(id => !representedVenueIds.has(id))
   const selectedVenue = livePlan?.selectedVenue ?? null
   const primaryVenue = selectedVenue
     ? recommendationFromSelectedVenue(selectedVenue, eventSummary)
@@ -1783,7 +1786,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
               }),
               updatedAt: now,
             }
-        const nextPayload = stripGooglePhotoData({ ...current, plan: nextPlan })
+        const nextPayload = serializePlannerStorage({ ...current, plan: nextPlan })
         if (typeof window !== 'undefined') {
           window.localStorage.setItem('planner-live-plan', JSON.stringify(nextPayload))
         }
@@ -1825,7 +1828,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
 
       setLivePayload((current) => {
         if (!current.plan) return current
-        const nextPayload = stripGooglePhotoData({
+        const nextPayload = serializePlannerStorage({
           ...current,
           plan: {
             ...current.plan,
@@ -2344,6 +2347,16 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
             canReportIncorrectInfo={canReportDiscoveryInfo}
             onReportIncorrectInfo={setReportIncorrectEntity}
           />
+          {discoveredVenueIds.length > 0 ? (
+            <section aria-label="Discovered venue options" className="mt-4 space-y-3 rounded-lg border border-tan bg-cream-deep/50 p-5">
+              <h3 className="font-display text-xl font-semibold">Discovered venue options</h3>
+              <p className="text-sm text-ink-soft">Availability and pricing still need confirmation.</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {discoveredVenueIds.map(id => <GoogleVenueCardDetails key={id} venueId={id} />)}
+              </div>
+              {activePlanId ? <Link className="inline-block text-sm font-semibold text-primary underline" href={`/planner/outreach-search?plan=${encodeURIComponent(activePlanId)}`}>Review venue contacts</Link> : null}
+            </section>
+          ) : null}
           <OutreachQuoteComparison
             responses={outreachReplyOptions}
             committedVenue={livePlan?.committedVenue ?? null}
@@ -2916,7 +2929,7 @@ function VenueOutreachStatus({
   const inputValue = emailDrafts[venueId] ?? ''
   const hasLocalDraft = feedback === 'draft_created'
   const isDraftPending = Boolean(pendingDraft || localDraftMessageId || hasLocalDraft || venue.outreachDraftRequestStatus === 'draft_created')
-  const isExtractionPending = venue.outreachDraftRequestStatus === 'extraction_pending'
+  const isExtractionPending = venue.outreachDraftRequestStatus === 'extraction_pending' && venue.contactStatus === 'contact_pending'
   const needsEmail = venue.outreachDraftRequestStatus === 'email_required' ||
     (venue.contactStatus === 'no_contact_available' && !venue.contactEmail)
 
@@ -2966,7 +2979,7 @@ function VenueOutreachStatus({
     )
   }
 
-  if (venue.contactStatus === 'contact_form_available' && venue.contactFormUrl) {
+  if ((venue.contactStatus === 'contact_form_available' || venue.contactStatus === 'contact_link_available') && venue.contactFormUrl) {
     return (
       <a
         href={venue.contactFormUrl}
@@ -2978,7 +2991,7 @@ function VenueOutreachStatus({
         )}
       >
         <Mail className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 truncate">{venue.contactFormLabel ?? 'Open contact form'}</span>
+        <span className="min-w-0 truncate">{venue.contactStatus === 'contact_link_available' ? 'Open contact page' : venue.contactFormLabel ?? 'Open contact form'}</span>
         <ChevronRight className="h-3.5 w-3.5 shrink-0" />
       </a>
     )
@@ -3138,6 +3151,7 @@ function VenueComparisonTable({
                   >
                     {venue.name}
                   </button>
+                  {venue.discoveryVenueId ? <GoogleVenueCardDetails key={venue.discoveryVenueId} venueId={venue.discoveryVenueId} /> : null}
                   {index === 0 ? (
                     <span className="mt-2 inline-flex rounded-full bg-forest-tint px-2 py-1 text-[11px] font-bold uppercase tracking-[0.06em] text-forest">
                       Best fit
@@ -3961,6 +3975,19 @@ function readLatestRecommendationResponse(messages: PlanMessage[]): Record<strin
   }
 
   return null
+}
+
+/** Persisted handoff contains identities only. Each card owns its live Google view. */
+function readLatestDiscoveryVenueIds(messages: PlanMessage[]): string[] {
+  for (const message of [...messages].reverse()) {
+    if (String(message.message_type) !== 'recommendation') continue
+    const metadata = asRecord(message.metadata)
+    const response = asRecord(metadata?.recommendation_response) ?? metadata
+    const rows = response?.discovery_venue_candidates
+    if (!Array.isArray(rows)) return []
+    return [...new Set(rows.map(row => readString(asRecord(row)?.discovery_venue_id)).filter((id): id is string => Boolean(id)))].slice(0, 20)
+  }
+  return []
 }
 
 function readLatestRecommendationEconomics(messages: PlanMessage[]): RecommendationEconomicsSnapshot | null {
