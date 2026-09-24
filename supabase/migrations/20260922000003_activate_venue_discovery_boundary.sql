@@ -55,6 +55,65 @@ BEGIN
 END;
 $require_venue_boundary_write_pause$;
 
+-- Lifecycle reasons are operational evidence, not venue-ranking derivations.
+-- Amend the existing EXPAND validator here (never rewrite the applied ledger).
+-- Scope starts at the actual agent_actions row, follows object-only edges, and
+-- permits only the two existing command marker shapes. All other fields still
+-- recurse through the original provider/provenance checks, including context.
+DO $operational_reason_contract$
+DECLARE v_definition TEXT; v_old TEXT; v_new TEXT;
+BEGIN
+  v_definition := pg_get_functiondef('private.assert_venue_durable_json(jsonb,boolean,text,integer,jsonb,text)'::regprocedure);
+  IF position('-- venue_boundary_operational_reason_v1' IN v_definition) > 0 THEN RETURN; END IF;
+  v_old := $match$      IF v_key IN ('reasoning','reason','fit_score','score','ranker_score') AND NOT v_derived THEN$match$;
+  v_new := $replacement$      -- venue_boundary_operational_reason_v1: exact command paths and typed markers only.
+      IF v_key = 'reason' AND (
+        (p_record_scope = 'agent_actions.result_metadata.canonical_quote_reapproval'
+          AND p_depth = 2
+          AND p_value ?& ARRAY['approval_id','snapshot_hash','reason','required_at']
+          AND NOT EXISTS (SELECT 1 FROM jsonb_object_keys(p_value) k WHERE k NOT IN
+            ('approval_id','snapshot_hash','reason','required_at'))
+          AND p_value->>'approval_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          AND p_value->>'snapshot_hash' ~ '^[0-9a-f]{64}$'
+          AND p_value->>'required_at' ~ '^\d{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$'
+          AND v_item IN ('"approval_expired"'::JSONB,'"approval_stale"'::JSONB))
+        OR (p_record_scope = 'agent_actions.result_metadata.canonical_booking_decline'
+          AND p_depth = 2
+          AND p_value ?& ARRAY['booking_id','booking_kind','approval_id','approval_snapshot_hash','declined_by','declined_at','reason','context']
+          AND NOT EXISTS (SELECT 1 FROM jsonb_object_keys(p_value) k WHERE k NOT IN
+            ('booking_id','booking_kind','approval_id','approval_snapshot_hash','declined_by','declined_at','reason','context'))
+          AND p_value->>'booking_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          AND p_value->>'booking_kind' = 'venue'
+          AND p_value->>'approval_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          AND p_value->>'approval_snapshot_hash' ~ '^[0-9a-f]{64}$'
+          AND p_value->>'declined_by' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          AND p_value->>'declined_at' ~ '^\d{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$'
+          AND jsonb_typeof(p_value->'context') = 'object'
+          AND jsonb_typeof(v_item) = 'string' AND length(btrim(v_item #>> '{}')) BETWEEN 1 AND 1000)
+      ) THEN CONTINUE; END IF;
+      IF v_key IN ('reasoning','reason','fit_score','score','ranker_score') AND NOT v_derived THEN$replacement$;
+  IF position(v_old IN v_definition) = 0 THEN RAISE EXCEPTION 'venue_boundary_reason_validator_contract_changed'; END IF;
+  v_definition := replace(v_definition,v_old,v_new);
+  v_old := $match$      v_id,p_depth+1,v_envelope,v_key);$match$;
+  v_new := $replacement$      v_id,p_depth+1,v_envelope,
+      CASE
+        WHEN p_depth = 0 AND p_record_scope = 'agent_actions' AND v_key = 'result_metadata'
+          AND jsonb_typeof(v_item) = 'object' THEN 'agent_actions.result_metadata'
+        WHEN p_depth = 1 AND p_record_scope = 'agent_actions.result_metadata'
+          AND v_key IN ('canonical_quote_reapproval','canonical_booking_decline')
+          AND jsonb_typeof(v_item) = 'object' THEN p_record_scope || '.' || v_key
+        -- JSON keys must not impersonate the internal path markers.
+        WHEN v_key IN ('agent_actions.result_metadata',
+          'agent_actions.result_metadata.canonical_quote_reapproval',
+          'agent_actions.result_metadata.canonical_booking_decline') THEN NULL
+        ELSE v_key
+      END);$replacement$;
+  IF position(v_old IN v_definition) = 0 THEN RAISE EXCEPTION 'venue_boundary_reason_recursion_contract_changed'; END IF;
+  v_definition := replace(v_definition,v_old,v_new);
+  EXECUTE v_definition;
+END;
+$operational_reason_contract$;
+
 -- Table revocation alone does not remove pre-existing column ACLs.
 REVOKE ALL ON public.discovery_venues FROM PUBLIC, anon, authenticated, service_role;
 DO $column_acl$

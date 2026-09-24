@@ -823,6 +823,8 @@ describeIfDatabase('Prompt 8 realized execution-mode lifecycles', () => {
     `)).toBe('125000|flat_fee')
   })
 
+  // This lifecycle deliberately waits for a four-second approval expiry and then
+  // verifies completion. Allow DB round trips beyond that wait; keep the expiry assertions.
   it('turns a trusted quote into one approved canonical booking and confirms visible plan state', async () => {
     const actionPayloadSql = canonicalQuotePayloadSql({
       quoteKind: 'venue',
@@ -1187,7 +1189,7 @@ describeIfDatabase('Prompt 8 realized execution-mode lifecycles', () => {
       where booking.id = '${bookingId}';
     `)).toBe('confirmed|complete|booked|authorized|true|125000')
     expect(psql(`select count(*) from public.plan_messages where plan_id = '${ids.quotePlan}' and metadata ->> 'kind' = 'canonical_booking_confirmed';`)).toBe('1')
-  })
+  }, 15_000)
 
   it('accepts and cancels a later partner quote after the first booking moves the plan to booked', () => {
     expect(psql(`select status::text from public.plans where id = '${ids.quotePlan}';`)).toBe('booked')

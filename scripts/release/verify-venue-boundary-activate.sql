@@ -134,10 +134,18 @@ VALUES ('00000000-0000-0000-0000-000000000001','GOOGLE_CANARY','San Francisco','
 INSERT INTO public.discovery_venues(id,name,city,state,source_external_id) VALUES ('00000000-0000-0000-0000-000000000003','Old prefixed identity','City','CA','places/prefixed');
 CREATE TEMP TABLE original_rows AS SELECT to_jsonb(v) AS value FROM public.discovery_venues v;
 \ir ../../supabase/migrations/20260922000002_expand_venue_discovery_boundary.sql
+CREATE TEMP TABLE original_validator_contract AS
+SELECT oid,proargtypes,prorettype,prosecdef,proconfig,proacl FROM pg_proc
+WHERE oid='private.assert_venue_durable_json(jsonb,boolean,text,integer,jsonb,text)'::regprocedure;
 \ir ../../supabase/migrations/20260922000003_activate_venue_discovery_boundary.sql
 \ir ../../supabase/migrations/20260922000002_expand_venue_discovery_boundary.sql
 \ir ../../supabase/migrations/20260922000003_activate_venue_discovery_boundary.sql
 CREATE FUNCTION pg_temp.assert_true(ok boolean,label text) RETURNS void LANGUAGE plpgsql AS $$ BEGIN IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'FAIL: %',label; END IF; RAISE NOTICE 'PASS: %',label; END $$;
+SELECT pg_temp.assert_true((SELECT row(p.oid,p.proargtypes,p.prorettype,p.prosecdef,p.proconfig,p.proacl)
+  IS NOT DISTINCT FROM row(o.oid,o.proargtypes,o.prorettype,o.prosecdef,o.proconfig,o.proacl)
+  FROM pg_proc p CROSS JOIN original_validator_contract o
+  WHERE p.oid='private.assert_venue_durable_json(jsonb,boolean,text,integer,jsonb,text)'::regprocedure),
+  'operational amendment preserves validator OID, signature, security, search path and ACL');
 SELECT pg_temp.assert_true((SELECT to_jsonb(v) FROM public.discovery_venues v WHERE id='00000000-0000-0000-0000-000000000001')=(SELECT value FROM original_rows WHERE value->>'id'='00000000-0000-0000-0000-000000000001'),'historical rows untouched');
 SELECT pg_temp.assert_true((SELECT name IS NULL AND city IS NULL AND google_rating IS NULL FROM public.discovery_venues_safe WHERE id='00000000-0000-0000-0000-000000000001'),'legacy content masked');
 SELECT pg_temp.assert_true(NOT has_table_privilege('service_role','public.discovery_venues','UPDATE'),'stale role cannot update');
@@ -433,6 +441,7 @@ END;
 $retention_contract$;
 SELECT pg_temp.assert_true(NOT EXISTS(SELECT 1 FROM pg_proc WHERE pronamespace='private'::regnamespace AND prosrc ~* 'EXCEPTION[[:space:]]+WHEN'),'no recursive exception subtransactions');
 \ir verify-venue-persistence-real-rpcs.sql
+\ir verify-venue-operational-reasons.sql
 
 -- Hundreds of nodes within the explicit depth bound exercise the real trigger.
 -- Handler-free recursive bodies provide the structural proof of zero per-node

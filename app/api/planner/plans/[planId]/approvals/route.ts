@@ -50,6 +50,8 @@ import {
 import {
   executeApprovedGmailOutreach,
   GmailDispatchRecoveryPendingError,
+  insertGmailApprovalMessage,
+  isGmailApprovedOutreachAction,
 } from '@/lib/outreach/gmailApprovalFlow'
 import { enqueueDraftsAfterVenueApproval } from '@/lib/planner/discoveryOutreachDrafts'
 import {
@@ -416,7 +418,8 @@ export async function PATCH(
       const superseded = await loadApproval(writeDb, planId, existingApproval.id) as VersionedApproval | null
       if (superseded) await syncApprovalMessageMetadata(auth.db, writeDb, planId, superseded)
       await insertSupersedingApprovalMessage(auth.db, writeDb, {
-        planId,
+        plan,
+        action: linkedAction,
         oldApprovalId: existingApproval.id,
         approval: replacement.approval,
       })
@@ -1039,27 +1042,59 @@ async function insertSupersedingApprovalMessage(
   readDb: PlannerDb,
   writeDb: PlannerDb,
   input: {
-    planId: string
+    plan: Plan
+    action: AgentAction
     oldApprovalId: string
     approval: VersionedApproval
   }
 ) {
-  const { data, error } = await readDb
+  const isGmail = isGmailApprovedOutreachAction(input.action)
+  const { data, error } = await (isGmail ? writeDb : readDb)
     .from('plan_messages')
     .select('id, content, metadata')
-    .eq('plan_id', input.planId)
+    .eq('plan_id', input.plan.id)
     .eq('message_type', 'approval_request')
 
+  if (error && isGmail) throw new Error('Failed to load the superseded Gmail approval message')
   if (error) return
-  const source = (Array.isArray(data) ? data : []).find((row) => {
+  const messages = Array.isArray(data) ? data : []
+  // Before ACTIVATE, the RPC itself repoints the existing card. Keep that
+  // contract usable during rollout without creating a duplicate current card.
+  if (isGmail && messages.some((row) => (
+    readString(readRecord(readRecord(row.metadata)?.approval)?.id) === input.approval.id
+  ))) return
+  const source = messages.find((row) => {
     const metadata = readRecord(row.metadata)
     return readString(readRecord(metadata?.approval)?.id) === input.oldApprovalId
+      || (isGmail && readString(metadata?.approval_id) === input.oldApprovalId)
   })
+
+  if (isGmail) {
+    // The RPC deliberately replaces historical Gmail metadata with an operational
+    // superseded marker. Build the successor from the current trusted payload;
+    // never copy the old message's content, target facts, or snapshot hash.
+    const action = await loadAgentAction(writeDb, input.approval.agent_action_id)
+    if (!action || action.plan_id !== input.plan.id || action.approval_id !== input.approval.id
+      || !isGmailApprovedOutreachAction(action)) {
+      throw new Error('Current Gmail approval action is unavailable')
+    }
+    const payload = readRecord(action.payload_json) ?? {}
+    await insertGmailApprovalMessage(writeDb, {
+      plan: input.plan,
+      action,
+      approval: input.approval,
+      payload,
+      targetCount: Array.isArray(payload.targets) ? payload.targets.length : 0,
+      supersedesMessageId: source?.id ?? null,
+    })
+    return
+  }
+
   if (!source) return
   const metadata = readRecord(source.metadata) ?? {}
   const oldEmbeddedApproval = readRecord(metadata.approval) ?? {}
   const { error: insertError } = await writeDb.from('plan_messages').insert({
-    plan_id: input.planId,
+    plan_id: input.plan.id,
     role: 'agent',
     content: source.content,
     message_type: 'approval_request',

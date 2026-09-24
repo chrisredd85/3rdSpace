@@ -772,7 +772,7 @@ function buildApprovalMessageMetadata(
   }
 }
 
-async function insertGmailApprovalMessage(
+export async function insertGmailApprovalMessage(
   db: PlannerDb,
   input: {
     plan: Plan

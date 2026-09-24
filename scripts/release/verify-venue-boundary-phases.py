@@ -25,7 +25,7 @@ MIGRATIONS = {
     "expand": ("20260922000002_expand_venue_discovery_boundary.sql",
                "0bb8f3fd634388d2a77c505115f0ebffa28735dd074223cf3363b494422d6152"),
     "activate": ("20260922000003_activate_venue_discovery_boundary.sql",
-                 "3b101ee6e931424ab61be3f56275c8c52638a43139016f7170d83509481916cf"),
+                 "439c16ce162ae2fa9eb148a8cd5e3432ad5294afbc3c98cec651ba5f42be5d9a"),
     "harden": ("20260922000004_harden_venue_discovery_boundary.sql",
                "d4cd5d96c08145e81dfe256e1f7692fb2ea56ccb2a52e2eed3fe24c424e91249"),
 }
