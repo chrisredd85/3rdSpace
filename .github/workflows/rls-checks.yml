@@ -135,6 +135,9 @@ on:
 jobs:
   rls:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - name: Checkout code
@@ -159,8 +162,25 @@ jobs:
         with:
           version: latest
 
+      - name: Authenticate Supabase image pulls from GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Start local Supabase
-        run: supabase start
+        run: |
+          # SQL and real REST permission tests need PostgreSQL, PostgREST, and Kong.
+          for supabase_attempt in 1 2 3; do
+            if supabase start --exclude gotrue,realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor; then
+              exit 0
+            fi
+            if [ "$supabase_attempt" -lt 3 ]; then
+              sleep "$((supabase_attempt * 30))"
+            fi
+          done
+          exit 1
 
       - name: Reset local database
         run: supabase db reset
