@@ -19,6 +19,9 @@ import { buildTicketTierRollups, classifyTicketTier } from '@/lib/server/ticket-
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { enqueueOpportunityInviteSendJobs } from '@/lib/server/opportunity-email-worker'
 import { executeApprovedGmailOutreach } from '@/lib/outreach/gmailApprovalFlow'
+import { independentVenueEvidence, readSafeDiscoveryVenue, venueActionEnvelope } from '@/lib/discovery/venueRepository'
+import { assertDurableVenueContent } from '@/lib/discovery/venuePersistence'
+import { reconcileApprovalMessages } from '@/components/planner/planner-page/plannerState'
 
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
@@ -97,6 +100,7 @@ class MemoryDb {
   selects: Array<{ table: string; columns: string }> = []
   mutations: Array<{ table: string; operation: 'insert' | 'update' }> = []
   nextMutationError: { table: string; operation: 'insert' | 'update'; code: string; message: string } | null = null
+  gmailMessageContract: 'historical_marker' | 'repointed' = 'historical_marker'
   private sequence = 0
   private rpcQueue = Promise.resolve()
 
@@ -473,8 +477,15 @@ class MemoryDb {
     }
 
     const now = new Date().toISOString()
+    const isGmail = action.action_type === 'email' && action.payload_json?.kind === 'gmail_approved_outreach'
+    const snapshotApproval = (params.p_snapshot_json as Row)?.approval
     const replacement = {
       ...previous,
+      ...(isGmail ? {
+        action_label: snapshotApproval?.action_label,
+        package_details: snapshotApproval?.package_details,
+        delivery_email: snapshotApproval?.delivery_email,
+      } : {}),
       id: '650e8400-e29b-41d4-a716-446655440099',
       status: 'pending',
       price_cents: params.p_requested_amount_cents,
@@ -502,6 +513,23 @@ class MemoryDb {
     previous.status = 'superseded'
     previous.superseded_at = now
     previous.superseded_by_approval_id = replacement.id
+    if (isGmail) {
+      // Model ACTIVATE's real SQL contract: history keeps the original approval
+      // identity/hash, without an executable nested approval or old target facts.
+      for (const message of this.rows.plan_messages) {
+        if (message.plan_id === previous.plan_id && message.message_type === 'approval_request' && (
+          message.metadata?.approval?.id === previous.id || message.metadata?.approval_id === previous.id
+        )) {
+          message.metadata = this.gmailMessageContract === 'historical_marker' ? {
+            kind: 'gmail_approved_outreach', status: 'superseded', approval_id: previous.id,
+            superseded_by_approval_id: replacement.id, snapshot_hash: previous.snapshot_hash,
+          } : {
+            ...message.metadata, status: 'pending', approval_id: replacement.id,
+            approval: { ...message.metadata.approval, ...replacement },
+          }
+        }
+      }
+    }
     action.approval_id = replacement.id
     action.amount_cents = params.p_requested_amount_cents
     action.payload_json = params.p_action_payload_json
@@ -705,6 +733,52 @@ function remapCreatedActionApproval(db: MemoryDb, created: Row) {
   created.agentAction.approval_id = APPROVAL_ID
   created.approval.id = APPROVAL_ID
   created.approval.agent_action_id = ACTION_ID
+}
+
+function seedGmailApproval(db: MemoryDb) {
+  const evidence = independentVenueEvidence('venue_site', 'https://example.com/events', '2026-09-22T00:00:00Z')
+  const venue = readSafeDiscoveryVenue({
+    id: VENUE_ID_1, name: 'Current independent hall', contact_email: 'events@example.com',
+    metadata: { field_provenance: { name: evidence, contact_email: evidence } },
+  })
+  const action = {
+    id: ACTION_ID, plan_id: PLAN_ID, action_type: 'email', provider: 'Gmail',
+    description: 'Send reviewed Gmail outreach', target_type: 'outreach', target_id: null,
+    payload_json: {
+      kind: 'gmail_approved_outreach', sender_email: 'host@example.com',
+      subject: 'Current event request', body_text: 'Hello {{venue_name}}, can you host our event?',
+      targets: [{
+        kind: 'venue', name: venue.name, email: venue.contact_email, discoveryVenueId: venue.id,
+        venue_data: venueActionEnvelope(venue),
+      }],
+    },
+    amount_cents: 0, currency: 'usd', status: 'pending', approval_id: APPROVAL_ID,
+    executed_at: null, result_metadata: {},
+  }
+  const approval: Row = {
+    id: APPROVAL_ID, plan_id: PLAN_ID, agent_action_id: ACTION_ID,
+    action_label: 'Send outreach to 1 venue', provider: 'Gmail', event_date: null,
+    price_cents: 0, fees_cents: 0, requested_amount_cents: 0, status: 'pending',
+    refund_terms: 'No booking or payment happens.', cancellation_terms: 'Cancel before approval.',
+    package_details: 'Current event request — Current independent hall <events@example.com>',
+    delivery_email: 'events@example.com', notes: null, expires_at: '2099-01-01T00:00:00.000Z',
+    authorized_amount_cents: null, authorized_by: null, authorized_at: null,
+    approved_by: null, approved_at: null,
+  }
+  db.rows.agent_actions.push(action)
+  db.rows.approvals.push(approval)
+  setV2ApprovalSnapshot(db, approval.id)
+  const message = {
+    id: 'old-gmail-card', plan_id: PLAN_ID, role: 'agent', message_type: 'approval_request',
+    content: 'OBSOLETE historical outreach copy',
+    metadata: {
+      kind: 'gmail_approved_outreach', approval_id: approval.id, approval: { ...approval },
+      partner_targets: [{ name: 'OBSOLETE Google venue name', email: 'obsolete@example.com' }],
+      google_photo_names: ['places/old/photos/obsolete-photo-token'],
+    },
+  }
+  db.rows.plan_messages.push(message)
+  return { approval, action, message }
 }
 
 function markAuthorizedCrashWindow(
@@ -1811,6 +1885,174 @@ describe('MVP launch API contracts', () => {
     expect(rpc).toHaveBeenCalledWith('supersede_approval_version', expect.any(Object))
     expect(db.rows.approvals).toHaveLength(1)
     expect(db.rows.approvals[0].status).toBe('pending')
+  })
+
+  it.each(['edit', 'request_reapproval'] as const)(
+    'creates one fresh Gmail card after %s while retaining the SQL history marker across reload',
+    async (command) => {
+      const { approval: previous, message: oldMessage } = seedGmailApproval(db)
+      if (command === 'request_reapproval') previous.status = 're_approval_required'
+      const originalHash = previous.snapshot_hash
+      const originalSnapshot = JSON.stringify(previous.snapshot_json)
+      const requestBody = {
+        approvalId: APPROVAL_ID, command, expectedSnapshotHash: originalHash,
+        ...(command === 'edit' ? {
+          changes: { requestedAmountCents: 0, eventDate: '2026-08-02', notes: 'Host-reviewed date' },
+        } : {}),
+      }
+
+      const response = await updateApproval(
+        makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, requestBody, 'PATCH'),
+        { params: { planId: PLAN_ID } },
+      )
+      const updated = await readJson(response)
+
+      expect(response.status).toBe(200)
+      expect(db.rows.approvals).toHaveLength(2)
+      expect(updated.approval).toMatchObject({
+        status: 'pending', supersedes_approval_id: APPROVAL_ID, requested_amount_cents: 0,
+        authorized_amount_cents: null, authorized_by: null, authorized_at: null,
+        approved_by: null, approved_at: null,
+      })
+      expect(updated.approval.snapshot_hash).not.toBe(originalHash)
+      expect(previous.snapshot_hash).toBe(originalHash)
+      expect(JSON.stringify(previous.snapshot_json)).toBe(originalSnapshot)
+      expect(oldMessage.content).toBe('OBSOLETE historical outreach copy')
+      const historicalMarker = {
+        kind: 'gmail_approved_outreach', status: 'superseded', approval_id: APPROVAL_ID,
+        superseded_by_approval_id: updated.approval.id, snapshot_hash: originalHash,
+      }
+      expect(oldMessage.metadata).toEqual(historicalMarker)
+
+      expect(db.rows.plan_messages).toHaveLength(2)
+      const fresh = db.rows.plan_messages.find((row) => row.id !== oldMessage.id)!
+      expect(fresh.content).toContain('Approving sends 1 email')
+      expect(fresh.metadata).toMatchObject({
+        kind: 'gmail_approved_outreach', supersedes_message_id: oldMessage.id, queued_invite_count: 1,
+        partner_targets: [{
+          kind: 'venue', name: 'Current independent hall', email: 'events@example.com',
+          discovery_venue_id: VENUE_ID_1, venue_data: db.rows.agent_actions[0].payload_json.targets[0].venue_data,
+        }],
+        approval: { id: updated.approval.id, status: 'pending', snapshot_hash: updated.approval.snapshot_hash },
+      })
+      expect(JSON.stringify(fresh)).not.toMatch(/OBSOLETE|obsolete@example|obsolete-photo-token/)
+      expect(JSON.stringify(fresh)).not.toContain(originalHash)
+      expect(() => assertDurableVenueContent(fresh)).not.toThrow()
+      const currentSnapshotInput = {
+        plan: db.rows.plans[0] as any, approval: updated.approval,
+        action: db.rows.agent_actions[0] as any, payload: db.rows.agent_actions[0].payload_json,
+      }
+      expect(updated.approval.snapshot_hash).toBe(buildApprovalSnapshotHashV2(currentSnapshotInput))
+      expect(updated.confirmationSnapshot).toEqual(buildApprovalSnapshotV2(currentSnapshotInput))
+
+      // Use the actual reload reconciler: only the successor has an executable
+      // approval card; the original remains a non-executable history marker.
+      const reloaded = reconcileApprovalMessages(
+        JSON.parse(JSON.stringify(db.rows.plan_messages)),
+        [{ ...updated.approval, available_actions: updated.availableActions, ui_status: updated.uiStatus }],
+      ) as Row[]
+      expect(reloaded.find((row) => row.id === oldMessage.id)?.metadata).toEqual(historicalMarker)
+      const cards = reloaded.filter((row) => row.metadata?.approval)
+      expect(cards).toHaveLength(1)
+      expect(cards[0].metadata.approval.id).toBe(updated.approval.id)
+      expect(cards[0].metadata.available_actions).toContain('authorize')
+
+      const replay = await updateApproval(
+        makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, requestBody, 'PATCH'),
+        { params: { planId: PLAN_ID } },
+      )
+      const oldAuthorization = await updateApproval(
+        makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+          approvalId: APPROVAL_ID, command: 'authorize', expectedSnapshotHash: originalHash,
+        }, 'PATCH'),
+        { params: { planId: PLAN_ID } },
+      )
+      expect(replay.status).toBe(409)
+      expect(oldAuthorization.status).toBe(409)
+      expect(db.rows.plan_messages).toHaveLength(2)
+      expect(db.rows.outreach_messages).toHaveLength(0)
+      expect(mockExecuteApprovedGmailOutreach).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['edit', 'request_reapproval'] as const)(
+    'retains one current Gmail card after %s when the pre-ACTIVATE RPC already repoints it',
+    async (command) => {
+      db.gmailMessageContract = 'repointed'
+      const { approval, message } = seedGmailApproval(db)
+      const originalHash = approval.snapshot_hash
+      const originalSnapshot = JSON.stringify(approval.snapshot_json)
+
+      const response = await updateApproval(
+        makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+          approvalId: APPROVAL_ID, command, expectedSnapshotHash: originalHash,
+          ...(command === 'edit' ? {
+            changes: { requestedAmountCents: 0, eventDate: null, notes: 'Updated note' },
+          } : {}),
+        }, 'PATCH'),
+        { params: { planId: PLAN_ID } },
+      )
+      const updated = await readJson(response)
+
+      expect(response.status).toBe(200)
+      expect(db.rows.approvals).toHaveLength(2)
+      expect(db.rows.plan_messages).toHaveLength(1)
+      expect(db.mutations.filter((entry) => entry.table === 'plan_messages')).toHaveLength(0)
+      expect(message.metadata).toMatchObject({
+        approval_id: updated.approval.id,
+        approval: { id: updated.approval.id, status: 'pending', snapshot_hash: updated.approval.snapshot_hash },
+      })
+      expect(approval.snapshot_hash).toBe(originalHash)
+      expect(JSON.stringify(approval.snapshot_json)).toBe(originalSnapshot)
+      const reloaded = reconcileApprovalMessages(
+        JSON.parse(JSON.stringify(db.rows.plan_messages)),
+        [{ ...updated.approval, available_actions: updated.availableActions, ui_status: updated.uiStatus }],
+      ) as Row[]
+      expect(reloaded.filter((row) => row.metadata?.approval)).toHaveLength(1)
+      expect(reloaded[0].metadata.approval.id).toBe(updated.approval.id)
+      expect(reloaded[0].metadata.available_actions).toContain('authorize')
+      expect(mockExecuteApprovedGmailOutreach).not.toHaveBeenCalled()
+    },
+  )
+
+  it('reports a Gmail successor-card insert failure instead of claiming the edit completed', async () => {
+    const { approval: previous, message: oldMessage } = seedGmailApproval(db)
+    const originalHash = previous.snapshot_hash
+    db.nextMutationError = { table: 'plan_messages', operation: 'insert', code: 'XX000', message: 'Insert unavailable' }
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID, command: 'edit', expectedSnapshotHash: originalHash,
+        changes: { requestedAmountCents: 0, eventDate: null, notes: 'Updated note' },
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } },
+    )
+
+    expect(response.status).toBe(500)
+    expect(db.rows.approvals).toHaveLength(2)
+    expect(db.rows.approvals[1]).toMatchObject({ status: 'pending', authorized_at: null })
+    expect(oldMessage.metadata).toMatchObject({ status: 'superseded', approval_id: APPROVAL_ID, snapshot_hash: originalHash })
+    expect(db.rows.plan_messages).toHaveLength(1)
+    expect(mockExecuteApprovedGmailOutreach).not.toHaveBeenCalled()
+  })
+
+  it('checks plan ownership before changing Gmail approval history or inserting a card', async () => {
+    const { approval } = seedGmailApproval(db)
+    db.rows.plans[0].user_id = 'another-owner'
+
+    const response = await updateApproval(
+      makeRequest(`/api/planner/plans/${PLAN_ID}/approvals`, {
+        approvalId: APPROVAL_ID, command: 'request_reapproval', expectedSnapshotHash: approval.snapshot_hash,
+      }, 'PATCH'),
+      { params: { planId: PLAN_ID } },
+    )
+
+    expect(response.status).toBe(404)
+    expect(db.rows.approvals).toHaveLength(1)
+    expect(db.rows.approvals[0].status).toBe('pending')
+    expect(db.rows.plan_messages).toHaveLength(1)
+    expect(mockCreateServiceRoleClient).not.toHaveBeenCalled()
+    expect(mockExecuteApprovedGmailOutreach).not.toHaveBeenCalled()
   })
 
   it('edits $95.50 as a superseding pending version before separate authorization', async () => {

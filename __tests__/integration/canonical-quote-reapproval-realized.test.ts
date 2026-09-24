@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { seedIndependentDiscoveryVenue } from '@/test-utils/discoveryVenueDbFixture'
 
 const DATABASE_URL = process.env.CANONICAL_REAPPROVAL_TEST_DATABASE_URL
   ?? 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
@@ -20,6 +21,14 @@ const ids = {
   genericApproval: 'ea400000-0000-4000-8000-000000000004',
   adminTask: 'ea500000-0000-4000-8000-000000000001',
 }
+
+const discoveryPlaceIds = {
+  expired: 'canonical-reapproval-expired-venue',
+  stale: 'canonical-reapproval-stale-venue',
+  sideEffect: 'canonical-reapproval-started-venue',
+  generic: 'canonical-reapproval-generic-venue',
+}
+const venueIds = { expired: '', stale: '', sideEffect: '', generic: '' }
 
 const hashes = {
   expired: 'a'.repeat(64),
@@ -82,6 +91,11 @@ function canConnect(): boolean {
 function cleanup(): void {
   psql(`
     delete from public.plans where user_id = '${ids.user}';
+    delete from public.discovery_venues
+    where source = 'google_places' and source_external_id in (
+      '${discoveryPlaceIds.expired}', '${discoveryPlaceIds.stale}',
+      '${discoveryPlaceIds.sideEffect}', '${discoveryPlaceIds.generic}'
+    );
     delete from public.users where id = '${ids.user}';
     delete from auth.users where id = '${ids.user}';
   `)
@@ -89,6 +103,12 @@ function cleanup(): void {
 
 function setup(): void {
   cleanup()
+  const names = { expired: 'Venue A', stale: 'Venue B', sideEffect: 'Venue C', generic: 'Venue D' }
+  for (const key of Object.keys(discoveryPlaceIds) as Array<keyof typeof discoveryPlaceIds>) {
+    venueIds[key] = seedIndependentDiscoveryVenue(psql, {
+      placeId: discoveryPlaceIds[key], name: names[key],
+    }).id
+  }
   psql(`
     insert into auth.users (id, aud, role, email, created_at, updated_at)
     values ('${ids.user}', 'authenticated', 'authenticated', 'canonical-reapproval@example.com', now(), now());
@@ -109,17 +129,17 @@ function setup(): void {
       id, plan_id, action_type, description, provider, target_type, target_id,
       amount_cents, status, payload_json, result_metadata
     ) values
-      ('${ids.expiredAction}', '${ids.expiredPlan}', 'concierge_queue', 'Book expired quote', 'Venue A', 'discovery_venue', 'ea600000-0000-4000-8000-000000000001', 50000, 'pending',
-       '{"kind":"canonical_quote_booking","quote_kind":"venue","target_type":"discovery_venue","target_id":"ea600000-0000-4000-8000-000000000001","requested_amount_cents":50000,"price_cents":50000,"requires_event_materialization":true}',
+      ('${ids.expiredAction}', '${ids.expiredPlan}', 'concierge_queue', 'Book expired quote', 'Venue A', 'discovery_venue', '${venueIds.expired}', 50000, 'pending',
+       '{"kind":"canonical_quote_booking","quote_kind":"venue","target_type":"discovery_venue","target_id":"${venueIds.expired}","requested_amount_cents":50000,"price_cents":50000,"requires_event_materialization":true}',
        '{"canonical_booking_status":"waiting_for_event_materialization","outbound_message_sent":false}'),
-      ('${ids.staleAction}', '${ids.stalePlan}', 'concierge_queue', 'Book stale quote', 'Venue B', 'discovery_venue', 'ea600000-0000-4000-8000-000000000002', 60000, 'pending',
-       '{"kind":"canonical_quote_booking","quote_kind":"venue","target_type":"discovery_venue","target_id":"ea600000-0000-4000-8000-000000000002","requested_amount_cents":60000,"price_cents":60000,"requires_event_materialization":true}',
+      ('${ids.staleAction}', '${ids.stalePlan}', 'concierge_queue', 'Book stale quote', 'Venue B', 'discovery_venue', '${venueIds.stale}', 60000, 'pending',
+       '{"kind":"canonical_quote_booking","quote_kind":"venue","target_type":"discovery_venue","target_id":"${venueIds.stale}","requested_amount_cents":60000,"price_cents":60000,"requires_event_materialization":true}',
        '{"canonical_booking_status":"waiting_for_event_materialization","outbound_message_sent":false}'),
-      ('${ids.sideEffectAction}', '${ids.sideEffectPlan}', 'concierge_queue', 'Book started quote', 'Venue C', 'discovery_venue', 'ea600000-0000-4000-8000-000000000003', 70000, 'pending',
-       '{"kind":"canonical_quote_booking","quote_kind":"venue","target_type":"discovery_venue","target_id":"ea600000-0000-4000-8000-000000000003","requested_amount_cents":70000,"price_cents":70000,"requires_event_materialization":true}',
+      ('${ids.sideEffectAction}', '${ids.sideEffectPlan}', 'concierge_queue', 'Book started quote', 'Venue C', 'discovery_venue', '${venueIds.sideEffect}', 70000, 'pending',
+       '{"kind":"canonical_quote_booking","quote_kind":"venue","target_type":"discovery_venue","target_id":"${venueIds.sideEffect}","requested_amount_cents":70000,"price_cents":70000,"requires_event_materialization":true}',
        '{"canonical_booking_status":"waiting_for_event_materialization","outbound_message_sent":false}'),
-      ('${ids.genericAction}', '${ids.genericPlan}', 'hold_request', 'Generic started hold', 'Venue D', 'discovery_venue', 'ea600000-0000-4000-8000-000000000004', 80000, 'pending',
-       '{"kind":"canonical_quote_booking","quote_kind":"venue","target_type":"discovery_venue","target_id":"ea600000-0000-4000-8000-000000000004","requested_amount_cents":80000,"price_cents":80000,"requires_event_materialization":true}',
+      ('${ids.genericAction}', '${ids.genericPlan}', 'hold_request', 'Generic started hold', 'Venue D', 'discovery_venue', '${venueIds.generic}', 80000, 'pending',
+       '{"kind":"canonical_quote_booking","quote_kind":"venue","target_type":"discovery_venue","target_id":"${venueIds.generic}","requested_amount_cents":80000,"price_cents":80000,"requires_event_materialization":true}',
        '{"canonical_booking_status":"waiting_for_event_materialization","outbound_message_sent":false}');
 
     insert into public.approvals (
@@ -345,7 +365,7 @@ describeIfDatabase('canonical quote reapproval command realized behavior', () =>
         plan_id, approval_id, partner_kind, partner_id, amount_cents
       ) values (
         '${ids.stalePlan}', '${ids.staleApproval}', 'venue',
-        'ea600000-0000-4000-8000-000000000002', 60000
+        '${venueIds.stale}', 60000
       );
     `)
     try {

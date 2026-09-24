@@ -1,4 +1,5 @@
 import { execFile, execFileSync } from 'node:child_process'
+import { seedIndependentDiscoveryVenue } from '@/test-utils/discoveryVenueDbFixture'
 import { prepareExternalCheckoutHandoff } from '@/lib/planner/execution/externalCheckout'
 
 const DATABASE_URL = process.env.PROMPT8_TEST_DATABASE_URL
@@ -61,6 +62,11 @@ const ids = {
   legacyDowngradeEvent: 'e8900000-0000-4000-8000-000000000098',
   invalidTermSuccessorApproval: 'e8800000-0000-4000-8000-000000000098',
   vendorPackage: 'e8a00000-0000-4000-8000-000000000001',
+}
+
+const discoveryPlaceIds = {
+  venue: 'prompt8-realized-venue',
+  wrongVenue: 'prompt8-realized-wrong-venue',
 }
 
 const hashes = {
@@ -217,7 +223,11 @@ function cleanup(): void {
     delete from public.vendor_bookings where organizer_id = '${ids.user}';
     delete from public.plans where user_id = '${ids.user}';
     delete from public.events where builder_id = '${ids.builder}';
-    delete from public.discovery_venues where id in ('${ids.discoveryVenue}', '${ids.wrongDiscoveryVenue}');
+    delete from public.discovery_venues
+    where id in ('${ids.discoveryVenue}', '${ids.wrongDiscoveryVenue}')
+      or (source = 'google_places' and source_external_id in (
+        '${discoveryPlaceIds.venue}', '${discoveryPlaceIds.wrongVenue}'
+      ));
     delete from public.venues where id in ('${ids.venue}', '${ids.wrongVenue}');
     delete from public.vendor_profiles where id in ('${ids.vendor}', '${ids.wrongVendor}');
     delete from public.discovery_vendors where id = '${ids.discoveryVendor}';
@@ -260,10 +270,22 @@ function setup(): void {
       ('${ids.venue}', '${ids.operator}', 'Prompt 8 Claimed Venue', true, 'self_signup'),
       ('${ids.wrongVenue}', '${ids.wrongVendorUser}', 'Prompt 8 Wrong Venue', true, 'self_signup');
 
-    insert into public.discovery_venues (id, name, is_claimed, claimed_venue_id)
-    values
-      ('${ids.discoveryVenue}', 'Prompt 8 Discovery Venue', true, '${ids.venue}'),
-      ('${ids.wrongDiscoveryVenue}', 'Prompt 8 Wrong Discovery Venue', true, '${ids.wrongVenue}');
+  `)
+  const venue = seedIndependentDiscoveryVenue(psql, {
+    placeId: discoveryPlaceIds.venue, name: 'Prompt 8 Discovery Venue',
+  })
+  ids.discoveryVenue = venue.id
+  ids.wrongDiscoveryVenue = seedIndependentDiscoveryVenue(psql, {
+    placeId: discoveryPlaceIds.wrongVenue, name: 'Prompt 8 Wrong Discovery Venue',
+  }).id
+  // Claim binding is privileged fixture setup, separate from independent facts.
+  psql(`
+    update public.discovery_venues
+    set is_claimed = true, claimed_venue_id = '${ids.venue}'
+    where id = '${ids.discoveryVenue}';
+    update public.discovery_venues
+    set is_claimed = true, claimed_venue_id = '${ids.wrongVenue}'
+    where id = '${ids.wrongDiscoveryVenue}';
 
     insert into public.discovery_vendors (id, source, name, service_type)
     values ('${ids.discoveryVendor}', 'manual_seed', 'Prompt 8 Discovery Vendor', 'catering');
@@ -307,10 +329,10 @@ function setup(): void {
        '{"kind":"external_checkout","external_url":"https://tickets.example/cancel"}'),
       ('${ids.holdCompleteAction}', '${ids.holdCompletePlan}', 'hold_request', 'Place venue hold',
        'Prompt 8 Discovery Venue', 'discovery_venue', '${ids.discoveryVenue}', 5000, 'pending',
-       '{"kind":"venue_hold","target_name":"Prompt 8 Discovery Venue"}'),
+       ${jsonLiteral({ kind: 'venue_hold', target_name: 'Prompt 8 Discovery Venue', venue_data: venue.venueData })}),
       ('${ids.holdCancelAction}', '${ids.holdCancelPlan}', 'hold_request', 'Place venue hold',
        'Prompt 8 Discovery Venue', 'discovery_venue', '${ids.discoveryVenue}', 5000, 'pending',
-       '{"kind":"venue_hold","target_name":"Prompt 8 Discovery Venue"}');
+       ${jsonLiteral({ kind: 'venue_hold', target_name: 'Prompt 8 Discovery Venue', venue_data: venue.venueData })});
 
     insert into public.approvals (
       id, plan_id, agent_action_id, action_label, provider, event_date, status,
@@ -801,6 +823,8 @@ describeIfDatabase('Prompt 8 realized execution-mode lifecycles', () => {
     `)).toBe('125000|flat_fee')
   })
 
+  // This lifecycle deliberately waits for a four-second approval expiry and then
+  // verifies completion. Allow DB round trips beyond that wait; keep the expiry assertions.
   it('turns a trusted quote into one approved canonical booking and confirms visible plan state', async () => {
     const actionPayloadSql = canonicalQuotePayloadSql({
       quoteKind: 'venue',
@@ -1165,7 +1189,7 @@ describeIfDatabase('Prompt 8 realized execution-mode lifecycles', () => {
       where booking.id = '${bookingId}';
     `)).toBe('confirmed|complete|booked|authorized|true|125000')
     expect(psql(`select count(*) from public.plan_messages where plan_id = '${ids.quotePlan}' and metadata ->> 'kind' = 'canonical_booking_confirmed';`)).toBe('1')
-  })
+  }, 15_000)
 
   it('accepts and cancels a later partner quote after the first booking moves the plan to booked', () => {
     expect(psql(`select status::text from public.plans where id = '${ids.quotePlan}';`)).toBe('booked')

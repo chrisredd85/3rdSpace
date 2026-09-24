@@ -1,4 +1,5 @@
 import { execFile, execFileSync } from 'node:child_process'
+import { seedIndependentDiscoveryVenue } from '@/test-utils/discoveryVenueDbFixture'
 
 const DATABASE_URL = process.env.CANONICAL_EVENT_TEST_DATABASE_URL
   ?? 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
@@ -45,9 +46,15 @@ const ids = {
   outcomeLockAction: 'd7500000-0000-4000-8000-000000000012',
   outcomeLockApproval: 'd7600000-0000-4000-8000-000000000012',
   outcomeLockBooking: 'd7900000-0000-4000-8000-000000000012',
+  templateNoncanonicalPlan: 'd7400000-0000-4000-8000-000000000013',
+  templateSourcePlan: 'd7400000-0000-4000-8000-000000000014',
+  templateSourceAction: 'd7500000-0000-4000-8000-000000000014',
+  templateSourceApproval: 'd7600000-0000-4000-8000-000000000014',
+  templateSourceBooking: 'd7900000-0000-4000-8000-000000000014',
 }
 
 const approvalHash = 'a'.repeat(64)
+const discoveryPlaceId = 'canonical-event-realized-venue'
 let canonicalEventId = ''
 
 function errorText(error: unknown): string {
@@ -247,7 +254,9 @@ function cleanup(): void {
     delete from public.templates where user_id in ('${ids.user}', '${ids.otherUser}');
     delete from public.plans where user_id = '${ids.user}';
     delete from public.events where builder_id = '${ids.builder}';
-    delete from public.discovery_venues where id = '${ids.discoveryVenue}';
+    delete from public.discovery_venues
+    where id = '${ids.discoveryVenue}'
+      or (source = 'google_places' and source_external_id = '${discoveryPlaceId}');
     delete from public.venues where id = '${ids.venue}';
     delete from public.builder_profiles where id = '${ids.builder}';
     delete from public.users where id in ('${ids.user}', '${ids.otherUser}');
@@ -288,9 +297,6 @@ function setup(): void {
     values (
       '${ids.venue}', 'Canonical Event Test Venue', true, 'invited_unclaimed'
     );
-
-    insert into public.discovery_venues (id, name, is_claimed, claimed_venue_id)
-    values ('${ids.discoveryVenue}', 'Canonical Event Discovery Venue', true, '${ids.venue}');
 
     insert into public.plans (
       id, user_id, title, event_type, status, guest_count,
@@ -355,6 +361,72 @@ function setup(): void {
       'networking', current_date + 1, '18:00', '20:00', 2, 'draft'
     );
   `)
+
+  ids.discoveryVenue = seedIndependentDiscoveryVenue(psql, {
+    placeId: discoveryPlaceId, name: 'Canonical Venue',
+  }).id
+  // Claim binding is privileged fixture setup, separate from independent facts.
+  psql(`
+    update public.discovery_venues
+    set is_claimed = true, claimed_venue_id = '${ids.venue}'
+    where id = '${ids.discoveryVenue}';
+  `)
+}
+
+function prepareTemplateSourceFixtures(): string {
+  // These sources belong to this negative test, not the preceding lifecycle test.
+  psql(`
+    insert into public.plans (
+      id, user_id, title, event_type, status, guest_count,
+      date_window_start, date_window_end, metadata
+    ) values
+      (
+        '${ids.templateNoncanonicalPlan}', '${ids.user}', 'Noncanonical template source',
+        'Community meetup', 'ready', 24, current_date - 2, current_date - 2,
+        '{"event_archetype_lock":{"key":"community_meetup"}}'::jsonb
+      ),
+      (
+        '${ids.templateSourcePlan}', '${ids.user}', 'Completed template source',
+        'Community meetup', 'approved', 24, current_date - 2, current_date - 2,
+        '{"event_archetype_lock":{"key":"community_meetup"}}'::jsonb
+      );
+  `)
+  const eventId = psql(asService(`
+    select event_id from public.materialize_plan_event(
+      '${ids.templateSourcePlan}', '${ids.user}', 'community_meetup',
+      current_date - 2, '18:00'::time, 60, 'America/Los_Angeles'
+    );
+  `))
+  prepareCanonicalVenueBookingProvenance({
+    planId: ids.templateSourcePlan,
+    eventId,
+    actionId: ids.templateSourceAction,
+    approvalId: ids.templateSourceApproval,
+    amountCents: 9550,
+  })
+  psql(asService(`
+    insert into public.venue_bookings (
+      id, venue_id, event_id, organizer_id, booking_date, start_time, end_time,
+      guest_count_min, guest_count_max, status, quoted_price, subtotal,
+      plan_id, agent_action_id, approval_id, quoted_price_cents,
+      approved_terms_snapshot
+    )
+    select
+      '${ids.templateSourceBooking}', '${ids.venue}', event_row.id, '${ids.user}',
+      event_row.event_date, event_row.start_time, event_row.end_time,
+      event_row.expected_attendance_min, event_row.expected_attendance_max,
+      'confirmed', 95.50, 95.50, '${ids.templateSourcePlan}',
+      '${ids.templateSourceAction}', '${ids.templateSourceApproval}', 9550,
+      ${jsonLiteral(canonicalVenueApprovalSnapshot(9550))}
+    from public.events as event_row
+    where event_row.id = '${eventId}';
+
+    select id from public.record_plan_event_outcome(
+      '${eventId}', '${ids.user}',
+      '{"actual_attendance":22,"notes":"Independent template source fixture."}'::jsonb
+    );
+  `))
+  return eventId
 }
 
 const describeIfDatabase = forceRun && canConnect() ? describe : describe.skip
@@ -563,11 +635,13 @@ describeIfDatabase('realized canonical plan and event identity', () => {
   })
 
   it('rejects noncanonical, incomplete, and cross-owner template provenance', () => {
+    const templateSourceEventId = prepareTemplateSourceFixtures()
+
     expect(() => psql(asAuthenticated(`
       insert into public.templates (
         id, user_id, source_plan_id, source_event_id, name
       ) values (
-        '${ids.invalidTemplate}', '${ids.user}', '${ids.rebookPlan}',
+        '${ids.invalidTemplate}', '${ids.user}', '${ids.templateNoncanonicalPlan}',
         '${ids.legacyEvent}', 'Invalid noncanonical source'
       );
     `))).toThrow(/template_source_event_must_be_owned_completed_canonical_event/)
@@ -576,8 +650,8 @@ describeIfDatabase('realized canonical plan and event identity', () => {
       insert into public.templates (
         id, user_id, source_plan_id, source_event_id, name
       ) values (
-        '${ids.invalidTemplate}', '${ids.otherUser}', '${ids.plan}',
-        '${canonicalEventId}', 'Invalid cross-owner source'
+        '${ids.invalidTemplate}', '${ids.otherUser}', '${ids.templateSourcePlan}',
+        '${templateSourceEventId}', 'Invalid cross-owner source'
       );
     `))).toThrow(/template_source_event_must_be_owned_completed_canonical_event/)
 

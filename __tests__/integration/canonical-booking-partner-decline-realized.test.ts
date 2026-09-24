@@ -1,8 +1,11 @@
 import { execFileSync } from 'node:child_process'
+import { seedIndependentDiscoveryVenue } from '@/test-utils/discoveryVenueDbFixture'
 
 const DATABASE_URL = process.env.CANONICAL_DECLINE_TEST_DATABASE_URL
   ?? 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
 const forceRun = process.env.RUN_CANONICAL_DECLINE_DB_TESTS === '1'
+
+const discoveryPlaceId = 'canonical-decline-realized-venue'
 
 const ids = {
   host: 'd8100000-0000-4000-8000-000000000001',
@@ -177,7 +180,9 @@ function cleanup(): void {
     delete from public.vendor_bookings where organizer_id = '${ids.host}';
     delete from public.plans where user_id = '${ids.host}';
     delete from public.events where builder_id = '${ids.builder}';
-    delete from public.discovery_venues where id = '${ids.discoveryVenue}';
+    delete from public.discovery_venues
+    where id = '${ids.discoveryVenue}'
+      or (source = 'google_places' and source_external_id = '${discoveryPlaceId}');
     delete from public.venues where id = '${ids.venue}';
     delete from public.vendor_profiles where id = '${ids.vendor}';
     delete from public.discovery_vendors where id = '${ids.discoveryVendor}';
@@ -218,8 +223,15 @@ function setup(): void {
     insert into public.venues (id, owner_id, venue_name, is_admin_seeded, claim_status)
     values ('${ids.venue}', '${ids.venueOwner}', 'Canonical Decline Venue', true, 'self_signup');
 
-    insert into public.discovery_venues (id, name, is_claimed, claimed_venue_id)
-    values ('${ids.discoveryVenue}', 'Canonical Decline Discovery Venue', true, '${ids.venue}');
+  `)
+  ids.discoveryVenue = seedIndependentDiscoveryVenue(psql, {
+    placeId: discoveryPlaceId, name: 'Canonical Decline Discovery Venue',
+  }).id
+  // Claim binding is privileged fixture setup, separate from independent facts.
+  psql(`
+    update public.discovery_venues
+    set is_claimed = true, claimed_venue_id = '${ids.venue}'
+    where id = '${ids.discoveryVenue}';
 
     insert into public.discovery_vendors (id, source, name, service_type)
     values ('${ids.discoveryVendor}', 'manual_seed', 'Canonical Decline Discovery Vendor', 'catering');
