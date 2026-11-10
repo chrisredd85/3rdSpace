@@ -65,6 +65,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/rls-checks.yml'
+      - '.github/workflows/hosted-migration-parity.yml'
       - '.github/workflows/test.yml'
   pull_request:
     paths:
@@ -128,6 +129,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/rls-checks.yml'
+      - '.github/workflows/hosted-migration-parity.yml'
       - '.github/workflows/test.yml'
   merge_group:
     types: [checks_requested]
