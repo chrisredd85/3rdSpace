@@ -7,7 +7,8 @@ on:
 
 jobs:
   e2e-intake:
-    runs-on: ubuntu-latest
+    # Keep the runner within the locked Playwright version's supported OS set.
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout code
