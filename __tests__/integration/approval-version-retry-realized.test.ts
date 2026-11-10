@@ -140,14 +140,14 @@ function setup(): void {
       id, plan_id, action_type, description, amount_cents, status, payload_json
     ) values (
       '${ids.action}', '${ids.plan}', 'email', 'Email Mission Hall', 10000, 'pending',
-      '{"kind":"gmail_approved_outreach","recipients":["old@example.com"]}'::jsonb
+      '{"kind":"gmail_approved_outreach","targets":[{"kind":"venue","name":"Mission Hall","email":"old@example.com"}]}'::jsonb
     );
 
     insert into public.approvals (
       id, plan_id, agent_action_id, action_label, provider, event_date,
       status, requested_amount_cents, notes, expires_at, snapshot_hash
     ) values (
-      '${ids.approval}', '${ids.plan}', '${ids.action}', 'Email Mission Hall', 'Mission Hall', '2026-08-20',
+      '${ids.approval}', '${ids.plan}', '${ids.action}', 'Email Mission Hall', 'Gmail', '2026-08-20',
       'pending', 10000, 'Old notes', now() + interval '7 days', '${oldHash}'
     );
 
@@ -214,18 +214,26 @@ function supersedeSql(expectedHash = oldHash): string {
       '2026-08-21',
       'Use the patio.',
       now() + interval '14 days',
-      '{"kind":"gmail_approved_outreach","recipients":["new@example.com"]}'::jsonb,
+      '{"kind":"gmail_approved_outreach","targets":[{"kind":"venue","name":"Mission Hall","email":"new@example.com"}]}'::jsonb,
       '{
         "schema_version": 2,
         "approval": {
           "requested_amount_cents": 9550,
           "event_date": "2026-08-21",
-          "notes": "Use the patio."
+          "notes": "Use the patio.",
+          "action_label": "Email Mission Hall",
+          "provider": "Gmail",
+          "delivery_email": "new@example.com",
+          "package_details": "Updated outreach to Mission Hall"
+        },
+        "counterparty": {
+          "provider": "Gmail",
+          "delivery_email": "new@example.com"
         },
         "action": {
           "payload_json": {
             "kind": "gmail_approved_outreach",
-            "recipients": ["new@example.com"]
+            "targets": [{"kind":"venue","name":"Mission Hall","email":"new@example.com"}]
           }
         }
       }'::jsonb,
@@ -256,7 +264,8 @@ describeIfDatabase('realized approval version and retry contract', () => {
   beforeEach(setup)
   afterAll(cleanup)
 
-  it('atomically supersedes the prior row, preserves $95.50, and repoints action and message', () => {
+  it('atomically supersedes the prior row, preserves $95.50, and keeps Gmail message history', () => {
+    const originalSnapshot = psql(`select snapshot_json from public.approvals where id = '${ids.approval}';`)
     const returned = psql(supersedeSql())
     expect(returned).toMatch(/\|2\|9550\|2026-08-21\|Use the patio\.\|pending$/)
 
@@ -274,7 +283,24 @@ describeIfDatabase('realized approval version and retry contract', () => {
     expect(psql(`select approval_id::text || '|' || amount_cents::text from public.agent_actions where id = '${ids.action}';`))
       .toBe(`${nextId}|9550`)
     expect(psql(`select metadata ->> 'approval_id' from public.plan_messages where id = '${ids.message}';`))
-      .toBe(nextId)
+      .toBe(ids.approval)
+    expect(JSON.parse(psql(`select metadata from public.plan_messages where id = '${ids.message}';`)))
+      .toEqual({
+        kind: 'gmail_approved_outreach',
+        status: 'superseded',
+        approval_id: ids.approval,
+        superseded_by_approval_id: nextId,
+        snapshot_hash: oldHash,
+      })
+    expect(psql(`
+      select (snapshot_hash = '${oldHash}')::text from public.approvals where id = '${ids.approval}';
+    `)).toBe('true')
+    expect(psql(`select snapshot_json from public.approvals where id = '${ids.approval}';`)).toBe(originalSnapshot)
+    expect(psql(`
+      select (authorized_by is null and authorized_at is null
+        and authorized_amount_cents is null and approved_by is null and approved_at is null)::text
+      from public.approvals where id = '${nextId}';
+    `)).toBe('true')
   })
 
   it('rolls back every write when the expected snapshot hash is stale', () => {
