@@ -14,10 +14,32 @@ import { cascadeInvalidationForEntityChange } from '@/lib/discovery/cascadeInval
 type Row = Record<string, any>
 
 class MemoryDb {
+  rpcCalls: Array<{ name: string; args: Row }> = []
   rows: Record<string, Row[]>
 
   constructor(rows: Record<string, Row[]>) {
     this.rows = rows
+  }
+
+  async rpc(name: string, args: Row) {
+    this.rpcCalls.push({ name, args })
+    if (name === 'upsert_discovery_vendor_identity') {
+      const sourceExternalId = `vendor_profile:${args.p_vendor_profile_id}`
+      const rows = this.rows.discovery_vendors ?? (this.rows.discovery_vendors = [])
+      let row = rows.find(value => value.source_external_id === sourceExternalId)
+      if (!row) {
+        row = { id: `discovery_vendors-${rows.length + 1}`, source: 'vendor_self_service', source_external_id: sourceExternalId, field_provenance: {} }
+        rows.push(row)
+      }
+      return { data: row, error: null }
+    }
+    if (name === 'write_discovery_vendor_independent_facts') {
+      const row = this.rows.discovery_vendors.find(value => value.id === args.p_vendor_id)
+      if (!row) return { data: null, error: { message: 'Missing vendor' } }
+      Object.assign(row, args.p_values, args.p_operational, { field_provenance: { ...row.field_provenance, ...args.p_field_provenance } })
+      return { data: row, error: null }
+    }
+    return { data: null, error: { message: 'Unexpected RPC' } }
   }
 
   from(table: string) {
@@ -200,7 +222,7 @@ describe('discovery freshness helpers', () => {
   it('mirrors vendor self-service updates, stores cents, and cascades location changes', async () => {
     const db = new MemoryDb({
       vendor_profiles: [{
-        id: 'vendor-1',
+        id: '10000000-0000-4000-8000-000000000001',
         user_id: 'user-1',
         name: 'Old Catering',
         service_type: 'catering',
@@ -215,7 +237,7 @@ describe('discovery freshness helpers', () => {
 
     const result = await recordVendorProfileSelfUpdate({
       admin: db,
-      vendorId: 'vendor-1',
+      vendorId: '10000000-0000-4000-8000-000000000001',
       actorId: 'user-1',
       previous: {
         name: 'Old Catering',
@@ -234,6 +256,9 @@ describe('discovery freshness helpers', () => {
     })
 
     expect(result.discoveryVendorId).toBe('discovery_vendors-1')
+    expect(db.rpcCalls[0]).toEqual({ name: 'upsert_discovery_vendor_identity', args: { p_vendor_profile_id: '10000000-0000-4000-8000-000000000001' } })
+    expect(db.rows.discovery_vendors[0].field_provenance.name).toMatchObject({ source: 'host_input', evidence_reference: expect.stringContaining('vendor_profile:10000000-0000-4000-8000-000000000001') })
+    expect(db.rows.discovery_vendors[0]).not.toHaveProperty('state', 'CA')
     expect(result.changes).toBe(4)
     expect(db.rows.vendor_profiles[0].discovery_vendor_id).toBe('discovery_vendors-1')
     expect(db.rows.discovery_vendors[0]).toMatchObject({

@@ -1,3 +1,4 @@
+import { SAFE_VENDOR_TABLE, readSafeDiscoveryVendor } from '@/lib/discovery/vendorRepository'
 import { readSafeDiscoveryVenue } from '@/lib/discovery/venueRepository'
 import type { DurableDiscovery } from '@/lib/discovery/foundation/boundary'
 import { randomUUID } from 'node:crypto'
@@ -23,6 +24,7 @@ type PlannerDb = {
 export type CanonicalQuoteKind = 'venue' | 'vendor'
 
 type TrustedQuote = {
+  vendor_data?: DurableDiscovery
   venue_data?: DurableDiscovery
   kind: CanonicalQuoteKind
   responseId: string
@@ -123,6 +125,7 @@ export async function stageCanonicalQuoteBooking(input: {
     target_id: quote.discoveryId,
     target_name: quote.partnerName,
     ...(quote.venue_data ? { venue_data: quote.venue_data } : {}),
+    ...(quote.vendor_data ? { vendor_data: quote.vendor_data } : {}),
     requested_amount_cents: amountCents,
     price_cents: amountCents,
     event_date: eventDate,
@@ -164,7 +167,7 @@ export async function stageCanonicalQuoteBooking(input: {
   const snapshotJson = buildApprovalSnapshotV2(snapshotInput)
   const snapshotHash = buildApprovalSnapshotHashV2(snapshotInput)
 
-  const { data, error } = await input.db.rpc('stage_plan_quote_booking', {
+  const { data, error } = await input.db.rpc(quote.kind === 'vendor' ? 'stage_vendor_quote_booking_checked' : 'stage_plan_quote_booking', {
     p_plan_id: input.plan.id,
     p_actor_id: input.actorId,
     p_quote_kind: quote.kind,
@@ -920,8 +923,7 @@ async function loadTrustedQuote(
       id, plan_id, discovery_vendor_id, classification,
       classification_confidence, quoted_hourly_cents, quoted_package_cents,
       quoted_minimum_cents, quoted_deposit_pct, availability_confirmed,
-      conditions, raw_response_excerpt, extracted_at,
-      discovery_vendors!inner(id, name, service_type)
+      conditions, raw_response_excerpt, extracted_at
     `)
     .eq('id', responseId)
     .eq('plan_id', planId)
@@ -929,9 +931,12 @@ async function loadTrustedQuote(
   if (error) throw new Error(error.message)
   const row = readRecord(data)
   if (!row) return null
-  const vendor = readRelationRecord(row.discovery_vendors)
   const discoveryId = readString(row.discovery_vendor_id)
   if (!discoveryId) return null
+  const { data: vendorRow, error: vendorError } = await db.from(SAFE_VENDOR_TABLE).select('*').eq('id', discoveryId).maybeSingle()
+  if (vendorError || !vendorRow) throw new Error('canonical_quote_booking_vendor_evidence_required')
+  const vendor = readSafeDiscoveryVendor(vendorRow)
+  if (!vendor.name || !vendor.service_type) throw new Error('canonical_quote_booking_vendor_evidence_required')
   const amountCents = readNullableInteger(row.quoted_package_cents) ??
     readNullableInteger(row.quoted_minimum_cents) ??
     readNullableInteger(row.quoted_hourly_cents)
@@ -939,8 +944,9 @@ async function loadTrustedQuote(
     kind,
     responseId,
     discoveryId,
-    partnerName: readString(vendor?.name) ?? 'Vendor',
-    serviceType: readString(vendor?.service_type),
+    partnerName: vendor.name,
+    serviceType: vendor.service_type,
+    vendor_data: vendor.vendor_data,
     amountCents,
     dealModel: null,
     terms: buildQuoteTerms(row, {

@@ -4,6 +4,7 @@ import type { Stripe } from 'stripe'
 import { dollarsToCents } from '@/lib/money'
 import type { Json } from '@/lib/types'
 import { cascadeInvalidationForEntityChange, type DiscoveryEntityType } from '@/lib/discovery/cascadeInvalidation'
+import { independentVendorEvidence, upsertVendorProfileIdentity, writeVendorFacts, type VendorRpcClient } from '@/lib/discovery/vendorRepository'
 
 export const DISCOVERY_REPORT_CATEGORIES = [
   'closed',
@@ -16,7 +17,7 @@ export const DISCOVERY_REPORT_CATEGORIES = [
 
 export type DiscoveryReportCategory = typeof DISCOVERY_REPORT_CATEGORIES[number]
 
-export type DiscoveryDbClient = {
+export type DiscoveryDbClient = VendorRpcClient & {
   from: (table: string) => any
 }
 
@@ -131,24 +132,9 @@ export async function ensureDiscoveryVendorForVendorProfile(input: {
   const row = profile as VendorProfileRow
   if (row.discovery_vendor_id) return row.discovery_vendor_id
 
-  const vendorName = readString(row.name ?? row.business_name) ?? 'Vendor'
-  const serviceType = readString(row.service_type) ?? 'other'
-  const sourceExternalId = `vendor_profile:${row.id}`
-  const { data: vendor, error: upsertError } = await input.admin
-    .from('discovery_vendors')
-    .upsert({
-      source: 'vendor_self_service',
-      source_external_id: sourceExternalId,
-      name: vendorName,
-      service_type: serviceType,
-      city: null,
-      state: 'CA',
-      contact_email: readString(row.contact_email ?? row.email),
-      website_extraction_status: 'never_attempted',
-      last_refreshed_at: new Date().toISOString(),
-    }, { onConflict: 'source,source_external_id' })
-    .select('id')
-    .single()
+  // The RPC derives the fixed profile identity from a real catalog row; callers
+  // cannot label arbitrary presentation content as self-service acquisition.
+  const { data: vendor, error: upsertError } = await upsertVendorProfileIdentity(input.admin, row.id)
 
   if (upsertError || !vendor) {
     throw new Error(`Failed to create discovery vendor link: ${upsertError?.message ?? 'No row returned'}`)
@@ -156,6 +142,15 @@ export async function ensureDiscoveryVendorForVendorProfile(input: {
 
   const discoveryVendorId = readString((vendor as Record<string, unknown>).id)
   if (!discoveryVendorId) return null
+
+  const now = new Date().toISOString()
+  const values = buildDiscoveryVendorValues(row)
+  const evidence = independentVendorEvidence('host_input', `vendor_profile:${row.id}`, now)
+  const { error: factsError } = await writeVendorFacts(input.admin, discoveryVendorId, values,
+    Object.fromEntries(Object.keys(values).map((field) => [field, evidence])), {
+      website_extraction_status: 'never_attempted', last_refreshed_at: now,
+    })
+  if (factsError) throw new Error('Failed to save independently sourced vendor profile facts')
 
   const { error: linkError } = await input.admin
     .from('vendor_profiles')
@@ -191,10 +186,14 @@ export async function recordVendorProfileSelfUpdate(input: {
   if (changes.length === 0) return { changes: 0, discoveryVendorId }
 
   const now = new Date().toISOString()
-  const { error: updateError } = await input.admin
-    .from('discovery_vendors')
-    .update(buildDiscoveryVendorUpdate(input.next, now))
-    .eq('id', discoveryVendorId)
+  const values = buildDiscoveryVendorValues(input.next)
+  const evidence = independentVendorEvidence('host_input', `vendor_profile:${input.vendorId}:user:${input.actorId}`, now)
+  const { error: updateError } = await writeVendorFacts(input.admin, discoveryVendorId, values,
+    Object.fromEntries(Object.keys(values).map((field) => [field, evidence])), {
+      last_meaningful_change_at: now, data_freshness_status: 'changed',
+      ...(values.inferred_package_rate_cents !== undefined
+        ? { rate_inference_admin_status: 'pending', rate_inference_extracted_at: now } : {}),
+    })
 
   if (updateError) throw new Error(`Failed to update discovery vendor freshness fields: ${updateError.message}`)
 
@@ -344,12 +343,8 @@ async function createAdminReviewTask(
   }
 }
 
-function buildDiscoveryVendorUpdate(snapshot: VendorProfileSnapshot, now: string) {
-  const update: Record<string, unknown> = {
-    last_meaningful_change_at: now,
-    data_freshness_status: 'changed',
-    updated_at: now,
-  }
+function buildDiscoveryVendorValues(snapshot: VendorProfileSnapshot) {
+  const update: Record<string, unknown> = {}
   const name = readString(snapshot.name ?? snapshot.business_name)
   if (name) update.name = name
   const serviceType = readString(snapshot.service_type)
@@ -359,10 +354,6 @@ function buildDiscoveryVendorUpdate(snapshot: VendorProfileSnapshot, now: string
   const baseRate = normalizeNumber(snapshot.base_rate)
   if (baseRate !== null) {
     update.inferred_package_rate_cents = dollarsToCents(baseRate)
-    update.rate_inference_confidence = 1
-    update.rate_inference_source_quote = 'Vendor self-updated base rate.'
-    update.rate_inference_admin_status = 'pending'
-    update.rate_inference_extracted_at = now
   }
   return update
 }

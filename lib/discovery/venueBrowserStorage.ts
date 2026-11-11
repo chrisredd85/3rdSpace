@@ -1,13 +1,13 @@
 import { readSafeVenueSnapshot, serializeVenueDurable, VENUE_STORAGE_VERSION } from './venuePersistence'
 import { asRecord } from './foundation/provenance'
 
-export function serializePlannerStorage<T extends object>(input: T): T & { venue_storage_version: number } {
-  return { ...serializeVenueDurable(input), venue_storage_version: VENUE_STORAGE_VERSION }
+export function serializePlannerStorage<T extends object>(input: T): T & { venue_storage_version: number; vendor_storage_version: number } {
+  return { ...serializeVenueDurable(input), venue_storage_version: VENUE_STORAGE_VERSION, vendor_storage_version: 1 }
 }
 export function readPlannerStorage<T>(input: T): T {
   const safe = readSafeVenueSnapshot(input)
   const row = asRecord(safe)
-  if (!row || row.venue_storage_version === VENUE_STORAGE_VERSION) return safe
+  if (!row || row.venue_storage_version === VENUE_STORAGE_VERSION && row.vendor_storage_version === 1) return safe
   // Older browser blobs lack an acquisition contract. Restore intent and IDs,
   // then reload server truth; never give their agent prose a new origin label.
   if (Array.isArray(row.messages)) row.messages = row.messages.filter(message => asRecord(message)?.role === 'user')

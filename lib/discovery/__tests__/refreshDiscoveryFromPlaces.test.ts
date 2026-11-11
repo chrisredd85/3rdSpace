@@ -3,6 +3,8 @@ jest.mock('server-only', () => ({}))
 const searchGooglePlacesTextMock = jest.fn()
 const captureMessageMock = jest.fn()
 const detailsMock = jest.fn()
+const vendorDetailsMock = jest.fn()
+jest.mock('@/lib/server/vendor-places-details', () => ({ getVendorDetails: (...args: unknown[]) => vendorDetailsMock(...args) }))
 jest.mock('@/lib/server/venue-places-details', () => ({getVenueDetails: (...args: unknown[]) => detailsMock(...args)}))
 
 jest.mock('@/lib/server/google-places-client', () => ({
@@ -37,6 +39,11 @@ const CONSTRAINT_SOURCES = [
 ] as const
 
 describe('discovery Places refresh change-log contract', () => {
+  const previousVendorFlag = process.env.GOOGLE_PLACES_VENDORS_ENABLED
+  afterEach(() => {
+    if (previousVendorFlag === undefined) delete process.env.GOOGLE_PLACES_VENDORS_ENABLED
+    else process.env.GOOGLE_PLACES_VENDORS_ENABLED = previousVendorFlag
+  })
   beforeEach(() => {
     jest.clearAllMocks()
     searchGooglePlacesTextMock.mockResolvedValue({
@@ -68,51 +75,47 @@ describe('discovery Places refresh change-log contract', () => {
     expect(sqlSources).toEqual(CONSTRAINT_SOURCES)
   })
 
-  it('writes the constraint-valid places_refresh source', async () => {
+  it('observes the exact vendor ID without persisting Google fields or history', async () => {
+    process.env.GOOGLE_PLACES_VENDORS_ENABLED = 'true'
     const db = createRefreshDb()
+    const before = JSON.stringify(db.venue)
+    vendorDetailsMock.mockResolvedValue({ status: 'available', place: { id: 'venue-places-id', displayName: { text: 'GOOGLE_CANARY' } } })
 
-    await refreshDiscoveryEntityFromPlaces({
-      supabase: db.client as any,
-      entityType: 'discovery_vendor',
-      entityId: 'venue-1',
-      apiKey: 'test-key',
+    const result = await refreshDiscoveryEntityFromPlaces({
+      supabase: db.client as any, entityType: 'discovery_vendor', entityId: 'venue-1', apiKey: 'test-key',
     })
 
-    expect(db.changeLogInserts).toHaveLength(1)
-    expect(db.changeLogInserts[0]).toEqual(expect.objectContaining({
-      source: 'places_refresh',
-      field_name: 'google_rating',
-    }))
-    expect(CONSTRAINT_SOURCES).toContain(db.changeLogInserts[0].source as typeof CONSTRAINT_SOURCES[number])
+    expect(vendorDetailsMock).toHaveBeenCalledWith(expect.objectContaining({ placeId: 'venue-places-id', profile: 'pro' }))
+    expect(db.reads).toEqual(['discovery_vendors_safe'])
+    expect(searchGooglePlacesTextMock).not.toHaveBeenCalled()
+    expect(db.changeLogInserts).toEqual([])
+    expect(JSON.stringify(db.venue)).toBe(before)
+    expect(result).toMatchObject({ observation_status: 'available', changes_detected: 0, applied_changes: [] })
   })
 
-  it('alerts Sentry on the first change-log constraint violation', async () => {
-    const db = createRefreshDb({
-      changeLogError: {
-        code: '23514',
-        message: 'new row violates check constraint "discovery_change_source_check"',
-      },
+  it.each(['disabled', 'identity_mismatch', 'unavailable'])('does not substitute another vendor on %s', async (status) => {
+    if (status === 'disabled') delete process.env.GOOGLE_PLACES_VENDORS_ENABLED
+    else process.env.GOOGLE_PLACES_VENDORS_ENABLED = 'true'
+    const db = createRefreshDb()
+    vendorDetailsMock.mockResolvedValue({ status })
+    const result = await refreshDiscoveryEntityFromPlaces({
+      supabase: db.client as any, entityType: 'discovery_vendor', entityId: 'venue-1', apiKey: 'test-key',
     })
-
-    await refreshDiscoveryEntityFromPlaces({
-      supabase: db.client as any,
-      entityType: 'discovery_vendor',
-      entityId: 'venue-1',
-      apiKey: 'test-key',
-    })
-
-    expect(captureMessageMock).toHaveBeenCalledTimes(1)
-    expect(captureMessageMock).toHaveBeenCalledWith(
-      'discovery_change_log_constraint',
-      expect.objectContaining({
-        level: 'error',
-        tags: expect.objectContaining({
-          alert_class: 'discovery_change_log_constraint',
-          postgres_code: '23514',
-        }),
-      })
-    )
+    expect(result.observation_status).toBe(status)
+    expect(searchGooglePlacesTextMock).not.toHaveBeenCalled()
+    expect(db.changeLogInserts).toEqual([])
+    if (status === 'disabled') expect(vendorDetailsMock).not.toHaveBeenCalled()
   })
+
+  it('never looks up a self-service profile identity as a Place ID', async () => {
+    process.env.GOOGLE_PLACES_VENDORS_ENABLED = 'true'
+    const db = createRefreshDb()
+    db.venue.source = 'vendor_self_service'
+    await refreshDiscoveryEntityFromPlaces({ supabase: db.client as any, entityType: 'discovery_vendor', entityId: 'venue-1', apiKey: 'test' })
+    expect(vendorDetailsMock).not.toHaveBeenCalled()
+    expect(db.changeLogInserts).toEqual([])
+  })
+
 })
 
 function createRefreshDb(input: {
@@ -120,6 +123,7 @@ function createRefreshDb(input: {
 } = {}) {
   const venue = {
     id: 'venue-1',
+    source: 'google_places',
     source_external_id: 'venue-places-id',
     google_place_id: 'venue-places-id',
     name: 'Mission Room',
@@ -138,13 +142,15 @@ function createRefreshDb(input: {
   }
   const changeLogInserts: Array<Record<string, unknown>> = []
 
+  const reads: string[] = []
   const client = {
     from(table: string) {
+      reads.push(table)
       return new RefreshQuery(table, venue, changeLogInserts, input.changeLogError)
     },
   }
 
-  return { client, changeLogInserts, venue }
+  return { client, changeLogInserts, venue, reads }
 }
 
 class RefreshQuery {

@@ -1,3 +1,4 @@
+import { isCommittedResponseUnavailable, committedResponseRecoveryBody } from '@/lib/supabase/discoveryRpcResponse'
 /**
  * API route for reading and updating planner approval records.
  *
@@ -502,6 +503,7 @@ export async function PATCH(
             approval: existingApproval,
           })
         } catch (executionError) {
+        if (isCommittedResponseUnavailable(executionError)) return NextResponse.json(committedResponseRecoveryBody(), { status: 202 })
           await syncApprovalMessageMetadata(auth.db, writeDb, planId, existingApproval)
           const failedResponse = await buildApprovalCommandResponse(writeDb, existingApproval)
           logger.error('Planner exact authorization recovery failed', executionError, {
@@ -618,6 +620,7 @@ export async function PATCH(
           approval,
         })
       } catch (executionError) {
+        if (isCommittedResponseUnavailable(executionError)) return NextResponse.json(committedResponseRecoveryBody(), { status: 202 })
         await syncApprovalMessageMetadata(auth.db, writeDb, planId, approval)
         const failedResponse = await buildApprovalCommandResponse(writeDb, approval)
         logger.error('Planner approval execution failed', executionError, {
@@ -1434,6 +1437,7 @@ async function runOutreachPreparationActionExecutor(
     })
     return preparationMetadata
   } catch (error) {
+    if (isCommittedResponseUnavailable(error)) throw error
     await persistAgentActionTransition(writeDb, {
       action,
       planId: input.planId,
@@ -1551,6 +1555,7 @@ async function runHandoffActionExecutor(
     }
     return result
   } catch (error) {
+    if (isCommittedResponseUnavailable(error)) throw error
     const currentAction = await loadAgentAction(writeDb, action.id)
     if (currentAction?.status === 'complete' || currentAction?.status === 'cancelled') {
       return {
@@ -1638,6 +1643,7 @@ async function runCompletingActionExecutor(
     })
     return result
   } catch (error) {
+    if (isCommittedResponseUnavailable(error)) throw error
     const currentAction = await loadAgentAction(writeDb, action.id)
     if (currentAction?.status === 'complete' || currentAction?.status === 'cancelled') {
       return result ?? (readRecord(currentAction.result_metadata) ?? {})

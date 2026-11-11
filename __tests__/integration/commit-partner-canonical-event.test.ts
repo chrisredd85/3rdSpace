@@ -140,6 +140,18 @@ describe('partner quote commitments require a pre-authorization plan', () => {
     })
   })
 
+  it.each(['vendor_boundary_stage_fact_changed', 'vendor_boundary_stage_snapshot_mismatch'])('returns a recoverable conflict for checked-stage %s without follow-up writes', async (code) => {
+    const db = buildDb(buildPlan())
+    mockClients(db)
+    ;(stageCanonicalQuoteBooking as jest.Mock).mockRejectedValueOnce(new Error(code))
+    const response = await commitVendor(request('/commit-vendor', 'POST', { response_id: RESPONSE_ID }), context())
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual(expect.objectContaining({ code: 'VENDOR_EVIDENCE_REQUIRED' }))
+    expect(recomputePlanDerivedState).not.toHaveBeenCalled()
+    expect(db.planUpdates).toEqual([])
+    expect(db.messageInserts).toEqual([])
+  })
+
   it.each(REJECTION_CASES)('$label without attempting a write', async ({ invoke, plan }) => {
     const db = buildDb(buildPlan(plan))
     mockClients(db)

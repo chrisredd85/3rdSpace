@@ -44,7 +44,7 @@ export async function getDiscoveryPhoto(
     const admin = createServiceRoleClient()
     const lookup = isVenue
       ? await admin.from('discovery_venues_safe').select('source,source_external_id').eq('id', entityId).maybeSingle()
-      : await admin.from('discovery_vendors').select('source,source_external_id,google_place_id').eq('id', entityId).maybeSingle()
+      : await admin.from('discovery_vendors_safe').select('source,source_external_id').eq('id', entityId).maybeSingle()
     const entity = lookup.data
     const placeId = entity?.source === 'google_places'
       ? ('google_place_id' in entity ? entity.google_place_id ?? entity.source_external_id : entity.source_external_id)

@@ -1,3 +1,4 @@
+import { SAFE_VENDOR_TABLE, readSafeDiscoveryVendor, vendorActionEnvelope } from '@/lib/discovery/vendorRepository'
 import 'server-only'
 import { readSafeDiscoveryVenue, venueActionEnvelope } from '@/lib/discovery/venueRepository'
 import type { DurableDiscovery } from '@/lib/discovery/foundation/boundary'
@@ -73,6 +74,7 @@ const VERSIONED_APPROVAL_SELECT_COLUMNS = `${APPROVAL_SELECT_COLUMNS},
 `
 
 export type GmailOutreachTarget = {
+  vendor_data?: DurableDiscovery
   venue_data?: DurableDiscovery
   name: string
   email: string
@@ -201,6 +203,15 @@ export async function createOrReuseGmailOutreachApproval(
   // Client labels/approval do not establish independent origin. Resolve the
   // safe identity before constructing any rendered message or approval hash.
   for (const target of targets) {
+    if (target.kind === 'vendor' && target.discoveryVendorId) {
+      const { data, error } = await createServiceRoleClient().from(SAFE_VENDOR_TABLE).select('*').eq('id', target.discoveryVendorId).maybeSingle()
+      if (error || !data) throw new Error('Vendor contact evidence unavailable')
+      const vendor = readSafeDiscoveryVendor(data)
+      target.name = vendor.name ?? 'Vendor contact'
+      target.vendor_data = vendorActionEnvelope(vendor, target.email)
+      if (target.vendor_data.values.contact_email !== target.email) throw new Error('Independent vendor contact evidence required')
+      continue
+    }
     if (!target.discoveryVenueId || target.kind === 'vendor') continue
     // Account and plan ownership remain session-scoped above. The safe view is
     // service-only; changing this read must not elevate the other db operations.
@@ -744,6 +755,7 @@ function buildApprovalMessageMetadata(
       email: target.email,
       discovery_venue_id: target.discoveryVenueId ?? null,
       ...(target.venue_data ? { venue_data: target.venue_data } : {}),
+      ...(target.vendor_data ? { vendor_data: target.vendor_data } : {}),
       discovery_vendor_id: target.discoveryVendorId ?? null,
     })),
     comparison_goal: readString(payload.comparison_goal),
@@ -755,6 +767,7 @@ function buildApprovalMessageMetadata(
         target_email: target.email,
         discovery_venue_id: target.discoveryVenueId ?? null,
         ...(target.venue_data ? { venue_data: target.venue_data } : {}),
+      ...(target.vendor_data ? { vendor_data: target.vendor_data } : {}),
         discovery_vendor_id: target.discoveryVendorId ?? null,
       },
     })),
@@ -899,13 +912,14 @@ async function loadReusableApprovalBundle(
 
 function mergeReplacementVenueTargets(previous: GmailOutreachTarget[], replacements: GmailOutreachTarget[]): GmailOutreachTarget[] {
   const original = normalizeTargets(previous)
-  if (!replacements.length || replacements.some(target => !target.discoveryVenueId || target.kind === 'vendor'
-    || !original.some(prior => prior.discoveryVenueId === target.discoveryVenueId && prior.kind !== 'vendor'))) {
-    throw new Error('Replacement targets must belong to the existing venue approval')
+  const key = (target: GmailOutreachTarget) => target.kind === 'vendor'
+    ? target.discoveryVendorId ? `vendor:${target.discoveryVendorId}` : null
+    : target.discoveryVenueId ? `venue:${target.discoveryVenueId}` : null
+  if (!replacements.length || replacements.some(target => !key(target) || !original.some(prior => key(prior) === key(target)))) {
+    throw new Error('Replacement targets must belong to the existing venue or vendor approval')
   }
-  const byVenue = new Map(replacements.map(target => [target.discoveryVenueId, target]))
-  return original.map(target => target.kind !== 'vendor' && target.discoveryVenueId
-    ? byVenue.get(target.discoveryVenueId) ?? target : target)
+  const byIdentity = new Map(replacements.map(target => [key(target), target]))
+  return original.map(target => byIdentity.get(key(target)) ?? target)
 }
 
 async function loadApproval(db: PlannerDb, approvalId: string): Promise<Approval | null> {
@@ -952,7 +966,7 @@ async function loadGmailOutreachThreads(
 ): Promise<GmailOutreachThreadSummary[]> {
   let query = db
     .from('outreach_threads')
-    .select('id, plan_id, target_name, target_type, target_email, state, needs_attention, last_event_at, last_inbound_at, last_outbound_at, updated_at, channel_strategy, discovery_venue_id')
+    .select('id, plan_id, target_name, target_type, target_email, state, needs_attention, last_event_at, last_inbound_at, last_outbound_at, updated_at, channel, channel_strategy, discovery_venue_id, discovery_vendor_id')
     .eq('user_id', userId)
     .eq('target_source', GMAIL_APPROVAL_DEMO_TARGET_SOURCE)
     .order('updated_at', { ascending: false })
@@ -998,7 +1012,7 @@ async function loadGmailOutreachThreads(
   return threads.map((thread) => ({
     id: String(thread.id),
     plan_id: String(thread.plan_id),
-    target_name: String(thread.target_name ?? 'Venue'),
+    target_name: String(thread.target_name ?? (thread.target_type === 'vendor' ? 'Vendor contact' : 'Venue')),
     target_type: String(thread.target_type ?? 'venue'),
     target_email: readString(thread.target_email),
     state: String(thread.state ?? 'sent'),
@@ -1204,13 +1218,14 @@ async function insertOutreachThread(
         source: GMAIL_APPROVED_OUTREACH_KIND,
         approval_required: true,
         ...(input.target.venue_data ? { venue_data: input.target.venue_data } : {}),
+        ...(input.target.vendor_data ? { vendor_data: input.target.vendor_data } : {}),
       } as Json,
       state: 'draft',
       needs_attention: false,
       last_event_at: input.now,
       last_outbound_at: null,
     })
-    .select('id, plan_id, target_name, target_email, state, needs_attention, last_event_at, last_inbound_at, last_outbound_at, discovery_venue_id, channel_strategy')
+    .select('id, plan_id, target_name, target_email, state, needs_attention, last_event_at, last_inbound_at, last_outbound_at, discovery_venue_id, discovery_vendor_id, channel, channel_strategy')
     .single()
 
   if (error || !data) throw new Error(error?.message ?? 'Failed to record Gmail outreach thread')
@@ -1332,10 +1347,11 @@ async function analyzeInboundReplyTerms(
   const gmailThreadId = latestInbound.gmailThreadId
 
   if (targetType === 'vendor' && discoveryVendorId) {
-    const serviceType = await loadDiscoveryVendorServiceType(readDb, discoveryVendorId)
+    const vendor = await loadDiscoveryVendor(discoveryVendorId)
+    const serviceType = vendor?.service_type ?? null
     const terms = await extractReplyTerms({
       entityType: 'vendor',
-      entityName: targetName,
+      entityName: vendor?.name ?? 'Vendor contact',
       serviceType,
       planTitle: readString(thread.plan_title),
       threadText,
@@ -1372,7 +1388,8 @@ async function analyzeInboundReplyTerms(
         response: {
           id: readString(data?.id),
           discovery_vendor_id: discoveryVendorId,
-          name: targetName,
+          name: vendor?.name ?? 'Vendor contact',
+          ...(vendor ? { vendor_data: vendor.vendor_data } : {}),
           service_type: serviceType,
           classification: terms.classification,
           confidence: terms.confidence,
@@ -1443,13 +1460,10 @@ async function analyzeInboundReplyTerms(
   }
 }
 
-async function loadDiscoveryVendorServiceType(db: PlannerDb, discoveryVendorId: string) {
-  const { data } = await db
-    .from('discovery_vendors')
-    .select('service_type')
-    .eq('id', discoveryVendorId)
-    .maybeSingle()
-  return readString(data?.service_type)
+async function loadDiscoveryVendor(discoveryVendorId: string) {
+  // Caller already selected a thread owned by the connected Gmail account.
+  const { data, error } = await createServiceRoleClient().from(SAFE_VENDOR_TABLE).select('*').eq('id', discoveryVendorId).maybeSingle()
+  return !error && data ? readSafeDiscoveryVendor(data) : null
 }
 
 async function updatePlanOutreachResponseSummary(
@@ -1573,6 +1587,7 @@ function normalizeTargets(targets: GmailOutreachTarget[]) {
     .map((target) => ({
       name: target.name.trim(),
       venue_data: target.venue_data,
+      vendor_data: target.vendor_data,
       email: target.email.trim().toLowerCase(),
       kind: target.kind === 'vendor' ? 'vendor' as const : 'venue' as const,
       discoveryVenueId: readUuid(target.discoveryVenueId),
@@ -1597,7 +1612,7 @@ function readTargets(payload: Record<string, unknown> | null): GmailOutreachTarg
     const kind = readString(record.kind) === 'vendor' ? 'vendor' : 'venue'
     const discoveryVenueId = readUuid(record.discoveryVenueId ?? record.discovery_venue_id)
     const discoveryVendorId = readUuid(record.discoveryVendorId ?? record.discovery_vendor_id)
-    return name && email ? [{ name, email, kind, discoveryVenueId, discoveryVendorId, venue_data: readRecord(record.venue_data) as DurableDiscovery | undefined }] : []
+    return name && email ? [{ name, email, kind, discoveryVenueId, discoveryVendorId, venue_data: readRecord(record.venue_data) as DurableDiscovery | undefined, vendor_data: readRecord(record.vendor_data) as DurableDiscovery | undefined }] : []
   })
 }
 

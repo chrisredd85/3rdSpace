@@ -19,9 +19,14 @@ import { enqueueVenueCapacityInferenceJob } from '@/lib/discovery/venueCapacityJ
 import { extractVenueContacts } from '@/lib/server/venue-website-extractor'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { getVenueContactDetails } from '@/lib/server/venue-places-details'
+import { getVendorContactDetails } from '@/lib/server/vendor-places-details'
+import { inferVendorRate } from '@/lib/discovery/inferVendorRate'
+import { independentVendorEvidence } from '@/lib/discovery/vendorRepository'
 import { independentVenueEvidence } from '@/lib/discovery/venueRepository'
 import { createOrReuseGmailOutreachApproval, GmailConnectionRequiredError } from '@/lib/outreach/gmailApprovalFlow'
 
+jest.mock('@/lib/server/vendor-places-details', () => ({ getVendorContactDetails: jest.fn(), createVendorDetailsContext: jest.fn(() => ({ requests: new Map() })) }))
+jest.mock('@/lib/discovery/inferVendorRate', () => ({ inferVendorRate: jest.fn(), shouldSkipVendorRateInference: (row: any) => Boolean(row.rate_inference_extracted_at) }))
 jest.mock('@/lib/server/venue-places-details', () => ({ getVenueContactDetails: jest.fn() }))
 jest.mock('@/lib/outreach/gmailApprovalFlow', () => ({
   createOrReuseGmailOutreachApproval: jest.fn(),
@@ -48,16 +53,23 @@ type Row = Record<string, unknown>
 class MemoryDb {
   rows: Record<string, Row[]> = {
     discovery_venues: [],
+    discovery_vendors: [],
   }
   rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = []
   failTable: string | null = null
 
   from(table: string) {
-    return new MemoryQuery(this, table === 'discovery_venues_safe' ? 'discovery_venues' : table)
+    return new MemoryQuery(this, table === 'discovery_venues_safe' ? 'discovery_venues' : table === 'discovery_vendors_safe' ? 'discovery_vendors' : table)
   }
 
   async rpc(name: string, args: Record<string, any>) {
     this.rpcCalls.push({ name, args })
+    if (name === 'write_discovery_vendor_independent_facts') {
+      const row = this.rows.discovery_vendors.find((entry) => entry.id === args.p_vendor_id)
+      if (!row) return { data: null, error: { message: 'Missing vendor' } }
+      Object.assign(row, args.p_values, args.p_operational, { field_provenance: { ...(row.field_provenance as any ?? {}), ...args.p_field_provenance } })
+      return { data: row, error: null }
+    }
     if (name !== 'write_discovery_venue_independent_facts') return { data: null, error: { message: 'Unknown RPC' } }
     const row = this.rows.discovery_venues.find((entry) => entry.id === args.p_venue_id)
     if (!row) return { data: null, error: { message: 'Missing venue' } }
@@ -192,6 +204,7 @@ describe('GET /api/internal/jobs/venue-website-extraction', () => {
   const originalSecret = process.env.CRON_SECRET
   const originalOpenAIKey = process.env.OPENAI_API_KEY
   const originalVenueFlag = process.env.GOOGLE_PLACES_VENUES_ENABLED
+  const originalVendorFlag = process.env.GOOGLE_PLACES_VENDORS_ENABLED
   let db: MemoryDb
 
   beforeEach(() => {
@@ -199,6 +212,7 @@ describe('GET /api/internal/jobs/venue-website-extraction', () => {
     process.env.CRON_SECRET = 'cron-secret'
     delete process.env.OPENAI_API_KEY
     delete process.env.GOOGLE_PLACES_VENUES_ENABLED
+    delete process.env.GOOGLE_PLACES_VENDORS_ENABLED
     db = new MemoryDb()
     ;(createServiceRoleClient as jest.Mock).mockReturnValue(db)
     ;(enqueueVenueCapacityInferenceJob as jest.Mock).mockResolvedValue({ id: 'job-1' })
@@ -231,6 +245,137 @@ describe('GET /api/internal/jobs/venue-website-extraction', () => {
     else process.env.OPENAI_API_KEY = originalOpenAIKey
     if (originalVenueFlag === undefined) delete process.env.GOOGLE_PLACES_VENUES_ENABLED
     else process.env.GOOGLE_PLACES_VENUES_ENABLED = originalVenueFlag
+    if (originalVendorFlag === undefined) delete process.env.GOOGLE_PLACES_VENDORS_ENABLED
+    else process.env.GOOGLE_PLACES_VENDORS_ENABLED = originalVendorFlag
+  })
+
+  function vendor(overrides: Row = {}): Row {
+    const row: Row = {
+      id: 'vendor-1', source: 'google_places', source_external_id: 'vendor-place-id',
+      name: 'Independent Catering', service_type: 'catering', website: 'https://vendor.example.com',
+      contact_email: null, organizer_provided_email: null, extracted_emails: [], extracted_contact_forms: [],
+      website_extraction_status: 'never_attempted', website_extraction_attempts: 0, rate_inference_extracted_at: null,
+      ...overrides,
+    }
+    if (!('field_provenance' in overrides)) row.field_provenance = Object.fromEntries(
+      ['name', 'service_type', 'website', 'extracted_emails', 'extracted_contact_forms', 'inferred_package_rate_cents']
+        .filter(field => row[field] != null).map(field => [field, independentVendorEvidence('venue_site', 'https://vendor.example.com/events')]),
+    )
+    return row
+  }
+
+  it('saves independent vendor contacts by RPC with Google acquisition off', async () => {
+    db.rows.discovery_vendors = [vendor()]
+    const response = await GET(makeRequest('cron-secret'))
+    expect(response.status).toBe(200)
+    expect((await response.json()).vendor_summary.successful).toBe(1)
+    expect(db.rows.discovery_vendors[0].extracted_emails).toHaveLength(1)
+    expect(db.rpcCalls[0]).toMatchObject({ name: 'write_discovery_vendor_independent_facts', args: {
+      p_vendor_id: 'vendor-1', p_values: { extracted_emails: expect.any(Array) },
+      p_field_provenance: { extracted_emails: { source: 'venue_site', confirmation_status: 'site_published' } },
+    } })
+    expect(getVendorContactDetails).not.toHaveBeenCalled()
+  })
+
+  it('retains vendor booking anchors as independently evidenced links, not invented forms', async () => {
+    db.rows.discovery_vendors = [vendor()]
+    ;(extractVenueContacts as jest.Mock).mockResolvedValue({
+      status: 'successful', emails: [], contact_forms: [{
+        url: 'https://vendor.example.com/book', label: 'Booking', confidence: 0.8,
+        source_path: '/contact', extracted_at: '2026-11-10T00:00:00Z',
+        is_likely_booking_contact: true, evidence_kind: 'contact_link',
+        source: 'business_website', source_url: 'https://vendor.example.com/contact',
+      }], metadata: { paths_attempted: ['/contact'], paths_successful: ['/contact'], total_fetch_time_ms: 1, robots_txt_consulted: true },
+    })
+    await GET(makeRequest('cron-secret'))
+    expect(db.rows.discovery_vendors[0].extracted_contact_forms).toEqual([
+      expect.objectContaining({ evidence_kind: 'contact_link', source: 'business_website' }),
+    ])
+    expect(db.rpcCalls[0].args.p_field_provenance).toMatchObject({ extracted_contact_forms: { source: 'venue_site' } })
+  })
+
+  it.each(['blocked_by_robots', 'successful'])('does not recrawl %s vendors because rates are absent', async status => {
+    db.rows.discovery_vendors = [vendor({ website_extraction_status: status })]
+    await GET(makeRequest('cron-secret'))
+    expect(extractVenueContacts).not.toHaveBeenCalled()
+    expect(inferVendorRate).not.toHaveBeenCalled()
+  })
+
+  it('does not recrawl exhausted vendors because rates are absent', async () => {
+    db.rows.discovery_vendors = [vendor({ website_extraction_status: 'timeout', website_extraction_attempts: 3 })]
+    await GET(makeRequest('cron-secret'))
+    expect(extractVenueContacts).not.toHaveBeenCalled()
+    expect(db.rpcCalls).toEqual([])
+  })
+
+  it('retains partial vendor contacts on timeout and does not keep them pending', async () => {
+    db.rows.discovery_vendors = [vendor()]
+    const extracted = await (extractVenueContacts as jest.Mock).getMockImplementation()!()
+    ;(extractVenueContacts as jest.Mock).mockResolvedValue({ ...extracted, status: 'timeout' })
+    await GET(makeRequest('cron-secret'))
+    expect(db.rows.discovery_vendors[0].extracted_emails).toHaveLength(1)
+    await GET(makeRequest('cron-secret'))
+    expect(extractVenueContacts).toHaveBeenCalledTimes(1)
+  })
+
+  it('commits contacts before optional rate failure and keeps known rates', async () => {
+    process.env.OPENAI_API_KEY = 'fake-local-only'
+    db.rows.discovery_vendors = [vendor({ inferred_package_rate_cents: 70000 })]
+    ;(inferVendorRate as jest.Mock).mockImplementation(async () => {
+      expect(db.rows.discovery_vendors[0].extracted_emails).toHaveLength(1)
+      throw new Error('GOOGLE_PROVIDER_ERROR_CANARY')
+    })
+    await GET(makeRequest('cron-secret'))
+    expect(db.rows.discovery_vendors[0].extracted_emails).toHaveLength(1)
+    expect(db.rows.discovery_vendors[0].inferred_package_rate_cents).toBe(70000)
+    expect(JSON.stringify(db.rpcCalls)).not.toContain('GOOGLE_PROVIDER_ERROR_CANARY')
+  })
+
+  it('persists an independently derived estimate with explicit lineage after contacts', async () => {
+    process.env.OPENAI_API_KEY = 'fake-local-only'
+    db.rows.discovery_vendors = [vendor()]
+    ;(inferVendorRate as jest.Mock).mockResolvedValue({ hourly_cents: 0, package_cents: 70000, minimum_cents: null, confidence: 0.8, model: 'mock', source_quote: null })
+    await GET(makeRequest('cron-secret'))
+    expect(db.rpcCalls).toHaveLength(2)
+    expect(db.rpcCalls[1].args.p_values).toEqual({ inferred_hourly_rate_cents: 0, inferred_package_rate_cents: 70000 })
+    expect(db.rpcCalls[1].args.p_field_provenance).toMatchObject({ inferred_package_rate_cents: {
+      source: 'derived', confirmation_status: 'unconfirmed', lineage: expect.arrayContaining([
+        expect.objectContaining({ field: 'name' }), expect.objectContaining({ field: 'service_type' }),
+      ]),
+    } })
+    expect((inferVendorRate as jest.Mock).mock.calls[0][0]).not.toHaveProperty('place_types')
+  })
+
+  it('does not bootstrap a legacy Google website while vendor flag is off', async () => {
+    db.rows.discovery_vendors = [vendor({ website: 'https://GOOGLE-CANARY.example', field_provenance: {} })]
+    await GET(makeRequest('cron-secret'))
+    expect(extractVenueContacts).not.toHaveBeenCalled()
+    expect(getVendorContactDetails).not.toHaveBeenCalled()
+    expect(db.rpcCalls).toEqual([])
+  })
+
+  it('uses a fresh exact-ID website only after a saved-candidate read, and never persists it', async () => {
+    process.env.GOOGLE_PLACES_VENDORS_ENABLED = 'true'
+    db.rows.discovery_vendors = [vendor({ website: 'https://OLD-GOOGLE-CANARY.example', field_provenance: {} })]
+    db.rows.plan_discovery_vendor_candidates = [{ id: 'candidate-v', discovery_vendor_id: 'vendor-1', dismissed_at: null }]
+    ;(getVendorContactDetails as jest.Mock).mockResolvedValue({ websiteUri: 'https://fresh-vendor.example' })
+    await GET(makeRequest('cron-secret'))
+    expect(getVendorContactDetails).toHaveBeenCalledWith('vendor-place-id', expect.any(Object))
+    expect(extractVenueContacts).toHaveBeenCalledWith('https://fresh-vendor.example', expect.any(Object))
+    expect(JSON.stringify(db.rpcCalls)).not.toContain('fresh-vendor.example')
+    expect(JSON.stringify(db.rpcCalls)).not.toContain('OLD-GOOGLE-CANARY')
+    expect(db.rows.discovery_vendors[0].website).toBe('https://OLD-GOOGLE-CANARY.example')
+    expect(inferVendorRate).not.toHaveBeenCalled()
+  })
+
+  it('does not use a stored Google website when candidate authorization lookup fails', async () => {
+    process.env.GOOGLE_PLACES_VENDORS_ENABLED = 'true'
+    db.rows.discovery_vendors = [vendor({ field_provenance: {} })]
+    db.failTable = 'plan_discovery_vendor_candidates'
+    await GET(makeRequest('cron-secret'))
+    expect(getVendorContactDetails).not.toHaveBeenCalled()
+    expect(extractVenueContacts).not.toHaveBeenCalled()
+    expect(db.rpcCalls).toEqual([])
   })
 
   it('rejects requests without the cron bearer secret', async () => {

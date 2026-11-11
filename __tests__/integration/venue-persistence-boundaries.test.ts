@@ -72,7 +72,7 @@ it.each(['lat', 'lng', 'price_hint_cents_low', 'price_hint_cents_high', 'price_h
   const update = { metadata: { shopping_list: { selected_venue: selectedVenue } } }
   await expect(db.from('plans').update(update).eq('id', 'plan-one').throwOnError()).resolves.toMatchObject({ error: null })
   expect(JSON.parse(transport.mock.calls[0][1].body)).toEqual({
-    metadata: { ...update.metadata, venue_content_version: 1 },
+    metadata: { ...update.metadata, venue_content_version: 1, vendor_content_version: 1 },
   })
   transport.mockClear()
   const google = JSON.parse(JSON.stringify(update))
@@ -169,7 +169,11 @@ it('preserves independently received cents and consent in a successful transport
 it('never rewrites an approval snapshot returned inside an RPC response',async()=>{
  const input={approval:{snapshot_hash:'signed',snapshot_json:canary}}
  const transport=jest.fn().mockImplementation(async()=>json(input))
- await expect(venueBoundaryFetch(transport)('https://db.example/rest/v1/rpc/stage_plan_quote_booking',{method:'POST',body:'{}'})).rejects.toThrow()
+ const response=await venueBoundaryFetch(transport)('https://db.example/rest/v1/rpc/stage_plan_quote_booking',{method:'POST',body:'{}'})
+ expect(response.status).toBe(409)
+ expect(await response.json()).toMatchObject({code:'COMMITTED_RESPONSE_UNAVAILABLE'})
+ expect(transport).toHaveBeenCalledTimes(1)
+ expect(input.approval.snapshot_json).toBe(canary)
 })
 it('rejects an unresolved field-history copy before it reaches the database',async()=>{
  const transport=jest.fn()
@@ -222,7 +226,7 @@ it('versions validated new agent messages while preserving nested snapshot hashe
  const request=new Request('https://db.example/rest/v1/plan_messages',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(message)})
  const response=await venueBoundaryFetch(transport)(request)
  const written=JSON.parse(transport.mock.calls[0][1].body)
- expect(written).toEqual({...message,metadata:{...message.metadata,venue_content_version:1}})
+ expect(written).toEqual({...message,metadata:{...message.metadata,venue_content_version:1,vendor_content_version:1}})
  expect(written.metadata.approval).toEqual(record)
  expect(await response.json()).toEqual(written)
  expect(await request.json()).toEqual(message)
@@ -266,7 +270,7 @@ it('isolates an unsafe historical approval message while retaining unrelated cha
  const unsafe=JSON.parse(JSON.stringify(record))
  unsafe.snapshot_json.counterparty.display_name='GOOGLE_CANARY'
  const host={id:'host-one',plan_id:'plan-one',role:'user',content:'Keep the agreed date.',message_type:'text',metadata:null,created_at:'2026-09-23T00:00:00Z'}
- const good={id:'good-one',plan_id:'plan-one',role:'agent',content:'Review the independent quote.',message_type:'approval_request',metadata:{venue_content_version:1,approval:record},created_at:'2026-09-23T00:01:00Z'}
+ const good={id:'good-one',plan_id:'plan-one',role:'agent',content:'Review the independent quote.',message_type:'approval_request',metadata:{venue_content_version:1,vendor_content_version:1,approval:record},created_at:'2026-09-23T00:01:00Z'}
  const bad={id:'bad-one',plan_id:'plan-one',role:'agent',content:'GOOGLE_CANARY',message_type:'approval_request',metadata:{approval:unsafe,available_actions:['approve']},created_at:'2026-09-23T00:02:00Z'}
  const rows=[host,bad,good]
  const before=JSON.stringify(rows)

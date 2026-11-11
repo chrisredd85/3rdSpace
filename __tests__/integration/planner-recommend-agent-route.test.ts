@@ -12,6 +12,9 @@ import {
   buildApprovalSnapshotHashV2,
   buildApprovalSnapshotV2,
 } from '@/lib/planner/execution/reapproval'
+import { independentVendorEvidence, readSafeDiscoveryVendor } from '@/lib/discovery/vendorRepository'
+import { assertDurableVendorContent } from '@/lib/discovery/vendorPersistence'
+import { searchPlacesForVendor } from '@/lib/server/places-vendor-search'
 import { independentVenueEvidence } from '@/lib/discovery/venueRepository'
 import { serializeVenueDurable } from '@/lib/discovery/venuePersistence'
 import { searchPlacesForPlan } from '@/lib/server/places-outreach'
@@ -43,6 +46,8 @@ jest.mock('@/lib/server/places-outreach', () => {
     searchPlacesForPlan: jest.fn(),
   }
 })
+
+jest.mock('@/lib/server/places-vendor-search', () => ({ ...jest.requireActual('@/lib/server/places-vendor-search'), searchPlacesForVendor: jest.fn() }))
 
 jest.mock('next/server', () => ({
   NextResponse: {
@@ -463,8 +468,59 @@ describe('POST /api/planner/plans/[planId]/recommend', () => {
 
   afterEach(() => {
     delete process.env.GOOGLE_PLACES_VENUES_ENABLED
+    delete process.env.GOOGLE_PLACES_VENDORS_ENABLED
     process.env.OPENAI_API_KEY = previousOpenAIKey
     process.env.GOOGLE_PLACES_API_KEY = previousPlacesKey
+  })
+
+  it('keeps Google-only vendors out of models and durable output while carrying independent rescue contact into consent', async () => {
+    process.env.GOOGLE_PLACES_VENDORS_ENABLED = 'true'
+    process.env.GOOGLE_PLACES_API_KEY = 'fake-places-key'
+    const id = '550e8400-e29b-41d4-a716-446655440201'
+    const googleOnlyId = '550e8400-e29b-41d4-a716-446655440202'
+    db.rows.plans[0].metadata = { ticket_price_target_cents: 7000, matching_signals: { photo_video_priority: 'photographer' } }
+    const evidence = independentVendorEvidence('host_input', 'plan:plan-1:contact-rescue')
+    const vendor = readSafeDiscoveryVendor({ id, source: 'google_places', source_external_id: 'independent-photo', name: 'Host supplied photographer', service_type: 'photographer',
+      organizer_provided_email: 'host-contact@example.com', inferred_package_rate_cents: 20000, rate_inference_admin_status: 'edited',
+      field_provenance: { name: evidence, service_type: evidence, organizer_provided_email: evidence, inferred_package_rate_cents: evidence } })
+    const googleOnly = readSafeDiscoveryVendor({ id: googleOnlyId, source: 'google_places', source_external_id: 'google-only' })
+    const sameNameOtherId = '550e8400-e29b-41d4-a716-446655440203'
+    const sameNameOther = readSafeDiscoveryVendor({ ...vendor, id: sameNameOtherId, source_external_id: 'different-business', google_place_id: 'different-business' })
+    ;(searchPlacesForVendor as jest.Mock).mockImplementation(async (input) => ({ vendors: input.serviceType === 'photographer' ? [vendor, googleOnly, sameNameOther] : [],
+      live: [{ discovery_vendor_id: googleOnlyId, place: { id: 'google-only', displayName: { text: 'GOOGLE_ONLY_CANARY' }, websiteUri: 'https://canary.example' } }],
+      unavailable: false, search_queries: [], places_requests: [], places_result_count: 2 }))
+    const response = await recommendPlan(makeRequest({ venueLimit: 3, phase: 'vendors' }), { params: { planId: 'plan-1' } })
+    const body = await readJson(response)
+    expect(response.status).toBe(200)
+    expect(body.vendor_recommendations).toEqual(expect.arrayContaining([expect.objectContaining({ discovery_vendor_id: id, name: 'Host supplied photographer', contact_email: 'host-contact@example.com', vendor_data: expect.any(Object) })]))
+    expect((body.vendor_recommendations as Row[]).filter(row => row.name === 'Host supplied photographer').map(row => row.vendor_id)).toEqual([id, sameNameOtherId])
+    expect(body.discovery_vendor_candidates).toEqual(expect.arrayContaining([{ discovery_vendor_id: googleOnlyId, place_id: 'google-only', requested_service_type: 'photographer' }]))
+    const savedVendor = db.rows.recommendations.find(row => row.reference_id === id)
+    expect(savedVendor?.metadata).toMatchObject({ discovery_vendor_id: id, contact_email: 'host-contact@example.com', vendor_data: { values: { contact_email: 'host-contact@example.com' } } })
+    const action = db.rows.agent_actions.find(row => (row.payload_json as Row)?.kind === 'venue_outreach')
+    expect((action?.payload_json as Row)?.partner_targets).toEqual(expect.arrayContaining([expect.objectContaining({ discovery_vendor_id: id, contact_email: 'host-contact@example.com', vendor_data: expect.any(Object) })]))
+    expect(db.rows.approvals[0]).toMatchObject({ delivery_email: 'host-contact@example.com' })
+    expect(() => assertDurableVendorContent(db.rows)).not.toThrow()
+    expect(JSON.stringify(db.rows)).not.toContain('GOOGLE_ONLY_CANARY')
+    expect(JSON.stringify(body)).not.toContain('GOOGLE_ONLY_CANARY')
+    expect(JSON.stringify(mockRunAgent.mock.calls)).not.toContain('GOOGLE_ONLY_CANARY')
+    expect(JSON.stringify(mockRunEconomicsAgent.mock.calls)).not.toContain('GOOGLE_ONLY_CANARY')
+  })
+
+  it('keeps previously saved independent vendors and rescue contacts usable while acquisition is off', async () => {
+    const id = '550e8400-e29b-41d4-a716-446655440211'
+    db.rows.plans[0].metadata = { ticket_price_target_cents: 7000, matching_signals: { photo_video_priority: 'photographer' } }
+    const evidence = independentVendorEvidence('host_input', 'plan:plan-1:rescue')
+    db.rows.plan_discovery_vendor_candidates = [{ plan_id: 'plan-1', discovery_vendor_id: id, service_type: 'photographer', status: 'candidate' }]
+    db.rows.discovery_vendors_safe = [{ id, source: 'google_places', source_external_id: 'saved-vendor', name: 'Independent saved vendor', service_type: 'photographer', organizer_provided_email: 'saved@example.com',
+      field_provenance: { name: evidence, service_type: evidence, organizer_provided_email: evidence } }]
+    const response = await recommendPlan(makeRequest({ venueLimit: 3, phase: 'vendors' }), { params: { planId: 'plan-1' } })
+    const body = await readJson(response)
+    expect(response.status).toBe(200)
+    expect(body.vendor_recommendations).toEqual(expect.arrayContaining([expect.objectContaining({ discovery_vendor_id: id, name: 'Independent saved vendor', contact_email: 'saved@example.com', base_rate_cents: null })]))
+    expect(searchPlacesForVendor).not.toHaveBeenCalled()
+    expect(db.rows.approvals[0]).toMatchObject({ delivery_email: 'saved@example.com' })
+    expect(() => assertDurableVendorContent(db.rows.recommendations)).not.toThrow()
   })
 
   it('runs venue matching and economics agents for a ready plan and persists recommendations', async () => {

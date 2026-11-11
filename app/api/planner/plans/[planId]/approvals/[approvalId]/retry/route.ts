@@ -1,3 +1,4 @@
+import { isCommittedResponseUnavailable, committedResponseRecoveryBody } from '@/lib/supabase/discoveryRpcResponse'
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -218,6 +219,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         approval,
       })
     } catch (executionError) {
+        if (isCommittedResponseUnavailable(executionError)) return NextResponse.json(committedResponseRecoveryBody(), { status: 202 })
       if (executionError instanceof GmailDispatchRecoveryPendingError) {
         const recovery = {
           error: executionError.message,
@@ -369,6 +371,7 @@ async function retryApprovedHandoff(input: {
     }
     execution = dispatched.result
   } catch (executionError) {
+        if (isCommittedResponseUnavailable(executionError)) return NextResponse.json(committedResponseRecoveryBody(), { status: 202 })
     const current = await loadAction(input.writeDb, input.plan.id, input.action.id)
     if (current?.status === 'complete') {
       return finalizeSuccessfulHandoffRetry(input, {

@@ -5,6 +5,11 @@ export function isGoogleVenueEnabled(): boolean {
   return process.env.GOOGLE_PLACES_VENUES_ENABLED === 'true'
 }
 
+/** Vendor acquisition is independent of the venue switch and defaults off. */
+export function isGoogleVendorEnabled(): boolean {
+  return process.env.GOOGLE_PLACES_VENDORS_ENABLED === 'true'
+}
+
 export function areGooglePhotosEnabled(entity: 'discovery_venue' | 'discovery_vendor' | 'venue' | 'vendor'): boolean {
   return (entity === 'venue' || entity === 'discovery_venue')
     && isGoogleVenueEnabled()

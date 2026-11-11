@@ -169,6 +169,12 @@ function requireMutableQuotePlan(plan: Plan) {
 
 function mapQuoteBookingError(error: unknown) {
   const message = error instanceof Error ? error.message : 'Failed to stage vendor quote booking'
+  if (/COMMITTED_RESPONSE_UNAVAILABLE/.test(message)) {
+    return NextResponse.json({ error: 'The request was saved, but its result needs source verification. Reload the plan before taking another action.', code: 'COMMITTED_RESPONSE_UNAVAILABLE', committed: true, retryable: false }, { status: 409 })
+  }
+  if (/vendor_evidence_required|vendor_facts_changed|vendor_boundary_stage_(fact_changed|snapshot_mismatch)/.test(message)) {
+    return NextResponse.json({ error: 'Verify the vendor name and service before approving this quote.', code: 'VENDOR_EVIDENCE_REQUIRED' }, { status: 409 })
+  }
   if (/response_not_found/i.test(message)) {
     return NextResponse.json({ error: 'Vendor quote response not found' }, { status: 404 })
   }

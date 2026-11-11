@@ -1,3 +1,4 @@
+import { independentVendorEvidence } from '@/lib/discovery/vendorRepository'
 import { independentVenueEvidence } from '@/lib/discovery/venueRepository'
 import {
   cancelExecutingCanonicalQuoteBooking,
@@ -83,6 +84,26 @@ describe('canonical quote booking execution', () => {
       p_snapshot_json: expect.objectContaining({ schema_version: 2 }),
       p_snapshot_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
     }))
+  })
+
+  it('stages a vendor through the checked gateway with independently evidenced facts inside the signed payload', async () => {
+    const plan = buildPlan()
+    const evidence = independentVendorEvidence('host_input', `profile:${DISCOVERY_ID}`, '2026-11-10T12:00:00Z')
+    const rpc = jest.fn(async (_name: string, args: Record<string, unknown>) => ({ data: { existing:false, plan, agent_action:{id:args.p_action_id}, approval:{id:args.p_approval_id}, approval_message:{id:'message-vendor'} }, error:null }))
+    const db = { rpc, from:jest.fn((table:string)=>trustedResponseQuery(table === 'discovery_vendors_safe'
+      ? {id:DISCOVERY_ID,source:'vendor_self_service',source_external_id:`vendor_profile:${DISCOVERY_ID}`,name:'Host DJ',service_type:'dj',field_provenance:{name:evidence,service_type:evidence}}
+      : {id:RESPONSE_ID,plan_id:PLAN_ID,discovery_vendor_id:DISCOVERY_ID,quoted_package_cents:70000,classification:'quote_received',conditions:[]})) }
+    await stageCanonicalQuoteBooking({db,plan,actorId:USER_ID,quoteKind:'vendor',responseId:RESPONSE_ID})
+    expect(rpc).toHaveBeenCalledTimes(1)
+    expect(rpc).toHaveBeenCalledWith('stage_vendor_quote_booking_checked',expect.objectContaining({p_quote_kind:'vendor',p_action_payload:expect.objectContaining({target_name:'Host DJ',service_type:'dj',vendor_data:expect.objectContaining({values:{name:'Host DJ',service_type:'dj'}})}),p_snapshot_json:expect.objectContaining({action:expect.objectContaining({payload_json:expect.objectContaining({vendor_data:expect.any(Object)})})})}))
+  })
+
+  it('does not stage a discovery vendor with an unevidenced name or service', async () => {
+    const db={rpc:jest.fn(),from:jest.fn((table:string)=>trustedResponseQuery(table==='discovery_vendors_safe'
+      ? {id:DISCOVERY_ID,source:'google_places',name:'Google label',service_type:'dj'}
+      : {id:RESPONSE_ID,plan_id:PLAN_ID,discovery_vendor_id:DISCOVERY_ID,quoted_package_cents:70000}))}
+    await expect(stageCanonicalQuoteBooking({db,plan:buildPlan(),actorId:USER_ID,quoteKind:'vendor',responseId:RESPONSE_ID})).rejects.toThrow('vendor_evidence_required')
+    expect(db.rpc).not.toHaveBeenCalled()
   })
 
   it('does not turn an unknown price into a zero-cent authorization', async () => {

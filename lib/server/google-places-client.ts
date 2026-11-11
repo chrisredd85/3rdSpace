@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { stripGooglePhotoData } from '@/lib/discovery/googlePhotoPersistence'
-import { isGoogleVenueEnabled } from '@/lib/server/google-places-flags'
+import { isGoogleVenueEnabled, isGoogleVendorEnabled } from '@/lib/server/google-places-flags'
 
 export const GOOGLE_PLACES_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText'
 
@@ -20,8 +20,7 @@ export const GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK = [
   'places.businessStatus',
 ].join(',')
 
-// The vendor profile above is intentionally unchanged. Venue discovery pays for
-// Pro fields only; richer fields are fetched for the bounded shortlist.
+// Discovery uses Pro fields only; richer fields are fetched for selected IDs.
 export const GOOGLE_VENUE_PRO_FIELDS = [
   'id', 'displayName', 'formattedAddress', 'location', 'primaryType', 'types',
   'businessStatus', 'googleMapsUri', 'attributions',
@@ -109,7 +108,7 @@ function safePlacesUrl(value: unknown): string | null {
 
 /** Request-only Pro search. Unsolicited rich fields and photo content are ignored. */
 export async function searchGoogleVenuePlacesText(input: GooglePlacesSearchInput): Promise<VenuePlacesSearchResult> {
-  const request = buildGooglePlacesTextSearchRequest(input)
+  const request = buildGooglePlacesTextSearchRequest({ ...input, includePureServiceAreaBusinesses: false })
   if (!isGoogleVenueEnabled()) return { places: [], request }
   if (!input.apiKey?.trim()) throw new GooglePlacesConfigurationError('GOOGLE_PLACES_API_KEY is not configured')
   const fetchImpl = input.fetchImpl ?? fetch
@@ -135,6 +134,59 @@ export async function searchGoogleVenuePlacesText(input: GooglePlacesSearchInput
     }
   }
   return { places: [], request }
+}
+
+/** Mobile callers opt into service-area results; venue requests keep their default. */
+export async function searchGoogleVendorPlacesText(input: GooglePlacesSearchInput & { deadline?: number }): Promise<VenuePlacesSearchResult> {
+  const request = buildGooglePlacesTextSearchRequest(input)
+  if (!isGoogleVendorEnabled()) return { places: [], request }
+  if (!input.apiKey?.trim()) throw new GooglePlacesConfigurationError('GOOGLE_PLACES_API_KEY is not configured')
+  const now = input.now ?? Date.now
+  const sleep = input.sleep ?? defaultSleep
+  const deadline = input.deadline ?? now() + 20_000
+  let rateBudgetExhausted = false
+  await waitForRateLimit({ now, sleep: async (ms) => {
+    if (ms >= deadline - now()) rateBudgetExhausted = true
+    else await sleep(ms)
+  } })
+  if (rateBudgetExhausted) throw new Error('Google vendor search deadline')
+  for (let attempt = 0; attempt < 2 && now() < deadline; attempt += 1) {
+    try {
+      const { response, payload } = await fetchVendorSearchWithinDeadline(input.fetchImpl ?? fetch, {
+        method: 'POST', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': input.apiKey, 'X-Goog-FieldMask': GOOGLE_VENUE_TEXT_SEARCH_FIELD_MASK },
+        body: JSON.stringify(request),
+      }, Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, deadline - now()))
+      if (!response.ok) throw new GooglePlacesApiError(response.status, 'Vendor search unavailable')
+      if (now() >= deadline) throw new Error('Google vendor search deadline')
+      const rows = payload && typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>).places : null
+      const places = Array.isArray(rows) ? rows.slice(0, request.maxResultCount).map((row) => parseVenuePlace(row, 'pro'))
+        .filter((place): place is VenuePlaceCandidate => Boolean(place) && (!place!.businessStatus || place!.businessStatus === 'OPERATIONAL')) : []
+      return { places, request }
+    } catch (error) {
+      const transient = error instanceof GooglePlacesApiError ? error.status === 429 || error.status >= 500
+        : error instanceof Error && (isRetryableError(error) || error instanceof TypeError)
+      if (attempt === 0 && transient && deadline - now() > 200) { await sleep(200); continue }
+      // Do not log provider bodies or raw errors carrying transient listing content.
+      throw new Error('Google vendor search unavailable')
+    }
+  }
+  throw new Error('Google vendor search deadline')
+}
+
+/** The deadline covers the body as well as response headers. */
+async function fetchVendorSearchWithinDeadline(fetchImpl: FetchLike, init: RequestInit, timeout: number) {
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      (async () => {
+        const response = await fetchImpl(GOOGLE_PLACES_TEXT_SEARCH_URL, { ...init, signal: controller.signal })
+        return { response, payload: response.ok ? await response.json() as unknown : null }
+      })(),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('Vendor search timeout')) }, timeout) }),
+    ])
+  } finally { if (timer) clearTimeout(timer) }
 }
 
 const REQUEST_INTERVAL_MS = 1000
@@ -203,6 +255,7 @@ export type GooglePlacesSearchInput = {
   includedType?: GooglePlacesIncludedType | null
   maxResultCount?: number
   locationBiasRadiusMeters?: number | null
+  includePureServiceAreaBusinesses?: boolean
   fetchImpl?: FetchLike
   sleep?: (ms: number) => Promise<void>
   now?: () => number
@@ -228,7 +281,7 @@ export type GooglePlacesTextSearchRequest = {
   rankPreference?: 'DISTANCE' | 'RELEVANCE'
   languageCode: 'en'
   regionCode: 'US'
-  includePureServiceAreaBusinesses: false
+  includePureServiceAreaBusinesses: boolean
   locationRestriction?: {
     rectangle: PlacesRectangle
   }
@@ -465,6 +518,7 @@ export function buildGooglePlacesTextSearchRequest(input: {
   includedType?: GooglePlacesIncludedType | null
   maxResultCount?: number
   locationBiasRadiusMeters?: number | null
+  includePureServiceAreaBusinesses?: boolean
 }): GooglePlacesTextSearchRequest {
   const textQuery = input.textQuery.trim()
   const maxResultCount = clampResultCount(input.maxResultCount)
@@ -476,7 +530,7 @@ export function buildGooglePlacesTextSearchRequest(input: {
     maxResultCount,
     languageCode: 'en',
     regionCode: 'US',
-    includePureServiceAreaBusinesses: false,
+    includePureServiceAreaBusinesses: input.includePureServiceAreaBusinesses === true,
   }
 
   if (includedType) {
