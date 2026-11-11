@@ -4,8 +4,11 @@ import { readDiscoveryRpcResponse, committedResponseUnavailable } from './discov
 import { assertDurableVenueContent, readSafeVenueSnapshot, VenuePersistenceError } from '@/lib/discovery/venuePersistence'
 import { readLegacyVenueContent, versionVenueContentWrite } from '@/lib/discovery/venueLegacyReads'
 import { NonDurableDiscoveryContentError } from '@/lib/discovery/foundation/boundary'
+import { readRecommendationAvailability } from '@/lib/planner/recommendationAvailability'
+import { asRecord } from '@/lib/discovery/foundation/provenance'
 
 const immutableTables = new Set(['approvals', 'agent_actions', 'venue_bookings', 'vendor_bookings'])
+const recommendationMarkerAlias = '__recommendation_availability_metadata'
 
 /** All active copies of venue content cross this transport, including RPC arguments.
  * SQL separately fences stale binaries, direct clients, and definer-generated writes.
@@ -31,6 +34,16 @@ export function venueBoundaryFetch(fetchImpl: typeof fetch = fetch): typeof fetc
     const affected = Boolean(resource && (VENUE_COPY_TABLES.has(resource) || resource === 'rpc'))
     if (!affected) return fetchImpl(input, init)
     const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()
+    const accept = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined)).get('accept')
+    const targetedRecommendationRead = resource === 'recommendations' && method === 'GET'
+      && (url.searchParams.get('id')?.startsWith('eq.') || accept?.includes('application/vnd.pgrst.object+json'))
+    let requestInput = input
+    if (targetedRecommendationRead) {
+      // A targeted caller may select only id/rank/notes. Fetch the marker under
+      // an internal alias, then remove that alias from the returned shape.
+      url.searchParams.set('select', `${url.searchParams.get('select') || '*'},${recommendationMarkerAlias}:metadata`)
+      requestInput = input instanceof Request ? new Request(url, input) : url.toString()
+    }
     let requestInit = init
     let rpcArgs: unknown = null
     if (!['GET', 'HEAD', 'DELETE'].includes(method)) {
@@ -50,7 +63,7 @@ export function venueBoundaryFetch(fetchImpl: typeof fetch = fetch): typeof fetc
         }
       }
     }
-    const response = await fetchImpl(input, { ...requestInit, cache: 'no-store' })
+    const response = await fetchImpl(requestInput, { ...requestInit, cache: 'no-store' })
     if (!response.headers.get('content-type')?.includes('json') || method === 'HEAD' || response.status === 204 || response.status === 205) return response
     const data: unknown = await response.json()
     const headers = new Headers(response.headers)
@@ -95,10 +108,27 @@ export function venueBoundaryFetch(fetchImpl: typeof fetch = fetch): typeof fetc
       }
     } else {
       if (immutable) { assertDurableVenueContent(data); assertDurableVendorContent(data) }
-      safe = immutable ? data : readLegacyVenueContent(resource, readSafeVenueSnapshot(data))
+      // Active lists filter at their readers; admin/history lists retain the marker.
+      // Targeted reads expose an unavailable identity, never the retired proposal.
+      // POST/PATCH/RPC receipts must retain their existing committed semantics.
+      const targetedRecommendation = resource === 'recommendations' && method === 'GET'
+        && (targetedRecommendationRead || !Array.isArray(data))
+      const readData = targetedRecommendation
+        ? (Array.isArray(data) ? data.map(readTargetedRecommendation) : readTargetedRecommendation(data))
+        : data
+      safe = immutable ? data : readLegacyVenueContent(resource, readSafeVenueSnapshot(readData))
     }
     return new Response(JSON.stringify(safe), { status: response.status, statusText: response.statusText, headers })
   }
+}
+function readTargetedRecommendation(value: unknown): unknown {
+  const row = asRecord(value)
+  if (!row || !(recommendationMarkerAlias in row)) return readRecommendationAvailability(value)
+  const { [recommendationMarkerAlias]: marker, ...selected } = row
+  const marked = { ...selected, metadata: marker }
+  const projected = readRecommendationAvailability(marked)
+  // Unmarked reads retain precisely the caller's selected columns/metadata.
+  return projected === marked ? selected : projected
 }
 function unavailableMessage(value: unknown) {
   const row = value && typeof value === 'object' ? value as Record<string, unknown> : {}

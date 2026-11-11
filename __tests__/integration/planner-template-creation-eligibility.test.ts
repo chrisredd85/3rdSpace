@@ -150,6 +150,22 @@ describe('POST /api/planner/templates canonical eligibility', () => {
     expect(() => serializeVenueDurable(insert)).not.toThrow()
   })
 
+  it('does not copy an unavailable recommendation into a new active template', async () => {
+    const unmarked = { id: 'rec-available', type: 'venue', reference_id: null,
+      external_name: null, price_cents: 70000, rank: 2, is_best_fit: true, metadata: {} }
+    const marked = { ...unmarked, id: 'rec-unavailable', rank: 1,
+      metadata: { venue_content_unavailable: true, unavailable_code: 'legacy_discovery_evidence_missing' } }
+    const mock = mockPlannerDb({ recommendations: [marked, unmarked] })
+
+    const response = await POST(request())
+
+    expect(response.status).toBe(201)
+    const insert = mock.templateInsert.mock.calls[0][0]
+    expect(insert.shopping_list.recommendations).toEqual([unmarked])
+    expect(insert.shopping_list.selected_venue).toEqual(unmarked)
+    expect((await response.json()).template.id).toBe(templateRow.id)
+  })
+
   it('rejects a legacy complete plan before canonical event or template writes', async () => {
     const mock = mockPlannerDb({ plan: { ...completedPlan, status: 'complete' } })
 

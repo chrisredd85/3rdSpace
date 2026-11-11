@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 
+import { isUnavailableRecommendation } from '@/lib/planner/recommendationAvailability'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { jsonWithDeprecatedKeys } from '@/lib/api/legacy-key-compat'
@@ -197,7 +198,7 @@ export async function POST(request: NextRequest) {
     const templateInsert = buildTemplateInsert({
       userId: user.id,
       plan,
-      recommendations: (recommendationsData ?? []) as Recommendation[],
+      recommendations: ((recommendationsData ?? []) as Recommendation[]).filter((row) => !isUnavailableRecommendation(row)),
       requestedName: parsed.data.name,
       attendanceSummary,
       sourceEvent: sourceEventData as TemplateSourceEventRow,

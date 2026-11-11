@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getAdminContext } from '@/lib/server/admin-auth'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { isUnavailableRecommendation } from '@/lib/planner/recommendationAvailability'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,7 +18,7 @@ export default async function AdminOverridesPage() {
   const admin = createServiceRoleClient()
   const { data } = await admin
     .from('recommendations')
-    .select('id, plan_id, type, external_name, reference_id, price_cents, rank, is_best_fit, status, created_at')
+    .select('id, plan_id, type, external_name, reference_id, price_cents, rank, is_best_fit, status, created_at, metadata')
     .order('created_at', { ascending: false })
     .limit(75)
 
@@ -56,18 +57,22 @@ function RecommendationTable({ rows }: { rows: Array<Record<string, unknown>> })
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
-          {rows.map((row) => (
-            <tr key={String(row.id)}>
-              <td className="py-3 pr-4">{String(row.type ?? '—')}</td>
-              <td className="max-w-[320px] truncate py-3 pr-4" title={String(row.external_name ?? row.reference_id ?? '')}>
-                {String(row.external_name ?? row.reference_id ?? '—')}
-              </td>
-              <td className="py-3 pr-4">{String(row.rank ?? '—')}</td>
-              <td className="py-3 pr-4">{row.is_best_fit ? 'Yes' : 'No'}</td>
-              <td className="py-3 pr-4">{String(row.status ?? '—')}</td>
-              <td className="py-3 pr-4">{formatDate(row.created_at)}</td>
-            </tr>
-          ))}
+          {rows.map((row) => {
+            const unavailable = isUnavailableRecommendation(row)
+            const nameOrRef = unavailable ? row.reference_id ?? row.id : row.external_name ?? row.reference_id
+            return (
+              <tr key={String(row.id)}>
+                <td className="py-3 pr-4">{String(row.type ?? '—')}</td>
+                <td className="max-w-[320px] truncate py-3 pr-4" title={String(nameOrRef ?? '')}>
+                  {String(nameOrRef ?? '—')}
+                </td>
+                <td className="py-3 pr-4">{unavailable ? '—' : String(row.rank ?? '—')}</td>
+                <td className="py-3 pr-4">{unavailable ? '—' : row.is_best_fit ? 'Yes' : 'No'}</td>
+                <td className="py-3 pr-4">{unavailable ? 'Unavailable' : String(row.status ?? '—')}</td>
+                <td className="py-3 pr-4">{formatDate(row.created_at)}</td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>

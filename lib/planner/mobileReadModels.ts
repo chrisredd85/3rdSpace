@@ -1,3 +1,4 @@
+import { isUnavailableRecommendation } from '@/lib/planner/recommendationAvailability'
 import {
   APPROVAL_SELECT_COLUMNS,
   PLAN_MESSAGE_SELECT_COLUMNS,
@@ -302,7 +303,7 @@ async function loadRecommendations(db: PlannerDb, planId: string): Promise<Recom
     return []
   }
 
-  return (data ?? []) as Recommendation[]
+  return ((data ?? []) as Recommendation[]).filter((row) => !isUnavailableRecommendation(row))
 }
 
 async function loadPlanActivityRows(db: PlannerDb, planId: string): Promise<ActivityRow[]> {
