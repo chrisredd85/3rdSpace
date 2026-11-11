@@ -52,6 +52,17 @@ send the organizer notice in Step 4 for any active connection.
 
 ## Rotation Process After Versioned Keys Land
 
+New ciphertext is written as:
+
+```text
+v<N>:<base64-iv>:<base64-auth-tag>:<base64-ciphertext>
+```
+
+Legacy ciphertext without a version prefix is still readable, but only with the
+active `TOKEN_CRYPTO_KEY`. Versioned ciphertext never tries a fallback chain:
+the version prefix must match either the active key version or an explicitly
+configured legacy key.
+
 1. Generate a new key:
 
    ```bash
@@ -60,13 +71,30 @@ send the organizer notice in Step 4 for any active connection.
 
 2. Set production environment variables:
    - `TOKEN_CRYPTO_KEY=<new key>`
-   - `TOKEN_CRYPTO_KEY_VERSION=v<N>`
-   - `TOKEN_CRYPTO_KEY_LEGACY_<previous version>=<old key>`
+   - `TOKEN_CRYPTO_KEY_VERSION=v<N>` (defaults to `v1` if unset)
+   - `TOKEN_CRYPTO_KEY_LEGACY_<previous version>=<old key>`, for example
+     `TOKEN_CRYPTO_KEY_LEGACY_V1=<old key>`
 3. Deploy the code that can decrypt both active and legacy key versions.
-4. Re-encrypt rows opportunistically as users reconnect or as a controlled
-   backfill with plaintext available.
+4. Re-encrypt rows opportunistically as users reconnect or with the opt-in
+   helper:
+
+   ```bash
+   # Dry-run first
+   npx tsx scripts/admin/reencrypt-with-active-key.ts
+
+   # Write only after reviewing the dry-run rows
+   npx tsx scripts/admin/reencrypt-with-active-key.ts --confirm
+   ```
+
 5. Remove legacy key env vars only after no ciphertext references that key
    version.
+
+## Safe Rollback During Rotation
+
+If the new deployment fails before old rows are migrated, roll back the
+deployment while keeping the previous `TOKEN_CRYPTO_KEY` configured. Do not
+remove `TOKEN_CRYPTO_KEY_LEGACY_*` entries until the re-encryption audit shows
+zero ciphertext values for that version.
 
 ## Expected Time
 
