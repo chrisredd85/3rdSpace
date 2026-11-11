@@ -51,6 +51,7 @@ import {
 } from '@/lib/planner/entityStripeReadiness'
 import { readVendorNeedStatusFromMetadata } from '@/lib/planner/vendorNeedStatus'
 import { calculateBreakEvenAttendance } from '@/lib/finance/eventPlanningEconomics'
+import { GoogleVendorCardDetails } from '@/components/discovery/GoogleVendorCardDetails'
 import { GoogleVenueCardDetails } from '@/components/discovery/GoogleVenueCardDetails'
 import { serializePlannerStorage, readPlannerStorage } from '@/lib/discovery/venueBrowserStorage'
 import type { PlanMessage, VendorNeedStatus } from '@/lib/types'
@@ -1506,6 +1507,7 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
   const venueRecommendations = renderedRecommendations.filter((recommendation) => /venue/i.test(recommendation.type))
   const representedVenueIds = new Set(venueRecommendations.flatMap(venue => [venue.id, venue.discoveryVenueId].filter((id): id is string => Boolean(id))))
   const discoveredVenueIds = readLatestDiscoveryVenueIds(activeMessages).filter(id => !representedVenueIds.has(id))
+  const discoveredVendorIds = readLatestDiscoveryVendorIds(activeMessages)
   const selectedVenue = livePlan?.selectedVenue ?? null
   const primaryVenue = selectedVenue
     ? recommendationFromSelectedVenue(selectedVenue, eventSummary)
@@ -2355,6 +2357,15 @@ export const PlannerLivePlanPanel = memo(function PlannerLivePlanPanel({
                 {discoveredVenueIds.map(id => <GoogleVenueCardDetails key={id} venueId={id} />)}
               </div>
               {activePlanId ? <Link className="inline-block text-sm font-semibold text-primary underline" href={`/planner/outreach-search?plan=${encodeURIComponent(activePlanId)}`}>Review venue contacts</Link> : null}
+            </section>
+          ) : null}
+          {discoveredVendorIds.length > 0 ? (
+            <section aria-label="Discovered vendor options" className="mt-4 space-y-3 rounded-lg border border-tan bg-cream-deep/50 p-5">
+              <h3 className="font-display text-xl font-semibold">Discovered vendor options</h3>
+              <p className="text-sm text-ink-soft">Service, availability and complete pricing still need independent confirmation.</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {discoveredVendorIds.map(id => <GoogleVendorCardDetails key={id} vendorId={id} />)}
+              </div>
             </section>
           ) : null}
           <OutreachQuoteComparison
@@ -3986,6 +3997,27 @@ function readLatestDiscoveryVenueIds(messages: PlanMessage[]): string[] {
     const rows = response?.discovery_venue_candidates
     if (!Array.isArray(rows)) return []
     return [...new Set(rows.map(row => readString(asRecord(row)?.discovery_venue_id)).filter((id): id is string => Boolean(id)))].slice(0, 20)
+  }
+  return []
+}
+
+/** Only IDs cross planner state; Google content lives inside each card. */
+function readLatestDiscoveryVendorIds(messages: PlanMessage[]): string[] {
+  for (const message of [...messages].reverse()) {
+    if (String(message.message_type) !== 'recommendation') continue
+    const metadata = asRecord(message.metadata)
+    const response = asRecord(metadata?.recommendation_response) ?? metadata
+    const rows = response?.discovery_vendor_candidates
+    if (!Array.isArray(rows)) return []
+    const counts = new Map<string, number>()
+    const ids = new Set<string>()
+    for (const raw of rows) {
+      const row = asRecord(raw), id = readString(row?.discovery_vendor_id), service = readString(row?.requested_service_type)
+      if (!id || !service || ids.has(id) || (counts.get(service) ?? 0) >= 2) continue
+      counts.set(service, (counts.get(service) ?? 0) + 1)
+      ids.add(id)
+    }
+    return [...ids]
   }
   return []
 }

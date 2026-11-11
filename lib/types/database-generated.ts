@@ -2486,6 +2486,7 @@ export type Database = {
       }
       discovery_vendors: {
         Row: {
+          field_provenance: Json
           business_status: string | null
           city: string | null
           contact_email: string | null
@@ -2505,7 +2506,7 @@ export type Database = {
           last_meaningful_change_at: string | null
           last_places_refresh_at: string | null
           last_refreshed_at: string | null
-          name: string
+          name: string | null
           organizer_provided_email: string | null
           phone: string | null
           photos: Json | null
@@ -2515,7 +2516,7 @@ export type Database = {
           rate_inference_extracted_at: string | null
           rate_inference_model: string | null
           rate_inference_source_quote: string | null
-          service_type: string
+          service_type: string | null
           source: string
           source_external_id: string | null
           state: string | null
@@ -2527,6 +2528,7 @@ export type Database = {
           website_extraction_status: string | null
         }
         Insert: {
+          field_provenance?: Json
           business_status?: string | null
           city?: string | null
           contact_email?: string | null
@@ -2546,7 +2548,7 @@ export type Database = {
           last_meaningful_change_at?: string | null
           last_places_refresh_at?: string | null
           last_refreshed_at?: string | null
-          name: string
+          name?: string | null
           organizer_provided_email?: string | null
           phone?: string | null
           photos?: Json | null
@@ -2556,7 +2558,7 @@ export type Database = {
           rate_inference_extracted_at?: string | null
           rate_inference_model?: string | null
           rate_inference_source_quote?: string | null
-          service_type: string
+          service_type?: string | null
           source?: string
           source_external_id?: string | null
           state?: string | null
@@ -2568,6 +2570,7 @@ export type Database = {
           website_extraction_status?: string | null
         }
         Update: {
+          field_provenance?: Json
           business_status?: string | null
           city?: string | null
           contact_email?: string | null
@@ -2587,7 +2590,7 @@ export type Database = {
           last_meaningful_change_at?: string | null
           last_places_refresh_at?: string | null
           last_refreshed_at?: string | null
-          name?: string
+          name?: string | null
           organizer_provided_email?: string | null
           phone?: string | null
           photos?: Json | null
@@ -2597,7 +2600,7 @@ export type Database = {
           rate_inference_extracted_at?: string | null
           rate_inference_model?: string | null
           rate_inference_source_quote?: string | null
-          service_type?: string
+          service_type?: string | null
           source?: string
           source_external_id?: string | null
           state?: string | null
@@ -11643,6 +11646,51 @@ export type Database = {
       }
     }
     Views: {
+      discovery_vendors_safe: {
+        Row: {
+          business_status: string | null
+          city: string | null
+          contact_email: string | null
+          created_at: string | null
+          data_freshness_status: string | null
+          extracted_contact_forms: Json | null
+          extracted_emails: Json | null
+          field_provenance: Json | null
+          formatted_address: string | null
+          google_place_id: string | null
+          google_price_level: string | null
+          google_rating: number | null
+          google_user_rating_count: number | null
+          id: string | null
+          inferred_hourly_rate_cents: number | null
+          inferred_minimum_cents: number | null
+          inferred_package_rate_cents: number | null
+          last_meaningful_change_at: string | null
+          last_places_refresh_at: string | null
+          last_refreshed_at: string | null
+          name: string | null
+          organizer_provided_email: string | null
+          phone: string | null
+          photos: Json | null
+          place_types: Json | null
+          rate_inference_admin_status: string | null
+          rate_inference_confidence: number | null
+          rate_inference_extracted_at: string | null
+          rate_inference_model: string | null
+          rate_inference_source_quote: string | null
+          service_type: string | null
+          source: string | null
+          source_external_id: string | null
+          state: string | null
+          updated_at: string | null
+          website: string | null
+          website_extraction_attempted_at: string | null
+          website_extraction_attempts: number | null
+          website_extraction_metadata: Json | null
+          website_extraction_status: string | null
+        }
+        Relationships: []
+      }
       discovery_venues_safe: {
         Row: {
           address: string | null
@@ -11901,6 +11949,18 @@ export type Database = {
       }
     }
     Functions: {
+      stage_vendor_quote_booking_checked: {
+        Args: { p_plan_id: string; p_actor_id: string; p_quote_kind: string; p_response_id: string; p_action_id: string; p_approval_id: string; p_expires_at: string; p_action_payload: Json; p_snapshot_json: Json; p_snapshot_hash: string }
+        Returns: Json
+      }
+      upsert_discovery_vendor_identity: {
+        Args: { p_place_id?: string; p_vendor_profile_id?: string }
+        Returns: Json
+      }
+      write_discovery_vendor_independent_facts: {
+        Args: { p_vendor_id: string; p_values: Json; p_field_provenance: Json; p_operational?: Json }
+        Returns: Json
+      }
       redact_expired_discovery_venue_contacts: {
         Args: { p_before: string }
         Returns: number

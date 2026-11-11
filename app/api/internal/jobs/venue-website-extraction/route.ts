@@ -18,9 +18,11 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import type { SupabaseJobClient } from '@/lib/server/job-queue'
 import type { Database, Json } from '@/lib/types/database-generated'
 import { readSafeDiscoveryVenue, writeVenueFacts } from '@/lib/discovery/venueRepository'
+import { SAFE_VENDOR_TABLE, readSafeDiscoveryVendor, writeVendorFacts } from '@/lib/discovery/vendorRepository'
 import { readFieldProvenance, retentionOrigin, type FieldProvenance } from '@/lib/discovery/foundation/provenance'
 import { getVenueContactDetails } from '@/lib/server/venue-places-details'
-import { isGoogleVenueEnabled } from '@/lib/server/google-places-flags'
+import { createVendorDetailsContext, getVendorContactDetails, type VendorDetailsContext } from '@/lib/server/vendor-places-details'
+import { isGoogleVenueEnabled, isGoogleVendorEnabled } from '@/lib/server/google-places-flags'
 import type { ExtractionResult } from '@/lib/server/venue-website-extractor'
 
 type SupabaseAdminClient = SupabaseClient<any, 'public'>
@@ -48,7 +50,7 @@ type DiscoveryVenueExtractionCandidate = Pick<
 
 type DiscoveryVendorExtractionCandidate = {
   id: string
-  name: string
+  name: string | null
   service_type: string | null
   website: string | null
   contact_email: string | null
@@ -57,8 +59,10 @@ type DiscoveryVendorExtractionCandidate = {
   extracted_contact_forms?: Json | null
   website_extraction_status: string | null
   website_extraction_attempts: number | null
-  place_types: Json | null
   rate_inference_extracted_at: string | null
+  source: string | null
+  source_external_id: string | null
+  field_provenance: Record<string, unknown>
 }
 
 type ExtractionSummary = {
@@ -129,9 +133,8 @@ export async function runVenueWebsiteExtraction() {
     .slice(0, PROCESS_LIMIT)
 
   const { data: vendorData, error: vendorError } = await admin
-    .from('discovery_vendors')
-    .select('id,name,service_type,website,contact_email,organizer_provided_email,extracted_emails,extracted_contact_forms,website_extraction_status,website_extraction_attempts,place_types,rate_inference_extracted_at')
-    .not('website', 'is', null)
+    .from(SAFE_VENDOR_TABLE)
+    .select('id,source,source_external_id,name,service_type,website,contact_email,organizer_provided_email,extracted_emails,extracted_contact_forms,website_extraction_status,website_extraction_attempts,rate_inference_extracted_at,field_provenance')
     .order('website_extraction_attempted_at', { ascending: true, nullsFirst: true })
     .limit(QUERY_LIMIT)
 
@@ -144,7 +147,7 @@ export async function runVenueWebsiteExtraction() {
     })
   }
 
-  const vendors = ((vendorData ?? []) as DiscoveryVendorExtractionCandidate[])
+  const vendors = (vendorData ?? []).map((row) => readSafeDiscoveryVendor(row) as DiscoveryVendorExtractionCandidate)
     .filter(shouldAttemptVendorWebsiteExtraction)
     .slice(0, VENDOR_PROCESS_LIMIT)
 
@@ -202,8 +205,9 @@ export async function runVenueWebsiteExtraction() {
       || (venue.website_extraction_attempts ?? 0) >= 3)).slice(0, PROCESS_LIMIT)
   for (const venue of terminalVenues) await resumePendingDrafts(admin, venue.id)
 
-  for (const batch of chunk(vendors, BATCH_SIZE)) {
-    const batchResults = await Promise.all(batch.map((vendor) => processVendor(admin, vendor)))
+  const vendorDetailsContext = createVendorDetailsContext()
+  for (const batch of chunk(vendors, 3)) {
+    const batchResults = await Promise.all(batch.map((vendor) => processVendor(admin, vendor, vendorDetailsContext)))
     for (const result of batchResults) {
       vendorSummary.processed += 1
       vendorResults.push(result)
@@ -342,67 +346,68 @@ async function maybeEnqueueVenueCapacityInference(admin: SupabaseAdminClient, ve
   }
 }
 
-async function processVendor(admin: SupabaseAdminClient, vendor: DiscoveryVendorExtractionCandidate) {
+async function processVendor(admin: SupabaseAdminClient, vendor: DiscoveryVendorExtractionCandidate, context: VendorDetailsContext) {
   const attemptedAt = new Date().toISOString()
-
+  let result: ExtractionResult
   try {
-    const result = await extractVenueContacts(vendor.website ?? '', {
-      venueName: vendor.name,
-      venueType: vendor.service_type ?? 'vendor',
-    })
-    const inference = await maybeInferVendorRate(vendor, result.emails.map((email) =>
-      `${email.email} found on ${email.source_path}`
-    ).join('\n'))
-    const update = buildVendorWebsiteExtractionUpdate(result, vendor.website_extraction_attempts, attemptedAt, inference)
-    const { error } = await admin
-      .from('discovery_vendors')
-      .update(update)
-      .eq('id', vendor.id)
-
-    if (error) {
-      Sentry.captureException(error, {
-        tags: { component: 'venue_website_extraction_cron', phase: 'vendor_update' },
-        extra: { discovery_vendor_id: vendor.id, extraction_status: result.status },
-      })
-      console.error('[venue-website-extraction] discovery_vendor_update_failed', {
-        discovery_vendor_id: vendor.id,
-        status: result.status,
-        error: error.message,
-      })
-      return { id: vendor.id, status: 'fetch_failed', emails: result.emails.length, rate_inferred: Boolean(inference), error: error.message }
+    let website = vendor.website
+    if (!website && vendor.source === 'google_places' && vendor.source_external_id && isGoogleVendorEnabled()) {
+      const { data: saved, error } = await admin.from('plan_discovery_vendor_candidates')
+        .select('id').eq('discovery_vendor_id', vendor.id).is('dismissed_at', null).limit(1).maybeSingle()
+      if (error || !saved) return { id: vendor.id, status: 'skipped', emails: 0, rate_inferred: false }
+      const details = await getVendorContactDetails(vendor.source_external_id, context)
+      if (!details) throw new Error('vendor_contact_lookup_unavailable')
+      website = details.websiteUri ?? null
     }
-
-    return { id: vendor.id, status: result.status, emails: result.emails.length, rate_inferred: Boolean(inference) }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Vendor website extraction failed'
-    Sentry.captureException(error, {
-      tags: { component: 'venue_website_extraction_cron', phase: 'process_vendor' },
-      extra: { discovery_vendor_id: vendor.id },
-    })
-    console.error('[venue-website-extraction] vendor_extraction_failed', {
-      discovery_vendor_id: vendor.id,
-      error: message,
-    })
-
-    const fallbackResult = {
-      status: 'fetch_failed' as const,
-      emails: [],
-      contact_forms: [],
-      metadata: {
-        paths_attempted: [],
-        paths_successful: [],
-        total_fetch_time_ms: 0,
-        robots_txt_consulted: false,
-        error: message,
-      },
-    }
-    await admin
-      .from('discovery_vendors')
-      .update(buildVendorWebsiteExtractionUpdate(fallbackResult, vendor.website_extraction_attempts, attemptedAt, null))
-      .eq('id', vendor.id)
-
-    return { id: vendor.id, status: 'fetch_failed', emails: 0, rate_inferred: false, error: message }
+    result = website
+      ? await extractVenueContacts(website, { venueName: vendor.name ?? undefined, venueType: vendor.service_type ?? 'vendor' })
+      : emptyExtractionResult('no_emails_found')
+  } catch {
+    result = emptyExtractionResult('fetch_failed')
   }
+
+  // Site observations are independent evidence. The temporary Google navigation
+  // pointer and any provider error text never enter a saved value or provenance.
+  const values: Record<string, unknown> = {}
+  const provenance: Record<string, FieldProvenance> = {}
+  const update = buildWebsiteExtractionUpdate(result, vendor.website_extraction_attempts, attemptedAt, vendor)
+  try {
+    for (const [field, entries] of [
+      ['extracted_emails', result.emails],
+      ['extracted_contact_forms', result.contact_forms ?? []],
+    ] as const) {
+      if (entries.length === 0) continue
+      if (entries.some((entry) => entry.source !== 'business_website' || !entry.source_url || !/^https?:\/\//i.test(entry.source_url))) {
+        throw new Error('contact_evidence_missing')
+      }
+      values[field] = update[field]
+      const lineage = entries.map((entry) => ({ field, provenance: {
+        resolution: 'resolved', source: 'venue_site', evidence_reference: entry.source_url!,
+        collected_at: entry.extracted_at, confidence: entry.confidence,
+        confirmation_status: 'site_published', lineage: [],
+      } as FieldProvenance }))
+      const prior = readFieldProvenance(vendor.field_provenance[field])
+      if (retentionOrigin(prior) === 'independent') lineage.push({ field, provenance: prior })
+      provenance[field] = {
+        resolution: 'resolved', source: 'venue_site', evidence_reference: entries[0].source_url!,
+        collected_at: attemptedAt, confidence: null, confirmation_status: 'site_published', lineage,
+      }
+    }
+    const { error } = await writeVendorFacts(admin, vendor.id, values, provenance, {
+      website_extraction_status: result.status,
+      website_extraction_attempts: (vendor.website_extraction_attempts ?? 0) + 1,
+      website_extraction_attempted_at: attemptedAt,
+    })
+    if (error) throw new Error('contact_persistence_failed')
+  } catch {
+    console.warn('[venue-website-extraction] vendor_contact_persistence_failed', { discovery_vendor_id: vendor.id })
+    return { id: vendor.id, status: 'fetch_failed', emails: result.emails.length, rate_inferred: false, error: 'contact_persistence_failed' }
+  }
+
+  // Optional estimates run after the contact commit; errors cannot erase contacts
+  // or previously known prices, and missing prices never make a contact retry eligible.
+  const rateInferred = await maybeInferVendorRate(admin, vendor, result, provenance, attemptedAt)
+  return { id: vendor.id, status: result.status, emails: result.emails.length, rate_inferred: rateInferred }
 }
 
 function readVenueType(metadata: unknown) {
@@ -412,72 +417,60 @@ function readVenueType(metadata: unknown) {
 }
 
 function shouldAttemptVendorWebsiteExtraction(row: DiscoveryVendorExtractionCandidate) {
-  if (!row.website?.trim()) return false
+  const canLocate = row.website?.trim() || (isGoogleVendorEnabled() && row.source === 'google_places' && row.source_external_id)
+  if (!canLocate) return false
   if (row.contact_email?.trim() || row.organizer_provided_email?.trim()) return false
-  if (Array.isArray(row.extracted_emails) && row.extracted_emails.length > 0 && shouldSkipVendorRateInference(row)) return false
-  if (Array.isArray(row.extracted_contact_forms) && row.extracted_contact_forms.length > 0 && shouldSkipVendorRateInference(row)) return false
-  if (!new Set<string | null>([null, 'never_attempted', 'fetch_failed', 'no_emails_found', 'rate_limited', 'timeout']).has(row.website_extraction_status)) {
-    return !shouldSkipVendorRateInference(row)
-  }
-  return (row.website_extraction_attempts ?? 0) < 3 || !shouldSkipVendorRateInference(row)
+  if (Array.isArray(row.extracted_emails) && row.extracted_emails.length > 0) return false
+  if (Array.isArray(row.extracted_contact_forms) && row.extracted_contact_forms.length > 0) return false
+  if (!new Set<string | null>([null, 'never_attempted', 'fetch_failed', 'no_emails_found', 'rate_limited', 'timeout']).has(row.website_extraction_status)) return false
+  return (row.website_extraction_attempts ?? 0) < 3
 }
 
-async function maybeInferVendorRate(vendor: DiscoveryVendorExtractionCandidate, websiteSnippet: string | null) {
-  if (shouldSkipVendorRateInference(vendor)) return null
-  if (!process.env.OPENAI_API_KEY?.trim()) return null
-
-  try {
-    return await inferVendorRate({
-      name: vendor.name,
-      service_type: vendor.service_type ?? 'other',
-      place_types: Array.isArray(vendor.place_types)
-        ? vendor.place_types.filter((item): item is string => typeof item === 'string')
-        : [],
-      website_url: vendor.website,
-    }, websiteSnippet)
-  } catch (error) {
-    Sentry.captureException(error, {
-      tags: { component: 'venue_website_extraction_cron', phase: 'vendor_rate_inference' },
-      extra: { discovery_vendor_id: vendor.id },
-    })
-    console.error('[venue-website-extraction] vendor_rate_inference_failed', {
-      discovery_vendor_id: vendor.id,
-      error: error instanceof Error ? error.message : String(error),
-    })
-    return null
-  }
-}
-
-function buildVendorWebsiteExtractionUpdate(
-  result: Parameters<typeof buildWebsiteExtractionUpdate>[0],
-  attempts: number | null | undefined,
+async function maybeInferVendorRate(
+  admin: SupabaseAdminClient,
+  vendor: DiscoveryVendorExtractionCandidate,
+  result: ExtractionResult,
+  contactProvenance: Record<string, FieldProvenance>,
   attemptedAt: string,
-  inference: Awaited<ReturnType<typeof inferVendorRate>> | null
-) {
-  return {
-    extracted_emails: toJson(result.emails),
-    extracted_contact_forms: toJson(result.contact_forms),
-    website_extraction_attempted_at: attemptedAt,
-    website_extraction_status: result.status,
-    website_extraction_metadata: toJson({
-      ...result.metadata,
-      rate_inference_model: inference?.model ?? null,
-    }),
-    website_extraction_attempts: (attempts ?? 0) + 1,
-    inferred_hourly_rate_cents: inference?.hourly_cents ?? null,
-    inferred_package_rate_cents: inference?.package_cents ?? null,
-    inferred_minimum_cents: inference?.minimum_cents ?? null,
-    rate_inference_confidence: inference?.confidence ?? null,
-    rate_inference_source_quote: inference?.source_quote ?? null,
-    rate_inference_model: inference?.model ?? null,
-    rate_inference_admin_status: inference ? 'pending' : undefined,
-    rate_inference_extracted_at: inference ? attemptedAt : null,
-    updated_at: attemptedAt,
+): Promise<boolean> {
+  if (shouldSkipVendorRateInference(vendor) || !process.env.OPENAI_API_KEY?.trim()) return false
+  if (!vendor.name || !vendor.service_type) return false
+  const lineage = ['name', 'service_type', ...(vendor.website ? ['website'] : [])]
+    .map((field) => ({ field, provenance: readFieldProvenance(vendor.field_provenance[field]) }))
+  if (lineage.some((entry) => retentionOrigin(entry.provenance) !== 'independent')) return false
+  if (result.emails.length > 0) {
+    const contact = contactProvenance.extracted_emails
+    if (!contact || retentionOrigin(contact) !== 'independent') return false
+    lineage.push({ field: 'extracted_emails', provenance: contact })
   }
-}
-
-function toJson(value: unknown): Json {
-  return JSON.parse(JSON.stringify(value)) as Json
+  try {
+    const inference = await inferVendorRate({
+      name: vendor.name, service_type: vendor.service_type,
+      // Saved website is independent; fresh Google navigation data is not model input.
+      website_url: vendor.website,
+    }, result.emails.map((email) => `${email.email} found on ${email.source_path}`).join('\n') || null)
+    if (!inference) return false
+    const values: Record<string, unknown> = {}
+    for (const [field, value] of [
+      ['inferred_hourly_rate_cents', inference.hourly_cents],
+      ['inferred_package_rate_cents', inference.package_cents],
+      ['inferred_minimum_cents', inference.minimum_cents],
+    ] as const) if (value !== null) values[field] = value
+    if (Object.keys(values).length === 0) return false
+    const evidence: FieldProvenance = {
+      resolution: 'resolved', source: 'derived', evidence_reference: `vendor-rate:${vendor.id}:${attemptedAt}`,
+      collected_at: attemptedAt, confidence: inference.confidence, confirmation_status: 'unconfirmed', lineage,
+    }
+    const { error } = await writeVendorFacts(admin, vendor.id, values,
+      Object.fromEntries(Object.keys(values).map((field) => [field, evidence])), {
+        rate_inference_admin_status: 'pending', rate_inference_extracted_at: attemptedAt,
+      })
+    if (error) throw new Error('rate_persistence_failed')
+    return true
+  } catch {
+    console.warn('[venue-website-extraction] vendor_rate_inference_failed', { discovery_vendor_id: vendor.id })
+    return false
+  }
 }
 
 function chunk<T>(items: T[], size: number): T[][] {

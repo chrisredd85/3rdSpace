@@ -1,3 +1,5 @@
+import { independentVendorEvidence } from '@/lib/discovery/vendorRepository'
+import { assertDurableVendorContent, readSafeVendorSnapshot } from '@/lib/discovery/vendorPersistence'
 import { independentVenueEvidence } from '@/lib/discovery/venueRepository'
 import { assertDurableVenueContent } from '@/lib/discovery/venuePersistence'
 jest.mock('server-only', () => ({}))
@@ -17,6 +19,7 @@ jest.mock('@/lib/supabase/server', () => ({
 import {
   createOrReuseGmailOutreachApproval,
   executeApprovedGmailOutreach,
+  loadGmailApprovalState,
   markGmailOutreachThreadHandled,
   renderBodyForTarget,
   syncGmailOutreachThread,
@@ -68,6 +71,7 @@ class MemoryDb {
   }
   private sequence = 0
   rpcCalls: Array<{ name: string; params: Record<string, unknown> }> = []
+  projectOutreachReads = false
 
   from(table: string) {
     if (!this.rows[table]) this.rows[table] = []
@@ -145,10 +149,11 @@ class MemoryQuery {
   private payload: unknown
   private orderBy: { field: string; ascending: boolean } | null = null
   private limitCount: number | null = null
+  private selectedColumns = '*'
 
   constructor(private db: MemoryDb, private table: string) {}
 
-  select() { return this }
+  select(columns = '*') { this.selectedColumns = columns; return this }
   eq(field: string, value: unknown) {
     this.filters.push([field, value])
     return this
@@ -245,6 +250,12 @@ class MemoryQuery {
       })
     }
     if (this.limitCount != null) rows = rows.slice(0, this.limitCount)
+    // Opt-in models the real transport: PostgREST projects selected columns
+    // before the discovery boundary reads the resulting records.
+    if (this.db.projectOutreachReads && this.table === 'outreach_threads') {
+      rows = readSafeVendorSnapshot(rows.map(row => this.selectedColumns === '*' ? row
+        : Object.fromEntries(this.selectedColumns.split(',').map(key => key.trim()).map(key => [key, row[key]]))))
+    }
     return { data: rows, error: null }
   }
   private matches(row: Row) {
@@ -376,6 +387,55 @@ describe('Gmail approval flow', () => {
       message_type: 'status_update',
       metadata: expect.objectContaining({ outbound_message_sent: true }),
     }))
+  })
+
+  it('preserves independently sourced vendor rescue contact through consent, replacement and date change', async () => {
+    const db = new MemoryDb()
+    db.rows.plans.push(buildExecutionInput([]).plan)
+    const id = '11111111-1111-4111-8111-111111111111'
+    const p = independentVendorEvidence('host_input', 'host:rescue', '2026-11-10T12:00:00Z')
+    db.rows.discovery_vendors_safe = [{id,source:'google_places',source_external_id:'place-vendor',name:'Independent DJ',service_type:'dj',organizer_provided_email:'saved@example.com',field_provenance:{name:p,service_type:p,organizer_provided_email:p}}]
+    const serviceFrom=jest.fn(db.from.bind(db))
+    mockCreateServiceRoleClient.mockReturnValue({from:serviceFrom,rpc:db.rpc.bind(db)})
+    const session={from:(table:string)=>{if(table==='discovery_vendors_safe')throw new Error('session cannot read safe vendors');return db.from(table)}}
+    const input={userId:'user-1',planId:'plan-1',reuseExisting:false,subject:'Event',bodyText:'Hi {{place_name}}',targets:[{kind:'vendor' as const,discoveryVendorId:id,name:'UNTRUSTED_GOOGLE_LABEL',email:'saved@example.com'}]}
+    await createOrReuseGmailOutreachApproval(session,input)
+    const previous=db.rows.approvals[0], original=JSON.stringify(previous.snapshot_json), hash=previous.snapshot_hash
+    expect(db.rows.agent_actions[0].payload_json.targets[0]).toMatchObject({name:'Independent DJ',email:'saved@example.com',vendor_data:{values:{contact_email:'saved@example.com'}}})
+    expect(JSON.stringify(db.rows.agent_actions)).not.toContain('UNTRUSTED_GOOGLE_LABEL')
+    for(const table of ['agent_actions','approvals','plan_messages'])expect(()=>assertDurableVendorContent(db.rows[table])).not.toThrow()
+    db.rows.discovery_vendors_safe[0].organizer_provided_email='new@example.com'
+    await createOrReuseGmailOutreachApproval(session,{...input,replacementApprovalId:previous.id,targets:[{...input.targets[0],email:'new@example.com'}]})
+    expect(JSON.stringify(previous.snapshot_json)).toBe(original);expect(previous.snapshot_hash).toBe(hash)
+    expect(db.rows.approvals[1].snapshot_hash).not.toBe(hash)
+    expect(db.rows.agent_actions[0].payload_json.targets[0].email).toBe('new@example.com')
+    const savedTarget = db.rows.agent_actions[0].payload_json.targets[0]
+    db.rows.outreach_threads.push({plan_id:'plan-1',user_id:'user-1',target_name:'Independent DJ',target_email:'new@example.com',target_type:'vendor',discovery_vendor_id:id,channel:'email',channel_strategy:{source:'gmail_approved_outreach',vendor_data:savedTarget.vendor_data}})
+    db.projectOutreachReads = true
+    await createDateChangeOutreachApproval(session,{userId:'user-1',planId:'plan-1',dateWindowStart:'2026-12-15'})
+    expect(db.rows.agent_actions.at(-1)?.payload_json.targets).toEqual([expect.objectContaining({
+      name: 'Independent DJ', email: 'new@example.com', kind: 'vendor', discoveryVendorId: id,
+      vendor_data: expect.objectContaining({ identity: expect.objectContaining({ id }),
+        values: expect.objectContaining({ contact_email: 'new@example.com' }),
+        field_provenance: expect.objectContaining({ contact_email: p }) }),
+    })])
+    expect(serviceFrom).toHaveBeenCalledWith('discovery_vendors_safe')
+    expect(mockSendGmailMessage).not.toHaveBeenCalled()
+    await expect(createOrReuseGmailOutreachApproval(session,{...input,targets:[{...input.targets[0],email:'unobserved@example.com'}]})).rejects.toThrow('Independent vendor contact evidence required')
+  })
+
+  it('keeps vendor identity and email-channel context when safely reading Gmail thread summaries', async () => {
+    const db = new MemoryDb()
+    db.projectOutreachReads = true
+    db.rows.outreach_threads.push({ id: 'legacy-thread', plan_id: 'plan-1', user_id: 'user-1', target_source: 'discovery',
+      target_name: 'LEGACY_GOOGLE_VENDOR', target_email: 'legacy@example.com', target_type: 'vendor',
+      discovery_vendor_id: '11111111-1111-4111-8111-111111111111', channel: 'email', state: 'awaiting_reply',
+      channel_strategy: { source: 'gmail_approved_outreach' }, updated_at: '2026-11-10T12:00:00Z' })
+    const state = await loadGmailApprovalState(db, 'user-1')
+    expect(state.threads).toEqual([expect.objectContaining({ id: 'legacy-thread', target_type: 'vendor',
+      target_name: 'Vendor contact', target_email: null, state: 'awaiting_reply' })])
+    expect(JSON.stringify(state)).not.toContain('LEGACY_GOOGLE_VENDOR')
+    expect(mockSendGmailMessage).not.toHaveBeenCalled()
   })
 
   it('uses independent venue identity before hashing and rejects an unevidenced recipient without sending', async () => {

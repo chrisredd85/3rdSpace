@@ -13,7 +13,7 @@ export function readLegacyVenueContent(resource: string | undefined, input: unkn
   if (['templates', 'event_templates', 'template_runs'].includes(resource ?? '')) return readTemplateVenueReferences(input)
   if (!row || !['plans', 'plan_messages'].includes(resource ?? '')) return input
   const metadata = asRecord(row.metadata) ?? {}
-  if (metadata.venue_content_version === VENUE_CONTENT_VERSION) return input
+  if (metadata.venue_content_version === VENUE_CONTENT_VERSION && metadata.vendor_content_version === 1) return input
   const safeMetadata = { ...metadata }
   for (const key of generatedKeys) {
     // A signed record is already validated above and must remain byte-for-byte
@@ -38,7 +38,7 @@ export function versionVenueContentWrite(resource: string | undefined, input: un
   // An operational PATCH without metadata cannot bless an existing generated cache.
   if (!('metadata' in row) && resource !== 'plan_messages') return input
   if (resource === 'plan_messages' && row.role !== 'agent' && row.role !== 'system') return input
-  return { ...row, metadata: { ...(asRecord(row.metadata) ?? {}), venue_content_version: VENUE_CONTENT_VERSION } }
+  return { ...row, metadata: { ...(asRecord(row.metadata) ?? {}), venue_content_version: VENUE_CONTENT_VERSION, vendor_content_version: 1 } }
 }
 
 function containsSignedSnapshot(input: unknown, depth = 0): boolean {

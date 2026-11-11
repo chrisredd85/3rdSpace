@@ -6,6 +6,8 @@ import { cascadeInvalidationForEntityChange, type DiscoveryEntityType } from '@/
 import { getAdminContext } from '@/lib/server/admin-auth'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import type { Json } from '@/lib/types'
+import { SAFE_VENDOR_TABLE, readSafeDiscoveryVendor, writeVendorFacts } from '@/lib/discovery/vendorRepository'
+import { readFieldProvenance, retentionOrigin } from '@/lib/discovery/foundation/provenance'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,7 +39,23 @@ export default async function DiscoveryChangeReviewPage() {
     .order('created_at', { ascending: false })
     .limit(75)
 
-  const rows = ((data ?? []) as DiscoveryChangeRow[]).filter(row => row.entity_type !== 'discovery_venue')
+  const pending = ((data ?? []) as DiscoveryChangeRow[]).filter(row => row.entity_type === 'discovery_vendor')
+  const vendorIds = [...new Set(pending.map(row => row.entity_id))]
+  const { data: vendorRows } = vendorIds.length
+    ? await admin.from(SAFE_VENDOR_TABLE).select('*').in('id', vendorIds)
+    : { data: [] }
+  const vendors = new Map((vendorRows ?? []).map((value: unknown) => {
+    const vendor = readSafeDiscoveryVendor(value)
+    return [vendor.id, vendor] as const
+  }))
+  const rows = pending.map(row => {
+    const vendor = vendors.get(row.entity_id) as ReturnType<typeof readSafeDiscoveryVendor> | undefined
+    const field = row.field_name === 'base_rate' ? 'inferred_package_rate_cents' : row.field_name
+    const reviewable = Boolean(row.source !== 'places_refresh' && vendor && retentionOrigin(readFieldProvenance(vendor.field_provenance[field])) === 'independent'
+      && Object.prototype.hasOwnProperty.call(vendor.vendor_data.values, field)
+      && JSON.stringify(vendor.vendor_data.values[field]) === JSON.stringify(row.new_value))
+    return { ...row, reviewable, safeValue: reviewable ? vendor!.vendor_data.values[field] as Json : null }
+  })
 
   return (
     <main className="min-h-screen bg-background px-6 py-8 text-foreground">
@@ -46,7 +64,7 @@ export default async function DiscoveryChangeReviewPage() {
           <p className="text-xs font-semibold uppercase tracking-widest text-primary">Internal admin</p>
           <h1 className="mt-2 font-display text-3xl font-bold">Discovery change review</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Review Places or website-discovered changes before they become trusted planning inputs. Applying a change refreshes affected plans and marks stale outreach.
+            Review independently evidenced changes to planning inputs. Legacy Google changes must be independently reacquired before they can be applied.
           </p>
         </header>
 
@@ -70,24 +88,24 @@ export default async function DiscoveryChangeReviewPage() {
                       </p>
                       <h2 className="font-display text-2xl font-bold">{row.field_name}</h2>
                       <p className="break-all text-xs text-muted-foreground">Entity: {row.entity_id}</p>
-                      {row.source_evidence ? (
-                        <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{row.source_evidence}</p>
-                      ) : null}
+                      <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                        {row.reviewable ? 'Matches independently acquired current evidence.' : 'Independent evidence must be reacquired before applying.'}
+                      </p>
                     </div>
                     <div className="grid shrink-0 gap-2 text-sm md:min-w-[420px] md:grid-cols-3">
-                      <Metric label="Old" value={formatJson(row.old_value)} />
-                      <Metric label="New" value={formatJson(row.new_value)} />
-                      <Metric label="Confidence" value={row.confidence === null ? 'Review' : `${Math.round(row.confidence * 100)}%`} />
+                      <Metric label="Old" value="Unavailable" />
+                      <Metric label="New" value={row.reviewable ? formatJson(row.safeValue) : 'Unavailable'} />
+                      <Metric label="Evidence" value={row.reviewable ? 'Independent' : 'Unresolved'} />
                     </div>
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-3">
-                    <form action={applyDiscoveryChange}>
+                    {row.reviewable ? <form action={applyDiscoveryChange}>
                       <input type="hidden" name="id" value={row.id} />
                       <button className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground" type="submit">
                         Apply change
                       </button>
-                    </form>
+                    </form> : null}
                     <form action={rejectDiscoveryChange}>
                       <input type="hidden" name="id" value={row.id} />
                       <button className="rounded-md border border-border px-4 py-2 text-sm font-semibold text-foreground hover:border-primary/50" type="submit">
@@ -113,36 +131,45 @@ async function applyDiscoveryChange(formData: FormData) {
   const admin = createServiceRoleClient() as any
   const { data, error } = await admin
     .from('discovery_change_log')
-    .select('id,entity_type,entity_id,field_name,new_value')
+    .select('id,entity_type,entity_id,source,field_name,new_value')
     .eq('id', id)
     .maybeSingle()
 
   if (error || !data) throw new Error(error?.message ?? 'Discovery change not found')
   const entityType = data.entity_type as DiscoveryEntityType
   if (entityType === 'discovery_venue') throw new Error('Legacy venue changes require independently reacquired evidence before applying.')
-  const table = 'discovery_vendors'
+  if (data.source === 'places_refresh') throw new Error('Google history cannot be reapplied; reacquire independent evidence instead.')
   const fieldName = String(data.field_name)
   if (isGooglePhotoField(fieldName) || containsGooglePhotoData(data.new_value)) {
     throw new Error('Google photo changes cannot be reapplied. Request a fresh photo instead.')
   }
   const appliedAt = new Date().toISOString()
-
-  await admin
-    .from(table)
-    .update({
-      [fieldName]: data.new_value,
-      last_meaningful_change_at: appliedAt,
-      data_freshness_status: fieldName === 'business_status' && data.new_value !== 'OPERATIONAL' ? 'closed' : 'changed',
-      updated_at: appliedAt,
+  const { data: rawVendor, error: vendorError } = await admin.from(SAFE_VENDOR_TABLE)
+    .select('*').eq('id', data.entity_id).maybeSingle()
+  if (vendorError || !rawVendor) throw new Error('Independent vendor evidence unavailable')
+  const vendor = readSafeDiscoveryVendor(rawVendor)
+  const factField = fieldName === 'base_rate' ? 'inferred_package_rate_cents' : fieldName
+  const evidence = readFieldProvenance(vendor.field_provenance[factField])
+  // A historical source label or admin click cannot establish independent origin.
+  // Only replay a value independently reacquired through the current safe gateway.
+  if (retentionOrigin(evidence) !== 'independent'
+    || !Object.prototype.hasOwnProperty.call(vendor.vendor_data.values, factField)
+    || JSON.stringify(vendor.vendor_data.values[factField]) !== JSON.stringify(data.new_value)) {
+    throw new Error('Legacy vendor changes require matching independently reacquired evidence before applying.')
+  }
+  const currentValue = vendor.vendor_data.values[factField]
+  const { error: writeError } = await writeVendorFacts(admin, String(data.entity_id),
+    { [factField]: currentValue }, { [factField]: evidence }, {
+      last_meaningful_change_at: appliedAt, data_freshness_status: 'changed',
     })
-    .eq('id', data.entity_id)
+  if (writeError) throw new Error('Unable to apply independent vendor change')
 
   const impact = await cascadeInvalidationForEntityChange({
     supabase: admin,
     entityType,
     entityId: String(data.entity_id),
     changedField: fieldName,
-    newValue: data.new_value,
+    newValue: currentValue as Json,
     actorId: context.user?.id ?? null,
   })
 

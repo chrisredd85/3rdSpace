@@ -34,11 +34,11 @@ describe('venue-only staged Places retrieval', () => {
     expect(areGooglePhotosEnabled('venue')).toBe(false)
   })
 
-  it('keeps the vendor mask unchanged while using only Pro venue fields', async () => {
+  it('keeps the legacy rich mask isolated while using only Pro venue fields', async () => {
     expect(GOOGLE_PLACES_TEXT_SEARCH_FIELD_MASK).toBe('places.id,places.displayName,places.formattedAddress,places.primaryType,places.types,places.location,places.websiteUri,places.nationalPhoneNumber,places.rating,places.userRatingCount,places.priceLevel,places.businessStatus')
     expect(GOOGLE_VENUE_TEXT_SEARCH_FIELD_MASK).toBe('places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types,places.businessStatus,places.googleMapsUri,places.attributions')
     const fetchImpl = jest.fn().mockResolvedValue(json({ places: [{ id: 'places/one', rating: 5, websiteUri: 'https://secret.example', photos: [{ name: 'token' }], location: { latitude: 37, longitude: -122 } }, { id: '../unsafe' }] }))
-    const result = await searchGoogleVenuePlacesText({ apiKey: 'test', textQuery: 'venues', fetchImpl })
+    const result = await searchGoogleVenuePlacesText({ apiKey: 'test', textQuery: 'venues', fetchImpl, includePureServiceAreaBusinesses: true })
     expect(fetchImpl.mock.calls[0][1].headers['X-Goog-FieldMask']).toBe(GOOGLE_VENUE_TEXT_SEARCH_FIELD_MASK)
     expect(result.request.includePureServiceAreaBusinesses).toBe(false)
     expect(result.places).toEqual([{ id: 'one', location: { latitude: 37, longitude: -122 } }])

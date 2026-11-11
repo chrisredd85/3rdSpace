@@ -10,16 +10,18 @@ import { createServiceRoleClient } from '@/lib/supabase/server'
 import { refreshDiscoveryEntityFromPlaces } from '@/lib/discovery/refreshDiscoveryFromPlaces'
 import { runVenueWebsiteExtraction } from '@/app/api/internal/jobs/venue-website-extraction/route'
 
-const prior = { secret: process.env.CRON_SECRET, key: process.env.GOOGLE_PLACES_API_KEY, flag: process.env.GOOGLE_PLACES_VENUES_ENABLED }
+const prior = { secret: process.env.CRON_SECRET, key: process.env.GOOGLE_PLACES_API_KEY, flag: process.env.GOOGLE_PLACES_VENUES_ENABLED, vendorFlag: process.env.GOOGLE_PLACES_VENDORS_ENABLED }
 afterAll(() => {
-  for (const [key, value] of Object.entries({ CRON_SECRET: prior.secret, GOOGLE_PLACES_API_KEY: prior.key, GOOGLE_PLACES_VENUES_ENABLED: prior.flag })) {
+  for (const [key, value] of Object.entries({ CRON_SECRET: prior.secret, GOOGLE_PLACES_API_KEY: prior.key, GOOGLE_PLACES_VENUES_ENABLED: prior.flag, GOOGLE_PLACES_VENDORS_ENABLED: prior.vendorFlag })) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value
   }
 })
-it.each(['false', 'true'])('never refreshes venue listings through the broad cron with venue flag %s', async flag => {
+it.each(['false', 'true'])('never refreshes venue or vendor listings through the broad cron with flags %s', async flag => {
   process.env.CRON_SECRET = 'local-cron-fixture'
   process.env.GOOGLE_PLACES_API_KEY = 'local-fake-key'
   process.env.GOOGLE_PLACES_VENUES_ENABLED = flag
+  process.env.GOOGLE_PLACES_VENDORS_ENABLED = flag
+  delete process.env.GOOGLE_PLACES_API_KEY
   jest.clearAllMocks()
   const query = { select: jest.fn(), or: jest.fn(), order: jest.fn(), limit: jest.fn() }
   query.select.mockReturnValue(query); query.or.mockReturnValue(query); query.order.mockReturnValue(query)
@@ -30,8 +32,8 @@ it.each(['false', 'true'])('never refreshes venue listings through the broad cro
   ;(runVenueWebsiteExtraction as jest.Mock).mockResolvedValue(new Response(JSON.stringify({ processed: 0 })))
   const result = await GET(new NextRequest('http://localhost/api/cron/discovery/refresh-stale', { headers: { authorization: 'Bearer local-cron-fixture' } }))
   expect(result.status).toBe(200)
-  expect(from.mock.calls).toEqual([['discovery_vendors']])
-  expect(refreshDiscoveryEntityFromPlaces).toHaveBeenCalledTimes(1)
-  expect(refreshDiscoveryEntityFromPlaces).toHaveBeenCalledWith(expect.objectContaining({ entityType: 'discovery_vendor', entityId: 'vendor-1' }))
+  expect(from).not.toHaveBeenCalled()
+  expect(refreshDiscoveryEntityFromPlaces).not.toHaveBeenCalled()
+  expect(await result.json()).toMatchObject({ refreshed: 0, changes_detected: 0 })
   expect(runVenueWebsiteExtraction).toHaveBeenCalledTimes(1)
 })

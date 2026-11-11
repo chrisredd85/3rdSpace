@@ -1,3 +1,4 @@
+import { assertDurableVendorContent, readSafeVendorSnapshot, VendorPersistenceError } from './vendorPersistence'
 import { readSafeDiscoveryVenue } from './venueRepository'
 import { asRecord, readFieldProvenance, retentionOrigin } from './foundation/provenance'
 import { createTransientDiscovery, serializeDiscovery, NonDurableDiscoveryContentError } from './foundation/boundary'
@@ -23,7 +24,7 @@ function isVenueProvider(row: Record<string, unknown>): boolean {
   if (asRecord(venueData?.identity)?.kind === 'venue') return true
   if (identity?.kind === 'venue' || row.entity_type === 'discovery_venue' || row.target_type === 'discovery_venue' ||
     typeof row.discovery_venue_id === 'string' || typeof row.discoveryVenueId === 'string') return true
-  if (row.entity_type === 'discovery_vendor' || row.kind === 'vendor' || row.vendor_id || row.service_type) return false
+  if (identity?.kind === 'vendor' || row.vendor_data || asRecord(row.metadata)?.vendor_data || row.entity_type === 'discovery_vendor' || row.kind === 'vendor' || row.vendor_id || row.service_type) return false
   return row.source === 'google_places' || row.source === 'discovery' ||
     typeof row.google_place_id === 'string' || typeof row.place_id === 'string' ||
     (typeof row.id === 'string' && /^discovery[_:-]/.test(row.id))
@@ -42,7 +43,7 @@ type VenueEnvelope = ReturnType<typeof envelope>
 type VenueMetadataContext = { safe: VenueEnvelope | null; derived: boolean }
 const separateContextKeys = new Set(['venue_data', 'venue_derivation', 'field_provenance', 'plan', 'quote_terms', 'requested_terms', 'booking_slot', 'consent'])
 function isVendorContext(row: Record<string, unknown>): boolean {
-  return row.entity_type === 'discovery_vendor' || row.target_type === 'discovery_vendor'
+  return asRecord(row.identity)?.kind === 'vendor' || Boolean(row.vendor_data || asRecord(row.metadata)?.vendor_data) || row.entity_type === 'discovery_vendor' || row.target_type === 'discovery_vendor'
     || row.kind === 'vendor' || row.type === 'vendor' || Boolean(row.vendor_id || row.service_type)
 }
 function childMetadataContext(key: string, provider: boolean, context: VenueMetadataContext | null, inherited: VenueMetadataContext | null) {
@@ -168,12 +169,13 @@ export function assertDurableVenueContent(value: unknown, path = '$', depth = 0,
 
 export function serializeVenueDurable<T>(value: T): T {
   assertDurableVenueContent(value)
+  assertDurableVendorContent(value)
   return stripGooglePhotoData(value)
 }
 
 /** Legacy read projection only: old content is not deleted and cannot be copied forward. */
 export function readSafeVenueSnapshot<T>(value: T): T {
-  return project(value, 0).value as T
+  return readSafeVendorSnapshot(project(value, 0).value) as T
 }
 function project(input: unknown, depth: number, metadataContext: VenueMetadataContext | null = null): { value: unknown; removed: boolean } {
   if (depth > 64) return { value: null, removed: true }
@@ -234,8 +236,8 @@ function project(input: unknown, depth: number, metadataContext: VenueMetadataCo
 
 /** Operational telemetry keeps IDs/counts/status only whenever a mixed venue payload is encountered. */
 export function safeVenueTelemetry<T>(value: T): T {
-  try { assertDurableVenueContent(value); return value } catch (error) {
-    if (!(error instanceof VenuePersistenceError || error instanceof NonDurableDiscoveryContentError)) throw error
+  try { assertDurableVenueContent(value); assertDurableVendorContent(value); return value } catch (error) {
+    if (!(error instanceof VenuePersistenceError || error instanceof VendorPersistenceError || error instanceof NonDurableDiscoveryContentError)) throw error
     const row = asRecord(value) ?? {}
     return Object.fromEntries(Object.entries(row).filter(([key, item]) =>
       /^(?:id|.*_id|status|.*_count|.*_ms|duration_ms|model|agent_name|prompt_tokens|completion_tokens)$/.test(key) &&

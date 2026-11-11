@@ -268,6 +268,16 @@ describe('approval retry route', () => {
     })
   })
 
+  it('does not finalize a committed handoff as failed when its response is unavailable', async () => {
+    const { action, rpc } = seed({ action_type: 'concierge_queue', payload_json: { kind: 'canonical_quote_booking' } })
+    mockExecuteConcierge.mockRejectedValueOnce(new Error('COMMITTED_RESPONSE_UNAVAILABLE'))
+    const response = await retryApproval(request('committed-response'), { params: Promise.resolve({ planId: PLAN_ID, approvalId: APPROVAL_ID }) })
+    expect(response.status).toBe(202)
+    expect(await response.json()).toMatchObject({code:'COMMITTED_RESPONSE_UNAVAILABLE',committed:true,retryable:false})
+    expect(rpc.mock.calls.some(([name, args]) => name === 'finalize_approved_action_handoff_retry' && args.p_outcome === 'failed')).toBe(false)
+    expect(action.status).toBe('executing')
+  })
+
   it('retries an external handoff through the shared dispatcher and remains executing', async () => {
     const { action, rpc } = seed({
       action_type: 'external_checkout',

@@ -1,6 +1,10 @@
 import { dedupeVenueIdentity } from '@/lib/venues/venueIdentity'
 import { readSafeDiscoveryVenue } from '@/lib/discovery/venueRepository'
-import { isGoogleVenueEnabled } from '@/lib/server/google-places-flags'
+import { isGoogleVenueEnabled, isGoogleVendorEnabled } from '@/lib/server/google-places-flags'
+import { SAFE_VENDOR_TABLE, readSafeDiscoveryVendor, vendorActionEnvelope, type VendorRpcClient } from '@/lib/discovery/vendorRepository'
+import { withIndependentVendorDerivation } from '@/lib/discovery/vendorPersistence'
+import type { DurableDiscovery } from '@/lib/discovery/foundation/boundary'
+import { createVendorDetailsContext, type VendorDetailsContext } from '@/lib/server/vendor-places-details'
 import { serializeVenueDurable, withIndependentVenueDerivation } from '@/lib/discovery/venuePersistence'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -91,8 +95,11 @@ import {
   normalizeVendorServiceType,
   resolveDiscoveryVendorRate,
   searchPlacesForVendor,
+  scoreDiscoveryVendorFit,
+  loadIndependentVendorFitFacts,
   type DiscoveryVendorRow,
   type VendorServiceType,
+  type SearchPlacesForVendorResult,
 } from '@/lib/server/places-vendor-search'
 import { marginRatioToPercent, readCents } from '@/lib/money'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
@@ -105,6 +112,12 @@ import { rankVendorsForPlan, type RankedVendor } from '@/lib/vendors/vendorRanke
 
 type PlannerDb = { from: (table: string) => any }
 type PlacesFallbackCache = Map<string, Promise<SearchPlacesForPlanResult>>
+type VendorDiscoveryRun = {
+  unavailable?: boolean
+  context?: VendorDetailsContext
+  searches: Map<string, Promise<SearchPlacesForVendorResult>>
+  references: Array<{ discovery_vendor_id: string; place_id: string | null; requested_service_type: string }>
+}
 type PlannerAuth =
   | { db: PlannerDb; userId: string }
   | { response: NextResponse<PlannerApiErrorResponse> }
@@ -116,6 +129,8 @@ interface RouteContext {
 }
 
 interface PlannerRecommendResponse {
+  discovery_vendor_candidates?: VendorDiscoveryRun['references']
+  discovery_vendor_status?: 'disabled' | 'partial' | 'available'
   discovery_venue_candidates?: Array<{ discovery_venue_id: string; place_id: string | null }>
   resolved_archetype: ResolvedArchetypeSummary
   ranked_venues: VenueMatchingAgentOutput['ranked_venues']
@@ -174,6 +189,8 @@ type SuggestedVendorRecommendation = {
   cons: string[]
   source?: 'catalog' | 'google_places'
   discovery_vendor_id?: string | null
+  vendor_data?: DurableDiscovery
+  source_external_id?: string | null
   contact_email?: string | null
   contact_phone?: string | null
   website?: string | null
@@ -190,6 +207,9 @@ type OutreachDisplayTarget = {
   kind: 'venue' | 'vendor'
   id: string
   name: string
+  discovery_vendor_id?: string | null
+  contact_email?: string | null
+  vendor_data?: DurableDiscovery
 }
 
 type VendorRecommendationGroup = {
@@ -441,6 +461,7 @@ export async function POST(
     const elasticity = await loadBuilderElasticityForPlan(auth.db, auth.userId, archetype.key)
     const capacityCalibration = buildCapacityCalibrationSummary(recommendationPlan, builderAttendance)
     const placesFallbackCache: PlacesFallbackCache = new Map()
+    const vendorDiscovery: VendorDiscoveryRun = { searches: new Map(), references: [] }
 
     if (!hasOpenAIKey()) {
       return runCatalogFallback({
@@ -461,7 +482,7 @@ export async function POST(
         venueLimit: body.data.venueLimit,
         vendorLimit: body.data.vendorLimit,
         fallbackReason: 'OPENAI_API_KEY is not configured',
-        placesFallbackCache,
+        placesFallbackCache, vendorDiscovery,
       })
     }
 
@@ -529,7 +550,7 @@ export async function POST(
     const byoVendorCostCents = sumByoVendorCostsCents(byoVendors)
 
     const rawSuggestedVendors = shouldRunVendors
-      ? await loadSuggestedVendors(auth.db, writeDb, recommendationPlan, archetype, venueCostCents)
+      ? await loadSuggestedVendors(auth.db, writeDb, recommendationPlan, archetype, venueCostCents, vendorDiscovery)
       : []
     const suggestedVendors = rawSuggestedVendors.filter((vendor) => !byoServiceTypes.has(String(vendor.service_type)))
     const vendorRecommendationGroups = shouldRunVendors
@@ -623,6 +644,7 @@ export async function POST(
             kind: 'vendor',
             id: vendor.vendor_id,
             name: vendor.name,
+            discovery_vendor_id: vendor.discovery_vendor_id, vendor_data: vendor.vendor_data, contact_email: vendor.contact_email,
           })),
           projectedCostsCents: venueCostCents + vendorCostCents,
           summary: buildOutreachApprovalSummary(recommendationPlan, venueMatch.venueResult.output.ranked_venues.length, suggestedVendors.length),
@@ -721,6 +743,8 @@ export async function POST(
       }),
     ])
     return jsonWithDeprecatedKeys({
+      discovery_vendor_candidates: vendorDiscovery.references,
+      discovery_vendor_status: !isGoogleVendorEnabled() ? 'disabled' : vendorDiscovery.unavailable ? 'partial' : 'available',
       discovery_venue_candidates: await discoveryCandidateReferences(placesFallbackCache),
       resolved_archetype: toResolvedArchetypeSummary(archetype),
       ranked_venues: paymentReadyVenues,
@@ -763,7 +787,7 @@ export async function POST(
         venueLimit: body.data.venueLimit,
         vendorLimit: body.data.vendorLimit,
         fallbackReason: error instanceof Error ? error.message : 'Agent-backed recommendation pipeline failed',
-        placesFallbackCache,
+        placesFallbackCache, vendorDiscovery,
       })
     }
   } catch (error) {
@@ -790,6 +814,7 @@ async function runCatalogFallback(input: {
   venueLimit: number
   vendorLimit: number
   fallbackReason: string
+  vendorDiscovery: VendorDiscoveryRun
   placesFallbackCache: PlacesFallbackCache
 }): Promise<NextResponse<PlannerRecommendResponse>> {
   const [catalogVenues, vendors] = await Promise.all([
@@ -927,6 +952,7 @@ async function runCatalogFallback(input: {
       kind: 'vendor',
       id: vendor.vendor_id,
       name: vendor.name,
+      discovery_vendor_id: vendor.discovery_vendor_id, vendor_data: vendor.vendor_data, contact_email: vendor.contact_email,
     })),
     projectedCostsCents: venueCostCents + vendorCostCents,
     summary: buildOutreachApprovalSummary(input.plan, rankedVenues.length, vendorRecommendations.length),
@@ -1025,6 +1051,8 @@ async function runCatalogFallback(input: {
     }),
   ])
   return jsonWithDeprecatedKeys({
+    discovery_vendor_candidates: input.vendorDiscovery.references,
+    discovery_vendor_status: !isGoogleVendorEnabled() ? 'disabled' : input.vendorDiscovery.unavailable ? 'partial' : 'available',
     discovery_venue_candidates: await discoveryCandidateReferences(input.placesFallbackCache),
     resolved_archetype: toResolvedArchetypeSummary(input.archetype),
     ranked_venues: paymentReadyVenues,
@@ -1314,7 +1342,8 @@ async function ensureOutreachApprovalRequest(input: {
   }
 
   // Look up contact emails from catalog so the approval card can show "Contact info on file"
-  const contactEmail = await resolveOutreachContactEmail(input.db, venueIds, vendorIds)
+  const contactEmail = partnerTargets.find(target => target.kind === 'vendor' && target.vendor_data && target.contact_email)?.contact_email
+    ?? await resolveOutreachContactEmail(input.db, venueIds, vendorIds)
   const approvalExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
   const approvalSnapshotFields = {
     action_label: buildOutreachApprovalLabel(venueIds.length, vendorIds.length),
@@ -2350,7 +2379,8 @@ async function loadSuggestedVendors(
   writeDb: PlannerDb,
   plan: Plan,
   archetype: EventArchetypeConfig,
-  venueCostCents: number
+  venueCostCents: number,
+  discovery: VendorDiscoveryRun
 ): Promise<SuggestedVendorRecommendation[]> {
   if (readPlanVendorNeedStatus(plan) === 'none') return []
 
@@ -2359,9 +2389,9 @@ async function loadSuggestedVendors(
     const rankedSuggestions = Object.values(ranked.by_service_type)
       .flat()
       .map(toSuggestedVendorFromRanked)
-    const placesSuggestions = await loadSparseDiscoveryVendorSuggestions(db, writeDb, plan, archetype, rankedSuggestions)
+    const placesSuggestions = await loadSparseDiscoveryVendorSuggestions(db, writeDb, plan, archetype, rankedSuggestions, discovery, venueCostCents)
     if (rankedSuggestions.length > 0 || placesSuggestions.length > 0) {
-      return mergeVendorSuggestions(rankedSuggestions, placesSuggestions).filter(limitTwoPerServiceType)
+      return (await mergeVendorSuggestions(db, rankedSuggestions, placesSuggestions)).filter(limitTwoPerServiceType)
     }
   } catch (error) {
     console.warn('[planner.recommend] Vendor ranker failed; falling back to base-rate vendor lookup', error)
@@ -2415,8 +2445,8 @@ async function loadSuggestedVendors(
     .filter((vendor): vendor is SuggestedVendorRecommendation => vendor !== null)
     .filter(limitTwoPerServiceType)
 
-  const placesSuggestions = await loadSparseDiscoveryVendorSuggestions(db, writeDb, plan, archetype, catalogSuggestions)
-  return mergeVendorSuggestions(catalogSuggestions, placesSuggestions).filter(limitTwoPerServiceType)
+  const placesSuggestions = await loadSparseDiscoveryVendorSuggestions(db, writeDb, plan, archetype, catalogSuggestions, discovery, venueCostCents)
+  return (await mergeVendorSuggestions(db, catalogSuggestions, placesSuggestions)).filter(limitTwoPerServiceType)
 }
 
 async function loadSparseDiscoveryVendorSuggestions(
@@ -2424,12 +2454,10 @@ async function loadSparseDiscoveryVendorSuggestions(
   writeDb: PlannerDb,
   plan: Plan,
   archetype: EventArchetypeConfig,
-  existingSuggestions: SuggestedVendorRecommendation[]
+  existingSuggestions: SuggestedVendorRecommendation[],
+  discovery: VendorDiscoveryRun,
+  venueCostCents: number
 ): Promise<SuggestedVendorRecommendation[]> {
-  if (!isGoogleVenueEnabled()) return []
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY
-  if (!apiKey) return []
-
   const resolvedStack = resolveConditionalVendors(archetype.vendor_stack, plan)
   const requiredAndRecommended = resolvedStack.filter((item) =>
     item.necessity === 'required' || item.necessity === 'recommended'
@@ -2444,29 +2472,66 @@ async function loadSparseDiscoveryVendorSuggestions(
   }
   const searchedByUserId = readString((plan as unknown as Record<string, unknown>).user_id)
   const suggestions: SuggestedVendorRecommendation[] = []
+  // Saved independent facts are usable with acquisition disabled. IDs alone may
+  // still be handed to an unavailable card; no legacy listing values are read.
+  const { data: candidates } = await writeDb.from('plan_discovery_vendor_candidates')
+    .select('discovery_vendor_id, service_type').eq('plan_id', plan.id).eq('status', 'candidate').limit(80)
+  const savedIds = [...new Set((candidates ?? []).map((row: { discovery_vendor_id: string }) => row.discovery_vendor_id))]
+  if (savedIds.length) {
+    const { data: saved } = await writeDb.from(SAFE_VENDOR_TABLE).select('*').in('id', savedIds)
+    const knownFits = await loadIndependentVendorFitFacts(writeDb, (saved ?? []).map((row: { source_external_id: string }) => row.source_external_id).filter(Boolean), planWithCity)
+    for (const raw of saved ?? []) {
+      const vendor = readSafeDiscoveryVendor(raw)
+      const type = normalizeVendorServiceType(vendor.service_type)
+      const stackItem = requiredAndRecommended.find(item => normalizeVendorServiceType(item.service_type) === type)
+      if (!type || !stackItem) continue
+      const fit = scoreDiscoveryVendorFit({ vendor, linkedProfile: knownFits.get(vendor.source_external_id ?? '')?.profile, serviceType: type, plan: planWithCity,
+        remainingBudgetCents: plan.budget_cap_cents == null ? null : Math.max(0, plan.budget_cap_cents - venueCostCents) })
+      if (!fit.eligible) continue
+      const suggestion = toSuggestedVendorFromDiscovery(vendor, stackItem, type, planWithCity)
+      if (suggestion) suggestions.push(suggestion)
+    }
+  }
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY
+  if (!isGoogleVendorEnabled() || !apiKey) return suggestions
   const SPARSE_THRESHOLD_PER_SERVICE = 3
+  discovery.context ??= createVendorDetailsContext()
 
   for (const stackItem of requiredAndRecommended) {
     const serviceType = normalizeVendorServiceType(stackItem.service_type)
     if (!serviceType) continue
 
-    const existingForService = existingSuggestions.filter((vendor) =>
+    const existingForService = [...existingSuggestions, ...suggestions].filter((vendor) =>
       normalizeVendorServiceType(vendor.service_type ?? '') === serviceType
     )
     if (existingForService.length >= SPARSE_THRESHOLD_PER_SERVICE) continue
 
     try {
-      const result = await searchPlacesForVendor({
-        serviceType,
-        areas,
-        admin: db,
-        apiKey,
-        maxResults: 4,
-        planId: plan.id,
-        searchedByUserId,
-        plan: planWithCity,
-      })
+      let pending = discovery.searches.get(serviceType)
+      if (!pending) {
+        pending = searchPlacesForVendor({
+          serviceType,
+          areas,
+          // Owned plan was checked before this service-role discovery read/write.
+          admin: writeDb as PlannerDb & VendorRpcClient,
+          apiKey,
+          maxResults: 4,
+          planId: plan.id,
+          searchedByUserId,
+          plan: planWithCity,
+          context: discovery.context,
+          remainingBudgetCents: plan.budget_cap_cents == null ? null : Math.max(0, plan.budget_cap_cents - venueCostCents),
+        })
+        discovery.searches.set(serviceType, pending)
+      }
+      const result = await pending
+      discovery.unavailable ||= result.unavailable
+      for (const vendor of result.vendors.slice(0, 2)) {
+        if (!discovery.references.some(row => row.discovery_vendor_id === vendor.id && row.requested_service_type === serviceType))
+          discovery.references.push({ discovery_vendor_id: vendor.id, place_id: vendor.source_external_id, requested_service_type: serviceType })
+      }
       const discoveredSuggestions = result.vendors.map((vendor) => toSuggestedVendorFromDiscovery(vendor, stackItem, serviceType, planWithCity))
+        .filter((vendor): vendor is SuggestedVendorRecommendation => vendor !== null)
       suggestions.push(...discoveredSuggestions)
       const sparsity = evaluateVendorPoolSparsity({
         plan: planWithCity,
@@ -2485,6 +2550,7 @@ async function loadSparseDiscoveryVendorSuggestions(
         await insertVendorSparsityPrompt(db, writeDb, plan.id, serviceType, sparsity)
       }
     } catch (error) {
+      discovery.unavailable = true
       console.warn('[planner.recommend] Vendor Places fallback failed', {
         service_type: serviceType,
         error: error instanceof Error ? error.message : String(error),
@@ -2500,7 +2566,9 @@ function toSuggestedVendorFromDiscovery(
   stackItem: VendorStackItem,
   serviceType: VendorServiceType,
   plan: Plan
-): SuggestedVendorRecommendation {
+): SuggestedVendorRecommendation | null {
+  // A search term is host intent, not evidence that a business offers the service.
+  if (!vendor.name || !vendor.service_type || normalizeVendorServiceType(vendor.service_type) !== serviceType) return null
   const rate = resolveDiscoveryVendorRate(vendor)
   const contactEmail = normalizeDiscoveryVendorEmail(vendor)
   const locationContext = formatVendorLocationContext({
@@ -2512,17 +2580,21 @@ function toSuggestedVendorFromDiscovery(
     vendor_out_of_city_approved: plan.vendor_out_of_city_approved,
     vendor_approved_adjacent_cities: plan.vendor_approved_adjacent_cities,
   })
-  const fitScore = Math.max(45, Math.min(82, 68 + (rate.cents ? 8 : -6) + (contactEmail ? 6 : 0)))
-  return {
+  const fitScore = scoreDiscoveryVendorFit({ vendor, serviceType, plan, remainingBudgetCents: plan.budget_cap_cents }).score
+  const packageCents = vendor.inferred_package_rate_cents == null ? null : rate.cents
+  const envelope = vendorActionEnvelope(vendor, contactEmail ?? undefined)
+  return withIndependentVendorDerivation({
     vendor_id: vendor.id,
     discovery_vendor_id: vendor.id,
     name: vendor.name,
-    service_type: serviceType,
+    service_type: vendor.service_type,
+    source_external_id: vendor.source_external_id,
     necessity: stackItem.necessity,
     service_note: stackItem.notes ?? null,
-    base_rate_cents: rate.cents,
+    base_rate_cents: packageCents,
     fit_score: fitScore,
-    source: 'google_places',
+    source: 'google_places' as const,
+    vendor_data: envelope,
     contact_email: contactEmail,
     contact_phone: vendor.phone,
     website: vendor.website,
@@ -2530,15 +2602,15 @@ function toSuggestedVendorFromDiscovery(
     rate_confidence_label: rate.confidenceLabel,
     rate_inference_confidence: rate.confidence,
     pros: [
-      `${toTitleCase(serviceType.replace(/_/g, ' '))} lead discovered from Google Places.`,
-      rate.cents ? `${formatCurrency(rate.cents)} estimated rate; confirm by reply before accepting.` : 'Rate TBD — request a quote before accepting.',
+      `${toTitleCase(serviceType.replace(/_/g, ' '))} service independently evidenced.`,
+      packageCents !== null ? `${formatCurrency(packageCents)} estimated package; confirm complete terms by reply.` : 'Complete event price TBD — hourly rates and minimum spend are not totals.',
       contactEmail ? 'Contact email available for approval-gated outreach.' : vendor.website ? 'Website available for contact extraction or manual email rescue.' : null,
     ].filter((item): item is string => Boolean(item)),
     cons: [
       'Unclaimed vendor lead — quote and availability must be verified before booking or payment.',
       rate.confidenceLabel === 'rate_tbd' ? 'Pricing unknown until website extraction or reply.' : null,
     ].filter((item): item is string => Boolean(item)),
-  };
+  }, envelope)
 }
 
 async function insertVendorSparsityPrompt(
@@ -2594,18 +2666,23 @@ async function insertVendorSparsityPrompt(
   }
 }
 
-function mergeVendorSuggestions(
+async function mergeVendorSuggestions(
+  db: PlannerDb,
   catalogSuggestions: SuggestedVendorRecommendation[],
   discoverySuggestions: SuggestedVendorRecommendation[]
-): SuggestedVendorRecommendation[] {
+): Promise<SuggestedVendorRecommendation[]> {
+  const claimed = new Set<string>()
+  if (catalogSuggestions.length && discoverySuggestions.length) {
+    const { data, error } = await db.from('vendor_profiles').select('id, discovery_vendor_id').in('id', catalogSuggestions.map(vendor => vendor.vendor_id))
+    if (!error) for (const row of data ?? []) if (typeof row.discovery_vendor_id === 'string') claimed.add(row.discovery_vendor_id)
+  }
   const seen = new Set<string>()
   const merged: SuggestedVendorRecommendation[] = []
   for (const vendor of [...catalogSuggestions, ...discoverySuggestions]) {
-    const key = normalizeText([
-      vendor.service_type,
-      vendor.name,
-      vendor.website,
-    ].filter(Boolean).join('|'))
+    if (vendor.source === 'google_places' && claimed.has(vendor.discovery_vendor_id ?? vendor.vendor_id)) continue
+    const key = vendor.source === 'google_places'
+      ? `discovery:${vendor.source_external_id ?? vendor.discovery_vendor_id ?? vendor.vendor_id}`
+      : `catalog:${vendor.vendor_id}`
     if (key && seen.has(key)) continue
     if (key) seen.add(key)
     merged.push(vendor)
@@ -3454,6 +3531,8 @@ async function persistAgentRecommendations(
     metadata: toJson({
       recommendation_type: 'vendor',
       entity_id: vendor.vendor_id,
+      ...(vendor.vendor_data ? { discovery_vendor_id: vendor.discovery_vendor_id, vendor_data: vendor.vendor_data,
+        vendor_derivation: (vendor as unknown as Record<string, unknown>).vendor_derivation, contact_email: vendor.contact_email, name: vendor.name } : {}),
       fit_score: vendor.fit_score,
       service_type: vendor.service_type,
       necessity: vendor.necessity,
@@ -3461,7 +3540,7 @@ async function persistAgentRecommendations(
       pros: vendor.pros,
       cons: vendor.cons,
       source: 'archetype_vendor_stack',
-      archetype: toResolvedArchetypeSummary(archetype),
+      ...(vendor.vendor_data ? {} : { archetype: toResolvedArchetypeSummary(archetype) }),
       vendor_match_notice: vendorMatchNotice,
     }),
   }))
@@ -3545,6 +3624,8 @@ async function persistRecommendationShoppingList(input: {
     reference_id: vendor.vendor_id,
     type: 'vendor',
     external_name: vendor.name,
+    ...(vendor.vendor_data ? { discovery_vendor_id: vendor.discovery_vendor_id, vendor_data: vendor.vendor_data,
+      vendor_derivation: (vendor as unknown as Record<string, unknown>).vendor_derivation, contact_email: vendor.contact_email } : {}),
     service_type: vendor.service_type,
     price_cents: vendor.base_rate_cents,
     fit_score: vendor.fit_score,
@@ -4038,6 +4119,8 @@ function buildOutreachDisplayTargets(input: {
       kind: 'vendor' as const,
       id,
       name: vendorTargetById.get(id)?.name ?? `Vendor ${index + 1}`,
+      ...(vendorTargetById.get(id)?.vendor_data ? { discovery_vendor_id: vendorTargetById.get(id)?.discovery_vendor_id,
+        vendor_data: vendorTargetById.get(id)?.vendor_data, contact_email: vendorTargetById.get(id)?.contact_email } : {}),
     })),
   ]
 }
