@@ -15,6 +15,7 @@
  */
 export const dynamic = 'force-dynamic'
 
+import { isUnavailableRecommendation } from '@/lib/planner/recommendationAvailability'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { PLAN_SELECT_COLUMNS, RECOMMENDATION_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
@@ -358,7 +359,7 @@ async function loadRecommendationsWithVenues(
     return []
   }
 
-  const recommendations = (data ?? []) as Recommendation[]
+  const recommendations = ((data ?? []) as Recommendation[]).filter((row) => !isUnavailableRecommendation(row))
   const venueIds = recommendations
     .filter((recommendation) => recommendation.type === 'venue' && recommendation.reference_id)
     .map((recommendation) => recommendation.reference_id as string)

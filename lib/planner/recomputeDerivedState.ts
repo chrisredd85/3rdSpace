@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { isUnavailableRecommendation } from '@/lib/planner/recommendationAvailability'
 import { PLAN_SELECT_COLUMNS } from '@/lib/planner/dbSelects'
 import { lookupBaseline } from '@/lib/planner/baselines'
 import type { Approval, Json, Plan, Recommendation } from '@/lib/types'
@@ -133,7 +134,7 @@ async function loadActiveRecommendations(db: PlannerDb, planId: string): Promise
     .order('rank', { ascending: true })
 
   if (error) throw new Error(`Failed to load recommendations for derived state recompute: ${error.message}`)
-  return (data ?? []) as Recommendation[]
+  return ((data ?? []) as Recommendation[]).filter((row) => !isUnavailableRecommendation(row))
 }
 
 async function loadActiveApprovals(db: PlannerDb, planId: string): Promise<Approval[]> {

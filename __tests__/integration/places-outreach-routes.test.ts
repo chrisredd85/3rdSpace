@@ -414,6 +414,27 @@ describe('POST /api/planner/plans/[planId]/outreach/approve-batch', () => {
     }))
   })
 
+  it('keeps independent venue-ID outreach usable after its old recommendation is retired', async () => {
+    const db = makeDb()
+    const venueId = '11111111-1111-4111-8111-111111111111'
+    db.rows.recommendations = [{ id: 'retired-rec', plan_id: 'plan-1', type: 'venue',
+      reference_id: venueId, status: 'superseded',
+      metadata: { venue_content_unavailable: true, unavailable_code: 'legacy_discovery_evidence_missing' } }]
+    mockCreateClient.mockReturnValue(db)
+    mockCreateServiceRoleClient.mockReturnValue(db)
+
+    const response = await approveBatch(makeRequest({ discovery_venue_ids: [venueId] }), {
+      params: { planId: 'plan-1' },
+    })
+
+    expect(response.status).toBe(200)
+    expect(mockCreateApproval).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      userId: 'user-1', planId: 'plan-1',
+      targets: [expect.objectContaining({ discoveryVenueId: venueId, email: 'booking@moongate.example' })],
+    }))
+    expect(db.rows.recommendations[0].status).toBe('superseded')
+  })
+
   it('requires billing before creating outreach approvals after free events are used', async () => {
     const db = makeDb()
     db.rows.builder_profiles[0].free_events_used = 2

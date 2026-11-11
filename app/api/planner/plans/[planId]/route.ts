@@ -7,6 +7,7 @@
  */
 export const dynamic = 'force-dynamic'
 
+import { isUnavailableRecommendation } from '@/lib/planner/recommendationAvailability'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import {
@@ -298,7 +299,7 @@ async function loadRecommendations(db: PlannerDb, planId: string): Promise<Recom
     return []
   }
 
-  return (data ?? []) as Recommendation[]
+  return ((data ?? []) as Recommendation[]).filter((row) => !isUnavailableRecommendation(row))
 }
 
 async function loadApprovals(db: PlannerDb, planId: string): Promise<Approval[]> {
