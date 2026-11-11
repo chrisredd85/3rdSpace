@@ -11,6 +11,7 @@ import {
 } from '@/lib/admin/taskState'
 import type { Database, Json } from '@/lib/types/database-generated'
 import type { AdminTaskPriority, AdminTaskStatus, AdminTaskType } from '@/lib/types/planner'
+import { isCommittedResponseUnavailable } from '@/lib/supabase/discoveryRpcResponse'
 
 export type AdminTasksDb = SupabaseClient<Database, 'public'>
 
@@ -211,6 +212,9 @@ async function mutateExecutionTask(
   const { data, error } = await command
 
   if (error) {
+    // A successful SQL mutation may have an unreadable response. Preserve that
+    // outcome for the route; do not turn it into a failed command or retry it.
+    if (isCommittedResponseUnavailable(error)) throw error
     const conflict = ['23514', '40001', '40P01'].includes(error.code ?? '')
     const invalid = error.code === '22023'
     const missing = error.code === 'P0002'

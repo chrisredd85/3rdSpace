@@ -13,6 +13,7 @@ import {
 } from '@/lib/planner/execution/approvedActionHandoffs'
 import { deriveApprovalUiState } from '@/lib/planner/approvalUiState'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { committedResponseRecoveryBody, isCommittedResponseUnavailable } from '@/lib/supabase/discoveryRpcResponse'
 import type { AgentAction, Approval, Json, Plan } from '@/lib/types'
 
 type PlannerDb = {
@@ -143,6 +144,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
     return cancellationResponse(approval, updatedAction)
   } catch (error) {
+    if (isCommittedResponseUnavailable(error)) {
+      const recovery = committedResponseRecoveryBody()
+      return NextResponse.json({ ...recovery, error: recovery.message }, { status: 409 })
+    }
     const message = error instanceof Error ? error.message : 'Unable to cancel execution'
     const conflict = /not.cancell|mismatch|complete|confirmed|conflict|race|deadlock|40P01/i.test(message)
     console.error('[planner.approved-action.cancel] Failed to cancel execution', error)

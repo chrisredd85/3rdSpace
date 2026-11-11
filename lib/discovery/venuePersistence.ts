@@ -18,7 +18,7 @@ export class VenuePersistenceError extends Error {
   readonly code = 'VENUE_CONTENT_NOT_DURABLE'
   constructor(readonly path: string) { super(`Venue persistence rejected at ${path}`); this.name = 'VenuePersistenceError' }
 }
-function isVenueProvider(row: Record<string, unknown>): boolean {
+export function isVenueProvider(row: Record<string, unknown>): boolean {
   const identity = asRecord(row.identity)
   const venueData = asRecord(row.venue_data ?? asRecord(row.metadata)?.venue_data)
   if (asRecord(venueData?.identity)?.kind === 'venue') return true

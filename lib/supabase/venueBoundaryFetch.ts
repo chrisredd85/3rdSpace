@@ -32,11 +32,13 @@ export function venueBoundaryFetch(fetchImpl: typeof fetch = fetch): typeof fetc
     if (!affected) return fetchImpl(input, init)
     const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()
     let requestInit = init
+    let rpcArgs: unknown = null
     if (!['GET', 'HEAD', 'DELETE'].includes(method)) {
       const body = init?.body ?? (input instanceof Request ? await input.clone().text() : null)
       if (typeof body === 'string' && body) {
         try {
           const data: unknown = JSON.parse(body)
+          if (rpc) rpcArgs = data
           assertDurableVenueContent(data)
           assertDurableVendorContent(data)
           // Stamp only new table content after validation, never RPC arguments or old reads.
@@ -85,7 +87,7 @@ export function venueBoundaryFetch(fetchImpl: typeof fetch = fetch): typeof fetc
         ? readSafeDiscoveryVendor(row) : row
       safe = Array.isArray(data) ? data.map(read) : read(data)
     } else if (rpc) {
-      try { safe = readDiscoveryRpcResponse(rpc, data) } catch (error) {
+      try { safe = readDiscoveryRpcResponse(rpc, data, rpcArgs) } catch (error) {
         if (method === 'GET' || method === 'HEAD') throw error
         // A successful POST committed. A read-validation error must not be
         // represented as a failed SQL transaction or cause an automatic retry.
