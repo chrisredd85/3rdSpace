@@ -99,6 +99,20 @@ describe('concierge execution handlers', () => {
     })
   })
 
+  it('retains the committed-response recovery code from the host cancellation RPC', async () => {
+    const db = makeDb({
+      rpcResult: { data: null, error: {
+        code: 'COMMITTED_RESPONSE_UNAVAILABLE', message: 'COMMITTED_RESPONSE_UNAVAILABLE',
+      } },
+    })
+    const input = makeInput(db.client, { action_type: 'hold_request', status: 'executing' })
+
+    await expect(cancelConciergeHandoff(input, 'Host withdrew authorization.')).rejects.toMatchObject({
+      code: 'COMMITTED_RESPONSE_UNAVAILABLE',
+    })
+    expect(db.rpc).toHaveBeenCalledTimes(1)
+  })
+
   it('creates an unsent outreach draft when the vendor has a usable email', async () => {
     const db = makeDb({
       vendor: {

@@ -156,4 +156,26 @@ describe('PATCH /api/admin/tasks/[id]', () => {
     expect(response.status).toBe(409)
     expect(body.error).toBe('Cannot start a complete admin task.')
   })
+
+  it.each(['complete', 'cancel'])('reports a committed %s receipt as recovery pending, not a failed transaction', async (action) => {
+    mockAdmin()
+    mockMutateAdminTask.mockRejectedValue({
+      code: 'COMMITTED_RESPONSE_UNAVAILABLE',
+      message: 'COMMITTED_RESPONSE_UNAVAILABLE',
+    })
+
+    const response = await PATCH(request({ action }), routeContext())
+    const body = await json(response)
+
+    expect(response.status).toBe(409)
+    expect(body).toEqual(expect.objectContaining({
+      code: 'COMMITTED_RESPONSE_UNAVAILABLE',
+      committed: true,
+      recovery_pending: true,
+      retryable: false,
+      error: expect.stringMatching(/database saved.*Reload.*before another action/),
+    }))
+    expect(body).not.toHaveProperty('task')
+    expect(mockMutateAdminTask).toHaveBeenCalledTimes(1)
+  })
 })

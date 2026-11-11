@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { getAdminContext } from '@/lib/server/admin-auth'
 import { AdminTaskServiceError, mutateAdminTask } from '@/lib/server/admin-tasks'
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import { committedResponseRecoveryBody, isCommittedResponseUnavailable } from '@/lib/supabase/discoveryRpcResponse'
 
 const completionOutcomeSchema = z.object({
   outcome: z.enum(['completed', 'hold_confirmed', 'venue_unavailable']),
@@ -73,6 +74,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ task })
   } catch (error) {
+    if (isCommittedResponseUnavailable(error)) {
+      const recovery = committedResponseRecoveryBody()
+      return NextResponse.json({ ...recovery, error: recovery.message }, { status: 409 })
+    }
     if (error instanceof AdminTaskServiceError) {
       return NextResponse.json({ error: error.message }, { status: error.status })
     }

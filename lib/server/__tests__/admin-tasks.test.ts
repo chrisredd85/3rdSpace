@@ -182,6 +182,24 @@ describe('admin task service', () => {
       outcomePayload: { outcome: 'hold_confirmed' },
     })).rejects.toMatchObject({ status: 409, message: 'deadlock detected' })
   })
+
+  it.each(['complete', 'cancel'] as const)('preserves committed-but-unreadable %s without retry or compensation', async (action) => {
+    const before = { ...baseTask, status: 'in_progress', priority: 'normal' } satisfies AdminTaskRow
+    const admin = makeExecutionMutationClient(before, before)
+    const error = { code: 'COMMITTED_RESPONSE_UNAVAILABLE', message: 'COMMITTED_RESPONSE_UNAVAILABLE' }
+    admin.rpcMock.mockResolvedValue({ data: null, error })
+
+    await expect(mutateAdminTask(admin.client, {
+      taskId: before.id,
+      adminUserId: '66666666-6666-4666-8666-666666666666',
+      adminUserEmail: 'admin@example.com',
+      action,
+    })).rejects.toBe(error)
+
+    expect(admin.rpcMock).toHaveBeenCalledTimes(1)
+    // Only the initial task lookup: no compensating UPDATE or follow-up command.
+    expect(admin.client.from).toHaveBeenCalledTimes(1)
+  })
 })
 
 function makeListClient(tasks: AdminTaskRow[], plans: PlanRow[], users: UserRow[]): AdminTasksDb {

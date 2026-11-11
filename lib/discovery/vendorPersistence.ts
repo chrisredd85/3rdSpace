@@ -11,7 +11,7 @@ export class VendorPersistenceError extends Error {
   readonly code = 'VENDOR_CONTENT_NOT_DURABLE'
   constructor(readonly path: string) { super(`Vendor persistence rejected at ${path}`); this.name = 'VendorPersistenceError' }
 }
-function isDiscoveryVendor(row: Record<string, unknown>) {
+export function isDiscoveryVendor(row: Record<string, unknown>) {
   return asRecord(row.identity)?.kind === 'vendor' || row.entity_type === 'discovery_vendor' || row.target_type === 'discovery_vendor'
     || typeof row.discovery_vendor_id === 'string' || typeof row.discoveryVendorId === 'string'
     || (row.source === 'discovery' && (row.kind === 'vendor' || row.type === 'vendor'))

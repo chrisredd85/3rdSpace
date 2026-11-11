@@ -1,0 +1,316 @@
+[
+  {
+    "rpc": "cancel_admin_task_execution",
+    "result": {
+      "id": "9c55db4b-6097-40d2-ba78-7d9f39df6b71",
+      "notes": "[2026-11-11 07:08:16.084532+00] cancelled\nHost requested cancellation.",
+      "due_at": null,
+      "status": "cancelled",
+      "plan_id": "083a2110-2b55-42d0-a1f8-2cfe6847e73d",
+      "event_id": "d90c303c-5e80-4800-8e3d-2f0bcb176015",
+      "metadata": {
+        "queued_at": "2026-11-11T07:08:15.981781+00:00",
+        "vendor_data": {
+          "values": {
+            "name": "Independent Supplier",
+            "service_type": "dj"
+          },
+          "identity": {
+            "id": "fa8c8504-0a97-4077-a58e-b03c4333aae0",
+            "kind": "vendor",
+            "place_id": "c2-activate-producer-proof"
+          },
+          "schema_version": 1,
+          "field_provenance": {
+            "name": {
+              "source": "host_input",
+              "lineage": [],
+              "confidence": 1,
+              "resolution": "resolved",
+              "collected_at": "2026-11-10T00:00:00Z",
+              "evidence_reference": "fixture:owner-confirmation",
+              "confirmation_status": "venue_confirmed"
+            },
+            "service_type": {
+              "source": "host_input",
+              "lineage": [],
+              "confidence": 1,
+              "resolution": "resolved",
+              "collected_at": "2026-11-10T00:00:00Z",
+              "evidence_reference": "fixture:owner-confirmation",
+              "confirmation_status": "venue_confirmed"
+            }
+          }
+        },
+        "execution_action_type": "concierge_queue",
+        "outbound_message_sent": false
+      },
+      "priority": "normal",
+      "task_type": "concierge_booking",
+      "created_at": "2026-11-11T07:08:15.829504+00:00",
+      "updated_at": "2026-11-11T07:08:16.05889+00:00",
+      "approval_id": "2a871893-0bb0-4c2e-81fd-9842e7ea77d5",
+      "assigned_to": null,
+      "description": "Approved operator request",
+      "completed_at": null,
+      "agent_action_id": "8087a7d1-ae02-4f25-9c9a-683661644b3c",
+      "outcome_payload": {
+        "reason": "Host requested cancellation.",
+        "outcome": "cancelled",
+        "cancelled_at": "2026-11-11T07:08:16.084532+00:00",
+        "cancelled_by": "c2160000-0000-4000-8000-000000000002"
+      }
+    },
+    "scenario": "cancel"
+  },
+  {
+    "rpc": "cancel_admin_task_execution",
+    "result": {
+      "id": "9c55db4b-6097-40d2-ba78-7d9f39df6b71",
+      "notes": "[2026-11-11 07:08:16.084532+00] cancelled\nHost requested cancellation.",
+      "due_at": null,
+      "status": "cancelled",
+      "plan_id": "083a2110-2b55-42d0-a1f8-2cfe6847e73d",
+      "event_id": "d90c303c-5e80-4800-8e3d-2f0bcb176015",
+      "metadata": {
+        "queued_at": "2026-11-11T07:08:15.981781+00:00",
+        "vendor_data": {
+          "values": {
+            "name": "Independent Supplier",
+            "service_type": "dj"
+          },
+          "identity": {
+            "id": "fa8c8504-0a97-4077-a58e-b03c4333aae0",
+            "kind": "vendor",
+            "place_id": "c2-activate-producer-proof"
+          },
+          "schema_version": 1,
+          "field_provenance": {
+            "name": {
+              "source": "host_input",
+              "lineage": [],
+              "confidence": 1,
+              "resolution": "resolved",
+              "collected_at": "2026-11-10T00:00:00Z",
+              "evidence_reference": "fixture:owner-confirmation",
+              "confirmation_status": "venue_confirmed"
+            },
+            "service_type": {
+              "source": "host_input",
+              "lineage": [],
+              "confidence": 1,
+              "resolution": "resolved",
+              "collected_at": "2026-11-10T00:00:00Z",
+              "evidence_reference": "fixture:owner-confirmation",
+              "confirmation_status": "venue_confirmed"
+            }
+          }
+        },
+        "execution_action_type": "concierge_queue",
+        "outbound_message_sent": false
+      },
+      "priority": "normal",
+      "task_type": "concierge_booking",
+      "created_at": "2026-11-11T07:08:15.829504+00:00",
+      "updated_at": "2026-11-11T07:08:16.05889+00:00",
+      "approval_id": "2a871893-0bb0-4c2e-81fd-9842e7ea77d5",
+      "assigned_to": null,
+      "description": "Approved operator request",
+      "completed_at": null,
+      "agent_action_id": "8087a7d1-ae02-4f25-9c9a-683661644b3c",
+      "outcome_payload": {
+        "reason": "Host requested cancellation.",
+        "outcome": "cancelled",
+        "cancelled_at": "2026-11-11T07:08:16.084532+00:00",
+        "cancelled_by": "c2160000-0000-4000-8000-000000000002"
+      }
+    },
+    "scenario": "cancel_repeat"
+  },
+  {
+    "rpc": "complete_admin_task_execution",
+    "result": {
+      "id": "95884ba7-d19c-48c7-a044-bb6b18db4ae8",
+      "notes": "[2026-11-11 07:08:16.062877+00] admin\nOperator confirmed setup with host.",
+      "due_at": null,
+      "status": "complete",
+      "plan_id": "b9237ae6-26f5-48c2-8541-f0b00a7ad894",
+      "event_id": "d76ba570-ecc5-4d1a-82af-71d8528f71c7",
+      "metadata": {
+        "queued_at": "2026-11-11T07:08:15.942768+00:00",
+        "vendor_data": {
+          "values": {
+            "name": "Independent Supplier",
+            "service_type": "dj"
+          },
+          "identity": {
+            "id": "fa8c8504-0a97-4077-a58e-b03c4333aae0",
+            "kind": "vendor",
+            "place_id": "c2-activate-producer-proof"
+          },
+          "schema_version": 1,
+          "field_provenance": {
+            "name": {
+              "source": "host_input",
+              "lineage": [],
+              "confidence": 1,
+              "resolution": "resolved",
+              "collected_at": "2026-11-10T00:00:00Z",
+              "evidence_reference": "fixture:owner-confirmation",
+              "confirmation_status": "venue_confirmed"
+            },
+            "service_type": {
+              "source": "host_input",
+              "lineage": [],
+              "confidence": 1,
+              "resolution": "resolved",
+              "collected_at": "2026-11-10T00:00:00Z",
+              "evidence_reference": "fixture:owner-confirmation",
+              "confirmation_status": "venue_confirmed"
+            }
+          }
+        },
+        "execution_action_type": "concierge_queue",
+        "outbound_message_sent": false
+      },
+      "priority": "normal",
+      "task_type": "concierge_booking",
+      "created_at": "2026-11-11T07:08:15.829504+00:00",
+      "updated_at": "2026-11-11T07:08:16.05889+00:00",
+      "approval_id": "ee6f8d62-5e3c-4ecb-94d7-3aa3369da874",
+      "assigned_to": null,
+      "description": "Approved operator request",
+      "completed_at": "2026-11-11T07:08:16.062877+00:00",
+      "agent_action_id": "dc4bdec3-1db6-4cc3-a6c4-aa2b058becc1",
+      "outcome_payload": {
+        "outcome": "completed"
+      }
+    },
+    "scenario": "complete"
+  },
+  {
+    "rpc": "complete_admin_task_execution",
+    "result": {
+      "id": "95884ba7-d19c-48c7-a044-bb6b18db4ae8",
+      "notes": "[2026-11-11 07:08:16.062877+00] admin\nOperator confirmed setup with host.",
+      "due_at": null,
+      "status": "complete",
+      "plan_id": "b9237ae6-26f5-48c2-8541-f0b00a7ad894",
+      "event_id": "d76ba570-ecc5-4d1a-82af-71d8528f71c7",
+      "metadata": {
+        "queued_at": "2026-11-11T07:08:15.942768+00:00",
+        "vendor_data": {
+          "values": {
+            "name": "Independent Supplier",
+            "service_type": "dj"
+          },
+          "identity": {
+            "id": "fa8c8504-0a97-4077-a58e-b03c4333aae0",
+            "kind": "vendor",
+            "place_id": "c2-activate-producer-proof"
+          },
+          "schema_version": 1,
+          "field_provenance": {
+            "name": {
+              "source": "host_input",
+              "lineage": [],
+              "confidence": 1,
+              "resolution": "resolved",
+              "collected_at": "2026-11-10T00:00:00Z",
+              "evidence_reference": "fixture:owner-confirmation",
+              "confirmation_status": "venue_confirmed"
+            },
+            "service_type": {
+              "source": "host_input",
+              "lineage": [],
+              "confidence": 1,
+              "resolution": "resolved",
+              "collected_at": "2026-11-10T00:00:00Z",
+              "evidence_reference": "fixture:owner-confirmation",
+              "confirmation_status": "venue_confirmed"
+            }
+          }
+        },
+        "execution_action_type": "concierge_queue",
+        "outbound_message_sent": false
+      },
+      "priority": "normal",
+      "task_type": "concierge_booking",
+      "created_at": "2026-11-11T07:08:15.829504+00:00",
+      "updated_at": "2026-11-11T07:08:16.05889+00:00",
+      "approval_id": "ee6f8d62-5e3c-4ecb-94d7-3aa3369da874",
+      "assigned_to": null,
+      "description": "Approved operator request",
+      "completed_at": "2026-11-11T07:08:16.062877+00:00",
+      "agent_action_id": "dc4bdec3-1db6-4cc3-a6c4-aa2b058becc1",
+      "outcome_payload": {
+        "outcome": "completed"
+      }
+    },
+    "scenario": "complete_repeat"
+  },
+  {
+    "rpc": "cancel_approved_admin_task",
+    "result": {
+      "id": "403c6dcb-9f33-4a4c-8e49-41743425c7a7",
+      "notes": "[2026-11-11 07:08:16.091074+00] cancelled\nHost requested cancellation.",
+      "due_at": null,
+      "status": "cancelled",
+      "plan_id": "9714cc8f-dea7-4c12-b0af-56765cb3d475",
+      "event_id": "f2a39f33-870e-4cb7-b36a-4ef517e4b072",
+      "metadata": {
+        "queued_at": "2026-11-11T07:08:16.018119+00:00",
+        "vendor_data": {
+          "values": {
+            "name": "Independent Supplier",
+            "service_type": "dj"
+          },
+          "identity": {
+            "id": "fa8c8504-0a97-4077-a58e-b03c4333aae0",
+            "kind": "vendor",
+            "place_id": "c2-activate-producer-proof"
+          },
+          "schema_version": 1,
+          "field_provenance": {
+            "name": {
+              "source": "host_input",
+              "lineage": [],
+              "confidence": 1,
+              "resolution": "resolved",
+              "collected_at": "2026-11-10T00:00:00Z",
+              "evidence_reference": "fixture:owner-confirmation",
+              "confirmation_status": "venue_confirmed"
+            },
+            "service_type": {
+              "source": "host_input",
+              "lineage": [],
+              "confidence": 1,
+              "resolution": "resolved",
+              "collected_at": "2026-11-10T00:00:00Z",
+              "evidence_reference": "fixture:owner-confirmation",
+              "confirmation_status": "venue_confirmed"
+            }
+          }
+        },
+        "execution_action_type": "concierge_queue",
+        "outbound_message_sent": false
+      },
+      "priority": "normal",
+      "task_type": "concierge_booking",
+      "created_at": "2026-11-11T07:08:15.829504+00:00",
+      "updated_at": "2026-11-11T07:08:16.05889+00:00",
+      "approval_id": "96c90d9b-c21b-4975-9be0-9e0f67740b0a",
+      "assigned_to": null,
+      "description": "Approved operator request",
+      "completed_at": null,
+      "agent_action_id": "d71a7bd2-55ea-45a0-bfe6-5e64463ae4d6",
+      "outcome_payload": {
+        "reason": "Host requested cancellation.",
+        "outcome": "cancelled",
+        "cancelled_at": "2026-11-11T07:08:16.091074+00:00",
+        "cancelled_by": "c2160000-0000-4000-8000-000000000001"
+      }
+    },
+    "scenario": "host_cancel"
+  }
+]

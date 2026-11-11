@@ -193,4 +193,34 @@ describe('approved action cancellation route', () => {
       code: 'execution_cancel_not_allowed',
     }))
   })
+
+  it('keeps a committed concierge cancellation pending recovery without retrying or changing approval history', async () => {
+    const { action, approval } = seed({
+      action_type: 'hold_request',
+      payload_json: { kind: 'venue_hold' },
+      result_metadata: { execution_mode: 'concierge_admin_queue', admin_task_id: 'task-1' },
+    })
+    const originalApproval = { ...approval }
+    mockCancelConcierge.mockImplementation(async () => {
+      action.status = 'cancelled'
+      throw Object.assign(new Error('COMMITTED_RESPONSE_UNAVAILABLE'), { code: 'COMMITTED_RESPONSE_UNAVAILABLE' })
+    })
+
+    const response = await cancelExecution(request(), {
+      params: Promise.resolve({ planId: PLAN_ID, actionId: ACTION_ID }),
+    })
+
+    expect(response.status).toBe(409)
+    expect(await responseBody(response)).toEqual(expect.objectContaining({
+      code: 'COMMITTED_RESPONSE_UNAVAILABLE',
+      committed: true,
+      recovery_pending: true,
+      retryable: false,
+      error: expect.stringMatching(/database saved.*Reload.*before another action/),
+    }))
+    expect(action.status).toBe('cancelled')
+    expect(approval).toEqual(originalApproval)
+    expect(mockCancelConcierge).toHaveBeenCalledTimes(1)
+    expect(mockCancelExternal).not.toHaveBeenCalled()
+  })
 })
