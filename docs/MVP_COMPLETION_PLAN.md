@@ -80,3 +80,7 @@ One recurring host can carry a real event end-to-end and trust every number: des
 ---
 
 Repository note: This document supersedes the stale progress section (§8, "CURRENT STATUS") of [docs/MVP_EXECUTION_BRIEF.md](MVP_EXECUTION_BRIEF.md). The supplied plan above is preserved verbatim, including its historical C1 progress wording.
+
+Deferred product decision — TD-C2-RATE-REJECTION (2026-11-10): decide whether an admin-rejected vendor estimate must be excluded from both recommendation rate resolution and suitability scoring. The deploy-first rate-review repair keeps approve/reject status-only, preserving amounts and evidence; it does not change either consumer. Review status is not independent origin or partner confirmation.
+
+Deferred workflow — TD-C2-ADMIN-RATE-EVIDENCE (2026-11-10): admin manual amount-override is intentionally removed and that limitation is accepted. A future evidence-capture workflow must establish independent support for each replacement amount before enabling overrides; admin review must never manufacture independent origin or partner confirmation. No such workflow is included in the deploy-first repair.
