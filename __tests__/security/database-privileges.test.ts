@@ -75,7 +75,31 @@ type ServiceOnlyFunction = {
 // against safe rows (depth <=64), and the unattached trigger checks changed values
 // through that assertion. Neither is directly executable by any API role.
 // Public RPC-specific input validation is recorded alongside each entry below.
+// C2 EXPAND (20260922000005) adds three service-only DEFINER gateways below.
+// New private helpers: vendor_boundary_fact_valid(text,jsonb) is INVOKER;
+// discovery_vendor_safe_json(jsonb) is DEFINER, pure JSON projection only.
+// Both pin pg_catalog, grant EXECUTE only to service_role, reuse C1's bounded
+// independent-provenance validator unchanged, and have no EXCEPTION handlers.
 const serviceOnlyFunctions: ServiceOnlyFunction[] = [
+  {
+    // C2 EXPAND: DEFINER, pg_catalog; service_role only. Lock owned plan first,
+    // then response/vendor SHARE; compare independent facts/evidence and signed
+    // payload before delegating unchanged existing staging lifecycle.
+    signature: 'stage_vendor_quote_booking_checked(uuid,uuid,text,uuid,uuid,uuid,timestamp with time zone,jsonb,jsonb,text)',
+    call: "select public.stage_vendor_quote_booking_checked(null,null,'vendor',null,null,null,null,'{}','{}',null);",
+  },
+  {
+    // C2 EXPAND: DEFINER, pg_catalog; service_role only. Exactly one validated
+    // Place ID or existing profile UUID; derived identity, no fact input.
+    signature: 'upsert_discovery_vendor_identity(text,uuid)',
+    call: 'select public.upsert_discovery_vendor_identity(null::text,null::uuid);',
+  },
+  {
+    // C2 EXPAND: DEFINER, pg_catalog; service_role only. All facts/evidence and
+    // operational keys validated before DML; quoted identifiers, bound values.
+    signature: 'write_discovery_vendor_independent_facts(uuid,jsonb,jsonb,jsonb)',
+    call: "select public.write_discovery_vendor_independent_facts(null::uuid,'{}','{}','{}');",
+  },
   {
     signature: 'advance_plan_after_confirmed_booking()',
     call: 'select public.advance_plan_after_confirmed_booking();',
@@ -558,6 +582,14 @@ function rpcArgsFor(signature: string): Record<string, unknown> {
       return { p_stripe_account_id: 'acct_acl', p_event_id: 'evt_acl' }
     case 'upsert_discovery_venue_identity(text)':
       return { p_place_id: 'acl_place_id' }
+    case 'upsert_discovery_vendor_identity(text,uuid)':
+      return { p_place_id: 'acl_vendor_place_id', p_vendor_profile_id: null }
+    case 'write_discovery_vendor_independent_facts(uuid,jsonb,jsonb,jsonb)':
+      return { p_vendor_id: null, p_values: {}, p_field_provenance: {}, p_operational: {} }
+    case 'stage_vendor_quote_booking_checked(uuid,uuid,text,uuid,uuid,uuid,timestamp with time zone,jsonb,jsonb,text)':
+      return { p_plan_id: null, p_actor_id: null, p_quote_kind: 'vendor', p_response_id: null,
+        p_action_id: null, p_approval_id: null, p_expires_at: null,
+        p_action_payload: {}, p_snapshot_json: {}, p_snapshot_hash: null }
     case 'write_discovery_venue_independent_facts(uuid,jsonb,jsonb,jsonb)':
       return { p_venue_id: null, p_values: {}, p_field_provenance: {}, p_operational: {} }
     default:
@@ -671,7 +703,7 @@ describeIfDatabase('database privilege lockdown', () => {
   describe('SECURITY DEFINER tripwire', () => {
     it('matches every privileged function to the reviewed classification', () => {
       expect(authenticatedFunctions).toHaveLength(11)
-      expect(serviceOnlyFunctions).toHaveLength(45)
+      expect(serviceOnlyFunctions).toHaveLength(48)
 
       const realized = psql(`
         select p.oid::regprocedure::text
@@ -687,7 +719,7 @@ describeIfDatabase('database privilege lockdown', () => {
         ...serviceOnlyFunctions.map(({ signature }) => signature),
       ].sort()
 
-      expect(classified).toHaveLength(56)
+      expect(classified).toHaveLength(59)
       expect(realized).toEqual(classified)
     })
 
