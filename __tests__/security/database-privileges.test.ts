@@ -82,6 +82,13 @@ type ServiceOnlyFunction = {
 // independent-provenance validator unchanged, and have no EXCEPTION handlers.
 const serviceOnlyFunctions: ServiceOnlyFunction[] = [
   {
+    // C2 ACTIVATE: public DEFINER, search_path=pg_catalog; owner/service_role only.
+    // UUID input is a typed identity, never SQL; qualified source lookup takes
+    // FOR SHARE and returns that ID or null. No DML, dynamic SQL, or exception handler.
+    signature: 'lock_discovery_vendor_identity(uuid)',
+    call: 'select public.lock_discovery_vendor_identity(null::uuid);',
+  },
+  {
     // C2 EXPAND: DEFINER, pg_catalog; service_role only. Lock owned plan first,
     // then response/vendor SHARE; compare independent facts/evidence and signed
     // payload before delegating unchanged existing staging lifecycle.
@@ -582,6 +589,8 @@ function rpcArgsFor(signature: string): Record<string, unknown> {
       return { p_stripe_account_id: 'acct_acl', p_event_id: 'evt_acl' }
     case 'upsert_discovery_venue_identity(text)':
       return { p_place_id: 'acl_place_id' }
+    case 'lock_discovery_vendor_identity(uuid)':
+      return { p_id: null }
     case 'upsert_discovery_vendor_identity(text,uuid)':
       return { p_place_id: 'acl_vendor_place_id', p_vendor_profile_id: null }
     case 'write_discovery_vendor_independent_facts(uuid,jsonb,jsonb,jsonb)':
@@ -703,7 +712,7 @@ describeIfDatabase('database privilege lockdown', () => {
   describe('SECURITY DEFINER tripwire', () => {
     it('matches every privileged function to the reviewed classification', () => {
       expect(authenticatedFunctions).toHaveLength(11)
-      expect(serviceOnlyFunctions).toHaveLength(48)
+      expect(serviceOnlyFunctions).toHaveLength(49)
 
       const realized = psql(`
         select p.oid::regprocedure::text
@@ -719,7 +728,7 @@ describeIfDatabase('database privilege lockdown', () => {
         ...serviceOnlyFunctions.map(({ signature }) => signature),
       ].sort()
 
-      expect(classified).toHaveLength(59)
+      expect(classified).toHaveLength(60)
       expect(realized).toEqual(classified)
     })
 

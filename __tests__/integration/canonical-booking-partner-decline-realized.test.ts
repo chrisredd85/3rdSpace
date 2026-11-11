@@ -1,11 +1,16 @@
 import { execFileSync } from 'node:child_process'
 import { seedIndependentDiscoveryVenue } from '@/test-utils/discoveryVenueDbFixture'
+import { seedIndependentDiscoveryVendor } from '@/test-utils/discoveryVendorDbFixture'
+import type { DurableDiscovery } from '@/lib/discovery/foundation/boundary'
 
 const DATABASE_URL = process.env.CANONICAL_DECLINE_TEST_DATABASE_URL
   ?? 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
 const forceRun = process.env.RUN_CANONICAL_DECLINE_DB_TESTS === '1'
 
 const discoveryPlaceId = 'canonical-decline-realized-venue'
+
+const discoveryVendorPlaceId = 'canonical-decline-realized-vendor'
+let discoveryVendorData: DurableDiscovery
 
 const ids = {
   host: 'd8100000-0000-4000-8000-000000000001',
@@ -124,6 +129,10 @@ function quotePayload(input: {
     'booking_slot', '${input.kind === 'venue' ? 'venue' : 'vendor:catering'}',
     'event_date', (current_date + ${input.dateOffset})::text,
     'requested_amount_cents', ${input.amountCents}
+    ${input.kind === 'vendor' ? `,
+      'vendor_data', '${JSON.stringify(discoveryVendorData).replaceAll("'", "''")}'::jsonb,
+      'target_name', '${String(discoveryVendorData.values.name).replaceAll("'", "''")}',
+      'service_type', '${String(discoveryVendorData.values.service_type).replaceAll("'", "''")}'` : ''}
   )`
 }
 
@@ -138,14 +147,23 @@ function quoteSnapshot(input: {
   const targetType = input.kind === 'venue' ? 'discovery_venue' : 'discovery_vendor'
   return `jsonb_build_object(
     'schema_version', 2,
+    ${input.kind === 'vendor' ? `'plan', (select jsonb_build_object(
+      'event_type', p.event_type, 'guest_count', p.guest_count, 'budget_cap_cents', p.budget_cap_cents,
+      'neighborhood', p.neighborhood, 'date_window_start', p.date_window_start, 'date_window_end', p.date_window_end,
+      'ticketed', p.ticketed, 'ticketing_model', p.ticketing_model,
+      'food_responsibility', p.food_responsibility, 'profit_goal_cents', p.profit_goal_cents
+    ) from public.plans p join public.vendor_outreach_responses r on r.plan_id=p.id
+      where r.id=((${input.payloadSql})->>'quote_response_id')::uuid),` : ''}
     'approval', jsonb_build_object(
       'action_label', 'Approve booking request with ${input.provider}',
       'provider', '${input.provider}',
+      ${input.kind === 'vendor' ? `'package_details', '${String(discoveryVendorData.values.service_type).replaceAll("'", "''")}',` : ''}
       'event_date', (current_date + ${input.dateOffset})::text,
       'requested_amount_cents', ${input.amountCents},
       'price_cents', ${input.amountCents},
       'fees_cents', 0,
-      'notes', null
+      'notes', ${input.kind === 'vendor' ? `(select nullif(raw_response_excerpt, '') from public.vendor_outreach_responses
+        where id=((${input.payloadSql})->>'quote_response_id')::uuid)` : 'null'}
     ),
     'action', jsonb_build_object(
       'action_type', 'concierge_queue',
@@ -155,6 +173,7 @@ function quoteSnapshot(input: {
       'payload_json', ${input.payloadSql}
     ),
     'counterparty', jsonb_build_object(
+      ${input.kind === 'vendor' ? `'display_name', '${input.provider}',` : ''}
       'provider', '${input.provider}',
       'target_type', '${targetType}',
       'target_id', '${input.targetId}'
@@ -185,7 +204,8 @@ function cleanup(): void {
       or (source = 'google_places' and source_external_id = '${discoveryPlaceId}');
     delete from public.venues where id = '${ids.venue}';
     delete from public.vendor_profiles where id = '${ids.vendor}';
-    delete from public.discovery_vendors where id = '${ids.discoveryVendor}';
+    delete from public.discovery_vendors where id = '${ids.discoveryVendor}'
+      or (source = 'google_places' and source_external_id = '${discoveryVendorPlaceId}');
     delete from public.builder_profiles where id = '${ids.builder}';
     delete from public.notifications where user_id in (
       '${ids.host}', '${ids.venueOwner}', '${ids.vendorOwner}', '${ids.wrongActor}'
@@ -227,14 +247,16 @@ function setup(): void {
   ids.discoveryVenue = seedIndependentDiscoveryVenue(psql, {
     placeId: discoveryPlaceId, name: 'Canonical Decline Discovery Venue',
   }).id
+  const vendor = seedIndependentDiscoveryVendor(psql, {
+    placeId: discoveryVendorPlaceId, name: 'Canonical Decline Discovery Vendor', serviceType: 'catering',
+  })
+  ids.discoveryVendor = vendor.id
+  discoveryVendorData = vendor.vendorData
   // Claim binding is privileged fixture setup, separate from independent facts.
   psql(`
     update public.discovery_venues
     set is_claimed = true, claimed_venue_id = '${ids.venue}'
     where id = '${ids.discoveryVenue}';
-
-    insert into public.discovery_vendors (id, source, name, service_type)
-    values ('${ids.discoveryVendor}', 'manual_seed', 'Canonical Decline Discovery Vendor', 'catering');
 
     insert into public.vendor_profiles (id, user_id, name, vendor_type, discovery_vendor_id)
     values (
